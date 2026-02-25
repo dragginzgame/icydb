@@ -20,6 +20,6 @@ pub(in crate::db) use range::Direction;
 pub(in crate::db) use range::{
     IndexRangeNotIndexableReasonScope, continuation_advanced, envelope_is_empty,
     map_index_range_not_indexable_reason, raw_bounds_for_semantic_index_component_range,
-    raw_keys_for_encoded_prefix, raw_keys_for_encoded_prefix_with_kind, resume_bounds,
+    raw_keys_for_encoded_prefix, raw_keys_for_encoded_prefix_with_kind, resume_bounds_from_refs,
 };
 pub use store::IndexStore;

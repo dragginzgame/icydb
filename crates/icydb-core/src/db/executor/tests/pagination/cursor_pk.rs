@@ -176,9 +176,8 @@ fn load_cursor_with_offset_desc_secondary_pushdown_resume_matrix_is_boundary_com
             .expect("secondary offset seed page should execute");
         let seed_trace = seed_trace.expect("debug trace should be present");
         assert_eq!(
-            seed_trace.optimization,
-            Some(ExecutionOptimization::SecondaryOrderPushdown),
-            "secondary offset shape should use pushdown for case={case_name}",
+            seed_trace.optimization, None,
+            "materialized secondary offset shape should not emit fast-path optimization for case={case_name}",
         );
 
         let mut expected_ids = ordered_ids_from_group_rank_index(7);

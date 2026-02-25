@@ -234,16 +234,11 @@ fn route_matrix_field_target_min_fallback_route_matches_terminal_min() {
             AggregateSpec::for_target_field(AggregateKind::Min, "rank"),
         );
 
-    assert_eq!(field_route.execution_mode, terminal_route.execution_mode);
+    assert_eq!(terminal_route.execution_mode, ExecutionMode::Streaming);
+    assert_eq!(field_route.execution_mode, ExecutionMode::Materialized);
     assert_eq!(field_route.scan_hints.physical_fetch_hint, None);
-    assert_eq!(
-        field_route.scan_hints.load_scan_budget_hint,
-        terminal_route.scan_hints.load_scan_budget_hint
-    );
-    assert_eq!(
-        field_route.index_range_limit_spec,
-        terminal_route.index_range_limit_spec
-    );
+    assert_eq!(field_route.scan_hints.load_scan_budget_hint, None);
+    assert!(field_route.index_range_limit_spec.is_none());
     assert_eq!(
         field_route.aggregate_fold_mode,
         terminal_route.aggregate_fold_mode
@@ -275,19 +270,14 @@ fn route_matrix_field_target_unknown_field_fallback_route_matches_terminal_min()
             AggregateSpec::for_target_field(AggregateKind::Min, "missing_field"),
         );
 
+    assert_eq!(terminal_route.execution_mode, ExecutionMode::Streaming);
     assert_eq!(
         unknown_field_route.execution_mode,
-        terminal_route.execution_mode
+        ExecutionMode::Materialized
     );
     assert_eq!(unknown_field_route.scan_hints.physical_fetch_hint, None);
-    assert_eq!(
-        unknown_field_route.scan_hints.load_scan_budget_hint,
-        terminal_route.scan_hints.load_scan_budget_hint
-    );
-    assert_eq!(
-        unknown_field_route.index_range_limit_spec,
-        terminal_route.index_range_limit_spec
-    );
+    assert_eq!(unknown_field_route.scan_hints.load_scan_budget_hint, None);
+    assert!(unknown_field_route.index_range_limit_spec.is_none());
     assert_eq!(
         unknown_field_route.aggregate_fold_mode,
         terminal_route.aggregate_fold_mode
@@ -319,16 +309,11 @@ fn route_matrix_field_target_max_fallback_route_matches_terminal_max_desc() {
             AggregateSpec::for_target_field(AggregateKind::Max, "rank"),
         );
 
-    assert_eq!(field_route.execution_mode, terminal_route.execution_mode);
+    assert_eq!(terminal_route.execution_mode, ExecutionMode::Streaming);
+    assert_eq!(field_route.execution_mode, ExecutionMode::Materialized);
     assert_eq!(field_route.scan_hints.physical_fetch_hint, None);
-    assert_eq!(
-        field_route.scan_hints.load_scan_budget_hint,
-        terminal_route.scan_hints.load_scan_budget_hint
-    );
-    assert_eq!(
-        field_route.index_range_limit_spec,
-        terminal_route.index_range_limit_spec
-    );
+    assert_eq!(field_route.scan_hints.load_scan_budget_hint, None);
+    assert!(field_route.index_range_limit_spec.is_none());
     assert_eq!(
         field_route.aggregate_fold_mode,
         terminal_route.aggregate_fold_mode

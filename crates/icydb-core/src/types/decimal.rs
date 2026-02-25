@@ -1163,32 +1163,6 @@ mod tests {
     }
 
     #[test]
-    fn decimal_serde_json_string_roundtrip() {
-        let cases = [
-            "0",
-            "1",
-            "-1",
-            "42.5",
-            "1234567890.123456789",
-            "0.00000001",
-            "1000000000000000000.000000000000000001",
-        ];
-
-        for s in cases {
-            let d = Decimal::from_str(s).expect("parse decimal");
-
-            // Serialize to JSON: must be a JSON string containing the decimal text
-            let json = serde_json::to_string(&d).expect("serde_json serialize");
-            let expected = serde_json::to_string(&d.to_string()).unwrap();
-            assert_eq!(json, expected, "JSON encoding should be a string for {s}");
-
-            // Deserialize back and compare
-            let back: Decimal = serde_json::from_str(&json).expect("serde_json deserialize");
-            assert_eq!(back, d, "serde_json roundtrip mismatch for {s}");
-        }
-    }
-
-    #[test]
     fn decimal_serde_cbor_binary_roundtrip() {
         let cases = [
             "0",

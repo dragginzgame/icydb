@@ -164,7 +164,7 @@ fn load_distinct_desc_secondary_pushdown_resume_matrix_is_boundary_complete() {
 
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
     for limit in [1_u32, 2, 3] {
-        // Phase 1: verify this DISTINCT DESC shape stays on secondary pushdown.
+        // Phase 1: residual-filter DISTINCT DESC routing is materialized.
         let (seed_page, seed_trace) = load
             .execute_paged_with_cursor_traced(
                 Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
@@ -180,9 +180,8 @@ fn load_distinct_desc_secondary_pushdown_resume_matrix_is_boundary_complete() {
             .expect("distinct secondary DESC seed page should execute");
         let seed_trace = seed_trace.expect("debug trace should be present");
         assert_eq!(
-            seed_trace.optimization,
-            Some(ExecutionOptimization::SecondaryOrderPushdown),
-            "distinct DESC secondary plan should stay on pushdown for limit={limit}",
+            seed_trace.optimization, None,
+            "distinct DESC residual-filter plan should remain materialized for limit={limit}",
         );
         let _ = seed_page;
 
@@ -234,7 +233,7 @@ fn load_distinct_desc_secondary_fast_path_and_fallback_match_ids_and_boundaries(
 
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
     for limit in [1_u32, 2, 3] {
-        // Phase 1: fast path uses secondary pushdown for this DISTINCT DESC shape.
+        // Phase 1: residual-filter DISTINCT DESC routing remains materialized.
         let (_fast_seed_page, fast_trace) = load
             .execute_paged_with_cursor_traced(
                 Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
@@ -250,9 +249,8 @@ fn load_distinct_desc_secondary_fast_path_and_fallback_match_ids_and_boundaries(
             .expect("distinct DESC fast-path seed page should execute");
         let fast_trace = fast_trace.expect("debug trace should be present");
         assert_eq!(
-            fast_trace.optimization,
-            Some(ExecutionOptimization::SecondaryOrderPushdown),
-            "distinct DESC fast-path seed execution should select secondary pushdown for limit={limit}",
+            fast_trace.optimization, None,
+            "distinct DESC residual-filter seed execution should remain materialized for limit={limit}",
         );
 
         // Phase 2: fallback by-ids path should remain non-optimized and semantically identical.
@@ -616,9 +614,8 @@ fn load_distinct_offset_fast_path_and_fallback_match_ids_and_boundaries() {
             .expect("distinct secondary offset fast-path seed should execute");
         let trace_fast = trace_fast.expect("debug trace should be present");
         assert_eq!(
-            trace_fast.optimization,
-            Some(ExecutionOptimization::SecondaryOrderPushdown),
-            "distinct secondary offset fast path should use pushdown for case={case_name}",
+            trace_fast.optimization, None,
+            "distinct secondary offset residual-filter path should remain materialized for case={case_name}",
         );
 
         let (_seed_fallback, trace_fallback) = load_secondary

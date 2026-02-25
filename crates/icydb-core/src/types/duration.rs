@@ -288,17 +288,6 @@ mod tests {
     }
 
     #[test]
-    fn test_wire_format_is_bare_number() {
-        let original = Duration::from_millis(1_500);
-
-        let json = serde_json::to_string(&original).expect("duration JSON serialize");
-        assert_eq!(json, "1500");
-
-        let decoded: Duration = serde_json::from_str("1500").expect("duration JSON deserialize");
-        assert_eq!(decoded, original);
-    }
-
-    #[test]
     fn test_from_i64_rejects_negative() {
         let t = <Duration as NumFromPrimitive>::from_i64(-1);
         assert!(t.is_none());
@@ -311,12 +300,5 @@ mod tests {
         assert_eq!(a + b, Duration::from_millis(2_750));
         assert_eq!(a - b, Duration::from_millis(1_250));
         assert_eq!(b - a, Duration::ZERO);
-    }
-
-    #[test]
-    fn test_wire_format_from_millis_42_is_bare_number() {
-        let json =
-            serde_json::to_string(&Duration::from_millis(42)).expect("duration JSON serialize");
-        assert_eq!(json, "42");
     }
 }

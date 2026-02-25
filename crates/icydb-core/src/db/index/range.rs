@@ -192,6 +192,7 @@ pub(in crate::db) fn raw_bounds_for_semantic_index_component_range<E: EntityKind
 ///
 
 #[must_use]
+#[cfg_attr(not(test), allow(dead_code))]
 pub(in crate::db) fn resume_bounds(
     direction: Direction,
     lower: Bound<RawIndexKey>,
@@ -204,6 +205,26 @@ pub(in crate::db) fn resume_bounds(
 }
 
 ///
+/// resume_bounds_from_refs
+///
+/// Rewrite raw continuation bounds from borrowed envelopes while cloning only
+/// the retained bound edge.
+///
+
+#[must_use]
+pub(in crate::db) fn resume_bounds_from_refs(
+    direction: Direction,
+    lower: &Bound<RawIndexKey>,
+    upper: &Bound<RawIndexKey>,
+    anchor: &RawIndexKey,
+) -> (Bound<RawIndexKey>, Bound<RawIndexKey>) {
+    match direction {
+        Direction::Asc => (Bound::Excluded(anchor.clone()), upper.clone()),
+        Direction::Desc => (lower.clone(), Bound::Excluded(anchor.clone())),
+    }
+}
+
+///
 /// anchor_within_envelope
 ///
 /// Validate that a continuation anchor stays within the original raw-key envelope.
@@ -213,12 +234,23 @@ pub(in crate::db) fn resume_bounds(
 #[must_use]
 #[cfg_attr(not(test), allow(dead_code))]
 pub(in crate::db) fn anchor_within_envelope(
-    direction: Direction,
+    _direction: Direction,
     anchor: &RawIndexKey,
     lower: &Bound<RawIndexKey>,
     upper: &Bound<RawIndexKey>,
 ) -> bool {
-    KeyEnvelope::new(direction, lower.clone(), upper.clone()).contains(anchor)
+    let lower_ok = match lower {
+        Bound::Unbounded => true,
+        Bound::Included(boundary) => anchor >= boundary,
+        Bound::Excluded(boundary) => anchor > boundary,
+    };
+    let upper_ok = match upper {
+        Bound::Unbounded => true,
+        Bound::Included(boundary) => anchor <= boundary,
+        Bound::Excluded(boundary) => anchor < boundary,
+    };
+
+    lower_ok && upper_ok
 }
 
 ///
@@ -248,7 +280,25 @@ pub(in crate::db) fn envelope_is_empty(
     lower: &Bound<RawIndexKey>,
     upper: &Bound<RawIndexKey>,
 ) -> bool {
-    KeyEnvelope::new(Direction::Asc, lower.clone(), upper.clone()).is_empty_direction_agnostic()
+    let (Some(lower_key), Some(upper_key)) = (bound_key_ref(lower), bound_key_ref(upper)) else {
+        return false;
+    };
+
+    if lower_key < upper_key {
+        return false;
+    }
+    if lower_key > upper_key {
+        return true;
+    }
+
+    !matches!(lower, Bound::Included(_)) || !matches!(upper, Bound::Included(_))
+}
+
+const fn bound_key_ref(bound: &Bound<RawIndexKey>) -> Option<&RawIndexKey> {
+    match bound {
+        Bound::Included(value) | Bound::Excluded(value) => Some(value),
+        Bound::Unbounded => None,
+    }
 }
 
 const fn encoded_component_bound(bound: &Bound<EncodedValue>) -> Bound<&[u8]> {

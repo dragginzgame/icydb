@@ -44,27 +44,21 @@ where
 
 #[derive(Debug)]
 pub(crate) struct VecOrderedKeyStream {
-    keys: Vec<DataKey>,
-    index: usize,
+    keys: std::vec::IntoIter<DataKey>,
 }
 
 impl VecOrderedKeyStream {
     #[must_use]
-    pub(crate) const fn new(keys: Vec<DataKey>) -> Self {
-        Self { keys, index: 0 }
+    pub(crate) fn new(keys: Vec<DataKey>) -> Self {
+        Self {
+            keys: keys.into_iter(),
+        }
     }
 }
 
 impl OrderedKeyStream for VecOrderedKeyStream {
     fn next_key(&mut self) -> Result<Option<DataKey>, InternalError> {
-        if self.index >= self.keys.len() {
-            return Ok(None);
-        }
-
-        let key = self.keys[self.index].clone();
-        self.index = self.index.saturating_add(1);
-
-        Ok(Some(key))
+        Ok(self.keys.next())
     }
 }
 

@@ -5,6 +5,30 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.29.5] - 2026-02-25 - Routing Consistency Cleanup
+
+### 📝 Summary
+
+* Made route execution mode authoritative for load and aggregate execution shape, so streaming vs materialized decisions come from one place.
+* Kept aggregate execution aligned with the canonical routed stream path, reducing branch-specific behavior.
+* Restored scan-budget parity for `count_distinct_by(...)` on residual-retry index-range shapes.
+* Removed an unused JSON test dependency from core and trimmed JSON-only roundtrip tests.
+
+### 🔧 Changed
+
+* Enforced `route_plan.execution_mode` as a hard gate in executor dispatch: `Materialized` routes do not attempt streaming fast paths, and `Streaming` routes run through canonical stream resolution.
+* Moved aggregate execution-mode override logic into route planning and removed branch-local streaming override checks from aggregate execution.
+* Kept load routing behavior stable for eligible index-range pushdown shapes while preserving materialized behavior for residual secondary-order shapes.
+* Updated primary-key aggregate fast-path execution to resolve keys through the shared routed key-stream boundary before folding, matching the load execution contract.
+* Updated `count_distinct_by("field")` streaming execution to use the same materialization/retry boundary as `execute()`, preserving result and scan-budget parity.
+
+### 🧹 Cleanup
+
+* Removed `serde_json` from workspace/core manifests and deleted JSON-specific type tests that depended on it.
+* Switched dependency on `chrono` to the smaller `time` crate.
+
+---
+
 ## [0.29.4] - 2026-02-25 - Audit III Follow-Through
 
 ### 📝 Summary

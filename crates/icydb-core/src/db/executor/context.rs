@@ -89,7 +89,7 @@ where
     ) -> Result<Vec<DataRow>, InternalError> {
         let keys = Self::collect_ordered_keys(key_stream)?;
 
-        self.load_many_with_consistency(&keys, consistency)
+        self.load_many_with_consistency(keys, consistency)
     }
 
     // ------------------------------------------------------------------
@@ -122,7 +122,7 @@ where
 
     fn load_many_with_consistency(
         &self,
-        keys: &[DataKey],
+        keys: Vec<DataKey>,
         consistency: ReadConsistency,
     ) -> Result<Vec<DataRow>, InternalError> {
         let mut out = Vec::with_capacity(keys.len());
@@ -130,12 +130,12 @@ where
             // Row storage is authoritative. Index-backed access paths only supply
             // candidate keys and must always be validated by a data-store read.
             let row = match consistency {
-                ReadConsistency::Strict => self.read_strict(key),
-                ReadConsistency::MissingOk => self.read(key),
+                ReadConsistency::Strict => self.read_strict(&key),
+                ReadConsistency::MissingOk => self.read(&key),
             };
 
             match row {
-                Ok(row) => out.push((key.clone(), row)),
+                Ok(row) => out.push((key, row)),
                 Err(err) if err.is_not_found() => {}
                 Err(err) => return Err(err),
             }

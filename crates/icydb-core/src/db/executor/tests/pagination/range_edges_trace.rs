@@ -1248,8 +1248,7 @@ fn load_composite_between_cursor_boundaries_respect_duplicate_lower_and_upper_ed
 fn load_trace_marks_secondary_order_pushdown_outcomes() {
     #[derive(Clone, Copy)]
     enum ExpectedDecision {
-        Accepted,
-        RejectedMixedDirection,
+        MaterializedRoute,
     }
 
     #[derive(Clone, Copy)]
@@ -1257,6 +1256,7 @@ fn load_trace_marks_secondary_order_pushdown_outcomes() {
         name: &'static str,
         prefix: u128,
         order: [(&'static str, OrderDirection); 2],
+        include_filter: bool,
         expected: ExpectedDecision,
     }
 
@@ -1265,19 +1265,22 @@ fn load_trace_marks_secondary_order_pushdown_outcomes() {
             name: "accepted_ascending",
             prefix: 16_000,
             order: [("rank", OrderDirection::Asc), ("id", OrderDirection::Asc)],
-            expected: ExpectedDecision::Accepted,
+            include_filter: true,
+            expected: ExpectedDecision::MaterializedRoute,
+        },
+        Case {
+            name: "accepted_with_filter",
+            prefix: 17_000,
+            order: [("rank", OrderDirection::Asc), ("id", OrderDirection::Asc)],
+            include_filter: true,
+            expected: ExpectedDecision::MaterializedRoute,
         },
         Case {
             name: "rejected_descending",
-            prefix: 17_000,
-            order: [("rank", OrderDirection::Desc), ("id", OrderDirection::Asc)],
-            expected: ExpectedDecision::RejectedMixedDirection,
-        },
-        Case {
-            name: "accepted_descending_with_explicit_pk_desc",
             prefix: 18_000,
-            order: [("rank", OrderDirection::Desc), ("id", OrderDirection::Desc)],
-            expected: ExpectedDecision::Accepted,
+            order: [("rank", OrderDirection::Desc), ("id", OrderDirection::Asc)],
+            include_filter: true,
+            expected: ExpectedDecision::MaterializedRoute,
         },
     ];
 
@@ -1287,10 +1290,10 @@ fn load_trace_marks_secondary_order_pushdown_outcomes() {
         reset_store();
         seed_pushdown_rows(&pushdown_rows_trace(case.prefix));
 
-        let predicate = pushdown_group_predicate(7);
-        let mut query = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-            .filter(predicate)
-            .limit(1);
+        let mut query = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk).limit(1);
+        if case.include_filter {
+            query = query.filter(pushdown_group_predicate(7));
+        }
         for (field, direction) in case.order {
             query = match direction {
                 OrderDirection::Asc => query.order_by(field),
@@ -1309,10 +1312,7 @@ fn load_trace_marks_secondary_order_pushdown_outcomes() {
         let trace = trace.expect("debug trace should be present");
 
         let matched = match case.expected {
-            ExpectedDecision::Accepted => {
-                trace.optimization == Some(ExecutionOptimization::SecondaryOrderPushdown)
-            }
-            ExpectedDecision::RejectedMixedDirection => trace.optimization.is_none(),
+            ExpectedDecision::MaterializedRoute => trace.optimization.is_none(),
         };
 
         assert!(

@@ -70,6 +70,20 @@ fn load_stream_construction_routes_through_route_facade() {
 }
 
 #[test]
+fn load_fast_path_resolution_is_gated_by_route_execution_mode() {
+    let execute_source = include_str!("../../load/execute.rs");
+
+    assert!(
+        execute_source.contains("match route_plan.execution_mode"),
+        "load execution must branch on route-owned execution mode before fast-path evaluation",
+    );
+    assert!(
+        execute_source.contains("ExecutionMode::Materialized => FastPathDecision::None"),
+        "materialized load routes must bypass fast-path stream attempts",
+    );
+}
+
+#[test]
 fn aggregate_fast_path_dispatch_requires_verified_gate_marker() {
     let aggregate_source = include_str!("../../load/aggregate/mod.rs");
     assert!(

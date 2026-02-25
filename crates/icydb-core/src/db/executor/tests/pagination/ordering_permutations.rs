@@ -215,7 +215,8 @@ fn load_mixed_direction_fallback_matches_uniform_fast_path_when_rank_is_unique()
 
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
 
-    // Phase 3: traces should confirm fallback vs pushdown split.
+    // Phase 3: residual-filter load routing is materialized; traces should
+    // stay fallback-only even when ORDER pushdown eligibility is true.
     let (_seed_mixed, mixed_trace) = load
         .execute_paged_with_cursor_traced(build_mixed_plan(), None)
         .expect("mixed-direction seed page should execute");
@@ -230,9 +231,8 @@ fn load_mixed_direction_fallback_matches_uniform_fast_path_when_rank_is_unique()
         .expect("uniform-direction seed page should execute");
     let uniform_trace = uniform_trace.expect("debug trace should be present");
     assert_eq!(
-        uniform_trace.optimization,
-        Some(ExecutionOptimization::SecondaryOrderPushdown),
-        "uniform-direction execution should use secondary pushdown",
+        uniform_trace.optimization, None,
+        "uniform-direction residual-filter execution should remain materialized",
     );
 
     // Phase 4: ordering + page boundaries must match across both paths.

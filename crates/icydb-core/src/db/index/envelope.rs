@@ -122,6 +122,7 @@ where
 
     // Envelope emptiness is defined only by raw lower/upper bound relation.
     // This check is intentionally direction-agnostic.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(in crate::db) fn is_empty_direction_agnostic(&self) -> bool {
         let (Some(lower), Some(upper)) = (
             Self::bound_key_ref(&self.lower),
@@ -144,6 +145,7 @@ where
         (self.lower, self.upper)
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     const fn bound_key_ref(bound: &Bound<K>) -> Option<&K> {
         match bound {
             Bound::Included(value) | Bound::Excluded(value) => Some(value),

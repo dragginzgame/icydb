@@ -3,6 +3,7 @@ use crate::{
         executor::{
             Context, OrderedKeyStreamBox,
             aggregate::capability::field_is_orderable,
+            compile_predicate_slots,
             fold::{AggregateFoldMode, AggregateKind, AggregateSpec},
             load::LoadExecutor,
         },
@@ -185,6 +186,8 @@ where
         );
         let capabilities =
             Self::derive_route_capabilities(plan, direction, aggregate_spec.as_ref());
+        let aggregate_force_materialized_due_to_predicate_uncertainty =
+            kind.is_some() && Self::aggregate_force_materialized_due_to_predicate_uncertainty(plan);
         let count_pushdown_eligible = kind.is_some_and(|aggregate_kind| {
             Self::is_count_pushdown_eligible(aggregate_kind, capabilities)
         });
@@ -222,7 +225,7 @@ where
             None
         };
 
-        let index_range_limit_spec = if count_terminal {
+        let mut index_range_limit_spec = if count_terminal {
             // COUNT fold-mode discipline: non-count pushdowns must not route COUNT
             // through non-COUNT streaming fast paths.
             None
@@ -281,30 +284,39 @@ where
         };
         let execution_mode = match execution_case {
             ExecutionModeRouteCase::Load => {
-                if capabilities.streaming_access_shape_safe {
+                if Self::load_streaming_allowed(capabilities, index_range_limit_spec.is_some()) {
                     ExecutionMode::Streaming
                 } else {
                     ExecutionMode::Materialized
                 }
             }
             ExecutionModeRouteCase::AggregateCount => {
-                if count_pushdown_eligible {
+                if aggregate_force_materialized_due_to_predicate_uncertainty {
+                    ExecutionMode::Materialized
+                } else if count_pushdown_eligible {
                     ExecutionMode::Streaming
                 } else {
                     ExecutionMode::Materialized
                 }
             }
             ExecutionModeRouteCase::AggregateNonCount => {
-                if capabilities.streaming_access_shape_safe
-                    || secondary_pushdown_applicability.is_eligible()
-                    || index_range_limit_spec.is_some()
-                {
+                if aggregate_force_materialized_due_to_predicate_uncertainty {
+                    ExecutionMode::Materialized
+                } else if Self::aggregate_non_count_streaming_allowed(
+                    aggregate_spec.as_ref(),
+                    capabilities,
+                    secondary_pushdown_applicability.is_eligible(),
+                    index_range_limit_spec.is_some(),
+                ) {
                     ExecutionMode::Streaming
                 } else {
                     ExecutionMode::Materialized
                 }
             }
         };
+        if kind.is_some() && matches!(execution_mode, ExecutionMode::Materialized) {
+            index_range_limit_spec = None;
+        }
         debug_assert!(
             kind.is_none()
                 || index_range_limit_spec.is_none()
@@ -622,6 +634,61 @@ where
             AggregateKind::Last => page_limit.map(|limit| offset.saturating_add(limit)),
             _ => None,
         }
+    }
+
+    // Aggregate streaming on index-backed predicates requires strict index
+    // predicate compilation. If strict compilation fails, route must force
+    // materialized execution to avoid optimistic streaming assumptions.
+    fn aggregate_force_materialized_due_to_predicate_uncertainty(
+        plan: &AccessPlannedQuery<E::Key>,
+    ) -> bool {
+        let Some(predicate_slots) = compile_predicate_slots::<E>(plan) else {
+            return false;
+        };
+        let Some(index_slots) = Self::resolved_index_slots_for_access_path(&plan.access) else {
+            return false;
+        };
+
+        predicate_slots
+            .compile_index_program_strict(index_slots.as_slice())
+            .is_none()
+    }
+
+    // Route-owned aggregate non-count streaming gate.
+    // Field-target extrema uses route capability flags directly; non-target
+    // terminals use the shared streaming-safe/pushdown/index-range route gates.
+    fn aggregate_non_count_streaming_allowed(
+        aggregate_spec: Option<&AggregateSpec>,
+        capabilities: RouteCapabilities,
+        secondary_pushdown_eligible: bool,
+        index_range_limit_enabled: bool,
+    ) -> bool {
+        if let Some(spec) = aggregate_spec
+            && spec.target_field().is_some()
+        {
+            return match spec.kind() {
+                AggregateKind::Min => capabilities.field_min_fast_path_eligible,
+                AggregateKind::Max => capabilities.field_max_fast_path_eligible,
+                AggregateKind::Count
+                | AggregateKind::Exists
+                | AggregateKind::First
+                | AggregateKind::Last => false,
+            };
+        }
+
+        capabilities.streaming_access_shape_safe
+            || secondary_pushdown_eligible
+            || index_range_limit_enabled
+    }
+
+    // Route-owned load streaming gate.
+    // Load execution remains streaming when canonical streaming-safe shapes
+    // apply or when route enabled index-range limit pushdown.
+    const fn load_streaming_allowed(
+        capabilities: RouteCapabilities,
+        index_range_limit_enabled: bool,
+    ) -> bool {
+        capabilities.streaming_access_shape_safe || index_range_limit_enabled
     }
 
     // Placeholder assessment for future `min(field)` fast paths.

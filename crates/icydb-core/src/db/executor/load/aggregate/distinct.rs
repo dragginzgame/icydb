@@ -1,21 +1,16 @@
 use crate::{
     db::{
-        Context,
         executor::{
             AccessStreamBindings, DistinctOrderedKeyStream, ExecutablePlan, KeyOrderComparator,
             OrderedKeyStreamBox,
             aggregate::field::{FieldSlot, extract_orderable_field_value},
             compile_predicate_slots,
-            fold::AggregateWindowState,
             load::LoadExecutor,
             load::execute::{ExecutionInputs, IndexPredicateCompileMode},
             plan::{record_plan_metrics, record_rows_scanned},
             route::ExecutionMode,
         },
-        query::{
-            plan::{AccessPlannedQuery, validate::validate_executor_plan},
-            predicate::{PredicateFieldSlots, eval_with_slots},
-        },
+        query::plan::validate::validate_executor_plan,
         response::Response,
     },
     error::InternalError,
@@ -60,6 +55,8 @@ where
                 field_slot,
             );
         }
+
+        let continuation_signature = plan.continuation_signature();
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
         let logical_plan = plan.into_inner();
@@ -83,14 +80,17 @@ where
             &route_plan,
             IndexPredicateCompileMode::ConservativeSubset,
         )?;
-        let (mut distinct_count, keys_scanned, post_access_rows) =
-            Self::fold_streaming_count_distinct_field(
+        let (mut page, keys_scanned, mut post_access_rows) =
+            Self::materialize_key_stream_into_page(
                 &ctx,
                 &logical_plan,
                 predicate_slots.as_ref(),
                 resolved.key_stream.as_mut(),
-                target_field,
-                field_slot,
+                route_plan.scan_hints.load_scan_budget_hint,
+                route_plan.streaming_access_shape_safe(),
+                None,
+                direction,
+                continuation_signature,
             )?;
         let mut rows_scanned = resolved.rows_scanned_override.unwrap_or(keys_scanned);
         if Self::index_range_limited_residual_retry_required(
@@ -107,24 +107,33 @@ where
                 &fallback_route_plan,
                 IndexPredicateCompileMode::ConservativeSubset,
             )?;
-            let (fallback_distinct_count, fallback_keys_scanned, _fallback_post_access_rows) =
-                Self::fold_streaming_count_distinct_field(
+            let (fallback_page, fallback_keys_scanned, fallback_post_access_rows) =
+                Self::materialize_key_stream_into_page(
                     &ctx,
                     &logical_plan,
                     predicate_slots.as_ref(),
                     fallback_resolved.key_stream.as_mut(),
-                    target_field,
-                    field_slot,
+                    fallback_route_plan.scan_hints.load_scan_budget_hint,
+                    fallback_route_plan.streaming_access_shape_safe(),
+                    None,
+                    direction,
+                    continuation_signature,
                 )?;
             let fallback_rows_scanned = fallback_resolved
                 .rows_scanned_override
                 .unwrap_or(fallback_keys_scanned);
             rows_scanned = rows_scanned.saturating_add(fallback_rows_scanned);
-            distinct_count = fallback_distinct_count;
+            page = fallback_page;
+            post_access_rows = fallback_post_access_rows;
         }
+
+        debug_assert!(
+            post_access_rows >= page.items.0.len(),
+            "count_distinct materialization must not exceed post-access row cardinality",
+        );
         record_rows_scanned::<E>(rows_scanned);
 
-        Ok(distinct_count)
+        Self::aggregate_count_distinct_field_from_materialized(page.items, target_field, field_slot)
     }
 
     // Reduce one materialized response into `count_distinct(field)` by
@@ -148,59 +157,6 @@ where
         }
 
         Ok(distinct_count)
-    }
-
-    // Fold `count_distinct(field)` directly from the resolved key stream while
-    // preserving canonical filtering and effective-window semantics.
-    fn fold_streaming_count_distinct_field(
-        ctx: &Context<'_, E>,
-        plan: &AccessPlannedQuery<E::Key>,
-        predicate_slots: Option<&PredicateFieldSlots>,
-        key_stream: &mut dyn crate::db::executor::OrderedKeyStream,
-        target_field: &str,
-        field_slot: FieldSlot,
-    ) -> Result<(u32, usize, usize), InternalError> {
-        let mut window = AggregateWindowState::from_plan(plan);
-        let mut distinct_values: Vec<Value> = Vec::new();
-        let mut distinct_count = 0u32;
-        let mut keys_scanned = 0usize;
-        let mut post_access_rows = 0usize;
-
-        while !window.exhausted() {
-            let Some(key) = key_stream.next_key()? else {
-                break;
-            };
-            keys_scanned = keys_scanned.saturating_add(1);
-            let Some(entity) = Self::read_entity_for_field_extrema(ctx, plan.consistency, &key)?
-            else {
-                continue;
-            };
-            if plan.predicate.is_some() {
-                let Some(predicate_slots) = predicate_slots else {
-                    return Err(InternalError::query_executor_invariant(
-                        "post-access filtering requires precompiled predicate slots",
-                    ));
-                };
-                if !eval_with_slots(&entity, predicate_slots) {
-                    continue;
-                }
-            }
-            if !window.accept_existing_row() {
-                continue;
-            }
-            post_access_rows = post_access_rows.saturating_add(1);
-
-            let value = extract_orderable_field_value(&entity, target_field, field_slot)
-                .map_err(Self::map_aggregate_field_value_error)?;
-            if distinct_values.iter().any(|existing| existing == &value) {
-                continue;
-            }
-
-            distinct_values.push(value);
-            distinct_count = distinct_count.saturating_add(1);
-        }
-
-        Ok((distinct_count, keys_scanned, post_access_rows))
     }
 
     // Wrap fast-path streams with DISTINCT semantics only when requested.

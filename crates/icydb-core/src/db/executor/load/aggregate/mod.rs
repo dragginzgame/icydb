@@ -14,10 +14,7 @@ use crate::{
                 compare_entities_by_orderable_field, compare_entities_for_field_extrema,
             },
             compile_predicate_slots,
-            fold::{
-                AggregateFoldMode, AggregateKind, AggregateOutput, AggregateReducerState,
-                AggregateSpec, AggregateWindowState, FoldControl,
-            },
+            fold::{AggregateFoldMode, AggregateKind, AggregateOutput, AggregateSpec},
             load::{
                 LoadExecutor,
                 execute::{ExecutionInputs, IndexPredicateCompileMode},
@@ -97,8 +94,6 @@ struct AggregateExecutionDescriptor {
     direction: Direction,
     route_plan: ExecutionRoutePlan,
     strict_index_predicate_program: Option<IndexPredicateProgram>,
-    force_materialized_due_to_predicate_uncertainty: bool,
-    extrema_streaming_attempt_eligible: bool,
 }
 
 impl<E> LoadExecutor<E>
@@ -282,15 +277,6 @@ where
             predicate_slots.as_ref(),
             IndexPredicateCompileMode::StrictAllOrNone,
         );
-        let force_materialized_due_to_predicate_uncertainty = plan.as_inner().predicate.is_some()
-            && Self::resolved_index_slots_for_access_path(&plan.as_inner().access).is_some()
-            && strict_index_predicate_program.is_none();
-        let extrema_streaming_attempt_eligible = Self::extrema_streaming_attempt_eligible(
-            plan.as_inner(),
-            &spec,
-            strict_index_predicate_program.as_ref(),
-            force_materialized_due_to_predicate_uncertainty,
-        );
         let route_plan =
             Self::build_execution_route_plan_for_aggregate_spec(plan.as_inner(), spec.clone());
         let direction = route_plan.direction();
@@ -300,8 +286,6 @@ where
             direction,
             route_plan,
             strict_index_predicate_program,
-            force_materialized_due_to_predicate_uncertainty,
-            extrema_streaming_attempt_eligible,
         })
     }
 
@@ -319,6 +303,23 @@ where
         // Snapshot route-owned execution mode at the orchestration boundary.
         // This remains immutable for the full aggregate execution lifecycle.
         let execution_mode = descriptor.route_plan.execution_mode;
+        if matches!(execution_mode, ExecutionMode::Materialized) {
+            return if let Some(target_field) = descriptor.spec.target_field() {
+                let field_slot = Self::resolve_orderable_field_slot(target_field)?;
+                let response = self.execute(plan)?;
+
+                Self::aggregate_field_extrema_from_materialized(
+                    response,
+                    kind,
+                    target_field,
+                    field_slot,
+                )
+            } else {
+                let response = self.execute(plan)?;
+
+                Ok(Self::aggregate_from_materialized(response, kind))
+            };
+        }
         if let Some(target_field) = descriptor.spec.target_field() {
             return self.execute_field_target_extrema_aggregate(
                 plan,
@@ -326,18 +327,7 @@ where
                 target_field,
                 descriptor.direction,
                 &descriptor.route_plan,
-                descriptor.extrema_streaming_attempt_eligible,
-                descriptor.force_materialized_due_to_predicate_uncertainty,
             );
-        }
-        let first_last_streaming_attempt_eligible = descriptor.extrema_streaming_attempt_eligible
-            && matches!(kind, AggregateKind::First | AggregateKind::Last);
-        if matches!(execution_mode, ExecutionMode::Materialized)
-            && !first_last_streaming_attempt_eligible
-            || descriptor.force_materialized_due_to_predicate_uncertainty
-        {
-            let response = self.execute(plan)?;
-            return Ok(Self::aggregate_from_materialized(response, kind));
         }
         let fold_mode = descriptor.route_plan.aggregate_fold_mode;
         let physical_fetch_hint = descriptor.route_plan.scan_hints.physical_fetch_hint;
@@ -428,7 +418,6 @@ where
     // Execute `min(field)` / `max(field)` via canonical materialized fallback.
     // Route still owns eligibility and hint derivation; this branch currently
     // keeps field-target semantics correctness-first until fast paths are enabled.
-    #[expect(clippy::too_many_arguments)]
     fn execute_field_target_extrema_aggregate(
         &self,
         plan: ExecutablePlan<E>,
@@ -436,8 +425,6 @@ where
         target_field: &str,
         direction: Direction,
         route_plan: &ExecutionRoutePlan,
-        extrema_streaming_attempt_eligible: bool,
-        force_materialized_due_to_predicate_uncertainty: bool,
     ) -> Result<AggregateOutput<E>, InternalError> {
         let field_fast_path_eligible = match kind {
             AggregateKind::Min => route_plan.field_min_fast_path_eligible(),
@@ -451,23 +438,14 @@ where
                 ));
             }
         };
+        if !field_fast_path_eligible {
+            return Err(InternalError::query_executor_invariant(
+                "field-target aggregate streaming requires route-eligible field-extrema fast path",
+            ));
+        }
 
         // Validate user-provided field targets before any scan-budget consumption.
         let field_slot = Self::resolve_orderable_field_slot(target_field)?;
-        if force_materialized_due_to_predicate_uncertainty
-            || !field_fast_path_eligible
-            || !extrema_streaming_attempt_eligible
-        {
-            // Preserve canonical query semantics by selecting candidates from the
-            // fully materialized response window and then applying field-extrema rules.
-            let response = self.execute(plan)?;
-            return Self::aggregate_field_extrema_from_materialized(
-                response,
-                kind,
-                target_field,
-                field_slot,
-            );
-        }
 
         // Route-planned streaming path for index-leading field extrema.
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
@@ -506,41 +484,6 @@ where
         record_rows_scanned::<E>(rows_scanned);
 
         Ok(aggregate_output)
-    }
-
-    // Keep ordered-extrema streaming coverage explicit and conservative.
-    // This gate normalizes when extrema terminals can attempt streaming while
-    // preserving fallback-first behavior for DISTINCT, post-sort, and residual
-    // predicate uncertainty.
-    fn extrema_streaming_attempt_eligible(
-        plan: &AccessPlannedQuery<E::Key>,
-        spec: &AggregateSpec,
-        strict_index_predicate_program: Option<&IndexPredicateProgram>,
-        force_materialized_due_to_predicate_uncertainty: bool,
-    ) -> bool {
-        let first_last_terminal = matches!(
-            (spec.kind(), spec.target_field()),
-            (AggregateKind::First | AggregateKind::Last, None)
-        );
-        let field_extrema_terminal = matches!(
-            (spec.kind(), spec.target_field()),
-            (AggregateKind::Min | AggregateKind::Max, Some(_))
-        );
-        if !first_last_terminal && !field_extrema_terminal {
-            return false;
-        }
-        if force_materialized_due_to_predicate_uncertainty || plan.distinct {
-            return false;
-        }
-
-        if plan.predicate.is_some() && strict_index_predicate_program.is_none() {
-            return false;
-        }
-        if first_last_terminal && plan.budget_safety_metadata::<E>().requires_post_access_sort {
-            return false;
-        }
-
-        true
     }
 
     // ------------------------------------------------------------------
@@ -763,8 +706,9 @@ where
         Ok((output, keys_scanned))
     }
 
-    // Resolve aggregate terminals directly for primary-key point/batch plans.
-    // This preserves consistency + window semantics without building streams.
+    // Resolve aggregate terminals for primary-key point/batch plans through the
+    // canonical routed key-stream boundary so all access-shape execution uses
+    // one shared stream-construction path.
     fn try_execute_primary_key_access_aggregate(
         ctx: &Context<'_, E>,
         plan: &AccessPlannedQuery<E::Key>,
@@ -775,58 +719,40 @@ where
         let Some(path) = plan.access.as_path() else {
             return Ok(None);
         };
-        let ordered_keys = match path {
-            AccessPath::ByKey(key) => vec![*key],
-            AccessPath::ByKeys(keys) => {
-                let mut deduped = Context::<E>::dedup_keys(keys.clone());
-                if direction == Direction::Desc {
-                    deduped.reverse();
-                }
-
-                deduped
-            }
+        match path {
+            AccessPath::ByKeys(keys) if keys.is_empty() => return Ok(None),
+            AccessPath::ByKey(_) | AccessPath::ByKeys(_) => {}
             _ => return Ok(None),
-        };
-        if ordered_keys.is_empty() {
-            return Ok(None);
         }
         if plan.predicate.is_some() {
             return Ok(None);
         }
 
-        // Phase 1: apply window exhaustion before touching storage.
-        let mut window = AggregateWindowState::from_plan(plan);
-        if window.exhausted() {
-            return Ok(Some((Self::aggregate_zero_window_result(kind), 0)));
-        }
-
-        // Phase 2: iterate canonical candidate keys and enforce the same
-        // consistency + window semantics used by streaming aggregation.
-        let mut keys_scanned = 0usize;
-        let mut state = AggregateReducerState::for_kind(kind);
-        for key in ordered_keys {
-            if window.exhausted() {
-                break;
-            }
-
-            keys_scanned = keys_scanned.saturating_add(1);
-            let data_key = Context::<E>::data_key_from_key(key)?;
-            if !Self::key_qualifies_for_fold(ctx, plan.consistency, fold_mode, &data_key)? {
-                continue;
-            }
-            if !window.accept_existing_row() {
-                continue;
-            }
-            if matches!(
-                state.update_from_data_key(kind, direction, &data_key)?,
-                FoldControl::Break
-            ) {
-                break;
-            }
-        }
-
-        // Phase 3: project one terminal output from the reducer state.
-        let aggregate_output = state.into_output();
+        let stream_request = AccessPlanStreamRequest {
+            access: &plan.access,
+            bindings: AccessStreamBindings {
+                index_prefix_specs: &[],
+                index_range_specs: &[],
+                index_range_anchor: None,
+                direction,
+            },
+            key_comparator: super::key_stream_comparator_from_plan(plan, direction),
+            physical_fetch_hint: None,
+            index_predicate_execution: None,
+        };
+        let mut key_stream = Self::resolve_routed_key_stream(
+            ctx,
+            RoutedKeyStreamRequest::AccessPlan(stream_request),
+        )?;
+        let (aggregate_output, keys_scanned) = Self::fold_streaming_aggregate(
+            ctx,
+            plan,
+            plan.consistency,
+            direction,
+            key_stream.as_mut(),
+            kind,
+            fold_mode,
+        )?;
 
         Ok(Some((aggregate_output, keys_scanned)))
     }
@@ -840,8 +766,13 @@ where
         kind: AggregateKind,
         fold_mode: AggregateFoldMode,
     ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError> {
-        // Probe hint selection is route-owned; executor only consumes it.
-        let probe_fetch_hint = inputs.route_plan.secondary_extrema_probe_fetch_hint();
+        // Probe hint selection is route-owned; use route physical hints first,
+        // then fall back to secondary-extrema probe hints when present.
+        let probe_fetch_hint = inputs
+            .route_plan
+            .scan_hints
+            .physical_fetch_hint
+            .or_else(|| inputs.route_plan.secondary_extrema_probe_fetch_hint());
         let index_predicate_execution =
             Self::aggregate_index_predicate_execution(inputs.index_predicate_program);
         let Some(mut fast) = Self::try_execute_secondary_index_order_stream(

@@ -5,7 +5,7 @@ use crate::{
             Direction, IndexKey, continuation_advanced, envelope_is_empty,
             predicate::{IndexPredicateExecution, eval_index_execution_on_decoded_key},
             range::anchor_within_envelope,
-            resume_bounds,
+            resume_bounds_from_refs,
             store::{IndexStore, RawIndexKey},
         },
     },
@@ -32,7 +32,7 @@ impl IndexStore {
         Self::ensure_anchor_within_envelope(direction, continuation_start_exclusive, bounds)?;
 
         let (start_raw, end_raw) = match continuation_start_exclusive {
-            Some(anchor) => resume_bounds(direction, bounds.0.clone(), bounds.1.clone(), anchor),
+            Some(anchor) => resume_bounds_from_refs(direction, bounds.0, bounds.1, anchor),
             None => (bounds.0.clone(), bounds.1.clone()),
         };
 

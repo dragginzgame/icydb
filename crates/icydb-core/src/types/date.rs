@@ -6,10 +6,15 @@ use crate::{
     value::Value,
 };
 use candid::CandidType;
-use chrono::{Datelike, Duration as ChronoDuration, NaiveDate};
 use derive_more::{Add, AddAssign, FromStr, Sub, SubAssign};
 use serde::{Deserialize, Serialize};
-use std::fmt::{self, Debug, Display};
+use std::{
+    fmt::{self, Debug, Display},
+    sync::OnceLock,
+};
+use time::{Date as TimeDate, Duration as TimeDuration, Month, format_description::FormatItem};
+
+static FORMAT: OnceLock<Vec<FormatItem<'static>>> = OnceLock::new();
 
 ///
 /// Date
@@ -39,34 +44,43 @@ impl Date {
     pub const MIN: Self = Self(i32::MIN);
     pub const MAX: Self = Self(i32::MAX);
 
-    #[must_use]
-    #[expect(clippy::cast_possible_truncation)]
-    /// Clamp and construct a date from year/month/day, defaulting to epoch on invalid input.
-    pub fn new(y: i32, m: u32, d: u32) -> Self {
-        // clamp month
-        let m = m.clamp(1, 12);
-
-        // clamp day; if the year is out of range, default to epoch
-        let last_valid_day = (28..=31)
-            .rev()
-            .find(|&d| NaiveDate::from_ymd_opt(y, m, d).is_some());
-        let Some(last_valid_day) = last_valid_day else {
-            return Self::EPOCH;
-        };
-        let d = d.clamp(1, last_valid_day);
-
-        match NaiveDate::from_ymd_opt(y, m, d) {
-            Some(date) => {
-                Self((date - NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()).num_days() as i32)
-            }
-            None => Self::EPOCH, // default to 1970-01-01
+    const fn epoch_date() -> TimeDate {
+        // Safe: constant valid date
+        match TimeDate::from_calendar_date(1970, Month::January, 1) {
+            Ok(d) => d,
+            Err(_) => unreachable!(),
         }
     }
 
     #[must_use]
-    /// Checked constructor that returns `None` for invalid calendar dates.
-    pub fn new_checked(y: i32, m: u32, d: u32) -> Option<Self> {
-        NaiveDate::from_ymd_opt(y, m, d).map(Self::from_naive_date)
+    pub fn new(y: i32, m: u8, d: u8) -> Self {
+        let m = m.clamp(1, 12);
+
+        let Ok(month) = Month::try_from(m) else {
+            return Self::EPOCH;
+        };
+
+        let last_valid_day = (28..=31)
+            .rev()
+            .find(|&day| TimeDate::from_calendar_date(y, month, day).is_ok());
+
+        let Some(last_valid_day) = last_valid_day else {
+            return Self::EPOCH;
+        };
+
+        let d = d.clamp(1, last_valid_day);
+
+        match TimeDate::from_calendar_date(y, month, d) {
+            Ok(date) => Self::from_time_date(date),
+            Err(_) => Self::EPOCH,
+        }
+    }
+
+    #[must_use]
+    pub fn new_checked(y: i32, m: u8, d: u8) -> Option<Self> {
+        let month = Month::try_from(m).ok()?;
+        let date = TimeDate::from_calendar_date(y, month, d).ok()?;
+        Some(Self::from_time_date(date))
     }
 
     #[must_use]
@@ -77,43 +91,44 @@ impl Date {
     /// Returns the year component (e.g. 2025)
     #[must_use]
     pub fn year(self) -> i32 {
-        self.to_naive_date().year()
+        self.to_time_date().year()
     }
 
     /// Returns the month component (1–12)
     #[must_use]
-    pub fn month(self) -> u32 {
-        self.to_naive_date().month()
+    pub fn month(self) -> u8 {
+        self.to_time_date().month().into()
     }
 
     /// Returns the day-of-month component (1–31)
     #[must_use]
-    pub fn day(self) -> u32 {
-        self.to_naive_date().day()
+    pub fn day(self) -> u8 {
+        self.to_time_date().day()
     }
 
     /// Parse an ISO `YYYY-MM-DD` string into a `Date`.
     pub fn parse(s: &str) -> Option<Self> {
-        NaiveDate::parse_from_str(s, "%Y-%m-%d")
-            .ok()
-            .map(Self::from_naive_date)
+        let format =
+            FORMAT.get_or_init(|| time::format_description::parse("[year]-[month]-[day]").unwrap());
+
+        TimeDate::parse(s, format).ok().map(Self::from_time_date)
     }
 
-    #[must_use]
-    #[expect(clippy::cast_possible_truncation)]
-    fn from_naive_date(date: NaiveDate) -> Self {
-        Self((date - NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()).num_days() as i32)
+    #[allow(clippy::cast_possible_truncation)]
+    fn from_time_date(date: TimeDate) -> Self {
+        let epoch = Self::epoch_date();
+        let days = (date - epoch).whole_days();
+        Self(days as i32)
     }
 
-    #[must_use]
-    fn to_naive_date(self) -> NaiveDate {
-        let epoch = NaiveDate::from_ymd_opt(1970, 1, 1).unwrap();
-        let delta = ChronoDuration::days(self.0.into());
-        epoch.checked_add_signed(delta).unwrap_or({
+    fn to_time_date(self) -> TimeDate {
+        let epoch = Self::epoch_date();
+        let delta = TimeDuration::days(self.0.into());
+        epoch.checked_add(delta).unwrap_or({
             if self.0 >= 0 {
-                NaiveDate::MAX
+                TimeDate::MAX
             } else {
-                NaiveDate::MIN
+                TimeDate::MIN
             }
         })
     }
@@ -141,8 +156,9 @@ impl Debug for Date {
 
 impl Display for Date {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let d = self.to_naive_date();
-        write!(f, "{:04}-{:02}-{:02}", d.year(), d.month(), d.day())
+        let d = self.to_time_date();
+        let month: u8 = d.month().into();
+        write!(f, "{:04}-{:02}-{:02}", d.year(), month, d.day())
     }
 }
 
@@ -241,31 +257,6 @@ mod tests {
     }
 
     #[test]
-    fn from_naive_date_and_back_are_consistent() {
-        let naive = NaiveDate::from_ymd_opt(1999, 12, 31).unwrap();
-        let date = Date::from_naive_date(naive);
-        let round_trip = date.to_naive_date();
-        assert_eq!(round_trip, naive);
-    }
-
-    #[test]
-    fn parse_and_format_work() {
-        let parsed = Date::parse("2025-03-28").unwrap();
-        let naive = parsed.to_naive_date();
-        assert_eq!(naive.year(), 2025);
-        assert_eq!(naive.month(), 3);
-        assert_eq!(naive.day(), 28);
-    }
-
-    #[test]
-    fn epoch_is_1970_01_01() {
-        let epoch = Date::EPOCH;
-        let naive = epoch.to_naive_date();
-        assert_eq!(naive, NaiveDate::from_ymd_opt(1970, 1, 1).unwrap());
-        assert_eq!(epoch.get(), 0);
-    }
-
-    #[test]
     fn invalid_date_parse_returns_none() {
         assert!(Date::parse("2025-13-40").is_none());
         assert!(Date::new_checked(2025, 2, 30).is_none());
@@ -275,12 +266,6 @@ mod tests {
     fn new_out_of_range_year_defaults_to_epoch() {
         let date = Date::new(i32::MAX, 1, 1);
         assert_eq!(date, Date::EPOCH);
-    }
-
-    #[test]
-    fn to_naive_date_clamps_out_of_range_values() {
-        assert_eq!(Date::MAX.to_naive_date(), NaiveDate::MAX);
-        assert_eq!(Date::MIN.to_naive_date(), NaiveDate::MIN);
     }
 
     #[test]
@@ -302,37 +287,5 @@ mod tests {
     fn display_formats_as_iso_date() {
         let date = Date::new_checked(2025, 10, 19).unwrap();
         assert_eq!(format!("{date}"), "2025-10-19");
-    }
-
-    #[test]
-    fn serialize_to_json_string() {
-        let date = Date::new_checked(2024, 2, 29).unwrap();
-        let json = serde_json::to_string(&date).unwrap();
-        // should be a quoted ISO date string
-        assert_eq!(json, "\"2024-02-29\"");
-    }
-
-    #[test]
-    fn deserialize_from_json_string() {
-        let json = "\"2023-07-15\"";
-        let date: Date = serde_json::from_str(json).unwrap();
-        assert_eq!(date.year(), 2023);
-        assert_eq!(date.month(), 7);
-        assert_eq!(date.day(), 15);
-    }
-
-    #[test]
-    fn serde_round_trip_preserves_value() {
-        let original = Date::new_checked(2000, 1, 1).unwrap();
-        let json = serde_json::to_string(&original).unwrap();
-        let parsed: Date = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed, original);
-    }
-
-    #[test]
-    fn serialize_invalid_date_fails_deserialize() {
-        let bad_json = "\"2024-02-30\""; // invalid date
-        let result: Result<Date, _> = serde_json::from_str(bad_json);
-        assert!(result.is_err(), "invalid date should fail to deserialize");
     }
 }

@@ -9,7 +9,7 @@ use crate::{
             AccessPlanStreamRequest, AccessStreamBindings, DistinctOrderedKeyStream,
             OrderedKeyStreamBox,
             route::{
-                ExecutionRoutePlan, FastPathOrder, RoutedKeyStreamRequest,
+                ExecutionMode, ExecutionRoutePlan, FastPathOrder, RoutedKeyStreamRequest,
                 ensure_load_fast_path_spec_arity,
             },
         },
@@ -98,46 +98,51 @@ where
                     rejected_keys_counter: Some(&index_predicate_rejected_counter),
                 });
 
-        // Phase 1: resolve fast-path stream if any.
-        let resolved =
-            match Self::evaluate_fast_path(inputs, route_plan, index_predicate_execution)? {
-                FastPathDecision::Hit(fast) => ResolvedExecutionKeyStream {
-                    key_stream: fast.ordered_key_stream,
-                    optimization: Some(fast.optimization),
-                    rows_scanned_override: Some(fast.rows_scanned),
+        // Phase 1: evaluate fast paths only when routing selected streaming mode.
+        let fast_path_decision = match route_plan.execution_mode {
+            ExecutionMode::Streaming => {
+                Self::evaluate_fast_path(inputs, route_plan, index_predicate_execution)?
+            }
+            ExecutionMode::Materialized => FastPathDecision::None,
+        };
+        let resolved = match fast_path_decision {
+            FastPathDecision::Hit(fast) => ResolvedExecutionKeyStream {
+                key_stream: fast.ordered_key_stream,
+                optimization: Some(fast.optimization),
+                rows_scanned_override: Some(fast.rows_scanned),
+                index_predicate_applied,
+                index_predicate_keys_rejected: index_predicate_rejected_counter.get(),
+                distinct_keys_deduped_counter: None,
+            },
+            FastPathDecision::None => {
+                // Phase 2: resolve canonical fallback access stream.
+                let fallback_fetch_hint =
+                    route_plan.fallback_physical_fetch_hint(inputs.stream_bindings.direction);
+                let stream_request = AccessPlanStreamRequest {
+                    access: &inputs.plan.access,
+                    bindings: inputs.stream_bindings,
+                    key_comparator: super::key_stream_comparator_from_plan(
+                        inputs.plan,
+                        inputs.stream_bindings.direction,
+                    ),
+                    physical_fetch_hint: fallback_fetch_hint,
+                    index_predicate_execution,
+                };
+                let key_stream = Self::resolve_routed_key_stream(
+                    inputs.ctx,
+                    RoutedKeyStreamRequest::AccessPlan(stream_request),
+                )?;
+
+                ResolvedExecutionKeyStream {
+                    key_stream,
+                    optimization: None,
+                    rows_scanned_override: None,
                     index_predicate_applied,
                     index_predicate_keys_rejected: index_predicate_rejected_counter.get(),
                     distinct_keys_deduped_counter: None,
-                },
-                FastPathDecision::None => {
-                    // Phase 2: resolve canonical fallback access stream.
-                    let fallback_fetch_hint =
-                        route_plan.fallback_physical_fetch_hint(inputs.stream_bindings.direction);
-                    let stream_request = AccessPlanStreamRequest {
-                        access: &inputs.plan.access,
-                        bindings: inputs.stream_bindings,
-                        key_comparator: super::key_stream_comparator_from_plan(
-                            inputs.plan,
-                            inputs.stream_bindings.direction,
-                        ),
-                        physical_fetch_hint: fallback_fetch_hint,
-                        index_predicate_execution,
-                    };
-                    let key_stream = Self::resolve_routed_key_stream(
-                        inputs.ctx,
-                        RoutedKeyStreamRequest::AccessPlan(stream_request),
-                    )?;
-
-                    ResolvedExecutionKeyStream {
-                        key_stream,
-                        optimization: None,
-                        rows_scanned_override: None,
-                        index_predicate_applied,
-                        index_predicate_keys_rejected: index_predicate_rejected_counter.get(),
-                        distinct_keys_deduped_counter: None,
-                    }
                 }
-            };
+            }
+        };
 
         // Phase 3: apply DISTINCT at one shared boundary.
         let key_comparator =

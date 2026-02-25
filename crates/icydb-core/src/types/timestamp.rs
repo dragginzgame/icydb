@@ -8,10 +8,10 @@ use crate::{
 };
 use candid::CandidType;
 use canic_cdk::utils::time::now_millis;
-use chrono::DateTime;
 use derive_more::{Display, FromStr};
 use serde::{Deserialize, Serialize};
 use std::ops::{Add, AddAssign, Sub, SubAssign};
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 // Invariant:
 // Timestamp and Duration are both millisecond-native.
@@ -75,10 +75,13 @@ impl Timestamp {
     }
 
     #[expect(clippy::cast_sign_loss)]
+    #[allow(clippy::cast_possible_truncation)]
     pub fn parse_rfc3339(s: &str) -> Result<Self, String> {
-        let dt =
-            DateTime::parse_from_rfc3339(s).map_err(|e| format!("timestamp parse error: {e}"))?;
-        let ts_millis = dt.timestamp_millis();
+        let dt = OffsetDateTime::parse(s, &Rfc3339)
+            .map_err(|e| format!("timestamp parse error: {e}"))?;
+
+        let ts_millis = dt.unix_timestamp_nanos() / 1_000_000;
+
         if ts_millis < 0 {
             return Err("timestamp before epoch".to_string());
         }
@@ -381,23 +384,5 @@ mod tests {
         let t = Timestamp::from_secs(77);
         let v = t.to_value();
         assert_eq!(v, Value::Timestamp(t));
-    }
-
-    #[test]
-    fn test_wire_format_is_bare_number() {
-        let original = Timestamp::from_secs(42);
-
-        let json = serde_json::to_string(&original).expect("timestamp JSON serialize");
-        assert_eq!(json, "42000");
-
-        let decoded: Timestamp = serde_json::from_str("42000").expect("timestamp JSON deserialize");
-        assert_eq!(decoded, original);
-    }
-
-    #[test]
-    fn test_wire_format_from_millis_42_is_bare_number() {
-        let json =
-            serde_json::to_string(&Timestamp::from_millis(42)).expect("timestamp JSON serialize");
-        assert_eq!(json, "42");
     }
 }
