@@ -4,7 +4,7 @@ use crate::{
         executor::{
             AccessPlanStreamRequest, AccessStreamBindings, KeyOrderComparator,
             load::{ExecutionOptimization, FastPathKeyResult, LoadExecutor},
-            route::{RouteOrderSlotPolicy, derive_scan_direction},
+            route::{RouteOrderSlotPolicy, derive_scan_direction, supports_pk_stream_access_path},
         },
         query::plan::{AccessPath, AccessPlannedQuery, Direction},
     },
@@ -56,7 +56,7 @@ where
                 "pk stream fast-path requires direct access-path execution",
             )
         })?;
-        if !access.is_full_scan_or_key_range() {
+        if !supports_pk_stream_access_path(access) {
             return Err(InternalError::query_executor_invariant(
                 "pk stream fast-path requires full-scan/key-range access path",
             ));

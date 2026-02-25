@@ -161,7 +161,7 @@ fn aggregate_execution_mode_selection_is_route_owned_and_explicit() {
 
 #[test]
 fn cursor_spine_validates_signature_direction_and_window_shape() {
-    let cursor_spine_source = include_str!("../../../query/cursor/spine.rs");
+    let cursor_spine_source = include_str!("../../cursor_spine.rs");
 
     assert!(
         cursor_spine_source.contains(

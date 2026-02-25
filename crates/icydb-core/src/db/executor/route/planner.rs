@@ -23,7 +23,7 @@ use crate::db::executor::route::{
     ExecutionRoutePlan, FieldExtremaEligibility, FieldExtremaIneligibilityReason,
     IndexRangeLimitSpec, LOAD_FAST_PATH_ORDER, RouteCapabilities, RouteIntent,
     RouteOrderSlotPolicy, RouteWindowPlan, RoutedKeyStreamRequest, ScanHintPlan,
-    derive_scan_direction, direction_allows_physical_fetch_hint,
+    derive_scan_direction, direction_allows_physical_fetch_hint, supports_pk_stream_access_path,
 };
 
 impl<E> LoadExecutor<E>
@@ -542,7 +542,7 @@ where
         let supports_pk_stream_access = plan
             .access
             .as_path()
-            .is_some_and(AccessPath::is_full_scan_or_key_range);
+            .is_some_and(supports_pk_stream_access_path);
         if !supports_pk_stream_access {
             return false;
         }

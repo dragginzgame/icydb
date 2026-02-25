@@ -1,4 +1,4 @@
-use crate::db::{index::RawIndexKey, query::contracts::cursor::CursorBoundary};
+use crate::db::query::contracts::cursor::{CursorBoundary, IndexRangeCursorAnchor};
 
 ///
 /// PlannedCursor
@@ -8,7 +8,7 @@ use crate::db::{index::RawIndexKey, query::contracts::cursor::CursorBoundary};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct PlannedCursor {
     boundary: Option<CursorBoundary>,
-    index_range_anchor: Option<RawIndexKey>,
+    index_range_anchor: Option<IndexRangeCursorAnchor>,
     initial_offset: u32,
 }
 
@@ -25,7 +25,7 @@ impl PlannedCursor {
     #[must_use]
     pub(in crate::db) const fn new(
         boundary: CursorBoundary,
-        index_range_anchor: Option<RawIndexKey>,
+        index_range_anchor: Option<IndexRangeCursorAnchor>,
         initial_offset: u32,
     ) -> Self {
         Self {
@@ -41,7 +41,7 @@ impl PlannedCursor {
     }
 
     #[must_use]
-    pub(in crate::db) const fn index_range_anchor(&self) -> Option<&RawIndexKey> {
+    pub(in crate::db) const fn index_range_anchor(&self) -> Option<&IndexRangeCursorAnchor> {
         self.index_range_anchor.as_ref()
     }
 

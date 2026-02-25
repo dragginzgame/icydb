@@ -2,7 +2,7 @@ use crate::{
     db::{
         Context,
         executor::{
-            AccessStreamBindings, DistinctOrderedKeyStream, KeyOrderComparator,
+            AccessStreamBindings, DistinctOrderedKeyStream, ExecutablePlan, KeyOrderComparator,
             OrderedKeyStreamBox,
             aggregate::field::{FieldSlot, extract_orderable_field_value},
             compile_predicate_slots,
@@ -13,9 +13,7 @@ use crate::{
             route::ExecutionMode,
         },
         query::{
-            plan::{
-                AccessPlannedQuery, lowering::ExecutablePlan, validate::validate_executor_plan,
-            },
+            plan::{AccessPlannedQuery, validate::validate_executor_plan},
             predicate::{PredicateFieldSlots, eval_with_slots},
         },
         response::Response,

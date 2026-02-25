@@ -2,7 +2,8 @@ use crate::{
     db::{
         index::{
             EncodedValue, IndexRangeNotIndexableReasonScope, RawIndexKey,
-            map_index_range_not_indexable_reason, raw_keys_for_encoded_prefix,
+            map_index_range_not_indexable_reason, raw_bounds_for_semantic_index_component_range,
+            raw_keys_for_encoded_prefix,
         },
         query::plan::{AccessPath, AccessPlan, AccessPlannedQuery},
     },
@@ -12,11 +13,9 @@ use crate::{
 };
 use std::ops::Bound;
 
-use crate::db::query::plan::lowering::index_bounds::raw_bounds_for_semantic_index_range_spec;
-
-pub(in crate::db::query::plan) const INDEX_RANGE_SPEC_INVALID: &str =
+pub(in crate::db) const INDEX_RANGE_SPEC_INVALID: &str =
     "validated index-range plan could not be lowered to raw bounds";
-pub(in crate::db::query::plan) const INDEX_PREFIX_SPEC_INVALID: &str =
+pub(in crate::db) const INDEX_PREFIX_SPEC_INVALID: &str =
     "validated index-prefix plan could not be lowered to raw bounds";
 const INDEX_PREFIX_SPEC_VALUE_NOT_INDEXABLE: &str = "validated index-prefix value is not indexable";
 
@@ -107,7 +106,7 @@ impl IndexRangeSpec {
 }
 
 // Lower semantic index-prefix access into raw-key bounds once at plan materialization.
-pub(in crate::db::query::plan) fn build_index_prefix_specs<E: EntityKind>(
+pub(in crate::db) fn build_index_prefix_specs<E: EntityKind>(
     plan: &AccessPlannedQuery<E::Key>,
 ) -> Result<Vec<IndexPrefixSpec>, InternalError> {
     let mut specs = Vec::new();
@@ -117,7 +116,7 @@ pub(in crate::db::query::plan) fn build_index_prefix_specs<E: EntityKind>(
 }
 
 // Lower semantic index-range access into raw-key bounds once at plan materialization.
-pub(in crate::db::query::plan) fn build_index_range_specs<E: EntityKind>(
+pub(in crate::db) fn build_index_range_specs<E: EntityKind>(
     plan: &AccessPlannedQuery<E::Key>,
 ) -> Result<Vec<IndexRangeSpec>, InternalError> {
     let mut specs = Vec::new();
@@ -171,15 +170,18 @@ fn collect_index_range_specs<E: EntityKind>(
                     spec.prefix_values().len().saturating_add(1),
                     "semantic range field-slot arity must remain prefix_len + range slot",
                 );
-                let (lower, upper) =
-                    raw_bounds_for_semantic_index_range_spec::<E>(spec).map_err(|err| {
-                        InternalError::query_executor_invariant(
-                            map_index_range_not_indexable_reason(
-                                IndexRangeNotIndexableReasonScope::ValidatedSpec,
-                                err,
-                            ),
-                        )
-                    })?;
+                let (lower, upper) = raw_bounds_for_semantic_index_component_range::<E>(
+                    spec.index(),
+                    spec.prefix_values(),
+                    spec.lower(),
+                    spec.upper(),
+                )
+                .map_err(|err| {
+                    InternalError::query_executor_invariant(map_index_range_not_indexable_reason(
+                        IndexRangeNotIndexableReasonScope::ValidatedSpec,
+                        err,
+                    ))
+                })?;
                 specs.push(IndexRangeSpec::new(*spec.index(), lower, upper));
             }
 

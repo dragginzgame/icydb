@@ -3,14 +3,11 @@ use crate::{
         index::{
             Direction, IndexId, IndexKey, IndexKeyKind, IndexRangeNotIndexableReasonScope,
             PrimaryKeyEquivalenceError, map_index_range_not_indexable_reason,
-            primary_key_matches_value,
+            primary_key_matches_value, raw_bounds_for_semantic_index_component_range,
         },
         query::{
             contracts::cursor::IndexRangeCursorAnchor,
-            plan::{
-                AccessPath, CursorPlanError, KeyEnvelope, PlanError,
-                lowering::raw_bounds_for_semantic_index_component_range,
-            },
+            plan::{AccessPath, CursorPlanError, KeyEnvelope, PlanError},
         },
     },
     traits::{EntityKind, FieldValue},
@@ -55,7 +52,7 @@ fn decode_canonical_index_range_anchor_key(
 // - This planner-layer validation checks token/envelope shape and compatibility.
 // - Store-layer lookup still performs strict continuation advancement checks.
 // - These two validations are intentionally redundant and must not be merged.
-pub(in crate::db::query) fn validate_index_range_anchor<E: EntityKind>(
+pub(in crate::db) fn validate_index_range_anchor<E: EntityKind>(
     anchor: Option<&IndexRangeCursorAnchor>,
     access: Option<&AccessPath<E::Key>>,
     direction: Direction,
@@ -127,7 +124,7 @@ pub(in crate::db::query) fn validate_index_range_anchor<E: EntityKind>(
 }
 
 // Enforce that boundary and raw anchor identify the same ordered row position.
-pub(in crate::db::query) fn validate_index_range_boundary_anchor_consistency<K: FieldValue>(
+pub(in crate::db) fn validate_index_range_boundary_anchor_consistency<K: FieldValue>(
     anchor: Option<&IndexRangeCursorAnchor>,
     access: Option<&AccessPath<K>>,
     boundary_pk_key: K,
@@ -138,7 +135,7 @@ pub(in crate::db::query) fn validate_index_range_boundary_anchor_consistency<K: 
     let Some(access) = access else {
         return Ok(());
     };
-    if !access.cursor_support().supports_index_range_anchor() {
+    if !matches!(access, AccessPath::IndexRange { .. }) {
         return Ok(());
     }
 

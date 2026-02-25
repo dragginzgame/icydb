@@ -2,6 +2,7 @@ use crate::{
     db::index::{EncodedValue, IndexId, IndexKey, IndexKeyKind, KeyEnvelope, RawIndexKey},
     model::index::IndexModel,
     traits::EntityKind,
+    value::Value,
 };
 use serde::{Deserialize, Serialize};
 use std::ops::Bound;
@@ -155,6 +156,32 @@ pub(in crate::db) fn raw_bounds_for_encoded_index_component_range<E: EntityKind>
 }
 
 ///
+/// raw_bounds_for_semantic_index_component_range
+///
+/// Build raw key-space bounds from semantic index components.
+/// This is the semantic-to-physical lowering boundary for index-range access.
+///
+
+pub(in crate::db) fn raw_bounds_for_semantic_index_component_range<E: EntityKind>(
+    index: &IndexModel,
+    prefix: &[Value],
+    lower: &Bound<Value>,
+    upper: &Bound<Value>,
+) -> Result<(Bound<RawIndexKey>, Bound<RawIndexKey>), IndexRangeBoundEncodeError> {
+    let encoded_prefix =
+        EncodedValue::try_encode_all(prefix).map_err(|_| IndexRangeBoundEncodeError::Prefix)?;
+    let encoded_lower = encode_semantic_component_bound(lower, IndexRangeBoundEncodeError::Lower)?;
+    let encoded_upper = encode_semantic_component_bound(upper, IndexRangeBoundEncodeError::Upper)?;
+
+    Ok(raw_bounds_for_encoded_index_component_range::<E>(
+        index,
+        encoded_prefix.as_slice(),
+        &encoded_lower,
+        &encoded_upper,
+    ))
+}
+
+///
 /// resume_bounds
 ///
 /// Rewrite raw continuation bounds based on direction and anchor.
@@ -229,6 +256,21 @@ const fn encoded_component_bound(bound: &Bound<EncodedValue>) -> Bound<&[u8]> {
         Bound::Unbounded => Bound::Unbounded,
         Bound::Included(value) => Bound::Included(value.encoded()),
         Bound::Excluded(value) => Bound::Excluded(value.encoded()),
+    }
+}
+
+fn encode_semantic_component_bound(
+    bound: &Bound<Value>,
+    kind: IndexRangeBoundEncodeError,
+) -> Result<Bound<EncodedValue>, IndexRangeBoundEncodeError> {
+    match bound {
+        Bound::Unbounded => Ok(Bound::Unbounded),
+        Bound::Included(value) => EncodedValue::try_from_ref(value)
+            .map(Bound::Included)
+            .map_err(|_| kind),
+        Bound::Excluded(value) => EncodedValue::try_from_ref(value)
+            .map(Bound::Excluded)
+            .map_err(|_| kind),
     }
 }
 

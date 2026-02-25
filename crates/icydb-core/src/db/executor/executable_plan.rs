@@ -1,30 +1,26 @@
 use crate::{
     db::{
+        executor::index_specs::{
+            INDEX_PREFIX_SPEC_INVALID, INDEX_RANGE_SPEC_INVALID, IndexPrefixSpec, IndexRangeSpec,
+            build_index_prefix_specs, build_index_range_specs,
+        },
+        executor::{
+            PlannedCursor, plan_cursor as validate_cursor_plan,
+            revalidate_planned_cursor as revalidate_cursor_plan,
+        },
         index::Direction,
         query::{
             contracts::cursor::ContinuationSignature,
             explain::ExplainPlan,
             fingerprint::PlanFingerprint,
             intent::QueryMode,
-            plan::cursor::{
-                plan_cursor as validate_cursor_plan,
-                revalidate_planned_cursor as revalidate_cursor_plan,
-            },
-            plan::{
-                AccessPlan, AccessPlannedQuery, LogicalPlan, OrderDirection, PlanError,
-                cursor::PlannedCursor,
-            },
+            plan::{AccessPlan, AccessPlannedQuery, LogicalPlan, OrderDirection, PlanError},
         },
     },
     error::InternalError,
     traits::{EntityKind, FieldValue},
 };
 use std::marker::PhantomData;
-
-use crate::db::query::plan::lowering::key_specs::{
-    INDEX_PREFIX_SPEC_INVALID, INDEX_RANGE_SPEC_INVALID, IndexPrefixSpec, IndexRangeSpec,
-    build_index_prefix_specs, build_index_range_specs,
-};
 
 fn derive_direction(plan: &LogicalPlan) -> Direction {
     let Some((_, direction)) = plan.order.as_ref().and_then(|order| order.fields.first()) else {
@@ -60,7 +56,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
     }
 
     #[cfg(not(test))]
-    pub(in crate::db::query) fn new(plan: AccessPlannedQuery<E::Key>) -> Self {
+    pub(in crate::db) fn new(plan: AccessPlannedQuery<E::Key>) -> Self {
         Self::build(plan)
     }
 
@@ -365,7 +361,8 @@ mod tests {
             .expect("planner layer should accept a compatible index-range cursor anchor");
         let anchor_raw = planned
             .index_range_anchor()
-            .expect("planned cursor should carry an index-range anchor");
+            .expect("planned cursor should carry an index-range anchor")
+            .last_raw_key();
 
         // Layer 2 (store): strict advancement beyond anchor.
         assert!(

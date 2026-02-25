@@ -20,9 +20,8 @@ pub(in crate::db) use key::{EncodedValue, IndexId, IndexKey, IndexKeyKind, RawIn
 pub(in crate::db) use plan::plan_index_mutation_for_entity;
 pub(in crate::db) use range::Direction;
 pub(in crate::db) use range::{
-    IndexRangeBoundEncodeError, IndexRangeNotIndexableReasonScope, continuation_advanced,
-    envelope_is_empty, map_index_range_not_indexable_reason,
-    raw_bounds_for_encoded_index_component_range, raw_keys_for_encoded_prefix,
-    raw_keys_for_encoded_prefix_with_kind, resume_bounds,
+    IndexRangeNotIndexableReasonScope, continuation_advanced, envelope_is_empty,
+    map_index_range_not_indexable_reason, raw_bounds_for_semantic_index_component_range,
+    raw_keys_for_encoded_prefix, raw_keys_for_encoded_prefix_with_kind, resume_bounds,
 };
 pub use store::IndexStore;

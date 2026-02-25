@@ -1,23 +1,40 @@
 mod access_stream;
 pub(super) mod aggregate;
 mod context;
+mod cursor_anchor;
+mod cursor_decode;
+mod cursor_spine;
+mod cursor_validation;
 mod delete;
 mod direction;
+mod executable_plan;
 mod fold;
+mod index_specs;
 pub(super) mod load;
 mod mutation;
 mod ordered_key_stream;
 mod physical_path;
 mod plan;
+mod planned_cursor;
 mod query_bridge;
 pub(super) mod route;
 #[cfg(test)]
 mod tests;
+mod window;
 
 pub(super) use access_stream::*;
 pub(super) use context::*;
+pub(in crate::db) use cursor_anchor::{
+    validate_index_range_anchor, validate_index_range_boundary_anchor_consistency,
+};
+pub(in crate::db) use cursor_decode::{
+    decode_pk_cursor_boundary, decode_typed_primary_key_cursor_slot,
+};
+pub(in crate::db) use cursor_validation::{plan_cursor, revalidate_planned_cursor};
 pub(super) use delete::DeleteExecutor;
 pub(crate) use direction::normalize_ordered_keys;
+pub(in crate::db) use executable_plan::ExecutablePlan;
+pub(in crate::db) use index_specs::{IndexPrefixSpec, IndexRangeSpec};
 pub(super) use load::LoadExecutor;
 pub use load::{ExecutionAccessPathVariant, ExecutionOptimization, ExecutionTrace};
 pub(super) use mutation::save::SaveExecutor;
@@ -26,6 +43,8 @@ pub(super) use ordered_key_stream::{
     KeyOrderComparator, MergeOrderedKeyStream, OrderedKeyStream, OrderedKeyStreamBox,
     VecOrderedKeyStream,
 };
+pub(in crate::db) use planned_cursor::PlannedCursor;
+pub(in crate::db) use window::compute_page_window;
 
 // Design notes:
 // - SchemaInfo is the planner-visible schema (relational attributes). Executors may see

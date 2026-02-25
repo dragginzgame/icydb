@@ -5,7 +5,7 @@ use crate::{
         Db,
         commit::{CommitRowOp, ensure_recovered_for_write},
         executor::{
-            compile_predicate_slots,
+            ExecutablePlan, compile_predicate_slots,
             load::LoadExecutor,
             mutation::{
                 OpenCommitWindow, apply_prepared_row_ops, emit_index_delta_metrics,
@@ -13,10 +13,7 @@ use crate::{
             },
             plan::{record_plan_metrics, record_rows_scanned, set_rows_from_len},
         },
-        query::{
-            plan::{lowering::ExecutablePlan, validate::validate_executor_plan},
-            policy,
-        },
+        query::{plan::validate::validate_executor_plan, policy},
         response::Response,
     },
     error::InternalError,

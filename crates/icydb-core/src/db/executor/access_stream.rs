@@ -1,16 +1,13 @@
 use crate::{
     db::{
         executor::{
-            Context, IntersectOrderedKeyStream, KeyOrderComparator, MergeOrderedKeyStream,
-            OrderedKeyStreamBox, VecOrderedKeyStream,
+            Context, IndexPrefixSpec, IndexRangeSpec, IntersectOrderedKeyStream,
+            KeyOrderComparator, MergeOrderedKeyStream, OrderedKeyStreamBox, VecOrderedKeyStream,
         },
         index::{RawIndexKey, predicate::IndexPredicateExecution},
         query::{
             ReadConsistency,
-            plan::{
-                AccessPath, AccessPlan, Direction,
-                lowering::{IndexPrefixSpec, IndexRangeSpec},
-            },
+            plan::{AccessPath, AccessPlan, Direction},
         },
     },
     error::InternalError,

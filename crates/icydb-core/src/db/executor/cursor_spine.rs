@@ -1,21 +1,16 @@
 use crate::{
     db::{
+        executor::{
+            PlannedCursor, decode_typed_primary_key_cursor_slot, validate_index_range_anchor,
+            validate_index_range_boundary_anchor_consistency,
+        },
         index::Direction,
         query::{
             contracts::cursor::{
                 ContinuationSignature, ContinuationToken, ContinuationTokenError, CursorBoundary,
                 CursorBoundarySlot, IndexRangeCursorAnchor,
             },
-            cursor::{
-                anchor::{
-                    validate_index_range_anchor, validate_index_range_boundary_anchor_consistency,
-                },
-                continuation::decode_typed_primary_key_cursor_slot,
-            },
-            plan::{
-                AccessPath, CursorPlanError, OrderPlanError, OrderSpec, PlanError,
-                cursor::PlannedCursor,
-            },
+            plan::{AccessPath, CursorPlanError, OrderPlanError, OrderSpec, PlanError},
             predicate::{SchemaInfo, validate::literal_matches_type},
         },
     },
@@ -79,10 +74,7 @@ where
     let boundary = cursor.boundary().cloned().ok_or_else(|| {
         PlanError::invalid_continuation_cursor_payload("continuation cursor boundary is missing")
     })?;
-    let index_range_anchor = cursor
-        .index_range_anchor()
-        .cloned()
-        .map(IndexRangeCursorAnchor::new);
+    let index_range_anchor = cursor.index_range_anchor().cloned();
 
     validate_structured_cursor::<E>(
         boundary,
@@ -213,8 +205,6 @@ where
         initial_offset,
         require_index_range_anchor,
     )?;
-
-    let index_range_anchor = index_range_anchor.map(|anchor| anchor.last_raw_key().clone());
 
     Ok(PlannedCursor::new(
         boundary,

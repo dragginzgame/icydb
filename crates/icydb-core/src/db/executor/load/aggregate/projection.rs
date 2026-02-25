@@ -2,11 +2,11 @@ use crate::{
     db::{
         data::DataKey,
         executor::{
+            ExecutablePlan,
             aggregate::field::{FieldSlot, extract_orderable_field_value},
             fold::{AggregateKind, AggregateOutput, AggregateSpec},
             load::LoadExecutor,
         },
-        query::plan::lowering::ExecutablePlan,
         response::Response,
     },
     error::InternalError,

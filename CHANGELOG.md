@@ -5,6 +5,25 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.29.3] - 2026-02-25 - db/query : Audit III
+
+### 📝 Summary
+
+* Continues Audit III by separating planning from execution details and tightening cursor ownership.
+
+### 🔧 Changed
+
+* Kept query planning declarative by moving executable-plan assembly, key-spec lowering, and raw-key handling to executor/index boundaries.
+* Moved cursor runtime work to executor ownership, including planned cursor state, signature/direction/window validation, anchor checks, and PK-boundary decoding.
+* Moved `CursorPlanError` under `query::plan::cursor` and removed plan-layer cursor capability helpers from `plan::types`.
+
+### 🧹 Cleanup
+
+* Removed legacy `query::plan::lowering` files and related compatibility wiring.
+* Removed plan/query-owned cursor runtime helper files that are now executor-owned.
+
+---
+
 ## [0.29.2] - 2026-02-25 - db/query : Audit II
 
 ### 🔧 Changed

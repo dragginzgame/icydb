@@ -3,7 +3,6 @@
 mod access_projection;
 pub(crate) mod cursor;
 pub(crate) mod logical;
-pub(crate) mod lowering;
 pub(crate) mod planner;
 #[cfg(test)]
 mod tests;
@@ -15,6 +14,7 @@ pub(in crate::db) use crate::db::{index::Direction, query::fingerprint::canonica
 pub(crate) use access_projection::{
     AccessPlanProjection, project_access_plan, project_explain_access_path,
 };
+pub(crate) use cursor::CursorPlanError;
 ///
 /// Re-Exports
 ///
@@ -24,4 +24,4 @@ pub(crate) use types::{
     AccessPath, AccessPlan, DeleteLimitSpec, OrderSpec, PageSpec, SemanticIndexRangeSpec,
 };
 pub use validate::PlanError;
-pub(crate) use validate::{AccessPlanError, CursorPlanError, OrderPlanError};
+pub(crate) use validate::{AccessPlanError, OrderPlanError};

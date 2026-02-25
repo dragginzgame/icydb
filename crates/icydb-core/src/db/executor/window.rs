@@ -5,14 +5,14 @@
 /// `keep_count` is `offset + limit`, and `fetch_count` adds one extra row when requested.
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct PageWindow {
-    pub(crate) fetch_count: usize,
-    pub(crate) keep_count: usize,
+pub(in crate::db) struct PageWindow {
+    pub(in crate::db) fetch_count: usize,
+    pub(in crate::db) keep_count: usize,
 }
 
 /// Compute canonical page window counts from logical pagination inputs.
 #[must_use]
-pub(crate) fn compute_page_window(offset: u32, limit: u32, needs_extra: bool) -> PageWindow {
+pub(in crate::db) fn compute_page_window(offset: u32, limit: u32, needs_extra: bool) -> PageWindow {
     let offset = usize::try_from(offset).unwrap_or(usize::MAX);
     let limit = usize::try_from(limit).unwrap_or(usize::MAX);
     let keep_count = offset.saturating_add(limit);

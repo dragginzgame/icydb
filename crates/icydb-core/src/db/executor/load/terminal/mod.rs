@@ -1,13 +1,13 @@
 use crate::{
     db::{
         executor::{
+            ExecutablePlan,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, compare_orderable_field_values,
                 extract_orderable_field_value,
             },
             load::LoadExecutor,
         },
-        query::plan::lowering::ExecutablePlan,
         response::Response,
     },
     error::InternalError,

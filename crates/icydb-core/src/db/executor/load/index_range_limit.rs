@@ -2,10 +2,12 @@ use crate::{
     db::{
         Context,
         executor::load::{ExecutionOptimization, FastPathKeyResult, LoadExecutor},
-        executor::{AccessPlanStreamRequest, AccessStreamBindings, KeyOrderComparator},
+        executor::{
+            AccessPlanStreamRequest, AccessStreamBindings, IndexRangeSpec, KeyOrderComparator,
+        },
         index::RawIndexKey,
         index::predicate::IndexPredicateExecution,
-        query::plan::{AccessPlannedQuery, Direction, lowering::IndexRangeSpec},
+        query::plan::{AccessPlannedQuery, Direction},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},

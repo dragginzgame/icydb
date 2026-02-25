@@ -1,9 +1,10 @@
 use crate::{
     db::{
+        executor::PlannedCursor,
+        executor::cursor_spine::{validate_planned_cursor, validate_planned_cursor_state},
         index::Direction,
         query::{
             contracts::cursor::ContinuationSignature,
-            cursor::spine::{validate_planned_cursor, validate_planned_cursor_state},
             plan::{AccessPlannedQuery, CursorPlanError, OrderSpec, PlanError},
         },
     },
@@ -11,10 +12,8 @@ use crate::{
     traits::{EntityKind, FieldValue},
 };
 
-use crate::db::query::plan::cursor::planned_cursor::PlannedCursor;
-
 /// Validate and decode a continuation cursor into executor-ready cursor state.
-pub(in crate::db::query::plan) fn plan_cursor<E: EntityKind>(
+pub(in crate::db) fn plan_cursor<E: EntityKind>(
     plan: &AccessPlannedQuery<E::Key>,
     direction: Direction,
     continuation_signature: ContinuationSignature,
@@ -39,7 +38,7 @@ where
 }
 
 /// Revalidate executor-provided cursor state through the canonical cursor spine.
-pub(in crate::db::query::plan) fn revalidate_planned_cursor<E: EntityKind>(
+pub(in crate::db) fn revalidate_planned_cursor<E: EntityKind>(
     plan: &AccessPlannedQuery<E::Key>,
     direction: Direction,
     initial_offset: u32,

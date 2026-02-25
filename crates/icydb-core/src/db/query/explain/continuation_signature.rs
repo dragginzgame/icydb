@@ -1,117 +1,13 @@
-//! Continuation signature and typed cursor-boundary decoding helpers.
+//! Continuation signature helpers.
 
 use crate::{
     db::query::{
-        contracts::cursor::{ContinuationSignature, CursorBoundary, CursorBoundarySlot},
-        explain::ExplainPlan,
-        fingerprint::hash_parts,
-        plan::{AccessPlannedQuery, CursorPlanError, OrderPlanError, OrderSpec, PlanError},
-        predicate::SchemaInfo,
+        contracts::cursor::ContinuationSignature, explain::ExplainPlan, fingerprint::hash_parts,
+        plan::AccessPlannedQuery,
     },
-    error::InternalError,
-    model::entity::EntityModel,
-    traits::{EntityKind, FieldValue},
-    value::Value,
+    traits::FieldValue,
 };
 use sha2::{Digest, Sha256};
-
-/// Decode errors for typed primary-key cursor slot extraction.
-#[derive(Clone, Debug)]
-pub(crate) enum PrimaryKeyCursorSlotDecodeError {
-    Missing,
-    TypeMismatch { value: Value },
-}
-
-impl PrimaryKeyCursorSlotDecodeError {
-    /// Convert this decode failure into the optional offending value shape.
-    #[must_use]
-    pub(crate) fn into_mismatch_value(self) -> Option<Value> {
-        match self {
-            Self::Missing => None,
-            Self::TypeMismatch { value } => Some(value),
-        }
-    }
-}
-
-// Decode one primary-key cursor slot into a typed key value.
-pub(crate) fn decode_primary_key_cursor_slot<K: FieldValue>(
-    slot: &CursorBoundarySlot,
-) -> Result<K, PrimaryKeyCursorSlotDecodeError> {
-    match slot {
-        CursorBoundarySlot::Missing => Err(PrimaryKeyCursorSlotDecodeError::Missing),
-        CursorBoundarySlot::Present(value) => {
-            K::from_value(value).ok_or_else(|| PrimaryKeyCursorSlotDecodeError::TypeMismatch {
-                value: value.clone(),
-            })
-        }
-    }
-}
-
-/// Decode the primary-key slot from a validated cursor boundary using typed key semantics.
-pub(crate) fn decode_typed_primary_key_cursor_slot<K: FieldValue>(
-    model: &EntityModel,
-    order: &OrderSpec,
-    boundary: &CursorBoundary,
-) -> Result<K, PlanError> {
-    let pk_field = model.primary_key.name;
-    let pk_index = order
-        .fields
-        .iter()
-        .position(|(field, _)| field == pk_field)
-        .ok_or_else(|| {
-            PlanError::from(OrderPlanError::MissingPrimaryKeyTieBreak {
-                field: pk_field.to_string(),
-            })
-        })?;
-
-    let schema = SchemaInfo::from_entity_model(model).map_err(PlanError::from)?;
-    let expected = schema
-        .field(pk_field)
-        .expect("primary key exists by model contract")
-        .to_string();
-    let pk_slot = &boundary.slots[pk_index];
-
-    decode_primary_key_cursor_slot::<K>(pk_slot).map_err(|err| {
-        PlanError::from(CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
-            field: pk_field.to_string(),
-            expected,
-            value: err.into_mismatch_value(),
-        })
-    })
-}
-
-/// Decode a typed primary-key cursor boundary for PK-ordered executor paths.
-pub(crate) fn decode_pk_cursor_boundary<E>(
-    boundary: Option<&CursorBoundary>,
-) -> Result<Option<E::Key>, InternalError>
-where
-    E: EntityKind,
-{
-    let Some(boundary) = boundary else {
-        return Ok(None);
-    };
-
-    debug_assert_eq!(
-        boundary.slots.len(),
-        1,
-        "pk-ordered continuation boundaries are validated by the cursor spine",
-    );
-    let slot = boundary
-        .slots
-        .first()
-        .unwrap_or(&CursorBoundarySlot::Missing);
-
-    decode_primary_key_cursor_slot::<E::Key>(slot)
-        .map(Some)
-        .map_err(|err| match err {
-            PrimaryKeyCursorSlotDecodeError::Missing => {
-                InternalError::query_executor_invariant("pk cursor slot must be present")
-            }
-            PrimaryKeyCursorSlotDecodeError::TypeMismatch { .. } => {
-                InternalError::query_executor_invariant("pk cursor slot type mismatch")
-            }
-        })
-}
 
 ///
 /// AccessPlannedQuery

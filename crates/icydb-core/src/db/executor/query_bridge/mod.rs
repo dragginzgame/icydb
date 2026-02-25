@@ -5,14 +5,13 @@ mod window;
 
 use crate::{
     db::{
+        executor::compute_page_window,
         index::IndexKey,
         query::{
             contracts::cursor::{
                 ContinuationSignature, ContinuationToken, CursorBoundary, IndexRangeCursorAnchor,
             },
-            plan::{
-                AccessPath, AccessPlan, AccessPlannedQuery, Direction, cursor::compute_page_window,
-            },
+            plan::{AccessPath, AccessPlan, AccessPlannedQuery, Direction},
             policy,
             predicate::{PredicateFieldSlots, eval_with_slots as eval_predicate_with_slots},
         },
@@ -390,12 +389,7 @@ impl<K> AccessPlannedQuery<K> {
     {
         let boundary = self.cursor_boundary_from_entity(entity)?;
         let initial_offset = self.page.as_ref().map_or(0, |page| page.offset);
-        let token = if self.access.cursor_support().supports_index_range_anchor() {
-            let (index, _, _, _) = self.access.as_index_range_path().ok_or_else(|| {
-                InternalError::query_executor_invariant(
-                    "index-range cursor support missing concrete index-range path",
-                )
-            })?;
+        let token = if let Some((index, _, _, _)) = self.access.as_index_range_path() {
             let index_key = IndexKey::new(entity, index)?.ok_or_else(|| {
                 InternalError::query_executor_invariant(
                     "cursor row is not indexable for planned index-range access",

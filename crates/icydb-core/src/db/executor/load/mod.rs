@@ -16,23 +16,21 @@ use crate::{
     db::{
         Db,
         executor::{
-            AccessStreamBindings, KeyOrderComparator, OrderedKeyStreamBox,
+            AccessStreamBindings, ExecutablePlan, KeyOrderComparator, OrderedKeyStreamBox,
+            PlannedCursor,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, resolve_any_aggregate_target_slot,
                 resolve_numeric_aggregate_target_slot, resolve_orderable_aggregate_target_slot,
             },
-            compile_predicate_slots,
+            compile_predicate_slots, compute_page_window, decode_pk_cursor_boundary,
             plan::{record_plan_metrics, record_rows_scanned},
             route::{ExecutionRoutePlan, RouteOrderSlotPolicy, derive_scan_direction},
         },
         query::policy,
         query::{
             contracts::cursor::{ContinuationToken, CursorBoundary},
-            cursor::continuation::decode_pk_cursor_boundary,
             plan::{
                 AccessPlan, AccessPlannedQuery, Direction, OrderDirection,
-                cursor::{PlannedCursor, compute_page_window},
-                lowering::ExecutablePlan,
                 validate::validate_executor_plan,
             },
         },
@@ -244,7 +242,9 @@ where
     ) -> Result<(CursorPage<E>, Option<ExecutionTrace>), InternalError> {
         let cursor: PlannedCursor = plan.revalidate_planned_cursor(cursor.into())?;
         let cursor_boundary = cursor.boundary().cloned();
-        let index_range_anchor = cursor.index_range_anchor().cloned();
+        let index_range_anchor = cursor
+            .index_range_anchor()
+            .map(|anchor| anchor.last_raw_key().clone());
 
         if !plan.mode().is_load() {
             return Err(InternalError::query_executor_invariant(

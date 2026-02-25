@@ -6,12 +6,11 @@ mod tests;
 
 use crate::db::{
     executor::{
-        AccessPlanStreamRequest, IndexStreamConstraints, StreamExecutionHints,
+        AccessPlanStreamRequest, IndexStreamConstraints, StreamExecutionHints, compute_page_window,
         fold::{AggregateFoldMode, AggregateSpec},
     },
     query::plan::{
-        AccessPath, Direction, OrderDirection, OrderSpec, cursor::compute_page_window,
-        validate::PushdownApplicability,
+        AccessPath, Direction, OrderDirection, OrderSpec, validate::PushdownApplicability,
     },
 };
 
@@ -69,6 +68,14 @@ pub(super) fn derive_scan_direction(
         Some(OrderDirection::Desc) => Direction::Desc,
         _ => Direction::Asc,
     }
+}
+
+/// Return true when this access path is eligible for PK stream fast-path execution.
+#[must_use]
+pub(in crate::db::executor) const fn supports_pk_stream_access_path<K>(
+    path: &AccessPath<K>,
+) -> bool {
+    matches!(path, AccessPath::FullScan | AccessPath::KeyRange { .. })
 }
 
 ///

@@ -1,12 +1,12 @@
 use crate::{
     db::{
         data::DataKey,
-        executor::{Context, OrderedKeyStreamBox, VecOrderedKeyStream, normalize_ordered_keys},
-        index::{RawIndexKey, predicate::IndexPredicateExecution},
-        query::plan::{
-            AccessPath, Direction,
-            lowering::{IndexPrefixSpec, IndexRangeSpec},
+        executor::{
+            Context, IndexPrefixSpec, IndexRangeSpec, OrderedKeyStreamBox, VecOrderedKeyStream,
+            normalize_ordered_keys,
         },
+        index::{RawIndexKey, predicate::IndexPredicateExecution},
+        query::plan::{AccessPath, Direction},
     },
     error::InternalError,
     model::index::IndexModel,

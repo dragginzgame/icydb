@@ -8,6 +8,7 @@ pub(crate) use key_access::*;
 
 use crate::{
     db::{
+        executor::ExecutablePlan,
         query::{
             ReadConsistency,
             explain::ExplainPlan,
@@ -15,7 +16,6 @@ use crate::{
             plan::{
                 AccessPlannedQuery, DeleteLimitSpec, LogicalPlan, OrderDirection, OrderSpec,
                 PageSpec, PlanError,
-                lowering::ExecutablePlan,
                 planner::{PlannerError, plan_access},
                 validate::validate_logical_plan_model,
             },

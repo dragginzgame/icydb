@@ -137,15 +137,6 @@ impl<K> AccessPlan<K> {
         matches!(self, Self::Path(path) if path.is_full_scan())
     }
 
-    /// Return cursor continuation support for this access-plan node.
-    #[must_use]
-    pub(crate) const fn cursor_support(&self) -> CursorSupport {
-        match self {
-            Self::Path(path) => path.cursor_support(),
-            Self::Union(_) | Self::Intersection(_) => CursorSupport::None,
-        }
-    }
-
     /// Borrow index-prefix access details when this is a single IndexPrefix path.
     #[must_use]
     pub(crate) fn as_index_prefix_path(&self) -> Option<(&IndexModel, &[Value])> {
@@ -215,25 +206,6 @@ pub(crate) enum AccessPath<K> {
     FullScan,
 }
 
-///
-/// CursorSupport
-/// Cursor-continuation capability exposed by an access path/plan.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum CursorSupport {
-    None,
-    IndexRangeAnchor,
-}
-
-impl CursorSupport {
-    /// Return true when this support surface accepts index-range anchors.
-    #[must_use]
-    pub(crate) const fn supports_index_range_anchor(self) -> bool {
-        matches!(self, Self::IndexRangeAnchor)
-    }
-}
-
 impl<K> AccessPath<K> {
     /// Construct one semantic index-range path from semantic bounds.
     #[cfg(test)]
@@ -260,25 +232,10 @@ impl<K> AccessPath<K> {
         matches!(self, Self::FullScan)
     }
 
-    /// Return true when this path is eligible for PK streaming (`FullScan` or `KeyRange`).
-    #[must_use]
-    pub(crate) const fn is_full_scan_or_key_range(&self) -> bool {
-        matches!(self, Self::FullScan | Self::KeyRange { .. })
-    }
-
     /// Return true when this path is backed by a secondary index.
     #[must_use]
     pub(crate) const fn is_index_path(&self) -> bool {
         matches!(self, Self::IndexPrefix { .. } | Self::IndexRange { .. })
-    }
-
-    /// Return cursor continuation support for this concrete path.
-    #[must_use]
-    pub(crate) const fn cursor_support(&self) -> CursorSupport {
-        match self {
-            Self::IndexRange { .. } => CursorSupport::IndexRangeAnchor,
-            _ => CursorSupport::None,
-        }
     }
 
     /// Borrow index-prefix details when this path is `IndexPrefix`.

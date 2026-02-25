@@ -3,11 +3,11 @@ use crate::{
         Context,
         executor::load::{ExecutionOptimization, FastPathKeyResult, LoadExecutor},
         executor::{
-            AccessPlanStreamRequest, AccessStreamBindings, KeyOrderComparator,
+            AccessPlanStreamRequest, AccessStreamBindings, IndexPrefixSpec, KeyOrderComparator,
             route::{RouteOrderSlotPolicy, derive_scan_direction},
         },
         index::predicate::IndexPredicateExecution,
-        query::plan::{AccessPlannedQuery, Direction, lowering::IndexPrefixSpec},
+        query::plan::{AccessPlannedQuery, Direction},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},

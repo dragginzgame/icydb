@@ -2,6 +2,7 @@ use crate::{
     db::{
         Context,
         executor::{
+            ExecutablePlan,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, compare_entities_for_field_extrema,
                 compare_orderable_field_values, extract_orderable_field_value,
@@ -9,10 +10,7 @@ use crate::{
             fold::{AggregateKind, AggregateOutput},
             load::{LoadExecutor, aggregate::MinMaxByIds},
         },
-        query::{
-            ReadConsistency,
-            plan::{Direction, lowering::ExecutablePlan},
-        },
+        query::{ReadConsistency, plan::Direction},
         response::Response,
     },
     error::InternalError,

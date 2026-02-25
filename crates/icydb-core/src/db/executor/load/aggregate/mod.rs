@@ -7,8 +7,8 @@ use crate::{
     db::{
         Context,
         executor::{
-            AccessPlanStreamRequest, AccessStreamBindings, IndexStreamConstraints,
-            StreamExecutionHints,
+            AccessPlanStreamRequest, AccessStreamBindings, ExecutablePlan, IndexPrefixSpec,
+            IndexRangeSpec, IndexStreamConstraints, StreamExecutionHints,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, apply_aggregate_direction,
                 compare_entities_by_orderable_field, compare_entities_for_field_extrema,
@@ -32,11 +32,7 @@ use crate::{
         index::predicate::{IndexPredicateExecution, IndexPredicateProgram},
         query::{
             ReadConsistency,
-            plan::{
-                AccessPath, AccessPlannedQuery, Direction,
-                lowering::{ExecutablePlan, IndexPrefixSpec, IndexRangeSpec},
-                validate::validate_executor_plan,
-            },
+            plan::{AccessPath, AccessPlannedQuery, Direction, validate::validate_executor_plan},
             policy,
         },
     },

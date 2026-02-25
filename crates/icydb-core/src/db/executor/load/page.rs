@@ -2,11 +2,14 @@ use crate::{
     db::{
         Context,
         executor::load::{CursorPage, LoadExecutor},
-        executor::{BudgetedOrderedKeyStream, OrderedKeyStream, query_bridge::PostAccessStats},
+        executor::{
+            BudgetedOrderedKeyStream, OrderedKeyStream, compute_page_window,
+            query_bridge::PostAccessStats,
+        },
         query::predicate::PredicateFieldSlots,
         query::{
             contracts::cursor::{ContinuationSignature, ContinuationToken, CursorBoundary},
-            plan::{AccessPlannedQuery, Direction, cursor::compute_page_window},
+            plan::{AccessPlannedQuery, Direction},
         },
         response::Response,
     },

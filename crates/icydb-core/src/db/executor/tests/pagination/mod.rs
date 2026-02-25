@@ -2,6 +2,7 @@
 use super::*;
 use crate::{
     db::{
+        executor::ExecutablePlan,
         index::{Direction, EncodedValue, RawIndexKey, raw_keys_for_encoded_prefix},
         query::{
             contracts::cursor::ContinuationToken,
@@ -9,8 +10,7 @@ use crate::{
             intent::{LoadSpec, QueryMode},
             plan::{
                 AccessPath, AccessPlan, AccessPlannedQuery, LogicalPlan, OrderDirection, OrderSpec,
-                PageSpec, PlanError, lowering::ExecutablePlan,
-                validate::SecondaryOrderPushdownRejection,
+                PageSpec, PlanError, validate::SecondaryOrderPushdownRejection,
             },
         },
     },
