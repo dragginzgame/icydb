@@ -1,19 +1,22 @@
 //! Structural logical-plan model.
 //!
-//! Execution-phase semantics (post-access filtering, ordering, cursor windows,
-//! pagination, delete limits) are implemented in `db::executor::kernel::post_access`.
+//! Post-access runtime semantics (filtering, ordering, cursor windows,
+//! pagination, delete limits) are handled after logical planning.
 
-use crate::db::query::{
-    ReadConsistency,
-    intent::QueryMode,
-    plan::{AccessPlan, DeleteLimitSpec, OrderSpec, PageSpec},
-    predicate::Predicate,
+use crate::db::{
+    access::AccessPlan,
+    query::{
+        ReadConsistency,
+        intent::QueryMode,
+        plan::{DeleteLimitSpec, OrderSpec, PageSpec},
+        predicate::Predicate,
+    },
 };
 
 #[cfg(test)]
-use crate::db::query::intent::LoadSpec;
+use crate::db::access::AccessPath;
 #[cfg(test)]
-use crate::db::query::plan::AccessPath;
+use crate::db::query::intent::LoadSpec;
 use std::ops::{Deref, DerefMut};
 
 ///

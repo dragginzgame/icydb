@@ -1,6 +1,7 @@
 use crate::{
     db::{
         Context,
+        access::AccessPath,
         direction::Direction,
         executor::{
             AccessPlanStreamRequest, AccessStreamBindings, ExecutablePlan, ExecutionKernel,
@@ -27,7 +28,7 @@ use crate::{
         index::predicate::IndexPredicateExecution,
         query::{
             ReadConsistency,
-            plan::{AccessPath, AccessPlannedQuery, validate::validate_executor_plan},
+            plan::{AccessPlannedQuery, validate::validate_executor_plan},
             policy,
         },
         response::Response,
@@ -891,7 +892,7 @@ impl ExecutionKernel {
     // stream producers from a strict-compiled index predicate program.
     #[expect(clippy::single_option_map)]
     fn aggregate_index_predicate_execution(
-        program: Option<&crate::db::index::predicate::IndexPredicateProgram>,
+        program: Option<&crate::db::access::IndexPredicateProgram>,
     ) -> Option<IndexPredicateExecution<'_>> {
         program.map(|program| IndexPredicateExecution {
             program,

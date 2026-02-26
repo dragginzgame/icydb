@@ -1,6 +1,7 @@
 use super::*;
 use crate::{
     db::{
+        access::AccessPath,
         data::DataKey,
         executor::{
             ExecutablePlan, ExecutionKernel,
@@ -8,7 +9,7 @@ use crate::{
         },
         query::{
             explain::ExplainAccessPath,
-            plan::{AccessPath, AccessPlannedQuery, OrderDirection, OrderSpec, PageSpec},
+            plan::{AccessPlannedQuery, OrderDirection, OrderSpec, PageSpec},
         },
         response::Response,
     },
@@ -827,7 +828,7 @@ fn secondary_group_rank_order_plan(
     offset: u32,
 ) -> crate::db::executor::ExecutablePlan<PushdownParityEntity> {
     let mut logical_plan = crate::db::query::plan::AccessPlannedQuery::new(
-        crate::db::query::plan::AccessPath::IndexPrefix {
+        crate::db::access::AccessPath::IndexPrefix {
             index: PUSHDOWN_PARITY_INDEX_MODELS[0],
             values: vec![Value::Uint(7)],
         },
@@ -3176,7 +3177,7 @@ fn aggregate_count_key_range_window_scans_offset_plus_limit() {
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
 
     let mut logical_plan = crate::db::query::plan::AccessPlannedQuery::new(
-        crate::db::query::plan::AccessPath::KeyRange {
+        crate::db::access::AccessPath::KeyRange {
             start: Ulid::from_u128(8682),
             end: Ulid::from_u128(8686),
         },
@@ -3219,7 +3220,7 @@ fn aggregate_exists_index_range_window_scans_offset_plus_one() {
     let load = LoadExecutor::<UniqueIndexRangeEntity>::new(DB, false);
 
     let mut logical_plan = crate::db::query::plan::AccessPlannedQuery::new(
-        crate::db::query::plan::AccessPath::index_range(
+        crate::db::access::AccessPath::index_range(
             UNIQUE_INDEX_RANGE_INDEX_MODELS[0],
             vec![],
             std::ops::Bound::Included(Value::Uint(101)),
@@ -3451,16 +3452,12 @@ fn aggregate_composite_count_direct_path_scan_does_not_exceed_fallback() {
             Ulid::from_u128(8755),
             Ulid::from_u128(8756),
         ];
-        let access = crate::db::query::plan::AccessPlan::Union(vec![
-            crate::db::query::plan::AccessPlan::path(crate::db::query::plan::AccessPath::ByKeys(
-                first,
-            )),
-            crate::db::query::plan::AccessPlan::path(crate::db::query::plan::AccessPath::ByKeys(
-                second,
-            )),
+        let access = crate::db::access::AccessPlan::Union(vec![
+            crate::db::access::AccessPlan::path(crate::db::access::AccessPath::ByKeys(first)),
+            crate::db::access::AccessPlan::path(crate::db::access::AccessPath::ByKeys(second)),
         ]);
         let mut logical_plan = crate::db::query::plan::AccessPlannedQuery::new(
-            crate::db::query::plan::AccessPath::FullScan,
+            crate::db::access::AccessPath::FullScan,
             ReadConsistency::MissingOk,
         );
         logical_plan.access = access;
@@ -3549,16 +3546,12 @@ fn aggregate_composite_exists_direct_path_scan_does_not_exceed_fallback() {
             Ulid::from_u128(8765),
             Ulid::from_u128(8766),
         ];
-        let access = crate::db::query::plan::AccessPlan::Union(vec![
-            crate::db::query::plan::AccessPlan::path(crate::db::query::plan::AccessPath::ByKeys(
-                first,
-            )),
-            crate::db::query::plan::AccessPlan::path(crate::db::query::plan::AccessPath::ByKeys(
-                second,
-            )),
+        let access = crate::db::access::AccessPlan::Union(vec![
+            crate::db::access::AccessPlan::path(crate::db::access::AccessPath::ByKeys(first)),
+            crate::db::access::AccessPlan::path(crate::db::access::AccessPath::ByKeys(second)),
         ]);
         let mut logical_plan = crate::db::query::plan::AccessPlannedQuery::new(
-            crate::db::query::plan::AccessPath::FullScan,
+            crate::db::access::AccessPath::FullScan,
             ReadConsistency::MissingOk,
         );
         logical_plan.access = access;
@@ -3715,7 +3708,7 @@ fn aggregate_exists_secondary_index_strict_missing_surfaces_corruption_error() {
 
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let mut logical_plan = crate::db::query::plan::AccessPlannedQuery::new(
-        crate::db::query::plan::AccessPath::IndexPrefix {
+        crate::db::access::AccessPath::IndexPrefix {
             index: PUSHDOWN_PARITY_INDEX_MODELS[0],
             values: vec![Value::Uint(7)],
         },

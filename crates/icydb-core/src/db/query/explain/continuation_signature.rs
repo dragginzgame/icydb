@@ -71,6 +71,7 @@ impl ExplainPlan {
 mod tests {
     use crate::{
         db::{
+            access::AccessPath,
             cursor::{
                 ContinuationSignature, ContinuationToken, ContinuationTokenError, CursorBoundary,
                 CursorBoundarySlot, IndexRangeCursorAnchor,
@@ -80,8 +81,7 @@ mod tests {
                 builder::field::FieldRef,
                 intent::{KeyAccess, LoadSpec, QueryMode, access_plan_from_keys_value},
                 plan::{
-                    AccessPath, AccessPlannedQuery, Direction, LogicalPlan, OrderDirection,
-                    OrderSpec, PageSpec,
+                    AccessPlannedQuery, Direction, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
                 },
                 predicate::Predicate,
             },

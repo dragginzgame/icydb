@@ -1,18 +1,23 @@
 //! Deterministic, read-only explanation of logical plans; must not execute or validate.
 
 use crate::{
-    db::query::{
-        ReadConsistency,
-        intent::QueryMode,
-        plan::{
-            AccessPlan, AccessPlanProjection, AccessPlannedQuery, DeleteLimitSpec, OrderDirection,
-            OrderSpec, PageSpec, project_access_plan,
-            validate::{
-                PushdownSurfaceEligibility, SecondaryOrderPushdownEligibility,
-                SecondaryOrderPushdownRejection, assess_secondary_order_pushdown,
+    db::{
+        access::AccessPlan,
+        query::{
+            ReadConsistency,
+            intent::QueryMode,
+            plan::{
+                AccessPlanProjection, AccessPlannedQuery, DeleteLimitSpec, OrderDirection,
+                OrderSpec, PageSpec, project_access_plan,
+                validate::{
+                    PushdownSurfaceEligibility, SecondaryOrderPushdownEligibility,
+                    SecondaryOrderPushdownRejection, assess_secondary_order_pushdown,
+                },
+            },
+            predicate::{
+                CompareOp, ComparePredicate, Predicate, coercion::CoercionSpec, normalize,
             },
         },
-        predicate::{CompareOp, ComparePredicate, Predicate, coercion::CoercionSpec, normalize},
     },
     model::entity::EntityModel,
     traits::FieldValue,
@@ -417,10 +422,9 @@ const fn explain_delete_limit(limit: Option<&DeleteLimitSpec>) -> ExplainDeleteL
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::access::{AccessPath, AccessPlan};
     use crate::db::query::intent::{KeyAccess, LoadSpec, QueryMode, access_plan_from_keys_value};
-    use crate::db::query::plan::{
-        AccessPath, AccessPlan, AccessPlannedQuery, LogicalPlan, OrderDirection, OrderSpec,
-    };
+    use crate::db::query::plan::{AccessPlannedQuery, LogicalPlan, OrderDirection, OrderSpec};
     use crate::db::query::predicate::Predicate;
     use crate::db::query::{ReadConsistency, builder::field::FieldRef};
     use crate::model::{field::FieldKind, index::IndexModel};

@@ -1,5 +1,8 @@
 use crate::{
-    db::query::plan::{AccessPath, AccessPlan, AccessPlanError, PlanError, canonical},
+    db::{
+        access::{AccessPath, AccessPlan},
+        query::plan::{AccessPlanError, PlanError, canonical},
+    },
     model::entity::EntityModel,
     traits::{EntityKind, FieldValue},
     value::Value,

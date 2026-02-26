@@ -1,5 +1,6 @@
 use crate::{
     db::{
+        access::{AccessPath, AccessPlan},
         direction::Direction,
         executor::{
             ExecutionKernel,
@@ -7,10 +8,7 @@ use crate::{
             aggregate::{AggregateKind, AggregateSpec},
             load::LoadExecutor,
         },
-        query::{
-            plan::{AccessPath, AccessPlan, AccessPlannedQuery},
-            predicate::PredicateFieldSlots,
-        },
+        query::{plan::AccessPlannedQuery, predicate::PredicateFieldSlots},
     },
     model::entity::resolve_field_slot,
     traits::{EntityKind, EntityValue},

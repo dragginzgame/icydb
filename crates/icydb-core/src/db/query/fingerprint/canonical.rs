@@ -12,7 +12,7 @@
 //! belong in this module.
 
 use crate::{
-    db::query::plan::{AccessPath, AccessPlan},
+    db::access::{AccessPath, AccessPlan},
     value::Value,
 };
 use std::cmp::Ordering;

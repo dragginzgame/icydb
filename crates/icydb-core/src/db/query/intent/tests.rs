@@ -1,10 +1,13 @@
 use super::*;
 use crate::{
-    db::query::{
-        builder::field::FieldRef,
-        expr::FilterExpr,
-        plan::{AccessPath, AccessPlan, AccessPlannedQuery, LogicalPlan},
-        predicate::{CompareOp, ComparePredicate},
+    db::{
+        access::{AccessPath, AccessPlan},
+        query::{
+            builder::field::FieldRef,
+            expr::FilterExpr,
+            plan::{AccessPlannedQuery, LogicalPlan},
+            predicate::{CompareOp, ComparePredicate},
+        },
     },
     model::{
         entity::EntityModel,
@@ -89,7 +92,7 @@ impl FieldProjection for PlanSingleton {
 
 crate::test_canister! {
     ident = PlanCanister,
-    commit_memory_id = 254,
+    commit_memory_id = crate::test_support::test_commit_memory_id(),
 }
 
 crate::test_store! {

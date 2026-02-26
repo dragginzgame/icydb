@@ -20,8 +20,6 @@ pub(crate) use cursor::CursorPlanError;
 ///
 pub(crate) use logical::{AccessPlannedQuery, LogicalPlan};
 pub use types::OrderDirection;
-pub(crate) use types::{
-    AccessPath, AccessPlan, DeleteLimitSpec, OrderSpec, PageSpec, SemanticIndexRangeSpec,
-};
+pub(crate) use types::{DeleteLimitSpec, OrderSpec, PageSpec};
 pub use validate::PlanError;
 pub(crate) use validate::{AccessPlanError, OrderPlanError};

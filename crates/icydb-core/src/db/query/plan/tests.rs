@@ -1,5 +1,5 @@
-use super::*;
 use crate::{
+    db::access::{AccessPath, AccessPlan},
     db::query::{
         plan::planner::plan_access,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo},

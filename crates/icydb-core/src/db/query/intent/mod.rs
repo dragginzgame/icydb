@@ -8,7 +8,6 @@ pub(crate) use key_access::*;
 
 use crate::{
     db::{
-        executor::ExecutablePlan,
         query::{
             ReadConsistency,
             explain::ExplainPlan,
@@ -388,6 +387,38 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
 /// - free of access-path decisions
 ///
 
+///
+/// PlannedQuery
+///
+/// Neutral query-owned planned contract produced by query planning.
+/// Stores logical + access shape without executor compilation state.
+///
+#[derive(Debug)]
+pub struct PlannedQuery<E: EntityKind> {
+    plan: AccessPlannedQuery<E::Key>,
+    _marker: PhantomData<E>,
+}
+
+impl<E: EntityKind> PlannedQuery<E> {
+    #[must_use]
+    pub(in crate::db) const fn new(plan: AccessPlannedQuery<E::Key>) -> Self {
+        Self {
+            plan,
+            _marker: PhantomData,
+        }
+    }
+
+    #[must_use]
+    pub fn explain(&self) -> ExplainPlan {
+        self.plan.explain_with_model(E::MODEL)
+    }
+
+    #[must_use]
+    pub(in crate::db) fn into_inner(self) -> AccessPlannedQuery<E::Key> {
+        self.plan
+    }
+}
+
 #[derive(Debug)]
 pub struct Query<E: EntityKind> {
     intent: QueryModel<'static, E::Key>,
@@ -516,16 +547,16 @@ impl<E: EntityKind> Query<E> {
 
     /// Explain this intent without executing it.
     pub fn explain(&self) -> Result<ExplainPlan, QueryError> {
-        let plan = self.build_plan()?;
+        let plan = self.planned()?;
 
-        Ok(plan.explain_with_model(E::MODEL))
+        Ok(plan.explain())
     }
 
-    /// Plan this intent into an executor-ready plan.
-    pub fn plan(&self) -> Result<ExecutablePlan<E>, QueryError> {
+    /// Plan this intent into a neutral planned query contract.
+    pub fn planned(&self) -> Result<PlannedQuery<E>, QueryError> {
         let plan = self.build_plan()?;
 
-        Ok(ExecutablePlan::new(plan))
+        Ok(PlannedQuery::new(plan))
     }
 
     // Build a logical plan for the current intent.

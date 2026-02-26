@@ -187,7 +187,7 @@ fn write_to_hasher(value: &Value, h: &mut Xxh3) -> Result<(), InternalError> {
     Ok(())
 }
 
-/// Stable hash used for index/storage fingerprints.
+/// Stable hash used for canonical value fingerprinting across db layers.
 pub(crate) fn hash_value(value: &Value) -> Result<[u8; 16], InternalError> {
     const VERSION: u8 = 1;
 

@@ -190,15 +190,13 @@ mod tests {
     use crate::{
         db::{
             Db,
+            access::{AccessPath, AccessPlan},
             direction::Direction,
             executor::{
                 Context, IndexStreamConstraints, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
                 StreamExecutionHints,
             },
-            query::{
-                ReadConsistency,
-                plan::{AccessPath, AccessPlan},
-            },
+            query::ReadConsistency,
             registry::StoreRegistry,
         },
         model::{field::FieldKind, index::IndexModel},
@@ -233,7 +231,7 @@ mod tests {
 
     crate::test_canister! {
         ident = ContextInvariantCanister,
-        commit_memory_id = 254,
+        commit_memory_id = crate::test_support::test_commit_memory_id(),
     }
 
     crate::test_store! {

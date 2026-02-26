@@ -50,7 +50,12 @@ pub(in crate::db) use window::compute_page_window;
 use crate::{
     db::{
         data::DataKey,
-        query::{plan::AccessPlannedQuery, predicate::PredicateFieldSlots},
+        query::{
+            fluent::{delete::FluentDeleteQuery, load::FluentLoadQuery},
+            intent::{PlannedQuery, Query, QueryError},
+            plan::AccessPlannedQuery,
+            predicate::PredicateFieldSlots,
+        },
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     traits::EntityKind,
@@ -63,6 +68,33 @@ pub(super) fn compile_predicate_slots<E: EntityKind>(
     plan.predicate
         .as_ref()
         .map(PredicateFieldSlots::resolve::<E>)
+}
+
+impl<E: EntityKind> From<PlannedQuery<E>> for ExecutablePlan<E> {
+    fn from(value: PlannedQuery<E>) -> Self {
+        Self::new(value.into_inner())
+    }
+}
+
+impl<E: EntityKind> Query<E> {
+    /// Compile this logical planned query into executor runtime state.
+    pub fn plan(&self) -> Result<ExecutablePlan<E>, QueryError> {
+        self.planned().map(ExecutablePlan::from)
+    }
+}
+
+impl<E: EntityKind> FluentLoadQuery<'_, E> {
+    /// Compile this fluent load intent into executor runtime state.
+    pub fn plan(&self) -> Result<ExecutablePlan<E>, QueryError> {
+        self.planned().map(ExecutablePlan::from)
+    }
+}
+
+impl<E: EntityKind> FluentDeleteQuery<'_, E> {
+    /// Compile this fluent delete intent into executor runtime state.
+    pub fn plan(&self) -> Result<ExecutablePlan<E>, QueryError> {
+        self.planned().map(ExecutablePlan::from)
+    }
 }
 
 ///

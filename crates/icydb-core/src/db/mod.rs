@@ -1,3 +1,4 @@
+pub(crate) mod access;
 // 1️⃣ Module declarations
 pub(crate) mod cursor;
 pub(crate) mod diagnostics;
@@ -15,6 +16,7 @@ pub(in crate::db) mod executor;
 pub(in crate::db) mod index;
 pub(in crate::db) mod lowering;
 pub(in crate::db) mod relation;
+pub(in crate::db) mod value_hash;
 
 // 2️⃣ Public re-exports (Tier-2 API surface)
 pub use codec::cursor::{decode_cursor, encode_cursor};
@@ -24,8 +26,6 @@ pub use diagnostics::StorageReport;
 pub use executor::{ExecutionAccessPathVariant, ExecutionOptimization, ExecutionTrace};
 pub use identity::{EntityName, IndexName};
 pub use index::IndexStore;
-#[cfg(test)]
-pub(crate) use index::hash_value;
 pub use query::{
     ReadConsistency,
     builder::field::FieldRef,
@@ -44,6 +44,8 @@ pub use registry::StoreRegistry;
 pub use relation::validate_delete_strong_relations_for_source;
 pub use response::{Response, ResponseError, Row, WriteBatchResponse, WriteResponse};
 pub use session::DbSession;
+#[cfg(test)]
+pub(crate) use value_hash::hash_value;
 
 // 3️⃣ Internal imports (implementation wiring)
 use crate::{

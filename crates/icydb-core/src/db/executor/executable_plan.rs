@@ -1,5 +1,6 @@
 use crate::{
     db::{
+        access::AccessPlan,
         cursor::ContinuationSignature,
         executor::{
             PlannedCursor, prepare_cursor as validate_cursor_plan,
@@ -14,9 +15,7 @@ use crate::{
             explain::ExplainPlan,
             fingerprint::PlanFingerprint,
             intent::QueryMode,
-            plan::{
-                AccessPlan, AccessPlannedQuery, Direction, LogicalPlan, OrderDirection, PlanError,
-            },
+            plan::{AccessPlannedQuery, Direction, LogicalPlan, OrderDirection, PlanError},
         },
     },
     error::InternalError,

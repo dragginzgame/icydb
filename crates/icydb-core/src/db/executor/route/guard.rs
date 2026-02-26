@@ -68,7 +68,7 @@ pub(in crate::db::executor) fn ensure_secondary_aggregate_fast_path_arity(
     )
 }
 
-// Guard index-range aggregate fast-path assumptions so planner/executor
+// Guard index-range aggregate fast-path assumptions so contract/runtime
 // spec boundaries remain explicit and drift-resistant.
 pub(in crate::db::executor) fn ensure_index_range_aggregate_fast_path_specs(
     index_range_pushdown_eligible: bool,
@@ -93,7 +93,7 @@ pub(in crate::db::executor) fn ensure_index_range_aggregate_fast_path_specs(
     Ok(())
 }
 
-// Guard load fast-path assumptions so planner/executor spec boundaries remain
+// Guard load fast-path assumptions so contract/runtime spec boundaries remain
 // explicit and drift-resistant as new fast paths are introduced.
 pub(in crate::db::executor) fn ensure_load_fast_path_spec_arity(
     secondary_pushdown_eligible: bool,

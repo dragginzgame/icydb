@@ -1,6 +1,5 @@
 use crate::db::{
-    executor::ExecutionKernel, index::predicate::IndexPredicateProgram,
-    query::predicate::PredicateFieldSlots,
+    access::IndexPredicateProgram, executor::ExecutionKernel, query::predicate::PredicateFieldSlots,
 };
 
 ///

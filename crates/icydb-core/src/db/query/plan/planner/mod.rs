@@ -6,11 +6,14 @@
 mod normalize;
 mod range;
 
-use super::{AccessPath, AccessPlan, PlanError, SemanticIndexRangeSpec};
+use super::PlanError;
 use crate::{
-    db::query::predicate::{
-        CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo,
-        normalize as normalize_predicate, validate::literal_matches_type,
+    db::{
+        access::{AccessPath, AccessPlan, SemanticIndexRangeSpec},
+        query::predicate::{
+            CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo,
+            normalize as normalize_predicate, validate::literal_matches_type,
+        },
     },
     error::InternalError,
     model::entity::EntityModel,

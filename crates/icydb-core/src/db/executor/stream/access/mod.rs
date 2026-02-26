@@ -1,5 +1,6 @@
 use crate::{
     db::{
+        access::{AccessPath, AccessPlan},
         direction::Direction,
         executor::{
             Context, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
@@ -10,10 +11,7 @@ use crate::{
         },
         index::predicate::IndexPredicateExecution,
         lowering::LoweredKey,
-        query::{
-            ReadConsistency,
-            plan::{AccessPath, AccessPlan},
-        },
+        query::ReadConsistency,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},

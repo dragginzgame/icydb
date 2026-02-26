@@ -1,5 +1,8 @@
 use crate::{
-    db::query::plan::{AccessPath, AccessPlan, canonical},
+    db::{
+        access::{AccessPath, AccessPlan},
+        query::plan::canonical,
+    },
     value::Value,
 };
 

@@ -1,11 +1,10 @@
 use crate::{
     db::{
         DbSession,
-        executor::ExecutablePlan,
         query::{
             explain::ExplainPlan,
             expr::{FilterExpr, SortExpr},
-            intent::{Query, QueryError},
+            intent::{PlannedQuery, Query, QueryError},
             predicate::Predicate,
         },
         response::Response,
@@ -118,8 +117,8 @@ where
         self.query.explain()
     }
 
-    pub fn plan(&self) -> Result<ExecutablePlan<E>, QueryError> {
-        self.query.plan()
+    pub fn planned(&self) -> Result<PlannedQuery<E>, QueryError> {
+        self.query.planned()
     }
 
     // ------------------------------------------------------------------

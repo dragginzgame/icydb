@@ -1,7 +1,6 @@
 mod contracts;
 mod entry;
 pub(in crate::db) mod envelope;
-mod fingerprint;
 mod key;
 mod plan;
 pub(in crate::db) mod predicate;
@@ -14,7 +13,6 @@ pub(in crate::db) use entry::{
     IndexEntry, IndexEntryCorruption, IndexEntryEncodeError, MAX_INDEX_ENTRY_BYTES, RawIndexEntry,
 };
 pub(in crate::db) use envelope::{KeyEnvelope, continuation_advances_from_ordering};
-pub(crate) use fingerprint::hash_value;
 pub(in crate::db) use key::{EncodedValue, IndexId, IndexKey, IndexKeyKind, RawIndexKey};
 pub(in crate::db) use plan::plan_index_mutation_for_entity;
 pub(in crate::db) use range::{

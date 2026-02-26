@@ -27,6 +27,8 @@ mod validate;
 
 use crate::error::InternalError;
 #[cfg(test)]
+use crate::test_support::{TEST_MEMORY_RANGE_END, TEST_MEMORY_RANGE_START, test_commit_memory_id};
+#[cfg(test)]
 use canic_memory::{registry::MemoryRegistryError, runtime::registry::MemoryRegistryRuntime};
 use std::fmt::Display;
 
@@ -76,13 +78,16 @@ pub(in crate::db) fn commit_marker_present() -> Result<bool, InternalError> {
 
 /// Initialize commit marker storage for tests.
 ///
-/// Tests reserve a dedicated range and pin the commit marker slot to ID 255.
+/// Tests reserve a dedicated range and pin the commit marker slot to one
+/// canonical id managed by `test_support`.
 #[cfg(test)]
 pub(in crate::db) fn init_commit_store_for_tests() -> Result<(), InternalError> {
-    const TEST_COMMIT_MEMORY_ID: u8 = 254;
-
     // Phase 1: ensure the memory registry has at least one reserved range.
-    let init_result = MemoryRegistryRuntime::init(Some(("icydb_test", 1, 255)));
+    let init_result = MemoryRegistryRuntime::init(Some((
+        "icydb_test",
+        TEST_MEMORY_RANGE_START,
+        TEST_MEMORY_RANGE_END,
+    )));
     match init_result {
         Ok(_) => {}
         Err(MemoryRegistryError::Overlap { .. }) => {
@@ -98,7 +103,7 @@ pub(in crate::db) fn init_commit_store_for_tests() -> Result<(), InternalError> 
     }
 
     // Phase 2: pin and register the explicit commit marker slot.
-    memory::configure_commit_memory_id(TEST_COMMIT_MEMORY_ID)?;
+    memory::configure_commit_memory_id(test_commit_memory_id())?;
 
     // Phase 3: initialize the commit store in the configured slot.
     store::with_commit_store(|_| Ok(()))

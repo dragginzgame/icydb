@@ -1,5 +1,6 @@
 use crate::{
     db::{
+        access::AccessPath,
         data::DataKey,
         direction::Direction,
         executor::{
@@ -8,7 +9,6 @@ use crate::{
         },
         index::predicate::IndexPredicateExecution,
         lowering::LoweredKey,
-        query::plan::AccessPath,
     },
     error::InternalError,
     model::index::IndexModel,

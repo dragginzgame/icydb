@@ -5,6 +5,7 @@ use super::{
 };
 use crate::{
     db::{
+        access::{AccessPath, AccessPlan},
         cursor::CursorBoundary,
         executor::{
             aggregate::{AggregateFoldMode, AggregateKind, AggregateSpec},
@@ -13,10 +14,7 @@ use crate::{
         query::{
             ReadConsistency,
             intent::{DeleteSpec, QueryMode},
-            plan::{
-                AccessPath, AccessPlan, AccessPlannedQuery, Direction, OrderDirection, OrderSpec,
-                PageSpec,
-            },
+            plan::{AccessPlannedQuery, Direction, OrderDirection, OrderSpec, PageSpec},
             predicate::{Predicate, PredicateFieldSlots},
         },
     },
@@ -80,7 +78,7 @@ fn source_uses_direct_context_stream_construction(source: &str) -> bool {
 
 crate::test_canister! {
     ident = RouteMatrixCanister,
-    commit_memory_id = 254,
+    commit_memory_id = crate::test_support::test_commit_memory_id(),
 }
 
 crate::test_store! {

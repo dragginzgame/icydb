@@ -46,12 +46,12 @@ mod tests {
     use crate::{
         db::{
             Db,
+            access::{AccessPath, AccessPlan},
             direction::Direction,
             executor::{
                 AccessPlanStreamRequest, AccessStreamBindings, Context, KeyOrderComparator,
                 load::{ExecutionOptimization, LoadExecutor},
             },
-            query::plan::{AccessPath, AccessPlan},
             registry::StoreRegistry,
         },
         error::ErrorClass,
@@ -68,7 +68,7 @@ mod tests {
 
     crate::test_canister! {
         ident = FastStreamInvariantCanister,
-        commit_memory_id = 253,
+        commit_memory_id = crate::test_support::test_commit_memory_id(),
     }
 
     crate::test_store! {

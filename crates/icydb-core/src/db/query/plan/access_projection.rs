@@ -1,7 +1,7 @@
 use crate::{
-    db::query::{
-        explain::ExplainAccessPath,
-        plan::{AccessPath, AccessPlan},
+    db::{
+        access::{AccessPath, AccessPlan},
+        query::explain::ExplainAccessPath,
     },
     value::Value,
 };

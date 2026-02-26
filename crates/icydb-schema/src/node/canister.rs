@@ -1,3 +1,4 @@
+use crate::node::{validate_memory_id_in_range, validate_memory_id_not_reserved};
 use crate::prelude::*;
 use std::collections::BTreeMap;
 
@@ -27,15 +28,14 @@ impl ValidateNode for Canister {
         let canister_path = self.def.path();
         let mut seen_ids = BTreeMap::<u8, String>::new();
 
-        if self.commit_memory_id < self.memory_min || self.commit_memory_id > self.memory_max {
-            err!(
-                errs,
-                "commit_memory_id {} outside of range {}-{}",
-                self.commit_memory_id,
-                self.memory_min,
-                self.memory_max
-            );
-        }
+        validate_memory_id_in_range(
+            &mut errs,
+            "commit_memory_id",
+            self.commit_memory_id,
+            self.memory_min,
+            self.memory_max,
+        );
+        validate_memory_id_not_reserved(&mut errs, "commit_memory_id", self.commit_memory_id);
 
         assert_unique_memory_id(
             self.commit_memory_id,
@@ -169,5 +169,30 @@ mod tests {
         insert_store("schema_store_unique", "StoreB", canister_path, 32, 33);
 
         canister.validate().expect("unique memory IDs should pass");
+    }
+
+    #[test]
+    fn validate_rejects_reserved_commit_memory_id() {
+        let canister = Canister {
+            def: Def {
+                module_path: "schema_reserved_commit",
+                ident: "Canister",
+                comments: None,
+            },
+            memory_min: 0,
+            memory_max: 255,
+            commit_memory_id: 255,
+        };
+        schema_write().insert_node(SchemaNode::Canister(canister.clone()));
+
+        let err = canister
+            .validate()
+            .expect_err("reserved commit memory id must fail");
+
+        let rendered = err.to_string();
+        assert!(
+            rendered.contains("reserved for stable-structures internals"),
+            "expected reserved-id error, got: {rendered}"
+        );
     }
 }

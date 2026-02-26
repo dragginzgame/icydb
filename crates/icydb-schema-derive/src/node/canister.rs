@@ -1,4 +1,5 @@
 use crate::prelude::*;
+use crate::validate::memory::{memory_id_out_of_range_error, memory_id_reserved_error};
 
 ///
 /// Canister
@@ -31,12 +32,16 @@ impl ValidateNode for Canister {
             .with_span(&self.def.ident()));
         }
 
-        if self.commit_memory_id < self.memory_min || self.commit_memory_id > self.memory_max {
-            return Err(DarlingError::custom(format!(
-                "commit_memory_id {} outside of range {}-{}",
-                self.commit_memory_id, self.memory_min, self.memory_max
-            ))
-            .with_span(&self.def.ident()));
+        if let Some(message) = memory_id_out_of_range_error(
+            "commit_memory_id",
+            self.commit_memory_id,
+            self.memory_min,
+            self.memory_max,
+        ) {
+            return Err(DarlingError::custom(message).with_span(&self.def.ident()));
+        }
+        if let Some(message) = memory_id_reserved_error("commit_memory_id", self.commit_memory_id) {
+            return Err(DarlingError::custom(message).with_span(&self.def.ident()));
         }
 
         Ok(())

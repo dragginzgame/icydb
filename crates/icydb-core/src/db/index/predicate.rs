@@ -1,27 +1,11 @@
-use crate::{db::index::IndexKey, error::InternalError};
+use crate::{
+    db::{access::eval_index_compare, index::IndexKey},
+    error::InternalError,
+};
 use std::cell::Cell;
 
-///
-/// IndexPredicateProgram
-///
-/// Index-only predicate program compiled against index component positions.
-/// This is a conservative subset used for raw-index-key predicate evaluation.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(not(test), allow(dead_code))]
-pub(in crate::db) enum IndexPredicateProgram {
-    True,
-    False,
-    And(Vec<Self>),
-    Or(Vec<Self>),
-    Not(Box<Self>),
-    Compare {
-        component_index: usize,
-        op: IndexCompareOp,
-        literal: IndexLiteral,
-    },
-}
+#[allow(unused_imports)]
+pub(in crate::db) use crate::db::access::{IndexCompareOp, IndexLiteral, IndexPredicateProgram};
 
 ///
 /// IndexPredicateExecution
@@ -35,38 +19,6 @@ pub(in crate::db) enum IndexPredicateProgram {
 pub(in crate::db) struct IndexPredicateExecution<'a> {
     pub(in crate::db) program: &'a IndexPredicateProgram,
     pub(in crate::db) rejected_keys_counter: Option<&'a Cell<u64>>,
-}
-
-///
-/// IndexCompareOp
-///
-/// Operator subset that can be evaluated directly on canonical encoded index bytes.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[cfg_attr(not(test), allow(dead_code))]
-pub(in crate::db) enum IndexCompareOp {
-    Eq,
-    Ne,
-    Lt,
-    Lte,
-    Gt,
-    Gte,
-    In,
-    NotIn,
-}
-
-///
-/// IndexLiteral
-///
-/// Encoded literal payload used by one index-only compare operation.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(not(test), allow(dead_code))]
-pub(in crate::db) enum IndexLiteral {
-    One(Vec<u8>),
-    Many(Vec<Vec<u8>>),
 }
 
 // Evaluate one compiled index-only program against one decoded index key.
@@ -125,37 +77,4 @@ pub(in crate::db) fn eval_index_execution_on_decoded_key(
     }
 
     Ok(passed)
-}
-
-// Compare one encoded index component against one compiled literal payload.
-#[cfg_attr(not(test), allow(dead_code))]
-pub(in crate::db) fn eval_index_compare(
-    component: &[u8],
-    op: IndexCompareOp,
-    literal: &IndexLiteral,
-) -> bool {
-    match (op, literal) {
-        (IndexCompareOp::Eq, IndexLiteral::One(expected)) => component == expected.as_slice(),
-        (IndexCompareOp::Ne, IndexLiteral::One(expected)) => component != expected.as_slice(),
-        (IndexCompareOp::Lt, IndexLiteral::One(expected)) => component < expected.as_slice(),
-        (IndexCompareOp::Lte, IndexLiteral::One(expected)) => component <= expected.as_slice(),
-        (IndexCompareOp::Gt, IndexLiteral::One(expected)) => component > expected.as_slice(),
-        (IndexCompareOp::Gte, IndexLiteral::One(expected)) => component >= expected.as_slice(),
-        (IndexCompareOp::In, IndexLiteral::Many(candidates)) => {
-            candidates.iter().any(|candidate| component == candidate)
-        }
-        (IndexCompareOp::NotIn, IndexLiteral::Many(candidates)) => {
-            candidates.iter().all(|candidate| component != candidate)
-        }
-        (
-            IndexCompareOp::Eq
-            | IndexCompareOp::Ne
-            | IndexCompareOp::Lt
-            | IndexCompareOp::Lte
-            | IndexCompareOp::Gt
-            | IndexCompareOp::Gte,
-            IndexLiteral::Many(_),
-        )
-        | (IndexCompareOp::In | IndexCompareOp::NotIn, IndexLiteral::One(_)) => false,
-    }
 }

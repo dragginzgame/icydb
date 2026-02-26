@@ -7,12 +7,12 @@ use super::{
     assess_secondary_order_pushdown_if_applicable_validated, validate_logical_plan_model,
 };
 use crate::{
+    db::access::{AccessPath, AccessPlan},
     db::query::{
         ReadConsistency,
         intent::{DeleteSpec, LoadSpec, QueryMode},
         plan::{
-            AccessPath, AccessPlan, AccessPlannedQuery, DeleteLimitSpec, LogicalPlan,
-            OrderDirection, OrderSpec, PageSpec,
+            AccessPlannedQuery, DeleteLimitSpec, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
         },
         predicate::{SchemaInfo, ValidateError},
     },

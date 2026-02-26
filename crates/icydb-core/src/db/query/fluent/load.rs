@@ -1,11 +1,10 @@
 use crate::{
     db::{
         DbSession, PagedLoadExecution, PagedLoadExecutionWithTrace,
-        executor::ExecutablePlan,
         query::{
             explain::ExplainPlan,
             expr::{FilterExpr, SortExpr},
-            intent::{IntentError, Query, QueryError},
+            intent::{IntentError, PlannedQuery, Query, QueryError},
             policy,
             predicate::Predicate,
         },
@@ -172,12 +171,12 @@ where
         self.query.explain()
     }
 
-    pub fn plan(&self) -> Result<ExecutablePlan<E>, QueryError> {
+    pub fn planned(&self) -> Result<PlannedQuery<E>, QueryError> {
         if let Some(err) = self.cursor_intent_error() {
             return Err(QueryError::Intent(err));
         }
 
-        self.query.plan()
+        self.query.planned()
     }
 
     // ------------------------------------------------------------------

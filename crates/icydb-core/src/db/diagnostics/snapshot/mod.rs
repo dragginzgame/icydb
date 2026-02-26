@@ -247,7 +247,7 @@ mod tests {
 
     crate::test_canister! {
         ident = DiagnosticsCanister,
-        commit_memory_id = 254,
+        commit_memory_id = crate::test_support::test_commit_memory_id(),
     }
 
     const STORE_Z_PATH: &str = "diagnostics_tests::z_store";

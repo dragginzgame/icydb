@@ -5,14 +5,13 @@ pub(super) use guard::*;
 mod tests;
 
 use crate::db::{
+    access::{AccessPath, PushdownApplicability},
     executor::{
         AccessPlanStreamRequest, IndexStreamConstraints, StreamExecutionHints,
         aggregate::{AggregateFoldMode, AggregateSpec},
         compute_page_window,
     },
-    query::plan::{
-        AccessPath, Direction, OrderDirection, OrderSpec, validate::PushdownApplicability,
-    },
+    query::plan::{Direction, OrderDirection, OrderSpec},
 };
 
 // -----------------------------------------------------------------------------

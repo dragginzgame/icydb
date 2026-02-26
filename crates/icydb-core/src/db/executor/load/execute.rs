@@ -158,8 +158,8 @@ where
         route_plan: &ExecutionPlan,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<FastPathDecision, InternalError> {
-        // Guard fast-path spec arity up front so planner/executor traversal
-        // drift cannot silently consume the wrong spec in release builds.
+        // Guard fast-path spec arity up front so plan/runtime traversal drift
+        // cannot silently consume the wrong spec in release builds.
         ensure_load_fast_path_spec_arity(
             route_plan.secondary_fast_path_eligible(),
             inputs.stream_bindings.index_prefix_specs.len(),

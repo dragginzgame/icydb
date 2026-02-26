@@ -29,7 +29,7 @@ use std::{cell::RefCell, collections::BTreeSet};
 
 crate::test_canister! {
     ident = RecoveryTestCanister,
-    commit_memory_id = 254,
+    commit_memory_id = crate::test_support::test_commit_memory_id(),
 }
 
 //

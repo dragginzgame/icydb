@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        index::predicate::IndexPredicateProgram,
+        access::IndexPredicateProgram,
         query::predicate::{CompareOp, Predicate, coercion::CoercionSpec},
     },
     traits::{EntityKind, EntityValue},
@@ -170,11 +170,9 @@ mod tests {
     };
     use crate::{
         db::{
-            index::{
-                EncodedValue,
-                predicate::{
-                    IndexCompareOp, IndexLiteral, IndexPredicateProgram, eval_index_compare,
-                },
+            access::{
+                IndexCompareOp, IndexLiteral, IndexPredicateProgram, encode_index_literal,
+                eval_index_compare,
             },
             query::predicate::{
                 CompareOp,
@@ -246,10 +244,7 @@ mod tests {
 
         let program = compile_index_program_from_resolved(&predicate, &[3, 7, 9])
             .expect("strict EQ over indexed slot should compile");
-        let expected = EncodedValue::try_from_ref(&Value::Uint(11))
-            .expect("uint literal should encode")
-            .encoded()
-            .to_vec();
+        let expected = encode_index_literal(&Value::Uint(11)).expect("uint literal should encode");
 
         assert_eq!(
             program,

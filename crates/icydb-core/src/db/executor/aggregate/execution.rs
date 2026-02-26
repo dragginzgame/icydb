@@ -1,9 +1,9 @@
 use crate::{
     db::{
         Context,
+        access::IndexPredicateProgram,
         direction::Direction,
         executor::{ExecutionPlan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec},
-        index::predicate::IndexPredicateProgram,
         query::{plan::AccessPlannedQuery, predicate::PredicateFieldSlots},
     },
     traits::{EntityKind, EntityValue},

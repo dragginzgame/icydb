@@ -1,3 +1,4 @@
+use crate::validate::memory::memory_id_reserved_error;
 use crate::{imp::*, prelude::*};
 use canic_utils::case::{Case, Casing};
 
@@ -30,6 +31,12 @@ impl ValidateNode for Store {
                 "ident '{ident_str}' must be UPPER_SNAKE_CASE",
             ))
             .with_span(&self.ident));
+        }
+        if let Some(message) = memory_id_reserved_error("data_memory_id", self.data_memory_id) {
+            return Err(DarlingError::custom(message).with_span(&self.ident));
+        }
+        if let Some(message) = memory_id_reserved_error("index_memory_id", self.index_memory_id) {
+            return Err(DarlingError::custom(message).with_span(&self.ident));
         }
 
         Ok(())

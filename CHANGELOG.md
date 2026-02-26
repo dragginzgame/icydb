@@ -5,6 +5,25 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.30.6] - 2026-02-26 - AccessPath Contract Canonicalization
+
+### 📝 Summary
+
+* Moved shared query-access types into `db::access` so planning and execution use one source of truth.
+
+### 🔧 Changed
+
+* Made `db/access/path.rs` the single home for access-path types used by query planning and execution.
+* Removed duplicate access type definitions from query plan modules, and updated call sites to use `db::access`.
+* Added a planner-facing `PlannedQuery` type so planning and executor compilation are clearly separated.
+* Moved pushdown decision types into `db::access`, so executor routing no longer reaches into query validation internals.
+* Moved shared value hashing into `db::value_hash`, so query fingerprinting no longer depends on index internals.
+* Moved index-predicate program types into `db::access::predicate`, so query and executor share one contract.
+* Centralized test memory-id checks and made sure reserved memory id `255` is consistently rejected.
+* No query behavior changes were intended in this release; this is a structural cleanup.
+
+---
+
 ## [0.30.5] - 2026-02-26 - Cursor Boundary Canonicalization
 
 ### 📝 Summary

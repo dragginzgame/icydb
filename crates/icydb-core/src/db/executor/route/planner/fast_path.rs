@@ -1,10 +1,11 @@
 use crate::{
     db::{
+        access::{AccessPath, AccessPlan},
         executor::{
             ExecutionKernel, IndexPredicateCompileMode, aggregate::AggregateKind,
             compile_predicate_slots, load::LoadExecutor,
         },
-        query::plan::{AccessPath, AccessPlan, AccessPlannedQuery},
+        query::plan::AccessPlannedQuery,
     },
     traits::{EntityKind, EntityValue},
 };

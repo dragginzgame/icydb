@@ -8,6 +8,7 @@ use canic_memory::{
 use std::sync::OnceLock;
 
 static COMMIT_STORE_ID: OnceLock<u8> = OnceLock::new();
+const RESERVED_INTERNAL_MEMORY_ID: u8 = u8::MAX;
 
 /// Resolve the configured memory id used for commit marker storage.
 pub(super) fn commit_memory_id() -> Result<u8, InternalError> {
@@ -22,6 +23,12 @@ pub(super) fn commit_memory_id() -> Result<u8, InternalError> {
 pub(in crate::db::commit) fn configure_commit_memory_id(
     memory_id: u8,
 ) -> Result<u8, InternalError> {
+    if memory_id == RESERVED_INTERNAL_MEMORY_ID {
+        return Err(InternalError::store_unsupported(
+            "memory id 255 is reserved for stable-structures internals",
+        ));
+    }
+
     if let Some(cached_id) = COMMIT_STORE_ID.get() {
         if *cached_id != memory_id {
             return Err(InternalError::store_internal(format!(

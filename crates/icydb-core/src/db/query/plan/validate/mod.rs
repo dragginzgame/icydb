@@ -36,10 +36,13 @@ pub(crate) use order::{
 };
 #[cfg(test)]
 pub(crate) use pushdown::assess_secondary_order_pushdown_if_applicable;
+#[cfg(test)]
 pub(crate) use pushdown::{
-    PushdownApplicability, PushdownSurfaceEligibility, SecondaryOrderPushdownEligibility,
-    SecondaryOrderPushdownRejection, assess_secondary_order_pushdown,
-    assess_secondary_order_pushdown_if_applicable_validated,
+    PushdownApplicability, assess_secondary_order_pushdown_if_applicable_validated,
+};
+pub(crate) use pushdown::{
+    PushdownSurfaceEligibility, SecondaryOrderPushdownEligibility, SecondaryOrderPushdownRejection,
+    assess_secondary_order_pushdown,
 };
 
 ///

@@ -1,9 +1,6 @@
 use crate::{
     db::{
-        index::{
-            EncodedValue,
-            predicate::{IndexCompareOp, IndexLiteral, IndexPredicateProgram},
-        },
+        access::{IndexCompareOp, IndexLiteral, IndexPredicateProgram, encode_index_literal},
         query::predicate::{CompareOp, coercion::CoercionId},
     },
     value::Value,
@@ -162,11 +159,4 @@ fn compile_compare_index_node(
         }
         CompareOp::Contains | CompareOp::StartsWith | CompareOp::EndsWith => None,
     }
-}
-
-// Encode one literal to canonical index-component bytes.
-#[cfg_attr(not(test), allow(dead_code))]
-fn encode_index_literal(value: &Value) -> Option<Vec<u8>> {
-    let encoded = EncodedValue::try_from_ref(value).ok()?;
-    Some(encoded.encoded().to_vec())
 }

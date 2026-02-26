@@ -1,3 +1,4 @@
+use crate::node::{validate_memory_id_in_range, validate_memory_id_not_reserved};
 use crate::prelude::*;
 
 ///
@@ -31,30 +32,24 @@ impl ValidateNode for Store {
         match schema.cast_node::<Canister>(self.canister) {
             Ok(canister) => {
                 // Validate data memory ID
-                if self.data_memory_id < canister.memory_min
-                    || self.data_memory_id > canister.memory_max
-                {
-                    err!(
-                        errs,
-                        "data_memory_id {} outside of range {}-{}",
-                        self.data_memory_id,
-                        canister.memory_min,
-                        canister.memory_max,
-                    );
-                }
+                validate_memory_id_in_range(
+                    &mut errs,
+                    "data_memory_id",
+                    self.data_memory_id,
+                    canister.memory_min,
+                    canister.memory_max,
+                );
+                validate_memory_id_not_reserved(&mut errs, "data_memory_id", self.data_memory_id);
 
                 // Validate index memory ID
-                if self.index_memory_id < canister.memory_min
-                    || self.index_memory_id > canister.memory_max
-                {
-                    err!(
-                        errs,
-                        "index_memory_id {} outside of range {}-{}",
-                        self.index_memory_id,
-                        canister.memory_min,
-                        canister.memory_max,
-                    );
-                }
+                validate_memory_id_in_range(
+                    &mut errs,
+                    "index_memory_id",
+                    self.index_memory_id,
+                    canister.memory_min,
+                    canister.memory_max,
+                );
+                validate_memory_id_not_reserved(&mut errs, "index_memory_id", self.index_memory_id);
 
                 // Ensure they are not the same
                 if self.data_memory_id == self.index_memory_id {

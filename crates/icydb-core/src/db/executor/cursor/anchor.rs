@@ -1,5 +1,6 @@
 use crate::{
     db::{
+        access::AccessPath,
         cursor::IndexRangeCursorAnchor,
         direction::Direction,
         index::{
@@ -7,7 +8,7 @@ use crate::{
             PrimaryKeyEquivalenceError, RawIndexKey, primary_key_matches_value,
         },
         lowering::lower_cursor_anchor_index_range_bounds,
-        query::plan::{AccessPath, CursorPlanError, PlanError},
+        query::plan::{CursorPlanError, PlanError},
     },
     traits::Storable,
     traits::{EntityKind, FieldValue},

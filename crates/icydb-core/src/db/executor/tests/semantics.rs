@@ -1,6 +1,6 @@
 #![expect(clippy::similar_names)]
 use super::*;
-use crate::db::{data::DataKey, query::explain::ExplainAccessPath};
+use crate::db::{IndexStore, data::DataKey, query::explain::ExplainAccessPath};
 use std::collections::BTreeSet;
 
 fn id_in_predicate(ids: &[u128]) -> Predicate {
@@ -1375,7 +1375,7 @@ fn delete_allows_target_with_weak_single_referrer() {
     let reverse_rows_before_delete = REL_DB
         .with_store_registry(|reg| {
             reg.try_get_store(RelationTargetStore::PATH)
-                .map(|store| store.with_index(crate::db::index::IndexStore::len))
+                .map(|store| store.with_index(IndexStore::len))
         })
         .expect("target index store access should succeed");
     assert_eq!(
@@ -1428,7 +1428,7 @@ fn delete_allows_target_with_weak_optional_referrer() {
     let reverse_rows_before_delete = REL_DB
         .with_store_registry(|reg| {
             reg.try_get_store(RelationTargetStore::PATH)
-                .map(|store| store.with_index(crate::db::index::IndexStore::len))
+                .map(|store| store.with_index(IndexStore::len))
         })
         .expect("target index store access should succeed");
     assert_eq!(
@@ -1486,7 +1486,7 @@ fn delete_allows_target_with_weak_list_referrer() {
     let reverse_rows_before_delete = REL_DB
         .with_store_registry(|reg| {
             reg.try_get_store(RelationTargetStore::PATH)
-                .map(|store| store.with_index(crate::db::index::IndexStore::len))
+                .map(|store| store.with_index(IndexStore::len))
         })
         .expect("target index store access should succeed");
     assert_eq!(
@@ -1547,7 +1547,7 @@ fn strong_relation_reverse_index_tracks_source_lifecycle() {
     let reverse_rows_after_insert = REL_DB
         .with_store_registry(|reg| {
             reg.try_get_store(RelationTargetStore::PATH)
-                .map(|store| store.with_index(crate::db::index::IndexStore::len))
+                .map(|store| store.with_index(IndexStore::len))
         })
         .expect("target index store access should succeed");
     assert_eq!(
@@ -1568,7 +1568,7 @@ fn strong_relation_reverse_index_tracks_source_lifecycle() {
     let reverse_rows_after_delete = REL_DB
         .with_store_registry(|reg| {
             reg.try_get_store(RelationTargetStore::PATH)
-                .map(|store| store.with_index(crate::db::index::IndexStore::len))
+                .map(|store| store.with_index(IndexStore::len))
         })
         .expect("target index store access should succeed");
     assert_eq!(
@@ -1612,7 +1612,7 @@ fn strong_relation_reverse_index_moves_on_fk_update() {
     let reverse_rows_after_update = REL_DB
         .with_store_registry(|reg| {
             reg.try_get_store(RelationTargetStore::PATH)
-                .map(|store| store.with_index(crate::db::index::IndexStore::len))
+                .map(|store| store.with_index(IndexStore::len))
         })
         .expect("target index store access should succeed");
     assert_eq!(
@@ -1701,7 +1701,7 @@ fn recovery_replays_reverse_relation_index_mutations() {
     let reverse_rows_after_replay = REL_DB
         .with_store_registry(|reg| {
             reg.try_get_store(RelationTargetStore::PATH)
-                .map(|store| store.with_index(crate::db::index::IndexStore::len))
+                .map(|store| store.with_index(IndexStore::len))
         })
         .expect("target index store access should succeed");
     assert_eq!(
@@ -1781,7 +1781,7 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
     let reverse_rows_after_save_a = REL_DB
         .with_store_registry(|reg| {
             reg.try_get_store(RelationTargetStore::PATH)
-                .map(|store| store.with_index(crate::db::index::IndexStore::len))
+                .map(|store| store.with_index(IndexStore::len))
         })
         .expect("target index store access should succeed");
     assert_eq!(
@@ -1803,7 +1803,7 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
     let reverse_rows_after_save_b = REL_DB
         .with_store_registry(|reg| {
             reg.try_get_store(RelationTargetStore::PATH)
-                .map(|store| store.with_index(crate::db::index::IndexStore::len))
+                .map(|store| store.with_index(IndexStore::len))
         })
         .expect("target index store access should succeed");
     assert_eq!(
@@ -1825,7 +1825,7 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
     let reverse_rows_after_delete_a = REL_DB
         .with_store_registry(|reg| {
             reg.try_get_store(RelationTargetStore::PATH)
-                .map(|store| store.with_index(crate::db::index::IndexStore::len))
+                .map(|store| store.with_index(IndexStore::len))
         })
         .expect("target index store access should succeed");
     assert_eq!(
@@ -1926,7 +1926,7 @@ fn recovery_replays_retarget_update_moves_reverse_index_membership() {
     let reverse_rows_after_retarget = REL_DB
         .with_store_registry(|reg| {
             reg.try_get_store(RelationTargetStore::PATH)
-                .map(|store| store.with_index(crate::db::index::IndexStore::len))
+                .map(|store| store.with_index(IndexStore::len))
         })
         .expect("target index store access should succeed");
     assert_eq!(
@@ -2153,7 +2153,7 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
     let seeded_reverse_rows = REL_DB
         .with_store_registry(|reg| {
             reg.try_get_store(RelationTargetStore::PATH)
-                .map(|store| store.with_index(crate::db::index::IndexStore::len))
+                .map(|store| store.with_index(IndexStore::len))
         })
         .expect("target index store access should succeed");
     assert_eq!(
@@ -2220,7 +2220,7 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
     let reverse_rows_after_replay = REL_DB
         .with_store_registry(|reg| {
             reg.try_get_store(RelationTargetStore::PATH)
-                .map(|store| store.with_index(crate::db::index::IndexStore::len))
+                .map(|store| store.with_index(IndexStore::len))
         })
         .expect("target index store access should succeed");
     assert_eq!(
@@ -2318,7 +2318,7 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
     let final_reverse_rows = REL_DB
         .with_store_registry(|reg| {
             reg.try_get_store(RelationTargetStore::PATH)
-                .map(|store| store.with_index(crate::db::index::IndexStore::len))
+                .map(|store| store.with_index(IndexStore::len))
         })
         .expect("target index store access should succeed");
     assert_eq!(

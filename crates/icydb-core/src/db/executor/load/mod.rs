@@ -16,6 +16,7 @@ use self::trace::{access_path_variant, execution_order_direction};
 use crate::{
     db::{
         Db,
+        access::AccessPlan,
         cursor::{ContinuationToken, CursorBoundary},
         executor::{
             AccessStreamBindings, ExecutablePlan, ExecutionKernel, IndexPredicateCompileMode,
@@ -28,8 +29,7 @@ use crate::{
             plan_metrics::{record_plan_metrics, record_rows_scanned},
         },
         query::plan::{
-            AccessPlan, AccessPlannedQuery, Direction, OrderDirection,
-            validate::validate_executor_plan,
+            AccessPlannedQuery, Direction, OrderDirection, validate::validate_executor_plan,
         },
         query::policy,
         response::Response,

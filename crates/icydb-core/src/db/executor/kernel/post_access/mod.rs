@@ -5,6 +5,7 @@ mod window;
 
 use crate::{
     db::{
+        access::{AccessPath, AccessPlan},
         cursor::{
             ContinuationSignature, ContinuationToken, CursorBoundary, IndexRangeCursorAnchor,
         },
@@ -12,7 +13,7 @@ use crate::{
         executor::ExecutionKernel,
         index::IndexKey,
         query::{
-            plan::{AccessPath, AccessPlan, AccessPlannedQuery},
+            plan::AccessPlannedQuery,
             policy,
             predicate::{PredicateFieldSlots, eval_with_slots as eval_predicate_with_slots},
         },
@@ -445,9 +446,10 @@ impl<K> AccessPlannedQuery<K> {
 #[cfg(test)]
 mod tests {
     use crate::db::{
+        access::AccessPath,
         cursor::CursorBoundary,
         query::{
-            plan::{AccessPath, AccessPlannedQuery, OrderSpec, PageSpec},
+            plan::{AccessPlannedQuery, OrderSpec, PageSpec},
             predicate::Predicate,
         },
     };

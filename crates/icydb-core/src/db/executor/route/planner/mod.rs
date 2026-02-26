@@ -5,6 +5,7 @@ mod mode;
 
 use crate::{
     db::{
+        access::assess_secondary_order_pushdown_if_applicable_validated_from_parts,
         cursor::CursorBoundary,
         direction::Direction,
         executor::{
@@ -13,7 +14,7 @@ use crate::{
             load::LoadExecutor,
         },
         lowering::LoweredKey,
-        query::plan::AccessPlannedQuery,
+        query::plan::{AccessPlannedQuery, OrderDirection},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -105,6 +106,26 @@ where
         Self::build_execution_route_plan(plan, None, None, None, RouteIntent::Aggregate { spec })
     }
 
+    fn direction_from_order(direction: OrderDirection) -> Direction {
+        if direction == OrderDirection::Desc {
+            Direction::Desc
+        } else {
+            Direction::Asc
+        }
+    }
+
+    fn order_fields_as_direction_refs(
+        plan: &AccessPlannedQuery<E::Key>,
+    ) -> Option<Vec<(&str, Direction)>> {
+        plan.order.as_ref().map(|order| {
+            order
+                .fields
+                .iter()
+                .map(|(field, direction)| (field.as_str(), Self::direction_from_order(*direction)))
+                .collect()
+        })
+    }
+
     // Shared route gate for load + aggregate execution.
     #[expect(clippy::too_many_lines)]
     fn build_execution_route_plan(
@@ -116,10 +137,12 @@ where
     ) -> ExecutionRoutePlan {
         let continuation_mode = Self::derive_continuation_mode(cursor_boundary, index_range_anchor);
         let route_window = Self::derive_route_window(plan, cursor_boundary);
+        let order_fields = Self::order_fields_as_direction_refs(plan);
         let secondary_pushdown_applicability =
-            crate::db::query::plan::validate::assess_secondary_order_pushdown_if_applicable_validated(
+            assess_secondary_order_pushdown_if_applicable_validated_from_parts(
                 E::MODEL,
-                plan,
+                order_fields.as_deref(),
+                &plan.access,
             );
         let (direction, aggregate_spec, fast_path_order, is_load_intent) = match intent {
             RouteIntent::Load => (
