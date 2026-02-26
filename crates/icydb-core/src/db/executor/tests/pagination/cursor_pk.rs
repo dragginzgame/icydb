@@ -85,6 +85,82 @@ fn load_offset_pagination_preserves_next_cursor_boundary() {
 }
 
 #[test]
+fn load_offset_pagination_continuation_token_bytes_are_stable_for_same_plan_shape() {
+    setup_pagination_test();
+
+    let save = SaveExecutor::<SimpleEntity>::new(DB, false);
+    for id in [5_u128, 1_u128, 4_u128, 2_u128, 3_u128] {
+        save.insert(SimpleEntity {
+            id: Ulid::from_u128(id),
+        })
+        .expect("save should succeed");
+    }
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    let page_plan_a = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .order_by("id")
+        .limit(2)
+        .offset(1)
+        .plan()
+        .expect("page plan A should build");
+    let signature_a = page_plan_a.continuation_signature();
+    let page_boundary_a = page_plan_a
+        .prepare_cursor(None)
+        .expect("page boundary A should plan");
+    let page_a = load
+        .execute_paged_with_cursor(page_plan_a, page_boundary_a)
+        .expect("page A should execute");
+    let token_a = page_a
+        .next_cursor
+        .as_ref()
+        .expect("page A should emit continuation cursor");
+    let bytes_a = token_a
+        .encode()
+        .expect("continuation cursor A should serialize");
+
+    let page_plan_b = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .order_by("id")
+        .limit(2)
+        .offset(1)
+        .plan()
+        .expect("page plan B should build");
+    let signature_b = page_plan_b.continuation_signature();
+    let page_boundary_b = page_plan_b
+        .prepare_cursor(None)
+        .expect("page boundary B should plan");
+    let page_b = load
+        .execute_paged_with_cursor(page_plan_b, page_boundary_b)
+        .expect("page B should execute");
+    let token_b = page_b
+        .next_cursor
+        .as_ref()
+        .expect("page B should emit continuation cursor");
+    let bytes_b = token_b
+        .encode()
+        .expect("continuation cursor B should serialize");
+
+    assert_eq!(
+        signature_a, signature_b,
+        "same logical shape should derive the same continuation signature"
+    );
+    assert_eq!(
+        token_a.signature(),
+        signature_a,
+        "continuation token must carry plan-derived continuation signature (run A)"
+    );
+    assert_eq!(
+        token_b.signature(),
+        signature_b,
+        "continuation token must carry plan-derived continuation signature (run B)"
+    );
+    assert_eq!(
+        bytes_a, bytes_b,
+        "continuation token bytes should remain stable for the same plan shape and dataset"
+    );
+}
+
+#[test]
 fn load_cursor_with_offset_applies_offset_once_across_pages() {
     setup_pagination_test();
 

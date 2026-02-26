@@ -480,8 +480,8 @@ impl ExecutionKernel {
         Ok(Some((page, keys_scanned, post_access_rows)))
     }
 
-    // Kernel-owned reducer runner for low-risk aggregate terminals that do not
-    // require field-target dispatch (`count`, `exists`, `min`, `max`).
+    // Kernel-owned reducer runner for scalar aggregate terminals over one
+    // canonical key stream. Field-target reducers stay in dedicated paths.
     pub(in crate::db::executor) fn run_streaming_aggregate_reducer<E>(
         ctx: &Context<'_, E>,
         plan: &AccessPlannedQuery<E::Key>,
@@ -539,34 +539,6 @@ impl ExecutionKernel {
             ) => Err(InternalError::query_executor_invariant(
                 "aggregate fold mode must match route fold-mode contract for aggregate terminal",
             )),
-        }
-    }
-
-    // Kernel-owned reducer runner for low-risk aggregate terminals that do not
-    // require field-target dispatch (`count`, `exists`, `min`, `max`).
-    pub(in crate::db::executor) fn run_low_risk_streaming_reducer<E>(
-        ctx: &Context<'_, E>,
-        plan: &AccessPlannedQuery<E::Key>,
-        kind: AggregateKind,
-        direction: Direction,
-        mode: AggregateFoldMode,
-        key_stream: &mut dyn OrderedKeyStream,
-    ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
-        match kind {
-            AggregateKind::Count
-            | AggregateKind::Exists
-            | AggregateKind::Min
-            | AggregateKind::Max => {
-                let (output, keys_scanned) = Self::run_streaming_aggregate_reducer(
-                    ctx, plan, kind, direction, mode, key_stream,
-                )?;
-
-                Ok(Some((output, keys_scanned)))
-            }
-            AggregateKind::First | AggregateKind::Last => Ok(None),
         }
     }
 }

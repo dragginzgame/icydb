@@ -563,3 +563,96 @@ fn route_matrix_aggregate_strict_compile_uncertainty_forces_materialized_executi
         "load routing should remain streaming for the same shape via conservative subset policy",
     );
 }
+
+#[test]
+fn route_matrix_strict_vs_subset_decision_logs_are_stable() {
+    let mut strict_compatible = AccessPlannedQuery::new(
+        AccessPath::<Ulid>::index_range(
+            ROUTE_MATRIX_INDEX_MODELS[0],
+            vec![],
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(30)),
+        ),
+        ReadConsistency::MissingOk,
+    );
+    strict_compatible.predicate = Some(Predicate::eq("rank".to_string(), Value::Uint(12)));
+    strict_compatible.order = Some(OrderSpec {
+        fields: vec![
+            ("rank".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    strict_compatible.page = Some(PageSpec {
+        limit: Some(2),
+        offset: 0,
+    });
+
+    let strict_compatible_route =
+        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+            &strict_compatible,
+            AggregateKind::Exists,
+        );
+    let mut strict_uncertain = strict_compatible.clone();
+    strict_uncertain.predicate = Some(Predicate::And(vec![
+        Predicate::eq("rank".to_string(), Value::Uint(12)),
+        Predicate::TextContains {
+            field: "label".to_string(),
+            value: Value::Text("keep".to_string()),
+        },
+    ]));
+    let strict_uncertain_route =
+        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+            &strict_uncertain,
+            AggregateKind::Exists,
+        );
+    let load_route = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
+        &strict_uncertain,
+        None,
+        None,
+        None,
+    )
+    .expect("load route plan should build for strict/subset log shape");
+
+    let strict_compatible_log = format!(
+        "aggregate:mode={:?};fold={:?};fetch={:?};secondary_probe={:?};index_range_limit={};continuation={:?}",
+        strict_compatible_route.execution_mode,
+        strict_compatible_route.aggregate_fold_mode,
+        strict_compatible_route.scan_hints.physical_fetch_hint,
+        strict_compatible_route.secondary_extrema_probe_fetch_hint(),
+        strict_compatible_route.index_range_limit_fast_path_enabled(),
+        strict_compatible_route.continuation_mode(),
+    );
+    let strict_uncertain_log = format!(
+        "aggregate:mode={:?};fold={:?};fetch={:?};secondary_probe={:?};index_range_limit={};continuation={:?}",
+        strict_uncertain_route.execution_mode,
+        strict_uncertain_route.aggregate_fold_mode,
+        strict_uncertain_route.scan_hints.physical_fetch_hint,
+        strict_uncertain_route.secondary_extrema_probe_fetch_hint(),
+        strict_uncertain_route.index_range_limit_fast_path_enabled(),
+        strict_uncertain_route.continuation_mode(),
+    );
+    let load_log = format!(
+        "load:mode={:?};fetch={:?};scan_budget={:?};index_range_limit={};continuation={:?}",
+        load_route.execution_mode,
+        load_route.scan_hints.physical_fetch_hint,
+        load_route.scan_hints.load_scan_budget_hint,
+        load_route.index_range_limit_fast_path_enabled(),
+        load_route.continuation_mode(),
+    );
+
+    assert_eq!(
+        strict_compatible_log,
+        "aggregate:mode=Streaming;fold=ExistingRows;fetch=Some(1);secondary_probe=None;index_range_limit=true;continuation=Initial",
+        "strict-compilable aggregate route decision log should remain stable",
+    );
+    assert_eq!(
+        strict_uncertain_log,
+        "aggregate:mode=Materialized;fold=ExistingRows;fetch=Some(1);secondary_probe=None;index_range_limit=false;continuation=Initial",
+        "strict-uncertain aggregate route decision log should remain stable",
+    );
+    assert_eq!(
+        load_log,
+        "load:mode=Streaming;fetch=None;scan_budget=None;index_range_limit=true;continuation=Initial",
+        "subset load route decision log should remain stable for the same shape",
+    );
+}

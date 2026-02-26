@@ -5,9 +5,31 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.30.3] - 2026-02-26 - Reducer Dispatch Convergence
+
+### 📝 Summary
+
+* Simplified aggregate execution internals so more read paths go through one shared runtime path, while keeping behavior the same.
+
+### 🔧 Changed
+
+* Removed special streaming dispatch gates so aggregate terminals use one shared kernel reducer path.
+* Removed an extra reducer wrapper path and kept structural guard tests aligned with the single-dispatch design.
+* Kept `load/aggregate` as wiring-only by moving its last shared alias into the helper module.
+* Added structural guard tests for route-planner split boundaries and load trace ownership.
+* Added a continuation-cursor stability test to ensure cursor signature and token bytes stay stable for the same query shape.
+* Added a strict-vs-subset route-decision golden test to keep aggregate/load routing behavior locked for shared access shapes.
+
+---
+
 ## [0.30.2] - 2026-02-25 - Bug Fix
 
 * CI allowed errors through so `make test`, `make patch`, `cargo publish` work but `git push` doesn't.  Fixing.
+* Fixed stale invariant-script file paths after executor stream-module refactors so push checks fail on real drift instead of missing moved files.
+* Added a shared `make check-invariants` gate and wired it into local `check`/`clippy`/pre-push flows, so invariant drift is caught before `git push`.
+* Aligned CI and local invariant coverage and tightened field-projection invariant checks to fail clearly when expected runtime files move.
+
+---
 
 ## [0.30.1] - 2026-02-25 - Execution Kernel Consolidation (Phase 2)
 

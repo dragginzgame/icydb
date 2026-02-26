@@ -8,7 +8,7 @@ use crate::{
                 AggregateFieldValueError, FieldSlot, compare_orderable_field_values,
                 extract_orderable_field_value,
             },
-            load::{LoadExecutor, aggregate::MinMaxByIds},
+            load::LoadExecutor,
         },
         query::{ReadConsistency, plan::Direction},
         response::Response,
@@ -19,6 +19,8 @@ use crate::{
     value::Value,
 };
 use std::cmp::Ordering;
+
+type MinMaxByIds<E> = Option<(Id<E>, Id<E>)>;
 
 impl<E> LoadExecutor<E>
 where

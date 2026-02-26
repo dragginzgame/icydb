@@ -13,6 +13,47 @@ fn load_fast_path_resolution_is_gated_by_route_execution_mode() {
 }
 
 #[test]
+fn load_trace_outcome_mapping_is_single_owner_boundary() {
+    let load_mod_source = include_str!("../../load/mod.rs");
+
+    assert_eq!(
+        load_mod_source
+            .matches("execution_trace.set_path_outcome(")
+            .count(),
+        1,
+        "load trace outcome wiring should go through one set_path_outcome boundary",
+    );
+    assert!(
+        load_mod_source.contains("execution_trace.keys_scanned,")
+            && load_mod_source.contains("rows_scanned,")
+            && load_mod_source
+                .contains("execution trace keys_scanned must match rows_scanned metrics input"),
+        "load trace wiring must keep keys_scanned aligned with rows_scanned metrics",
+    );
+}
+
+#[test]
+fn route_planner_remains_decomposed_into_dedicated_submodules() {
+    let planner_mod_source = include_str!("../planner/mod.rs");
+
+    assert!(
+        planner_mod_source.contains("mod capability;")
+            && planner_mod_source.contains("mod fast_path;")
+            && planner_mod_source.contains("mod hints;")
+            && planner_mod_source.contains("mod mode;"),
+        "route planner root must keep capability/fast_path/hints/mode decomposition",
+    );
+    assert!(
+        planner_mod_source.contains("Self::derive_route_capabilities("),
+        "route planner root should delegate capability derivation to the capability module boundary",
+    );
+    assert!(
+        planner_mod_source.contains("Self::load_streaming_allowed("),
+        "route planner root should delegate execution-mode branch predicates to the mode module boundary",
+    );
+}
+
+#[test]
 fn ranked_terminal_families_share_one_ranked_row_helper() {
     let terminal_source = include_str!("../../load/terminal/mod.rs");
     assert!(
@@ -67,16 +108,10 @@ fn aggregate_execution_mode_selection_is_route_owned_and_explicit() {
         "aggregate reducer dispatch must remain route-execution-mode driven",
     );
     assert!(
-        kernel_aggregate_source.contains("fn scalar_runner_eligible(spec: &AggregateSpec) -> bool"),
-        "kernel aggregate orchestration must define one explicit scalar-runner eligibility gate",
-    );
-    assert!(
-        kernel_aggregate_source.contains("spec.target_field().is_none()"),
-        "kernel scalar-runner eligibility must exclude field-target aggregate specs",
-    );
-    assert!(
-        kernel_aggregate_source.contains("Self::scalar_runner_eligible(&descriptor.spec)"),
-        "kernel aggregate orchestration must gate reducer-runner usage through scalar eligibility",
+        kernel_aggregate_source.contains(
+            "let (aggregate_output, keys_scanned) = Self::run_streaming_aggregate_reducer("
+        ),
+        "kernel aggregate orchestration must route streaming fold dispatch through one canonical reducer runner callsite",
     );
     assert!(
         aggregate_terminals_source.contains("ExecutionKernel::execute_aggregate_spec("),
@@ -102,46 +137,20 @@ fn aggregate_execution_mode_selection_is_route_owned_and_explicit() {
 }
 
 #[test]
-fn aggregate_scalar_runner_remains_non_field_target_scalar_only() {
+fn aggregate_streaming_runner_dispatch_removes_scalar_special_gates() {
     let kernel_aggregate_source = include_str!("../../kernel/aggregate.rs");
-    let scalar_gate_start = kernel_aggregate_source
-        .find("fn scalar_runner_eligible(spec: &AggregateSpec) -> bool {")
-        .expect("scalar runner eligibility gate must exist in kernel aggregate orchestration");
-    let scalar_gate_end = kernel_aggregate_source[scalar_gate_start..]
-        .find("\n    // Execute one aggregate terminal via canonical materialized load execution.")
-        .map(|offset| scalar_gate_start + offset)
-        .expect(
-            "scalar runner eligibility gate should be followed by materialized helper boundary",
-        );
-    let scalar_gate = &kernel_aggregate_source[scalar_gate_start..scalar_gate_end];
-
     assert!(
-        scalar_gate.contains("spec.target_field().is_none()"),
-        "scalar runner eligibility must exclude field-target aggregate specs",
+        !kernel_aggregate_source
+            .contains("fn scalar_runner_eligible(spec: &AggregateSpec) -> bool"),
+        "kernel aggregate orchestration should not keep a scalar-only eligibility gate after reducer convergence",
     );
     assert!(
-        scalar_gate.contains("AggregateKind::Count")
-            && scalar_gate.contains("AggregateKind::Exists")
-            && scalar_gate.contains("AggregateKind::Min")
-            && scalar_gate.contains("AggregateKind::Max"),
-        "scalar runner eligibility must include count/exists/min/max terminals",
+        !kernel_aggregate_source.contains("Self::run_low_risk_streaming_reducer("),
+        "kernel aggregate orchestration should not route through a low-risk-only reducer wrapper",
     );
     assert!(
-        !scalar_gate.contains("AggregateKind::First")
-            && !scalar_gate.contains("AggregateKind::Last"),
-        "scalar runner eligibility must not include first/last terminals",
-    );
-
-    assert_eq!(
-        kernel_aggregate_source
-            .matches("Self::run_low_risk_streaming_reducer(")
-            .count(),
-        1,
-        "aggregate runner wiring should call low-risk reducer runner from one guarded streaming site only",
-    );
-    assert!(
-        kernel_aggregate_source.contains("if Self::scalar_runner_eligible(&descriptor.spec)"),
-        "aggregate runner callsite must stay gated by scalar eligibility",
+        !kernel_aggregate_source.contains("if Self::scalar_runner_eligible(&descriptor.spec)"),
+        "kernel aggregate streaming dispatch should not branch on scalar-only special gates",
     );
 }
 
@@ -194,6 +203,14 @@ fn aggregate_streaming_paths_share_one_preparation_boundary() {
     assert!(
         !load_aggregate_root_source.contains("mod orchestration;"),
         "load aggregate module root should not keep a standalone orchestration wrapper module",
+    );
+    assert!(
+        !load_aggregate_root_source.contains("type "),
+        "load aggregate module root should stay wiring-only without local type contracts",
+    );
+    assert!(
+        !load_aggregate_root_source.contains("impl<E> LoadExecutor<E>"),
+        "load aggregate module root should not host aggregate executor impl blocks",
     );
     assert_eq!(
         kernel_aggregate_source

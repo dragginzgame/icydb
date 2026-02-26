@@ -226,19 +226,6 @@ impl ExecutionKernel {
         })
     }
 
-    // Return whether the reducer runner is eligible for this aggregate spec.
-    // This is intentionally limited to non-field-target scalar terminals.
-    fn scalar_runner_eligible(spec: &AggregateSpec) -> bool {
-        spec.target_field().is_none()
-            && matches!(
-                spec.kind(),
-                AggregateKind::Count
-                    | AggregateKind::Exists
-                    | AggregateKind::Min
-                    | AggregateKind::Max
-            )
-    }
-
     // Execute one aggregate terminal via canonical materialized load execution.
     // Kernel owns field-target vs non-field reducer selection for this branch.
     fn execute_materialized_aggregate_spec<E>(
@@ -1029,35 +1016,16 @@ impl ExecutionKernel {
             IndexPredicateCompileMode::StrictAllOrNone,
         )?;
 
-        // Fold via the kernel reducer runner for explicitly eligible scalar
-        // terminals only. Field-target and non-scalar terminals stay on the
-        // legacy fold path until reducer migration expands.
-        let (aggregate_output, keys_scanned) = if Self::scalar_runner_eligible(&descriptor.spec) {
-            let Some((aggregate_output, keys_scanned)) = Self::run_low_risk_streaming_reducer(
-                &prepared.ctx,
-                &prepared.logical_plan,
-                kind,
-                descriptor.direction,
-                fold_mode,
-                resolved.key_stream.as_mut(),
-            )?
-            else {
-                return Err(InternalError::query_executor_invariant(
-                    "scalar reducer runner eligibility drifted from low-risk runner coverage",
-                ));
-            };
-
-            (aggregate_output, keys_scanned)
-        } else {
-            Self::run_streaming_aggregate_reducer(
-                &prepared.ctx,
-                &prepared.logical_plan,
-                kind,
-                descriptor.direction,
-                fold_mode,
-                resolved.key_stream.as_mut(),
-            )?
-        };
+        // Fold through the canonical kernel reducer runner. Dispatch-level
+        // field-target/materialized decisions were already handled above.
+        let (aggregate_output, keys_scanned) = Self::run_streaming_aggregate_reducer(
+            &prepared.ctx,
+            &prepared.logical_plan,
+            kind,
+            descriptor.direction,
+            fold_mode,
+            resolved.key_stream.as_mut(),
+        )?;
 
         // Preserve row-scan metrics semantics.
         // If a fast-path overrides scan accounting, honor it.
