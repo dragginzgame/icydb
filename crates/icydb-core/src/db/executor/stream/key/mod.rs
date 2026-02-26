@@ -7,10 +7,3 @@ pub(crate) use contracts::{
     BudgetedOrderedKeyStream, OrderedKeyStream, OrderedKeyStreamBox, VecOrderedKeyStream,
 };
 pub(crate) use order::KeyOrderComparator;
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests;

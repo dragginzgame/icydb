@@ -15,7 +15,7 @@ pub(in crate::db) use entry::{
 pub(in crate::db) use envelope::{KeyEnvelope, continuation_advances_from_ordering};
 pub(in crate::db) use key::{EncodedValue, IndexId, IndexKey, IndexKeyKind, RawIndexKey};
 pub(in crate::db) use plan::{PrimaryRowReader, plan_index_mutation_for_entity};
-pub(in crate::db) use predicate::encode_index_literal;
+pub(in crate::db) use predicate::{IndexCompareOp, IndexLiteral, IndexPredicateProgram};
 pub(in crate::db) use range::{
     IndexRangeNotIndexableReasonScope, continuation_advanced, envelope_is_empty,
     map_index_range_not_indexable_reason, raw_bounds_for_semantic_index_component_range,

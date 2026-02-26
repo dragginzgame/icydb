@@ -1,13 +1,9 @@
 mod mode;
 mod preflight;
-#[cfg(test)]
-mod tests;
 mod validation;
 
 pub(super) use mode::SaveMode;
 
-#[cfg(test)]
-use crate::value::Value;
 use crate::{
     db::{
         Db,

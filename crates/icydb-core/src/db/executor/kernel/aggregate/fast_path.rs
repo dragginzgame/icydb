@@ -510,7 +510,7 @@ impl ExecutionKernel {
     // stream producers from a strict-compiled index predicate program.
     #[expect(clippy::single_option_map)]
     fn aggregate_index_predicate_execution(
-        program: Option<&crate::db::access::IndexPredicateProgram>,
+        program: Option<&crate::db::index::IndexPredicateProgram>,
     ) -> Option<IndexPredicateExecution<'_>> {
         program.map(|program| IndexPredicateExecution {
             program,

@@ -1,8 +1,6 @@
 mod guard;
 mod planner;
 pub(super) use guard::*;
-#[cfg(test)]
-mod tests;
 
 use crate::db::{
     access::{AccessPath, PushdownApplicability},
@@ -249,6 +247,21 @@ impl ExecutionRoutePlan {
         self.capabilities.field_max_fast_path_eligible
     }
 
+    #[cfg(test)]
+    pub(super) const fn count_pushdown_access_shape_supported(&self) -> bool {
+        self.capabilities.count_pushdown_access_shape_supported
+    }
+
+    #[cfg(test)]
+    pub(super) const fn index_range_limit_pushdown_shape_eligible(&self) -> bool {
+        self.capabilities.index_range_limit_pushdown_shape_eligible
+    }
+
+    #[cfg(test)]
+    pub(super) const fn bounded_probe_hint_safe(&self) -> bool {
+        self.capabilities.bounded_probe_hint_safe
+    }
+
     // Route-owned diagnostic reason for why `min(field)` fast path is ineligible.
     #[cfg(test)]
     pub(super) const fn field_min_fast_path_ineligibility_reason(
@@ -439,6 +452,36 @@ struct RouteCapabilities {
     field_max_fast_path_eligible: bool,
     field_min_fast_path_ineligibility_reason: Option<FieldExtremaIneligibilityReason>,
     field_max_fast_path_ineligibility_reason: Option<FieldExtremaIneligibilityReason>,
+}
+
+#[cfg(test)]
+pub(in crate::db::executor) const fn route_capability_flag_count_guard() -> usize {
+    let _ = RouteCapabilities {
+        streaming_access_shape_safe: false,
+        pk_order_fast_path_eligible: false,
+        desc_physical_reverse_supported: false,
+        count_pushdown_access_shape_supported: false,
+        index_range_limit_pushdown_shape_eligible: false,
+        composite_aggregate_fast_path_eligible: false,
+        bounded_probe_hint_safe: false,
+        field_min_fast_path_eligible: false,
+        field_max_fast_path_eligible: false,
+        field_min_fast_path_ineligibility_reason: None,
+        field_max_fast_path_ineligibility_reason: None,
+    };
+
+    9
+}
+
+#[cfg(test)]
+pub(in crate::db::executor) const fn route_execution_mode_case_count_guard() -> usize {
+    let _ = [
+        ExecutionModeRouteCase::Load,
+        ExecutionModeRouteCase::AggregateCount,
+        ExecutionModeRouteCase::AggregateNonCount,
+    ];
+
+    3
 }
 
 const fn direction_allows_physical_fetch_hint(

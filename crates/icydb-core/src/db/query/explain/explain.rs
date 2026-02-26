@@ -3,7 +3,6 @@
 use crate::{
     db::{
         access::AccessPlan,
-        predicate::coercion::CoercionSpec,
         query::{
             ReadConsistency,
             intent::QueryMode,
@@ -15,7 +14,7 @@ use crate::{
                     SecondaryOrderPushdownRejection, assess_secondary_order_pushdown,
                 },
             },
-            predicate::{CompareOp, ComparePredicate, Predicate, normalize},
+            predicate::{CoercionSpec, CompareOp, ComparePredicate, Predicate, normalize},
         },
     },
     model::entity::EntityModel,

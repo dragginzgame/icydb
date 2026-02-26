@@ -14,7 +14,7 @@ use crate::{
 
 impl<E: EntityKind + EntityValue> SaveExecutor<E> {
     /// Validate strong relation references against the target data stores.
-    pub(in crate::db::executor::mutation::save) fn validate_strong_relations(
+    pub(in crate::db::executor) fn validate_strong_relations(
         &self,
         entity: &E,
     ) -> Result<(), InternalError> {

@@ -4,6 +4,49 @@ use crate::{
     value::{CoercionFamily, Value},
 };
 use std::fmt;
+use thiserror::Error as ThisError;
+
+///
+/// CoercionId
+///
+/// Identifier for an explicit comparison coercion policy.
+///
+/// Coercions express *how* values may be compared, not whether a comparison
+/// is valid for a given field. Validation and planning enforce legality.
+///
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum CoercionId {
+    Strict,
+    NumericWiden,
+    TextCasefold,
+    CollectionElement,
+}
+
+impl CoercionId {
+    /// Stable tag used by plan hash encodings (fingerprint/continuation).
+    #[must_use]
+    pub const fn plan_hash_tag(self) -> u8 {
+        match self {
+            Self::Strict => 0x01,
+            Self::NumericWiden => 0x02,
+            Self::TextCasefold => 0x04,
+            Self::CollectionElement => 0x05,
+        }
+    }
+}
+
+///
+/// UnsupportedQueryFeature
+///
+/// Policy-level query features intentionally rejected by the engine.
+///
+#[derive(Clone, Debug, Eq, PartialEq, ThisError)]
+pub enum UnsupportedQueryFeature {
+    #[error(
+        "map field '{field}' is not queryable; map predicates are disabled. model queryable attributes as scalar/indexed fields or list entries"
+    )]
+    MapPredicate { field: String },
+}
 
 ///
 /// ScalarType

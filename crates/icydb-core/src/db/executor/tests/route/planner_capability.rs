@@ -11,7 +11,7 @@ fn route_feature_budget_no_eligibility_helpers_outside_route_module() {
     let page_source = include_str!("../../load/page.rs");
     let pk_stream_source = include_str!("../../load/pk_stream.rs");
     let secondary_index_source = include_str!("../../load/secondary_index.rs");
-    let mod_source = include_str!("mod.rs");
+    let mod_source = include_str!("../../route/mod.rs");
 
     assert_no_eligibility_helper_defs("aggregate/mod.rs", aggregate_source);
     assert_no_eligibility_helper_defs("kernel/aggregate/mod.rs", aggregate_orchestration_source);

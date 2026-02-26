@@ -1,7 +1,6 @@
 //! Plan module wiring; must not implement planning or validation logic.
 
 mod access_projection;
-mod contract;
 pub(crate) mod planner;
 #[cfg(test)]
 mod tests;
@@ -17,7 +16,9 @@ pub(crate) use access_projection::{
 ///
 /// Re-Exports
 ///
-pub use contract::OrderDirection;
-pub(crate) use contract::{AccessPlannedQuery, DeleteLimitSpec, LogicalPlan, OrderSpec, PageSpec};
+pub use crate::db::access::OrderDirection;
+pub(crate) use crate::db::access::{
+    AccessPlannedQuery, DeleteLimitSpec, LogicalPlan, OrderSpec, PageSpec,
+};
 pub use validate::PlanError;
 pub(crate) use validate::{AccessPlanError, OrderPlanError};

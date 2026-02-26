@@ -10,16 +10,13 @@
 //! - prevent cross-layer namespace leakage
 
 mod consistency;
-mod predicate;
 mod predicate_model;
 mod predicate_schema;
 
 pub use consistency::ReadConsistency;
-pub(crate) use predicate::{
-    PredicateFieldSlots, ResolvedComparePredicate, ResolvedPredicate, eval_with_slots,
-};
 #[cfg(test)]
 pub(crate) use predicate_model::ScalarType;
+pub use predicate_model::{CoercionId, UnsupportedQueryFeature};
 pub(crate) use predicate_model::{FieldType, literal_matches_type};
 pub(crate) use predicate_schema::SchemaInfo;
 pub use predicate_schema::ValidateError;

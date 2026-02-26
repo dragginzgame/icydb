@@ -1,94 +1,17 @@
 use crate::{
     db::{
-        contracts::{PredicateFieldSlots, ResolvedComparePredicate, ResolvedPredicate},
-        index::encode_index_literal,
-        predicate::{CoercionId, CompareOp},
+        contracts::CoercionId,
+        executor::predicate_runtime::{
+            PredicateFieldSlots, ResolvedComparePredicate, ResolvedPredicate,
+        },
+        index::{
+            IndexCompareOp, IndexLiteral, IndexPredicateProgram,
+            predicate::literal_index_component_bytes,
+        },
+        query::predicate::CompareOp,
     },
     value::Value,
 };
-
-///
-/// IndexPredicateProgram
-///
-/// Index-only predicate program compiled against index component positions.
-/// This is a conservative subset used for raw-index-key predicate evaluation.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum IndexPredicateProgram {
-    True,
-    False,
-    And(Vec<Self>),
-    Or(Vec<Self>),
-    Not(Box<Self>),
-    Compare {
-        component_index: usize,
-        op: IndexCompareOp,
-        literal: IndexLiteral,
-    },
-}
-
-///
-/// IndexCompareOp
-///
-/// Operator subset that can be evaluated directly on canonical encoded index bytes.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum IndexCompareOp {
-    Eq,
-    Ne,
-    Lt,
-    Lte,
-    Gt,
-    Gte,
-    In,
-    NotIn,
-}
-
-///
-/// IndexLiteral
-///
-/// Encoded literal payload used by one index-only compare operation.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum IndexLiteral {
-    One(Vec<u8>),
-    Many(Vec<Vec<u8>>),
-}
-
-// Compare one encoded index component against one compiled literal payload.
-pub(crate) fn eval_index_compare(
-    component: &[u8],
-    op: IndexCompareOp,
-    literal: &IndexLiteral,
-) -> bool {
-    match (op, literal) {
-        (IndexCompareOp::Eq, IndexLiteral::One(expected)) => component == expected.as_slice(),
-        (IndexCompareOp::Ne, IndexLiteral::One(expected)) => component != expected.as_slice(),
-        (IndexCompareOp::Lt, IndexLiteral::One(expected)) => component < expected.as_slice(),
-        (IndexCompareOp::Lte, IndexLiteral::One(expected)) => component <= expected.as_slice(),
-        (IndexCompareOp::Gt, IndexLiteral::One(expected)) => component > expected.as_slice(),
-        (IndexCompareOp::Gte, IndexLiteral::One(expected)) => component >= expected.as_slice(),
-        (IndexCompareOp::In, IndexLiteral::Many(candidates)) => {
-            candidates.iter().any(|candidate| component == candidate)
-        }
-        (IndexCompareOp::NotIn, IndexLiteral::Many(candidates)) => {
-            candidates.iter().all(|candidate| component != candidate)
-        }
-        (
-            IndexCompareOp::Eq
-            | IndexCompareOp::Ne
-            | IndexCompareOp::Lt
-            | IndexCompareOp::Lte
-            | IndexCompareOp::Gt
-            | IndexCompareOp::Gte,
-            IndexLiteral::Many(_),
-        )
-        | (IndexCompareOp::In | IndexCompareOp::NotIn, IndexLiteral::One(_)) => false,
-    }
-}
 
 ///
 /// IndexPredicateCompileMode
@@ -218,7 +141,7 @@ fn compile_compare_index_node(
         | CompareOp::Lte
         | CompareOp::Gt
         | CompareOp::Gte => {
-            let literal = encode_index_literal(&cmp.value)?;
+            let literal = literal_index_component_bytes(&cmp.value)?;
             let op = match cmp.op {
                 CompareOp::Eq => IndexCompareOp::Eq,
                 CompareOp::Ne => IndexCompareOp::Ne,
@@ -248,7 +171,7 @@ fn compile_compare_index_node(
             }
             let literals = items
                 .iter()
-                .map(encode_index_literal)
+                .map(literal_index_component_bytes)
                 .collect::<Option<Vec<_>>>()?;
             let op = match cmp.op {
                 CompareOp::In => IndexCompareOp::In,
@@ -282,17 +205,20 @@ fn compile_compare_index_node(
 mod tests {
     use crate::{
         db::{
-            contracts::{PredicateFieldSlots, ResolvedComparePredicate, ResolvedPredicate},
-            index::encode_index_literal,
-            predicate::{CoercionId, CompareOp, coercion::CoercionSpec},
+            contracts::CoercionId,
+            executor::predicate_runtime::{
+                PredicateFieldSlots, ResolvedComparePredicate, ResolvedPredicate,
+            },
+            index::{
+                IndexCompareOp, IndexLiteral, IndexPredicateProgram,
+                predicate::literal_index_component_bytes,
+            },
+            query::predicate::{CompareOp, coercion::CoercionSpec},
         },
         value::Value,
     };
 
-    use super::{
-        IndexCompareOp, IndexLiteral, IndexPredicateCompileMode, IndexPredicateProgram,
-        compile_index_predicate_program_from_slots,
-    };
+    use super::{IndexPredicateCompileMode, compile_index_predicate_program_from_slots};
 
     #[test]
     fn compile_index_program_maps_field_slot_to_component_index() {
@@ -310,7 +236,8 @@ mod tests {
             IndexPredicateCompileMode::ConservativeSubset,
         )
         .expect("strict EQ over indexed slot should compile");
-        let expected = encode_index_literal(&Value::Uint(11)).expect("uint literal should encode");
+        let expected =
+            literal_index_component_bytes(&Value::Uint(11)).expect("uint literal should convert");
 
         assert_eq!(
             program,
@@ -509,8 +436,10 @@ mod tests {
         )
         .expect("subset mode should keep supported children");
 
-        let expected_left = encode_index_literal(&Value::Uint(11)).expect("left should encode");
-        let expected_right = encode_index_literal(&Value::Uint(9)).expect("right should encode");
+        let expected_left =
+            literal_index_component_bytes(&Value::Uint(11)).expect("left should convert");
+        let expected_right =
+            literal_index_component_bytes(&Value::Uint(9)).expect("right should convert");
 
         assert_eq!(
             program,

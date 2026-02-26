@@ -101,7 +101,7 @@ done
 
 lookup_value_matches="$(
   rg -n --no-heading --color=never "\\bValue\\b" \
-    crates/icydb-core/src/db/index/store/lookup.rs \
+    crates/icydb-core/src/db/index/store.rs \
     || true
 )"
 if [[ -n "$lookup_value_matches" ]]; then

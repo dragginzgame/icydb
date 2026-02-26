@@ -1,50 +1,41 @@
 ### LLMs PLEASE IGNORE THIS FILE
 ### It's just here so I can manage multiple prompts without scrolling up and down constantly
 
-🔧 Consolidation Audit Prompt (Strict Merge-Only Pass)
+🔥 Structural Compression Audit (Hardline Pass)
+Prompt
 
-Prompt:
-
-You are performing a structural consolidation audit on a Rust database engine.
+You are performing a hardline structural compression audit on a Rust database engine.
 
 Scope:
+
 crates/icydb-core/src/db/
 
 Objective:
-Reduce module count, eliminate misplaced files, consolidate fragmented subsystems, and enforce strict layer direction.
 
-You are NOT allowed to:
+Reduce db/ to its minimal structurally correct form without redesigning the architecture.
 
-Propose creating new modules unless replacing multiple existing ones.
+This is not a cleanup pass.
+This is a compression pass.
 
-Propose further splitting files.
+The goal is to eliminate:
 
-Suggest cosmetic renames.
+Namespace duplication
 
-Redesign architecture.
+Split conceptual ownership
 
-Suggest abstract refactors unrelated to placement or consolidation.
+Fragmented subsystems
 
-You ARE required to:
+Micro-modules
 
-Identify files or directories that can be merged.
+Indirection-only files
 
-Identify test harness code living in production namespaces.
+Test harness inflation
 
-Identify duplicate namespace roots (e.g., intent in two places).
+Cross-layer leakage
 
-Identify thin wrapper modules or indirection-only files.
+You must aggressively compress structure while preserving declared layer direction.
 
-Identify wrong-layer placements.
-
-Enforce declared layer model strictly.
-
-Prefer merging over moving.
-
-Prefer flattening over deepening.
-
-Authoritative Layer Model
-
+Authoritative Layer Model (Non-Negotiable)
 session
 → query
 → executor
@@ -57,103 +48,247 @@ Rules:
 
 Lower layers must not import higher layers.
 
-Contracts must be thin and neutral.
+Each concept has one canonical owner.
 
-Each invariant has one canonical owner.
+Each invariant has one namespace root.
 
-Each concept has one namespace root.
+Contracts must be neutral and minimal.
 
-Test harness must not inflate production namespace.
+Production namespace must not contain harness infrastructure.
 
-Output Format (Mandatory)
+No duplicated conceptual roots.
 
-Produce the following sections:
+No split ownership of the same abstraction.
 
-1️⃣ High-Confidence Merge Candidates
+Forbidden
+
+You may NOT:
+
+Propose creating new modules (unless replacing multiple).
+
+Suggest further file splitting.
+
+Suggest renames for aesthetics.
+
+Suggest architectural redesign.
+
+Suggest new abstractions.
+
+Suggest trait refactors.
+
+Speculate about future features.
+
+Suggest moving logic unless it removes duplication or layering violation.
+
+No theory.
+No architecture brainstorming.
+Only structural compression.
+
+Mandatory Aggression Rules
+
+You MUST:
+
+Prefer merging over moving.
+
+Prefer flattening over nesting.
+
+Prefer deleting shims over preserving compatibility.
+
+Prefer collapsing thin modules.
+
+Collapse any module that only re-exports.
+
+Collapse any directory with <4 production files unless strongly justified.
+
+Eliminate dual namespace roots.
+
+Eliminate any subsystem split across two trees.
+
+If two modules share a conceptual noun, they must be unified or one deleted.
+
+Required Analysis Dimensions
+
+In addition to merge candidates, you must explicitly analyze:
+
+Duplicate Concept Roots
+(e.g. predicate in two places, aggregate in two places, plan in two places)
+
+Split Ownership
+(e.g. execution logic split between model + kernel)
+
+Namespace Inflation
+(deep trees where files could live at parent)
+
+Hidden Shims
+(compatibility re-exports or alias modules)
+
+Test Contamination
+(deep harness directories under production)
+
+Contract Surface Area
+(are contract types owned in multiple places?)
+
+Structural Symmetry
+(do similar subsystems follow different shapes?)
+
+Output Format (Strict)
+
+Produce exactly these sections:
+
+1️⃣ High-Confidence Merge Eliminations
 
 For each:
 
 Files involved
 
-Why they belong together
+Why conceptual duplication exists
+
+Why they must be unified
 
 Target merged location
 
-Which files will be deleted
+Files/directories to delete
+
+Net file count reduction
 
 No speculative merges.
+Only high-confidence compression.
 
-2️⃣ Directory Flattening Candidates
+2️⃣ Duplicate Concept Roots
+
+List every concept that appears in multiple namespace roots.
+
+For each:
+
+Locations
+
+Canonical owner
+
+What must be deleted
+
+Why this reduces entropy
+
+3️⃣ Subsystem Fragmentation
+
+Identify subsystems split across multiple directories.
+
+For each:
+
+Current layout
+
+Why it is fragmented
+
+Compression target
+
+Files to delete
+
+4️⃣ Directory Flattening Targets
 
 List directories that:
 
-Exist mainly due to tests
+Exist for routing only
 
 Contain <4 production files
 
-Add unnecessary nesting
+Exist only to host tests
 
-Propose flattening plan.
+Deepen tree without conceptual separation
 
-3️⃣ Wrong-Layer Placements
+Provide flattening plan.
+
+5️⃣ Wrong-Layer Placements
 
 For each:
 
 File
 
-Why it violates layer direction
+Layer violation
 
-Correct location
+Correct layer
 
-4️⃣ Test Harness Relocations
+What can be deleted after move
 
-List test-only files currently inside production namespaces.
+No hypotheticals.
+
+6️⃣ Test Namespace Extraction Plan
+
+List all production namespaces that contain:
+
+tests/
+
+tests.rs
+
+Harness-only helpers
+
+Test-only utilities in non-#[cfg(test)] code
 
 For each:
 
 Current path
 
-Recommended test-root location
+New path under crates/icydb-core/tests/
 
-Why
+Estimated file reduction inside db/
 
-5️⃣ Thin Wrappers / Shims
+7️⃣ Thin Wrapper Elimination
 
-List:
+List modules that:
 
-Re-export modules
+Only re-export
 
-Indirection-only files
+Only route to submodule
 
-Compatibility remnants
+Exist as legacy compatibility
 
-Recommend deletion or merge target.
+Add zero new behavior
 
-6️⃣ Dead Scaffolding
+For each:
 
-High-confidence only:
+Target collapse location
 
-Unused enum variants
+Files deleted
 
-Unconstructed branches
+Why this is safe
 
-Test-only helpers in production modules
+8️⃣ Compressed Canonical db/ Tree
 
-7️⃣ Final Compressed Module Map
+Produce a compressed db/ tree that:
 
-Provide a compressed ideal tree for db/
-Do NOT increase directory count.
-Do NOT introduce new roots.
-Reduce nesting.
+Does not add roots
 
-Constraints
+Does not increase directory count
 
-Merge-first bias.
+Minimizes nesting
 
-No module inflation.
+Removes duplicate roots
 
-No theoretical redesign.
+Reflects canonical ownership
 
-Concrete, actionable consolidation only.
+Removes all flagged shims
 
-Be conservative and precise.
+The output tree must be smaller than current.
+
+Compression Success Criteria
+
+The audit is successful only if:
+
+File count decreases
+
+Directory depth decreases
+
+No concept appears in two roots
+
+No thin modules remain
+
+No harness directory inflates production tree
+
+Layer direction remains correct
+
+Tone Requirement
+
+Be ruthless but precise.
+No fluff.
+No speculation.
+No redesign.
+
+This is a structural compression report.

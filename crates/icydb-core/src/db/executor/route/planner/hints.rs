@@ -94,7 +94,7 @@ where
         fetch <= Self::residual_predicate_pushdown_fetch_cap()
     }
 
-    pub(in crate::db::executor::route) const fn residual_predicate_pushdown_fetch_cap() -> usize {
+    pub(in crate::db::executor) const fn residual_predicate_pushdown_fetch_cap() -> usize {
         256
     }
 

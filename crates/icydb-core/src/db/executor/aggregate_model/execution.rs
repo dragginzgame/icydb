@@ -1,11 +1,11 @@
 use crate::{
     db::{
         Context,
-        access::IndexPredicateProgram,
         direction::Direction,
         executor::{
             ExecutionPlan, ExecutionPreparation, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
         },
+        index::IndexPredicateProgram,
         query::plan::AccessPlannedQuery,
     },
     traits::{EntityKind, EntityValue},

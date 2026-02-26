@@ -1,9 +1,10 @@
 use crate::{
     db::{
+        access::{OrderDirection, OrderSpec},
         contracts::{SchemaInfo, literal_matches_type},
         cursor::CursorPlanError,
         direction::Direction,
-        query::plan::{OrderDirection, OrderPlanError, OrderSpec},
+        query::predicate::coercion::canonical_cmp,
     },
     model::entity::{EntityModel, resolve_field_slot},
     traits::{EntityKind, EntityValue, FieldValue},
@@ -78,7 +79,7 @@ pub(in crate::db) fn compare_boundary_slots(
         (CursorBoundarySlot::Missing, CursorBoundarySlot::Present(_)) => Ordering::Less,
         (CursorBoundarySlot::Present(_), CursorBoundarySlot::Missing) => Ordering::Greater,
         (CursorBoundarySlot::Present(left_value), CursorBoundarySlot::Present(right_value)) => {
-            crate::db::predicate::coercion::canonical_cmp(left_value, right_value)
+            canonical_cmp(left_value, right_value)
         }
     }
 }
@@ -167,10 +168,7 @@ pub(in crate::db) fn validate_cursor_boundary_types(
     for ((field, _), slot) in order.fields.iter().zip(boundary.slots.iter()) {
         let field_type = schema.field(field).ok_or_else(|| {
             CursorPlanError::InvalidContinuationCursorPayload {
-                reason: OrderPlanError::UnknownField {
-                    field: field.clone(),
-                }
-                .to_string(),
+                reason: format!("unknown order field '{field}'"),
             }
         })?;
 
@@ -227,10 +225,9 @@ pub(in crate::db) fn decode_typed_primary_key_cursor_slot<K: FieldValue>(
         .iter()
         .position(|(field, _)| field == pk_field)
         .ok_or_else(|| CursorPlanError::InvalidContinuationCursorPayload {
-            reason: OrderPlanError::MissingPrimaryKeyTieBreak {
-                field: pk_field.to_string(),
-            }
-            .to_string(),
+            reason: format!(
+                "order specification must end with primary key '{pk_field}' as deterministic tie-break"
+            ),
         })?;
 
     let schema = SchemaInfo::from_entity_model(model).map_err(|err| {
@@ -241,10 +238,7 @@ pub(in crate::db) fn decode_typed_primary_key_cursor_slot<K: FieldValue>(
     let expected = schema
         .field(pk_field)
         .ok_or_else(|| CursorPlanError::InvalidContinuationCursorPayload {
-            reason: OrderPlanError::UnknownField {
-                field: pk_field.to_string(),
-            }
-            .to_string(),
+            reason: format!("unknown order field '{pk_field}'"),
         })?
         .to_string();
     let pk_slot = &boundary.slots[pk_index];

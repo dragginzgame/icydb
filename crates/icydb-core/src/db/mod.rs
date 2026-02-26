@@ -6,7 +6,6 @@ pub(crate) mod diagnostics;
 pub(in crate::db) mod direction;
 pub(crate) mod identity;
 pub(crate) mod policy;
-pub(crate) mod predicate;
 pub(crate) mod query;
 pub(crate) mod registry;
 pub(crate) mod response;
@@ -29,7 +28,9 @@ pub use diagnostics::StorageReport;
 pub use executor::{ExecutionAccessPathVariant, ExecutionOptimization, ExecutionTrace};
 pub use identity::{EntityName, IndexName};
 pub use index::IndexStore;
-pub use predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature};
+pub use query::predicate::{
+    CoercionId, CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature,
+};
 pub use query::{
     builder::field::FieldRef,
     expr::{FilterExpr, SortExpr},
@@ -37,7 +38,7 @@ pub use query::{
         delete::FluentDeleteQuery,
         load::{FluentLoadQuery, PagedLoadQuery},
     },
-    intent::{IntentError, Query, QueryError},
+    intent::{DeleteSpec, IntentError, LoadSpec, Query, QueryError, QueryMode},
     plan::{OrderDirection, PlanError},
     predicate::ValidateError,
 };

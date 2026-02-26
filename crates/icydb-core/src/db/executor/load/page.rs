@@ -1,9 +1,9 @@
 use crate::{
     db::{
         Context,
-        contracts::PredicateFieldSlots,
         cursor::{ContinuationSignature, ContinuationToken, CursorBoundary},
         direction::Direction,
+        executor::PredicateFieldSlots,
         executor::load::{CursorPage, LoadExecutor},
         executor::{BudgetedOrderedKeyStream, ExecutionKernel, OrderedKeyStream, PostAccessStats},
         query::plan::AccessPlannedQuery,

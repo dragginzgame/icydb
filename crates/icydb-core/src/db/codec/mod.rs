@@ -1,11 +1,19 @@
+//! DB codec boundary for engine payload decoding/encoding policy.
+//!
+//! This module is the only DB-level boundary allowed to call
+//! `crate::serialize::deserialize_bounded` directly.
+//! All other DB modules must decode via codec helpers.
+
 pub(crate) mod cursor;
 
 use crate::{
-    db::data::MAX_ROW_BYTES,
     error::InternalError,
     serialize::{SerializeError, SerializeErrorKind, deserialize_bounded},
 };
 use serde::de::DeserializeOwned;
+
+/// Max serialized bytes for a single row (protocol-level limit).
+pub(crate) const MAX_ROW_BYTES: u32 = 4 * 1024 * 1024;
 
 ///
 /// DB Codec
@@ -44,6 +52,20 @@ where
         .map_err(|source| map_deserialize_error(source, payload_label))
 }
 
+/// Deserialize one non-persisted DB protocol payload under an explicit size policy.
+///
+/// This helper is for bounded decode of transport/user-facing DB payloads
+/// (for example continuation tokens), not stable-memory persisted rows.
+pub(in crate::db) fn deserialize_protocol_payload<T>(
+    bytes: &[u8],
+    max_bytes: usize,
+) -> Result<T, SerializeError>
+where
+    T: DeserializeOwned,
+{
+    deserialize_bounded(bytes, max_bytes)
+}
+
 // Convert format-level deserialize errors into DB engine classification.
 fn map_deserialize_error(source: SerializeError, payload_label: &'static str) -> InternalError {
     match source {
@@ -72,12 +94,11 @@ fn map_deserialize_error(source: SerializeError, payload_label: &'static str) ->
 #[cfg(test)]
 mod tests {
     use crate::{
-        db::data::MAX_ROW_BYTES,
         error::{ErrorClass, ErrorOrigin},
         serialize::SerializeError,
     };
 
-    use super::{deserialize_row, map_deserialize_error};
+    use super::{MAX_ROW_BYTES, deserialize_row, map_deserialize_error};
 
     #[test]
     fn map_deserialize_error_classifies_size_limit_as_corruption() {

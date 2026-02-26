@@ -1,8 +1,3 @@
-use super::{
-    AGGREGATE_FAST_PATH_ORDER, ContinuationMode, ExecutionMode, ExecutionModeRouteCase,
-    FastPathOrder, FieldExtremaIneligibilityReason, LOAD_FAST_PATH_ORDER, MUTATION_FAST_PATH_ORDER,
-    RouteCapabilities,
-};
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},
@@ -10,6 +5,11 @@ use crate::{
         executor::{
             aggregate_model::{AggregateFoldMode, AggregateKind, AggregateSpec},
             load::LoadExecutor,
+            route::{
+                AGGREGATE_FAST_PATH_ORDER, ContinuationMode, ExecutionMode, FastPathOrder,
+                FieldExtremaIneligibilityReason, LOAD_FAST_PATH_ORDER, MUTATION_FAST_PATH_ORDER,
+                route_capability_flag_count_guard, route_execution_mode_case_count_guard,
+            },
         },
         query::{
             ReadConsistency,
@@ -30,33 +30,6 @@ use std::ops::Bound;
 const ROUTE_FEATURE_SOFT_BUDGET_DELTA: usize = 1;
 const ROUTE_CAPABILITY_FLAG_BASELINE_0247: usize = 9;
 const ROUTE_EXECUTION_MODE_CASE_BASELINE_0246: usize = 3;
-const ROUTE_EXECUTION_MODE_CASES_0246: [ExecutionModeRouteCase; 3] = [
-    ExecutionModeRouteCase::Load,
-    ExecutionModeRouteCase::AggregateCount,
-    ExecutionModeRouteCase::AggregateNonCount,
-];
-
-const fn route_capability_flag_count_guard() -> usize {
-    let _ = RouteCapabilities {
-        streaming_access_shape_safe: false,
-        pk_order_fast_path_eligible: false,
-        desc_physical_reverse_supported: false,
-        count_pushdown_access_shape_supported: false,
-        index_range_limit_pushdown_shape_eligible: false,
-        composite_aggregate_fast_path_eligible: false,
-        bounded_probe_hint_safe: false,
-        field_min_fast_path_eligible: false,
-        field_max_fast_path_eligible: false,
-        field_min_fast_path_ineligibility_reason: None,
-        field_max_fast_path_ineligibility_reason: None,
-    };
-
-    9
-}
-
-fn route_execution_mode_case_count_guard() -> usize {
-    ROUTE_EXECUTION_MODE_CASES_0246.len()
-}
 
 fn assert_no_eligibility_helper_defs(file_label: &str, source: &str) {
     for line in source.lines() {

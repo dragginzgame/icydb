@@ -1,5 +1,5 @@
 use crate::{
-    db::predicate::{
+    db::query::predicate::{
         CompareOp, ComparePredicate, Predicate,
         coercion::{CoercionSpec, TextOp, compare_eq, compare_order, compare_text},
     },
@@ -244,7 +244,7 @@ fn eval_compare_with_resolved_slots<E: EntityValue>(
 }
 
 // Shared compare-op semantics for slot-path evaluation.
-fn eval_compare_values(
+pub(in crate::db) fn eval_compare_values(
     actual: &Value,
     op: CompareOp,
     value: &Value,

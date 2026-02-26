@@ -3,7 +3,7 @@ use crate::model::entity::EntityModel;
 use crate::{
     db::{
         contracts::{FieldType, SchemaInfo, ValidateError, literal_matches_type},
-        predicate::{
+        query::predicate::{
             CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature,
             coercion::{CoercionId, CoercionSpec, supports_coercion},
         },

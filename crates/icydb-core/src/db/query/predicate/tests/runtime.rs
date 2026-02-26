@@ -1,15 +1,11 @@
 use crate::{
     db::{
-        predicate::coercion::{CoercionSpec, TextOp, compare_eq, compare_order, compare_text},
-        query::predicate::CompareOp,
+        executor::eval_compare_values as eval_runtime_compare_values,
+        query::predicate::{ComparePredicate, Predicate},
     },
     traits::EntityValue,
     value::{TextMode, Value},
 };
-use std::cmp::Ordering;
-
-#[cfg(test)]
-use crate::db::predicate::Predicate;
 
 ///
 /// FieldPresence
@@ -101,17 +97,14 @@ fn on_present<R: FieldLookup + ?Sized>(
 ///
 #[must_use]
 #[cfg(test)]
-pub(crate) fn eval<R: Row + ?Sized>(row: &R, predicate: &crate::db::predicate::Predicate) -> bool {
+pub(crate) fn eval<R: Row + ?Sized>(row: &R, predicate: &Predicate) -> bool {
     eval_lookup(row, predicate)
 }
 
 #[must_use]
 #[expect(clippy::match_like_matches_macro)]
 #[cfg(test)]
-fn eval_lookup<R: FieldLookup + ?Sized>(
-    row: &R,
-    predicate: &crate::db::predicate::Predicate,
-) -> bool {
+fn eval_lookup<R: FieldLookup + ?Sized>(row: &R, predicate: &Predicate) -> bool {
     match predicate {
         Predicate::True => true,
         Predicate::False => false,
@@ -151,11 +144,8 @@ fn eval_lookup<R: FieldLookup + ?Sized>(
 /// - the comparison is not defined under the given coercion
 ///
 #[cfg(test)]
-fn eval_compare<R: FieldLookup + ?Sized>(
-    row: &R,
-    cmp: &crate::db::query::predicate::ComparePredicate,
-) -> bool {
-    let crate::db::query::predicate::ComparePredicate {
+fn eval_compare<R: FieldLookup + ?Sized>(row: &R, cmp: &ComparePredicate) -> bool {
+    let ComparePredicate {
         field,
         op,
         value,
@@ -166,38 +156,7 @@ fn eval_compare<R: FieldLookup + ?Sized>(
         return false;
     };
 
-    eval_compare_values(&actual, *op, value, coercion)
-}
-
-// Shared compare-op semantics for query-side test evaluation.
-fn eval_compare_values(
-    actual: &Value,
-    op: CompareOp,
-    value: &Value,
-    coercion: &CoercionSpec,
-) -> bool {
-    // NOTE: Comparison helpers return None when a comparison is invalid; eval treats that as false.
-    match op {
-        CompareOp::Eq => compare_eq(actual, value, coercion).unwrap_or(false),
-        CompareOp::Ne => compare_eq(actual, value, coercion).is_some_and(|v| !v),
-
-        CompareOp::Lt => compare_order(actual, value, coercion).is_some_and(Ordering::is_lt),
-        CompareOp::Lte => compare_order(actual, value, coercion).is_some_and(Ordering::is_le),
-        CompareOp::Gt => compare_order(actual, value, coercion).is_some_and(Ordering::is_gt),
-        CompareOp::Gte => compare_order(actual, value, coercion).is_some_and(Ordering::is_ge),
-
-        CompareOp::In => in_list(actual, value, coercion).unwrap_or(false),
-        CompareOp::NotIn => in_list(actual, value, coercion).is_some_and(|matched| !matched),
-
-        CompareOp::Contains => contains(actual, value, coercion),
-
-        CompareOp::StartsWith => {
-            compare_text(actual, value, coercion, TextOp::StartsWith).unwrap_or(false)
-        }
-        CompareOp::EndsWith => {
-            compare_text(actual, value, coercion, TextOp::EndsWith).unwrap_or(false)
-        }
-    }
+    eval_runtime_compare_values(&actual, *op, value, coercion)
 }
 
 ///
@@ -209,45 +168,4 @@ const fn is_empty_value(value: &Value) -> bool {
         Value::List(items) => items.is_empty(),
         _ => false,
     }
-}
-
-///
-/// Check whether a value equals any element in a list.
-///
-fn in_list(actual: &Value, list: &Value, coercion: &CoercionSpec) -> Option<bool> {
-    let Value::List(items) = list else {
-        return None;
-    };
-
-    let mut saw_valid = false;
-    for item in items {
-        match compare_eq(actual, item, coercion) {
-            Some(true) => return Some(true),
-            Some(false) => saw_valid = true,
-            None => {}
-        }
-    }
-
-    saw_valid.then_some(false)
-}
-
-///
-/// Check whether a collection contains another value.
-///
-/// CONTRACT: text substring matching uses TextContains/TextContainsCi only.
-///
-fn contains(actual: &Value, needle: &Value, coercion: &CoercionSpec) -> bool {
-    if matches!(actual, Value::Text(_)) {
-        // CONTRACT: text substring matching uses TextContains/TextContainsCi.
-        return false;
-    }
-
-    let Value::List(items) = actual else {
-        return false;
-    };
-
-    items
-        .iter()
-        // Invalid comparisons are treated as non-matches.
-        .any(|item| compare_eq(item, needle, coercion).unwrap_or(false))
 }

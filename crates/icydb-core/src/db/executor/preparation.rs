@@ -1,8 +1,9 @@
 use crate::{
     db::{
-        access::IndexPredicateProgram,
-        contracts::PredicateFieldSlots,
-        executor::{ExecutionKernel, IndexPredicateCompileMode, load::LoadExecutor},
+        executor::{
+            ExecutionKernel, IndexPredicateCompileMode, PredicateFieldSlots, load::LoadExecutor,
+        },
+        index::IndexPredicateProgram,
         query::plan::AccessPlannedQuery,
     },
     traits::{EntityKind, EntityValue},

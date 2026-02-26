@@ -1,6 +1,8 @@
 use crate::value::{CoercionFamily, TextMode, Value};
 use std::{cmp::Ordering, collections::BTreeMap, mem::discriminant};
 
+pub use crate::db::contracts::CoercionId;
+
 ///
 /// Predicate coercion and comparison semantics
 ///
@@ -9,41 +11,6 @@ use std::{cmp::Ordering, collections::BTreeMap, mem::discriminant};
 /// This module is schema-agnostic and planner-agnostic; it operates
 /// purely on runtime `Value`s and declared coercion intent.
 ///
-
-///
-/// CoercionId
-///
-/// Identifier for an explicit coercion policy.
-///
-/// Coercions express *how* values may be compared, not whether
-/// a comparison is semantically valid for a given field.
-/// Validation and planning enforce legality separately.
-///
-/// CollectionElement is used when comparing a scalar literal
-/// against individual elements of a collection field.
-/// It must never be used for scalar-vs-scalar comparisons.
-///
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum CoercionId {
-    Strict,
-    NumericWiden,
-    TextCasefold,
-    CollectionElement,
-}
-
-impl CoercionId {
-    /// Stable tag used by plan hash encodings (fingerprint/continuation).
-    #[must_use]
-    pub const fn plan_hash_tag(self) -> u8 {
-        match self {
-            Self::Strict => 0x01,
-            Self::NumericWiden => 0x02,
-            Self::TextCasefold => 0x04,
-            Self::CollectionElement => 0x05,
-        }
-    }
-}
 
 ///
 /// CoercionSpec

@@ -5,6 +5,25 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.30.12] - 2026-02-26 - Layer Convergence Follow-Up
+
+### 📝 Summary
+
+* Completed a merge-first follow-up pass from the DB consolidation audit to remove remaining duplicate roots and thin wrappers without changing query behavior.
+
+### 🔧 Changed
+
+* Made `db::query::predicate` the canonical predicate namespace and removed the legacy `db::predicate` root and re-export shims.
+* Moved runtime predicate filtering into `db::executor` and removed older duplicate predicate modules.
+* Kept index predicate byte encoding in `db::index::predicate`, and routed executor compile decisions through one shared path.
+* Moved `AccessPlannedQuery` and order contracts to `db::access`, so the access layer no longer depends on query-owned planning types.
+* Moved shared predicate policy types (`UnsupportedQueryFeature`, `CoercionId`) into `db::contracts` so all layers use one common owner.
+* Moved `MAX_ROW_BYTES` into `db::codec`, removing a lower-layer dependency on `db::data`.
+* Removed thin wrappers and small leftover module shells (`db::diagnostics::snapshot`, `db::index::store`) and deleted empty directories.
+* Folded executor cursor helper wrappers into `executor/cursor/mod.rs` while keeping DB-level cursor token semantics in `db::cursor`.
+
+---
+
 ## [0.30.11] - 2026-02-26 - DB Cleanup Audit
 
 ### 📝 Summary

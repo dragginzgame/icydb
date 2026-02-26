@@ -1,10 +1,9 @@
 use crate::db::{
-    access::{
-        IndexPredicateCompileMode, IndexPredicateProgram,
+    executor::{
+        ExecutionKernel, IndexPredicateCompileMode, PredicateFieldSlots,
         compile_index_predicate_program_from_slots as compile_index_program_from_slots,
     },
-    contracts::PredicateFieldSlots,
-    executor::ExecutionKernel,
+    index::IndexPredicateProgram,
 };
 
 impl ExecutionKernel {

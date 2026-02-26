@@ -1,6 +1,6 @@
 use crate::{
-    db::{cursor::CursorBoundary, direction::Direction},
-    serialize::{deserialize_bounded, serialize},
+    db::{codec::deserialize_protocol_payload, cursor::CursorBoundary, direction::Direction},
+    serialize::serialize,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error as ThisError;
@@ -121,8 +121,9 @@ impl ContinuationToken {
     }
 
     pub(crate) fn decode(bytes: &[u8]) -> Result<Self, ContinuationTokenError> {
-        let wire: ContinuationTokenWire = deserialize_bounded(bytes, MAX_CONTINUATION_TOKEN_BYTES)
-            .map_err(|err| ContinuationTokenError::Decode(err.to_string()))?;
+        let wire: ContinuationTokenWire =
+            deserialize_protocol_payload(bytes, MAX_CONTINUATION_TOKEN_BYTES)
+                .map_err(|err| ContinuationTokenError::Decode(err.to_string()))?;
 
         // Decode the protocol version first so compatibility behavior remains centralized.
         let version = CursorTokenVersion::decode(wire.version)?;

@@ -2,7 +2,7 @@ use crate::{
     db::{
         access::{AccessPath, AccessPlan, SemanticIndexRangeSpec},
         contracts::{SchemaInfo, literal_matches_type},
-        predicate::coercion::canonical_cmp,
+        query::predicate::coercion::canonical_cmp,
     },
     model::{entity::EntityModel, index::IndexModel},
     traits::FieldValue,

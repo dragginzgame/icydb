@@ -2,7 +2,7 @@ use crate::{
     db::{
         contracts::{SchemaInfo, literal_matches_type},
         executor::mutation::save::SaveExecutor,
-        predicate::coercion::canonical_cmp,
+        query::predicate::coercion::canonical_cmp,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::{entity::resolve_primary_key_slot, field::FieldKind},
@@ -205,7 +205,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
     }
 
     /// Enforce deterministic value encodings for collection-like field kinds.
-    pub(in crate::db::executor::mutation::save) fn validate_deterministic_field_value(
+    pub(in crate::db::executor) fn validate_deterministic_field_value(
         field_name: &str,
         kind: &FieldKind,
         value: &Value,

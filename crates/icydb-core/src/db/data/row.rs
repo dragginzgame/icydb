@@ -1,6 +1,6 @@
 use super::DataKey;
 use crate::{
-    db::codec::deserialize_row,
+    db::codec::{MAX_ROW_BYTES, deserialize_row},
     error::InternalError,
     traits::{EntityKind, Storable},
 };
@@ -48,9 +48,6 @@ pub(crate) enum RowDecodeError {
 ///
 /// RawRow
 ///
-
-/// Max serialized bytes for a single row (protocol-level limit).
-pub(crate) const MAX_ROW_BYTES: u32 = 4 * 1024 * 1024;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RawRow(Vec<u8>);

@@ -1,8 +1,10 @@
 use crate::{
     db::{
-        contracts::predicate_model::{FieldType, field_type_from_model_kind},
+        contracts::{
+            CoercionId, UnsupportedQueryFeature,
+            predicate_model::{FieldType, field_type_from_model_kind},
+        },
         identity::{EntityName, EntityNameError, IndexName, IndexNameError},
-        predicate::{UnsupportedQueryFeature, coercion::CoercionId},
     },
     model::{entity::EntityModel, field::FieldKind, index::IndexModel},
 };

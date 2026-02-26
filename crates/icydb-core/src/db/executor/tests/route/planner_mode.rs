@@ -46,7 +46,7 @@ fn load_trace_outcome_mapping_is_single_owner_boundary() {
 
 #[test]
 fn route_planner_remains_decomposed_into_dedicated_submodules() {
-    let planner_mod_source = include_str!("../planner/mod.rs");
+    let planner_mod_source = include_str!("../../route/planner/mod.rs");
 
     assert!(
         planner_mod_source.contains("mod capability;")

@@ -6,10 +6,12 @@ mod window;
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},
-        contracts::{PredicateFieldSlots, eval_with_slots as eval_predicate_with_slots},
         cursor::{ContinuationSignature, ContinuationToken, CursorBoundary},
         direction::Direction,
-        executor::{ExecutionKernel, cursor_anchor_from_index_key},
+        executor::{
+            ExecutionKernel, PredicateFieldSlots, cursor_anchor_from_index_key,
+            eval_with_slots as eval_predicate_with_slots,
+        },
         index::IndexKey,
         policy,
         query::plan::AccessPlannedQuery,
@@ -442,8 +444,10 @@ mod tests {
     use crate::db::{
         access::AccessPath,
         cursor::CursorBoundary,
-        predicate::Predicate,
-        query::plan::{AccessPlannedQuery, OrderDirection, OrderSpec, PageSpec},
+        query::{
+            plan::{AccessPlannedQuery, OrderDirection, OrderSpec, PageSpec},
+            predicate::Predicate,
+        },
     };
     use crate::{db::ReadConsistency, model::field::FieldKind, types::Ulid};
 
