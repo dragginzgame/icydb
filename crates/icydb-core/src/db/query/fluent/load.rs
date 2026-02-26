@@ -1,6 +1,8 @@
 use crate::{
     db::{
-        DbSession, PagedLoadExecution, PagedLoadExecutionWithTrace, policy,
+        DbSession, PagedLoadExecution, PagedLoadExecutionWithTrace,
+        executor::ExecutablePlan,
+        policy,
         query::{
             explain::ExplainPlan,
             expr::{FilterExpr, SortExpr},
@@ -176,6 +178,11 @@ where
         }
 
         self.query.planned()
+    }
+
+    /// Compile this fluent load intent into executor runtime state.
+    pub fn plan(&self) -> Result<ExecutablePlan<E>, QueryError> {
+        self.planned().map(ExecutablePlan::from)
     }
 
     // ------------------------------------------------------------------

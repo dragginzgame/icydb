@@ -10,6 +10,7 @@ pub(crate) use key_access::*;
 use crate::{
     db::{
         consistency::ReadConsistency,
+        executor::ExecutablePlan,
         policy,
         query::{
             explain::ExplainPlan,
@@ -345,6 +346,12 @@ impl<E: EntityKind> PlannedQuery<E> {
     }
 }
 
+impl<E: EntityKind> From<PlannedQuery<E>> for ExecutablePlan<E> {
+    fn from(value: PlannedQuery<E>) -> Self {
+        Self::new(value.into_inner())
+    }
+}
+
 #[derive(Debug)]
 pub struct Query<E: EntityKind> {
     intent: QueryModel<'static, E::Key>,
@@ -483,6 +490,11 @@ impl<E: EntityKind> Query<E> {
         let plan = self.build_plan()?;
 
         Ok(PlannedQuery::new(plan))
+    }
+
+    /// Compile this logical planned query into executor runtime state.
+    pub fn plan(&self) -> Result<ExecutablePlan<E>, QueryError> {
+        self.planned().map(ExecutablePlan::from)
     }
 
     // Build a logical plan for the current intent.

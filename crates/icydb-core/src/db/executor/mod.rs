@@ -1,4 +1,4 @@
-pub(super) mod aggregate;
+pub(super) mod aggregate_model;
 mod context;
 mod cursor;
 mod delete;
@@ -9,6 +9,8 @@ pub(super) mod load;
 mod mutation;
 mod physical_path;
 mod plan_metrics;
+mod plan_validate;
+mod preparation;
 pub(super) mod route;
 mod stream;
 #[cfg(test)]
@@ -31,6 +33,8 @@ pub(in crate::db::executor) use kernel::{
 pub(super) use load::LoadExecutor;
 pub use load::{ExecutionAccessPathVariant, ExecutionOptimization, ExecutionTrace};
 pub(super) use mutation::save::SaveExecutor;
+pub(in crate::db::executor) use plan_validate::validate_executor_plan;
+pub(in crate::db::executor) use preparation::ExecutionPreparation;
 pub(super) use stream::access::*;
 pub(super) use stream::key::{
     BudgetedOrderedKeyStream, KeyOrderComparator, OrderedKeyStream, OrderedKeyStreamBox,
@@ -51,54 +55,14 @@ use crate::{
     db::{
         cursor::CursorPlanError,
         data::DataKey,
-        plan::AccessPlannedQuery,
         query::{
-            fluent::{delete::FluentDeleteQuery, load::FluentLoadQuery},
-            intent::{PlannedQuery, Query, QueryError},
             plan::{OrderPlanError, PlanError},
-            predicate::PredicateFieldSlots,
             predicate::ValidateError,
         },
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
-    traits::EntityKind,
 };
 use thiserror::Error as ThisError;
-
-pub(super) fn compile_predicate_slots<E: EntityKind>(
-    plan: &AccessPlannedQuery<E::Key>,
-) -> Option<PredicateFieldSlots> {
-    plan.predicate
-        .as_ref()
-        .map(PredicateFieldSlots::resolve::<E>)
-}
-
-impl<E: EntityKind> From<PlannedQuery<E>> for ExecutablePlan<E> {
-    fn from(value: PlannedQuery<E>) -> Self {
-        Self::new(value.into_inner())
-    }
-}
-
-impl<E: EntityKind> Query<E> {
-    /// Compile this logical planned query into executor runtime state.
-    pub fn plan(&self) -> Result<ExecutablePlan<E>, QueryError> {
-        self.planned().map(ExecutablePlan::from)
-    }
-}
-
-impl<E: EntityKind> FluentLoadQuery<'_, E> {
-    /// Compile this fluent load intent into executor runtime state.
-    pub fn plan(&self) -> Result<ExecutablePlan<E>, QueryError> {
-        self.planned().map(ExecutablePlan::from)
-    }
-}
-
-impl<E: EntityKind> FluentDeleteQuery<'_, E> {
-    /// Compile this fluent delete intent into executor runtime state.
-    pub fn plan(&self) -> Result<ExecutablePlan<E>, QueryError> {
-        self.planned().map(ExecutablePlan::from)
-    }
-}
 
 ///
 /// ExecutorPlanError

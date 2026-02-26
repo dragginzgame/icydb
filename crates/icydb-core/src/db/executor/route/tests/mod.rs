@@ -8,7 +8,7 @@ use crate::{
         access::{AccessPath, AccessPlan},
         cursor::CursorBoundary,
         executor::{
-            aggregate::{AggregateFoldMode, AggregateKind, AggregateSpec},
+            aggregate_model::{AggregateFoldMode, AggregateKind, AggregateSpec},
             load::LoadExecutor,
         },
         plan::{OrderDirection, OrderSpec, PageSpec},

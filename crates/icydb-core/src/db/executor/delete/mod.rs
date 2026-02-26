@@ -5,15 +5,15 @@ use crate::{
         Db,
         commit::{CommitRowOp, ensure_recovered_for_write},
         executor::{
-            ExecutablePlan, compile_predicate_slots,
+            ExecutablePlan, ExecutionPreparation,
             load::LoadExecutor,
             mutation::{
                 OpenCommitWindow, apply_prepared_row_ops, emit_index_delta_metrics,
                 open_commit_window,
             },
             plan_metrics::{record_plan_metrics, record_rows_scanned, set_rows_from_len},
+            validate_executor_plan,
         },
-        plan::validate::validate_executor_plan,
         policy,
         response::Response,
     },
@@ -75,7 +75,7 @@ where
             let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
             let index_range_specs = plan.index_range_specs()?.to_vec();
             let plan = plan.into_inner();
-            let predicate_slots = compile_predicate_slots::<E>(&plan);
+            let execution_preparation = ExecutionPreparation::for_plan::<E>(&plan);
             validate_executor_plan::<E>(&plan)?;
             LoadExecutor::<E>::validate_mutation_route_stage(&plan)?;
             let ctx = self.db.recovered_context::<E>()?;
@@ -98,7 +98,7 @@ where
             // Post-access phase: filter, order, and apply delete limits.
             let stats = plan.apply_post_access_with_compiled_predicate::<E, _>(
                 &mut rows,
-                predicate_slots.as_ref(),
+                execution_preparation.compiled_predicate(),
             )?;
             let _ = stats.delete_was_limited;
 

@@ -5,7 +5,7 @@ use crate::{
         data::DataKey,
         executor::{
             ExecutablePlan, ExecutionKernel,
-            aggregate::{AggregateKind, AggregateSpec},
+            aggregate_model::{AggregateKind, AggregateSpec},
         },
         query::{
             explain::ExplainAccessPath,

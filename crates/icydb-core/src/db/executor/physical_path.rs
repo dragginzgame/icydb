@@ -4,8 +4,8 @@ use crate::{
         data::DataKey,
         direction::Direction,
         executor::{
-            Context, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, OrderedKeyStreamBox,
-            VecOrderedKeyStream,
+            Context, IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, OrderedKeyStreamBox,
+            PrimaryScan, VecOrderedKeyStream,
         },
         index::predicate::IndexPredicateExecution,
         lowering::LoweredKey,
@@ -14,7 +14,6 @@ use crate::{
     model::index::IndexModel,
     traits::{EntityKind, EntityValue},
 };
-use std::ops::Bound;
 
 ///
 /// KeyOrderState
@@ -31,7 +30,7 @@ enum KeyOrderState {
 
 impl<K> AccessPath<K> {
     // Physical access lowering for one access path.
-    // Direct store/index traversal here is intentional and resolver-owned.
+    // All store/index traversal must route through `PrimaryScan`/`IndexScan`.
     /// Build an ordered key stream for this access path.
     #[expect(clippy::too_many_arguments)]
     pub(super) fn resolve_physical_key_stream<E>(
@@ -154,54 +153,16 @@ impl<K> AccessPath<K> {
         E: EntityKind<Key = K> + EntityValue,
         K: Copy + Ord,
     {
-        // Direction-aware bounded scan can stop after the hint count.
-        if let Some(fetch_limit) = primary_scan_fetch_hint {
-            let keys = ctx.with_store(|s| -> Result<Vec<DataKey>, InternalError> {
-                let start = Context::<E>::data_key_from_key(start)?;
-                let end = Context::<E>::data_key_from_key(end)?;
-                let start_raw = start.to_raw()?;
-                let end_raw = end.to_raw()?;
-                let range = (Bound::Included(start_raw), Bound::Included(end_raw));
-                let mut out = Vec::new();
-                if fetch_limit > 0 {
-                    match direction {
-                        Direction::Asc => {
-                            for entry in s.range(range) {
-                                out.push(Context::<E>::decode_data_key(entry.key())?);
-                                if out.len() == fetch_limit {
-                                    break;
-                                }
-                            }
-                        }
-                        Direction::Desc => {
-                            for entry in s.range(range).rev() {
-                                out.push(Context::<E>::decode_data_key(entry.key())?);
-                                if out.len() == fetch_limit {
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
+        let start = Context::<E>::data_key_from_key(start)?;
+        let end = Context::<E>::data_key_from_key(end)?;
+        let keys = PrimaryScan::range::<E>(ctx, &start, &end, direction, primary_scan_fetch_hint)?;
+        let key_order_state = if primary_scan_fetch_hint.is_some() {
+            KeyOrderState::FinalOrder
+        } else {
+            KeyOrderState::AscendingSorted
+        };
 
-                Ok(out)
-            })??;
-
-            return Ok((keys, KeyOrderState::FinalOrder));
-        }
-
-        let keys = ctx.with_store(|s| {
-            let start = Context::<E>::data_key_from_key(start)?;
-            let end = Context::<E>::data_key_from_key(end)?;
-            let start_raw = start.to_raw()?;
-            let end_raw = end.to_raw()?;
-
-            s.range((Bound::Included(start_raw), Bound::Included(end_raw)))
-                .map(|e| Context::<E>::decode_data_key(e.key()))
-                .collect::<Result<Vec<_>, _>>()
-        })??;
-
-        Ok((keys, KeyOrderState::AscendingSorted))
+        Ok((keys, key_order_state))
     }
 
     // Resolve one full primary-key scan traversal.
@@ -214,54 +175,16 @@ impl<K> AccessPath<K> {
         E: EntityKind<Key = K> + EntityValue,
         K: Copy + Ord,
     {
-        // Direction-aware bounded scan can stop after the hint count.
-        if let Some(fetch_limit) = primary_scan_fetch_hint {
-            let keys = ctx.with_store(|s| -> Result<Vec<DataKey>, InternalError> {
-                let start = DataKey::lower_bound::<E>();
-                let end = DataKey::upper_bound::<E>();
-                let start_raw = start.to_raw()?;
-                let end_raw = end.to_raw()?;
-                let range = (Bound::Included(start_raw), Bound::Included(end_raw));
-                let mut out = Vec::new();
-                if fetch_limit > 0 {
-                    match direction {
-                        Direction::Asc => {
-                            for entry in s.range(range) {
-                                out.push(Context::<E>::decode_data_key(entry.key())?);
-                                if out.len() == fetch_limit {
-                                    break;
-                                }
-                            }
-                        }
-                        Direction::Desc => {
-                            for entry in s.range(range).rev() {
-                                out.push(Context::<E>::decode_data_key(entry.key())?);
-                                if out.len() == fetch_limit {
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
+        let start = DataKey::lower_bound::<E>();
+        let end = DataKey::upper_bound::<E>();
+        let keys = PrimaryScan::range::<E>(ctx, &start, &end, direction, primary_scan_fetch_hint)?;
+        let key_order_state = if primary_scan_fetch_hint.is_some() {
+            KeyOrderState::FinalOrder
+        } else {
+            KeyOrderState::AscendingSorted
+        };
 
-                Ok(out)
-            })??;
-
-            return Ok((keys, KeyOrderState::FinalOrder));
-        }
-
-        let keys = ctx.with_store(|s| {
-            let start = DataKey::lower_bound::<E>();
-            let end = DataKey::upper_bound::<E>();
-            let start_raw = start.to_raw()?;
-            let end_raw = end.to_raw()?;
-
-            s.range((Bound::Included(start_raw), Bound::Included(end_raw)))
-                .map(|e| Context::<E>::decode_data_key(e.key()))
-                .collect::<Result<Vec<_>, _>>()
-        })??;
-
-        Ok((keys, KeyOrderState::AscendingSorted))
+        Ok((keys, key_order_state))
     }
 
     // Resolve one index-prefix traversal using a pre-lowered index-prefix spec.
@@ -283,20 +206,9 @@ impl<K> AccessPath<K> {
             ));
         };
 
-        let store = ctx
-            .db
-            .with_store_registry(|reg| reg.try_get_store(spec.index().store))?;
         let fetch_limit = index_fetch_hint.unwrap_or(usize::MAX);
-        let keys = store.with_index(|s| {
-            s.resolve_data_values_in_raw_range_limited::<E>(
-                spec.index(),
-                (spec.lower(), spec.upper()),
-                None,
-                direction,
-                fetch_limit,
-                index_predicate_execution,
-            )
-        })?;
+        let keys =
+            IndexScan::prefix::<E>(ctx, spec, direction, fetch_limit, index_predicate_execution)?;
 
         let key_order_state = if index_fetch_hint.is_some() {
             KeyOrderState::FinalOrder
@@ -327,20 +239,15 @@ impl<K> AccessPath<K> {
             ));
         };
 
-        let store = ctx
-            .db
-            .with_store_registry(|reg| reg.try_get_store(spec.index().store))?;
         let fetch_limit = index_fetch_hint.unwrap_or(usize::MAX);
-        let keys = store.with_index(|s| {
-            s.resolve_data_values_in_raw_range_limited::<E>(
-                spec.index(),
-                (spec.lower(), spec.upper()),
-                index_range_anchor,
-                direction,
-                fetch_limit,
-                index_predicate_execution,
-            )
-        })?;
+        let keys = IndexScan::range::<E>(
+            ctx,
+            spec,
+            index_range_anchor,
+            direction,
+            fetch_limit,
+            index_predicate_execution,
+        )?;
 
         let key_order_state = if index_fetch_hint.is_some() {
             KeyOrderState::FinalOrder

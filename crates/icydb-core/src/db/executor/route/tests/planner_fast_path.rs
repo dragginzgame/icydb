@@ -33,7 +33,7 @@ fn load_stream_construction_routes_through_route_facade() {
 
 #[test]
 fn aggregate_fast_path_dispatch_requires_verified_gate_marker() {
-    let aggregate_fast_path_source = include_str!("../../kernel/aggregate.rs");
+    let aggregate_fast_path_source = include_str!("../../kernel/aggregate/fast_path.rs");
     assert!(
         aggregate_fast_path_source.contains("struct VerifiedAggregateFastPathRoute"),
         "aggregate fast-path dispatch must define a verified route marker type",
@@ -89,8 +89,8 @@ fn strict_index_predicate_compile_policy_has_one_executor_source_of_truth() {
 
 #[test]
 fn aggregate_fast_path_folding_uses_shared_stream_helpers() {
-    let aggregate_fast_path_source = include_str!("../../kernel/aggregate.rs");
-    let kernel_aggregate_source = include_str!("../../kernel/aggregate.rs");
+    let aggregate_fast_path_source = include_str!("../../kernel/aggregate/fast_path.rs");
+    let kernel_aggregate_source = include_str!("../../kernel/aggregate/fast_path.rs");
 
     assert!(
         aggregate_fast_path_source.contains("fn fold_aggregate_over_key_stream<E>("),

@@ -6,6 +6,7 @@
 pub(crate) mod path;
 pub(crate) mod predicate;
 pub(crate) mod pushdown;
+pub(crate) mod validate;
 
 #[allow(unused_imports)]
 pub(crate) use path::{AccessPath, AccessPlan, IndexRangePathRef, SemanticIndexRangeSpec};
@@ -19,3 +20,4 @@ pub(crate) use pushdown::{
     SecondaryOrderPushdownRejection, assess_secondary_order_pushdown_from_parts,
     assess_secondary_order_pushdown_if_applicable_validated_from_parts,
 };
+pub(crate) use validate::{AccessPlanError, validate_access_plan, validate_access_plan_model};

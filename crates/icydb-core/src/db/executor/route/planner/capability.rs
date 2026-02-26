@@ -4,8 +4,8 @@ use crate::{
         direction::Direction,
         executor::{
             ExecutionKernel,
-            aggregate::capability::field_is_orderable,
-            aggregate::{AggregateKind, AggregateSpec},
+            aggregate_model::capability::field_is_orderable,
+            aggregate_model::{AggregateKind, AggregateSpec},
             load::LoadExecutor,
         },
         plan::AccessPlannedQuery,

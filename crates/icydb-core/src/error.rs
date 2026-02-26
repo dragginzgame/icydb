@@ -1,5 +1,6 @@
 use crate::{
     db::{
+        access::AccessPlanError,
         policy::PlanPolicyError,
         query::plan::{CursorPlanError, PlanError},
     },
@@ -390,8 +391,8 @@ impl InternalError {
         Self::query_invariant(message)
     }
 
-    /// Map shared plan-validation failures into executor-boundary invariants.
-    pub(crate) fn from_executor_plan_error(err: PlanError) -> Self {
+    /// Map shared access-validation failures into executor-boundary invariants.
+    pub(crate) fn from_executor_access_plan_error(err: AccessPlanError) -> Self {
         Self::query_invariant(err.to_string())
     }
 
@@ -535,7 +536,6 @@ impl fmt::Display for ErrorOrigin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::query::plan::{CursorPlanError, PlanError};
 
     #[test]
     fn index_plan_index_corruption_uses_index_origin() {
@@ -575,11 +575,8 @@ mod tests {
     }
 
     #[test]
-    fn executor_plan_error_mapping_stays_invariant_violation() {
-        let plan_err = PlanError::from(CursorPlanError::InvalidContinuationCursorPayload {
-            reason: "bad token".to_string(),
-        });
-        let err = InternalError::from_executor_plan_error(plan_err);
+    fn executor_access_plan_error_mapping_stays_invariant_violation() {
+        let err = InternalError::from_executor_access_plan_error(AccessPlanError::IndexPrefixEmpty);
         assert_eq!(err.class, ErrorClass::InvariantViolation);
         assert_eq!(err.origin, ErrorOrigin::Query);
     }

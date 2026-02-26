@@ -6,7 +6,7 @@ use crate::{
         direction::Direction,
         executor::{
             ExecutionKernel, LoadExecutor, OrderedKeyStream,
-            aggregate::{
+            aggregate_model::{
                 AggregateFoldMode, AggregateKind, AggregateOutput, AggregateReducerState,
                 FoldControl,
             },

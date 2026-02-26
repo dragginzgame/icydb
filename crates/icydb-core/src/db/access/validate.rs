@@ -9,14 +9,48 @@ use crate::{
     value::Value,
 };
 use std::ops::Bound;
+use thiserror::Error as ThisError;
 
-use crate::db::query::plan::validate::{AccessPlanError, PlanError};
+///
+/// AccessPlanError
+///
+/// Access-path and key-shape validation failures.
+///
+#[derive(Debug, ThisError)]
+pub enum AccessPlanError {
+    /// Access plan references an index not declared on the entity.
+    #[error("index '{index}' not found on entity")]
+    IndexNotFound { index: IndexModel },
+
+    /// Index prefix exceeds the number of indexed fields.
+    #[error("index prefix length {prefix_len} exceeds index field count {field_len}")]
+    IndexPrefixTooLong { prefix_len: usize, field_len: usize },
+
+    /// Index prefix must include at least one value.
+    #[error("index prefix must include at least one value")]
+    IndexPrefixEmpty,
+
+    /// Index prefix literal does not match indexed field type.
+    #[error("index prefix value for field '{field}' is incompatible")]
+    IndexPrefixValueMismatch { field: String },
+
+    /// Primary key field exists but is not key-compatible.
+    #[error("primary key field '{field}' is not key-compatible")]
+    PrimaryKeyNotKeyable { field: String },
+
+    /// Supplied key does not match the primary key type.
+    #[error("key '{key:?}' is incompatible with primary key '{field}'")]
+    PrimaryKeyMismatch { field: String, key: Value },
+
+    /// Key range has invalid ordering.
+    #[error("key range start is greater than end")]
+    InvalidKeyRange,
+}
 
 ///
 /// AccessPlanKeyAdapter
 /// Adapter for key validation and ordering across access-plan representations.
 ///
-
 trait AccessPlanKeyAdapter<K> {
     /// Validate a key against the entity's primary key type.
     fn validate_pk_key(
@@ -24,7 +58,7 @@ trait AccessPlanKeyAdapter<K> {
         schema: &SchemaInfo,
         model: &EntityModel,
         key: &K,
-    ) -> Result<(), PlanError>;
+    ) -> Result<(), AccessPlanError>;
 
     /// Validate a key range and enforce representation-specific ordering rules.
     fn validate_key_range(
@@ -33,14 +67,13 @@ trait AccessPlanKeyAdapter<K> {
         model: &EntityModel,
         start: &K,
         end: &K,
-    ) -> Result<(), PlanError>;
+    ) -> Result<(), AccessPlanError>;
 }
 
 ///
 /// GenericKeyAdapater
 /// Adapter for typed key plans (FieldValue + Ord)
 ///
-
 struct GenericKeyAdapter;
 
 impl<K> AccessPlanKeyAdapter<K> for GenericKeyAdapter
@@ -52,7 +85,7 @@ where
         schema: &SchemaInfo,
         model: &EntityModel,
         key: &K,
-    ) -> Result<(), PlanError> {
+    ) -> Result<(), AccessPlanError> {
         validate_pk_key(schema, model, key)
     }
 
@@ -62,7 +95,7 @@ where
         model: &EntityModel,
         start: &K,
         end: &K,
-    ) -> Result<(), PlanError> {
+    ) -> Result<(), AccessPlanError> {
         validate_pk_key(schema, model, start)?;
         validate_pk_key(schema, model, end)?;
 
@@ -78,7 +111,6 @@ where
 /// ValueKeyAdapter
 /// Adapter for model-level Value plans (partial ordering).
 ///
-
 struct ValueKeyAdapter;
 
 impl AccessPlanKeyAdapter<Value> for ValueKeyAdapter {
@@ -87,7 +119,7 @@ impl AccessPlanKeyAdapter<Value> for ValueKeyAdapter {
         schema: &SchemaInfo,
         model: &EntityModel,
         key: &Value,
-    ) -> Result<(), PlanError> {
+    ) -> Result<(), AccessPlanError> {
         validate_pk_value(schema, model, key)
     }
 
@@ -97,12 +129,12 @@ impl AccessPlanKeyAdapter<Value> for ValueKeyAdapter {
         model: &EntityModel,
         start: &Value,
         end: &Value,
-    ) -> Result<(), PlanError> {
+    ) -> Result<(), AccessPlanError> {
         validate_pk_value(schema, model, start)?;
         validate_pk_value(schema, model, end)?;
         let ordering = canonical_cmp(start, end);
         if ordering == std::cmp::Ordering::Greater {
-            return Err(PlanError::from(AccessPlanError::InvalidKeyRange));
+            return Err(AccessPlanError::InvalidKeyRange);
         }
 
         Ok(())
@@ -115,7 +147,7 @@ fn validate_access_plan_with<K>(
     model: &EntityModel,
     access: &AccessPlan<K>,
     adapter: &impl AccessPlanKeyAdapter<K>,
-) -> Result<(), PlanError> {
+) -> Result<(), AccessPlanError> {
     access.validate(schema, model, adapter)
 }
 
@@ -126,7 +158,7 @@ pub(crate) fn validate_access_plan<K>(
     schema: &SchemaInfo,
     model: &EntityModel,
     access: &AccessPlan<K>,
-) -> Result<(), PlanError>
+) -> Result<(), AccessPlanError>
 where
     K: FieldValue + Ord,
 {
@@ -138,12 +170,16 @@ pub(crate) fn validate_access_plan_model(
     schema: &SchemaInfo,
     model: &EntityModel,
     access: &AccessPlan<Value>,
-) -> Result<(), PlanError> {
+) -> Result<(), AccessPlanError> {
     validate_access_plan_with(schema, model, access, &ValueKeyAdapter)
 }
 
 /// Validate that a key matches the entity's primary key type.
-fn validate_pk_key<K>(schema: &SchemaInfo, model: &EntityModel, key: &K) -> Result<(), PlanError>
+fn validate_pk_key<K>(
+    schema: &SchemaInfo,
+    model: &EntityModel,
+    key: &K,
+) -> Result<(), AccessPlanError>
 where
     K: FieldValue,
 {
@@ -156,7 +192,7 @@ fn validate_pk_value(
     schema: &SchemaInfo,
     model: &EntityModel,
     key: &Value,
-) -> Result<(), PlanError> {
+) -> Result<(), AccessPlanError> {
     validate_pk_literal(schema, model, key)
 }
 
@@ -165,27 +201,26 @@ fn validate_pk_literal(
     schema: &SchemaInfo,
     model: &EntityModel,
     key: &Value,
-) -> Result<(), PlanError> {
+) -> Result<(), AccessPlanError> {
     let field = model.primary_key.name;
 
     let field_type = schema
         .field(field)
         .ok_or_else(|| AccessPlanError::PrimaryKeyNotKeyable {
             field: field.to_string(),
-        })
-        .map_err(PlanError::from)?;
+        })?;
 
     if !field_type.is_keyable() {
-        return Err(PlanError::from(AccessPlanError::PrimaryKeyNotKeyable {
+        return Err(AccessPlanError::PrimaryKeyNotKeyable {
             field: field.to_string(),
-        }));
+        });
     }
 
     if !predicate::validate::literal_matches_type(key, field_type) {
-        return Err(PlanError::from(AccessPlanError::PrimaryKeyMismatch {
+        return Err(AccessPlanError::PrimaryKeyMismatch {
             field: field.to_string(),
             key: key.clone(),
-        }));
+        });
     }
 
     Ok(())
@@ -197,36 +232,34 @@ fn validate_index_prefix(
     model: &EntityModel,
     index: &IndexModel,
     values: &[Value],
-) -> Result<(), PlanError> {
+) -> Result<(), AccessPlanError> {
     if !model.indexes.contains(&index) {
-        return Err(PlanError::from(AccessPlanError::IndexNotFound {
-            index: *index,
-        }));
+        return Err(AccessPlanError::IndexNotFound { index: *index });
     }
 
     if values.is_empty() {
-        return Err(PlanError::from(AccessPlanError::IndexPrefixEmpty));
+        return Err(AccessPlanError::IndexPrefixEmpty);
     }
 
     if values.len() > index.fields.len() {
-        return Err(PlanError::from(AccessPlanError::IndexPrefixTooLong {
+        return Err(AccessPlanError::IndexPrefixTooLong {
             prefix_len: values.len(),
             field_len: index.fields.len(),
-        }));
+        });
     }
 
     for (field, value) in index.fields.iter().zip(values.iter()) {
-        let field_type = schema
-            .field(field)
-            .ok_or_else(|| AccessPlanError::IndexPrefixValueMismatch {
-                field: field.to_string(),
-            })
-            .map_err(PlanError::from)?;
+        let field_type =
+            schema
+                .field(field)
+                .ok_or_else(|| AccessPlanError::IndexPrefixValueMismatch {
+                    field: field.to_string(),
+                })?;
 
         if !predicate::validate::literal_matches_type(value, field_type) {
-            return Err(PlanError::from(AccessPlanError::IndexPrefixValueMismatch {
+            return Err(AccessPlanError::IndexPrefixValueMismatch {
                 field: field.to_string(),
-            }));
+            });
         }
     }
 
@@ -238,47 +271,45 @@ fn validate_index_range(
     schema: &SchemaInfo,
     model: &EntityModel,
     spec: &SemanticIndexRangeSpec,
-) -> Result<(), PlanError> {
+) -> Result<(), AccessPlanError> {
     let index = spec.index();
     let prefix = spec.prefix_values();
     let lower = spec.lower();
     let upper = spec.upper();
 
     if !model.indexes.contains(&index) {
-        return Err(PlanError::from(AccessPlanError::IndexNotFound {
-            index: *index,
-        }));
+        return Err(AccessPlanError::IndexNotFound { index: *index });
     }
 
     if prefix.len() >= index.fields.len() {
-        return Err(PlanError::from(AccessPlanError::IndexPrefixTooLong {
+        return Err(AccessPlanError::IndexPrefixTooLong {
             prefix_len: prefix.len(),
             field_len: index.fields.len().saturating_sub(1),
-        }));
+        });
     }
 
     let range_slot = prefix.len();
     if spec.field_slots().len() != prefix.len().saturating_add(1) {
-        return Err(PlanError::from(AccessPlanError::InvalidKeyRange));
+        return Err(AccessPlanError::InvalidKeyRange);
     }
     for (expected_slot, actual_slot) in (0..=range_slot).zip(spec.field_slots().iter().copied()) {
         if actual_slot != expected_slot {
-            return Err(PlanError::from(AccessPlanError::InvalidKeyRange));
+            return Err(AccessPlanError::InvalidKeyRange);
         }
     }
 
     for (field, value) in index.fields.iter().zip(prefix.iter()) {
-        let field_type = schema
-            .field(field)
-            .ok_or_else(|| AccessPlanError::IndexPrefixValueMismatch {
-                field: field.to_string(),
-            })
-            .map_err(PlanError::from)?;
+        let field_type =
+            schema
+                .field(field)
+                .ok_or_else(|| AccessPlanError::IndexPrefixValueMismatch {
+                    field: field.to_string(),
+                })?;
 
         if !predicate::validate::literal_matches_type(value, field_type) {
-            return Err(PlanError::from(AccessPlanError::IndexPrefixValueMismatch {
+            return Err(AccessPlanError::IndexPrefixValueMismatch {
                 field: field.to_string(),
-            }));
+            });
         }
     }
 
@@ -295,7 +326,7 @@ fn validate_index_range(
     };
 
     if canonical_cmp(lower_value, upper_value) == std::cmp::Ordering::Greater {
-        return Err(PlanError::from(AccessPlanError::InvalidKeyRange));
+        return Err(AccessPlanError::InvalidKeyRange);
     }
 
     Ok(())
@@ -305,36 +336,36 @@ fn validate_index_range_bound_value(
     schema: &SchemaInfo,
     field: &'static str,
     bound: &Bound<Value>,
-) -> Result<(), PlanError> {
+) -> Result<(), AccessPlanError> {
     let value = match bound {
         Bound::Included(value) | Bound::Excluded(value) => value,
         Bound::Unbounded => return Ok(()),
     };
 
-    let field_type = schema
-        .field(field)
-        .ok_or_else(|| AccessPlanError::IndexPrefixValueMismatch {
-            field: field.to_string(),
-        })
-        .map_err(PlanError::from)?;
+    let field_type =
+        schema
+            .field(field)
+            .ok_or_else(|| AccessPlanError::IndexPrefixValueMismatch {
+                field: field.to_string(),
+            })?;
 
     if predicate::validate::literal_matches_type(value, field_type) {
         return Ok(());
     }
 
-    Err(PlanError::from(AccessPlanError::IndexPrefixValueMismatch {
+    Err(AccessPlanError::IndexPrefixValueMismatch {
         field: field.to_string(),
-    }))
+    })
 }
 
 impl<K> AccessPlan<K> {
-    /// Validate this access plan using adapter-specific key semantics.
+    // Validate this access plan using adapter-specific key semantics.
     fn validate(
         &self,
         schema: &SchemaInfo,
         model: &EntityModel,
         adapter: &impl AccessPlanKeyAdapter<K>,
-    ) -> Result<(), PlanError> {
+    ) -> Result<(), AccessPlanError> {
         match self {
             Self::Path(path) => path.validate(schema, model, adapter),
             Self::Union(children) | Self::Intersection(children) => {
@@ -349,13 +380,13 @@ impl<K> AccessPlan<K> {
 }
 
 impl<K> AccessPath<K> {
-    /// Validate this concrete access path using adapter-specific key semantics.
+    // Validate this concrete access path using adapter-specific key semantics.
     fn validate(
         &self,
         schema: &SchemaInfo,
         model: &EntityModel,
         adapter: &impl AccessPlanKeyAdapter<K>,
-    ) -> Result<(), PlanError> {
+    ) -> Result<(), AccessPlanError> {
         match self {
             Self::ByKey(key) => adapter.validate_pk_key(schema, model, key),
             Self::ByKeys(keys) => {

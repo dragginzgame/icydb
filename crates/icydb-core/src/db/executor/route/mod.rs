@@ -9,7 +9,7 @@ use crate::db::{
     direction::Direction,
     executor::{
         AccessPlanStreamRequest, IndexStreamConstraints, StreamExecutionHints,
-        aggregate::{AggregateFoldMode, AggregateSpec},
+        aggregate_model::{AggregateFoldMode, AggregateSpec},
         compute_page_window,
     },
     plan::{OrderDirection, OrderSpec},
@@ -364,7 +364,10 @@ pub(in crate::db::executor) enum RoutedKeyStreamRequest<'a, K> {
 
 enum RouteIntent {
     Load,
-    Aggregate { spec: AggregateSpec },
+    Aggregate {
+        spec: AggregateSpec,
+        aggregate_force_materialized_due_to_predicate_uncertainty: bool,
+    },
 }
 
 ///

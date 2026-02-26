@@ -3,8 +3,8 @@ use crate::{
         data::DataKey,
         executor::{
             ExecutablePlan, ExecutionKernel,
-            aggregate::field::{FieldSlot, extract_orderable_field_value},
-            aggregate::{AggregateKind, AggregateOutput, AggregateSpec},
+            aggregate_model::field::{FieldSlot, extract_orderable_field_value},
+            aggregate_model::{AggregateKind, AggregateOutput, AggregateSpec},
             load::LoadExecutor,
         },
         response::Response,

@@ -2,7 +2,7 @@ use crate::{
     db::{
         executor::{
             ExecutablePlan,
-            aggregate::field::{FieldSlot, extract_orderable_field_value},
+            aggregate_model::field::{FieldSlot, extract_orderable_field_value},
             load::LoadExecutor,
         },
         response::Response,

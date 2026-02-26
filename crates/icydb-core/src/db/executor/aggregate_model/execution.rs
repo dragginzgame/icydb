@@ -3,9 +3,10 @@ use crate::{
         Context,
         access::IndexPredicateProgram,
         direction::Direction,
-        executor::{ExecutionPlan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec},
+        executor::{
+            ExecutionPlan, ExecutionPreparation, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
+        },
         plan::AccessPlannedQuery,
-        query::predicate::PredicateFieldSlots,
     },
     traits::{EntityKind, EntityValue},
 };
@@ -46,7 +47,7 @@ pub(in crate::db::executor) struct AggregateExecutionDescriptor {
     pub(in crate::db::executor) spec: super::AggregateSpec,
     pub(in crate::db::executor) direction: Direction,
     pub(in crate::db::executor) route_plan: ExecutionPlan,
-    pub(in crate::db::executor) strict_index_predicate_program: Option<IndexPredicateProgram>,
+    pub(in crate::db::executor) execution_preparation: ExecutionPreparation,
 }
 
 ///
@@ -66,5 +67,4 @@ pub(in crate::db::executor) struct PreparedAggregateStreamingInputs<
     pub(in crate::db::executor) logical_plan: AccessPlannedQuery<E::Key>,
     pub(in crate::db::executor) index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
     pub(in crate::db::executor) index_range_specs: Vec<LoweredIndexRangeSpec>,
-    pub(in crate::db::executor) predicate_slots: Option<PredicateFieldSlots>,
 }

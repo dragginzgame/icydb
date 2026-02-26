@@ -4,7 +4,7 @@ use crate::{
         direction::Direction,
         executor::{
             ExecutionKernel,
-            aggregate::{AggregateKind, AggregateSpec},
+            aggregate_model::{AggregateKind, AggregateSpec},
             load::LoadExecutor,
         },
         lowering::LoweredKey,

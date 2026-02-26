@@ -1,3 +1,15 @@
+fn kernel_aggregate_mod_source() -> &'static str {
+    include_str!("../../kernel/aggregate/mod.rs")
+}
+
+fn kernel_aggregate_fast_path_source() -> &'static str {
+    include_str!("../../kernel/aggregate/fast_path.rs")
+}
+
+fn kernel_aggregate_field_extrema_source() -> &'static str {
+    include_str!("../../kernel/aggregate/field_extrema.rs")
+}
+
 #[test]
 fn load_fast_path_resolution_is_gated_by_route_execution_mode() {
     let execute_source = include_str!("../../load/execute.rs");
@@ -91,9 +103,9 @@ fn ranked_terminals_remain_materialized_without_heap_streaming_path() {
 #[test]
 fn aggregate_execution_mode_selection_is_route_owned_and_explicit() {
     let aggregate_terminals_source = include_str!("../../load/aggregate/terminals.rs");
-    let kernel_aggregate_source = include_str!("../../kernel/aggregate.rs");
+    let kernel_aggregate_source = kernel_aggregate_mod_source();
     let distinct_source = include_str!("../../load/aggregate/distinct.rs");
-    let aggregate_contracts_source = include_str!("../../aggregate/contracts.rs");
+    let aggregate_contracts_source = include_str!("../../aggregate_model/contracts.rs");
 
     assert!(
         kernel_aggregate_source.contains("build_execution_route_plan_for_aggregate_spec"),
@@ -138,41 +150,59 @@ fn aggregate_execution_mode_selection_is_route_owned_and_explicit() {
 
 #[test]
 fn aggregate_streaming_runner_dispatch_removes_scalar_special_gates() {
-    let kernel_aggregate_source = include_str!("../../kernel/aggregate.rs");
+    let kernel_aggregate_sources = [
+        kernel_aggregate_mod_source(),
+        kernel_aggregate_fast_path_source(),
+        kernel_aggregate_field_extrema_source(),
+    ];
     assert!(
-        !kernel_aggregate_source
-            .contains("fn scalar_runner_eligible(spec: &AggregateSpec) -> bool"),
+        kernel_aggregate_sources
+            .iter()
+            .all(|source| !source
+                .contains("fn scalar_runner_eligible(spec: &AggregateSpec) -> bool")),
         "kernel aggregate orchestration should not keep a scalar-only eligibility gate after reducer convergence",
     );
     assert!(
-        !kernel_aggregate_source.contains("Self::run_low_risk_streaming_reducer("),
+        kernel_aggregate_sources
+            .iter()
+            .all(|source| !source.contains("Self::run_low_risk_streaming_reducer(")),
         "kernel aggregate orchestration should not route through a low-risk-only reducer wrapper",
     );
     assert!(
-        !kernel_aggregate_source.contains("if Self::scalar_runner_eligible(&descriptor.spec)"),
+        kernel_aggregate_sources
+            .iter()
+            .all(|source| !source.contains("if Self::scalar_runner_eligible(&descriptor.spec)")),
         "kernel aggregate streaming dispatch should not branch on scalar-only special gates",
     );
 }
 
 #[test]
 fn aggregate_generic_streaming_fold_is_kernel_reducer_owned() {
-    let kernel_aggregate_source = include_str!("../../kernel/aggregate.rs");
+    let kernel_aggregate_mod_source = kernel_aggregate_mod_source();
+    let kernel_aggregate_fast_path_source = kernel_aggregate_fast_path_source();
     let kernel_reducer_source = include_str!("../../kernel/reducer.rs");
-    let aggregate_contracts_source = include_str!("../../aggregate/contracts.rs");
+    let aggregate_contracts_source = include_str!("../../aggregate_model/contracts.rs");
 
     assert!(
         kernel_reducer_source.contains("fn run_streaming_aggregate_reducer<E>("),
         "kernel reducer module must define one generic aggregate reducer runner",
     );
     assert!(
-        kernel_aggregate_source
+        kernel_aggregate_mod_source
             .matches("Self::run_streaming_aggregate_reducer(")
             .count()
+            .saturating_add(
+                kernel_aggregate_fast_path_source
+                    .matches("Self::run_streaming_aggregate_reducer(")
+                    .count(),
+            )
             >= 2,
         "kernel aggregate orchestration should use reducer runner for routed stream folding and generic streaming fallback",
     );
     assert!(
-        !kernel_aggregate_source.contains("LoadExecutor::<E>::fold_aggregate_over_key_stream("),
+        !kernel_aggregate_mod_source.contains("LoadExecutor::<E>::fold_aggregate_over_key_stream(")
+            && !kernel_aggregate_fast_path_source
+                .contains("LoadExecutor::<E>::fold_aggregate_over_key_stream("),
         "kernel aggregate orchestration must not call legacy generic fold helper directly",
     );
     assert!(
@@ -192,12 +222,15 @@ fn aggregate_generic_streaming_fold_is_kernel_reducer_owned() {
 #[test]
 fn aggregate_streaming_paths_share_one_preparation_boundary() {
     let load_aggregate_root_source = include_str!("../../load/aggregate/mod.rs");
-    let kernel_aggregate_source = include_str!("../../kernel/aggregate.rs");
+    let kernel_aggregate_mod_source = kernel_aggregate_mod_source();
+    let kernel_aggregate_field_extrema_source = kernel_aggregate_field_extrema_source();
     let kernel_window_source = include_str!("../../kernel/window.rs");
-    let aggregate_contracts_source = include_str!("../../aggregate/contracts.rs");
+    let aggregate_contracts_source = include_str!("../../aggregate_model/contracts.rs");
 
     assert!(
-        kernel_aggregate_source.contains("fn prepare_aggregate_streaming_inputs<E>("),
+        kernel_aggregate_mod_source.contains("fn prepare_aggregate_streaming_inputs<E>(")
+            || kernel_aggregate_mod_source
+                .contains("fn prepare_aggregate_streaming_inputs<'ctx, E>("),
         "aggregate execution must expose one shared kernel-owned streaming-input preparation helper",
     );
     assert!(
@@ -213,21 +246,28 @@ fn aggregate_streaming_paths_share_one_preparation_boundary() {
         "load aggregate module root should not host aggregate executor impl blocks",
     );
     assert_eq!(
-        kernel_aggregate_source
+        kernel_aggregate_mod_source
             .matches("let prepared = Self::prepare_aggregate_streaming_inputs(executor, plan)?;")
-            .count(),
+            .count()
+            .saturating_add(
+                kernel_aggregate_field_extrema_source
+                    .matches(
+                        "let prepared = Self::prepare_aggregate_streaming_inputs(executor, plan)?;"
+                    )
+                    .count(),
+            ),
         2,
         "kernel aggregate orchestration should call the shared preparation helper from both streaming branches",
     );
     assert_eq!(
-        kernel_aggregate_source
+        kernel_aggregate_mod_source
             .matches("plan.index_prefix_specs()?.to_vec();")
             .count(),
         1,
         "aggregate streaming spec extraction should be defined in one shared helper only",
     );
     assert_eq!(
-        kernel_aggregate_source
+        kernel_aggregate_mod_source
             .matches("plan.index_range_specs()?.to_vec();")
             .count(),
         1,
@@ -289,7 +329,11 @@ fn post_access_runtime_ownership_is_kernel_scoped() {
 fn load_row_collector_runner_remains_kernel_ordered_and_single_owner() {
     let kernel_mod_source = include_str!("../../kernel/mod.rs");
     let kernel_reducer_source = include_str!("../../kernel/reducer.rs");
-    let kernel_aggregate_source = include_str!("../../kernel/aggregate.rs");
+    let kernel_aggregate_sources = [
+        kernel_aggregate_mod_source(),
+        kernel_aggregate_fast_path_source(),
+        kernel_aggregate_field_extrema_source(),
+    ];
     let load_mod_source = include_str!("../../load/mod.rs");
     let load_execute_source = include_str!("../../load/execute.rs");
 
@@ -308,7 +352,9 @@ fn load_row_collector_runner_remains_kernel_ordered_and_single_owner() {
         "row-collector short path should be called only from primary and retry materialization branches",
     );
     assert!(
-        !kernel_aggregate_source.contains("try_materialize_load_via_row_collector("),
+        kernel_aggregate_sources
+            .iter()
+            .all(|source| !source.contains("try_materialize_load_via_row_collector(")),
         "aggregate orchestration must not call load row-collector short-path helpers",
     );
     assert!(

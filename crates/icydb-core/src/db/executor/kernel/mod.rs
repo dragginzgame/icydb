@@ -95,7 +95,7 @@ impl ExecutionKernel {
                 LoadExecutor::<E>::materialize_key_stream_into_page(
                     inputs.ctx,
                     inputs.plan,
-                    inputs.predicate_slots,
+                    inputs.execution_preparation.compiled_predicate(),
                     resolved.key_stream.as_mut(),
                     route_plan.scan_hints.load_scan_budget_hint,
                     route_plan.streaming_access_shape_safe(),
@@ -145,7 +145,7 @@ impl ExecutionKernel {
                     LoadExecutor::<E>::materialize_key_stream_into_page(
                         inputs.ctx,
                         inputs.plan,
-                        inputs.predicate_slots,
+                        inputs.execution_preparation.compiled_predicate(),
                         fallback_resolved.key_stream.as_mut(),
                         fallback_route_plan.scan_hints.load_scan_budget_hint,
                         fallback_route_plan.streaming_access_shape_safe(),

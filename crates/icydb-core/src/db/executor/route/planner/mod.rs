@@ -9,8 +9,8 @@ use crate::{
         cursor::CursorBoundary,
         direction::Direction,
         executor::{
-            Context, ExecutionPlan, OrderedKeyStreamBox,
-            aggregate::{AggregateFoldMode, AggregateKind, AggregateSpec},
+            Context, ExecutionPlan, ExecutionPreparation, OrderedKeyStreamBox,
+            aggregate_model::{AggregateFoldMode, AggregateKind, AggregateSpec},
             load::LoadExecutor,
         },
         lowering::LoweredKey,
@@ -99,11 +99,44 @@ where
     }
 
     // Build canonical execution routing for aggregate execution via spec.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(in crate::db::executor) fn build_execution_route_plan_for_aggregate_spec(
         plan: &AccessPlannedQuery<E::Key>,
         spec: AggregateSpec,
     ) -> ExecutionPlan {
-        Self::build_execution_route_plan(plan, None, None, None, RouteIntent::Aggregate { spec })
+        Self::build_execution_route_plan(
+            plan,
+            None,
+            None,
+            None,
+            RouteIntent::Aggregate {
+                spec,
+                aggregate_force_materialized_due_to_predicate_uncertainty:
+                    Self::aggregate_force_materialized_due_to_predicate_uncertainty(plan),
+            },
+        )
+    }
+
+    // Build canonical aggregate execution routing using one precomputed
+    // execution-preparation bundle to avoid duplicate strict predicate compilation.
+    pub(in crate::db::executor) fn build_execution_route_plan_for_aggregate_spec_with_preparation(
+        plan: &AccessPlannedQuery<E::Key>,
+        spec: AggregateSpec,
+        execution_preparation: &ExecutionPreparation,
+    ) -> ExecutionPlan {
+        Self::build_execution_route_plan(
+            plan,
+            None,
+            None,
+            None,
+            RouteIntent::Aggregate {
+                spec,
+                aggregate_force_materialized_due_to_predicate_uncertainty:
+                    Self::aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
+                        execution_preparation,
+                    ),
+            },
+        )
     }
 
     fn direction_from_order(direction: OrderDirection) -> Direction {
@@ -144,16 +177,32 @@ where
                 order_fields.as_deref(),
                 &plan.access,
             );
-        let (direction, aggregate_spec, fast_path_order, is_load_intent) = match intent {
+        let (
+            direction,
+            aggregate_spec,
+            fast_path_order,
+            is_load_intent,
+            aggregate_force_materialized_due_to_predicate_uncertainty,
+        ) = match intent {
             RouteIntent::Load => (
                 Self::derive_load_route_direction(plan),
                 None,
                 &LOAD_FAST_PATH_ORDER[..],
                 true,
+                false,
             ),
-            RouteIntent::Aggregate { spec } => {
+            RouteIntent::Aggregate {
+                spec,
+                aggregate_force_materialized_due_to_predicate_uncertainty,
+            } => {
                 let direction = Self::derive_aggregate_route_direction(plan, &spec);
-                (direction, Some(spec), &AGGREGATE_FAST_PATH_ORDER[..], false)
+                (
+                    direction,
+                    Some(spec),
+                    &AGGREGATE_FAST_PATH_ORDER[..],
+                    false,
+                    aggregate_force_materialized_due_to_predicate_uncertainty,
+                )
             }
         };
         let kind = aggregate_spec.as_ref().map(AggregateSpec::kind);
@@ -165,7 +214,7 @@ where
         let capabilities =
             Self::derive_route_capabilities(plan, direction, aggregate_spec.as_ref());
         let aggregate_force_materialized_due_to_predicate_uncertainty =
-            kind.is_some() && Self::aggregate_force_materialized_due_to_predicate_uncertainty(plan);
+            kind.is_some() && aggregate_force_materialized_due_to_predicate_uncertainty;
         let count_pushdown_eligible = kind.is_some_and(|aggregate_kind| {
             Self::is_count_pushdown_eligible(aggregate_kind, capabilities)
         });

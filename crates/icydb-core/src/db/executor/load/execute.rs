@@ -7,7 +7,7 @@ use crate::{
         executor::plan_metrics::set_rows_from_len,
         executor::{
             AccessPlanStreamRequest, AccessStreamBindings, ExecutionKernel, ExecutionPlan,
-            IndexPredicateCompileMode, OrderedKeyStreamBox,
+            ExecutionPreparation, IndexPredicateCompileMode, OrderedKeyStreamBox,
             route::{
                 ExecutionMode, FastPathOrder, RoutedKeyStreamRequest,
                 ensure_load_fast_path_spec_arity,
@@ -15,7 +15,6 @@ use crate::{
         },
         index::predicate::IndexPredicateExecution,
         plan::AccessPlannedQuery,
-        query::predicate::PredicateFieldSlots,
     },
     error::InternalError,
     obs::sink::Span,
@@ -34,7 +33,7 @@ pub(in crate::db::executor) struct ExecutionInputs<'a, E: EntityKind + EntityVal
     pub(in crate::db::executor) ctx: &'a Context<'a, E>,
     pub(in crate::db::executor) plan: &'a AccessPlannedQuery<E::Key>,
     pub(in crate::db::executor) stream_bindings: AccessStreamBindings<'a>,
-    pub(in crate::db::executor) predicate_slots: Option<&'a PredicateFieldSlots>,
+    pub(in crate::db::executor) execution_preparation: &'a ExecutionPreparation,
 }
 
 ///
@@ -87,14 +86,19 @@ where
         route_plan: &ExecutionPlan,
         predicate_compile_mode: IndexPredicateCompileMode,
     ) -> Result<ResolvedExecutionKeyStream, InternalError> {
-        let index_predicate_program = inputs.predicate_slots.and_then(|predicate_slots| {
-            let index_slots = Self::resolved_index_slots_for_access_path(&inputs.plan.access)?;
-            ExecutionKernel::compile_index_predicate_program_from_slots(
-                predicate_slots,
-                index_slots.as_slice(),
-                predicate_compile_mode,
-            )
-        });
+        let index_predicate_program =
+            inputs
+                .execution_preparation
+                .compiled_predicate()
+                .and_then(|compiled_predicate| {
+                    let slot_map = inputs.execution_preparation.slot_map()?;
+
+                    ExecutionKernel::compile_index_predicate_program_from_slots(
+                        compiled_predicate,
+                        slot_map,
+                        predicate_compile_mode,
+                    )
+                });
         let index_predicate_applied = index_predicate_program.is_some();
         let index_predicate_rejected_counter = Cell::new(0u64);
         let index_predicate_execution =

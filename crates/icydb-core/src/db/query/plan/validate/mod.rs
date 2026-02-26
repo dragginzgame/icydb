@@ -2,12 +2,11 @@
 //!
 //! Validation ownership contract:
 //! - `validate_logical_plan_model` owns user-facing query semantics and emits `PlanError`.
-//! - executor-boundary defensive checks live in `db::plan::validate`.
+//! - executor-boundary defensive checks live in `db::executor::plan_validate`.
 //!
 //! Future rule changes must declare a semantic owner. Defensive re-check layers may mirror
 //! rules, but must not reinterpret semantics or error class intent.
 
-mod access;
 mod order;
 mod pushdown;
 mod semantics;
@@ -17,18 +16,19 @@ mod tests;
 
 use crate::{
     db::{
+        access::validate_access_plan_model as validate_access_plan_model_shared,
         cursor::CursorPlanError,
         plan::{AccessPlannedQuery, OrderSpec},
         policy::PlanPolicyError,
         query::predicate::{self, SchemaInfo},
     },
-    model::{entity::EntityModel, index::IndexModel},
+    model::entity::EntityModel,
     value::Value,
 };
 use thiserror::Error as ThisError;
 
 // re-exports
-pub(crate) use access::{validate_access_plan, validate_access_plan_model};
+pub(crate) use crate::db::access::AccessPlanError;
 pub(crate) use order::{
     validate_no_duplicate_non_pk_order_fields, validate_order, validate_primary_key_tie_break,
 };
@@ -92,42 +92,6 @@ pub enum OrderPlanError {
     /// Ordered plans must terminate with the primary-key tie-break.
     #[error("order specification must end with primary key '{field}' as deterministic tie-break")]
     MissingPrimaryKeyTieBreak { field: String },
-}
-
-///
-/// AccessPlanError
-///
-/// Access-path and key-shape validation failures.
-///
-#[derive(Debug, ThisError)]
-pub enum AccessPlanError {
-    /// Access plan references an index not declared on the entity.
-    #[error("index '{index}' not found on entity")]
-    IndexNotFound { index: IndexModel },
-
-    /// Index prefix exceeds the number of indexed fields.
-    #[error("index prefix length {prefix_len} exceeds index field count {field_len}")]
-    IndexPrefixTooLong { prefix_len: usize, field_len: usize },
-
-    /// Index prefix must include at least one value.
-    #[error("index prefix must include at least one value")]
-    IndexPrefixEmpty,
-
-    /// Index prefix literal does not match indexed field type.
-    #[error("index prefix value for field '{field}' is incompatible")]
-    IndexPrefixValueMismatch { field: String },
-
-    /// Primary key field exists but is not key-compatible.
-    #[error("primary key field '{field}' is not key-compatible")]
-    PrimaryKeyNotKeyable { field: String },
-
-    /// Supplied key does not match the primary key type.
-    #[error("key '{key:?}' is incompatible with primary key '{field}'")]
-    PrimaryKeyMismatch { field: String, key: Value },
-
-    /// Key range has invalid ordering.
-    #[error("key range start is greater than end")]
-    InvalidKeyRange,
 }
 
 ///
@@ -226,7 +190,9 @@ pub(crate) fn validate_logical_plan_model(
         model,
         plan,
         validate_order,
-        |schema, model, plan| validate_access_plan_model(schema, model, &plan.access),
+        |schema, model, plan| {
+            validate_access_plan_model_shared(schema, model, &plan.access).map_err(PlanError::from)
+        },
     )?;
 
     Ok(())

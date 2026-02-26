@@ -1,7 +1,7 @@
 use crate::{
     db::{
         direction::Direction,
-        executor::aggregate::capability::{
+        executor::aggregate_model::capability::{
             field_kind_supports_aggregate_ordering, field_kind_supports_numeric_aggregation,
         },
     },

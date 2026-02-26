@@ -1,7 +1,7 @@
 use crate::{
     db::executor::{
         ExecutablePlan, ExecutionKernel,
-        aggregate::{AggregateKind, AggregateOutput, AggregateSpec},
+        aggregate_model::{AggregateKind, AggregateOutput, AggregateSpec},
         load::LoadExecutor,
     },
     error::InternalError,

@@ -4,8 +4,8 @@ use crate::{
         direction::Direction,
         executor::{
             ExecutablePlan,
-            aggregate::AggregateKind,
-            aggregate::field::{
+            aggregate_model::AggregateKind,
+            aggregate_model::field::{
                 AggregateFieldValueError, FieldSlot, compare_orderable_field_values,
                 extract_orderable_field_value,
             },

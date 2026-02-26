@@ -5,6 +5,23 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.30.9] - 2026-02-26 - Query Planning Ownership Cleanup
+
+### 📝 Summary
+
+* Moved planning setup back to the query layer so `db::executor` can stay focused on execution.
+
+### 🔧 Changed
+
+* Removed `Query::plan()` from `db::executor` and restored query-owned planning entry points in `db::query::intent` and `db::query::fluent`.
+* Kept `db::query` as the single owner of compiling logical plans into `ExecutablePlan`; `db::executor` now only consumes executable plans.
+* Added executor-owned `ExecutionPreparation` so predicate/index preparation is done once per plan and reused across load, delete, route, and aggregate paths.
+* Simplified execution internals by adding scan adapters, splitting aggregate kernel code into smaller modules, and renaming shared aggregate contracts to `aggregate_model`.
+* Clarified validation ownership: executor boundary checks now live in `db::executor`, and access-path shape validation lives in `db::access`.
+* No query behavior change is intended in this release; this is a structure and ownership cleanup.
+
+---
+
 ## [0.30.8] - 2026-02-26 - Plan Validation Boundary Cleanup
 
 ### 📝 Summary

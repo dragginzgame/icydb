@@ -1,6 +1,7 @@
 use crate::{
     db::{
         DbSession,
+        executor::ExecutablePlan,
         query::{
             explain::ExplainPlan,
             expr::{FilterExpr, SortExpr},
@@ -119,6 +120,11 @@ where
 
     pub fn planned(&self) -> Result<PlannedQuery<E>, QueryError> {
         self.query.planned()
+    }
+
+    /// Compile this fluent delete intent into executor runtime state.
+    pub fn plan(&self) -> Result<ExecutablePlan<E>, QueryError> {
+        self.planned().map(ExecutablePlan::from)
     }
 
     // ------------------------------------------------------------------

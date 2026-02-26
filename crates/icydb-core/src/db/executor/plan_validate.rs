@@ -1,8 +1,5 @@
 use crate::{
-    db::{
-        plan::AccessPlannedQuery,
-        query::{plan::validate::validate_access_plan, predicate::SchemaInfo},
-    },
+    db::{access::validate_access_plan, plan::AccessPlannedQuery, query::predicate::SchemaInfo},
     error::InternalError,
     traits::EntityKind,
 };
@@ -15,7 +12,7 @@ use crate::{
 ///
 /// Any disagreement with logical validation indicates an internal bug and is not
 /// a recoverable user-input condition.
-pub(crate) fn validate_executor_plan<E: EntityKind>(
+pub(in crate::db::executor) fn validate_executor_plan<E: EntityKind>(
     plan: &AccessPlannedQuery<E::Key>,
 ) -> Result<(), InternalError> {
     let schema = SchemaInfo::from_entity_model(E::MODEL).map_err(|err| {
@@ -23,7 +20,7 @@ pub(crate) fn validate_executor_plan<E: EntityKind>(
     })?;
 
     validate_access_plan(&schema, E::MODEL, &plan.access)
-        .map_err(InternalError::from_executor_plan_error)?;
+        .map_err(InternalError::from_executor_access_plan_error)?;
 
     Ok(())
 }

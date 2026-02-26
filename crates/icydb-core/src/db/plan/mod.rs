@@ -1,7 +1,6 @@
-//! Shared plan contracts used across query planning and executor runtime.
+//! Shared passive plan contracts used across query planning and executor runtime.
 
 pub(crate) mod contract;
-pub(crate) mod validate;
 
 pub use contract::OrderDirection;
 pub(crate) use contract::{AccessPlannedQuery, LogicalPlan};

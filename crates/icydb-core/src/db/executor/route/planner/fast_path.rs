@@ -2,8 +2,8 @@ use crate::{
     db::{
         access::{AccessPath, AccessPlan},
         executor::{
-            ExecutionKernel, IndexPredicateCompileMode, aggregate::AggregateKind,
-            compile_predicate_slots, load::LoadExecutor,
+            ExecutionKernel, ExecutionPreparation, IndexPredicateCompileMode,
+            aggregate_model::AggregateKind, load::LoadExecutor,
         },
         plan::AccessPlannedQuery,
     },
@@ -63,21 +63,36 @@ where
     // predicate compilation. If strict compilation fails, route must force
     // materialized execution to avoid optimistic streaming assumptions.
     // Strict compile policy must stay on the shared executor compile boundary.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(super) fn aggregate_force_materialized_due_to_predicate_uncertainty(
         plan: &AccessPlannedQuery<E::Key>,
     ) -> bool {
-        let Some(predicate_slots) = compile_predicate_slots::<E>(plan) else {
+        let execution_preparation = ExecutionPreparation::for_plan::<E>(plan);
+
+        Self::aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
+            &execution_preparation,
+        )
+    }
+
+    pub(super) fn aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
+        execution_preparation: &ExecutionPreparation,
+    ) -> bool {
+        let _index_coverage = execution_preparation.index_coverage();
+        let Some(compiled_predicate) = execution_preparation.compiled_predicate() else {
             return false;
         };
-        let Some(index_slots) = Self::resolved_index_slots_for_access_path(&plan.access) else {
+        let Some(slot_map) = execution_preparation.slot_map() else {
             return false;
         };
 
-        ExecutionKernel::compile_index_predicate_program_from_slots(
-            &predicate_slots,
-            index_slots.as_slice(),
-            IndexPredicateCompileMode::StrictAllOrNone,
-        )
-        .is_none()
+        // Route strict-mode uncertainty must remain aligned with the shared
+        // kernel predicate compiler boundary.
+        execution_preparation.strict_mode().is_none()
+            && ExecutionKernel::compile_index_predicate_program_from_slots(
+                compiled_predicate,
+                slot_map,
+                IndexPredicateCompileMode::StrictAllOrNone,
+            )
+            .is_none()
     }
 }

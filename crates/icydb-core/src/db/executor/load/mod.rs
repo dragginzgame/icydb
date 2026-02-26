@@ -20,16 +20,17 @@ use crate::{
         cursor::{ContinuationToken, CursorBoundary},
         direction::Direction,
         executor::{
-            AccessStreamBindings, ExecutablePlan, ExecutionKernel, IndexPredicateCompileMode,
-            KeyOrderComparator, OrderedKeyStreamBox, PlannedCursor,
-            aggregate::field::{
+            AccessStreamBindings, ExecutablePlan, ExecutionKernel, ExecutionPreparation,
+            IndexPredicateCompileMode, KeyOrderComparator, OrderedKeyStreamBox, PlannedCursor,
+            aggregate_model::field::{
                 AggregateFieldValueError, FieldSlot, resolve_any_aggregate_target_slot,
                 resolve_numeric_aggregate_target_slot, resolve_orderable_aggregate_target_slot,
             },
-            compile_predicate_slots, decode_pk_cursor_boundary,
+            decode_pk_cursor_boundary,
             plan_metrics::{record_plan_metrics, record_rows_scanned},
+            validate_executor_plan,
         },
-        plan::{AccessPlannedQuery, OrderDirection, validate::validate_executor_plan},
+        plan::{AccessPlannedQuery, OrderDirection},
         policy,
         response::Response,
     },
@@ -271,7 +272,7 @@ where
             .debug
             .then(|| ExecutionTrace::new(plan.access(), direction, continuation_applied));
         let plan = plan.into_inner();
-        let predicate_slots = compile_predicate_slots::<E>(&plan);
+        let execution_preparation = ExecutionPreparation::for_plan::<E>(&plan);
 
         let result = (|| {
             let mut span = Span::<E>::new(ExecKind::Load);
@@ -287,7 +288,7 @@ where
                     index_range_anchor: index_range_anchor.as_ref(),
                     direction,
                 },
-                predicate_slots: predicate_slots.as_ref(),
+                execution_preparation: &execution_preparation,
             };
 
             record_plan_metrics(&plan.access);
