@@ -76,6 +76,7 @@ pub(in crate::db) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
 
     let index_plan = plan_index_mutation_for_entity::<E>(
         db,
+        &db.context::<E>(),
         old_entity.as_ref(),
         new_pair.as_ref().map(|(_, entity)| entity),
     )?;

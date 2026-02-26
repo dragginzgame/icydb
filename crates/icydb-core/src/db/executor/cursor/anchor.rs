@@ -3,50 +3,21 @@ use crate::{
         access::AccessPath,
         cursor::{CursorPlanError, IndexRangeCursorAnchor},
         direction::Direction,
-        executor::ExecutorPlanError,
+        executor::{CursorAnchor, ExecutorPlanError, decode_canonical_cursor_anchor_index_key},
         index::{
-            Direction as IndexDirection, IndexId, IndexKey, IndexKeyKind, KeyEnvelope,
-            PrimaryKeyEquivalenceError, RawIndexKey, primary_key_matches_value,
+            Direction as IndexDirection, IndexId, IndexKeyKind, KeyEnvelope,
+            PrimaryKeyEquivalenceError, primary_key_matches_value,
         },
         lowering::lower_cursor_anchor_index_range_bounds,
     },
-    traits::Storable,
     traits::{EntityKind, FieldValue},
 };
-use std::borrow::Cow;
 
 // Build the canonical invalid-continuation payload error variant.
 fn invalid_continuation_cursor_payload(reason: impl Into<String>) -> ExecutorPlanError {
     ExecutorPlanError::from(CursorPlanError::InvalidContinuationCursorPayload {
         reason: reason.into(),
     })
-}
-
-// Decode one index-range anchor raw key and enforce canonical round-trip encoding.
-// This defends against future token-shape drift where decode might accept a
-// representation that does not serialize back to identical raw bytes.
-fn decode_canonical_index_range_anchor_key(
-    anchor: &IndexRangeCursorAnchor,
-) -> Result<IndexKey, ExecutorPlanError> {
-    let anchor_raw = <RawIndexKey as Storable>::from_bytes(Cow::Borrowed(anchor.last_raw_key()));
-    let decoded_key = IndexKey::try_from_raw(&anchor_raw).map_err(|err| {
-        invalid_continuation_cursor_payload(format!(
-            "index-range continuation anchor decode failed: {err}"
-        ))
-    })?;
-    let canonical_raw = decoded_key.to_raw();
-    debug_assert_eq!(
-        canonical_raw.as_bytes(),
-        anchor.last_raw_key(),
-        "index-range continuation anchor must round-trip to identical raw bytes",
-    );
-    if canonical_raw.as_bytes() != anchor.last_raw_key() {
-        return Err(invalid_continuation_cursor_payload(
-            "index-range continuation anchor canonical encoding mismatch",
-        ));
-    }
-
-    Ok(decoded_key)
 }
 
 // Validate optional index-range cursor anchor against the planned access envelope.
@@ -83,7 +54,7 @@ pub(in crate::db) fn validate_index_range_anchor<E: EntityKind>(
         };
 
         // Phase 1: decode and classify anchor key-space shape.
-        let decoded_key = decode_canonical_index_range_anchor_key(anchor)?;
+        let decoded_key = decode_canonical_cursor_anchor_index_key(CursorAnchor::new(anchor))?;
         let expected_index_id = IndexId::new::<E>(index);
 
         if decoded_key.index_id() != &expected_index_id {
@@ -142,7 +113,7 @@ pub(in crate::db) fn validate_index_range_boundary_anchor_consistency<K: FieldVa
         return Ok(());
     }
 
-    let anchor_key = decode_canonical_index_range_anchor_key(anchor)?;
+    let anchor_key = decode_canonical_cursor_anchor_index_key(CursorAnchor::new(anchor))?;
     let matches_boundary = primary_key_matches_value(&anchor_key, &boundary_pk_key.to_value())
         .map_err(|err| match err {
             PrimaryKeyEquivalenceError::AnchorDecode { source } => {

@@ -28,7 +28,7 @@ use crate::{
             },
             decode_pk_cursor_boundary,
             plan_metrics::{record_plan_metrics, record_rows_scanned},
-            validate_executor_plan,
+            range_token_anchor_key, range_token_from_cursor_anchor, validate_executor_plan,
         },
         plan::{AccessPlannedQuery, OrderDirection},
         policy,
@@ -36,9 +36,9 @@ use crate::{
     },
     error::InternalError,
     obs::sink::{ExecKind, Span},
-    traits::{EntityKind, EntityValue, Storable},
+    traits::{EntityKind, EntityValue},
 };
-use std::{borrow::Cow, marker::PhantomData};
+use std::marker::PhantomData;
 
 ///
 /// CursorPage
@@ -233,11 +233,9 @@ where
     ) -> Result<(CursorPage<E>, Option<ExecutionTrace>), InternalError> {
         let cursor: PlannedCursor = plan.revalidate_cursor(cursor.into())?;
         let cursor_boundary = cursor.boundary().cloned();
-        let index_range_anchor = cursor.index_range_anchor().map(|anchor| {
-            <crate::db::lowering::LoweredKey as Storable>::from_bytes(Cow::Borrowed(
-                anchor.last_raw_key(),
-            ))
-        });
+        let index_range_token = cursor
+            .index_range_anchor()
+            .map(range_token_from_cursor_anchor);
 
         if !plan.mode().is_load() {
             return Err(InternalError::query_executor_invariant(
@@ -255,7 +253,7 @@ where
         let route_plan = Self::build_execution_route_plan_for_load(
             plan.as_inner(),
             cursor_boundary.as_ref(),
-            index_range_anchor.as_ref(),
+            index_range_token.as_ref(),
             None,
         )?;
         let continuation_applied = !matches!(
@@ -285,7 +283,7 @@ where
                 stream_bindings: AccessStreamBindings {
                     index_prefix_specs: index_prefix_specs.as_slice(),
                     index_range_specs: index_range_specs.as_slice(),
-                    index_range_anchor: index_range_anchor.as_ref(),
+                    index_range_anchor: index_range_token.as_ref().map(range_token_anchor_key),
                     direction,
                 },
                 execution_preparation: &execution_preparation,

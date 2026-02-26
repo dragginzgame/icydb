@@ -3,22 +3,19 @@ use crate::{
         access::AccessPath,
         cursor::{
             ContinuationSignature, ContinuationToken, ContinuationTokenError, CursorBoundary,
-            CursorBoundarySlot, CursorPlanError, IndexRangeCursorAnchor,
+            CursorPlanError, IndexRangeCursorAnchor, validate_cursor_boundary_for_order,
+            validate_cursor_direction as validate_cursor_direction_shared,
+            validate_cursor_window_offset as validate_cursor_window_offset_shared,
         },
         direction::Direction,
         executor::{
-            ExecutorPlanError, PlannedCursor, decode_typed_primary_key_cursor_slot,
-            validate_index_range_anchor, validate_index_range_boundary_anchor_consistency,
+            ExecutorPlanError, PlannedCursor, validate_index_range_anchor,
+            validate_index_range_boundary_anchor_consistency,
         },
         plan::OrderSpec,
-        query::{
-            plan::OrderPlanError,
-            predicate::{SchemaInfo, validate::literal_matches_type},
-        },
     },
     model::entity::EntityModel,
     traits::{EntityKind, FieldValue},
-    value::Value,
 };
 
 /// Validate and materialize an executable cursor through the canonical spine.
@@ -150,13 +147,8 @@ fn validate_cursor_direction(
     expected_direction: Direction,
     actual_direction: Direction,
 ) -> Result<(), ExecutorPlanError> {
-    if actual_direction != expected_direction {
-        return Err(invalid_continuation_cursor_payload(
-            "continuation cursor direction does not match executable plan direction",
-        ));
-    }
-
-    Ok(())
+    validate_cursor_direction_shared(expected_direction, actual_direction)
+        .map_err(ExecutorPlanError::from)
 }
 
 // Validate continuation window shape compatibility (initial offset).
@@ -164,16 +156,8 @@ fn validate_cursor_window_offset(
     expected_initial_offset: u32,
     actual_initial_offset: u32,
 ) -> Result<(), ExecutorPlanError> {
-    if actual_initial_offset != expected_initial_offset {
-        return Err(ExecutorPlanError::from(
-            CursorPlanError::ContinuationCursorWindowMismatch {
-                expected_offset: expected_initial_offset,
-                actual_offset: actual_initial_offset,
-            },
-        ));
-    }
-
-    Ok(())
+    validate_cursor_window_offset_shared(expected_initial_offset, actual_initial_offset)
+        .map_err(ExecutorPlanError::from)
 }
 
 // Validate the canonical structured cursor payload and materialize executor state.
@@ -235,16 +219,6 @@ where
 {
     validate_cursor_direction(expected_direction, actual_direction)?;
     validate_cursor_window_offset(expected_initial_offset, actual_initial_offset)?;
-
-    if boundary.slots.len() != order.fields.len() {
-        return Err(ExecutorPlanError::from(
-            CursorPlanError::ContinuationCursorBoundaryArityMismatch {
-                expected: order.fields.len(),
-                found: boundary.slots.len(),
-            },
-        ));
-    }
-    validate_cursor_boundary_types(model, order, boundary)?;
     validate_index_range_anchor::<E>(
         index_range_anchor,
         access,
@@ -252,74 +226,9 @@ where
         require_index_range_anchor,
     )?;
 
-    let pk_key = decode_typed_primary_key_cursor_slot::<E::Key>(model, order, boundary)?;
+    let pk_key = validate_cursor_boundary_for_order::<E::Key>(model, order, boundary)
+        .map_err(ExecutorPlanError::from)?;
     validate_index_range_boundary_anchor_consistency(index_range_anchor, access, pk_key)?;
-
-    Ok(())
-}
-
-// Validate decoded cursor boundary slot types against canonical order fields.
-fn validate_cursor_boundary_types(
-    model: &EntityModel,
-    order: &OrderSpec,
-    boundary: &CursorBoundary,
-) -> Result<(), ExecutorPlanError> {
-    let schema = SchemaInfo::from_entity_model(model).map_err(ExecutorPlanError::from)?;
-
-    for ((field, _), slot) in order.fields.iter().zip(boundary.slots.iter()) {
-        let field_type = schema
-            .field(field)
-            .ok_or_else(|| OrderPlanError::UnknownField {
-                field: field.clone(),
-            })
-            .map_err(ExecutorPlanError::from)?;
-
-        match slot {
-            CursorBoundarySlot::Missing => {
-                if field == model.primary_key.name {
-                    return Err(ExecutorPlanError::from(
-                        CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
-                            field: field.clone(),
-                            expected: field_type.to_string(),
-                            value: None,
-                        },
-                    ));
-                }
-            }
-            CursorBoundarySlot::Present(value) => {
-                if !literal_matches_type(value, field_type) {
-                    if field == model.primary_key.name {
-                        return Err(ExecutorPlanError::from(
-                            CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
-                                field: field.clone(),
-                                expected: field_type.to_string(),
-                                value: Some(value.clone()),
-                            },
-                        ));
-                    }
-
-                    return Err(ExecutorPlanError::from(
-                        CursorPlanError::ContinuationCursorBoundaryTypeMismatch {
-                            field: field.clone(),
-                            expected: field_type.to_string(),
-                            value: value.clone(),
-                        },
-                    ));
-                }
-
-                // Primary-key slots must also satisfy key decoding semantics.
-                if field == model.primary_key.name && Value::as_storage_key(value).is_none() {
-                    return Err(ExecutorPlanError::from(
-                        CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
-                            field: field.clone(),
-                            expected: field_type.to_string(),
-                            value: Some(value.clone()),
-                        },
-                    ));
-                }
-            }
-        }
-    }
 
     Ok(())
 }

@@ -13,11 +13,10 @@
 //! Recovery replays row ops as recorded, not planner logic.
 
 mod apply;
-mod decode;
+pub(in crate::db) mod decode;
 mod guard;
 mod marker;
 mod memory;
-mod prepare;
 mod recovery;
 mod rollback;
 mod store;
@@ -39,7 +38,6 @@ pub(in crate::db) use apply::{PreparedIndexMutation, PreparedRowCommitOp};
 pub(in crate::db) use guard::{CommitApplyGuard, CommitGuard, begin_commit, finish_commit};
 pub(in crate::db) use marker::CommitRowOp;
 pub(in crate::db) use marker::{CommitIndexOp, CommitMarker, MAX_COMMIT_BYTES};
-pub(in crate::db) use prepare::prepare_row_commit_for_entity;
 pub(in crate::db) use recovery::{ensure_recovered, ensure_recovered_for_write};
 pub(in crate::db) use rollback::{rollback_prepared_row_ops_reverse, snapshot_row_rollback};
 pub(in crate::db) use validate::validate_commit_marker_shape;

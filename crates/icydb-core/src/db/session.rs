@@ -17,8 +17,6 @@ use crate::{
     value::Value,
 };
 
-type MinMaxByIds<E> = Option<(Id<E>, Id<E>)>;
-
 // Map executor-owned plan-surface failures into query-owned plan errors.
 fn map_executor_plan_error(err: ExecutorPlanError) -> QueryError {
     QueryError::from(err.into_plan_error())
@@ -365,11 +363,12 @@ impl<C: CanisterKind> DbSession<C> {
         .map_err(QueryError::Execute)
     }
 
+    #[expect(clippy::type_complexity)]
     pub(crate) fn execute_load_query_min_max_by<E>(
         &self,
         query: &Query<E>,
         target_field: &str,
-    ) -> Result<MinMaxByIds<E>, QueryError>
+    ) -> Result<Option<(Id<E>, Id<E>)>, QueryError>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {

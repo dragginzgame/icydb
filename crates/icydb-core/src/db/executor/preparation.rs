@@ -45,7 +45,7 @@ impl ExecutionPreparation {
             }
             (Some(_) | None, None) | (None, Some(_)) => None,
         };
-        let index_coverage = Self::predicate_slots_fully_covered_by_index_slots(
+        let index_coverage = LoadExecutor::<E>::predicate_slots_fully_covered_by_index_slots(
             compiled_predicate.as_ref(),
             slot_map.as_deref(),
         );
@@ -76,30 +76,5 @@ impl ExecutionPreparation {
     #[must_use]
     pub(in crate::db::executor) const fn index_coverage(&self) -> bool {
         self.index_coverage
-    }
-
-    // Check whether every predicate-required slot is present in the index slot map.
-    fn predicate_slots_fully_covered_by_index_slots(
-        compiled_predicate: Option<&PredicateFieldSlots>,
-        slot_map: Option<&[usize]>,
-    ) -> bool {
-        let Some(compiled_predicate) = compiled_predicate else {
-            return false;
-        };
-        let required = compiled_predicate.required_slots();
-        if required.is_empty() {
-            return false;
-        }
-
-        let Some(slot_map) = slot_map else {
-            return false;
-        };
-        let mut normalized_slot_map = slot_map.to_vec();
-        normalized_slot_map.sort_unstable();
-        normalized_slot_map.dedup();
-
-        required
-            .iter()
-            .all(|slot| normalized_slot_map.binary_search(slot).is_ok())
     }
 }

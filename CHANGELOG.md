@@ -5,6 +5,23 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.30.10] - 2026-02-26 - Commit Boundary Cleanup
+
+### 📝 Summary
+
+* Moved commit-row planning ownership out of `db::commit` and into `db::executor`, so commit recovery and apply stay mechanical and boundary-focused.
+
+### 🔧 Changed
+
+* Moved `prepare_row_commit_for_entity` from `db::commit` to a new executor-owned planner module (`db::executor::commit_planner`).
+* Simplified `db::commit::recovery` to marker/replay orchestration and delegated replay/rebuild execution work to executor-owned recovery helpers.
+* Removed `db::commit::prepare` and rewired runtime hook registration plus commit-window preflight to use executor-owned planning entry points.
+* Added an executor-owned `storage_port` boundary for continuation anchors and range tokens so route/load/cursor modules no longer decode or transform raw index-key bytes inline.
+* Kept commit marker shape and runtime behavior stable; this release is a structural ownership refactor.
+* Froze the `0.30` architecture layer stack in design docs and made it a mandatory first step in structural audits to reduce layering drift over time.
+
+---
+
 ## [0.30.9] - 2026-02-26 - Query Planning Ownership Cleanup
 
 ### 📝 Summary

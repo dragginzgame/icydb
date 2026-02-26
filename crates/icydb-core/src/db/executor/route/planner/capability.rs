@@ -65,6 +65,17 @@ where
         access: &AccessPlan<E::Key>,
         predicate_slots: Option<&PredicateFieldSlots>,
     ) -> bool {
+        let index_slots = Self::resolved_index_slots_for_access_path(access);
+
+        Self::predicate_slots_fully_covered_by_index_slots(predicate_slots, index_slots.as_deref())
+    }
+
+    // Determine whether every predicate-required slot is present in one
+    // resolved index slot map.
+    pub(in crate::db::executor) fn predicate_slots_fully_covered_by_index_slots(
+        predicate_slots: Option<&PredicateFieldSlots>,
+        index_slots: Option<&[usize]>,
+    ) -> bool {
         let Some(predicate_slots) = predicate_slots else {
             return false;
         };
@@ -72,15 +83,16 @@ where
         if required.is_empty() {
             return false;
         }
-        let Some(mut index_slots) = Self::resolved_index_slots_for_access_path(access) else {
+        let Some(index_slots) = index_slots else {
             return false;
         };
-        index_slots.sort_unstable();
-        index_slots.dedup();
+        let mut normalized_index_slots = index_slots.to_vec();
+        normalized_index_slots.sort_unstable();
+        normalized_index_slots.dedup();
 
         required
             .iter()
-            .all(|slot| index_slots.binary_search(slot).is_ok())
+            .all(|slot| normalized_index_slots.binary_search(slot).is_ok())
     }
 
     // Resolve index fields for a single-path index access shape to entity slots.

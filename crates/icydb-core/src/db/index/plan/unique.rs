@@ -3,7 +3,7 @@ use crate::{
         Db,
         data::DataKey,
         direction::Direction,
-        index::{EncodedValue, IndexEntryCorruption, IndexId, IndexKey},
+        index::{EncodedValue, IndexEntryCorruption, IndexId, IndexKey, PrimaryRowReader},
     },
     error::InternalError,
     model::{entity::resolve_field_slot, index::IndexModel},
@@ -25,6 +25,7 @@ use std::{collections::BTreeSet, ops::Bound};
 #[expect(clippy::too_many_lines)]
 pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
     db: &Db<E::Canister>,
+    row_reader: &impl PrimaryRowReader<E>,
     index: &IndexModel,
     new_key: Option<&E::Key>,
     new_entity: Option<&E>,
@@ -134,7 +135,9 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
     // Phase 3: verify the stored row still belongs to this key and value.
     let stored = {
         let data_key = DataKey::try_new::<E>(existing_key)?;
-        let row = db.context::<E>().read_strict(&data_key)?;
+        let row = row_reader.read_primary_row(&data_key)?.ok_or_else(|| {
+            InternalError::index_plan_store_corruption(format!("missing row: {data_key}"))
+        })?;
         row.try_decode::<E>().map_err(|err| {
             InternalError::index_plan_serialize_corruption(format!(
                 "failed to deserialize row: {data_key} ({err})"

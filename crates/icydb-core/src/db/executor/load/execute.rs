@@ -8,6 +8,7 @@ use crate::{
         executor::{
             AccessPlanStreamRequest, AccessStreamBindings, ExecutionKernel, ExecutionPlan,
             ExecutionPreparation, IndexPredicateCompileMode, OrderedKeyStreamBox,
+            range_token_from_lowered_anchor,
             route::{
                 ExecutionMode, FastPathOrder, RoutedKeyStreamRequest,
                 ensure_load_fast_path_spec_arity,
@@ -199,12 +200,16 @@ where
                     }
                 }
                 FastPathOrder::IndexRange => {
+                    let index_range_token = inputs
+                        .stream_bindings
+                        .index_range_anchor
+                        .map(range_token_from_lowered_anchor);
                     if let Some(spec) = route_plan.index_range_limit_spec.as_ref()
                         && let Some(fast) = Self::try_execute_index_range_limit_pushdown_stream(
                             inputs.ctx,
                             inputs.plan,
                             inputs.stream_bindings.index_range_specs.first(),
-                            inputs.stream_bindings.index_range_anchor,
+                            index_range_token.as_ref(),
                             inputs.stream_bindings.direction,
                             spec.fetch,
                             index_predicate_execution,

@@ -3,11 +3,10 @@ use crate::{
         cursor::CursorBoundary,
         direction::Direction,
         executor::{
-            ExecutionKernel,
+            ExecutionKernel, RangeToken,
             aggregate_model::{AggregateKind, AggregateSpec},
             load::LoadExecutor,
         },
-        lowering::LoweredKey,
         plan::AccessPlannedQuery,
     },
     traits::{EntityKind, EntityValue},
@@ -48,7 +47,7 @@ where
 
     pub(super) const fn derive_continuation_mode(
         cursor_boundary: Option<&CursorBoundary>,
-        index_range_anchor: Option<&LoweredKey>,
+        index_range_anchor: Option<&RangeToken>,
     ) -> ContinuationMode {
         match (cursor_boundary, index_range_anchor) {
             (_, Some(_)) => ContinuationMode::IndexRangeAnchor,

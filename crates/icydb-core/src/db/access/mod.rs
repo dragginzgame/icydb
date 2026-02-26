@@ -14,10 +14,10 @@ pub(crate) use predicate::{
     IndexCompareOp, IndexLiteral, IndexPredicateProgram, eval_index_compare,
 };
 #[cfg(test)]
-pub(crate) use pushdown::assess_secondary_order_pushdown_if_applicable_from_parts;
+pub(crate) use pushdown::assess_secondary_order_pushdown_if_applicable;
 pub(crate) use pushdown::{
     PushdownApplicability, PushdownSurfaceEligibility, SecondaryOrderPushdownEligibility,
-    SecondaryOrderPushdownRejection, assess_secondary_order_pushdown_from_parts,
-    assess_secondary_order_pushdown_if_applicable_validated_from_parts,
+    SecondaryOrderPushdownRejection, assess_secondary_order_pushdown,
+    assess_secondary_order_pushdown_if_applicable_validated,
 };
 pub(crate) use validate::{AccessPlanError, validate_access_plan, validate_access_plan_model};

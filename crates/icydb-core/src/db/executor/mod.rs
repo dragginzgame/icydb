@@ -1,4 +1,5 @@
 pub(super) mod aggregate_model;
+mod commit_planner;
 mod context;
 mod cursor;
 mod delete;
@@ -11,18 +12,20 @@ mod physical_path;
 mod plan_metrics;
 mod plan_validate;
 mod preparation;
+mod recovery;
 pub(super) mod route;
+mod storage_port;
 mod stream;
 #[cfg(test)]
 mod tests;
 mod window;
 
 pub(in crate::db) use crate::db::lowering::{LoweredIndexPrefixSpec, LoweredIndexRangeSpec};
+pub(in crate::db) use commit_planner::prepare_row_commit_for_entity;
 pub(super) use context::*;
 pub(in crate::db) use cursor::{
-    PlannedCursor, decode_pk_cursor_boundary, decode_typed_primary_key_cursor_slot, prepare_cursor,
-    revalidate_cursor, validate_index_range_anchor,
-    validate_index_range_boundary_anchor_consistency,
+    PlannedCursor, decode_pk_cursor_boundary, prepare_cursor, revalidate_cursor,
+    validate_index_range_anchor, validate_index_range_boundary_anchor_consistency,
 };
 pub(super) use delete::DeleteExecutor;
 pub(in crate::db) use executable_plan::ExecutablePlan;
@@ -35,6 +38,14 @@ pub use load::{ExecutionAccessPathVariant, ExecutionOptimization, ExecutionTrace
 pub(super) use mutation::save::SaveExecutor;
 pub(in crate::db::executor) use plan_validate::validate_executor_plan;
 pub(in crate::db::executor) use preparation::ExecutionPreparation;
+pub(in crate::db) use recovery::{
+    rebuild_secondary_indexes_from_rows, replay_commit_marker_row_ops,
+};
+pub(in crate::db::executor) use storage_port::{
+    CursorAnchor, RangeToken, cursor_anchor_from_index_key,
+    decode_canonical_cursor_anchor_index_key, range_token_anchor_key,
+    range_token_from_cursor_anchor, range_token_from_lowered_anchor,
+};
 pub(super) use stream::access::*;
 pub(super) use stream::key::{
     BudgetedOrderedKeyStream, KeyOrderComparator, OrderedKeyStream, OrderedKeyStreamBox,

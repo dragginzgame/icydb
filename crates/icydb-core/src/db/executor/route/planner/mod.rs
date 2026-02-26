@@ -5,16 +5,15 @@ mod mode;
 
 use crate::{
     db::{
-        access::assess_secondary_order_pushdown_if_applicable_validated_from_parts,
+        access::assess_secondary_order_pushdown_if_applicable_validated,
         cursor::CursorBoundary,
         direction::Direction,
         executor::{
-            Context, ExecutionPlan, ExecutionPreparation, OrderedKeyStreamBox,
+            Context, ExecutionPlan, ExecutionPreparation, OrderedKeyStreamBox, RangeToken,
             aggregate_model::{AggregateFoldMode, AggregateKind, AggregateSpec},
             load::LoadExecutor,
         },
-        lowering::LoweredKey,
-        plan::{AccessPlannedQuery, OrderDirection},
+        plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -52,7 +51,7 @@ where
     pub(in crate::db::executor) fn build_execution_route_plan_for_load(
         plan: &AccessPlannedQuery<E::Key>,
         cursor_boundary: Option<&CursorBoundary>,
-        index_range_anchor: Option<&LoweredKey>,
+        index_range_anchor: Option<&RangeToken>,
         probe_fetch_hint: Option<usize>,
     ) -> Result<ExecutionPlan, InternalError> {
         Self::validate_pk_fast_path_boundary_if_applicable(plan, cursor_boundary)?;
@@ -139,44 +138,19 @@ where
         )
     }
 
-    fn direction_from_order(direction: OrderDirection) -> Direction {
-        if direction == OrderDirection::Desc {
-            Direction::Desc
-        } else {
-            Direction::Asc
-        }
-    }
-
-    fn order_fields_as_direction_refs(
-        plan: &AccessPlannedQuery<E::Key>,
-    ) -> Option<Vec<(&str, Direction)>> {
-        plan.order.as_ref().map(|order| {
-            order
-                .fields
-                .iter()
-                .map(|(field, direction)| (field.as_str(), Self::direction_from_order(*direction)))
-                .collect()
-        })
-    }
-
     // Shared route gate for load + aggregate execution.
     #[expect(clippy::too_many_lines)]
     fn build_execution_route_plan(
         plan: &AccessPlannedQuery<E::Key>,
         cursor_boundary: Option<&CursorBoundary>,
-        index_range_anchor: Option<&LoweredKey>,
+        index_range_anchor: Option<&RangeToken>,
         probe_fetch_hint: Option<usize>,
         intent: RouteIntent,
     ) -> ExecutionRoutePlan {
         let continuation_mode = Self::derive_continuation_mode(cursor_boundary, index_range_anchor);
         let route_window = Self::derive_route_window(plan, cursor_boundary);
-        let order_fields = Self::order_fields_as_direction_refs(plan);
         let secondary_pushdown_applicability =
-            assess_secondary_order_pushdown_if_applicable_validated_from_parts(
-                E::MODEL,
-                order_fields.as_deref(),
-                &plan.access,
-            );
+            assess_secondary_order_pushdown_if_applicable_validated(E::MODEL, plan);
         let (
             direction,
             aggregate_spec,

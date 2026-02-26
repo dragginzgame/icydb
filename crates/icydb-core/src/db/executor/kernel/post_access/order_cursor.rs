@@ -1,10 +1,11 @@
 use crate::{
     db::{
-        cursor::{CursorBoundary, CursorBoundarySlot},
+        cursor::{
+            CursorBoundary, CursorBoundarySlot, apply_order_direction, compare_boundary_slots,
+        },
         executor::kernel::PlanRow,
         index::continuation_advances_from_ordering,
         plan::{OrderDirection, OrderSpec},
-        predicate::coercion::canonical_cmp,
     },
     model::entity::resolve_field_slot,
     traits::{EntityKind, EntityValue},
@@ -59,20 +60,6 @@ fn field_slot_by_index<E: EntityValue>(
         Some(value) => CursorBoundarySlot::Present(value),
         None => CursorBoundarySlot::Missing,
     }
-}
-
-// Build continuation boundary slots from one entity using pre-resolved order slots.
-pub(super) fn boundary_slots_from_entity<E: EntityKind + EntityValue>(
-    entity: &E,
-    order: &OrderSpec,
-) -> Vec<CursorBoundarySlot> {
-    let resolved = resolve_order_spec::<E>(order);
-
-    resolved
-        .fields
-        .iter()
-        .map(|slot| field_slot_by_index(entity, slot.field_index))
-        .collect()
 }
 
 pub(super) fn apply_order_spec<E, R>(rows: &mut [R], order: &OrderSpec)
@@ -162,28 +149,6 @@ fn compare_entities<E: EntityValue>(left: &E, right: &E, order: &ResolvedOrderSp
     Ordering::Equal
 }
 
-// Compare ordering slots using the same semantics used by query ordering:
-// - Missing values sort lower than present values in ascending order
-// - Present values use canonical value ordering
-fn compare_order_slots(left: &CursorBoundarySlot, right: &CursorBoundarySlot) -> Ordering {
-    match (left, right) {
-        (CursorBoundarySlot::Missing, CursorBoundarySlot::Missing) => Ordering::Equal,
-        (CursorBoundarySlot::Missing, CursorBoundarySlot::Present(_)) => Ordering::Less,
-        (CursorBoundarySlot::Present(_), CursorBoundarySlot::Missing) => Ordering::Greater,
-        (CursorBoundarySlot::Present(left_value), CursorBoundarySlot::Present(right_value)) => {
-            canonical_cmp(left_value, right_value)
-        }
-    }
-}
-
-// Apply configured order direction to one base slot ordering.
-const fn apply_order_direction(ordering: Ordering, direction: OrderDirection) -> Ordering {
-    match direction {
-        OrderDirection::Asc => ordering,
-        OrderDirection::Desc => ordering.reverse(),
-    }
-}
-
 // Compare one configured order field across two entities.
 fn compare_entity_field_pair<E: EntityValue>(
     left: &E,
@@ -192,7 +157,7 @@ fn compare_entity_field_pair<E: EntityValue>(
 ) -> Ordering {
     let left_slot = field_slot_by_index(left, slot.field_index);
     let right_slot = field_slot_by_index(right, slot.field_index);
-    let ordering = compare_order_slots(&left_slot, &right_slot);
+    let ordering = compare_boundary_slots(&left_slot, &right_slot);
 
     apply_order_direction(ordering, slot.direction)
 }
@@ -204,7 +169,7 @@ fn compare_entity_field_to_boundary<E: EntityValue>(
     slot: ResolvedOrderField,
 ) -> Ordering {
     let entity_slot = field_slot_by_index(entity, slot.field_index);
-    let ordering = compare_order_slots(&entity_slot, boundary_slot);
+    let ordering = compare_boundary_slots(&entity_slot, boundary_slot);
 
     apply_order_direction(ordering, slot.direction)
 }

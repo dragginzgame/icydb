@@ -12,7 +12,7 @@ use canic_cdk::structures::Storable;
 use std::borrow::Cow;
 
 /// Decode a raw index key and validate its structural invariants.
-pub(super) fn decode_index_key(bytes: &[u8]) -> Result<RawIndexKey, InternalError> {
+pub(in crate::db) fn decode_index_key(bytes: &[u8]) -> Result<RawIndexKey, InternalError> {
     let len = bytes.len();
     let min = IndexKey::MIN_STORED_SIZE_USIZE;
     let max = IndexKey::STORED_SIZE_USIZE;
@@ -30,7 +30,7 @@ pub(super) fn decode_index_key(bytes: &[u8]) -> Result<RawIndexKey, InternalErro
 }
 
 /// Decode a raw index entry and validate its structural invariants.
-pub(super) fn decode_index_entry(bytes: &[u8]) -> Result<RawIndexEntry, InternalError> {
+pub(in crate::db) fn decode_index_entry(bytes: &[u8]) -> Result<RawIndexEntry, InternalError> {
     let len = bytes.len();
     let max = MAX_INDEX_ENTRY_BYTES as usize;
     if len > max {
@@ -48,7 +48,7 @@ pub(super) fn decode_index_entry(bytes: &[u8]) -> Result<RawIndexEntry, Internal
 }
 
 /// Decode a raw data key and validate its structural invariants.
-pub(super) fn decode_data_key(bytes: &[u8]) -> Result<(RawDataKey, DataKey), InternalError> {
+pub(in crate::db) fn decode_data_key(bytes: &[u8]) -> Result<(RawDataKey, DataKey), InternalError> {
     let len = bytes.len();
     let expected = DataKey::STORED_SIZE_USIZE;
     if len != expected {

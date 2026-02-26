@@ -6,6 +6,7 @@ use crate::{
     db::{
         Db,
         commit::CommitIndexOp,
+        data::{DataKey, RawRow},
         index::{IndexEntryCorruption, IndexKey, IndexStore},
     },
     error::InternalError,
@@ -34,6 +35,18 @@ pub(crate) struct IndexMutationPlan {
     pub commit_ops: Vec<CommitIndexOp>,
 }
 
+///
+/// PrimaryRowReader
+///
+/// Index-planning port used for reading authoritative primary rows without
+/// depending on executor context internals.
+///
+
+pub(in crate::db) trait PrimaryRowReader<E: EntityKind + EntityValue> {
+    /// Return the primary row for `key`, or `None` when no row exists.
+    fn read_primary_row(&self, key: &DataKey) -> Result<Option<RawRow>, InternalError>;
+}
+
 /// Plan all index mutations for a single entity transition.
 ///
 /// This function:
@@ -45,6 +58,7 @@ pub(crate) struct IndexMutationPlan {
 /// infallibly after a commit marker is written.
 pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>(
     db: &Db<E::Canister>,
+    row_reader: &impl PrimaryRowReader<E>,
     old: Option<&E>,
     new: Option<&E>,
 ) -> Result<IndexMutationPlan, InternalError> {
@@ -116,7 +130,13 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
         // state for the target unique value. Commit-op synthesis then applies
         // remove-old/add-new semantics, so valid key transitions are evaluated
         // on the correct post-transition logical ownership model.
-        unique::validate_unique_constraint::<E>(db, index, new_entity_key.as_ref(), new)?;
+        unique::validate_unique_constraint::<E>(
+            db,
+            row_reader,
+            index,
+            new_entity_key.as_ref(),
+            new,
+        )?;
 
         commit_ops::build_commit_ops_for_index::<E>(
             &mut commit_ops,

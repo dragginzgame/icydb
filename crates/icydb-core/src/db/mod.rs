@@ -54,11 +54,12 @@ pub(crate) use value_hash::hash_value;
 // 3️⃣ Internal imports (implementation wiring)
 use crate::{
     db::{
-        commit::{
-            CommitRowOp, PreparedRowCommitOp, ensure_recovered, prepare_row_commit_for_entity,
-        },
+        commit::{CommitRowOp, PreparedRowCommitOp, ensure_recovered},
         data::RawDataKey,
-        executor::Context,
+        executor::{
+            Context, prepare_row_commit_for_entity, rebuild_secondary_indexes_from_rows,
+            replay_commit_marker_row_ops,
+        },
         relation::StrongRelationDeleteValidateFn,
     },
     error::InternalError,
@@ -277,6 +278,17 @@ impl<C: CanisterKind> Db<C> {
         let hooks = self.runtime_hook_for_entity_path(op.entity_path.as_str())?;
 
         (hooks.prepare_row_commit)(self, op)
+    }
+
+    pub(in crate::db) fn replay_commit_marker_row_ops(
+        &self,
+        row_ops: &[CommitRowOp],
+    ) -> Result<(), InternalError> {
+        replay_commit_marker_row_ops(self, row_ops)
+    }
+
+    pub(in crate::db) fn rebuild_secondary_indexes_from_rows(&self) -> Result<(), InternalError> {
+        rebuild_secondary_indexes_from_rows(self)
     }
 
     // Validate strong relation constraints for delete-selected target keys.

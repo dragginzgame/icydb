@@ -96,17 +96,18 @@ Run full audit suite before:
 
 For each audit:
 
-1. Copy the audit definition prompt.
-2. Execute it against the current repository state.
-3. Do not modify the prompt mid-run.
-4. Do not mix multiple audits into one output.
-5. Do not summarize findings prematurely.
-6. Immediately create or update that date folder's `summary.md` after the audit completes.
-7. Update `summary.md` after **every** audit run on that date (not only at end-of-day).
+1. Freeze the architecture model first by restating the `0.30` layer stack from `docs/design/0.30-execution-kernel.md` (`Frozen Layer Stack` section), and require findings to evaluate strictly against that model.
+2. Copy the audit definition prompt.
+3. Execute it against the current repository state.
+4. Do not modify the prompt mid-run.
+5. Do not mix multiple audits into one output.
+6. Do not summarize findings prematurely.
+7. Immediately create or update that date folder's `summary.md` after the audit completes.
+8. Update `summary.md` after **every** audit run on that date (not only at end-of-day).
 
 For each audit date folder (once per day):
 
-8. Run codebase size snapshots from the workspace `crates/` directory, separating test files (`tests.rs` and anything under `tests/`) from non-test files whenever possible:
+9. Run codebase size snapshots from the workspace `crates/` directory, separating test files (`tests.rs` and anything under `tests/`) from non-test files whenever possible:
 
 ```
 cd crates
@@ -114,17 +115,17 @@ cloc . --not-match-f='(^|/)(tests\.rs$|tests/)'
 cloc . --match-f='(^|/)(tests\.rs$|tests/)'
 ```
 
-9. Save both snapshots in that date folder's `summary.md`:
+10. Save both snapshots in that date folder's `summary.md`:
    - non-test snapshot (`--not-match-f='(^|/)(tests\.rs$|tests/)'`)
    - test snapshot (`--match-f='(^|/)(tests\.rs$|tests/)'`)
    - optional combined total if needed for trend continuity
-10. Capture the current Rust test count with:
+11. Capture the current Rust test count with:
 
 ```
 rg -o '#\\[(tokio::)?test\\]' crates --glob '*.rs' | wc -l
 ```
 
-11. Save the resulting test count in that date folder's `summary.md`.
+12. Save the resulting test count in that date folder's `summary.md`.
 
 Each audit must produce:
 

@@ -6,6 +6,7 @@ use crate::{
             format_entity_key_for_mismatch,
         },
         executor::{ExecutorError, OrderedKeyStream},
+        index::PrimaryRowReader,
         query::ReadConsistency,
     },
     error::InternalError,
@@ -178,6 +179,19 @@ where
                 Ok((Id::from_key(expected_key), entity))
             })
             .collect()
+    }
+}
+
+impl<E> PrimaryRowReader<E> for Context<'_, E>
+where
+    E: EntityKind + EntityValue,
+{
+    fn read_primary_row(&self, key: &DataKey) -> Result<Option<RawRow>, InternalError> {
+        match self.read(key) {
+            Ok(row) => Ok(Some(row)),
+            Err(err) if err.is_not_found() => Ok(None),
+            Err(err) => Err(err),
+        }
     }
 }
 

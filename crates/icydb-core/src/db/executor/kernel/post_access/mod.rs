@@ -6,11 +6,9 @@ mod window;
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},
-        cursor::{
-            ContinuationSignature, ContinuationToken, CursorBoundary, IndexRangeCursorAnchor,
-        },
+        cursor::{ContinuationSignature, ContinuationToken, CursorBoundary},
         direction::Direction,
-        executor::ExecutionKernel,
+        executor::{ExecutionKernel, cursor_anchor_from_index_key},
         index::IndexKey,
         policy,
         query::{
@@ -314,9 +312,7 @@ impl<K> AccessPlannedQuery<K> {
             ));
         };
 
-        Ok(CursorBoundary {
-            slots: order_cursor::boundary_slots_from_entity(entity, order),
-        })
+        Ok(CursorBoundary::from_ordered_entity(entity, order))
     }
 
     /// Build a continuation token for one materialized entity.
@@ -341,7 +337,7 @@ impl<K> AccessPlannedQuery<K> {
             ContinuationToken::new_index_range_with_direction(
                 signature,
                 boundary,
-                IndexRangeCursorAnchor::new(index_key.to_raw().as_bytes().to_vec()),
+                cursor_anchor_from_index_key(&index_key),
                 direction,
                 initial_offset,
             )

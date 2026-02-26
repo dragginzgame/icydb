@@ -1,3 +1,9 @@
+mod bounds;
+mod envelope;
+mod error;
+mod scalar;
+mod tuple;
+
 use crate::{
     MAX_INDEX_FIELDS,
     db::{
@@ -5,47 +11,18 @@ use crate::{
         identity::IndexName,
         index::key::IndexId,
     },
-    traits::Storable,
 };
-use canic_cdk::structures::storable::Bound;
-use std::{borrow::Cow, cmp::Ordering};
-
-const KEY_KIND_TAG_SIZE: usize = 1;
-const COMPONENT_COUNT_SIZE: usize = 1;
-const SEGMENT_LEN_SIZE: usize = 2;
-const INDEX_ID_SIZE: usize = IndexName::STORED_SIZE_USIZE;
-const KEY_PREFIX_SIZE: usize = KEY_KIND_TAG_SIZE + INDEX_ID_SIZE + COMPONENT_COUNT_SIZE;
-
-///
-/// IndexKeyKind
-///
-/// Encoded discriminator for index key families.
-///
-
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-#[repr(u8)]
-pub(crate) enum IndexKeyKind {
-    User = 0,
-    System = 1,
-}
-
-impl IndexKeyKind {
-    const USER_TAG: u8 = 0;
-    const SYSTEM_TAG: u8 = 1;
-
-    #[must_use]
-    const fn tag(self) -> u8 {
-        self as u8
-    }
-
-    const fn from_tag(tag: u8) -> Result<Self, &'static str> {
-        match tag {
-            Self::USER_TAG => Ok(Self::User),
-            Self::SYSTEM_TAG => Ok(Self::System),
-            _ => Err("corrupted IndexKey: invalid key kind"),
-        }
-    }
-}
+use bounds::{
+    COMPONENT_COUNT_SIZE, INDEX_ID_SIZE, KEY_KIND_TAG_SIZE, KEY_PREFIX_SIZE, SEGMENT_LEN_SIZE,
+};
+use error::{
+    ERR_INVALID_INDEX_LENGTH, ERR_INVALID_INDEX_NAME_BYTES, ERR_INVALID_SIZE, ERR_TRAILING_BYTES,
+};
+pub(crate) use scalar::IndexKeyKind;
+use std::cmp::Ordering;
+use tuple::{
+    compare_component_segments, compare_length_prefixed_segment, push_segment, read_segment,
+};
 
 ///
 /// IndexKey
@@ -80,32 +57,7 @@ impl PartialOrd for IndexKey {
     }
 }
 
-#[expect(clippy::cast_possible_truncation)]
 impl IndexKey {
-    pub(crate) const MAX_COMPONENT_SIZE: usize = 4 * 1024;
-    pub(crate) const MAX_PK_SIZE: usize = StorageKey::STORED_SIZE_USIZE;
-
-    const MIN_SEGMENT_SIZE: usize = 1;
-
-    /// Maximum on-disk size in bytes (stable, protocol-level bound)
-    pub(crate) const MAX_INDEX_KEY_BYTES: u64 = (KEY_PREFIX_SIZE
-        + (MAX_INDEX_FIELDS * (SEGMENT_LEN_SIZE + Self::MAX_COMPONENT_SIZE))
-        + (SEGMENT_LEN_SIZE + Self::MAX_PK_SIZE))
-        as u64;
-
-    /// Maximum on-disk size in bytes (stable, protocol-level bound)
-    pub(crate) const STORED_SIZE_BYTES: u64 = Self::MAX_INDEX_KEY_BYTES;
-
-    /// Maximum in-memory size (for bounds checks)
-    pub(crate) const STORED_SIZE_USIZE: usize = Self::STORED_SIZE_BYTES as usize;
-
-    /// Minimum encoded size for an empty index key.
-    pub(crate) const MIN_STORED_SIZE_BYTES: u64 =
-        (KEY_PREFIX_SIZE + SEGMENT_LEN_SIZE + Self::MIN_SEGMENT_SIZE) as u64;
-
-    /// Minimum encoded size for an empty index key.
-    pub(crate) const MIN_STORED_SIZE_USIZE: usize = Self::MIN_STORED_SIZE_BYTES as usize;
-
     #[must_use]
     pub(crate) fn to_raw(&self) -> RawIndexKey {
         let component_count = self.components.len();
@@ -144,7 +96,7 @@ impl IndexKey {
     pub(crate) fn try_from_raw(raw: &RawIndexKey) -> Result<Self, &'static str> {
         let bytes = raw.as_bytes();
         if bytes.len() < Self::MIN_STORED_SIZE_USIZE || bytes.len() > Self::STORED_SIZE_USIZE {
-            return Err("corrupted IndexKey: invalid size");
+            return Err(ERR_INVALID_SIZE);
         }
 
         let mut offset = 0;
@@ -154,7 +106,7 @@ impl IndexKey {
 
         let index_name =
             IndexName::from_bytes(&bytes[offset..offset + IndexName::STORED_SIZE_USIZE])
-                .map_err(|_| "corrupted IndexKey: invalid IndexName bytes")?;
+                .map_err(|_| ERR_INVALID_INDEX_NAME_BYTES)?;
         offset += INDEX_ID_SIZE;
 
         let component_count = bytes[offset];
@@ -162,7 +114,7 @@ impl IndexKey {
 
         let component_count_usize = usize::from(component_count);
         if component_count_usize > MAX_INDEX_FIELDS {
-            return Err("corrupted IndexKey: invalid index length");
+            return Err(ERR_INVALID_INDEX_LENGTH);
         }
 
         let mut components = Vec::with_capacity(component_count_usize);
@@ -178,7 +130,7 @@ impl IndexKey {
 
         let primary_key = read_segment(bytes, &mut offset, Self::MAX_PK_SIZE, "primary key")?;
         if offset != bytes.len() {
-            return Err("corrupted IndexKey: trailing bytes");
+            return Err(ERR_TRAILING_BYTES);
         }
 
         Ok(Self {
@@ -217,92 +169,6 @@ impl IndexKey {
     pub(in crate::db) fn primary_storage_key(&self) -> Result<StorageKey, StorageKeyDecodeError> {
         StorageKey::try_from_bytes(&self.primary_key)
     }
-
-    #[must_use]
-    pub(crate) fn wildcard_low_component() -> Vec<u8> {
-        vec![0]
-    }
-
-    #[must_use]
-    pub(crate) fn wildcard_high_component() -> Vec<u8> {
-        vec![0xFF; Self::MAX_COMPONENT_SIZE]
-    }
-
-    #[must_use]
-    pub(crate) fn wildcard_low_pk() -> Vec<u8> {
-        vec![0]
-    }
-
-    #[must_use]
-    pub(crate) fn wildcard_high_pk() -> Vec<u8> {
-        vec![0xFF; Self::MAX_PK_SIZE]
-    }
-}
-
-#[expect(clippy::checked_conversions)]
-fn push_segment(bytes: &mut Vec<u8>, segment: &[u8]) {
-    assert!(
-        segment.len() <= u16::MAX as usize,
-        "segment length overflowed u16 despite bounded invariants",
-    );
-    let len_u16 =
-        u16::try_from(segment.len()).expect("segment length should fit in a u16 after assert");
-
-    bytes.extend_from_slice(&len_u16.to_be_bytes());
-    bytes.extend_from_slice(segment);
-}
-
-// Compare one raw segment the same way its length-prefixed bytes compare.
-fn compare_length_prefixed_segment(left: &[u8], right: &[u8]) -> Ordering {
-    left.len().cmp(&right.len()).then_with(|| left.cmp(right))
-}
-
-// Compare encoded component segments under length-prefixed ordering semantics.
-fn compare_component_segments(left: &[Vec<u8>], right: &[Vec<u8>]) -> Ordering {
-    for (left_segment, right_segment) in left.iter().zip(right.iter()) {
-        let segment_order = compare_length_prefixed_segment(left_segment, right_segment);
-        if segment_order != Ordering::Equal {
-            return segment_order;
-        }
-    }
-
-    Ordering::Equal
-}
-
-fn read_segment<'a>(
-    bytes: &'a [u8],
-    offset: &mut usize,
-    max_len: usize,
-    label: &str,
-) -> Result<&'a [u8], &'static str> {
-    if *offset + SEGMENT_LEN_SIZE > bytes.len() {
-        return Err("corrupted IndexKey: truncated key");
-    }
-
-    let mut len_buf = [0u8; SEGMENT_LEN_SIZE];
-    len_buf.copy_from_slice(&bytes[*offset..*offset + SEGMENT_LEN_SIZE]);
-    *offset += SEGMENT_LEN_SIZE;
-
-    let len = u16::from_be_bytes(len_buf) as usize;
-    if len == 0 {
-        return Err("corrupted IndexKey: zero-length segment");
-    }
-    if len > max_len {
-        return Err("corrupted IndexKey: overlong segment");
-    }
-
-    let end = (*offset)
-        .checked_add(len)
-        .ok_or("corrupted IndexKey: segment overflow")?;
-    if end > bytes.len() {
-        return Err("corrupted IndexKey: truncated key");
-    }
-
-    let out = &bytes[*offset..end];
-    *offset = end;
-
-    let _ = label;
-    Ok(out)
 }
 
 ///
@@ -314,34 +180,6 @@ fn read_segment<'a>(
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct RawIndexKey(Vec<u8>);
-
-impl RawIndexKey {
-    /// Borrow the raw byte representation.
-    #[must_use]
-    pub(crate) fn as_bytes(&self) -> &[u8] {
-        &self.0
-    }
-}
-
-impl Storable for RawIndexKey {
-    fn to_bytes(&self) -> Cow<'_, [u8]> {
-        Cow::Borrowed(&self.0)
-    }
-
-    fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
-        Self(bytes.into_owned())
-    }
-
-    fn into_bytes(self) -> Vec<u8> {
-        self.0
-    }
-
-    #[expect(clippy::cast_possible_truncation)]
-    const BOUND: Bound = Bound::Bounded {
-        max_size: IndexKey::STORED_SIZE_BYTES as u32,
-        is_fixed_size: false,
-    };
-}
 
 ///
 /// TESTS
