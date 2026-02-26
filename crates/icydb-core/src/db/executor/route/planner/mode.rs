@@ -8,7 +8,7 @@ use crate::{
             load::LoadExecutor,
         },
         lowering::LoweredKey,
-        query::plan::AccessPlannedQuery,
+        plan::AccessPlannedQuery,
     },
     traits::{EntityKind, EntityValue},
 };

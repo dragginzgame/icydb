@@ -7,8 +7,8 @@ pub(crate) mod validate;
 #[cfg(test)]
 mod tests;
 
-pub use ast::{CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature};
-pub use coercion::CoercionId;
+pub(crate) use ast::{CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature};
+pub(crate) use coercion::CoercionId;
 #[cfg(test)]
 pub(crate) use coercion::CoercionSpec;
 pub(crate) use eval::{PredicateFieldSlots, eval_with_slots};

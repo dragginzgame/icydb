@@ -27,24 +27,4 @@ pub(crate) mod plan;
 pub(crate) mod policy;
 pub(crate) mod predicate;
 
-/// ---------------------------------------------------------------------
-/// Public Contract Types
-/// ---------------------------------------------------------------------
-
-///
-/// ReadConsistency
-///
-/// Missing-row handling policy for query execution.
-///
-/// This is part of the query contract and is re-exported at the `db`
-/// boundary. It is stable API surface.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ReadConsistency {
-    /// Missing rows are ignored (no error).
-    MissingOk,
-
-    /// Missing rows are treated as corruption.
-    Strict,
-}
+pub(crate) use crate::db::consistency::ReadConsistency;

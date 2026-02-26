@@ -14,7 +14,7 @@ use crate::{
             load::LoadExecutor,
         },
         lowering::LoweredKey,
-        query::plan::{AccessPlannedQuery, OrderDirection},
+        plan::{AccessPlannedQuery, OrderDirection},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},

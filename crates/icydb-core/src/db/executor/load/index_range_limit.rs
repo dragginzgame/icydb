@@ -9,7 +9,7 @@ use crate::{
         },
         index::predicate::IndexPredicateExecution,
         lowering::LoweredKey,
-        query::plan::AccessPlannedQuery,
+        plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},

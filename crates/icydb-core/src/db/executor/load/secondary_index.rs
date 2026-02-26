@@ -9,7 +9,7 @@ use crate::{
             route::{RouteOrderSlotPolicy, derive_scan_direction},
         },
         index::predicate::IndexPredicateExecution,
-        query::plan::AccessPlannedQuery,
+        plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},

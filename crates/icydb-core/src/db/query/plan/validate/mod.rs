@@ -17,10 +17,13 @@ mod semantics;
 mod tests;
 
 use crate::{
-    db::query::{
-        plan::{AccessPlannedQuery, cursor::CursorPlanError},
-        policy::PlanPolicyError,
-        predicate::{self, SchemaInfo},
+    db::{
+        cursor::CursorPlanError,
+        plan::{AccessPlannedQuery, OrderSpec},
+        query::{
+            policy::PlanPolicyError,
+            predicate::{self, SchemaInfo},
+        },
     },
     error::InternalError,
     model::{entity::EntityModel, index::IndexModel},
@@ -264,7 +267,7 @@ fn validate_plan_core<K, FOrder, FAccess>(
     validate_access_fn: FAccess,
 ) -> Result<(), PlanError>
 where
-    FOrder: Fn(&SchemaInfo, &crate::db::query::plan::OrderSpec) -> Result<(), PlanError>,
+    FOrder: Fn(&SchemaInfo, &OrderSpec) -> Result<(), PlanError>,
     FAccess: Fn(&SchemaInfo, &EntityModel, &AccessPlannedQuery<K>) -> Result<(), PlanError>,
 {
     if let Some(predicate) = &plan.predicate {

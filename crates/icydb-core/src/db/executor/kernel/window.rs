@@ -4,7 +4,7 @@ use crate::db::{
         ExecutionKernel, compute_page_window,
         kernel::{PlanRow, post_access::order_cursor},
     },
-    query::plan::AccessPlannedQuery,
+    plan::AccessPlannedQuery,
 };
 use crate::{
     error::InternalError,

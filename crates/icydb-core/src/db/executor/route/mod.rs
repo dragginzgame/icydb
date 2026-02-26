@@ -6,12 +6,13 @@ mod tests;
 
 use crate::db::{
     access::{AccessPath, PushdownApplicability},
+    direction::Direction,
     executor::{
         AccessPlanStreamRequest, IndexStreamConstraints, StreamExecutionHints,
         aggregate::{AggregateFoldMode, AggregateSpec},
         compute_page_window,
     },
-    query::plan::{Direction, OrderDirection, OrderSpec},
+    plan::{OrderDirection, OrderSpec},
 };
 
 // -----------------------------------------------------------------------------

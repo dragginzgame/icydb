@@ -50,10 +50,10 @@ pub(in crate::db) use window::compute_page_window;
 use crate::{
     db::{
         data::DataKey,
+        plan::AccessPlannedQuery,
         query::{
             fluent::{delete::FluentDeleteQuery, load::FluentLoadQuery},
             intent::{PlannedQuery, Query, QueryError},
-            plan::AccessPlannedQuery,
             predicate::PredicateFieldSlots,
         },
     },

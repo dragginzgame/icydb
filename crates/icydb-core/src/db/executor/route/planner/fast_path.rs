@@ -5,7 +5,7 @@ use crate::{
             ExecutionKernel, IndexPredicateCompileMode, aggregate::AggregateKind,
             compile_predicate_slots, load::LoadExecutor,
         },
-        query::plan::AccessPlannedQuery,
+        plan::AccessPlannedQuery,
     },
     traits::{EntityKind, EntityValue},
 };

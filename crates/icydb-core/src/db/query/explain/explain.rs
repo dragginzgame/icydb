@@ -423,8 +423,8 @@ const fn explain_delete_limit(limit: Option<&DeleteLimitSpec>) -> ExplainDeleteL
 mod tests {
     use super::*;
     use crate::db::access::{AccessPath, AccessPlan};
+    use crate::db::plan::{AccessPlannedQuery, LogicalPlan, OrderDirection, OrderSpec};
     use crate::db::query::intent::{KeyAccess, LoadSpec, QueryMode, access_plan_from_keys_value};
-    use crate::db::query::plan::{AccessPlannedQuery, LogicalPlan, OrderDirection, OrderSpec};
     use crate::db::query::predicate::Predicate;
     use crate::db::query::{ReadConsistency, builder::field::FieldRef};
     use crate::model::{field::FieldKind, index::IndexModel};

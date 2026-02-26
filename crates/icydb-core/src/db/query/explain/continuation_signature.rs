@@ -3,7 +3,8 @@
 use crate::{
     db::{
         cursor::ContinuationSignature,
-        query::{explain::ExplainPlan, fingerprint::hash_parts, plan::AccessPlannedQuery},
+        plan::AccessPlannedQuery,
+        query::{explain::ExplainPlan, fingerprint::hash_parts},
     },
     traits::FieldValue,
 };

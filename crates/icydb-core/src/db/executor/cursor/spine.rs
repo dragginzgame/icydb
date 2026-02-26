@@ -3,15 +3,16 @@ use crate::{
         access::AccessPath,
         cursor::{
             ContinuationSignature, ContinuationToken, ContinuationTokenError, CursorBoundary,
-            CursorBoundarySlot, IndexRangeCursorAnchor,
+            CursorBoundarySlot, CursorPlanError, IndexRangeCursorAnchor,
         },
         direction::Direction,
         executor::{
             PlannedCursor, decode_typed_primary_key_cursor_slot, validate_index_range_anchor,
             validate_index_range_boundary_anchor_consistency,
         },
+        plan::OrderSpec,
         query::{
-            plan::{CursorPlanError, OrderPlanError, OrderSpec, PlanError},
+            plan::{OrderPlanError, PlanError},
             predicate::{SchemaInfo, validate::literal_matches_type},
         },
     },

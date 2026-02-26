@@ -5,6 +5,22 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.30.7] - 2026-02-26 - Plan and Cursor Contract Ownership
+
+### 📝 Summary
+
+* Finished a boundary cleanup by moving shared plan and cursor contracts, plus core query domain types, into neutral `db` modules.
+
+### 🔧 Changed
+
+* Moved shared plan-shape types (`AccessPlannedQuery`, `LogicalPlan`, and order/page/delete specs) into `db::plan::contract`.
+* Moved cursor validation error ownership (`CursorPlanError`) into `db::cursor`, while keeping `PlanError` as the query-facing mapping.
+* Added neutral modules for `ReadConsistency`, query intent mode (`QueryMode`, `LoadSpec`, `DeleteSpec`), and predicate AST/coercion contracts (`db::consistency`, `db::intent`, `db::predicate`).
+* Kept query-layer re-exports in place so existing query call sites continue to compile.
+* No query behavior changes were intended in this release.
+
+---
+
 ## [0.30.6] - 2026-02-26 - AccessPath Contract Canonicalization
 
 ### 📝 Summary

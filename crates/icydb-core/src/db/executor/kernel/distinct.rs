@@ -7,7 +7,7 @@ use crate::{
             load::{ResolvedExecutionKeyStream, key_stream_comparator_from_direction},
         },
         identity::EntityName,
-        query::plan::AccessPlannedQuery,
+        plan::AccessPlannedQuery,
     },
     error::InternalError,
 };

@@ -4,7 +4,8 @@ use crate::{
         access::IndexPredicateProgram,
         direction::Direction,
         executor::{ExecutionPlan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec},
-        query::{plan::AccessPlannedQuery, predicate::PredicateFieldSlots},
+        plan::AccessPlannedQuery,
+        query::predicate::PredicateFieldSlots,
     },
     traits::{EntityKind, EntityValue},
 };

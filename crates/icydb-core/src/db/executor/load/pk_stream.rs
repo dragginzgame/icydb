@@ -8,7 +8,7 @@ use crate::{
             load::{ExecutionOptimization, FastPathKeyResult, LoadExecutor},
             route::{RouteOrderSlotPolicy, derive_scan_direction, supports_pk_stream_access_path},
         },
-        query::plan::AccessPlannedQuery,
+        plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},

@@ -5,7 +5,7 @@ use crate::{
         direction::Direction,
         executor::load::{CursorPage, LoadExecutor},
         executor::{BudgetedOrderedKeyStream, ExecutionKernel, OrderedKeyStream, PostAccessStats},
-        query::plan::AccessPlannedQuery,
+        plan::AccessPlannedQuery,
         query::predicate::PredicateFieldSlots,
         response::Response,
     },

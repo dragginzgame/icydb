@@ -448,13 +448,11 @@ mod tests {
     use crate::db::{
         access::AccessPath,
         cursor::CursorBoundary,
-        query::{
-            plan::{AccessPlannedQuery, OrderSpec, PageSpec},
-            predicate::Predicate,
-        },
+        plan::{AccessPlannedQuery, OrderSpec, PageSpec},
+        query::predicate::Predicate,
     };
     use crate::{
-        db::{ReadConsistency, query::plan::OrderDirection},
+        db::{ReadConsistency, plan::OrderDirection},
         model::field::FieldKind,
         types::Ulid,
     };

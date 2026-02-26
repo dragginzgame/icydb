@@ -18,6 +18,7 @@ use crate::{
         Db,
         access::AccessPlan,
         cursor::{ContinuationToken, CursorBoundary},
+        direction::Direction,
         executor::{
             AccessStreamBindings, ExecutablePlan, ExecutionKernel, IndexPredicateCompileMode,
             KeyOrderComparator, OrderedKeyStreamBox, PlannedCursor,
@@ -28,9 +29,8 @@ use crate::{
             compile_predicate_slots, decode_pk_cursor_boundary,
             plan_metrics::{record_plan_metrics, record_rows_scanned},
         },
-        query::plan::{
-            AccessPlannedQuery, Direction, OrderDirection, validate::validate_executor_plan,
-        },
+        plan::{AccessPlannedQuery, OrderDirection},
+        query::plan::validate::validate_executor_plan,
         query::policy,
         response::Response,
     },

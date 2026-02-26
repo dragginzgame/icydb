@@ -7,7 +7,7 @@ use crate::{
     db::{
         access::assess_secondary_order_pushdown_from_parts,
         direction::Direction,
-        query::plan::{AccessPlannedQuery, OrderDirection},
+        plan::{AccessPlannedQuery, OrderDirection},
     },
     model::entity::EntityModel,
 };

@@ -1,14 +1,14 @@
 use crate::{
     db::{
         access::AccessPath,
-        cursor::IndexRangeCursorAnchor,
+        cursor::{CursorPlanError, IndexRangeCursorAnchor},
         direction::Direction,
         index::{
             Direction as IndexDirection, IndexId, IndexKey, IndexKeyKind, KeyEnvelope,
             PrimaryKeyEquivalenceError, RawIndexKey, primary_key_matches_value,
         },
         lowering::lower_cursor_anchor_index_range_bounds,
-        query::plan::{CursorPlanError, PlanError},
+        query::plan::PlanError,
     },
     traits::Storable,
     traits::{EntityKind, FieldValue},

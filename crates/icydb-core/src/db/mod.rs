@@ -1,9 +1,13 @@
 pub(crate) mod access;
 // 1️⃣ Module declarations
+pub(crate) mod consistency;
 pub(crate) mod cursor;
 pub(crate) mod diagnostics;
 pub(in crate::db) mod direction;
 pub(crate) mod identity;
+pub(crate) mod intent;
+pub(in crate::db) mod plan;
+pub(crate) mod predicate;
 pub(crate) mod query;
 pub(crate) mod registry;
 pub(crate) mod response;
@@ -20,14 +24,15 @@ pub(in crate::db) mod value_hash;
 
 // 2️⃣ Public re-exports (Tier-2 API surface)
 pub use codec::cursor::{decode_cursor, encode_cursor};
+pub use consistency::ReadConsistency;
 pub use data::DataStore;
 pub(crate) use data::StorageKey;
 pub use diagnostics::StorageReport;
 pub use executor::{ExecutionAccessPathVariant, ExecutionOptimization, ExecutionTrace};
 pub use identity::{EntityName, IndexName};
 pub use index::IndexStore;
+pub use predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature};
 pub use query::{
-    ReadConsistency,
     builder::field::FieldRef,
     expr::{FilterExpr, SortExpr},
     fluent::{
@@ -36,9 +41,7 @@ pub use query::{
     },
     intent::{IntentError, Query, QueryError},
     plan::{OrderDirection, PlanError},
-    predicate::{
-        CoercionId, CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature, ValidateError,
-    },
+    predicate::ValidateError,
 };
 pub use registry::StoreRegistry;
 pub use relation::validate_delete_strong_relations_for_source;

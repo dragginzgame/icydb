@@ -4,9 +4,11 @@ use crate::db::{DataStore, IndexStore};
 use crate::{
     db::{
         Db, FluentDeleteQuery, FluentLoadQuery, PagedLoadExecutionWithTrace, PlanError, Query,
-        QueryError, ReadConsistency, Response, WriteBatchResponse, WriteResponse, decode_cursor,
+        QueryError, ReadConsistency, Response, WriteBatchResponse, WriteResponse,
+        cursor::CursorPlanError,
+        decode_cursor,
         executor::{DeleteExecutor, LoadExecutor, SaveExecutor},
-        query::{intent::QueryMode, plan::CursorPlanError},
+        query::intent::QueryMode,
     },
     error::InternalError,
     obs::sink::{MetricsSink, with_metrics_sink},

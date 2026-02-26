@@ -1,8 +1,9 @@
 use crate::{
     db::{
-        cursor::{CursorBoundary, CursorBoundarySlot},
+        cursor::{CursorBoundary, CursorBoundarySlot, CursorPlanError},
+        plan::OrderSpec,
         query::{
-            plan::{CursorPlanError, OrderPlanError, OrderSpec, PlanError},
+            plan::{OrderPlanError, PlanError},
             predicate::SchemaInfo,
         },
     },
