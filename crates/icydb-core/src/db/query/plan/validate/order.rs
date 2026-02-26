@@ -1,10 +1,8 @@
 use crate::{
-    db::{
+    db::query::{
         plan::OrderSpec,
-        query::{
-            plan::validate::{OrderPlanError, PlanError},
-            predicate::SchemaInfo,
-        },
+        plan::validate::{OrderPlanError, PlanError},
+        predicate::SchemaInfo,
     },
     model::entity::EntityModel,
 };

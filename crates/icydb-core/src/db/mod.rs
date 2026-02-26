@@ -1,12 +1,10 @@
 pub(crate) mod access;
 // 1️⃣ Module declarations
-pub(crate) mod consistency;
+pub(crate) mod contracts;
 pub(crate) mod cursor;
 pub(crate) mod diagnostics;
 pub(in crate::db) mod direction;
 pub(crate) mod identity;
-pub(crate) mod intent;
-pub(in crate::db) mod plan;
 pub(crate) mod policy;
 pub(crate) mod predicate;
 pub(crate) mod query;
@@ -19,13 +17,12 @@ pub(in crate::db) mod commit;
 pub(in crate::db) mod data;
 pub(in crate::db) mod executor;
 pub(in crate::db) mod index;
-pub(in crate::db) mod lowering;
 pub(in crate::db) mod relation;
 pub(in crate::db) mod value_hash;
 
 // 2️⃣ Public re-exports (Tier-2 API surface)
 pub use codec::cursor::{decode_cursor, encode_cursor};
-pub use consistency::ReadConsistency;
+pub use contracts::ReadConsistency;
 pub use data::DataStore;
 pub(crate) use data::StorageKey;
 pub use diagnostics::StorageReport;

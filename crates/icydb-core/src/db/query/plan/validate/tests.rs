@@ -9,11 +9,13 @@ use super::{
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},
-        plan::{DeleteLimitSpec, OrderDirection, OrderSpec, PageSpec},
         query::{
             ReadConsistency,
             intent::{DeleteSpec, LoadSpec, QueryMode},
-            plan::{AccessPlannedQuery, LogicalPlan},
+            plan::{
+                AccessPlannedQuery, DeleteLimitSpec, LogicalPlan, OrderDirection, OrderSpec,
+                PageSpec,
+            },
             predicate::{SchemaInfo, ValidateError},
         },
     },
@@ -22,7 +24,7 @@ use crate::{
         field::{FieldKind, FieldModel},
         index::IndexModel,
     },
-    test_support::InvalidEntityModelBuilder,
+    testing::InvalidEntityModelBuilder,
     traits::EntitySchema,
     types::Ulid,
     value::Value,

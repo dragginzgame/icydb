@@ -1,12 +1,9 @@
 use crate::{
     db::{
+        contracts::{SchemaInfo, literal_matches_type},
         cursor::CursorPlanError,
         direction::Direction,
-        plan::{OrderDirection, OrderSpec},
-        query::{
-            plan::OrderPlanError,
-            predicate::{SchemaInfo, validate::literal_matches_type},
-        },
+        query::plan::{OrderDirection, OrderPlanError, OrderSpec},
     },
     model::entity::{EntityModel, resolve_field_slot},
     traits::{EntityKind, EntityValue, FieldValue},

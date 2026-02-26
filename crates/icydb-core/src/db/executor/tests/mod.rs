@@ -33,7 +33,7 @@ use crate::{
         field::{FieldKind, RelationStrength},
         index::IndexModel,
     },
-    test_support::test_memory,
+    testing::test_memory,
     traits::{EntityIdentity, EntityKind, EntityValue, Path},
     types::Ulid,
     value::Value,
@@ -46,7 +46,7 @@ use std::cell::RefCell;
 
 crate::test_canister! {
     ident = TestCanister,
-    commit_memory_id = crate::test_support::test_commit_memory_id(),
+    commit_memory_id = crate::testing::test_commit_memory_id(),
 }
 
 // TestDataStore
@@ -272,7 +272,7 @@ fn reset_store() {
 
 crate::test_canister! {
     ident = RelationTestCanister,
-    commit_memory_id = crate::test_support::test_commit_memory_id(),
+    commit_memory_id = crate::testing::test_commit_memory_id(),
 }
 
 // RelationSourceStore

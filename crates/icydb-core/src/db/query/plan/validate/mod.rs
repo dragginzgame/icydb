@@ -8,7 +8,6 @@
 //! rules, but must not reinterpret semantics or error class intent.
 
 mod order;
-mod pushdown;
 mod semantics;
 
 #[cfg(test)]
@@ -18,9 +17,11 @@ use crate::{
     db::{
         access::validate_access_plan_model as validate_access_plan_model_shared,
         cursor::CursorPlanError,
-        plan::{AccessPlannedQuery, OrderSpec},
         policy::PlanPolicyError,
-        query::predicate::{self, SchemaInfo},
+        query::{
+            plan::{AccessPlannedQuery, OrderSpec},
+            predicate::{self, SchemaInfo},
+        },
     },
     model::entity::EntityModel,
     value::Value,
@@ -29,18 +30,18 @@ use thiserror::Error as ThisError;
 
 // re-exports
 pub(crate) use crate::db::access::AccessPlanError;
-pub(crate) use order::{
-    validate_no_duplicate_non_pk_order_fields, validate_order, validate_primary_key_tie_break,
-};
 #[cfg(test)]
-pub(crate) use pushdown::assess_secondary_order_pushdown_if_applicable;
+pub(crate) use crate::db::access::assess_secondary_order_pushdown_if_applicable;
 #[cfg(test)]
-pub(crate) use pushdown::{
+pub(crate) use crate::db::access::{
     PushdownApplicability, assess_secondary_order_pushdown_if_applicable_validated,
 };
-pub(crate) use pushdown::{
+pub(crate) use crate::db::access::{
     PushdownSurfaceEligibility, SecondaryOrderPushdownEligibility, SecondaryOrderPushdownRejection,
     assess_secondary_order_pushdown,
+};
+pub(crate) use order::{
+    validate_no_duplicate_non_pk_order_fields, validate_order, validate_primary_key_tie_break,
 };
 
 ///

@@ -15,7 +15,7 @@ use crate::{
     error::{ErrorClass, ErrorOrigin},
     model::{field::FieldKind, index::IndexModel},
     serialize::serialize,
-    test_support::test_memory,
+    testing::test_memory,
     traits::{EntityIdentity, EntitySchema, FieldValue, Path},
     types::Ulid,
 };
@@ -29,7 +29,7 @@ use std::{cell::RefCell, collections::BTreeSet};
 
 crate::test_canister! {
     ident = RecoveryTestCanister,
-    commit_memory_id = crate::test_support::test_commit_memory_id(),
+    commit_memory_id = crate::testing::test_commit_memory_id(),
 }
 
 //

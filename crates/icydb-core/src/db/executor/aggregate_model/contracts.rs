@@ -73,7 +73,6 @@ impl AggregateSpec {
 
     /// Build a field-targeted aggregate spec for future field aggregates.
     #[must_use]
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(in crate::db::executor) fn for_target_field(
         kind: AggregateKind,
         target_field: impl Into<String>,

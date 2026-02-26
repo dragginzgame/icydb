@@ -1,9 +1,9 @@
 use crate::{
     db::{
         access::IndexPredicateProgram,
+        contracts::PredicateFieldSlots,
         executor::{ExecutionKernel, IndexPredicateCompileMode, load::LoadExecutor},
-        plan::AccessPlannedQuery,
-        query::predicate::PredicateFieldSlots,
+        query::plan::AccessPlannedQuery,
     },
     traits::{EntityKind, EntityValue},
 };
@@ -20,7 +20,6 @@ pub(in crate::db::executor) struct ExecutionPreparation {
     compiled_predicate: Option<PredicateFieldSlots>,
     slot_map: Option<Vec<usize>>,
     strict_mode: Option<IndexPredicateProgram>,
-    index_coverage: bool,
 }
 
 impl ExecutionPreparation {
@@ -45,16 +44,10 @@ impl ExecutionPreparation {
             }
             (Some(_) | None, None) | (None, Some(_)) => None,
         };
-        let index_coverage = LoadExecutor::<E>::predicate_slots_fully_covered_by_index_slots(
-            compiled_predicate.as_ref(),
-            slot_map.as_deref(),
-        );
-
         Self {
             compiled_predicate,
             slot_map,
             strict_mode,
-            index_coverage,
         }
     }
 
@@ -71,10 +64,5 @@ impl ExecutionPreparation {
     #[must_use]
     pub(in crate::db::executor) const fn strict_mode(&self) -> Option<&IndexPredicateProgram> {
         self.strict_mode.as_ref()
-    }
-
-    #[must_use]
-    pub(in crate::db::executor) const fn index_coverage(&self) -> bool {
-        self.index_coverage
     }
 }

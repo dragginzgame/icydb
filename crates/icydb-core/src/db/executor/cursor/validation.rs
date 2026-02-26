@@ -3,7 +3,7 @@ use crate::{
         cursor::{ContinuationSignature, CursorPlanError},
         direction::Direction,
         executor::{ExecutorPlanError, PlannedCursor, cursor::spine},
-        plan::{AccessPlannedQuery, OrderSpec},
+        query::plan::{AccessPlannedQuery, OrderSpec},
     },
     error::InternalError,
     traits::{EntityKind, FieldValue},

@@ -15,7 +15,7 @@ use crate::{
     },
     obs::{metrics_report, metrics_reset_all},
     serialize::serialize,
-    test_support::test_memory,
+    testing::test_memory,
     traits::{EntityIdentity, Path},
     types::{Decimal, Ulid},
 };
@@ -27,7 +27,7 @@ use std::cell::RefCell;
 
 crate::test_canister! {
     ident = TestCanister,
-    commit_memory_id = crate::test_support::test_commit_memory_id(),
+    commit_memory_id = crate::testing::test_commit_memory_id(),
 }
 
 // SourceStore

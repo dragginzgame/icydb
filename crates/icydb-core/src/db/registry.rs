@@ -169,7 +169,7 @@ mod tests {
     use crate::{
         db::{data::DataStore, index::IndexStore, registry::StoreRegistry},
         error::{ErrorClass, ErrorOrigin},
-        test_support::test_memory,
+        testing::test_memory,
     };
     use std::{cell::RefCell, ptr};
 

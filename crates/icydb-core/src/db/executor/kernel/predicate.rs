@@ -1,36 +1,21 @@
 use crate::db::{
-    access::IndexPredicateProgram, executor::ExecutionKernel, query::predicate::PredicateFieldSlots,
+    access::{
+        IndexPredicateCompileMode, IndexPredicateProgram,
+        compile_index_predicate_program_from_slots as compile_index_program_from_slots,
+    },
+    contracts::PredicateFieldSlots,
+    executor::ExecutionKernel,
 };
-
-///
-/// IndexPredicateCompileMode
-///
-/// Predicate compile policy for index-only prefilter programs.
-/// `ConservativeSubset` keeps load behavior by compiling safe AND-subsets.
-/// `StrictAllOrNone` compiles only when every predicate node is supported.
-///
-
-#[derive(Clone, Copy)]
-pub(in crate::db::executor) enum IndexPredicateCompileMode {
-    ConservativeSubset,
-    StrictAllOrNone,
-}
 
 impl ExecutionKernel {
     // Compile one optional index-only predicate program from pre-resolved slots.
-    // This is the single compile-mode switch boundary for subset vs strict policy.
+    // This keeps the kernel compile entrypoint stable while the compile logic
+    // is owned by the shared access compile contract.
     pub(in crate::db::executor) fn compile_index_predicate_program_from_slots(
         predicate_slots: &PredicateFieldSlots,
         index_slots: &[usize],
         mode: IndexPredicateCompileMode,
     ) -> Option<IndexPredicateProgram> {
-        match mode {
-            IndexPredicateCompileMode::ConservativeSubset => {
-                predicate_slots.compile_index_program(index_slots)
-            }
-            IndexPredicateCompileMode::StrictAllOrNone => {
-                predicate_slots.compile_index_program_strict(index_slots)
-            }
-        }
+        compile_index_program_from_slots(predicate_slots, index_slots, mode)
     }
 }

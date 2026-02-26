@@ -2,9 +2,8 @@ use crate::{
     db::{
         predicate::coercion::{compare_eq, compare_order},
         query::predicate::{
-            CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate,
-            eval::{FieldPresence, Row, eval},
-            normalize,
+            CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate, normalize,
+            tests::runtime::{FieldPresence, Row, eval},
         },
     },
     types::{Account, Principal, Ulid},

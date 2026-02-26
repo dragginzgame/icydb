@@ -11,12 +11,11 @@ use crate::{
             aggregate_model::{AggregateFoldMode, AggregateKind, AggregateSpec},
             load::LoadExecutor,
         },
-        plan::{OrderDirection, OrderSpec, PageSpec},
         query::{
             ReadConsistency,
             intent::{DeleteSpec, QueryMode},
-            plan::{AccessPlannedQuery, Direction},
-            predicate::{Predicate, PredicateFieldSlots},
+            plan::{AccessPlannedQuery, Direction, OrderDirection, OrderSpec, PageSpec},
+            predicate::Predicate,
         },
     },
     model::{field::FieldKind, index::IndexModel},
@@ -79,7 +78,7 @@ fn source_uses_direct_context_stream_construction(source: &str) -> bool {
 
 crate::test_canister! {
     ident = RouteMatrixCanister,
-    commit_memory_id = crate::test_support::test_commit_memory_id(),
+    commit_memory_id = crate::testing::test_commit_memory_id(),
 }
 
 crate::test_store! {

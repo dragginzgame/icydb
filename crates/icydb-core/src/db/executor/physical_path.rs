@@ -3,12 +3,12 @@ use crate::{
         access::AccessPath,
         data::DataKey,
         direction::Direction,
+        executor::LoweredKey,
         executor::{
             Context, IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, OrderedKeyStreamBox,
             PrimaryScan, VecOrderedKeyStream,
         },
         index::predicate::IndexPredicateExecution,
-        lowering::LoweredKey,
     },
     error::InternalError,
     model::index::IndexModel,

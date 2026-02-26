@@ -8,8 +8,7 @@ use crate::{
             aggregate_model::{AggregateKind, AggregateSpec},
             load::LoadExecutor,
         },
-        plan::AccessPlannedQuery,
-        query::predicate::PredicateFieldSlots,
+        query::plan::AccessPlannedQuery,
     },
     model::entity::resolve_field_slot,
     traits::{EntityKind, EntityValue},
@@ -56,43 +55,6 @@ where
             field_min_fast_path_ineligibility_reason: field_min_eligibility.ineligibility_reason,
             field_max_fast_path_ineligibility_reason: field_max_eligibility.ineligibility_reason,
         }
-    }
-
-    // Determine whether every compiled predicate field slot is available on
-    // the active single-path index access shape.
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(in crate::db::executor) fn predicate_slots_fully_covered_by_index_path(
-        access: &AccessPlan<E::Key>,
-        predicate_slots: Option<&PredicateFieldSlots>,
-    ) -> bool {
-        let index_slots = Self::resolved_index_slots_for_access_path(access);
-
-        Self::predicate_slots_fully_covered_by_index_slots(predicate_slots, index_slots.as_deref())
-    }
-
-    // Determine whether every predicate-required slot is present in one
-    // resolved index slot map.
-    pub(in crate::db::executor) fn predicate_slots_fully_covered_by_index_slots(
-        predicate_slots: Option<&PredicateFieldSlots>,
-        index_slots: Option<&[usize]>,
-    ) -> bool {
-        let Some(predicate_slots) = predicate_slots else {
-            return false;
-        };
-        let required = predicate_slots.required_slots();
-        if required.is_empty() {
-            return false;
-        }
-        let Some(index_slots) = index_slots else {
-            return false;
-        };
-        let mut normalized_index_slots = index_slots.to_vec();
-        normalized_index_slots.sort_unstable();
-        normalized_index_slots.dedup();
-
-        required
-            .iter()
-            .all(|slot| normalized_index_slots.binary_search(slot).is_ok())
     }
 
     // Resolve index fields for a single-path index access shape to entity slots.

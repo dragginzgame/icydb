@@ -295,7 +295,7 @@ fn canonical_cmp_value_bound(left: &Bound<Value>, right: &Bound<Value>) -> Order
 mod tests {
     use super::*;
     use crate::{
-        db::{ReadConsistency, plan::AccessPlannedQuery},
+        db::{ReadConsistency, query::plan::AccessPlannedQuery},
         model::index::IndexModel,
     };
 

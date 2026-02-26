@@ -1,8 +1,5 @@
-use super::{
-    NEGATIVE_MARKER, OrderedValueEncodeError, POSITIVE_MARKER, ZERO_MARKER,
-    encode_canonical_index_component,
-};
 use crate::{
+    db::index::key::{OrderedValueEncodeError, ordered::encode_canonical_index_component},
     types::{
         Account, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128, Principal,
         Subaccount, Timestamp, Ulid,
@@ -11,6 +8,10 @@ use crate::{
 };
 use proptest::prelude::*;
 use std::cmp::Ordering;
+
+const NEGATIVE_MARKER: u8 = 0x00;
+const ZERO_MARKER: u8 = 0x01;
+const POSITIVE_MARKER: u8 = 0x02;
 
 fn assert_encoded_order(left: Value, right: Value, expected: Ordering) {
     let left_bytes = encode_canonical_index_component(&left).expect("left should encode");

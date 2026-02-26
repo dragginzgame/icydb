@@ -3,10 +3,10 @@ mod distinct;
 mod post_access;
 mod predicate;
 mod reducer;
-mod window;
 
+pub(in crate::db::executor) use crate::db::access::IndexPredicateCompileMode;
+pub(in crate::db::executor) use post_access::order_cursor::apply_cursor_boundary;
 pub(in crate::db::executor) use post_access::{PlanRow, PostAccessStats};
-pub(in crate::db::executor) use predicate::IndexPredicateCompileMode;
 
 use crate::{
     db::{
@@ -19,7 +19,7 @@ use crate::{
                 ResolvedExecutionKeyStream,
             },
         },
-        plan::AccessPlannedQuery,
+        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},

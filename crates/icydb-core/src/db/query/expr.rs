@@ -1,11 +1,7 @@
-use crate::db::{
+use crate::db::query::{
     plan::{OrderDirection, OrderSpec},
-    query::{
-        plan::{PlanError, validate::validate_order},
-        predicate::{
-            self, Predicate, SchemaInfo, ValidateError, normalize, normalize_enum_literals,
-        },
-    },
+    plan::{PlanError, validate::validate_order},
+    predicate::{self, Predicate, SchemaInfo, ValidateError, normalize, normalize_enum_literals},
 };
 use thiserror::Error as ThisError;
 

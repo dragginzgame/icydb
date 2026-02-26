@@ -5,6 +5,21 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.30.11] - 2026-02-26 - DB Cleanup Audit
+
+### 📝 Summary
+
+* Completed a structural cleanup pass across `db/` after the architecture audit, with no intended query behavior change.
+
+### 🔧 Changed
+
+* Added and enforced shared `db::contracts` ownership for cross-layer predicate and consistency contracts, and removed remaining executor dependencies on query-owned predicate internals.
+* Removed duplicate/overlapping roots in `db/` (`plan`, root `intent`, root `lowering`) and rewired ownership to canonical modules (`query::plan`, `query::intent`, executor-owned lowering).
+* Consolidated duplicate module surfaces (including window execution modules) and removed obsolete validation routing (`query::plan::validate::pushdown`).
+* Deleted dead scaffolding and compatibility leftovers in execution/index contracts, including unused dead-code suppressions, stale helper paths, and test-only runtime scaffolding that was no longer exercised in production code paths.
+
+---
+
 ## [0.30.10] - 2026-02-26 - Commit Boundary Cleanup
 
 ### 📝 Summary

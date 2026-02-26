@@ -4,7 +4,6 @@ mod context;
 mod cursor;
 mod delete;
 mod executable_plan;
-mod execution_plan;
 mod kernel;
 pub(super) mod load;
 mod mutation;
@@ -20,7 +19,13 @@ mod stream;
 mod tests;
 mod window;
 
-pub(in crate::db) use crate::db::lowering::{LoweredIndexPrefixSpec, LoweredIndexRangeSpec};
+pub(in crate::db::executor) use crate::db::access::{
+    LOWERED_INDEX_PREFIX_SPEC_INVALID, LOWERED_INDEX_RANGE_SPEC_INVALID,
+    lower_cursor_anchor_index_range_bounds, lower_index_prefix_specs, lower_index_range_specs,
+};
+pub(in crate::db) use crate::db::access::{
+    LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey,
+};
 pub(in crate::db) use commit_planner::prepare_row_commit_for_entity;
 pub(super) use context::*;
 pub(in crate::db) use cursor::{
@@ -29,7 +34,6 @@ pub(in crate::db) use cursor::{
 };
 pub(super) use delete::DeleteExecutor;
 pub(in crate::db) use executable_plan::ExecutablePlan;
-pub(in crate::db::executor) use execution_plan::ExecutionPlan;
 pub(in crate::db::executor) use kernel::{
     ExecutionKernel, IndexPredicateCompileMode, PlanRow, PostAccessStats,
 };
@@ -53,6 +57,15 @@ pub(super) use stream::key::{
 };
 pub(in crate::db) use window::compute_page_window;
 
+///
+/// ExecutionPlan
+///
+/// Canonical route-to-kernel execution contract for read execution.
+/// This is route-owned policy output (mode, hints, fast-path ordering),
+/// while `ExecutablePlan` remains the validated query/lowered-spec container.
+///
+pub(in crate::db::executor) type ExecutionPlan = route::ExecutionRoutePlan;
+
 // Design notes:
 // - SchemaInfo is the planner-visible schema (relational attributes). Executors may see
 //   additional tuple payload not represented in SchemaInfo.
@@ -64,12 +77,10 @@ pub(in crate::db) use window::compute_page_window;
 
 use crate::{
     db::{
+        contracts::ValidateError,
         cursor::CursorPlanError,
         data::DataKey,
-        query::{
-            plan::{OrderPlanError, PlanError},
-            predicate::ValidateError,
-        },
+        query::plan::{OrderPlanError, PlanError},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
 };

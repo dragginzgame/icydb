@@ -1,16 +1,14 @@
 #[cfg(test)]
 use crate::model::entity::EntityModel;
 use crate::{
-    db::predicate::{
-        CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature,
-        coercion::{CoercionId, CoercionSpec, supports_coercion},
+    db::{
+        contracts::{FieldType, SchemaInfo, ValidateError, literal_matches_type},
+        predicate::{
+            CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature,
+            coercion::{CoercionId, CoercionSpec, supports_coercion},
+        },
     },
     value::{CoercionFamilyExt, Value},
-};
-
-use crate::db::query::predicate::validate::{
-    model::{FieldType, literal_matches_type},
-    schema::{SchemaInfo, ValidateError},
 };
 
 /// Reject policy-level non-queryable features before planning.

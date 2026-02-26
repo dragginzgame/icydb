@@ -1,8 +1,8 @@
 use crate::{
     db::{
+        contracts::{SchemaInfo, literal_matches_type},
         executor::mutation::save::SaveExecutor,
         predicate::coercion::canonical_cmp,
-        query::predicate::validate::{SchemaInfo, literal_matches_type},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::{entity::resolve_primary_key_slot, field::FieldKind},

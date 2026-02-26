@@ -171,29 +171,6 @@ pub(in crate::db) fn raw_bounds_for_semantic_index_component_range<E: EntityKind
 }
 
 ///
-/// resume_bounds
-///
-/// Rewrite raw continuation bounds based on direction and anchor.
-/// This is the single authority for index-range continuation bound rewriting.
-///
-/// Caller contract: `anchor` must already be validated as contained by the
-/// original `(lower, upper)` envelope.
-///
-
-#[must_use]
-#[cfg_attr(not(test), allow(dead_code))]
-pub(in crate::db) fn resume_bounds(
-    direction: Direction,
-    lower: Bound<RawIndexKey>,
-    upper: Bound<RawIndexKey>,
-    anchor: &RawIndexKey,
-) -> (Bound<RawIndexKey>, Bound<RawIndexKey>) {
-    KeyEnvelope::new(direction, lower, upper)
-        .apply_anchor(anchor)
-        .into_bounds()
-}
-
-///
 /// resume_bounds_from_refs
 ///
 /// Rewrite raw continuation bounds from borrowed envelopes while cloning only
@@ -221,7 +198,6 @@ pub(in crate::db) fn resume_bounds_from_refs(
 ///
 
 #[must_use]
-#[cfg_attr(not(test), allow(dead_code))]
 pub(in crate::db) fn anchor_within_envelope(
     _direction: Direction,
     anchor: &RawIndexKey,
@@ -330,59 +306,10 @@ mod tests {
     use crate::{db::index::RawIndexKey, traits::Storable};
     use std::{borrow::Cow, ops::Bound};
 
-    use super::{
-        Direction, KeyEnvelope, anchor_within_envelope, continuation_advanced, envelope_is_empty,
-        resume_bounds,
-    };
+    use super::{Direction, anchor_within_envelope, continuation_advanced, envelope_is_empty};
 
     fn raw_key(byte: u8) -> RawIndexKey {
         <RawIndexKey as Storable>::from_bytes(Cow::Owned(vec![byte]))
-    }
-
-    #[test]
-    fn resume_bounds_asc_rewrites_lower_only() {
-        let lower = Bound::Included(raw_key(0x01));
-        let upper = Bound::Excluded(raw_key(0x09));
-        let anchor = raw_key(0x05);
-
-        let (next_lower, next_upper) = resume_bounds(Direction::Asc, lower, upper.clone(), &anchor);
-
-        assert_eq!(next_lower, Bound::Excluded(anchor));
-        assert_eq!(next_upper, upper);
-    }
-
-    #[test]
-    fn resume_bounds_directional_rewrite_symmetry_table() {
-        let lower = Bound::Included(raw_key(0x01));
-        let upper = Bound::Included(raw_key(0x09));
-        let anchor = raw_key(0x05);
-
-        let (asc_lower, asc_upper) =
-            resume_bounds(Direction::Asc, lower.clone(), upper.clone(), &anchor);
-        assert_eq!(asc_lower, Bound::Excluded(anchor.clone()));
-        assert_eq!(asc_upper, upper);
-
-        let (desc_lower, desc_upper) =
-            resume_bounds(Direction::Desc, lower.clone(), upper, &anchor);
-        assert_eq!(desc_lower, lower);
-        assert_eq!(desc_upper, Bound::Excluded(anchor));
-    }
-
-    #[test]
-    fn resume_bounds_rewrite_overrides_original_excluded_edge_with_anchor() {
-        let lower = Bound::Excluded(raw_key(0x01));
-        let upper = Bound::Excluded(raw_key(0x09));
-        let anchor = raw_key(0x05);
-
-        let (asc_lower, asc_upper) =
-            resume_bounds(Direction::Asc, lower.clone(), upper.clone(), &anchor);
-        assert_eq!(asc_lower, Bound::Excluded(anchor.clone()));
-        assert_eq!(asc_upper, upper);
-
-        let (desc_lower, desc_upper) =
-            resume_bounds(Direction::Desc, lower.clone(), upper, &anchor);
-        assert_eq!(desc_lower, lower);
-        assert_eq!(desc_upper, Bound::Excluded(anchor));
     }
 
     #[test]
@@ -440,18 +367,10 @@ mod tests {
     }
 
     #[test]
-    fn envelope_emptiness_is_direction_agnostic() {
+    fn envelope_emptiness_identifies_empty_equal_exclusive_bounds() {
         let lower = Bound::Included(raw_key(0x10));
         let upper = Bound::Excluded(raw_key(0x10));
 
-        let via_public_helper = envelope_is_empty(&lower, &upper);
-        let via_asc = KeyEnvelope::new(Direction::Asc, lower.clone(), upper.clone())
-            .is_empty_direction_agnostic();
-        let via_desc =
-            KeyEnvelope::new(Direction::Desc, lower, upper).is_empty_direction_agnostic();
-
-        assert!(via_public_helper);
-        assert_eq!(via_asc, via_desc);
-        assert_eq!(via_public_helper, via_asc);
+        assert!(envelope_is_empty(&lower, &upper));
     }
 }

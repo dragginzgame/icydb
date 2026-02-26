@@ -207,7 +207,7 @@ macro_rules! test_entity {
                 $( $index, )*
             ];
             const MODEL_DEF: $crate::model::entity::EntityModel =
-                $crate::test_support::entity_model_from_static(
+                $crate::testing::entity_model_from_static(
                     concat!(module_path!(), "::", stringify!($name)),
                     $entity_name,
                     &Self::FIELD_MODELS[$pk_index],
@@ -297,7 +297,7 @@ macro_rules! test_entity_schema {
                 $( $index, )*
             ];
             const TEST_MODEL_DEF: $crate::model::entity::EntityModel =
-                $crate::test_support::entity_model_from_static(
+                $crate::testing::entity_model_from_static(
                     concat!(module_path!(), "::", stringify!($entity)),
                     $entity_name,
                     &Self::TEST_FIELD_MODELS[$pk_index],

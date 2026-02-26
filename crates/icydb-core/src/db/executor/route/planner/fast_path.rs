@@ -5,7 +5,7 @@ use crate::{
             ExecutionKernel, ExecutionPreparation, IndexPredicateCompileMode,
             aggregate_model::AggregateKind, load::LoadExecutor,
         },
-        plan::AccessPlannedQuery,
+        query::plan::AccessPlannedQuery,
     },
     traits::{EntityKind, EntityValue},
 };
@@ -59,25 +59,9 @@ where
             && capabilities.count_pushdown_access_shape_supported
     }
 
-    // Aggregate streaming on index-backed predicates requires strict index
-    // predicate compilation. If strict compilation fails, route must force
-    // materialized execution to avoid optimistic streaming assumptions.
-    // Strict compile policy must stay on the shared executor compile boundary.
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(super) fn aggregate_force_materialized_due_to_predicate_uncertainty(
-        plan: &AccessPlannedQuery<E::Key>,
-    ) -> bool {
-        let execution_preparation = ExecutionPreparation::for_plan::<E>(plan);
-
-        Self::aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
-            &execution_preparation,
-        )
-    }
-
     pub(super) fn aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
         execution_preparation: &ExecutionPreparation,
     ) -> bool {
-        let _index_coverage = execution_preparation.index_coverage();
         let Some(compiled_predicate) = execution_preparation.compiled_predicate() else {
             return false;
         };

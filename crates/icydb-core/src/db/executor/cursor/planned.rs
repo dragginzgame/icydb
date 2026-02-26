@@ -5,6 +5,7 @@ use crate::db::cursor::{CursorBoundary, IndexRangeCursorAnchor};
 ///
 /// Executor-facing continuation state produced after cursor validation.
 ///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct PlannedCursor {
     boundary: Option<CursorBoundary>,

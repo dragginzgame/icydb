@@ -21,9 +21,9 @@ pub mod validate;
 pub mod value;
 pub mod visitor;
 
-// test
+// testing
 #[cfg(test)]
-pub(crate) mod test_support;
+pub(crate) mod testing;
 
 ///
 /// CONSTANTS

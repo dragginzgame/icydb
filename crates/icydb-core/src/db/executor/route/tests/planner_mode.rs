@@ -224,7 +224,7 @@ fn aggregate_streaming_paths_share_one_preparation_boundary() {
     let load_aggregate_root_source = include_str!("../../load/aggregate/mod.rs");
     let kernel_aggregate_mod_source = kernel_aggregate_mod_source();
     let kernel_aggregate_field_extrema_source = kernel_aggregate_field_extrema_source();
-    let kernel_window_source = include_str!("../../kernel/window.rs");
+    let executor_window_source = include_str!("../../window.rs");
     let aggregate_contracts_source = include_str!("../../aggregate_model/contracts.rs");
 
     assert!(
@@ -274,8 +274,8 @@ fn aggregate_streaming_paths_share_one_preparation_boundary() {
         "aggregate streaming range-spec extraction should be defined in one shared helper only",
     );
     assert!(
-        kernel_window_source.contains("fn effective_keep_count_for_limit<K>("),
-        "cursor/window keep-count computation should be centralized in one kernel window helper",
+        executor_window_source.contains("fn effective_keep_count_for_limit<K>("),
+        "cursor/window keep-count computation should be centralized in one executor window helper",
     );
     assert!(
         !aggregate_contracts_source.contains("struct AggregateWindowState"),

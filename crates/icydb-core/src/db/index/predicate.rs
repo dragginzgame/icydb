@@ -1,12 +1,13 @@
 use crate::{
-    db::{access::eval_index_compare, index::IndexKey},
+    db::{
+        access::{IndexPredicateProgram, eval_index_compare},
+        index::IndexKey,
+    },
     error::InternalError,
     value::Value,
 };
 use std::cell::Cell;
 
-#[allow(unused_imports)]
-pub(in crate::db) use crate::db::access::{IndexCompareOp, IndexLiteral, IndexPredicateProgram};
 use crate::db::index::EncodedValue;
 
 ///
@@ -17,14 +18,12 @@ use crate::db::index::EncodedValue;
 ///
 
 #[derive(Clone, Copy)]
-#[cfg_attr(not(test), allow(dead_code))]
 pub(in crate::db) struct IndexPredicateExecution<'a> {
     pub(in crate::db) program: &'a IndexPredicateProgram,
     pub(in crate::db) rejected_keys_counter: Option<&'a Cell<u64>>,
 }
 
 // Evaluate one compiled index-only program against one decoded index key.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(in crate::db) fn eval_index_program_on_decoded_key(
     key: &IndexKey,
     program: &IndexPredicateProgram,

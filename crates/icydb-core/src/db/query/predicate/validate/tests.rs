@@ -1,17 +1,15 @@
 // NOTE: Invalid helpers remain only for intentionally invalid or non-queryable schemas.
-use super::{
-    model::{FieldType, ScalarType},
-    rules::ensure_coercion,
-    schema::ValidateError,
-    validate_model,
-};
+use super::{rules::ensure_coercion, validate_model};
 use crate::{
-    db::query::{
-        builder::field::FieldRef,
-        predicate::{CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate},
+    db::{
+        contracts::{FieldType, ScalarType, ValidateError},
+        query::{
+            builder::field::FieldRef,
+            predicate::{CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate},
+        },
     },
     model::field::{FieldKind, FieldModel},
-    test_support::InvalidEntityModelBuilder,
+    testing::InvalidEntityModelBuilder,
     traits::{EntitySchema, FieldValue},
     types::{
         Account, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128, Principal,

@@ -63,7 +63,7 @@ fn aggregate_fast_path_dispatch_requires_verified_gate_marker() {
 fn strict_index_predicate_compile_policy_has_one_executor_source_of_truth() {
     let planner_source = include_str!("../planner/mod.rs");
     let planner_fast_path_source = include_str!("../planner/fast_path.rs");
-    let kernel_predicate_source = include_str!("../../kernel/predicate.rs");
+    let access_compile_source = include_str!("../../../access/index_predicate.rs");
 
     assert!(
         !planner_source.contains(".compile_index_program_strict("),
@@ -78,12 +78,12 @@ fn strict_index_predicate_compile_policy_has_one_executor_source_of_truth() {
         "route planner strict predicate policy must call the shared executor compile helper",
     );
     assert!(
-        kernel_predicate_source.contains("match mode"),
-        "kernel predicate helper must own the compile-mode switch boundary",
+        access_compile_source.contains("match mode"),
+        "access predicate compile helper must own the compile-mode switch boundary",
     );
     assert!(
-        kernel_predicate_source.contains("IndexPredicateCompileMode::StrictAllOrNone"),
-        "kernel predicate helper must include strict all-or-none compilation policy",
+        access_compile_source.contains("IndexPredicateCompileMode::StrictAllOrNone"),
+        "access predicate compile helper must include strict all-or-none compilation policy",
     );
 }
 

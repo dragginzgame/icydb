@@ -1,7 +1,9 @@
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},
+        contracts::ReadConsistency,
         direction::Direction,
+        executor::LoweredKey,
         executor::{
             Context, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             stream::key::{
@@ -10,8 +12,6 @@ use crate::{
             },
         },
         index::predicate::IndexPredicateExecution,
-        lowering::LoweredKey,
-        query::ReadConsistency,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},

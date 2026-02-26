@@ -75,7 +75,7 @@ impl Timestamp {
     }
 
     #[expect(clippy::cast_sign_loss)]
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     pub fn parse_rfc3339(s: &str) -> Result<Self, String> {
         let dt = OffsetDateTime::parse(s, &Rfc3339)
             .map_err(|e| format!("timestamp parse error: {e}"))?;

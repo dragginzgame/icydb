@@ -3,7 +3,7 @@
 use crate::{
     db::{
         cursor::ContinuationSignature,
-        plan::AccessPlannedQuery,
+        query::plan::AccessPlannedQuery,
         query::{explain::ExplainPlan, fingerprint::hash_parts},
     },
     traits::FieldValue,
@@ -77,12 +77,13 @@ mod tests {
                 ContinuationSignature, ContinuationToken, ContinuationTokenError, CursorBoundary,
                 CursorBoundarySlot, IndexRangeCursorAnchor,
             },
-            plan::{OrderDirection, OrderSpec, PageSpec},
             query::{
                 ReadConsistency,
                 builder::field::FieldRef,
                 intent::{KeyAccess, LoadSpec, QueryMode, access_plan_from_keys_value},
-                plan::{AccessPlannedQuery, Direction, LogicalPlan},
+                plan::{
+                    AccessPlannedQuery, Direction, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
+                },
                 predicate::Predicate,
             },
         },

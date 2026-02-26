@@ -13,7 +13,7 @@ use crate::{
             aggregate_model::{AggregateFoldMode, AggregateKind, AggregateSpec},
             load::LoadExecutor,
         },
-        plan::AccessPlannedQuery,
+        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -98,21 +98,17 @@ where
     }
 
     // Build canonical execution routing for aggregate execution via spec.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     pub(in crate::db::executor) fn build_execution_route_plan_for_aggregate_spec(
         plan: &AccessPlannedQuery<E::Key>,
         spec: AggregateSpec,
     ) -> ExecutionPlan {
-        Self::build_execution_route_plan(
+        let execution_preparation = ExecutionPreparation::for_plan::<E>(plan);
+
+        Self::build_execution_route_plan_for_aggregate_spec_with_preparation(
             plan,
-            None,
-            None,
-            None,
-            RouteIntent::Aggregate {
-                spec,
-                aggregate_force_materialized_due_to_predicate_uncertainty:
-                    Self::aggregate_force_materialized_due_to_predicate_uncertainty(plan),
-            },
+            spec,
+            &execution_preparation,
         )
     }
 

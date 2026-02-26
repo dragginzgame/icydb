@@ -82,17 +82,3 @@ pub(in crate::db::executor) fn field_is_orderable<E: EntityKind>(field: &str) ->
 
     field_kind_supports_aggregate_ordering(&field_model.kind)
 }
-
-#[must_use]
-#[allow(dead_code)]
-pub(in crate::db::executor) fn field_is_numeric<E: EntityKind>(field: &str) -> bool {
-    let Some(field_model) = E::MODEL
-        .fields
-        .iter()
-        .find(|candidate| candidate.name == field)
-    else {
-        return false;
-    };
-
-    field_kind_supports_numeric_aggregation(&field_model.kind)
-}

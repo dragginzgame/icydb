@@ -1,13 +1,13 @@
 use crate::{
     db::{
         Db,
+        contracts::ReadConsistency,
         data::{
             DataKey, DataRow, DataStore, RawDataKey, RawRow, decode_and_validate_entity_key,
             format_entity_key_for_mismatch,
         },
         executor::{ExecutorError, OrderedKeyStream},
         index::PrimaryRowReader,
-        query::ReadConsistency,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue, Path},
@@ -205,12 +205,12 @@ mod tests {
         db::{
             Db,
             access::{AccessPath, AccessPlan},
+            contracts::ReadConsistency,
             direction::Direction,
             executor::{
                 Context, IndexStreamConstraints, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
                 StreamExecutionHints,
             },
-            query::ReadConsistency,
             registry::StoreRegistry,
         },
         model::{field::FieldKind, index::IndexModel},
@@ -245,7 +245,7 @@ mod tests {
 
     crate::test_canister! {
         ident = ContextInvariantCanister,
-        commit_memory_id = crate::test_support::test_commit_memory_id(),
+        commit_memory_id = crate::testing::test_commit_memory_id(),
     }
 
     crate::test_store! {
@@ -276,8 +276,8 @@ mod tests {
 
     static INVARIANT_DB: Db<ContextInvariantCanister> = Db::new(&INVARIANT_STORE_REGISTRY);
 
-    fn raw_index_key(byte: u8) -> crate::db::lowering::LoweredKey {
-        <crate::db::lowering::LoweredKey as Storable>::from_bytes(Cow::Owned(vec![byte]))
+    fn raw_index_key(byte: u8) -> crate::db::executor::LoweredKey {
+        <crate::db::executor::LoweredKey as Storable>::from_bytes(Cow::Owned(vec![byte]))
     }
 
     fn dummy_index_range_spec() -> LoweredIndexRangeSpec {

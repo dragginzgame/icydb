@@ -2,9 +2,9 @@ use crate::{
     db::{
         data::DataKey,
         direction::Direction,
+        executor::LoweredKey,
         executor::{Context, LoweredIndexPrefixSpec, LoweredIndexRangeSpec},
         index::predicate::IndexPredicateExecution,
-        lowering::LoweredKey,
     },
     error::InternalError,
     model::index::IndexModel,

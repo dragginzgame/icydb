@@ -15,7 +15,7 @@ use crate::{
             },
         },
         index::predicate::IndexPredicateExecution,
-        plan::AccessPlannedQuery,
+        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     obs::sink::Span,

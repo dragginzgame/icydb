@@ -130,10 +130,3 @@ fn encode_component_payload(
         Value::Unit => Ok(()),
     }
 }
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests;

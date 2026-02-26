@@ -26,7 +26,7 @@ mod validate;
 
 use crate::error::InternalError;
 #[cfg(test)]
-use crate::test_support::{TEST_MEMORY_RANGE_END, TEST_MEMORY_RANGE_START, test_commit_memory_id};
+use crate::testing::{TEST_MEMORY_RANGE_END, TEST_MEMORY_RANGE_START, test_commit_memory_id};
 #[cfg(test)]
 use canic_memory::{registry::MemoryRegistryError, runtime::registry::MemoryRegistryRuntime};
 use std::fmt::Display;

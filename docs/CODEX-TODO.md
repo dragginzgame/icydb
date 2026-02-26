@@ -1,157 +1,159 @@
 ### LLMs PLEASE IGNORE THIS FILE
 ### It's just here so I can manage multiple prompts without scrolling up and down constantly
 
-Codex Prompt
+🔧 Consolidation Audit Prompt (Strict Merge-Only Pass)
 
-You are performing a structural architecture audit on the IcyDB codebase.
+Prompt:
 
-Target file:
-crates/icydb-core/src/db/executor/direction.rs
+You are performing a structural consolidation audit on a Rust database engine.
 
-Your objective is to:
+Scope:
+crates/icydb-core/src/db/
 
-Determine whether Direction is defined in more than one domain.
+Objective:
+Reduce module count, eliminate misplaced files, consolidate fragmented subsystems, and enforce strict layer direction.
 
-Identify all imports of Direction across the codebase.
+You are NOT allowed to:
 
-Detect any layering violations (e.g., executor depending on query::plan::Direction).
+Propose creating new modules unless replacing multiple existing ones.
 
-Consolidate Direction into a single canonical definition.
+Propose further splitting files.
 
-Refactor imports and re-exports so that:
+Suggest cosmetic renames.
 
-Lower layers do not depend on higher layers.
+Redesign architecture.
 
-Query, executor, and index share the same canonical type.
+Suggest abstract refactors unrelated to placement or consolidation.
 
-Ensure no semantic changes to ordering behavior.
+You ARE required to:
 
-Investigation Steps
+Identify files or directories that can be merged.
 
-Search the entire repository for:
+Identify test harness code living in production namespaces.
 
-enum Direction
+Identify duplicate namespace roots (e.g., intent in two places).
 
-pub enum Direction
+Identify thin wrapper modules or indirection-only files.
 
-use .*Direction
+Identify wrong-layer placements.
 
-query::plan::Direction
+Enforce declared layer model strictly.
 
-executor::direction::Direction
+Prefer merging over moving.
 
-index::.*Direction
+Prefer flattening over deepening.
 
-Determine:
+Authoritative Layer Model
 
-How many distinct Direction definitions exist.
+session
+→ query
+→ executor
+→ access
+→ index / data / relation
+→ commit
+→ codec
 
-Which module should be the canonical owner (likely a neutral layer such as db/order.rs or db/direction.rs).
+Rules:
 
-Build a dependency map:
+Lower layers must not import higher layers.
 
-Which top-level domains import Direction?
+Contracts must be thin and neutral.
 
-query
+Each invariant has one canonical owner.
 
-executor
+Each concept has one namespace root.
 
-index
+Test harness must not inflate production namespace.
 
-codec
+Output Format (Mandatory)
 
-lowering
+Produce the following sections:
 
-Identify any upward dependency such as:
+1️⃣ High-Confidence Merge Candidates
 
-executor importing from query
+For each:
 
-index importing from query
+Files involved
 
-executor depending on query plan types
+Why they belong together
 
-These must be eliminated.
+Target merged location
 
-Refactoring Rules
+Which files will be deleted
 
-If multiple Direction enums exist:
+No speculative merges.
 
-Create a single canonical definition in a neutral module:
-Example location:
-crates/icydb-core/src/db/order.rs
+2️⃣ Directory Flattening Candidates
 
-Canonical shape:
+List directories that:
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Direction {
-    Asc,
-    Desc,
-}
+Exist mainly due to tests
 
-Remove duplicate definitions.
+Contain <4 production files
 
-Replace all imports of:
+Add unnecessary nesting
 
-query::plan::Direction
+Propose flattening plan.
 
-executor::direction::Direction
+3️⃣ Wrong-Layer Placements
 
-or any other duplicate
+For each:
 
-With:
+File
 
-crate::db::order::Direction
+Why it violates layer direction
 
-If necessary, re-export in higher layers for ergonomics:
+Correct location
 
-In query::plan::mod.rs:
+4️⃣ Test Harness Relocations
 
-pub use crate::db::order::Direction;
+List test-only files currently inside production namespaces.
 
-In executor::mod.rs:
+For each:
 
-pub use crate::db::order::Direction;
+Current path
 
-Ensure no circular dependencies are introduced.
+Recommended test-root location
 
-Validation Phase
+Why
 
-After refactor:
+5️⃣ Thin Wrappers / Shims
 
-Confirm:
+List:
 
-Only one enum Direction exists.
+Re-export modules
 
-No module depends upward on query internals.
+Indirection-only files
 
-All ordering behavior remains identical.
+Compatibility remnants
 
-Run:
+Recommend deletion or merge target.
 
-cargo check
+6️⃣ Dead Scaffolding
 
-cargo test
+High-confidence only:
 
-Ensure pagination, cursor, and index-range tests pass.
+Unused enum variants
 
-Search again for stray Direction definitions.
+Unconstructed branches
 
-Deliverables
+Test-only helpers in production modules
 
-Produce:
+7️⃣ Final Compressed Module Map
 
-A summary of findings:
+Provide a compressed ideal tree for db/
+Do NOT increase directory count.
+Do NOT introduce new roots.
+Reduce nesting.
 
-How many definitions existed.
+Constraints
 
-Where violations were found.
+Merge-first bias.
 
-A clear list of modified files.
+No module inflation.
 
-The final canonical Direction definition.
+No theoretical redesign.
 
-A dependency explanation confirming clean layering.
+Concrete, actionable consolidation only.
 
-Do not change any ordering semantics.
-Do not introduce new behavior.
-This is a structural consolidation only.
+Be conservative and precise.

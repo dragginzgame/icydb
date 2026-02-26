@@ -2,6 +2,7 @@ use crate::{
     db::{
         Context,
         access::AccessPath,
+        contracts::ReadConsistency,
         direction::Direction,
         executor::{
             AccessPlanStreamRequest, AccessStreamBindings, ExecutionKernel, IndexStreamConstraints,
@@ -17,8 +18,7 @@ use crate::{
             },
         },
         index::predicate::IndexPredicateExecution,
-        plan::AccessPlannedQuery,
-        query::ReadConsistency,
+        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},

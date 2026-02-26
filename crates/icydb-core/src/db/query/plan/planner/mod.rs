@@ -10,9 +10,10 @@ use super::PlanError;
 use crate::{
     db::{
         access::{AccessPath, AccessPlan, SemanticIndexRangeSpec},
+        contracts::literal_matches_type,
         query::predicate::{
             CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo,
-            normalize as normalize_predicate, validate::literal_matches_type,
+            normalize as normalize_predicate,
         },
     },
     error::InternalError,

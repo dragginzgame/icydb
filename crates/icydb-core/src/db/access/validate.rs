@@ -1,8 +1,8 @@
 use crate::{
     db::{
         access::{AccessPath, AccessPlan, SemanticIndexRangeSpec},
+        contracts::{SchemaInfo, literal_matches_type},
         predicate::coercion::canonical_cmp,
-        query::predicate::{self, SchemaInfo},
     },
     model::{entity::EntityModel, index::IndexModel},
     traits::FieldValue,
@@ -216,7 +216,7 @@ fn validate_pk_literal(
         });
     }
 
-    if !predicate::validate::literal_matches_type(key, field_type) {
+    if !literal_matches_type(key, field_type) {
         return Err(AccessPlanError::PrimaryKeyMismatch {
             field: field.to_string(),
             key: key.clone(),
@@ -256,7 +256,7 @@ fn validate_index_prefix(
                     field: field.to_string(),
                 })?;
 
-        if !predicate::validate::literal_matches_type(value, field_type) {
+        if !literal_matches_type(value, field_type) {
             return Err(AccessPlanError::IndexPrefixValueMismatch {
                 field: field.to_string(),
             });
@@ -306,7 +306,7 @@ fn validate_index_range(
                     field: field.to_string(),
                 })?;
 
-        if !predicate::validate::literal_matches_type(value, field_type) {
+        if !literal_matches_type(value, field_type) {
             return Err(AccessPlanError::IndexPrefixValueMismatch {
                 field: field.to_string(),
             });
@@ -349,7 +349,7 @@ fn validate_index_range_bound_value(
                 field: field.to_string(),
             })?;
 
-    if predicate::validate::literal_matches_type(value, field_type) {
+    if literal_matches_type(value, field_type) {
         return Ok(());
     }
 

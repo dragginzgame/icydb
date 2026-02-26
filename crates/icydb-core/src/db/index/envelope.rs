@@ -20,18 +20,6 @@ impl DirectionComparator {
     fn is_strictly_after<K: Ord>(&self, candidate: &K, anchor: &K) -> bool {
         continuation_advances(self.direction, anchor, candidate)
     }
-
-    fn apply_anchor<K: Clone>(
-        &self,
-        lower: Bound<K>,
-        upper: Bound<K>,
-        anchor: &K,
-    ) -> (Bound<K>, Bound<K>) {
-        match self.direction {
-            Direction::Asc => (Bound::Excluded(anchor.clone()), upper),
-            Direction::Desc => (lower, Bound::Excluded(anchor.clone())),
-        }
-    }
 }
 
 ///
@@ -81,21 +69,11 @@ pub(in crate::db) struct KeyEnvelope<K> {
 
 impl<K> KeyEnvelope<K>
 where
-    K: Ord + Clone,
+    K: Ord,
 {
     pub(in crate::db) const fn new(direction: Direction, lower: Bound<K>, upper: Bound<K>) -> Self {
         Self {
             comparator: DirectionComparator::new(direction),
-            lower,
-            upper,
-        }
-    }
-
-    // Rewrite the directional continuation edge to strict "after anchor".
-    pub(in crate::db) fn apply_anchor(self, anchor: &K) -> Self {
-        let (lower, upper) = self.comparator.apply_anchor(self.lower, self.upper, anchor);
-        Self {
-            comparator: self.comparator,
             lower,
             upper,
         }
@@ -118,38 +96,5 @@ where
 
     pub(in crate::db) fn continuation_advanced(&self, candidate: &K, anchor: &K) -> bool {
         self.comparator.is_strictly_after(candidate, anchor)
-    }
-
-    // Envelope emptiness is defined only by raw lower/upper bound relation.
-    // This check is intentionally direction-agnostic.
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(in crate::db) fn is_empty_direction_agnostic(&self) -> bool {
-        let (Some(lower), Some(upper)) = (
-            Self::bound_key_ref(&self.lower),
-            Self::bound_key_ref(&self.upper),
-        ) else {
-            return false;
-        };
-
-        if lower < upper {
-            return false;
-        }
-        if lower > upper {
-            return true;
-        }
-
-        !matches!(&self.lower, Bound::Included(_)) || !matches!(&self.upper, Bound::Included(_))
-    }
-
-    pub(in crate::db) fn into_bounds(self) -> (Bound<K>, Bound<K>) {
-        (self.lower, self.upper)
-    }
-
-    #[cfg_attr(not(test), allow(dead_code))]
-    const fn bound_key_ref(bound: &Bound<K>) -> Option<&K> {
-        match bound {
-            Bound::Included(value) | Bound::Excluded(value) => Some(value),
-            Bound::Unbounded => None,
-        }
     }
 }

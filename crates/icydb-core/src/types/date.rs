@@ -114,7 +114,7 @@ impl Date {
         TimeDate::parse(s, format).ok().map(Self::from_time_date)
     }
 
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     fn from_time_date(date: TimeDate) -> Self {
         let epoch = Self::epoch_date();
         let days = (date - epoch).whole_days();

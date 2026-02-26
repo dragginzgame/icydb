@@ -12,7 +12,7 @@ use crate::db::{
         aggregate_model::{AggregateFoldMode, AggregateSpec},
         compute_page_window,
     },
-    plan::{OrderDirection, OrderSpec},
+    query::plan::{OrderDirection, OrderSpec},
 };
 
 // -----------------------------------------------------------------------------
@@ -240,19 +240,17 @@ impl ExecutionRoutePlan {
     }
 
     // True when route permits a future `min(field)` fast path.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(super) const fn field_min_fast_path_eligible(&self) -> bool {
         self.capabilities.field_min_fast_path_eligible
     }
 
     // True when route permits a future `max(field)` fast path.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(super) const fn field_max_fast_path_eligible(&self) -> bool {
         self.capabilities.field_max_fast_path_eligible
     }
 
     // Route-owned diagnostic reason for why `min(field)` fast path is ineligible.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     pub(super) const fn field_min_fast_path_ineligibility_reason(
         &self,
     ) -> Option<FieldExtremaIneligibilityReason> {
@@ -260,7 +258,7 @@ impl ExecutionRoutePlan {
     }
 
     // Route-owned diagnostic reason for why `max(field)` fast path is ineligible.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     pub(super) const fn field_max_fast_path_ineligibility_reason(
         &self,
     ) -> Option<FieldExtremaIneligibilityReason> {

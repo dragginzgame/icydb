@@ -824,23 +824,23 @@ fn u32_range_predicate(field: &str, lower_inclusive: u32, upper_exclusive: u32) 
 
 fn secondary_group_rank_order_plan(
     consistency: ReadConsistency,
-    direction: crate::db::plan::OrderDirection,
+    direction: crate::db::query::plan::OrderDirection,
     offset: u32,
 ) -> crate::db::executor::ExecutablePlan<PushdownParityEntity> {
-    let mut logical_plan = crate::db::plan::AccessPlannedQuery::new(
+    let mut logical_plan = crate::db::query::plan::AccessPlannedQuery::new(
         crate::db::access::AccessPath::IndexPrefix {
             index: PUSHDOWN_PARITY_INDEX_MODELS[0],
             values: vec![Value::Uint(7)],
         },
         consistency,
     );
-    logical_plan.order = Some(crate::db::plan::OrderSpec {
+    logical_plan.order = Some(crate::db::query::plan::OrderSpec {
         fields: vec![
             ("rank".to_string(), direction),
             ("id".to_string(), direction),
         ],
     });
-    logical_plan.page = Some(crate::db::plan::PageSpec {
+    logical_plan.page = Some(crate::db::query::plan::PageSpec {
         limit: None,
         offset,
     });
@@ -1054,7 +1054,7 @@ fn aggregate_field_target_secondary_index_min_uses_index_leading_order() {
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let plan = secondary_group_rank_order_plan(
         ReadConsistency::MissingOk,
-        crate::db::plan::OrderDirection::Asc,
+        crate::db::query::plan::OrderDirection::Asc,
         0,
     );
 
@@ -1081,7 +1081,7 @@ fn aggregate_field_target_secondary_index_max_tie_breaks_primary_key_ascending()
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let plan = secondary_group_rank_order_plan(
         ReadConsistency::MissingOk,
-        crate::db::plan::OrderDirection::Desc,
+        crate::db::query::plan::OrderDirection::Desc,
         0,
     );
 
@@ -3176,17 +3176,20 @@ fn aggregate_count_key_range_window_scans_offset_plus_limit() {
     seed_simple_entities(&[8681, 8682, 8683, 8684, 8685, 8686, 8687]);
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
 
-    let mut logical_plan = crate::db::plan::AccessPlannedQuery::new(
+    let mut logical_plan = crate::db::query::plan::AccessPlannedQuery::new(
         crate::db::access::AccessPath::KeyRange {
             start: Ulid::from_u128(8682),
             end: Ulid::from_u128(8686),
         },
         ReadConsistency::MissingOk,
     );
-    logical_plan.order = Some(crate::db::plan::OrderSpec {
-        fields: vec![("id".to_string(), crate::db::plan::OrderDirection::Asc)],
+    logical_plan.order = Some(crate::db::query::plan::OrderSpec {
+        fields: vec![(
+            "id".to_string(),
+            crate::db::query::plan::OrderDirection::Asc,
+        )],
     });
-    logical_plan.page = Some(crate::db::plan::PageSpec {
+    logical_plan.page = Some(crate::db::query::plan::PageSpec {
         limit: Some(2),
         offset: 1,
     });
@@ -3216,7 +3219,7 @@ fn aggregate_exists_index_range_window_scans_offset_plus_one() {
     ]);
     let load = LoadExecutor::<UniqueIndexRangeEntity>::new(DB, false);
 
-    let mut logical_plan = crate::db::plan::AccessPlannedQuery::new(
+    let mut logical_plan = crate::db::query::plan::AccessPlannedQuery::new(
         crate::db::access::AccessPath::index_range(
             UNIQUE_INDEX_RANGE_INDEX_MODELS[0],
             vec![],
@@ -3225,13 +3228,19 @@ fn aggregate_exists_index_range_window_scans_offset_plus_one() {
         ),
         ReadConsistency::MissingOk,
     );
-    logical_plan.order = Some(crate::db::plan::OrderSpec {
+    logical_plan.order = Some(crate::db::query::plan::OrderSpec {
         fields: vec![
-            ("code".to_string(), crate::db::plan::OrderDirection::Asc),
-            ("id".to_string(), crate::db::plan::OrderDirection::Asc),
+            (
+                "code".to_string(),
+                crate::db::query::plan::OrderDirection::Asc,
+            ),
+            (
+                "id".to_string(),
+                crate::db::query::plan::OrderDirection::Asc,
+            ),
         ],
     });
-    logical_plan.page = Some(crate::db::plan::PageSpec {
+    logical_plan.page = Some(crate::db::query::plan::PageSpec {
         limit: None,
         offset: 2,
     });
@@ -3447,15 +3456,15 @@ fn aggregate_composite_count_direct_path_scan_does_not_exceed_fallback() {
             crate::db::access::AccessPlan::path(crate::db::access::AccessPath::ByKeys(first)),
             crate::db::access::AccessPlan::path(crate::db::access::AccessPath::ByKeys(second)),
         ]);
-        let mut logical_plan = crate::db::plan::AccessPlannedQuery::new(
+        let mut logical_plan = crate::db::query::plan::AccessPlannedQuery::new(
             crate::db::access::AccessPath::FullScan,
             ReadConsistency::MissingOk,
         );
         logical_plan.access = access;
-        logical_plan.order = Some(crate::db::plan::OrderSpec {
+        logical_plan.order = Some(crate::db::query::plan::OrderSpec {
             fields: vec![(
                 order_field.to_string(),
-                crate::db::plan::OrderDirection::Asc,
+                crate::db::query::plan::OrderDirection::Asc,
             )],
         });
 
@@ -3541,15 +3550,15 @@ fn aggregate_composite_exists_direct_path_scan_does_not_exceed_fallback() {
             crate::db::access::AccessPlan::path(crate::db::access::AccessPath::ByKeys(first)),
             crate::db::access::AccessPlan::path(crate::db::access::AccessPath::ByKeys(second)),
         ]);
-        let mut logical_plan = crate::db::plan::AccessPlannedQuery::new(
+        let mut logical_plan = crate::db::query::plan::AccessPlannedQuery::new(
             crate::db::access::AccessPath::FullScan,
             ReadConsistency::MissingOk,
         );
         logical_plan.access = access;
-        logical_plan.order = Some(crate::db::plan::OrderSpec {
+        logical_plan.order = Some(crate::db::query::plan::OrderSpec {
             fields: vec![(
                 order_field.to_string(),
-                crate::db::plan::OrderDirection::Asc,
+                crate::db::query::plan::OrderDirection::Asc,
             )],
         });
 
@@ -3698,17 +3707,23 @@ fn aggregate_exists_secondary_index_strict_missing_surfaces_corruption_error() {
     remove_pushdown_row_data(8821);
 
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-    let mut logical_plan = crate::db::plan::AccessPlannedQuery::new(
+    let mut logical_plan = crate::db::query::plan::AccessPlannedQuery::new(
         crate::db::access::AccessPath::IndexPrefix {
             index: PUSHDOWN_PARITY_INDEX_MODELS[0],
             values: vec![Value::Uint(7)],
         },
         ReadConsistency::Strict,
     );
-    logical_plan.order = Some(crate::db::plan::OrderSpec {
+    logical_plan.order = Some(crate::db::query::plan::OrderSpec {
         fields: vec![
-            ("rank".to_string(), crate::db::plan::OrderDirection::Asc),
-            ("id".to_string(), crate::db::plan::OrderDirection::Asc),
+            (
+                "rank".to_string(),
+                crate::db::query::plan::OrderDirection::Asc,
+            ),
+            (
+                "id".to_string(),
+                crate::db::query::plan::OrderDirection::Asc,
+            ),
         ],
     });
     let strict_plan =
@@ -3740,7 +3755,7 @@ fn aggregate_secondary_index_extrema_strict_single_step_scans_offset_plus_one() 
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
             load.aggregate_min(secondary_group_rank_order_plan(
                 ReadConsistency::Strict,
-                crate::db::plan::OrderDirection::Asc,
+                crate::db::query::plan::OrderDirection::Asc,
                 2,
             ))
             .expect("strict secondary MIN ASC should succeed")
@@ -3749,7 +3764,7 @@ fn aggregate_secondary_index_extrema_strict_single_step_scans_offset_plus_one() 
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
             load.aggregate_max(secondary_group_rank_order_plan(
                 ReadConsistency::Strict,
-                crate::db::plan::OrderDirection::Desc,
+                crate::db::query::plan::OrderDirection::Desc,
                 2,
             ))
             .expect("strict secondary MAX DESC should succeed")
@@ -3782,7 +3797,7 @@ fn aggregate_secondary_index_extrema_missing_ok_clean_single_step_scans_offset_p
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
             load.aggregate_min(secondary_group_rank_order_plan(
                 ReadConsistency::MissingOk,
-                crate::db::plan::OrderDirection::Asc,
+                crate::db::query::plan::OrderDirection::Asc,
                 2,
             ))
             .expect("missing-ok secondary MIN ASC should succeed")
@@ -3791,7 +3806,7 @@ fn aggregate_secondary_index_extrema_missing_ok_clean_single_step_scans_offset_p
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
             load.aggregate_max(secondary_group_rank_order_plan(
                 ReadConsistency::MissingOk,
-                crate::db::plan::OrderDirection::Desc,
+                crate::db::query::plan::OrderDirection::Desc,
                 2,
             ))
             .expect("missing-ok secondary MAX DESC should succeed")
@@ -3825,7 +3840,7 @@ fn aggregate_field_extrema_secondary_index_eligible_shape_locks_scan_budget() {
             load.aggregate_min_by(
                 secondary_group_rank_order_plan(
                     ReadConsistency::MissingOk,
-                    crate::db::plan::OrderDirection::Asc,
+                    crate::db::query::plan::OrderDirection::Asc,
                     0,
                 ),
                 "rank",
@@ -3837,7 +3852,7 @@ fn aggregate_field_extrema_secondary_index_eligible_shape_locks_scan_budget() {
             load.aggregate_max_by(
                 secondary_group_rank_order_plan(
                     ReadConsistency::MissingOk,
-                    crate::db::plan::OrderDirection::Desc,
+                    crate::db::query::plan::OrderDirection::Desc,
                     0,
                 ),
                 "rank",
@@ -3881,7 +3896,7 @@ fn aggregate_secondary_index_extrema_missing_ok_stale_leading_probe_falls_back()
     let expected_min_asc = load
         .execute(secondary_group_rank_order_plan(
             ReadConsistency::MissingOk,
-            crate::db::plan::OrderDirection::Asc,
+            crate::db::query::plan::OrderDirection::Asc,
             0,
         ))
         .expect("stale-leading MIN ASC baseline execute should succeed")
@@ -3891,7 +3906,7 @@ fn aggregate_secondary_index_extrema_missing_ok_stale_leading_probe_falls_back()
     let expected_max_desc = load
         .execute(secondary_group_rank_order_plan(
             ReadConsistency::MissingOk,
-            crate::db::plan::OrderDirection::Desc,
+            crate::db::query::plan::OrderDirection::Desc,
             0,
         ))
         .expect("stale-leading MAX DESC baseline execute should succeed")
@@ -3903,7 +3918,7 @@ fn aggregate_secondary_index_extrema_missing_ok_stale_leading_probe_falls_back()
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
             load.aggregate_min(secondary_group_rank_order_plan(
                 ReadConsistency::MissingOk,
-                crate::db::plan::OrderDirection::Asc,
+                crate::db::query::plan::OrderDirection::Asc,
                 0,
             ))
             .expect("stale-leading secondary MIN ASC should succeed")
@@ -3912,7 +3927,7 @@ fn aggregate_secondary_index_extrema_missing_ok_stale_leading_probe_falls_back()
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
             load.aggregate_max(secondary_group_rank_order_plan(
                 ReadConsistency::MissingOk,
-                crate::db::plan::OrderDirection::Desc,
+                crate::db::query::plan::OrderDirection::Desc,
                 0,
             ))
             .expect("stale-leading secondary MAX DESC should succeed")
@@ -3952,14 +3967,14 @@ fn aggregate_secondary_index_extrema_strict_stale_leading_surfaces_corruption_er
     let min_err = load
         .aggregate_min(secondary_group_rank_order_plan(
             ReadConsistency::Strict,
-            crate::db::plan::OrderDirection::Asc,
+            crate::db::query::plan::OrderDirection::Asc,
             0,
         ))
         .expect_err("strict secondary MIN should fail when leading key is stale");
     let max_err = load
         .aggregate_max(secondary_group_rank_order_plan(
             ReadConsistency::Strict,
-            crate::db::plan::OrderDirection::Desc,
+            crate::db::query::plan::OrderDirection::Desc,
             0,
         ))
         .expect_err("strict secondary MAX should fail when leading key is stale");
@@ -3993,7 +4008,7 @@ fn aggregate_field_extrema_missing_ok_stale_leading_probe_falls_back() {
         &load
             .execute(secondary_group_rank_order_plan(
                 ReadConsistency::MissingOk,
-                crate::db::plan::OrderDirection::Asc,
+                crate::db::query::plan::OrderDirection::Asc,
                 0,
             ))
             .expect("missing-ok field MIN baseline execute should succeed"),
@@ -4002,7 +4017,7 @@ fn aggregate_field_extrema_missing_ok_stale_leading_probe_falls_back() {
         &load
             .execute(secondary_group_rank_order_plan(
                 ReadConsistency::MissingOk,
-                crate::db::plan::OrderDirection::Desc,
+                crate::db::query::plan::OrderDirection::Desc,
                 0,
             ))
             .expect("missing-ok field MAX baseline execute should succeed"),
@@ -4013,7 +4028,7 @@ fn aggregate_field_extrema_missing_ok_stale_leading_probe_falls_back() {
             load.aggregate_min_by(
                 secondary_group_rank_order_plan(
                     ReadConsistency::MissingOk,
-                    crate::db::plan::OrderDirection::Asc,
+                    crate::db::query::plan::OrderDirection::Asc,
                     0,
                 ),
                 "rank",
@@ -4025,7 +4040,7 @@ fn aggregate_field_extrema_missing_ok_stale_leading_probe_falls_back() {
             load.aggregate_max_by(
                 secondary_group_rank_order_plan(
                     ReadConsistency::MissingOk,
-                    crate::db::plan::OrderDirection::Desc,
+                    crate::db::query::plan::OrderDirection::Desc,
                     0,
                 ),
                 "rank",
@@ -4068,7 +4083,7 @@ fn aggregate_field_extrema_strict_stale_leading_surfaces_corruption_error() {
         .aggregate_min_by(
             secondary_group_rank_order_plan(
                 ReadConsistency::Strict,
-                crate::db::plan::OrderDirection::Asc,
+                crate::db::query::plan::OrderDirection::Asc,
                 0,
             ),
             "rank",
@@ -4078,7 +4093,7 @@ fn aggregate_field_extrema_strict_stale_leading_surfaces_corruption_error() {
         .aggregate_max_by(
             secondary_group_rank_order_plan(
                 ReadConsistency::Strict,
-                crate::db::plan::OrderDirection::Desc,
+                crate::db::query::plan::OrderDirection::Desc,
                 0,
             ),
             "rank",
@@ -4152,7 +4167,7 @@ fn aggregate_field_terminal_error_classification_matrix() {
         .aggregate_min_by(
             secondary_group_rank_order_plan(
                 ReadConsistency::Strict,
-                crate::db::plan::OrderDirection::Asc,
+                crate::db::query::plan::OrderDirection::Asc,
                 0,
             ),
             "rank",
@@ -4162,7 +4177,7 @@ fn aggregate_field_terminal_error_classification_matrix() {
         .aggregate_median_by(
             secondary_group_rank_order_plan(
                 ReadConsistency::Strict,
-                crate::db::plan::OrderDirection::Asc,
+                crate::db::query::plan::OrderDirection::Asc,
                 0,
             ),
             "rank",
@@ -4172,7 +4187,7 @@ fn aggregate_field_terminal_error_classification_matrix() {
         .aggregate_count_distinct_by(
             secondary_group_rank_order_plan(
                 ReadConsistency::Strict,
-                crate::db::plan::OrderDirection::Asc,
+                crate::db::query::plan::OrderDirection::Asc,
                 0,
             ),
             "rank",
@@ -4182,7 +4197,7 @@ fn aggregate_field_terminal_error_classification_matrix() {
         .aggregate_min_max_by(
             secondary_group_rank_order_plan(
                 ReadConsistency::Strict,
-                crate::db::plan::OrderDirection::Asc,
+                crate::db::query::plan::OrderDirection::Asc,
                 0,
             ),
             "rank",

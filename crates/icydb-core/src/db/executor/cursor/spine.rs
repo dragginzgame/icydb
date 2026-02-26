@@ -12,7 +12,7 @@ use crate::{
             ExecutorPlanError, PlannedCursor, validate_index_range_anchor,
             validate_index_range_boundary_anchor_consistency,
         },
-        plan::OrderSpec,
+        query::plan::OrderSpec,
     },
     model::entity::EntityModel,
     traits::{EntityKind, FieldValue},

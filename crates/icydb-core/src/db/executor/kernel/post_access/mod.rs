@@ -1,20 +1,18 @@
 //! Kernel-owned post-access execution semantics for planned queries.
 
-pub(in crate::db::executor::kernel) mod order_cursor;
+pub(in crate::db::executor) mod order_cursor;
 mod window;
 
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},
+        contracts::{PredicateFieldSlots, eval_with_slots as eval_predicate_with_slots},
         cursor::{ContinuationSignature, ContinuationToken, CursorBoundary},
         direction::Direction,
         executor::{ExecutionKernel, cursor_anchor_from_index_key},
         index::IndexKey,
         policy,
-        query::{
-            plan::AccessPlannedQuery,
-            predicate::{PredicateFieldSlots, eval_with_slots as eval_predicate_with_slots},
-        },
+        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntitySchema, EntityValue},
@@ -444,14 +442,10 @@ mod tests {
     use crate::db::{
         access::AccessPath,
         cursor::CursorBoundary,
-        plan::{AccessPlannedQuery, OrderSpec, PageSpec},
-        query::predicate::Predicate,
+        predicate::Predicate,
+        query::plan::{AccessPlannedQuery, OrderDirection, OrderSpec, PageSpec},
     };
-    use crate::{
-        db::{ReadConsistency, plan::OrderDirection},
-        model::field::FieldKind,
-        types::Ulid,
-    };
+    use crate::{db::ReadConsistency, model::field::FieldKind, types::Ulid};
 
     crate::test_entity! {
         ident = BudgetMetadataEntity,

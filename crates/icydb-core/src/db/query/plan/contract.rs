@@ -3,9 +3,9 @@
 #[cfg(test)]
 use crate::db::access::AccessPath;
 #[cfg(test)]
-use crate::db::intent::LoadSpec;
+use crate::db::query::intent::LoadSpec;
 use crate::db::{
-    access::AccessPlan, consistency::ReadConsistency, intent::QueryMode, predicate::Predicate,
+    access::AccessPlan, contracts::ReadConsistency, predicate::Predicate, query::intent::QueryMode,
 };
 use std::ops::{Deref, DerefMut};
 

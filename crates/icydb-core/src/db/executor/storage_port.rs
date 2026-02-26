@@ -2,8 +2,8 @@ use crate::{
     db::{
         cursor::{CursorPlanError, IndexRangeCursorAnchor},
         executor::ExecutorPlanError,
+        executor::LoweredKey,
         index::{IndexKey, RawIndexKey},
-        lowering::LoweredKey,
     },
     traits::Storable,
 };

@@ -10,7 +10,6 @@ use std::cmp::Ordering;
 
 #[cfg(test)]
 use crate::db::predicate::Predicate;
-use crate::db::query::predicate::eval::{ResolvedComparePredicate, ResolvedPredicate};
 
 ///
 /// FieldPresence
@@ -144,73 +143,6 @@ fn eval_lookup<R: FieldLookup + ?Sized>(
     }
 }
 
-// Read one field from an entity by pre-resolved slot.
-fn field_from_slot<E: EntityValue>(entity: &E, field_slot: Option<usize>) -> FieldPresence {
-    let value = field_slot.and_then(|slot| entity.get_value_by_index(slot));
-
-    match value {
-        Some(value) => FieldPresence::Present(value),
-        None => FieldPresence::Missing,
-    }
-}
-
-// Evaluate one slot-based field predicate only when the field is present.
-fn on_present_slot<E: EntityValue>(
-    entity: &E,
-    field_slot: Option<usize>,
-    f: impl FnOnce(&Value) -> bool,
-) -> bool {
-    match field_from_slot(entity, field_slot) {
-        FieldPresence::Present(value) => f(&value),
-        FieldPresence::Missing => false,
-    }
-}
-
-// Evaluate one slot-resolved predicate against one entity.
-#[must_use]
-pub(super) fn eval_with_resolved_slots<E: EntityValue>(
-    entity: &E,
-    predicate: &ResolvedPredicate,
-) -> bool {
-    match predicate {
-        ResolvedPredicate::True => true,
-        ResolvedPredicate::False => false,
-        ResolvedPredicate::And(children) => children
-            .iter()
-            .all(|child| eval_with_resolved_slots(entity, child)),
-        ResolvedPredicate::Or(children) => children
-            .iter()
-            .any(|child| eval_with_resolved_slots(entity, child)),
-        ResolvedPredicate::Not(inner) => !eval_with_resolved_slots(entity, inner),
-        ResolvedPredicate::Compare(cmp) => eval_compare_with_resolved_slots(entity, cmp),
-        ResolvedPredicate::IsNull { field_slot } => {
-            matches!(
-                field_from_slot(entity, *field_slot),
-                FieldPresence::Present(Value::Null)
-            )
-        }
-        ResolvedPredicate::IsMissing { field_slot } => {
-            matches!(field_from_slot(entity, *field_slot), FieldPresence::Missing)
-        }
-        ResolvedPredicate::IsEmpty { field_slot } => {
-            on_present_slot(entity, *field_slot, is_empty_value)
-        }
-        ResolvedPredicate::IsNotEmpty { field_slot } => {
-            on_present_slot(entity, *field_slot, |value| !is_empty_value(value))
-        }
-        ResolvedPredicate::TextContains { field_slot, value } => {
-            on_present_slot(entity, *field_slot, |actual| {
-                actual.text_contains(value, TextMode::Cs).unwrap_or(false)
-            })
-        }
-        ResolvedPredicate::TextContainsCi { field_slot, value } => {
-            on_present_slot(entity, *field_slot, |actual| {
-                actual.text_contains(value, TextMode::Ci).unwrap_or(false)
-            })
-        }
-    }
-}
-
 ///
 /// Evaluate a single comparison predicate against a row.
 ///
@@ -237,19 +169,7 @@ fn eval_compare<R: FieldLookup + ?Sized>(
     eval_compare_values(&actual, *op, value, coercion)
 }
 
-// Evaluate a slot-resolved comparison predicate against one entity.
-fn eval_compare_with_resolved_slots<E: EntityValue>(
-    entity: &E,
-    cmp: &ResolvedComparePredicate,
-) -> bool {
-    let FieldPresence::Present(actual) = field_from_slot(entity, cmp.field_slot) else {
-        return false;
-    };
-
-    eval_compare_values(&actual, cmp.op, &cmp.value, &cmp.coercion)
-}
-
-// Shared compare-op semantics for test-path and runtime slot-path evaluation.
+// Shared compare-op semantics for query-side test evaluation.
 fn eval_compare_values(
     actual: &Value,
     op: CompareOp,

@@ -3,15 +3,12 @@ use crate::{
         access::AccessPlan,
         cursor::ContinuationSignature,
         executor::{
-            ExecutorPlanError, PlannedCursor, prepare_cursor as validate_cursor_plan,
+            ExecutorPlanError, LOWERED_INDEX_PREFIX_SPEC_INVALID, LOWERED_INDEX_RANGE_SPEC_INVALID,
+            LoweredIndexPrefixSpec, LoweredIndexRangeSpec, PlannedCursor, lower_index_prefix_specs,
+            lower_index_range_specs, prepare_cursor as validate_cursor_plan,
             revalidate_cursor as revalidate_cursor_plan,
         },
-        lowering::{
-            LOWERED_INDEX_PREFIX_SPEC_INVALID, LOWERED_INDEX_RANGE_SPEC_INVALID,
-            LoweredIndexPrefixSpec, LoweredIndexRangeSpec, lower_index_prefix_specs,
-            lower_index_range_specs,
-        },
-        plan::OrderDirection,
+        query::plan::OrderDirection,
         query::{
             explain::ExplainPlan,
             fingerprint::PlanFingerprint,
@@ -41,6 +38,7 @@ fn derive_direction(plan: &LogicalPlan) -> Direction {
 ///
 /// Executor-ready plan bound to a specific entity type.
 ///
+
 #[derive(Debug)]
 pub struct ExecutablePlan<E: EntityKind> {
     plan: AccessPlannedQuery<E::Key>,
@@ -169,7 +167,6 @@ impl<E: EntityKind> ExecutablePlan<E> {
         Ok(self.index_range_specs.as_slice())
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(in crate::db) fn into_inner(self) -> AccessPlannedQuery<E::Key> {
         self.plan
     }

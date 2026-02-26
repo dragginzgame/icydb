@@ -1,12 +1,12 @@
 use crate::{
     db::{
         Context,
+        contracts::PredicateFieldSlots,
         cursor::{ContinuationSignature, ContinuationToken, CursorBoundary},
         direction::Direction,
         executor::load::{CursorPage, LoadExecutor},
         executor::{BudgetedOrderedKeyStream, ExecutionKernel, OrderedKeyStream, PostAccessStats},
-        plan::AccessPlannedQuery,
-        query::predicate::PredicateFieldSlots,
+        query::plan::AccessPlannedQuery,
         response::Response,
     },
     error::InternalError,

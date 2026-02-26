@@ -6,7 +6,7 @@ use crate::{
             map_index_range_not_indexable_reason, raw_bounds_for_semantic_index_component_range,
             raw_keys_for_encoded_prefix,
         },
-        plan::AccessPlannedQuery,
+        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     model::index::IndexModel,

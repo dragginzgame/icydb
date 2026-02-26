@@ -1,6 +1,7 @@
 use crate::{
     db::{
         Context,
+        contracts::ReadConsistency,
         cursor::CursorBoundary,
         data::DataKey,
         direction::Direction,
@@ -12,8 +13,7 @@ use crate::{
             },
             load::CursorPage,
         },
-        plan::AccessPlannedQuery,
-        query::ReadConsistency,
+        query::plan::AccessPlannedQuery,
         response::Response,
     },
     error::InternalError,
@@ -28,11 +28,9 @@ use crate::{
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[allow(dead_code)]
 pub(in crate::db::executor) enum StreamInputMode {
     KeyOnly,
     RowOnly,
-    KeyThenRow,
 }
 
 ///
@@ -43,7 +41,6 @@ pub(in crate::db::executor) enum StreamInputMode {
 /// Reducers must treat these references as ephemeral and must not retain them.
 ///
 
-#[allow(dead_code)]
 pub(in crate::db::executor) enum StreamItem<'a, E: EntityKind + EntityValue> {
     Key(&'a DataKey),
     Row(&'a E),
@@ -56,11 +53,9 @@ pub(in crate::db::executor) enum StreamItem<'a, E: EntityKind + EntityValue> {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[allow(dead_code)]
 pub(in crate::db::executor) enum ReducerControl {
     Continue,
     StopEarly,
-    NeedsFullMaterialization,
 }
 
 ///
@@ -375,11 +370,6 @@ impl ExecutionKernel {
             match reducer.on_item(StreamItem::Key(&key))? {
                 ReducerControl::Continue => {}
                 ReducerControl::StopEarly => break,
-                ReducerControl::NeedsFullMaterialization => {
-                    return Err(InternalError::query_executor_invariant(
-                        "key-stream reducer requested materialization replay; restart orchestration is not wired for this reducer",
-                    ));
-                }
             }
         }
 
@@ -427,11 +417,6 @@ impl ExecutionKernel {
             match reducer.on_item(StreamItem::Row(staged_entity))? {
                 ReducerControl::Continue => {}
                 ReducerControl::StopEarly => break,
-                ReducerControl::NeedsFullMaterialization => {
-                    return Err(InternalError::query_executor_invariant(
-                        "row-stream reducer requested materialization replay; restart orchestration is not wired for this reducer",
-                    ));
-                }
             }
         }
 

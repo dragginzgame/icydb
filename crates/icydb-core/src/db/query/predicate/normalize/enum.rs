@@ -223,11 +223,10 @@ mod tests {
     use super::normalize_enum_literals;
     use crate::{
         db::query::predicate::{
-            CoercionId, CompareOp, ComparePredicate, Predicate,
-            validate::{SchemaInfo, ValidateError},
+            CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo, ValidateError,
         },
         model::field::{FieldKind, FieldModel},
-        test_support::entity_model_from_static,
+        testing::entity_model_from_static,
         types::Ulid,
         value::{Value, ValueEnum},
     };

@@ -1,5 +1,6 @@
 use crate::{
     db::{
+        contracts::predicate_model::{FieldType, field_type_from_model_kind},
         identity::{EntityName, EntityNameError, IndexName, IndexNameError},
         predicate::{UnsupportedQueryFeature, coercion::CoercionId},
     },
@@ -7,8 +8,6 @@ use crate::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-
-use crate::db::query::predicate::validate::model::{FieldType, field_type_from_model_kind};
 
 fn validate_index_fields(
     fields: &BTreeMap<String, FieldType>,

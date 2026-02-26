@@ -1,6 +1,7 @@
 use crate::{
     db::{
         Context,
+        contracts::ReadConsistency,
         direction::Direction,
         executor::{
             AccessStreamBindings, ExecutablePlan, ExecutionKernel, ExecutionPreparation,
@@ -14,7 +15,6 @@ use crate::{
             load::{ExecutionInputs, LoadExecutor},
             plan_metrics::record_rows_scanned,
         },
-        query::ReadConsistency,
         response::Response,
     },
     error::InternalError,

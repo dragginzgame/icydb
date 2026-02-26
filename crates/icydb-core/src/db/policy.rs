@@ -9,8 +9,8 @@
 //! - Executors may assert these rules defensively, but must not redefine them.
 
 use crate::db::{
-    intent::{LoadSpec, QueryMode},
-    plan::{LogicalPlan, OrderSpec},
+    query::intent::{LoadSpec, QueryMode},
+    query::plan::{LogicalPlan, OrderSpec},
 };
 use thiserror::Error as ThisError;
 

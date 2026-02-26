@@ -3,12 +3,12 @@ use crate::{
         access::AccessPath,
         cursor::{CursorPlanError, IndexRangeCursorAnchor},
         direction::Direction,
+        executor::lower_cursor_anchor_index_range_bounds,
         executor::{CursorAnchor, ExecutorPlanError, decode_canonical_cursor_anchor_index_key},
         index::{
             Direction as IndexDirection, IndexId, IndexKeyKind, KeyEnvelope,
             PrimaryKeyEquivalenceError, primary_key_matches_value,
         },
-        lowering::lower_cursor_anchor_index_range_bounds,
     },
     traits::{EntityKind, FieldValue},
 };

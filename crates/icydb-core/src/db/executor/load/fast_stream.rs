@@ -68,7 +68,7 @@ mod tests {
 
     crate::test_canister! {
         ident = FastStreamInvariantCanister,
-        commit_memory_id = crate::test_support::test_commit_memory_id(),
+        commit_memory_id = crate::testing::test_commit_memory_id(),
     }
 
     crate::test_store! {

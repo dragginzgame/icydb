@@ -14,7 +14,7 @@ use crate::{
         field::{FieldKind, FieldModel},
         index::IndexModel,
     },
-    test_support::entity_model_from_static,
+    testing::entity_model_from_static,
     traits::{EntitySchema, FieldProjection, FieldValue},
     types::{Ulid, Unit},
     value::{Value, ValueEnum},
@@ -92,7 +92,7 @@ impl FieldProjection for PlanSingleton {
 
 crate::test_canister! {
     ident = PlanCanister,
-    commit_memory_id = crate::test_support::test_commit_memory_id(),
+    commit_memory_id = crate::testing::test_commit_memory_id(),
 }
 
 crate::test_store! {
