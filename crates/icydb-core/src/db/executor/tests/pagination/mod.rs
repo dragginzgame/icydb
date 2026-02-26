@@ -2,11 +2,11 @@
 use super::*;
 use crate::{
     db::{
+        cursor::ContinuationToken,
         direction::Direction,
         executor::ExecutablePlan,
         index::{EncodedValue, RawIndexKey, raw_keys_for_encoded_prefix},
         query::{
-            contracts::cursor::ContinuationToken,
             explain::{ExplainAccessPath, ExplainOrderPushdown},
             intent::{LoadSpec, QueryMode},
             plan::{

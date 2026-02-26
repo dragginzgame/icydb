@@ -5,13 +5,13 @@ use super::{
 };
 use crate::{
     db::{
+        cursor::CursorBoundary,
         executor::{
             aggregate::{AggregateFoldMode, AggregateKind, AggregateSpec},
             load::LoadExecutor,
         },
         query::{
             ReadConsistency,
-            contracts::cursor::CursorBoundary,
             intent::{DeleteSpec, QueryMode},
             plan::{
                 AccessPath, AccessPlan, AccessPlannedQuery, Direction, OrderDirection, OrderSpec,

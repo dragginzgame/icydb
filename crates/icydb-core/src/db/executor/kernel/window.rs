@@ -1,9 +1,10 @@
 use crate::db::{
+    cursor::CursorBoundary,
     executor::{
         ExecutionKernel, compute_page_window,
         kernel::{PlanRow, post_access::order_cursor},
     },
-    query::{contracts::cursor::CursorBoundary, plan::AccessPlannedQuery},
+    query::plan::AccessPlannedQuery,
 };
 use crate::{
     error::InternalError,

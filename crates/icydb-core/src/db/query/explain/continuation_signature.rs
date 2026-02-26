@@ -1,9 +1,9 @@
 //! Continuation signature helpers.
 
 use crate::{
-    db::query::{
-        contracts::cursor::ContinuationSignature, explain::ExplainPlan, fingerprint::hash_parts,
-        plan::AccessPlannedQuery,
+    db::{
+        cursor::ContinuationSignature,
+        query::{explain::ExplainPlan, fingerprint::hash_parts, plan::AccessPlannedQuery},
     },
     traits::FieldValue,
 };
@@ -70,19 +70,21 @@ impl ExplainPlan {
 #[cfg(test)]
 mod tests {
     use crate::{
-        db::query::{
-            ReadConsistency,
-            builder::field::FieldRef,
-            contracts::cursor::{
+        db::{
+            cursor::{
                 ContinuationSignature, ContinuationToken, ContinuationTokenError, CursorBoundary,
                 CursorBoundarySlot, IndexRangeCursorAnchor,
             },
-            intent::{KeyAccess, LoadSpec, QueryMode, access_plan_from_keys_value},
-            plan::{
-                AccessPath, AccessPlannedQuery, Direction, LogicalPlan, OrderDirection, OrderSpec,
-                PageSpec,
+            query::{
+                ReadConsistency,
+                builder::field::FieldRef,
+                intent::{KeyAccess, LoadSpec, QueryMode, access_plan_from_keys_value},
+                plan::{
+                    AccessPath, AccessPlannedQuery, Direction, LogicalPlan, OrderDirection,
+                    OrderSpec, PageSpec,
+                },
+                predicate::Predicate,
             },
-            predicate::Predicate,
         },
         types::Ulid,
         value::Value,

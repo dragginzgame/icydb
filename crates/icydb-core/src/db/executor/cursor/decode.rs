@@ -1,8 +1,10 @@
 use crate::{
-    db::query::{
-        contracts::cursor::{CursorBoundary, CursorBoundarySlot},
-        plan::{CursorPlanError, OrderPlanError, OrderSpec, PlanError},
-        predicate::SchemaInfo,
+    db::{
+        cursor::{CursorBoundary, CursorBoundarySlot},
+        query::{
+            plan::{CursorPlanError, OrderPlanError, OrderSpec, PlanError},
+            predicate::SchemaInfo,
+        },
     },
     error::InternalError,
     model::entity::EntityModel,

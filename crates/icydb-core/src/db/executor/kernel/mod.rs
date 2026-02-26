@@ -10,6 +10,7 @@ pub(in crate::db::executor) use predicate::IndexPredicateCompileMode;
 
 use crate::{
     db::{
+        cursor::{ContinuationSignature, CursorBoundary},
         direction::Direction,
         executor::{
             ExecutionPlan, OrderedKeyStreamBox,
@@ -18,10 +19,7 @@ use crate::{
                 ResolvedExecutionKeyStream,
             },
         },
-        query::{
-            contracts::cursor::{ContinuationSignature, CursorBoundary},
-            plan::AccessPlannedQuery,
-        },
+        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},

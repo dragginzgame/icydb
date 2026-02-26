@@ -1,35 +1,11 @@
-//! Cursor protocol contract types.
-
 use crate::{
-    db::direction::Direction,
+    db::{cursor::CursorBoundary, direction::Direction},
     serialize::{deserialize_bounded, serialize},
-    value::Value,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error as ThisError;
 
 const MAX_CONTINUATION_TOKEN_BYTES: usize = 8 * 1024;
-
-///
-/// CursorBoundarySlot
-/// Slot value used for deterministic cursor boundaries.
-///
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub(crate) enum CursorBoundarySlot {
-    Missing,
-    Present(Value),
-}
-
-///
-/// CursorBoundary
-/// Ordered boundary tuple for continuation pagination.
-///
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub(crate) struct CursorBoundary {
-    pub(crate) slots: Vec<CursorBoundarySlot>,
-}
 
 ///
 /// ContinuationSignature

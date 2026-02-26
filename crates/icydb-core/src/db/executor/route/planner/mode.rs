@@ -1,5 +1,6 @@
 use crate::{
     db::{
+        cursor::CursorBoundary,
         direction::Direction,
         executor::{
             ExecutionKernel,
@@ -7,7 +8,7 @@ use crate::{
             load::LoadExecutor,
         },
         lowering::LoweredKey,
-        query::{contracts::cursor::CursorBoundary, plan::AccessPlannedQuery},
+        query::plan::AccessPlannedQuery,
     },
     traits::{EntityKind, EntityValue},
 };

@@ -1,6 +1,7 @@
 use crate::{
     db::{
         Context,
+        cursor::CursorBoundary,
         data::DataKey,
         direction::Direction,
         executor::{
@@ -11,7 +12,7 @@ use crate::{
             },
             load::CursorPage,
         },
-        query::{ReadConsistency, contracts::cursor::CursorBoundary, plan::AccessPlannedQuery},
+        query::{ReadConsistency, plan::AccessPlannedQuery},
         response::Response,
     },
     error::InternalError,

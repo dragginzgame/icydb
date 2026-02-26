@@ -14,12 +14,12 @@ use crate::{
             CommitMarker, begin_commit, commit_marker_present, ensure_recovered_for_write,
             init_commit_store_for_tests, prepare_row_commit_for_entity,
         },
+        cursor::{ContinuationToken, CursorBoundary, CursorBoundarySlot},
         data::DataStore,
         executor::{DeleteExecutor, ExecutionOptimization, LoadExecutor, SaveExecutor},
         index::IndexStore,
         query::{
             ReadConsistency,
-            contracts::cursor::{ContinuationToken, CursorBoundary, CursorBoundarySlot},
             intent::{IntentError, Query, QueryError},
             predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         },

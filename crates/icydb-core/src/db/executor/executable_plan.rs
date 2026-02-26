@@ -1,5 +1,6 @@
 use crate::{
     db::{
+        cursor::ContinuationSignature,
         executor::{
             PlannedCursor, prepare_cursor as validate_cursor_plan,
             revalidate_cursor as revalidate_cursor_plan,
@@ -10,7 +11,6 @@ use crate::{
             lower_index_range_specs,
         },
         query::{
-            contracts::cursor::ContinuationSignature,
             explain::ExplainPlan,
             fingerprint::PlanFingerprint,
             intent::QueryMode,

@@ -1,4 +1,4 @@
-use crate::db::query::contracts::cursor::{CursorBoundary, IndexRangeCursorAnchor};
+use crate::db::cursor::{CursorBoundary, IndexRangeCursorAnchor};
 
 ///
 /// PlannedCursor

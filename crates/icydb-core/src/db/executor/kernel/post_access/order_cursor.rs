@@ -1,9 +1,9 @@
 use crate::{
     db::{
+        cursor::{CursorBoundary, CursorBoundarySlot},
         executor::kernel::PlanRow,
         index::continuation_advances_from_ordering,
         query::{
-            contracts::cursor::{CursorBoundary, CursorBoundarySlot},
             plan::{OrderDirection, OrderSpec},
             predicate::coercion::canonical_cmp,
         },

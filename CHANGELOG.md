@@ -5,6 +5,22 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.30.5] - 2026-02-26 - Cursor Boundary Canonicalization
+
+### 📝 Summary
+
+* Moved cursor-boundary types into a neutral `db::cursor` module so continuation state is infrastructure-owned instead of query-owned.
+
+### 🔧 Changed
+
+* Added canonical `CursorBoundary` and `CursorBoundarySlot` ownership at `db/cursor/boundary.rs`.
+* Moved continuation token protocol types (`ContinuationToken`, `ContinuationSignature`, token error, and index-range anchor) under `db/cursor/token.rs`.
+* Rewired executor, route planner, query explain helpers, and tests to import cursor primitives from `db::cursor`.
+* Removed the now-empty `query::contracts` module after cursor protocol ownership moved to `db::cursor`.
+* Kept continuation token wire format and pagination semantics unchanged; this is a structural ownership move only.
+
+---
+
 ## [0.30.4] - 2026-02-26 - Direction Canonicalization
 
 ### 📝 Summary

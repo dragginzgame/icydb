@@ -16,6 +16,7 @@ use self::trace::{access_path_variant, execution_order_direction};
 use crate::{
     db::{
         Db,
+        cursor::{ContinuationToken, CursorBoundary},
         executor::{
             AccessStreamBindings, ExecutablePlan, ExecutionKernel, IndexPredicateCompileMode,
             KeyOrderComparator, OrderedKeyStreamBox, PlannedCursor,
@@ -26,14 +27,11 @@ use crate::{
             compile_predicate_slots, decode_pk_cursor_boundary,
             plan_metrics::{record_plan_metrics, record_rows_scanned},
         },
-        query::policy,
-        query::{
-            contracts::cursor::{ContinuationToken, CursorBoundary},
-            plan::{
-                AccessPlan, AccessPlannedQuery, Direction, OrderDirection,
-                validate::validate_executor_plan,
-            },
+        query::plan::{
+            AccessPlan, AccessPlannedQuery, Direction, OrderDirection,
+            validate::validate_executor_plan,
         },
+        query::policy,
         response::Response,
     },
     error::InternalError,

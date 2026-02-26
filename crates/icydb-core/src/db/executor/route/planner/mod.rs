@@ -5,6 +5,7 @@ mod mode;
 
 use crate::{
     db::{
+        cursor::CursorBoundary,
         direction::Direction,
         executor::{
             Context, ExecutionPlan, OrderedKeyStreamBox,
@@ -12,7 +13,7 @@ use crate::{
             load::LoadExecutor,
         },
         lowering::LoweredKey,
-        query::{contracts::cursor::CursorBoundary, plan::AccessPlannedQuery},
+        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
