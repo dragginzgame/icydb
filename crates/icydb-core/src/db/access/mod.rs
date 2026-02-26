@@ -10,7 +10,7 @@ pub(crate) mod pushdown;
 #[allow(unused_imports)]
 pub(crate) use path::{AccessPath, AccessPlan, IndexRangePathRef, SemanticIndexRangeSpec};
 pub(crate) use predicate::{
-    IndexCompareOp, IndexLiteral, IndexPredicateProgram, encode_index_literal, eval_index_compare,
+    IndexCompareOp, IndexLiteral, IndexPredicateProgram, eval_index_compare,
 };
 #[cfg(test)]
 pub(crate) use pushdown::assess_secondary_order_pushdown_if_applicable_from_parts;

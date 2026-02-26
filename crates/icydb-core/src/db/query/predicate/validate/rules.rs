@@ -1,7 +1,7 @@
 #[cfg(test)]
 use crate::model::entity::EntityModel;
 use crate::{
-    db::query::predicate::{
+    db::predicate::{
         CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature,
         coercion::{CoercionId, CoercionSpec, supports_coercion},
     },

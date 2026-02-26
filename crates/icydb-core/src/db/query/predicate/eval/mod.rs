@@ -1,7 +1,8 @@
 use crate::{
     db::{
         access::IndexPredicateProgram,
-        query::predicate::{CompareOp, Predicate, coercion::CoercionSpec},
+        predicate::coercion::CoercionSpec,
+        query::predicate::{CompareOp, Predicate},
     },
     traits::{EntityKind, EntityValue},
     value::Value,
@@ -170,14 +171,9 @@ mod tests {
     };
     use crate::{
         db::{
-            access::{
-                IndexCompareOp, IndexLiteral, IndexPredicateProgram, encode_index_literal,
-                eval_index_compare,
-            },
-            query::predicate::{
-                CompareOp,
-                coercion::{CoercionId, CoercionSpec},
-            },
+            access::{IndexCompareOp, IndexLiteral, IndexPredicateProgram, eval_index_compare},
+            index::encode_index_literal,
+            query::predicate::{CoercionId, CoercionSpec, CompareOp},
         },
         value::Value,
     };

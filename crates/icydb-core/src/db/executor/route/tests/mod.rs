@@ -11,10 +11,11 @@ use crate::{
             aggregate::{AggregateFoldMode, AggregateKind, AggregateSpec},
             load::LoadExecutor,
         },
+        plan::{OrderDirection, OrderSpec, PageSpec},
         query::{
             ReadConsistency,
             intent::{DeleteSpec, QueryMode},
-            plan::{AccessPlannedQuery, Direction, OrderDirection, OrderSpec, PageSpec},
+            plan::{AccessPlannedQuery, Direction},
             predicate::{Predicate, PredicateFieldSlots},
         },
     },

@@ -3,7 +3,7 @@ use crate::{
         access::AccessPlan,
         cursor::ContinuationSignature,
         executor::{
-            PlannedCursor, prepare_cursor as validate_cursor_plan,
+            ExecutorPlanError, PlannedCursor, prepare_cursor as validate_cursor_plan,
             revalidate_cursor as revalidate_cursor_plan,
         },
         lowering::{
@@ -11,11 +11,12 @@ use crate::{
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec, lower_index_prefix_specs,
             lower_index_range_specs,
         },
+        plan::OrderDirection,
         query::{
             explain::ExplainPlan,
             fingerprint::PlanFingerprint,
             intent::QueryMode,
-            plan::{AccessPlannedQuery, Direction, LogicalPlan, OrderDirection, PlanError},
+            plan::{AccessPlannedQuery, Direction, LogicalPlan},
         },
     },
     error::InternalError,
@@ -115,7 +116,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
     pub(in crate::db) fn prepare_cursor(
         &self,
         cursor: Option<&[u8]>,
-    ) -> Result<PlannedCursor, PlanError>
+    ) -> Result<PlannedCursor, ExecutorPlanError>
     where
         E::Key: FieldValue,
     {

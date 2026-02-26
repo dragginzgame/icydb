@@ -7,12 +7,12 @@ use crate::{
         },
         direction::Direction,
         executor::{
-            PlannedCursor, decode_typed_primary_key_cursor_slot, validate_index_range_anchor,
-            validate_index_range_boundary_anchor_consistency,
+            ExecutorPlanError, PlannedCursor, decode_typed_primary_key_cursor_slot,
+            validate_index_range_anchor, validate_index_range_boundary_anchor_consistency,
         },
         plan::OrderSpec,
         query::{
-            plan::{OrderPlanError, PlanError},
+            plan::OrderPlanError,
             predicate::{SchemaInfo, validate::literal_matches_type},
         },
     },
@@ -32,7 +32,7 @@ pub(in crate::db) fn validate_planned_cursor<E>(
     expected_signature: ContinuationSignature,
     direction: Direction,
     expected_initial_offset: u32,
-) -> Result<PlannedCursor, PlanError>
+) -> Result<PlannedCursor, ExecutorPlanError>
 where
     E: EntityKind,
     E::Key: FieldValue,
@@ -64,7 +64,7 @@ pub(in crate::db) fn validate_planned_cursor_state<E>(
     order: &OrderSpec,
     direction: Direction,
     expected_initial_offset: u32,
-) -> Result<PlannedCursor, PlanError>
+) -> Result<PlannedCursor, ExecutorPlanError>
 where
     E: EntityKind,
     E::Key: FieldValue,
@@ -74,7 +74,7 @@ where
     }
 
     let boundary = cursor.boundary().cloned().ok_or_else(|| {
-        PlanError::invalid_continuation_cursor_payload("continuation cursor boundary is missing")
+        invalid_continuation_cursor_payload("continuation cursor boundary is missing")
     })?;
     let index_range_anchor = cursor.index_range_anchor().cloned();
 
@@ -92,13 +92,11 @@ where
     )
 }
 
-impl PlanError {
-    /// Build the standard invalid-continuation payload error variant.
-    fn invalid_continuation_cursor_payload(reason: impl Into<String>) -> Self {
-        Self::from(CursorPlanError::InvalidContinuationCursorPayload {
-            reason: reason.into(),
-        })
-    }
+// Build the standard invalid-continuation payload error variant.
+fn invalid_continuation_cursor_payload(reason: impl Into<String>) -> ExecutorPlanError {
+    ExecutorPlanError::from(CursorPlanError::InvalidContinuationCursorPayload {
+        reason: reason.into(),
+    })
 }
 
 // Decode and validate one continuation cursor against a canonical plan surface.
@@ -106,7 +104,7 @@ fn decode_validated_cursor(
     cursor: &[u8],
     entity_path: &'static str,
     expected_signature: ContinuationSignature,
-) -> Result<ContinuationToken, PlanError> {
+) -> Result<ContinuationToken, ExecutorPlanError> {
     let token = ContinuationToken::decode(cursor).map_err(map_token_decode_error)?;
 
     // Signature is validated at token-decode boundary. Direction/window and
@@ -117,13 +115,13 @@ fn decode_validated_cursor(
 }
 
 // Map cursor token decode failures into canonical plan-surface cursor errors.
-fn map_token_decode_error(err: ContinuationTokenError) -> PlanError {
+fn map_token_decode_error(err: ContinuationTokenError) -> ExecutorPlanError {
     match err {
         ContinuationTokenError::Encode(message) | ContinuationTokenError::Decode(message) => {
-            PlanError::invalid_continuation_cursor_payload(message)
+            invalid_continuation_cursor_payload(message)
         }
         ContinuationTokenError::UnsupportedVersion { version } => {
-            PlanError::from(CursorPlanError::ContinuationCursorVersionMismatch { version })
+            ExecutorPlanError::from(CursorPlanError::ContinuationCursorVersionMismatch { version })
         }
     }
 }
@@ -133,9 +131,9 @@ fn validate_cursor_signature(
     entity_path: &'static str,
     expected_signature: &ContinuationSignature,
     actual_signature: &ContinuationSignature,
-) -> Result<(), PlanError> {
+) -> Result<(), ExecutorPlanError> {
     if actual_signature != expected_signature {
-        return Err(PlanError::from(
+        return Err(ExecutorPlanError::from(
             CursorPlanError::ContinuationCursorSignatureMismatch {
                 entity_path,
                 expected: expected_signature.to_string(),
@@ -151,9 +149,9 @@ fn validate_cursor_signature(
 fn validate_cursor_direction(
     expected_direction: Direction,
     actual_direction: Direction,
-) -> Result<(), PlanError> {
+) -> Result<(), ExecutorPlanError> {
     if actual_direction != expected_direction {
-        return Err(PlanError::invalid_continuation_cursor_payload(
+        return Err(invalid_continuation_cursor_payload(
             "continuation cursor direction does not match executable plan direction",
         ));
     }
@@ -165,9 +163,9 @@ fn validate_cursor_direction(
 fn validate_cursor_window_offset(
     expected_initial_offset: u32,
     actual_initial_offset: u32,
-) -> Result<(), PlanError> {
+) -> Result<(), ExecutorPlanError> {
     if actual_initial_offset != expected_initial_offset {
-        return Err(PlanError::from(
+        return Err(ExecutorPlanError::from(
             CursorPlanError::ContinuationCursorWindowMismatch {
                 expected_offset: expected_initial_offset,
                 actual_offset: actual_initial_offset,
@@ -191,7 +189,7 @@ fn validate_structured_cursor<E: EntityKind>(
     actual_direction: Direction,
     expected_initial_offset: u32,
     require_index_range_anchor: bool,
-) -> Result<PlannedCursor, PlanError>
+) -> Result<PlannedCursor, ExecutorPlanError>
 where
     E::Key: FieldValue,
 {
@@ -231,7 +229,7 @@ fn validate_cursor_boundary_anchor_invariants<E: EntityKind>(
     expected_initial_offset: u32,
     actual_initial_offset: u32,
     require_index_range_anchor: bool,
-) -> Result<(), PlanError>
+) -> Result<(), ExecutorPlanError>
 where
     E::Key: FieldValue,
 {
@@ -239,7 +237,7 @@ where
     validate_cursor_window_offset(expected_initial_offset, actual_initial_offset)?;
 
     if boundary.slots.len() != order.fields.len() {
-        return Err(PlanError::from(
+        return Err(ExecutorPlanError::from(
             CursorPlanError::ContinuationCursorBoundaryArityMismatch {
                 expected: order.fields.len(),
                 found: boundary.slots.len(),
@@ -265,8 +263,8 @@ fn validate_cursor_boundary_types(
     model: &EntityModel,
     order: &OrderSpec,
     boundary: &CursorBoundary,
-) -> Result<(), PlanError> {
-    let schema = SchemaInfo::from_entity_model(model).map_err(PlanError::from)?;
+) -> Result<(), ExecutorPlanError> {
+    let schema = SchemaInfo::from_entity_model(model).map_err(ExecutorPlanError::from)?;
 
     for ((field, _), slot) in order.fields.iter().zip(boundary.slots.iter()) {
         let field_type = schema
@@ -274,12 +272,12 @@ fn validate_cursor_boundary_types(
             .ok_or_else(|| OrderPlanError::UnknownField {
                 field: field.clone(),
             })
-            .map_err(PlanError::from)?;
+            .map_err(ExecutorPlanError::from)?;
 
         match slot {
             CursorBoundarySlot::Missing => {
                 if field == model.primary_key.name {
-                    return Err(PlanError::from(
+                    return Err(ExecutorPlanError::from(
                         CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
                             field: field.clone(),
                             expected: field_type.to_string(),
@@ -291,7 +289,7 @@ fn validate_cursor_boundary_types(
             CursorBoundarySlot::Present(value) => {
                 if !literal_matches_type(value, field_type) {
                     if field == model.primary_key.name {
-                        return Err(PlanError::from(
+                        return Err(ExecutorPlanError::from(
                             CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
                                 field: field.clone(),
                                 expected: field_type.to_string(),
@@ -300,7 +298,7 @@ fn validate_cursor_boundary_types(
                         ));
                     }
 
-                    return Err(PlanError::from(
+                    return Err(ExecutorPlanError::from(
                         CursorPlanError::ContinuationCursorBoundaryTypeMismatch {
                             field: field.clone(),
                             expected: field_type.to_string(),
@@ -311,7 +309,7 @@ fn validate_cursor_boundary_types(
 
                 // Primary-key slots must also satisfy key decoding semantics.
                 if field == model.primary_key.name && Value::as_storage_key(value).is_none() {
-                    return Err(PlanError::from(
+                    return Err(ExecutorPlanError::from(
                         CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
                             field: field.clone(),
                             expected: field_type.to_string(),

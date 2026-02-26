@@ -1,5 +1,3 @@
-use crate::{db::index::EncodedValue, value::Value};
-
 ///
 /// IndexPredicateProgram
 ///
@@ -52,14 +50,6 @@ pub(crate) enum IndexCompareOp {
 pub(crate) enum IndexLiteral {
     One(Vec<u8>),
     Many(Vec<Vec<u8>>),
-}
-
-/// Encode one literal value to canonical index-component bytes.
-#[must_use]
-#[cfg_attr(not(test), allow(dead_code))]
-pub(crate) fn encode_index_literal(value: &Value) -> Option<Vec<u8>> {
-    let encoded = EncodedValue::try_from_ref(value).ok()?;
-    Some(encoded.encoded().to_vec())
 }
 
 // Compare one encoded index component against one compiled literal payload.

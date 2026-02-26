@@ -2,9 +2,8 @@ use crate::{
     db::{
         cursor::{ContinuationSignature, CursorPlanError},
         direction::Direction,
-        executor::{PlannedCursor, cursor::spine},
+        executor::{ExecutorPlanError, PlannedCursor, cursor::spine},
         plan::{AccessPlannedQuery, OrderSpec},
-        query::plan::PlanError,
     },
     error::InternalError,
     traits::{EntityKind, FieldValue},
@@ -17,11 +16,11 @@ pub(in crate::db) fn prepare_cursor<E: EntityKind>(
     continuation_signature: ContinuationSignature,
     initial_offset: u32,
     cursor: Option<&[u8]>,
-) -> Result<PlannedCursor, PlanError>
+) -> Result<PlannedCursor, ExecutorPlanError>
 where
     E::Key: FieldValue,
 {
-    let order = validated_cursor_order_plan(plan).map_err(PlanError::from)?;
+    let order = validated_cursor_order_plan(plan).map_err(ExecutorPlanError::from)?;
 
     spine::validate_planned_cursor::<E>(
         cursor,
@@ -59,7 +58,7 @@ where
         direction,
         initial_offset,
     )
-    .map_err(InternalError::from_cursor_plan_error)
+    .map_err(|err| InternalError::from_cursor_plan_error(err.into_plan_error()))
 }
 
 // Resolve cursor ordering for plan-surface cursor decoding.

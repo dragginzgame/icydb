@@ -1,10 +1,11 @@
 use crate::{
-    db::query::predicate::{
-        CoercionId, CoercionSpec, CompareOp, Predicate,
-        ast::ComparePredicate,
-        coercion::{compare_eq, compare_order},
-        eval::{FieldPresence, Row, eval},
-        normalize,
+    db::{
+        predicate::coercion::{compare_eq, compare_order},
+        query::predicate::{
+            CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate,
+            eval::{FieldPresence, Row, eval},
+            normalize,
+        },
     },
     types::{Account, Principal, Ulid},
     value::{Value, ValueEnum},

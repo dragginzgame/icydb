@@ -3,20 +3,19 @@
 use crate::{
     db::{
         access::AccessPlan,
+        plan::{DeleteLimitSpec, OrderDirection, OrderSpec, PageSpec},
+        predicate::coercion::CoercionSpec,
         query::{
             ReadConsistency,
             intent::QueryMode,
             plan::{
-                AccessPlanProjection, AccessPlannedQuery, DeleteLimitSpec, OrderDirection,
-                OrderSpec, PageSpec, project_access_plan,
+                AccessPlanProjection, AccessPlannedQuery, project_access_plan,
                 validate::{
                     PushdownSurfaceEligibility, SecondaryOrderPushdownEligibility,
                     SecondaryOrderPushdownRejection, assess_secondary_order_pushdown,
                 },
             },
-            predicate::{
-                CompareOp, ComparePredicate, Predicate, coercion::CoercionSpec, normalize,
-            },
+            predicate::{CompareOp, ComparePredicate, Predicate, normalize},
         },
     },
     model::entity::EntityModel,

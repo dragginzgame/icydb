@@ -12,9 +12,9 @@ use crate::{
         direction::Direction,
         executor::ExecutionKernel,
         index::IndexKey,
+        policy,
         query::{
             plan::AccessPlannedQuery,
-            policy,
             predicate::{PredicateFieldSlots, eval_with_slots as eval_predicate_with_slots},
         },
     },

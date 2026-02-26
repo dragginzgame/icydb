@@ -77,13 +77,12 @@ mod tests {
                 ContinuationSignature, ContinuationToken, ContinuationTokenError, CursorBoundary,
                 CursorBoundarySlot, IndexRangeCursorAnchor,
             },
+            plan::{OrderDirection, OrderSpec, PageSpec},
             query::{
                 ReadConsistency,
                 builder::field::FieldRef,
                 intent::{KeyAccess, LoadSpec, QueryMode, access_plan_from_keys_value},
-                plan::{
-                    AccessPlannedQuery, Direction, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
-                },
+                plan::{AccessPlannedQuery, Direction, LogicalPlan},
                 predicate::Predicate,
             },
         },

@@ -1,4 +1,4 @@
-//! Shared query-policy rules used by intent, planning, and execution guardrails.
+//! Shared plan-policy rules used by intent, planning, and execution guardrails.
 //!
 //! This module centralizes semantic invariants so boundary layers can map one
 //! canonical rule set into their own error types.
@@ -8,7 +8,7 @@
 //! - ORDER semantic validation stays in `plan::validate::order`.
 //! - Executors may assert these rules defensively, but must not redefine them.
 
-use crate::db::query::{
+use crate::db::{
     intent::{LoadSpec, QueryMode},
     plan::{LogicalPlan, OrderSpec},
 };

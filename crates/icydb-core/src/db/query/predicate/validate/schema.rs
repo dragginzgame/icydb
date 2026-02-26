@@ -1,7 +1,7 @@
 use crate::{
     db::{
         identity::{EntityName, EntityNameError, IndexName, IndexNameError},
-        query::predicate::{UnsupportedQueryFeature, coercion::CoercionId},
+        predicate::{UnsupportedQueryFeature, coercion::CoercionId},
     },
     model::{entity::EntityModel, field::FieldKind, index::IndexModel},
 };

@@ -1,7 +1,7 @@
 use crate::{
-    db::query::{
-        plan::{CursorPlanError, PlanError},
+    db::{
         policy::PlanPolicyError,
+        query::plan::{CursorPlanError, PlanError},
     },
     patch::MergePatchError,
 };

@@ -24,7 +24,6 @@ pub(crate) mod fingerprint;
 pub(crate) mod fluent;
 pub(crate) mod intent;
 pub(crate) mod plan;
-pub(crate) mod policy;
 pub(crate) mod predicate;
 
 pub(crate) use crate::db::consistency::ReadConsistency;

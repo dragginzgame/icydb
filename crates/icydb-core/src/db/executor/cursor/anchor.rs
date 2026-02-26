@@ -3,12 +3,12 @@ use crate::{
         access::AccessPath,
         cursor::{CursorPlanError, IndexRangeCursorAnchor},
         direction::Direction,
+        executor::ExecutorPlanError,
         index::{
             Direction as IndexDirection, IndexId, IndexKey, IndexKeyKind, KeyEnvelope,
             PrimaryKeyEquivalenceError, RawIndexKey, primary_key_matches_value,
         },
         lowering::lower_cursor_anchor_index_range_bounds,
-        query::plan::PlanError,
     },
     traits::Storable,
     traits::{EntityKind, FieldValue},
@@ -16,8 +16,8 @@ use crate::{
 use std::borrow::Cow;
 
 // Build the canonical invalid-continuation payload error variant.
-fn invalid_continuation_cursor_payload(reason: impl Into<String>) -> PlanError {
-    PlanError::from(CursorPlanError::InvalidContinuationCursorPayload {
+fn invalid_continuation_cursor_payload(reason: impl Into<String>) -> ExecutorPlanError {
+    ExecutorPlanError::from(CursorPlanError::InvalidContinuationCursorPayload {
         reason: reason.into(),
     })
 }
@@ -27,7 +27,7 @@ fn invalid_continuation_cursor_payload(reason: impl Into<String>) -> PlanError {
 // representation that does not serialize back to identical raw bytes.
 fn decode_canonical_index_range_anchor_key(
     anchor: &IndexRangeCursorAnchor,
-) -> Result<IndexKey, PlanError> {
+) -> Result<IndexKey, ExecutorPlanError> {
     let anchor_raw = <RawIndexKey as Storable>::from_bytes(Cow::Borrowed(anchor.last_raw_key()));
     let decoded_key = IndexKey::try_from_raw(&anchor_raw).map_err(|err| {
         invalid_continuation_cursor_payload(format!(
@@ -60,7 +60,7 @@ pub(in crate::db) fn validate_index_range_anchor<E: EntityKind>(
     access: Option<&AccessPath<E::Key>>,
     direction: Direction,
     require_anchor: bool,
-) -> Result<(), PlanError> {
+) -> Result<(), ExecutorPlanError> {
     let Some(access) = access else {
         if anchor.is_some() {
             return Err(invalid_continuation_cursor_payload(
@@ -131,7 +131,7 @@ pub(in crate::db) fn validate_index_range_boundary_anchor_consistency<K: FieldVa
     anchor: Option<&IndexRangeCursorAnchor>,
     access: Option<&AccessPath<K>>,
     boundary_pk_key: K,
-) -> Result<(), PlanError> {
+) -> Result<(), ExecutorPlanError> {
     let Some(anchor) = anchor else {
         return Ok(());
     };

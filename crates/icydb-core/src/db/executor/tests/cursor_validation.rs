@@ -30,7 +30,7 @@ fn load_cursor_rejects_version_mismatch_at_plan_time() {
     assert!(
         matches!(
             err,
-            crate::db::query::plan::PlanError::Cursor(inner)
+            crate::db::executor::ExecutorPlanError::Cursor(inner)
                 if matches!(
                     inner.as_ref(),
                     crate::db::query::plan::CursorPlanError::ContinuationCursorVersionMismatch {
@@ -70,7 +70,7 @@ fn load_cursor_rejects_boundary_value_type_mismatch_at_plan_time() {
     assert!(
         matches!(
             err,
-            crate::db::query::plan::PlanError::Cursor(inner)
+            crate::db::executor::ExecutorPlanError::Cursor(inner)
                 if matches!(
                     inner.as_ref(),
                     crate::db::query::plan::CursorPlanError::ContinuationCursorBoundaryTypeMismatch {
@@ -111,7 +111,7 @@ fn load_cursor_rejects_primary_key_type_mismatch_at_plan_time() {
     assert!(
         matches!(
             err,
-            crate::db::query::plan::PlanError::Cursor(inner)
+            crate::db::executor::ExecutorPlanError::Cursor(inner)
                 if matches!(
                     inner.as_ref(),
                     crate::db::query::plan::CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
@@ -155,7 +155,7 @@ fn load_cursor_rejects_wrong_entity_path_at_plan_time() {
     assert!(
         matches!(
             err,
-            crate::db::query::plan::PlanError::Cursor(inner)
+            crate::db::executor::ExecutorPlanError::Cursor(inner)
                 if matches!(
                     inner.as_ref(),
                     crate::db::query::plan::CursorPlanError::ContinuationCursorSignatureMismatch { .. }
@@ -194,7 +194,7 @@ fn load_cursor_rejects_offset_mismatch_at_plan_time() {
     assert!(
         matches!(
             err,
-            crate::db::query::plan::PlanError::Cursor(inner)
+            crate::db::executor::ExecutorPlanError::Cursor(inner)
                 if matches!(
                     inner.as_ref(),
                     crate::db::query::plan::CursorPlanError::ContinuationCursorWindowMismatch {
@@ -237,7 +237,7 @@ fn load_cursor_v1_token_rejects_non_zero_offset_plan() {
     assert!(
         matches!(
             err,
-            crate::db::query::plan::PlanError::Cursor(inner)
+            crate::db::executor::ExecutorPlanError::Cursor(inner)
                 if matches!(
                     inner.as_ref(),
                     crate::db::query::plan::CursorPlanError::ContinuationCursorWindowMismatch {
@@ -283,7 +283,7 @@ fn load_cursor_rejects_order_field_signature_mismatch_at_plan_time() {
     assert!(
         matches!(
             err,
-            crate::db::query::plan::PlanError::Cursor(inner)
+            crate::db::executor::ExecutorPlanError::Cursor(inner)
                 if matches!(
                     inner.as_ref(),
                     crate::db::query::plan::CursorPlanError::ContinuationCursorSignatureMismatch { .. }
@@ -321,7 +321,7 @@ fn load_cursor_rejects_direction_mismatch_at_plan_time() {
     assert!(
         matches!(
             err,
-            crate::db::query::plan::PlanError::Cursor(inner)
+            crate::db::executor::ExecutorPlanError::Cursor(inner)
                 if matches!(
                     inner.as_ref(),
                     crate::db::query::plan::CursorPlanError::InvalidContinuationCursorPayload {

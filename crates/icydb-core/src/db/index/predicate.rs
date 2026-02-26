@@ -1,11 +1,13 @@
 use crate::{
     db::{access::eval_index_compare, index::IndexKey},
     error::InternalError,
+    value::Value,
 };
 use std::cell::Cell;
 
 #[allow(unused_imports)]
 pub(in crate::db) use crate::db::access::{IndexCompareOp, IndexLiteral, IndexPredicateProgram};
+use crate::db::index::EncodedValue;
 
 ///
 /// IndexPredicateExecution
@@ -77,4 +79,12 @@ pub(in crate::db) fn eval_index_execution_on_decoded_key(
     }
 
     Ok(passed)
+}
+
+/// Encode one literal value to canonical index-component bytes.
+#[must_use]
+pub(in crate::db) fn encode_index_literal(value: &Value) -> Option<Vec<u8>> {
+    let encoded = EncodedValue::try_from_ref(value).ok()?;
+
+    Some(encoded.encoded().to_vec())
 }

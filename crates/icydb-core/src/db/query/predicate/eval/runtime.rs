@@ -1,7 +1,7 @@
 use crate::{
-    db::query::predicate::{
-        CompareOp,
-        coercion::{CoercionSpec, TextOp, compare_eq, compare_order, compare_text},
+    db::{
+        predicate::coercion::{CoercionSpec, TextOp, compare_eq, compare_order, compare_text},
+        query::predicate::CompareOp,
     },
     traits::EntityValue,
     value::{TextMode, Value},
@@ -9,7 +9,7 @@ use crate::{
 use std::cmp::Ordering;
 
 #[cfg(test)]
-use crate::db::query::predicate::Predicate;
+use crate::db::predicate::Predicate;
 use crate::db::query::predicate::eval::{ResolvedComparePredicate, ResolvedPredicate};
 
 ///
@@ -102,10 +102,7 @@ fn on_present<R: FieldLookup + ?Sized>(
 ///
 #[must_use]
 #[cfg(test)]
-pub(crate) fn eval<R: Row + ?Sized>(
-    row: &R,
-    predicate: &crate::db::query::predicate::Predicate,
-) -> bool {
+pub(crate) fn eval<R: Row + ?Sized>(row: &R, predicate: &crate::db::predicate::Predicate) -> bool {
     eval_lookup(row, predicate)
 }
 
@@ -114,7 +111,7 @@ pub(crate) fn eval<R: Row + ?Sized>(
 #[cfg(test)]
 fn eval_lookup<R: FieldLookup + ?Sized>(
     row: &R,
-    predicate: &crate::db::query::predicate::Predicate,
+    predicate: &crate::db::predicate::Predicate,
 ) -> bool {
     match predicate {
         Predicate::True => true,

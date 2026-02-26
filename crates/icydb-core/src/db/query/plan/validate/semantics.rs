@@ -1,6 +1,6 @@
-use crate::db::query::{
-    plan::{LogicalPlan, validate::PlanError},
+use crate::db::{
     policy,
+    query::plan::{LogicalPlan, validate::PlanError},
 };
 
 /// Validate plan-level invariants not covered by schema checks.

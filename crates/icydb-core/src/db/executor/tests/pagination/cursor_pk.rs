@@ -1594,7 +1594,7 @@ fn load_cursor_rejects_signature_mismatch() {
     assert!(
         matches!(
             err,
-            PlanError::Cursor(inner)
+            crate::db::executor::ExecutorPlanError::Cursor(inner)
                 if matches!(
                     inner.as_ref(),
                     crate::db::query::plan::CursorPlanError::ContinuationCursorSignatureMismatch { .. }

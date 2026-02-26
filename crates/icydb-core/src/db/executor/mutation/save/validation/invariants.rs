@@ -1,10 +1,8 @@
 use crate::{
     db::{
         executor::mutation::save::SaveExecutor,
-        query::predicate::{
-            coercion::canonical_cmp,
-            validate::{SchemaInfo, literal_matches_type},
-        },
+        predicate::coercion::canonical_cmp,
+        query::predicate::validate::{SchemaInfo, literal_matches_type},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::{entity::resolve_primary_key_slot, field::FieldKind},

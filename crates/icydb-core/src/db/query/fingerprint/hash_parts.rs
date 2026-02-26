@@ -3,6 +3,8 @@
 
 use crate::{
     db::{
+        plan::OrderDirection,
+        predicate::coercion::CoercionId,
         query::{
             ReadConsistency,
             explain::{
@@ -10,8 +12,7 @@ use crate::{
                 ExplainPlan, ExplainPredicate,
             },
             intent::QueryMode,
-            plan::{AccessPlanProjection, OrderDirection, project_explain_access_path},
-            predicate::coercion::CoercionId,
+            plan::{AccessPlanProjection, project_explain_access_path},
         },
         value_hash::hash_value,
     },

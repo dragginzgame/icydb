@@ -3,10 +3,8 @@ use crate::{
         cursor::{CursorBoundary, CursorBoundarySlot},
         executor::kernel::PlanRow,
         index::continuation_advances_from_ordering,
-        query::{
-            plan::{OrderDirection, OrderSpec},
-            predicate::coercion::canonical_cmp,
-        },
+        plan::{OrderDirection, OrderSpec},
+        predicate::coercion::canonical_cmp,
     },
     model::entity::resolve_field_slot,
     traits::{EntityKind, EntityValue},

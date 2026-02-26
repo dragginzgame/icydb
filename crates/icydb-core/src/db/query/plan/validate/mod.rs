@@ -1,9 +1,8 @@
-//! Query-plan validation at logical and executor boundaries.
+//! Query-plan validation for planner-owned logical semantics.
 //!
 //! Validation ownership contract:
 //! - `validate_logical_plan_model` owns user-facing query semantics and emits `PlanError`.
-//! - `validate_executor_plan` is defensive: it re-checks owned semantics/invariants before
-//!   execution and must not introduce new user-visible semantics.
+//! - executor-boundary defensive checks live in `db::plan::validate`.
 //!
 //! Future rule changes must declare a semantic owner. Defensive re-check layers may mirror
 //! rules, but must not reinterpret semantics or error class intent.
@@ -20,14 +19,10 @@ use crate::{
     db::{
         cursor::CursorPlanError,
         plan::{AccessPlannedQuery, OrderSpec},
-        query::{
-            policy::PlanPolicyError,
-            predicate::{self, SchemaInfo},
-        },
+        policy::PlanPolicyError,
+        query::predicate::{self, SchemaInfo},
     },
-    error::InternalError,
     model::{entity::EntityModel, index::IndexModel},
-    traits::EntityKind,
     value::Value,
 };
 use thiserror::Error as ThisError;
@@ -233,27 +228,6 @@ pub(crate) fn validate_logical_plan_model(
         validate_order,
         |schema, model, plan| validate_access_plan_model(schema, model, &plan.access),
     )?;
-
-    Ok(())
-}
-
-/// Validate plans at executor boundaries and surface invariant violations.
-///
-/// Ownership:
-/// - defensive execution-boundary guardrail, not a semantic owner
-/// - must enforce structural integrity only, never user-shape semantics
-///
-/// Any disagreement with logical validation indicates an internal bug and is not
-/// a recoverable user-input condition.
-pub(crate) fn validate_executor_plan<E: EntityKind>(
-    plan: &AccessPlannedQuery<E::Key>,
-) -> Result<(), InternalError> {
-    let schema = SchemaInfo::from_entity_model(E::MODEL).map_err(|err| {
-        InternalError::query_invariant(format!("entity schema invalid for {}: {err}", E::PATH))
-    })?;
-
-    validate_access_plan(&schema, E::MODEL, &plan.access)
-        .map_err(InternalError::from_executor_plan_error)?;
 
     Ok(())
 }

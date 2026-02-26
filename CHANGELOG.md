@@ -5,6 +5,26 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.30.8] - 2026-02-26 - Plan Validation Boundary Cleanup
+
+### 📝 Summary
+
+* Moved executor plan-contract validation to a neutral `db::plan` boundary so planning and execution no longer depend on query-owned validation wiring.
+* Moved shared plan-shape policy rules to `db::policy` so query intent, planner validation, and executor guardrails depend on one neutral policy owner.
+* Separated executor cursor-plan error ownership from query `PlanError` by introducing an executor-owned plan error type with explicit boundary mapping.
+
+### 🔧 Changed
+
+* Added `db::plan::validate::validate_executor_plan` as the shared executor-boundary validation entrypoint.
+* Updated executor load/delete/aggregate paths to call the new `db::plan` validator instead of `query::plan::validate`.
+* Moved `PlanPolicyError` and cursor paging policy checks from `db::query::policy` to `db::policy`.
+* Updated query and executor modules to import policy from `db::policy` instead of query-owned paths.
+* Added `ExecutorPlanError` for executor cursor validation and moved conversion to query-owned `PlanError` into `DbSession` boundary handling.
+* Moved index-literal byte encoding (`encode_index_literal`) out of `db::access` and into `db::index` so access contracts remain storage-agnostic.
+* Kept planning behavior and runtime query results unchanged; this is a layering and ownership cleanup.
+
+---
+
 ## [0.30.7] - 2026-02-26 - Plan and Cursor Contract Ownership
 
 ### 📝 Summary

@@ -7,7 +7,7 @@ use crate::{
         QueryError, ReadConsistency, Response, WriteBatchResponse, WriteResponse,
         cursor::CursorPlanError,
         decode_cursor,
-        executor::{DeleteExecutor, LoadExecutor, SaveExecutor},
+        executor::{DeleteExecutor, ExecutorPlanError, LoadExecutor, SaveExecutor},
         query::intent::QueryMode,
     },
     error::InternalError,
@@ -18,6 +18,11 @@ use crate::{
 };
 
 type MinMaxByIds<E> = Option<(Id<E>, Id<E>)>;
+
+// Map executor-owned plan-surface failures into query-owned plan errors.
+fn map_executor_plan_error(err: ExecutorPlanError) -> QueryError {
+    QueryError::from(err.into_plan_error())
+}
 
 ///
 /// DbSession
@@ -618,7 +623,9 @@ impl<C: CanisterKind> DbSession<C> {
             })?),
             None => None,
         };
-        let cursor = plan.prepare_cursor(cursor_bytes.as_deref())?;
+        let cursor = plan
+            .prepare_cursor(cursor_bytes.as_deref())
+            .map_err(map_executor_plan_error)?;
 
         let (page, trace) = self
             .with_metrics(|| {

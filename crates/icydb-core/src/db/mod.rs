@@ -7,6 +7,7 @@ pub(in crate::db) mod direction;
 pub(crate) mod identity;
 pub(crate) mod intent;
 pub(in crate::db) mod plan;
+pub(crate) mod policy;
 pub(crate) mod predicate;
 pub(crate) mod query;
 pub(crate) mod registry;

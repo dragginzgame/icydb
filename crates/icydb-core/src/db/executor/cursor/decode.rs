@@ -1,11 +1,9 @@
 use crate::{
     db::{
         cursor::{CursorBoundary, CursorBoundarySlot, CursorPlanError},
+        executor::ExecutorPlanError,
         plan::OrderSpec,
-        query::{
-            plan::{OrderPlanError, PlanError},
-            predicate::SchemaInfo,
-        },
+        query::{plan::OrderPlanError, predicate::SchemaInfo},
     },
     error::InternalError,
     model::entity::EntityModel,
@@ -63,19 +61,19 @@ pub(in crate::db) fn decode_typed_primary_key_cursor_slot<K: FieldValue>(
     model: &EntityModel,
     order: &OrderSpec,
     boundary: &CursorBoundary,
-) -> Result<K, PlanError> {
+) -> Result<K, ExecutorPlanError> {
     let pk_field = model.primary_key.name;
     let pk_index = order
         .fields
         .iter()
         .position(|(field, _)| field == pk_field)
         .ok_or_else(|| {
-            PlanError::from(OrderPlanError::MissingPrimaryKeyTieBreak {
+            ExecutorPlanError::from(OrderPlanError::MissingPrimaryKeyTieBreak {
                 field: pk_field.to_string(),
             })
         })?;
 
-    let schema = SchemaInfo::from_entity_model(model).map_err(PlanError::from)?;
+    let schema = SchemaInfo::from_entity_model(model).map_err(ExecutorPlanError::from)?;
     let expected = schema
         .field(pk_field)
         .expect("primary key exists by model contract")
@@ -83,7 +81,7 @@ pub(in crate::db) fn decode_typed_primary_key_cursor_slot<K: FieldValue>(
     let pk_slot = &boundary.slots[pk_index];
 
     decode_primary_key_cursor_slot::<K>(pk_slot).map_err(|err| {
-        PlanError::from(CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
+        ExecutorPlanError::from(CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
             field: pk_field.to_string(),
             expected,
             value: err.into_mismatch_value(),

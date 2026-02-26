@@ -10,6 +10,7 @@ pub(crate) use key_access::*;
 use crate::{
     db::{
         consistency::ReadConsistency,
+        policy,
         query::{
             explain::ExplainPlan,
             expr::{FilterExpr, SortExpr, SortLowerError},
@@ -19,7 +20,6 @@ use crate::{
                 planner::{PlannerError, plan_access},
                 validate::validate_logical_plan_model,
             },
-            policy,
             predicate::{
                 Predicate, SchemaInfo, ValidateError, normalize, normalize_enum_literals,
                 validate::reject_unsupported_query_features,

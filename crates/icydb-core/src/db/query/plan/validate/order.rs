@@ -1,10 +1,10 @@
 use crate::{
-    db::query::{
-        plan::{
-            OrderSpec,
-            validate::{OrderPlanError, PlanError},
+    db::{
+        plan::OrderSpec,
+        query::{
+            plan::validate::{OrderPlanError, PlanError},
+            predicate::SchemaInfo,
         },
-        predicate::SchemaInfo,
     },
     model::entity::EntityModel,
 };
@@ -15,7 +15,7 @@ use std::collections::BTreeSet;
 // - ORDER canonicalization (primary-key tie-break insertion) is performed at the
 //   intent boundary via `canonicalize_order_spec` before plan validation.
 // - Shape-policy checks (for example empty ORDER, pagination/order coupling) are owned by
-//   `db::query::policy`.
+//   `db::policy`.
 // - Executor/runtime layers may defend execution preconditions only.
 
 /// Validate ORDER BY fields against the schema.

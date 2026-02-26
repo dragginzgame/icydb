@@ -1,7 +1,9 @@
 use crate::{
     db::{
-        access::{IndexCompareOp, IndexLiteral, IndexPredicateProgram, encode_index_literal},
-        query::predicate::{CompareOp, coercion::CoercionId},
+        access::{IndexCompareOp, IndexLiteral, IndexPredicateProgram},
+        index::encode_index_literal,
+        predicate::coercion::CoercionId,
+        query::predicate::CompareOp,
     },
     value::Value,
 };

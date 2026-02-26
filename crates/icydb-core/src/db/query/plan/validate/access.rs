@@ -1,7 +1,8 @@
 use crate::{
     db::{
         access::{AccessPath, AccessPlan, SemanticIndexRangeSpec},
-        query::predicate::{self, SchemaInfo, coercion::canonical_cmp},
+        predicate::coercion::canonical_cmp,
+        query::predicate::{self, SchemaInfo},
     },
     model::{entity::EntityModel, index::IndexModel},
     traits::FieldValue,

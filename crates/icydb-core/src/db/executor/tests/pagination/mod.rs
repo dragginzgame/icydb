@@ -11,7 +11,7 @@ use crate::{
             explain::{ExplainAccessPath, ExplainOrderPushdown},
             intent::{LoadSpec, QueryMode},
             plan::{
-                AccessPlannedQuery, LogicalPlan, OrderDirection, OrderSpec, PageSpec, PlanError,
+                AccessPlannedQuery, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
                 validate::SecondaryOrderPushdownRejection,
             },
         },

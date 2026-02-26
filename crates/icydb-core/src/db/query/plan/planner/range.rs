@@ -1,12 +1,10 @@
 use crate::{
     db::{
         access::SemanticIndexRangeSpec,
+        predicate::coercion::canonical_cmp,
         query::{
             plan::planner::{index_literal_matches_schema, sorted_indexes},
-            predicate::{
-                CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo,
-                coercion::canonical_cmp,
-            },
+            predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo},
         },
     },
     model::{entity::EntityModel, index::IndexModel},

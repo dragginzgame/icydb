@@ -2,8 +2,8 @@ mod r#enum;
 pub(crate) use r#enum::normalize_enum_literals;
 
 use crate::{
-    db::query::predicate::{
-        ast::{ComparePredicate, Predicate},
+    db::predicate::{
+        ComparePredicate, Predicate,
         coercion::{CoercionId, CoercionSpec},
     },
     value::{Value, ValueEnum},
