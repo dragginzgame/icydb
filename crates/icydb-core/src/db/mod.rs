@@ -1,5 +1,6 @@
 // 1️⃣ Module declarations
 pub(crate) mod diagnostics;
+pub(in crate::db) mod direction;
 pub(crate) mod identity;
 pub(crate) mod query;
 pub(crate) mod registry;

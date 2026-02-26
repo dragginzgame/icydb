@@ -1,5 +1,6 @@
 use crate::{
     db::{
+        direction::Direction,
         index::{
             Direction as IndexDirection, IndexId, IndexKey, IndexKeyKind, KeyEnvelope,
             PrimaryKeyEquivalenceError, RawIndexKey, primary_key_matches_value,
@@ -7,7 +8,7 @@ use crate::{
         lowering::lower_cursor_anchor_index_range_bounds,
         query::{
             contracts::cursor::IndexRangeCursorAnchor,
-            plan::{AccessPath, CursorPlanError, Direction, PlanError},
+            plan::{AccessPath, CursorPlanError, PlanError},
         },
     },
     traits::Storable,

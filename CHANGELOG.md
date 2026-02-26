@@ -5,6 +5,21 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.30.4] - 2026-02-26 - Direction Canonicalization
+
+### 📝 Summary
+
+* Consolidated traversal direction into one shared type so query, executor, and index use the same contract.
+
+### 🔧 Changed
+
+* Added a canonical `Direction` enum at `db/direction.rs`.
+* Removed duplicate `Direction` definitions from query plan and index range modules.
+* Rewired imports/re-exports so direction flow no longer depends on query internals in lower runtime layers.
+* Kept ordering and continuation behavior unchanged; this is a structural-only refactor.
+
+---
+
 ## [0.30.3] - 2026-02-26 - Reducer Dispatch Convergence
 
 ### 📝 Summary

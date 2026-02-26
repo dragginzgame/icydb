@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::db::direction::Direction;
 use crate::{
     db::{
         data::{DataKey, StorageKey},
@@ -181,11 +183,7 @@ where
 {
     #[cfg(test)]
     #[must_use]
-    pub(crate) const fn new(
-        left: A,
-        right: B,
-        direction: crate::db::query::plan::Direction,
-    ) -> Self {
+    pub(crate) const fn new(left: A, right: B, direction: Direction) -> Self {
         Self::new_with_comparator(left, right, KeyOrderComparator::from_direction(direction))
     }
 
@@ -290,11 +288,7 @@ where
 {
     #[cfg(test)]
     #[must_use]
-    pub(crate) const fn new(
-        left: A,
-        right: B,
-        direction: crate::db::query::plan::Direction,
-    ) -> Self {
+    pub(crate) const fn new(left: A, right: B, direction: Direction) -> Self {
         Self::new_with_comparator(left, right, KeyOrderComparator::from_direction(direction))
     }
 

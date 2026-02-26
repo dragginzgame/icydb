@@ -1,5 +1,6 @@
 use crate::{
     db::{
+        direction::Direction,
         executor::{
             Context, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             stream::key::{
@@ -11,7 +12,7 @@ use crate::{
         lowering::LoweredKey,
         query::{
             ReadConsistency,
-            plan::{AccessPath, AccessPlan, Direction},
+            plan::{AccessPath, AccessPlan},
         },
     },
     error::InternalError,

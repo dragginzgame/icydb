@@ -1,7 +1,7 @@
 //! Cursor protocol contract types.
 
 use crate::{
-    db::query::plan::Direction,
+    db::direction::Direction,
     serialize::{deserialize_bounded, serialize},
     value::Value,
 };

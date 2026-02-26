@@ -1,9 +1,10 @@
 use crate::{
     db::{
         Context,
+        direction::Direction,
         executor::{ExecutionPlan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec},
         index::predicate::IndexPredicateProgram,
-        query::{plan::AccessPlannedQuery, plan::Direction, predicate::PredicateFieldSlots},
+        query::{plan::AccessPlannedQuery, predicate::PredicateFieldSlots},
     },
     traits::{EntityKind, EntityValue},
 };

@@ -2,8 +2,9 @@
 use super::*;
 use crate::{
     db::{
+        direction::Direction,
         executor::ExecutablePlan,
-        index::{Direction, EncodedValue, RawIndexKey, raw_keys_for_encoded_prefix},
+        index::{EncodedValue, RawIndexKey, raw_keys_for_encoded_prefix},
         query::{
             contracts::cursor::ContinuationToken,
             explain::{ExplainAccessPath, ExplainOrderPushdown},

@@ -5,13 +5,14 @@ mod window;
 
 use crate::{
     db::{
+        direction::Direction,
         executor::ExecutionKernel,
         index::IndexKey,
         query::{
             contracts::cursor::{
                 ContinuationSignature, ContinuationToken, CursorBoundary, IndexRangeCursorAnchor,
             },
-            plan::{AccessPath, AccessPlan, AccessPlannedQuery, Direction},
+            plan::{AccessPath, AccessPlan, AccessPlannedQuery},
             policy,
             predicate::{PredicateFieldSlots, eval_with_slots as eval_predicate_with_slots},
         },

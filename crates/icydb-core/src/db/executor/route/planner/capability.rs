@@ -1,5 +1,6 @@
 use crate::{
     db::{
+        direction::Direction,
         executor::{
             ExecutionKernel,
             aggregate::capability::field_is_orderable,
@@ -7,7 +8,7 @@ use crate::{
             load::LoadExecutor,
         },
         query::{
-            plan::{AccessPath, AccessPlan, AccessPlannedQuery, Direction},
+            plan::{AccessPath, AccessPlan, AccessPlannedQuery},
             predicate::PredicateFieldSlots,
         },
     },

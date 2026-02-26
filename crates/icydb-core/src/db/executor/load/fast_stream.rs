@@ -46,11 +46,12 @@ mod tests {
     use crate::{
         db::{
             Db,
+            direction::Direction,
             executor::{
                 AccessPlanStreamRequest, AccessStreamBindings, Context, KeyOrderComparator,
                 load::{ExecutionOptimization, LoadExecutor},
             },
-            query::plan::{AccessPath, AccessPlan, Direction},
+            query::plan::{AccessPath, AccessPlan},
             registry::StoreRegistry,
         },
         error::ErrorClass,

@@ -2,6 +2,7 @@ use crate::{
     db::{
         Context,
         data::DataKey,
+        direction::Direction,
         executor::{
             ExecutionKernel, LoadExecutor, OrderedKeyStream,
             aggregate::{
@@ -10,10 +11,7 @@ use crate::{
             },
             load::CursorPage,
         },
-        query::{
-            ReadConsistency, contracts::cursor::CursorBoundary, plan::AccessPlannedQuery,
-            plan::Direction,
-        },
+        query::{ReadConsistency, contracts::cursor::CursorBoundary, plan::AccessPlannedQuery},
         response::Response,
     },
     error::InternalError,

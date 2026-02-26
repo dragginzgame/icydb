@@ -2,7 +2,8 @@ use crate::{
     db::{
         Db,
         data::DataKey,
-        index::{Direction, EncodedValue, IndexEntryCorruption, IndexId, IndexKey},
+        direction::Direction,
+        index::{EncodedValue, IndexEntryCorruption, IndexId, IndexKey},
     },
     error::InternalError,
     model::{entity::resolve_field_slot, index::IndexModel},

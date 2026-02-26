@@ -1,5 +1,5 @@
 use super::*;
-use crate::db::query::plan::Direction;
+use crate::db::direction::Direction;
 
 #[test]
 fn load_cursor_rejects_version_mismatch_at_plan_time() {

@@ -1,8 +1,9 @@
 use crate::{
     db::{
         data::DataKey,
+        direction::Direction,
         index::{
-            Direction, IndexKey, continuation_advanced, envelope_is_empty,
+            IndexKey, continuation_advanced, envelope_is_empty,
             predicate::{IndexPredicateExecution, eval_index_execution_on_decoded_key},
             range::anchor_within_envelope,
             resume_bounds_from_refs,
@@ -192,7 +193,7 @@ impl IndexStore {
 #[cfg(test)]
 mod tests {
     use crate::{
-        db::index::{Direction, store::RawIndexKey},
+        db::{direction::Direction, index::store::RawIndexKey},
         error::{ErrorClass, ErrorOrigin},
         traits::Storable,
     };

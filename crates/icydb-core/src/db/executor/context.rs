@@ -190,13 +190,14 @@ mod tests {
     use crate::{
         db::{
             Db,
+            direction::Direction,
             executor::{
                 Context, IndexStreamConstraints, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
                 StreamExecutionHints,
             },
             query::{
                 ReadConsistency,
-                plan::{AccessPath, AccessPlan, Direction},
+                plan::{AccessPath, AccessPlan},
             },
             registry::StoreRegistry,
         },

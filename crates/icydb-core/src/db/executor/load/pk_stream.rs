@@ -1,12 +1,13 @@
 use crate::{
     db::{
         Context,
+        direction::Direction,
         executor::{
             AccessPlanStreamRequest, AccessStreamBindings, KeyOrderComparator,
             load::{ExecutionOptimization, FastPathKeyResult, LoadExecutor},
             route::{RouteOrderSlotPolicy, derive_scan_direction, supports_pk_stream_access_path},
         },
-        query::plan::{AccessPath, AccessPlannedQuery, Direction},
+        query::plan::{AccessPath, AccessPlannedQuery},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},

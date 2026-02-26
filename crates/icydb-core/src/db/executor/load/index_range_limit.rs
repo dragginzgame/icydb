@@ -1,6 +1,7 @@
 use crate::{
     db::{
         Context,
+        direction::Direction,
         executor::load::{ExecutionOptimization, FastPathKeyResult, LoadExecutor},
         executor::{
             AccessPlanStreamRequest, AccessStreamBindings, KeyOrderComparator,
@@ -8,7 +9,7 @@ use crate::{
         },
         index::predicate::IndexPredicateExecution,
         lowering::LoweredKey,
-        query::plan::{AccessPlannedQuery, Direction},
+        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},

@@ -1,4 +1,4 @@
-use crate::db::index::Direction;
+use crate::db::direction::Direction;
 use std::{cmp::Ordering, ops::Bound};
 
 ///

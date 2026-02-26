@@ -1,15 +1,13 @@
 use crate::{
     db::{
+        direction::Direction,
         executor::{
             ExecutionKernel,
             aggregate::{AggregateKind, AggregateSpec},
             load::LoadExecutor,
         },
         lowering::LoweredKey,
-        query::{
-            contracts::cursor::CursorBoundary,
-            plan::{AccessPlannedQuery, Direction},
-        },
+        query::{contracts::cursor::CursorBoundary, plan::AccessPlannedQuery},
     },
     traits::{EntityKind, EntityValue},
 };

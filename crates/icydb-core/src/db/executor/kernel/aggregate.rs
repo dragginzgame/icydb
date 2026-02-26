@@ -1,6 +1,7 @@
 use crate::{
     db::{
         Context,
+        direction::Direction,
         executor::{
             AccessPlanStreamRequest, AccessStreamBindings, ExecutablePlan, ExecutionKernel,
             IndexPredicateCompileMode, IndexStreamConstraints, LoweredIndexPrefixSpec,
@@ -26,7 +27,7 @@ use crate::{
         index::predicate::IndexPredicateExecution,
         query::{
             ReadConsistency,
-            plan::{AccessPath, AccessPlannedQuery, Direction, validate::validate_executor_plan},
+            plan::{AccessPath, AccessPlannedQuery, validate::validate_executor_plan},
             policy,
         },
         response::Response,

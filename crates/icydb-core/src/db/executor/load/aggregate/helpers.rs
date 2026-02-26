@@ -1,6 +1,7 @@
 use crate::{
     db::{
         Context,
+        direction::Direction,
         executor::{
             ExecutablePlan,
             aggregate::AggregateKind,
@@ -10,7 +11,7 @@ use crate::{
             },
             load::LoadExecutor,
         },
-        query::{ReadConsistency, plan::Direction},
+        query::ReadConsistency,
         response::Response,
     },
     error::InternalError,

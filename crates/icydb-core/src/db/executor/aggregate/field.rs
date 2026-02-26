@@ -1,9 +1,9 @@
 use crate::{
     db::{
+        direction::Direction,
         executor::aggregate::capability::{
             field_kind_supports_aggregate_ordering, field_kind_supports_numeric_aggregation,
         },
-        query::plan::Direction,
     },
     error::InternalError,
     model::{
@@ -374,6 +374,7 @@ mod tests {
         validate_numeric_aggregate_target_field, validate_orderable_aggregate_target_field,
     };
     use crate::{
+        db::direction::Direction,
         model::field::FieldKind,
         types::{Decimal, Ulid},
         value::Value,
@@ -502,7 +503,7 @@ mod tests {
             },
         )
         .expect("typed field comparison should succeed");
-        let desc = apply_aggregate_direction(asc, crate::db::query::plan::Direction::Desc);
+        let desc = apply_aggregate_direction(asc, Direction::Desc);
 
         assert_eq!(asc, Ordering::Less);
         assert_eq!(desc, Ordering::Greater);
@@ -563,7 +564,7 @@ mod tests {
                 index: 1,
                 kind: FieldKind::Uint,
             },
-            crate::db::query::plan::Direction::Asc,
+            Direction::Asc,
         )
         .expect("field-extrema comparator should apply canonical PK tie-break");
 
@@ -593,7 +594,7 @@ mod tests {
                 index: 1,
                 kind: FieldKind::Uint,
             },
-            crate::db::query::plan::Direction::Desc,
+            Direction::Desc,
         )
         .expect("field-extrema comparator should apply canonical PK tie-break");
 

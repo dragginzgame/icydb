@@ -1,5 +1,6 @@
 use crate::{
     db::{
+        direction::Direction,
         executor::{
             PlannedCursor, decode_typed_primary_key_cursor_slot, validate_index_range_anchor,
             validate_index_range_boundary_anchor_consistency,
@@ -9,7 +10,7 @@ use crate::{
                 ContinuationSignature, ContinuationToken, ContinuationTokenError, CursorBoundary,
                 CursorBoundarySlot, IndexRangeCursorAnchor,
             },
-            plan::{AccessPath, CursorPlanError, Direction, OrderPlanError, OrderSpec, PlanError},
+            plan::{AccessPath, CursorPlanError, OrderPlanError, OrderSpec, PlanError},
             predicate::{SchemaInfo, validate::literal_matches_type},
         },
     },

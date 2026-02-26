@@ -5,16 +5,14 @@ mod mode;
 
 use crate::{
     db::{
+        direction::Direction,
         executor::{
             Context, ExecutionPlan, OrderedKeyStreamBox,
             aggregate::{AggregateFoldMode, AggregateKind, AggregateSpec},
             load::LoadExecutor,
         },
         lowering::LoweredKey,
-        query::{
-            contracts::cursor::CursorBoundary,
-            plan::{AccessPlannedQuery, Direction},
-        },
+        query::{contracts::cursor::CursorBoundary, plan::AccessPlannedQuery},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},

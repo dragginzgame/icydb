@@ -1,24 +1,13 @@
 use crate::{
-    db::index::{EncodedValue, IndexId, IndexKey, IndexKeyKind, KeyEnvelope, RawIndexKey},
+    db::{
+        direction::Direction,
+        index::{EncodedValue, IndexId, IndexKey, IndexKeyKind, KeyEnvelope, RawIndexKey},
+    },
     model::index::IndexModel,
     traits::EntityKind,
     value::Value,
 };
-use serde::{Deserialize, Serialize};
 use std::ops::Bound;
-
-///
-/// Direction
-///
-/// Execution-time traversal direction for range continuation behavior.
-///
-
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-pub(in crate::db) enum Direction {
-    #[default]
-    Asc,
-    Desc,
-}
 
 ///
 /// IndexRangeBoundEncodeError

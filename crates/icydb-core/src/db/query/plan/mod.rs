@@ -9,6 +9,7 @@ mod tests;
 mod types;
 pub(crate) mod validate;
 
+pub(crate) use crate::db::direction::Direction;
 pub(in crate::db) use crate::db::query::fingerprint::canonical;
 pub(crate) use access_projection::{
     AccessPlanProjection, project_access_plan, project_explain_access_path,
@@ -18,7 +19,6 @@ pub(crate) use cursor::CursorPlanError;
 /// Re-Exports
 ///
 pub(crate) use logical::{AccessPlannedQuery, LogicalPlan};
-pub(crate) use types::Direction;
 pub use types::OrderDirection;
 pub(crate) use types::{
     AccessPath, AccessPlan, DeleteLimitSpec, OrderSpec, PageSpec, SemanticIndexRangeSpec,

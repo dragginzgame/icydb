@@ -1,12 +1,12 @@
 use crate::{
     db::{
         data::{DataKey, StorageKey},
+        direction::Direction,
         executor::stream::key::{
             BudgetedOrderedKeyStream, IntersectOrderedKeyStream, MergeOrderedKeyStream,
             OrderedKeyStream, VecOrderedKeyStream,
         },
         identity::EntityName,
-        query::plan::Direction,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
 };

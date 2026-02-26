@@ -1,5 +1,5 @@
 use crate::{
-    db::{data::DataKey, query::plan::Direction},
+    db::{data::DataKey, direction::Direction},
     error::InternalError,
     traits::EntityKind,
     types::Id,

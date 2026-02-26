@@ -1,7 +1,6 @@
 //! Pure plan-layer data types; must not embed planning semantics or validation.
 
 use crate::{model::index::IndexModel, value::Value};
-use serde::{Deserialize, Serialize};
 use std::ops::Bound;
 
 pub(crate) type IndexRangePathRef<'a> = (
@@ -264,18 +263,6 @@ impl<K> AccessPath<K> {
             _ => None,
         }
     }
-}
-
-///
-/// Direction
-/// Executor-facing traversal direction for ordered execution and continuations.
-///
-
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-pub(crate) enum Direction {
-    #[default]
-    Asc,
-    Desc,
 }
 
 ///

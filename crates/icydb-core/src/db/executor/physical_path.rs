@@ -1,14 +1,14 @@
 use crate::{
     db::{
         data::DataKey,
+        direction::Direction,
         executor::{
             Context, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, OrderedKeyStreamBox,
             VecOrderedKeyStream,
         },
-        index::Direction as IndexDirection,
         index::predicate::IndexPredicateExecution,
         lowering::LoweredKey,
-        query::plan::{AccessPath, Direction},
+        query::plan::AccessPath,
     },
     error::InternalError,
     model::index::IndexModel,
@@ -30,13 +30,6 @@ enum KeyOrderState {
 }
 
 impl<K> AccessPath<K> {
-    const fn to_index_direction(direction: Direction) -> IndexDirection {
-        match direction {
-            Direction::Asc => IndexDirection::Asc,
-            Direction::Desc => IndexDirection::Desc,
-        }
-    }
-
     // Physical access lowering for one access path.
     // Direct store/index traversal here is intentional and resolver-owned.
     /// Build an ordered key stream for this access path.
@@ -299,7 +292,7 @@ impl<K> AccessPath<K> {
                 spec.index(),
                 (spec.lower(), spec.upper()),
                 None,
-                Self::to_index_direction(direction),
+                direction,
                 fetch_limit,
                 index_predicate_execution,
             )
@@ -343,7 +336,7 @@ impl<K> AccessPath<K> {
                 spec.index(),
                 (spec.lower(), spec.upper()),
                 index_range_anchor,
-                Self::to_index_direction(direction),
+                direction,
                 fetch_limit,
                 index_predicate_execution,
             )

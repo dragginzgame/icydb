@@ -1,12 +1,13 @@
 use crate::{
     db::{
         data::{DataKey, StorageKey},
+        direction::Direction,
         executor::{
             KeyOrderComparator, OrderedKeyStream, OrderedKeyStreamBox,
             load::{ResolvedExecutionKeyStream, key_stream_comparator_from_direction},
         },
         identity::EntityName,
-        query::plan::{AccessPlannedQuery, Direction},
+        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
 };
@@ -171,12 +172,12 @@ mod tests {
     use crate::{
         db::{
             data::{DataKey, StorageKey},
+            direction::Direction,
             executor::{
                 KeyOrderComparator, OrderedKeyStream, VecOrderedKeyStream,
                 kernel::distinct::DistinctOrderedKeyStream,
             },
             identity::EntityName,
-            query::plan::Direction,
         },
         error::{ErrorClass, ErrorOrigin, InternalError},
     };

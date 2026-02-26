@@ -1,6 +1,6 @@
 use crate::db::{
     data::{DataKey, StorageKey},
-    query::plan::Direction,
+    direction::Direction,
 };
 use std::cmp::Ordering;
 
