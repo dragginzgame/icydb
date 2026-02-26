@@ -1,7 +1,8 @@
 .PHONY: help version current tags patch minor major release \
         test build check clippy fmt fmt-check clean install-dev \
         test-watch all ensure-clean security-check check-versioning \
-        ensure-hooks install-hooks check-index-range-spec-invariants
+        ensure-hooks install-hooks check-index-range-spec-invariants \
+        check-invariants
 
 # in case we need this
 CARGO_ENV :=
@@ -124,10 +125,11 @@ build: ensure-clean ensure-hooks
 	$(CARGO_ENV) cargo build --release --workspace
 
 check: ensure-hooks fmt-check
-	bash scripts/ci/check-index-range-spec-invariants.sh
+	$(MAKE) check-invariants
 	$(CARGO_ENV) cargo check --workspace
 
 clippy: ensure-hooks
+	$(MAKE) check-invariants
 	$(CARGO_ENV) cargo clippy --workspace --all-targets -- -D warnings
 
 fmt: ensure-hooks
@@ -157,6 +159,11 @@ check-versioning: security-check
 
 check-index-range-spec-invariants:
 	bash scripts/ci/check-index-range-spec-invariants.sh
+
+check-invariants:
+	bash scripts/ci/check-index-range-spec-invariants.sh
+	bash scripts/ci/check-memory-id-invariants.sh
+	bash scripts/ci/check-field-projection-invariants.sh
 
 # Run tests in watch mode
 test-watch:

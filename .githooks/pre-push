@@ -3,11 +3,8 @@ set -euo pipefail
 
 echo "Running pre-push checks (clippy all-targets)..."
 
-# Keep index-range execution on pre-lowered key specs.
-bash scripts/ci/check-index-range-spec-invariants.sh
-
-# Keep explicit commit memory-id architecture invariants.
-bash scripts/ci/check-memory-id-invariants.sh
+# Keep architecture invariants in sync with local and CI checks.
+make check-invariants
 
 # Match CI: lint everything (tests/benches/examples) with warnings denied.
 cargo clippy --workspace --all-targets -- -D warnings

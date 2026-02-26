@@ -5,6 +5,10 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.30.2] - 2026-02-25 - Bug Fix
+
+* CI allowed errors through so `make test`, `make patch`, `cargo publish` work but `git push` doesn't.  Fixing.
+
 ## [0.30.1] - 2026-02-25 - Execution Kernel Consolidation (Phase 2)
 
 ### 📝 Summary
