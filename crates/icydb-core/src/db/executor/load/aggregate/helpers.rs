@@ -3,11 +3,11 @@ use crate::{
         Context,
         executor::{
             ExecutablePlan,
+            aggregate::AggregateKind,
             aggregate::field::{
-                AggregateFieldValueError, FieldSlot, compare_entities_for_field_extrema,
-                compare_orderable_field_values, extract_orderable_field_value,
+                AggregateFieldValueError, FieldSlot, compare_orderable_field_values,
+                extract_orderable_field_value,
             },
-            fold::{AggregateKind, AggregateOutput},
             load::{LoadExecutor, aggregate::MinMaxByIds},
         },
         query::{ReadConsistency, plan::Direction},
@@ -42,40 +42,6 @@ where
         }
 
         Ok(field_order == Ordering::Equal && candidate_id.key() < current_id.key())
-    }
-
-    // Return the aggregate terminal value for an empty effective output window.
-    pub(in crate::db::executor::load::aggregate) const fn aggregate_zero_window_result(
-        kind: AggregateKind,
-    ) -> AggregateOutput<E> {
-        match kind {
-            AggregateKind::Count => AggregateOutput::Count(0),
-            AggregateKind::Exists => AggregateOutput::Exists(false),
-            AggregateKind::Min => AggregateOutput::Min(None),
-            AggregateKind::Max => AggregateOutput::Max(None),
-            AggregateKind::First => AggregateOutput::First(None),
-            AggregateKind::Last => AggregateOutput::Last(None),
-        }
-    }
-
-    pub(in crate::db::executor::load::aggregate) fn aggregate_from_materialized(
-        response: Response<E>,
-        kind: AggregateKind,
-    ) -> AggregateOutput<E> {
-        match kind {
-            AggregateKind::Count => AggregateOutput::Count(response.count()),
-            AggregateKind::Exists => AggregateOutput::Exists(!response.is_empty()),
-            AggregateKind::Min => {
-                AggregateOutput::Min(response.into_iter().map(|(id, _)| id).min())
-            }
-            AggregateKind::Max => {
-                AggregateOutput::Max(response.into_iter().map(|(id, _)| id).max())
-            }
-            AggregateKind::First => AggregateOutput::First(response.id()),
-            AggregateKind::Last => {
-                AggregateOutput::Last(response.into_iter().map(|(id, _)| id).last())
-            }
-        }
     }
 
     // Execute one field-target nth aggregate (`nth(field, n)`) via canonical
@@ -116,69 +82,6 @@ where
         let response = self.execute(plan)?;
 
         Self::aggregate_min_max_field_from_materialized(response, target_field, field_slot)
-    }
-
-    // Reduce one materialized response into a field-target extrema id with the
-    // deterministic tie-break contract `(field_value, primary_key_asc)`.
-    pub(in crate::db::executor::load::aggregate) fn aggregate_field_extrema_from_materialized(
-        response: Response<E>,
-        kind: AggregateKind,
-        target_field: &str,
-        field_slot: FieldSlot,
-    ) -> Result<AggregateOutput<E>, InternalError> {
-        if !matches!(kind, AggregateKind::Min | AggregateKind::Max) {
-            return Err(InternalError::query_executor_invariant(
-                "materialized field-extrema reduction requires MIN/MAX terminal",
-            ));
-        }
-        let compare_direction = match kind {
-            AggregateKind::Min => Direction::Asc,
-            AggregateKind::Max => Direction::Desc,
-            AggregateKind::Count
-            | AggregateKind::Exists
-            | AggregateKind::First
-            | AggregateKind::Last => {
-                return Err(InternalError::query_executor_invariant(
-                    "materialized field-extrema reduction reached non-extrema terminal",
-                ));
-            }
-        };
-
-        let mut selected: Option<(Id<E>, E)> = None;
-        for (id, entity) in response {
-            let should_replace = match selected.as_ref() {
-                Some((_, current)) => {
-                    compare_entities_for_field_extrema(
-                        &entity,
-                        current,
-                        target_field,
-                        field_slot,
-                        compare_direction,
-                    )
-                    .map_err(AggregateFieldValueError::into_internal_error)?
-                        == Ordering::Less
-                }
-                None => true,
-            };
-            if should_replace {
-                selected = Some((id, entity));
-            }
-        }
-
-        let selected_id = selected.map(|(id, _)| id);
-
-        Ok(match kind {
-            AggregateKind::Min => AggregateOutput::Min(selected_id),
-            AggregateKind::Max => AggregateOutput::Max(selected_id),
-            AggregateKind::Count
-            | AggregateKind::Exists
-            | AggregateKind::First
-            | AggregateKind::Last => {
-                return Err(InternalError::query_executor_invariant(
-                    "materialized field-extrema reduction reached non-extrema terminal",
-                ));
-            }
-        })
     }
 
     // Reduce one materialized response into `nth(field, n)` using deterministic
@@ -362,36 +265,5 @@ where
         err: AggregateFieldValueError,
     ) -> InternalError {
         err.into_internal_error()
-    }
-
-    // MissingOk can skip stale leading index entries. If a bounded Min/Max
-    // probe returns None exactly at the fetch boundary, the outcome is
-    // inconclusive and must retry unbounded.
-    pub(in crate::db::executor::load::aggregate) const fn secondary_extrema_probe_requires_fallback(
-        consistency: ReadConsistency,
-        kind: AggregateKind,
-        probe_fetch_hint: Option<usize>,
-        probe_output: &AggregateOutput<E>,
-        probe_rows_scanned: usize,
-    ) -> bool {
-        if !matches!(consistency, ReadConsistency::MissingOk) {
-            return false;
-        }
-        if !matches!(kind, AggregateKind::Min | AggregateKind::Max) {
-            return false;
-        }
-
-        let Some(fetch) = probe_fetch_hint else {
-            return false;
-        };
-        if fetch == 0 || probe_rows_scanned < fetch {
-            return false;
-        }
-
-        matches!(
-            (kind, probe_output),
-            (AggregateKind::Min, AggregateOutput::Min(None))
-                | (AggregateKind::Max, AggregateOutput::Max(None))
-        )
     }
 }

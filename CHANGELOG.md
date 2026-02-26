@@ -5,6 +5,41 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.30.1] - 2026-02-25 - Execution Kernel Consolidation (Phase 2)
+
+### 📝 Summary
+
+* Continues the `0.30` cleanup by moving more read execution ownership into the kernel and simplifying module boundaries, with no query behavior changes.
+
+### 🔧 Changed - Aggregate Execution
+
+* Aggregate execution now runs through one kernel-owned path, including fast-path routing and field-target `MIN`/`MAX` handling.
+* Aggregate fast-path orchestration moved out of load-layer helpers into kernel-owned execution, reducing duplicate branching.
+* Materialized aggregate reducers for core terminals and field-target extrema are now kernel-owned.
+* Streaming aggregate folding continues through one shared kernel reducer runner for `count`, `exists`, `min`, and `max`.
+* Unsupported `MIN(field)`/`MAX(field)` targets still fail before any scan-budget work starts.
+
+### 🔧 Changed - Structure and Naming
+
+* Route planner internals were split into smaller focused modules to reduce hotspot size.
+* Stream internals were consolidated under `executor/stream`, with separate `key` and `access` modules.
+* Aggregate execution descriptor contracts were moved under shared `executor/aggregate` ownership.
+* Load aggregate modules are now thinner wrappers around kernel-owned aggregate execution.
+* Internal naming was cleaned up by renaming cursor helpers to `prepare_cursor` and `revalidate_cursor`.
+* The internal plan metrics module was renamed to `plan_metrics` for clearer intent.
+
+### 🔧 Changed - Behavior Notes
+
+* No user-visible query semantics changed; this release is a consolidation pass.
+
+### 🧪 Testing
+
+* Reorganized route structural guards into focused test files while keeping the same guard intent.
+* Kept structural guard coverage for kernel-owned aggregate dispatch and reducer-runner boundaries.
+* Updated guards to keep aggregate preparation and cursor/window progression rooted in kernel-owned helpers.
+
+---
+
 ## [0.30.0] - 2026-02-25 - Execution Kernel Consolidation (Phase 1)
 
 ### 📝 Summary

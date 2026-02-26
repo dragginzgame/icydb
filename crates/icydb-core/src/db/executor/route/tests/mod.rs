@@ -6,7 +6,7 @@ use super::{
 use crate::{
     db::{
         executor::{
-            fold::{AggregateFoldMode, AggregateKind, AggregateSpec},
+            aggregate::{AggregateFoldMode, AggregateKind, AggregateSpec},
             load::LoadExecutor,
         },
         query::{
@@ -158,4 +158,7 @@ mod capability;
 mod field_extrema;
 mod load;
 mod mutation;
+mod planner_capability;
+mod planner_fast_path;
+mod planner_mode;
 mod precedence;

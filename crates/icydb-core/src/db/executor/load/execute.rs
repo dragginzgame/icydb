@@ -4,7 +4,7 @@ use crate::{
         executor::load::{
             CursorPage, ExecutionOptimization, ExecutionTrace, FastPathKeyResult, LoadExecutor,
         },
-        executor::plan::set_rows_from_len,
+        executor::plan_metrics::set_rows_from_len,
         executor::{
             AccessPlanStreamRequest, AccessStreamBindings, ExecutionKernel, ExecutionPlan,
             IndexPredicateCompileMode, OrderedKeyStreamBox,

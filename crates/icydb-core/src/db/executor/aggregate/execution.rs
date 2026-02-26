@@ -1,17 +1,15 @@
 use crate::{
     db::{
         Context,
-        executor::{
-            AccessStreamBindings, ExecutionPlan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
-            fold::{AggregateFoldMode, AggregateKind, AggregateSpec},
-            load::execute::ExecutionInputs,
-        },
+        executor::{ExecutionPlan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec},
         index::predicate::IndexPredicateProgram,
         query::{plan::AccessPlannedQuery, plan::Direction, predicate::PredicateFieldSlots},
     },
     traits::{EntityKind, EntityValue},
 };
 
+///
+/// AggregateFastPathInputs
 ///
 /// AggregateFastPathInputs
 ///
@@ -29,10 +27,12 @@ pub(in crate::db::executor) struct AggregateFastPathInputs<'exec, 'ctx, E: Entit
     pub(in crate::db::executor) index_predicate_program: Option<&'exec IndexPredicateProgram>,
     pub(in crate::db::executor) direction: Direction,
     pub(in crate::db::executor) physical_fetch_hint: Option<usize>,
-    pub(in crate::db::executor) kind: AggregateKind,
-    pub(in crate::db::executor) fold_mode: AggregateFoldMode,
+    pub(in crate::db::executor) kind: super::AggregateKind,
+    pub(in crate::db::executor) fold_mode: super::AggregateFoldMode,
 }
 
+///
+/// AggregateExecutionDescriptor
 ///
 /// AggregateExecutionDescriptor
 ///
@@ -41,7 +41,7 @@ pub(in crate::db::executor) struct AggregateFastPathInputs<'exec, 'ctx, E: Entit
 ///
 
 pub(in crate::db::executor) struct AggregateExecutionDescriptor {
-    pub(in crate::db::executor) spec: AggregateSpec,
+    pub(in crate::db::executor) spec: super::AggregateSpec,
     pub(in crate::db::executor) direction: Direction,
     pub(in crate::db::executor) route_plan: ExecutionPlan,
     pub(in crate::db::executor) strict_index_predicate_program: Option<IndexPredicateProgram>,
@@ -50,9 +50,10 @@ pub(in crate::db::executor) struct AggregateExecutionDescriptor {
 ///
 /// PreparedAggregateStreamingInputs
 ///
-/// PreparedAggregateStreamingInputs owns the canonical aggregate streaming
-/// execution state after `ExecutablePlan` is consumed into logical plan form.
-/// This keeps aggregate streaming branches aligned on one setup boundary.
+/// PreparedAggregateStreamingInputs
+///
+/// PreparedAggregateStreamingInputs owns canonical aggregate streaming setup
+/// state after `ExecutablePlan` is consumed into logical plan form.
 ///
 
 pub(in crate::db::executor) struct PreparedAggregateStreamingInputs<
@@ -64,27 +65,4 @@ pub(in crate::db::executor) struct PreparedAggregateStreamingInputs<
     pub(in crate::db::executor) index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
     pub(in crate::db::executor) index_range_specs: Vec<LoweredIndexRangeSpec>,
     pub(in crate::db::executor) predicate_slots: Option<PredicateFieldSlots>,
-}
-
-impl<E> PreparedAggregateStreamingInputs<'_, E>
-where
-    E: EntityKind + EntityValue,
-{
-    // Build canonical execution stream bindings for aggregate streaming paths.
-    pub(in crate::db::executor) const fn execution_inputs(
-        &self,
-        direction: Direction,
-    ) -> ExecutionInputs<'_, E> {
-        ExecutionInputs {
-            ctx: &self.ctx,
-            plan: &self.logical_plan,
-            stream_bindings: AccessStreamBindings {
-                index_prefix_specs: self.index_prefix_specs.as_slice(),
-                index_range_specs: self.index_range_specs.as_slice(),
-                index_range_anchor: None,
-                direction,
-            },
-            predicate_slots: self.predicate_slots.as_ref(),
-        }
-    }
 }

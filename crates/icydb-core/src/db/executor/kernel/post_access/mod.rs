@@ -1,11 +1,11 @@
-//! Execution-phase bridge that applies runtime semantics to logical plans.
+//! Kernel-owned post-access execution semantics for planned queries.
 
-mod order_cursor;
+pub(in crate::db::executor::kernel) mod order_cursor;
 mod window;
 
 use crate::{
     db::{
-        executor::compute_page_window,
+        executor::ExecutionKernel,
         index::IndexKey,
         query::{
             contracts::cursor::{
@@ -122,8 +122,13 @@ impl<K> AccessPlannedQuery<K> {
         let (ordered, rows_after_order) = self.apply_order_phase::<E, R>(rows, cursor, filtered)?;
 
         // Phase 3: continuation boundary.
-        let (_cursor_skipped, rows_after_cursor) =
-            self.apply_cursor_phase::<E, R>(rows, cursor, ordered, rows_after_order)?;
+        let (_cursor_skipped, rows_after_cursor) = ExecutionKernel::apply_cursor_boundary_phase::<
+            K,
+            E,
+            R,
+        >(
+            self, rows, cursor, ordered, rows_after_order
+        )?;
 
         // Phase 4: load pagination.
         let (paged, rows_after_page) = self.apply_page_phase(rows, ordered, cursor)?;
@@ -215,7 +220,7 @@ impl<K> AccessPlannedQuery<K> {
         E: EntityKind + EntityValue,
         R: PlanRow<E>,
     {
-        let bounded_order_keep = self.bounded_order_keep_count(cursor);
+        let bounded_order_keep = ExecutionKernel::bounded_order_keep_count(self, cursor);
         if let Some(order) = &self.order
             && !order.fields.is_empty()
         {
@@ -242,42 +247,6 @@ impl<K> AccessPlannedQuery<K> {
         Ok((false, rows.len()))
     }
 
-    // Continuation phase (strictly after ordering, before pagination).
-    fn apply_cursor_phase<E, R>(
-        &self,
-        rows: &mut Vec<R>,
-        cursor: Option<&CursorBoundary>,
-        ordered: bool,
-        rows_after_order: usize,
-    ) -> Result<(bool, usize), InternalError>
-    where
-        E: EntityKind + EntityValue,
-        R: PlanRow<E>,
-    {
-        if self.mode.is_load()
-            && let Some(boundary) = cursor
-        {
-            let Some(order) = self.order.as_ref() else {
-                return Err(InternalError::query_executor_invariant(
-                    "cursor boundary requires ordering",
-                ));
-            };
-
-            if !ordered {
-                return Err(InternalError::query_executor_invariant(
-                    "cursor boundary must run after ordering",
-                ));
-            }
-
-            order_cursor::apply_cursor_boundary::<E, R>(rows, order, boundary);
-            return Ok((true, rows.len()));
-        }
-
-        // No cursor boundary; preserve post-order cardinality for continuation
-        // decisions and diagnostics.
-        Ok((false, rows_after_order))
-    }
-
     // Load pagination phase (offset/limit).
     fn apply_page_phase<R>(
         &self,
@@ -293,9 +262,11 @@ impl<K> AccessPlannedQuery<K> {
                     "pagination must run after ordering",
                 ));
             }
-            // Offset is applied only on the initial page. Continuation requests
-            // resume from the cursor boundary and must not re-apply offset.
-            window::apply_pagination(rows, self.effective_page_offset(cursor), page.limit);
+            window::apply_pagination(
+                rows,
+                ExecutionKernel::effective_page_offset(self, cursor),
+                page.limit,
+            );
             true
         } else {
             false
@@ -325,37 +296,6 @@ impl<K> AccessPlannedQuery<K> {
         };
 
         Ok((delete_was_limited, rows.len()))
-    }
-
-    // Return the bounded working-set size for ordered loads without a
-    // continuation boundary. This keeps canonical semantics while avoiding a
-    // full sort when only one page window (+1 to detect continuation) is
-    // needed.
-    fn bounded_order_keep_count(&self, cursor: Option<&CursorBoundary>) -> Option<usize> {
-        if !self.mode.is_load() || cursor.is_some() {
-            return None;
-        }
-
-        let page = self.page.as_ref()?;
-        let limit = page.limit?;
-        if limit == 0 {
-            return None;
-        }
-
-        Some(compute_page_window(page.offset, limit, true).fetch_count)
-    }
-
-    /// Return the effective page offset for this request.
-    ///
-    /// Offset is only consumed on the first page. Any continuation cursor means
-    /// the offset has already been applied and the next request uses offset `0`.
-    #[must_use]
-    pub(crate) fn effective_page_offset(&self, cursor: Option<&CursorBoundary>) -> u32 {
-        if cursor.is_some() {
-            return 0;
-        }
-
-        self.page.as_ref().map_or(0, |page| page.offset)
     }
 
     /// Build a cursor boundary from one materialized entity using this plan's canonical ordering.
@@ -537,7 +477,7 @@ mod tests {
         });
 
         assert_eq!(
-            plan.bounded_order_keep_count(None),
+            crate::db::executor::ExecutionKernel::bounded_order_keep_count(&plan, None),
             Some(9),
             "bounded ordering should keep offset + limit + 1 rows"
         );
@@ -554,7 +494,7 @@ mod tests {
         let cursor = CursorBoundary { slots: Vec::new() };
 
         assert_eq!(
-            plan.bounded_order_keep_count(Some(&cursor)),
+            crate::db::executor::ExecutionKernel::bounded_order_keep_count(&plan, Some(&cursor),),
             None,
             "bounded ordering should be disabled for continuation requests"
         );

@@ -3,7 +3,7 @@ use crate::{
         data::DataKey,
         executor::{
             Context, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, OrderedKeyStreamBox,
-            VecOrderedKeyStream, normalize_ordered_keys,
+            VecOrderedKeyStream,
         },
         index::Direction as IndexDirection,
         index::predicate::IndexPredicateExecution,
@@ -15,6 +15,19 @@ use crate::{
     traits::{EntityKind, EntityValue},
 };
 use std::ops::Bound;
+
+///
+/// KeyOrderState
+///
+/// Explicit ordering state for key vectors produced by one access-path resolver.
+/// This keeps normalization behavior local and avoids implicit path-shape proxies.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum KeyOrderState {
+    FinalOrder,
+    AscendingSorted,
+    Unordered,
+}
 
 impl<K> AccessPath<K> {
     const fn to_index_direction(direction: Direction) -> IndexDirection {
@@ -46,9 +59,8 @@ impl<K> AccessPath<K> {
         // equivalent without requiring full-set normalization.
         let primary_scan_fetch_hint = self.primary_scan_fetch_hint(physical_fetch_hint);
 
-        // Resolve candidate keys and track whether the vector is already in
-        // final stream order for the requested direction.
-        let (mut candidates, already_in_stream_order) = match self {
+        // Resolve candidate keys and track explicit ordering state.
+        let (mut candidates, key_order_state) = match self {
             Self::ByKey(key) => Self::resolve_by_key::<E>(*key)?,
             Self::ByKeys(keys) => Self::resolve_by_keys::<E>(keys)?,
             Self::KeyRange { start, end } => {
@@ -76,11 +88,31 @@ impl<K> AccessPath<K> {
             )?,
         };
 
-        if !already_in_stream_order {
-            normalize_ordered_keys(&mut candidates, direction, !self.is_index_path());
-        }
+        Self::normalize_ordered_keys(&mut candidates, direction, key_order_state);
 
         Ok(Box::new(VecOrderedKeyStream::new(candidates)))
+    }
+
+    // Normalize key ordering according to explicit resolver output state.
+    fn normalize_ordered_keys(
+        keys: &mut [DataKey],
+        direction: Direction,
+        key_order_state: KeyOrderState,
+    ) {
+        match key_order_state {
+            KeyOrderState::FinalOrder => {}
+            KeyOrderState::AscendingSorted => {
+                if matches!(direction, Direction::Desc) {
+                    keys.reverse();
+                }
+            }
+            KeyOrderState::Unordered => {
+                keys.sort_unstable();
+                if matches!(direction, Direction::Desc) {
+                    keys.reverse();
+                }
+            }
+        }
     }
 
     // Only primary-data scans support safe bounded physical probing.
@@ -92,16 +124,19 @@ impl<K> AccessPath<K> {
     }
 
     // Resolve one direct primary-key lookup.
-    fn resolve_by_key<E>(key: K) -> Result<(Vec<DataKey>, bool), InternalError>
+    fn resolve_by_key<E>(key: K) -> Result<(Vec<DataKey>, KeyOrderState), InternalError>
     where
         E: EntityKind<Key = K> + EntityValue,
         K: Copy + Ord,
     {
-        Ok((vec![Context::<E>::data_key_from_key(key)?], true))
+        Ok((
+            vec![Context::<E>::data_key_from_key(key)?],
+            KeyOrderState::FinalOrder,
+        ))
     }
 
     // Resolve one `ByKeys` shape with canonical deduplication.
-    fn resolve_by_keys<E>(keys: &[K]) -> Result<(Vec<DataKey>, bool), InternalError>
+    fn resolve_by_keys<E>(keys: &[K]) -> Result<(Vec<DataKey>, KeyOrderState), InternalError>
     where
         E: EntityKind<Key = K> + EntityValue,
         K: Copy + Ord,
@@ -111,7 +146,7 @@ impl<K> AccessPath<K> {
             .map(Context::<E>::data_key_from_key)
             .collect::<Result<Vec<_>, _>>()?;
 
-        Ok((keys, false))
+        Ok((keys, KeyOrderState::AscendingSorted))
     }
 
     // Resolve one primary-key range traversal.
@@ -121,7 +156,7 @@ impl<K> AccessPath<K> {
         end: K,
         direction: Direction,
         primary_scan_fetch_hint: Option<usize>,
-    ) -> Result<(Vec<DataKey>, bool), InternalError>
+    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError>
     where
         E: EntityKind<Key = K> + EntityValue,
         K: Copy + Ord,
@@ -159,7 +194,7 @@ impl<K> AccessPath<K> {
                 Ok(out)
             })??;
 
-            return Ok((keys, true));
+            return Ok((keys, KeyOrderState::FinalOrder));
         }
 
         let keys = ctx.with_store(|s| {
@@ -173,7 +208,7 @@ impl<K> AccessPath<K> {
                 .collect::<Result<Vec<_>, _>>()
         })??;
 
-        Ok((keys, false))
+        Ok((keys, KeyOrderState::AscendingSorted))
     }
 
     // Resolve one full primary-key scan traversal.
@@ -181,7 +216,7 @@ impl<K> AccessPath<K> {
         ctx: &Context<'_, E>,
         direction: Direction,
         primary_scan_fetch_hint: Option<usize>,
-    ) -> Result<(Vec<DataKey>, bool), InternalError>
+    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError>
     where
         E: EntityKind<Key = K> + EntityValue,
         K: Copy + Ord,
@@ -219,7 +254,7 @@ impl<K> AccessPath<K> {
                 Ok(out)
             })??;
 
-            return Ok((keys, true));
+            return Ok((keys, KeyOrderState::FinalOrder));
         }
 
         let keys = ctx.with_store(|s| {
@@ -233,7 +268,7 @@ impl<K> AccessPath<K> {
                 .collect::<Result<Vec<_>, _>>()
         })??;
 
-        Ok((keys, false))
+        Ok((keys, KeyOrderState::AscendingSorted))
     }
 
     // Resolve one index-prefix traversal using a pre-lowered index-prefix spec.
@@ -244,7 +279,7 @@ impl<K> AccessPath<K> {
         direction: Direction,
         index_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
-    ) -> Result<(Vec<DataKey>, bool), InternalError>
+    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError>
     where
         E: EntityKind<Key = K> + EntityValue,
         K: Copy + Ord,
@@ -270,7 +305,13 @@ impl<K> AccessPath<K> {
             )
         })?;
 
-        Ok((keys, index_fetch_hint.is_some()))
+        let key_order_state = if index_fetch_hint.is_some() {
+            KeyOrderState::FinalOrder
+        } else {
+            KeyOrderState::Unordered
+        };
+
+        Ok((keys, key_order_state))
     }
 
     // Resolve one index-range traversal using a pre-lowered index-range spec.
@@ -282,7 +323,7 @@ impl<K> AccessPath<K> {
         direction: Direction,
         index_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
-    ) -> Result<(Vec<DataKey>, bool), InternalError>
+    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError>
     where
         E: EntityKind<Key = K> + EntityValue,
         K: Copy + Ord,
@@ -308,6 +349,12 @@ impl<K> AccessPath<K> {
             )
         })?;
 
-        Ok((keys, index_fetch_hint.is_some()))
+        let key_order_state = if index_fetch_hint.is_some() {
+            KeyOrderState::FinalOrder
+        } else {
+            KeyOrderState::Unordered
+        };
+
+        Ok((keys, key_order_state))
     }
 }

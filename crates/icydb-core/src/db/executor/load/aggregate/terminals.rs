@@ -1,7 +1,7 @@
 use crate::{
     db::executor::{
-        ExecutablePlan,
-        fold::{AggregateKind, AggregateOutput, AggregateSpec},
+        ExecutablePlan, ExecutionKernel,
+        aggregate::{AggregateKind, AggregateOutput, AggregateSpec},
         load::LoadExecutor,
     },
     error::InternalError,
@@ -17,9 +17,11 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<u32, InternalError> {
-        match self
-            .execute_aggregate_spec(plan, AggregateSpec::for_terminal(AggregateKind::Count))?
-        {
+        match ExecutionKernel::execute_aggregate_spec(
+            self,
+            plan,
+            AggregateSpec::for_terminal(AggregateKind::Count),
+        )? {
             AggregateOutput::Count(value) => Ok(value),
             _ => Err(InternalError::query_executor_invariant(
                 "aggregate COUNT result kind mismatch",
@@ -31,9 +33,11 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<bool, InternalError> {
-        match self
-            .execute_aggregate_spec(plan, AggregateSpec::for_terminal(AggregateKind::Exists))?
-        {
+        match ExecutionKernel::execute_aggregate_spec(
+            self,
+            plan,
+            AggregateSpec::for_terminal(AggregateKind::Exists),
+        )? {
             AggregateOutput::Exists(value) => Ok(value),
             _ => Err(InternalError::query_executor_invariant(
                 "aggregate EXISTS result kind mismatch",
@@ -45,7 +49,11 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<Option<Id<E>>, InternalError> {
-        match self.execute_aggregate_spec(plan, AggregateSpec::for_terminal(AggregateKind::Min))? {
+        match ExecutionKernel::execute_aggregate_spec(
+            self,
+            plan,
+            AggregateSpec::for_terminal(AggregateKind::Min),
+        )? {
             AggregateOutput::Min(value) => Ok(value),
             _ => Err(InternalError::query_executor_invariant(
                 "aggregate MIN result kind mismatch",
@@ -57,7 +65,11 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<Option<Id<E>>, InternalError> {
-        match self.execute_aggregate_spec(plan, AggregateSpec::for_terminal(AggregateKind::Max))? {
+        match ExecutionKernel::execute_aggregate_spec(
+            self,
+            plan,
+            AggregateSpec::for_terminal(AggregateKind::Max),
+        )? {
             AggregateOutput::Max(value) => Ok(value),
             _ => Err(InternalError::query_executor_invariant(
                 "aggregate MAX result kind mismatch",
@@ -71,7 +83,8 @@ where
         target_field: impl Into<String>,
     ) -> Result<Option<Id<E>>, InternalError> {
         let target_field = target_field.into();
-        match self.execute_aggregate_spec(
+        match ExecutionKernel::execute_aggregate_spec(
+            self,
             plan,
             AggregateSpec::for_target_field(AggregateKind::Min, target_field),
         )? {
@@ -88,7 +101,8 @@ where
         target_field: impl Into<String>,
     ) -> Result<Option<Id<E>>, InternalError> {
         let target_field = target_field.into();
-        match self.execute_aggregate_spec(
+        match ExecutionKernel::execute_aggregate_spec(
+            self,
             plan,
             AggregateSpec::for_target_field(AggregateKind::Max, target_field),
         )? {
@@ -135,9 +149,11 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<Option<Id<E>>, InternalError> {
-        match self
-            .execute_aggregate_spec(plan, AggregateSpec::for_terminal(AggregateKind::First))?
-        {
+        match ExecutionKernel::execute_aggregate_spec(
+            self,
+            plan,
+            AggregateSpec::for_terminal(AggregateKind::First),
+        )? {
             AggregateOutput::First(value) => Ok(value),
             _ => Err(InternalError::query_executor_invariant(
                 "aggregate FIRST result kind mismatch",
@@ -149,7 +165,11 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<Option<Id<E>>, InternalError> {
-        match self.execute_aggregate_spec(plan, AggregateSpec::for_terminal(AggregateKind::Last))? {
+        match ExecutionKernel::execute_aggregate_spec(
+            self,
+            plan,
+            AggregateSpec::for_terminal(AggregateKind::Last),
+        )? {
             AggregateOutput::Last(value) => Ok(value),
             _ => Err(InternalError::query_executor_invariant(
                 "aggregate LAST result kind mismatch",

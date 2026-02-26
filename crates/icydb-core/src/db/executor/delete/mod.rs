@@ -11,7 +11,7 @@ use crate::{
                 OpenCommitWindow, apply_prepared_row_ops, emit_index_delta_metrics,
                 open_commit_window,
             },
-            plan::{record_plan_metrics, record_rows_scanned, set_rows_from_len},
+            plan_metrics::{record_plan_metrics, record_rows_scanned, set_rows_from_len},
         },
         query::{plan::validate::validate_executor_plan, policy},
         response::Response,

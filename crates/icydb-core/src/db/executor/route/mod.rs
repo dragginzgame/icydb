@@ -6,8 +6,9 @@ mod tests;
 
 use crate::db::{
     executor::{
-        AccessPlanStreamRequest, IndexStreamConstraints, StreamExecutionHints, compute_page_window,
-        fold::{AggregateFoldMode, AggregateSpec},
+        AccessPlanStreamRequest, IndexStreamConstraints, StreamExecutionHints,
+        aggregate::{AggregateFoldMode, AggregateSpec},
+        compute_page_window,
     },
     query::plan::{
         AccessPath, Direction, OrderDirection, OrderSpec, validate::PushdownApplicability,

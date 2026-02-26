@@ -1,7 +1,7 @@
 use crate::{
     db::{
         data::{DataKey, DataRow, RawRow, decode_and_validate_entity_key},
-        executor::{ExecutorError, query_bridge::PlanRow},
+        executor::{ExecutorError, PlanRow},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},

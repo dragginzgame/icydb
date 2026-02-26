@@ -616,7 +616,7 @@ impl<C: CanisterKind> DbSession<C> {
             })?),
             None => None,
         };
-        let cursor = plan.plan_cursor(cursor_bytes.as_deref())?;
+        let cursor = plan.prepare_cursor(cursor_bytes.as_deref())?;
 
         let (page, trace) = self
             .with_metrics(|| {

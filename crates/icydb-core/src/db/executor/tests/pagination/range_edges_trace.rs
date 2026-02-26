@@ -351,7 +351,7 @@ fn load_composite_range_cursor_pagination_matches_unbounded_and_anchor_is_strict
             .plan()
             .expect("page plan should build");
         let planned_cursor = page_plan
-            .plan_cursor(cursor.as_deref())
+            .prepare_cursor(cursor.as_deref())
             .expect("page cursor should plan");
         let page = load
             .execute_paged_with_cursor(page_plan, planned_cursor)
@@ -458,7 +458,7 @@ fn load_unique_index_range_cursor_pagination_matches_unbounded_case_f() {
             .plan()
             .expect("unique page plan should build");
         let planned_cursor = page_plan
-            .plan_cursor(cursor.as_deref())
+            .prepare_cursor(cursor.as_deref())
             .expect("unique page cursor should plan");
         let page = load
             .execute_paged_with_cursor(page_plan, planned_cursor)
@@ -589,7 +589,7 @@ fn load_single_field_desc_range_resume_from_upper_anchor_returns_remaining_rows(
         .plan()
         .expect("single-field desc upper-anchor page1 plan should build");
     let page1_boundary = page1_plan
-        .plan_cursor(None)
+        .prepare_cursor(None)
         .expect("single-field desc upper-anchor page1 boundary should plan");
     let page1 = load
         .execute_paged_with_cursor(page1_plan, page1_boundary)
@@ -611,7 +611,7 @@ fn load_single_field_desc_range_resume_from_upper_anchor_returns_remaining_rows(
         .plan()
         .expect("single-field desc upper-anchor resume plan should build");
     let resume_boundary = resume_plan
-        .plan_cursor(Some(
+        .prepare_cursor(Some(
             cursor
                 .encode()
                 .expect("continuation cursor should serialize")
@@ -739,7 +739,7 @@ fn load_single_field_desc_range_multi_page_has_no_duplicate_or_omission() {
         .plan()
         .expect("multi-page desc page1 plan should build");
     let page1_boundary = page1_plan
-        .plan_cursor(None)
+        .prepare_cursor(None)
         .expect("multi-page desc page1 boundary should plan");
     let page1 = load
         .execute_paged_with_cursor(page1_plan, page1_boundary)
@@ -761,7 +761,7 @@ fn load_single_field_desc_range_multi_page_has_no_duplicate_or_omission() {
         .plan()
         .expect("multi-page desc page2 plan should build");
     let page2_boundary = page2_plan
-        .plan_cursor(Some(
+        .prepare_cursor(Some(
             page1_cursor
                 .encode()
                 .expect("continuation cursor should serialize")
@@ -788,7 +788,7 @@ fn load_single_field_desc_range_multi_page_has_no_duplicate_or_omission() {
         .plan()
         .expect("multi-page desc page3 plan should build");
     let page3_boundary = page3_plan
-        .plan_cursor(Some(
+        .prepare_cursor(Some(
             page2_cursor
                 .encode()
                 .expect("continuation cursor should serialize")

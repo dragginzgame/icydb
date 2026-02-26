@@ -169,7 +169,7 @@ fn load_index_pushdown_eligible_paged_results_match_index_scan_window() {
         .plan()
         .expect("page1 parity plan should build");
     let page1_boundary = page1_plan
-        .plan_cursor(None)
+        .prepare_cursor(None)
         .expect("page1 parity boundary should plan");
     let page1 = load
         .execute_paged_with_cursor(page1_plan, page1_boundary)
@@ -195,7 +195,7 @@ fn load_index_pushdown_eligible_paged_results_match_index_scan_window() {
         .plan()
         .expect("page2 parity plan should build");
     let page2_boundary = page2_plan
-        .plan_cursor(Some(
+        .prepare_cursor(Some(
             page2_cursor
                 .encode()
                 .expect("continuation cursor should serialize")
@@ -454,7 +454,7 @@ fn load_index_prefix_window_cursor_past_end_returns_empty_page() {
         .plan()
         .expect("prefix window page2 plan should build");
     let page2_boundary = page2_plan
-        .plan_cursor(Some(
+        .prepare_cursor(Some(
             page1_cursor
                 .encode()
                 .expect("continuation cursor should serialize")
@@ -826,7 +826,7 @@ fn load_single_field_range_limit_exact_size_returns_single_page_without_cursor()
         .plan()
         .expect("single-field exact-size page plan should build");
     let planned_cursor = page_plan
-        .plan_cursor(None)
+        .prepare_cursor(None)
         .expect("single-field exact-size cursor should plan");
     let page = load
         .execute_paged_with_cursor(page_plan, planned_cursor)
@@ -877,7 +877,7 @@ fn load_composite_range_limit_terminal_page_suppresses_cursor() {
             .plan()
             .expect("composite terminal-page plan should build");
         let planned_cursor = page_plan
-            .plan_cursor(cursor.as_deref())
+            .prepare_cursor(cursor.as_deref())
             .expect("composite terminal-page cursor should plan");
         let page = load
             .execute_paged_with_cursor(page_plan, planned_cursor)

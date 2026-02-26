@@ -49,7 +49,7 @@ fn load_offset_pagination_preserves_next_cursor_boundary() {
         .plan()
         .expect("offset page plan should build");
     let page_boundary = page_plan
-        .plan_cursor(None)
+        .prepare_cursor(None)
         .expect("offset page boundary should plan");
     let page = load
         .execute_paged_with_cursor(page_plan, page_boundary)
@@ -106,7 +106,7 @@ fn load_cursor_with_offset_applies_offset_once_across_pages() {
         .plan()
         .expect("offset page1 plan should build");
     let page1_boundary = page1_plan
-        .plan_cursor(None)
+        .prepare_cursor(None)
         .expect("offset page1 boundary should plan");
     let page1 = load
         .execute_paged_with_cursor(page1_plan, page1_boundary)
@@ -128,7 +128,7 @@ fn load_cursor_with_offset_applies_offset_once_across_pages() {
         .plan()
         .expect("offset page2 plan should build");
     let page2_boundary = page2_plan
-        .plan_cursor(Some(
+        .prepare_cursor(Some(
             cursor
                 .encode()
                 .expect("continuation cursor should serialize")
@@ -384,7 +384,7 @@ fn load_cursor_pagination_pk_order_round_trips_across_pages() {
         .plan()
         .expect("pk-order page1 plan should build");
     let page1_boundary = page1_plan
-        .plan_cursor(None)
+        .prepare_cursor(None)
         .expect("pk-order page1 boundary should plan");
     let page1 = load
         .execute_paged_with_cursor(page1_plan, page1_boundary)
@@ -402,7 +402,7 @@ fn load_cursor_pagination_pk_order_round_trips_across_pages() {
         .plan()
         .expect("pk-order page2 plan should build");
     let page2_boundary = page2_plan
-        .plan_cursor(Some(
+        .prepare_cursor(Some(
             cursor
                 .encode()
                 .expect("continuation cursor should serialize")
@@ -443,7 +443,7 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_post_access_semantics() 
         .plan()
         .expect("fast page1 plan should build");
     let fast_page1_boundary = fast_page1_plan
-        .plan_cursor(None)
+        .prepare_cursor(None)
         .expect("fast page1 boundary should plan");
     let fast_page1 = load
         .execute_paged_with_cursor(fast_page1_plan, fast_page1_boundary)
@@ -458,7 +458,7 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_post_access_semantics() 
         .plan()
         .expect("non-fast page1 plan should build");
     let non_fast_page1_boundary = non_fast_page1_plan
-        .plan_cursor(None)
+        .prepare_cursor(None)
         .expect("non-fast page1 boundary should plan");
     let non_fast_page1 = load
         .execute_paged_with_cursor(non_fast_page1_plan, non_fast_page1_boundary)
@@ -498,7 +498,7 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_post_access_semantics() 
         .plan()
         .expect("fast page2 plan should build");
     let fast_page2_boundary = fast_page2_plan
-        .plan_cursor(Some(
+        .prepare_cursor(Some(
             fast_cursor_page1
                 .encode()
                 .expect("continuation cursor should serialize")
@@ -517,7 +517,7 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_post_access_semantics() 
         .plan()
         .expect("non-fast page2 plan should build");
     let non_fast_page2_boundary = non_fast_page2_plan
-        .plan_cursor(Some(
+        .prepare_cursor(Some(
             non_fast_cursor_page1
                 .encode()
                 .expect("continuation cursor should serialize")
@@ -564,7 +564,7 @@ fn load_cursor_pagination_pk_fast_path_desc_matches_non_fast_post_access_semanti
         .plan()
         .expect("fast descending page1 plan should build");
     let fast_page1_boundary = fast_page1_plan
-        .plan_cursor(None)
+        .prepare_cursor(None)
         .expect("fast descending page1 boundary should plan");
     let fast_page1 = load
         .execute_paged_with_cursor(fast_page1_plan, fast_page1_boundary)
@@ -579,7 +579,7 @@ fn load_cursor_pagination_pk_fast_path_desc_matches_non_fast_post_access_semanti
         .plan()
         .expect("non-fast descending page1 plan should build");
     let non_fast_page1_boundary = non_fast_page1_plan
-        .plan_cursor(None)
+        .prepare_cursor(None)
         .expect("non-fast descending page1 boundary should plan");
     let non_fast_page1 = load
         .execute_paged_with_cursor(non_fast_page1_plan, non_fast_page1_boundary)
@@ -619,7 +619,7 @@ fn load_cursor_pagination_pk_fast_path_desc_matches_non_fast_post_access_semanti
         .plan()
         .expect("fast descending page2 plan should build");
     let fast_page2_boundary = fast_page2_plan
-        .plan_cursor(Some(
+        .prepare_cursor(Some(
             fast_cursor_page1
                 .encode()
                 .expect("continuation cursor should serialize")
@@ -638,7 +638,7 @@ fn load_cursor_pagination_pk_fast_path_desc_matches_non_fast_post_access_semanti
         .plan()
         .expect("non-fast descending page2 plan should build");
     let non_fast_page2_boundary = non_fast_page2_plan
-        .plan_cursor(Some(
+        .prepare_cursor(Some(
             non_fast_cursor_page1
                 .encode()
                 .expect("continuation cursor should serialize")
@@ -685,7 +685,7 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_with_same_cursor_boundar
         .plan()
         .expect("cursor source plan should build");
     let page1_boundary = page1_plan
-        .plan_cursor(None)
+        .prepare_cursor(None)
         .expect("cursor source boundary should plan");
     let page1 = load
         .execute_paged_with_cursor(page1_plan, page1_boundary)
@@ -775,7 +775,7 @@ fn load_cursor_pagination_pk_order_key_range_respects_bounds() {
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
     let page1_plan = ExecutablePlan::<SimpleEntity>::new(page1_logical);
     let page1_boundary = page1_plan
-        .plan_cursor(None)
+        .prepare_cursor(None)
         .expect("pk-range page1 boundary should plan");
     let page1 = load
         .execute_paged_with_cursor(page1_plan, page1_boundary)
@@ -803,7 +803,7 @@ fn load_cursor_pagination_pk_order_key_range_respects_bounds() {
     });
     let page2_plan = ExecutablePlan::<SimpleEntity>::new(page2_logical);
     let page2_boundary = page2_plan
-        .plan_cursor(Some(
+        .prepare_cursor(Some(
             cursor
                 .encode()
                 .expect("continuation cursor should serialize")
@@ -1143,7 +1143,7 @@ fn load_cursor_pagination_skips_strictly_before_limit() {
         .plan()
         .expect("cursor page1 plan should build");
     let page1_boundary = page1_plan
-        .plan_cursor(None)
+        .prepare_cursor(None)
         .expect("cursor page1 boundary should plan");
     let page1 = load
         .execute_paged_with_cursor(page1_plan, page1_boundary)
@@ -1161,7 +1161,7 @@ fn load_cursor_pagination_skips_strictly_before_limit() {
         .plan()
         .expect("cursor page2 plan should build");
     let page2_boundary = page2_plan
-        .plan_cursor(Some(
+        .prepare_cursor(Some(
             cursor1
                 .encode()
                 .expect("continuation cursor should serialize")
@@ -1188,7 +1188,7 @@ fn load_cursor_pagination_skips_strictly_before_limit() {
         .plan()
         .expect("cursor page3 plan should build");
     let page3_boundary = page3_plan
-        .plan_cursor(Some(
+        .prepare_cursor(Some(
             cursor2
                 .encode()
                 .expect("continuation cursor should serialize")
@@ -1251,7 +1251,7 @@ fn load_cursor_next_cursor_uses_last_returned_row_boundary() {
         .plan()
         .expect("cursor next-cursor plan should build");
     let page1_boundary = page1_plan
-        .plan_cursor(None)
+        .prepare_cursor(None)
         .expect("cursor page1 boundary should plan");
     let page1 = load
         .execute_paged_with_cursor(page1_plan, page1_boundary)
@@ -1290,7 +1290,7 @@ fn load_cursor_next_cursor_uses_last_returned_row_boundary() {
         .plan()
         .expect("cursor page2 plan should build");
     let page2_boundary = page2_plan
-        .plan_cursor(Some(
+        .prepare_cursor(Some(
             cursor_bytes
                 .encode()
                 .expect("continuation cursor should serialize")
@@ -1357,7 +1357,7 @@ fn load_cursor_pagination_desc_order_resumes_strictly_after_boundary() {
         .plan()
         .expect("descending page1 plan should build");
     let page1_boundary = page1_plan
-        .plan_cursor(None)
+        .prepare_cursor(None)
         .expect("descending page1 boundary should plan");
     let page1 = load
         .execute_paged_with_cursor(page1_plan, page1_boundary)
@@ -1379,7 +1379,7 @@ fn load_cursor_pagination_desc_order_resumes_strictly_after_boundary() {
         .plan()
         .expect("descending page2 plan should build");
     let page2_boundary = page2_plan
-        .plan_cursor(Some(
+        .prepare_cursor(Some(
             cursor
                 .encode()
                 .expect("continuation cursor should serialize")
@@ -1493,7 +1493,7 @@ fn load_cursor_rejects_signature_mismatch() {
         .plan()
         .expect("ascending cursor plan should build");
     let asc_boundary = asc_plan
-        .plan_cursor(None)
+        .prepare_cursor(None)
         .expect("ascending boundary should plan");
     let asc_page = load
         .execute_paged_with_cursor(asc_plan, asc_boundary)
@@ -1508,7 +1508,7 @@ fn load_cursor_rejects_signature_mismatch() {
         .plan()
         .expect("descending plan should build");
     let err = desc_plan
-        .plan_cursor(Some(
+        .prepare_cursor(Some(
             cursor
                 .encode()
                 .expect("continuation cursor should serialize")

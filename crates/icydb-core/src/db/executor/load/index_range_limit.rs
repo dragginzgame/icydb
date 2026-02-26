@@ -19,7 +19,7 @@ where
     E: EntityKind + EntityValue,
 {
     // Limited IndexRange pushdown for semantically safe plan shapes.
-    pub(super) fn try_execute_index_range_limit_pushdown_stream(
+    pub(in crate::db::executor) fn try_execute_index_range_limit_pushdown_stream(
         ctx: &Context<'_, E>,
         plan: &AccessPlannedQuery<E::Key>,
         index_range_spec: Option<&LoweredIndexRangeSpec>,

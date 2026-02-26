@@ -1,8 +1,8 @@
 use crate::{
     db::{
         executor::{
-            PlannedCursor, plan_cursor as validate_cursor_plan,
-            revalidate_planned_cursor as revalidate_cursor_plan,
+            PlannedCursor, prepare_cursor as validate_cursor_plan,
+            revalidate_cursor as revalidate_cursor_plan,
         },
         lowering::{
             LOWERED_INDEX_PREFIX_SPEC_INVALID, LOWERED_INDEX_RANGE_SPEC_INVALID,
@@ -113,7 +113,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
     }
 
     /// Validate and decode a continuation cursor into executor-ready cursor state.
-    pub(in crate::db) fn plan_cursor(
+    pub(in crate::db) fn prepare_cursor(
         &self,
         cursor: Option<&[u8]>,
     ) -> Result<PlannedCursor, PlanError>
@@ -175,7 +175,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
     }
 
     /// Revalidate executor-provided cursor state through the canonical cursor spine.
-    pub(in crate::db) fn revalidate_planned_cursor(
+    pub(in crate::db) fn revalidate_cursor(
         &self,
         cursor: PlannedCursor,
     ) -> Result<PlannedCursor, InternalError>

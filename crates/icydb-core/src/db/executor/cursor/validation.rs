@@ -11,7 +11,7 @@ use crate::{
 };
 
 /// Validate and decode a continuation cursor into executor-ready cursor state.
-pub(in crate::db) fn plan_cursor<E: EntityKind>(
+pub(in crate::db) fn prepare_cursor<E: EntityKind>(
     plan: &AccessPlannedQuery<E::Key>,
     direction: Direction,
     continuation_signature: ContinuationSignature,
@@ -36,7 +36,7 @@ where
 }
 
 /// Revalidate executor-provided cursor state through the canonical cursor spine.
-pub(in crate::db) fn revalidate_planned_cursor<E: EntityKind>(
+pub(in crate::db) fn revalidate_cursor<E: EntityKind>(
     plan: &AccessPlannedQuery<E::Key>,
     direction: Direction,
     initial_offset: u32,

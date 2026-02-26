@@ -596,7 +596,7 @@ where
         let plan = build_query().plan().expect("page plan should build");
 
         let planned_cursor = plan
-            .plan_cursor(cursor.as_deref())
+            .prepare_cursor(cursor.as_deref())
             .expect("page cursor should plan");
 
         let page = load
@@ -683,7 +683,7 @@ where
 
         let plan = build_plan();
         let planned_cursor = plan
-            .plan_cursor(cursor_bytes.as_deref())
+            .prepare_cursor(cursor_bytes.as_deref())
             .expect("page cursor should plan");
         let page = load
             .execute_paged_with_cursor(plan, planned_cursor)
@@ -762,7 +762,7 @@ where
 
         let plan = build_plan();
         let planned_cursor = plan
-            .plan_cursor(cursor.as_deref())
+            .prepare_cursor(cursor.as_deref())
             .expect("page cursor should plan");
         let page = load
             .execute_paged_with_cursor(plan, planned_cursor)

@@ -2,10 +2,7 @@ use crate::{
     db::{
         Context,
         executor::load::{CursorPage, LoadExecutor},
-        executor::{
-            BudgetedOrderedKeyStream, OrderedKeyStream, compute_page_window,
-            query_bridge::PostAccessStats,
-        },
+        executor::{BudgetedOrderedKeyStream, ExecutionKernel, OrderedKeyStream, PostAccessStats},
         query::predicate::PredicateFieldSlots,
         query::{
             contracts::cursor::{ContinuationSignature, ContinuationToken, CursorBoundary},
@@ -120,8 +117,7 @@ where
 
         // NOTE: post-access execution materializes full in-memory rows for Phase 1.
         let page_end =
-            compute_page_window(plan.effective_page_offset(cursor_boundary), limit, false)
-                .keep_count;
+            ExecutionKernel::effective_keep_count_for_limit(plan, cursor_boundary, limit);
         if stats.rows_after_cursor <= page_end {
             return Ok(None);
         }

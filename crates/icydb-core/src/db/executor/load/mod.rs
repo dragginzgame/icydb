@@ -8,9 +8,6 @@ mod secondary_index;
 mod terminal;
 mod trace;
 
-pub(in crate::db::executor) use self::aggregate::{
-    AggregateExecutionDescriptor, AggregateFastPathInputs,
-};
 pub(in crate::db::executor) use self::execute::{
     ExecutionInputs, MaterializedExecutionAttempt, ResolvedExecutionKeyStream,
 };
@@ -27,7 +24,7 @@ use crate::{
                 resolve_numeric_aggregate_target_slot, resolve_orderable_aggregate_target_slot,
             },
             compile_predicate_slots, decode_pk_cursor_boundary,
-            plan::{record_plan_metrics, record_rows_scanned},
+            plan_metrics::{record_plan_metrics, record_rows_scanned},
         },
         query::policy,
         query::{
@@ -157,9 +154,9 @@ pub(in crate::db::executor) const fn key_stream_comparator_from_direction(
 ///
 
 pub(in crate::db::executor) struct FastPathKeyResult {
-    ordered_key_stream: OrderedKeyStreamBox,
-    rows_scanned: usize,
-    optimization: ExecutionOptimization,
+    pub(in crate::db::executor) ordered_key_stream: OrderedKeyStreamBox,
+    pub(in crate::db::executor) rows_scanned: usize,
+    pub(in crate::db::executor) optimization: ExecutionOptimization,
 }
 
 ///
@@ -187,6 +184,13 @@ where
             debug,
             _marker: PhantomData,
         }
+    }
+
+    // Recover canonical read context for kernel-owned execution setup.
+    pub(in crate::db::executor) fn recovered_context(
+        &self,
+    ) -> Result<crate::db::Context<'_, E>, InternalError> {
+        self.db.recovered_context::<E>()
     }
 
     // Resolve one orderable aggregate target field into a stable slot with
@@ -229,7 +233,7 @@ where
         plan: ExecutablePlan<E>,
         cursor: impl Into<PlannedCursor>,
     ) -> Result<(CursorPage<E>, Option<ExecutionTrace>), InternalError> {
-        let cursor: PlannedCursor = plan.revalidate_planned_cursor(cursor.into())?;
+        let cursor: PlannedCursor = plan.revalidate_cursor(cursor.into())?;
         let cursor_boundary = cursor.boundary().cloned();
         let index_range_anchor = cursor.index_range_anchor().map(|anchor| {
             <crate::db::lowering::LoweredKey as Storable>::from_bytes(Cow::Borrowed(
@@ -263,8 +267,7 @@ where
         let direction = route_plan.direction();
         debug_assert_eq!(
             route_plan.window().effective_offset,
-            plan.as_inner()
-                .effective_page_offset(cursor_boundary.as_ref()),
+            ExecutionKernel::effective_page_offset(plan.as_inner(), cursor_boundary.as_ref()),
             "route window effective offset must match logical plan offset semantics",
         );
         let mut execution_trace = self

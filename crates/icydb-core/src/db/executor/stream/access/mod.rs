@@ -1,8 +1,11 @@
 use crate::{
     db::{
         executor::{
-            Context, IntersectOrderedKeyStream, KeyOrderComparator, LoweredIndexPrefixSpec,
-            LoweredIndexRangeSpec, MergeOrderedKeyStream, OrderedKeyStreamBox, VecOrderedKeyStream,
+            Context, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
+            stream::key::{
+                IntersectOrderedKeyStream, KeyOrderComparator, MergeOrderedKeyStream,
+                OrderedKeyStreamBox, VecOrderedKeyStream,
+            },
         },
         index::predicate::IndexPredicateExecution,
         lowering::LoweredKey,

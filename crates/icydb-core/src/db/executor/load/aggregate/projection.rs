@@ -2,9 +2,9 @@ use crate::{
     db::{
         data::DataKey,
         executor::{
-            ExecutablePlan,
+            ExecutablePlan, ExecutionKernel,
             aggregate::field::{FieldSlot, extract_orderable_field_value},
-            fold::{AggregateKind, AggregateOutput, AggregateSpec},
+            aggregate::{AggregateKind, AggregateOutput, AggregateSpec},
             load::LoadExecutor,
         },
         response::Response,
@@ -133,7 +133,11 @@ where
         let field_slot = Self::resolve_any_field_slot(target_field)?;
         let consistency = plan.as_inner().consistency;
         let (AggregateOutput::First(selected_id) | AggregateOutput::Last(selected_id)) =
-            self.execute_aggregate_spec(plan, AggregateSpec::for_terminal(terminal_kind))?
+            ExecutionKernel::execute_aggregate_spec(
+                self,
+                plan,
+                AggregateSpec::for_terminal(terminal_kind),
+            )?
         else {
             return Err(InternalError::query_executor_invariant(
                 "terminal value projection result kind mismatch",

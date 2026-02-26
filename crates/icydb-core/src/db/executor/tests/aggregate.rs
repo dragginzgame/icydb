@@ -3,8 +3,8 @@ use crate::{
     db::{
         data::DataKey,
         executor::{
-            ExecutablePlan,
-            fold::{AggregateKind, AggregateSpec},
+            ExecutablePlan, ExecutionKernel,
+            aggregate::{AggregateKind, AggregateSpec},
         },
         query::{
             explain::ExplainAccessPath,
@@ -880,7 +880,8 @@ fn aggregate_spec_field_target_non_extrema_surfaces_unsupported_taxonomy() {
         .plan()
         .expect("field-target non-extrema aggregate plan should build");
     let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-        load.execute_aggregate_spec(
+        ExecutionKernel::execute_aggregate_spec(
+            &load,
             plan,
             AggregateSpec::for_target_field(AggregateKind::Count, "rank"),
         )
@@ -951,7 +952,8 @@ fn aggregate_spec_field_target_unknown_field_surfaces_unsupported_without_scan()
         .plan()
         .expect("field-target unknown-field aggregate plan should build");
     let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-        load.execute_aggregate_spec(
+        ExecutionKernel::execute_aggregate_spec(
+            &load,
             plan,
             AggregateSpec::for_target_field(AggregateKind::Min, "missing_field"),
         )
@@ -981,7 +983,8 @@ fn aggregate_spec_field_target_non_orderable_field_surfaces_unsupported_without_
         .plan()
         .expect("field-target non-orderable aggregate plan should build");
     let (result, scanned) = capture_rows_scanned_for_entity(PhaseEntity::PATH, || {
-        load.execute_aggregate_spec(
+        ExecutionKernel::execute_aggregate_spec(
+            &load,
             plan,
             AggregateSpec::for_target_field(AggregateKind::Min, "tags"),
         )

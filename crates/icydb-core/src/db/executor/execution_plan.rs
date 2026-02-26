@@ -4,7 +4,8 @@ use crate::db::executor::route::ExecutionRoutePlan;
 /// ExecutionPlan
 ///
 /// Canonical route-to-kernel execution contract for read execution.
-/// Phase 1 of 0.30 keeps this as a transparent alias to the existing
-/// route payload so behavior remains unchanged while callsites converge.
+/// This is route-owned policy output (mode, hints, fast-path ordering),
+/// while `ExecutablePlan` remains the validated query/lowered-spec container.
+/// Keeping this alias explicit preserves a distinct boundary at call sites.
 ///
 pub(in crate::db::executor) type ExecutionPlan = ExecutionRoutePlan;

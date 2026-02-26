@@ -233,12 +233,6 @@ impl<K> AccessPath<K> {
         matches!(self, Self::FullScan)
     }
 
-    /// Return true when this path is backed by a secondary index.
-    #[must_use]
-    pub(crate) const fn is_index_path(&self) -> bool {
-        matches!(self, Self::IndexPrefix { .. } | Self::IndexRange { .. })
-    }
-
     /// Borrow index-prefix details when this path is `IndexPrefix`.
     #[must_use]
     pub(crate) fn as_index_prefix(&self) -> Option<(&IndexModel, &[Value])> {

@@ -1,13 +1,17 @@
 mod aggregate;
 mod distinct;
+mod post_access;
 mod predicate;
+mod reducer;
+mod window;
 
+pub(in crate::db::executor) use post_access::{PlanRow, PostAccessStats};
 pub(in crate::db::executor) use predicate::IndexPredicateCompileMode;
 
 use crate::{
     db::{
         executor::{
-            ExecutionPlan, OrderedKeyStreamBox, compute_page_window,
+            ExecutionPlan, OrderedKeyStreamBox,
             load::{
                 ExecutionInputs, LoadExecutor, MaterializedExecutionAttempt,
                 ResolvedExecutionKeyStream,
@@ -65,6 +69,7 @@ impl ExecutionKernel {
 
     // Materialize one load execution attempt with optional residual retry
     // through the canonical kernel boundary.
+    #[expect(clippy::too_many_lines)]
     pub(in crate::db::executor) fn materialize_with_optional_residual_retry<E>(
         inputs: &ExecutionInputs<'_, E>,
         route_plan: &ExecutionPlan,
@@ -78,17 +83,28 @@ impl ExecutionKernel {
         let mut resolved =
             Self::resolve_execution_key_stream(inputs, route_plan, predicate_compile_mode)?;
         let (mut page, keys_scanned, mut post_access_rows) =
-            LoadExecutor::<E>::materialize_key_stream_into_page(
-                inputs.ctx,
-                inputs.plan,
-                inputs.predicate_slots,
-                resolved.key_stream.as_mut(),
-                route_plan.scan_hints.load_scan_budget_hint,
-                route_plan.streaming_access_shape_safe(),
-                cursor_boundary,
-                route_plan.direction(),
-                continuation_signature,
-            )?;
+            if let Some((page, keys_scanned, post_access_rows)) =
+                Self::try_materialize_load_via_row_collector(
+                    inputs.ctx,
+                    inputs.plan,
+                    cursor_boundary,
+                    resolved.key_stream.as_mut(),
+                )?
+            {
+                (page, keys_scanned, post_access_rows)
+            } else {
+                LoadExecutor::<E>::materialize_key_stream_into_page(
+                    inputs.ctx,
+                    inputs.plan,
+                    inputs.predicate_slots,
+                    resolved.key_stream.as_mut(),
+                    route_plan.scan_hints.load_scan_budget_hint,
+                    route_plan.streaming_access_shape_safe(),
+                    cursor_boundary,
+                    route_plan.direction(),
+                    continuation_signature,
+                )?
+            };
         let mut rows_scanned = resolved.rows_scanned_override.unwrap_or(keys_scanned);
         let mut optimization = resolved.optimization;
         let mut index_predicate_applied = resolved.index_predicate_applied;
@@ -113,17 +129,32 @@ impl ExecutionKernel {
                 predicate_compile_mode,
             )?;
             let (fallback_page, fallback_keys_scanned, fallback_post_access_rows) =
-                LoadExecutor::<E>::materialize_key_stream_into_page(
-                    inputs.ctx,
-                    inputs.plan,
-                    inputs.predicate_slots,
-                    fallback_resolved.key_stream.as_mut(),
-                    fallback_route_plan.scan_hints.load_scan_budget_hint,
-                    fallback_route_plan.streaming_access_shape_safe(),
-                    cursor_boundary,
-                    fallback_route_plan.direction(),
-                    continuation_signature,
-                )?;
+                if let Some((fallback_page, fallback_keys_scanned, fallback_post_access_rows)) =
+                    Self::try_materialize_load_via_row_collector(
+                        inputs.ctx,
+                        inputs.plan,
+                        cursor_boundary,
+                        fallback_resolved.key_stream.as_mut(),
+                    )?
+                {
+                    (
+                        fallback_page,
+                        fallback_keys_scanned,
+                        fallback_post_access_rows,
+                    )
+                } else {
+                    LoadExecutor::<E>::materialize_key_stream_into_page(
+                        inputs.ctx,
+                        inputs.plan,
+                        inputs.predicate_slots,
+                        fallback_resolved.key_stream.as_mut(),
+                        fallback_route_plan.scan_hints.load_scan_budget_hint,
+                        fallback_route_plan.streaming_access_shape_safe(),
+                        cursor_boundary,
+                        fallback_route_plan.direction(),
+                        continuation_signature,
+                    )?
+                };
             let fallback_rows_scanned = fallback_resolved
                 .rows_scanned_override
                 .unwrap_or(fallback_keys_scanned);
@@ -177,9 +208,7 @@ impl ExecutionKernel {
         let Some(limit) = plan.page.as_ref().and_then(|page| page.limit) else {
             return false;
         };
-        let keep_count =
-            compute_page_window(plan.effective_page_offset(cursor_boundary), limit, false)
-                .keep_count;
+        let keep_count = Self::effective_keep_count_for_limit(plan, cursor_boundary, limit);
         if keep_count == 0 {
             return false;
         }

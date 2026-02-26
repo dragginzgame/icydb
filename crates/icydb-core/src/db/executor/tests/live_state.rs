@@ -47,7 +47,7 @@ fn load_cursor_live_state_reordered_update_can_skip_rows_before_boundary() {
                 .limit(1)
                 .plan()
                 .expect("boundary plan should build")
-                .plan_cursor(None)
+                .prepare_cursor(None)
                 .expect("page1 boundary should plan"),
         )
         .expect("page1 should execute");
@@ -78,7 +78,7 @@ fn load_cursor_live_state_reordered_update_can_skip_rows_before_boundary() {
         .plan()
         .expect("page2 plan should build");
     let page2_boundary = page2_plan
-        .plan_cursor(Some(
+        .prepare_cursor(Some(
             cursor
                 .encode()
                 .expect("continuation cursor should serialize")
@@ -159,7 +159,7 @@ fn load_cursor_live_state_insert_after_boundary_can_appear_on_next_page() {
                 .limit(1)
                 .plan()
                 .expect("boundary plan should build")
-                .plan_cursor(None)
+                .prepare_cursor(None)
                 .expect("page1 boundary should plan"),
         )
         .expect("page1 should execute");
@@ -190,7 +190,7 @@ fn load_cursor_live_state_insert_after_boundary_can_appear_on_next_page() {
         .plan()
         .expect("page2 plan should build");
     let page2_boundary = page2_plan
-        .plan_cursor(Some(
+        .prepare_cursor(Some(
             cursor
                 .encode()
                 .expect("continuation cursor should serialize")
@@ -254,7 +254,7 @@ fn load_cursor_live_state_delete_between_pages_can_shrink_remaining_results() {
                 .limit(1)
                 .plan()
                 .expect("boundary plan should build")
-                .plan_cursor(None)
+                .prepare_cursor(None)
                 .expect("page1 boundary should plan"),
         )
         .expect("page1 should execute");
@@ -290,7 +290,7 @@ fn load_cursor_live_state_delete_between_pages_can_shrink_remaining_results() {
         .plan()
         .expect("page2 plan should build");
     let page2_boundary = page2_plan
-        .plan_cursor(Some(
+        .prepare_cursor(Some(
             cursor
                 .encode()
                 .expect("continuation cursor should serialize")

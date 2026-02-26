@@ -1,43 +1,40 @@
-mod access_stream;
 pub(super) mod aggregate;
 mod context;
 mod cursor;
 mod delete;
-mod direction;
 mod executable_plan;
 mod execution_plan;
-mod fold;
 mod kernel;
 pub(super) mod load;
 mod mutation;
-mod ordered_key_stream;
 mod physical_path;
-mod plan;
-mod query_bridge;
+mod plan_metrics;
 pub(super) mod route;
+mod stream;
 #[cfg(test)]
 mod tests;
 mod window;
 
 pub(in crate::db) use crate::db::lowering::{LoweredIndexPrefixSpec, LoweredIndexRangeSpec};
-pub(super) use access_stream::*;
 pub(super) use context::*;
 pub(in crate::db) use cursor::{
-    PlannedCursor, decode_pk_cursor_boundary, decode_typed_primary_key_cursor_slot, plan_cursor,
-    revalidate_planned_cursor, validate_index_range_anchor,
+    PlannedCursor, decode_pk_cursor_boundary, decode_typed_primary_key_cursor_slot, prepare_cursor,
+    revalidate_cursor, validate_index_range_anchor,
     validate_index_range_boundary_anchor_consistency,
 };
 pub(super) use delete::DeleteExecutor;
-pub(crate) use direction::normalize_ordered_keys;
 pub(in crate::db) use executable_plan::ExecutablePlan;
 pub(in crate::db::executor) use execution_plan::ExecutionPlan;
-pub(in crate::db::executor) use kernel::{ExecutionKernel, IndexPredicateCompileMode};
+pub(in crate::db::executor) use kernel::{
+    ExecutionKernel, IndexPredicateCompileMode, PlanRow, PostAccessStats,
+};
 pub(super) use load::LoadExecutor;
 pub use load::{ExecutionAccessPathVariant, ExecutionOptimization, ExecutionTrace};
 pub(super) use mutation::save::SaveExecutor;
-pub(super) use ordered_key_stream::{
-    BudgetedOrderedKeyStream, IntersectOrderedKeyStream, KeyOrderComparator, MergeOrderedKeyStream,
-    OrderedKeyStream, OrderedKeyStreamBox, VecOrderedKeyStream,
+pub(super) use stream::access::*;
+pub(super) use stream::key::{
+    BudgetedOrderedKeyStream, KeyOrderComparator, OrderedKeyStream, OrderedKeyStreamBox,
+    VecOrderedKeyStream,
 };
 pub(in crate::db) use window::compute_page_window;
 

@@ -378,6 +378,7 @@ Code is considered non-trivial if it:
 * Smaller changelog entries may omit the title segment; use `## [x.y.z] - YYYY-MM-DD` when no title is needed.
 * Changelog subsections are optional; include only the sections relevant to that release.
 * For small cleanup releases, prefer no subsection headers; use a short plain-language summary with a few concise bullets.
+* If a section like `Changed` gets large, it is acceptable to split it into topic-based headers (for example `### 🔧 Changed - Aggregate Execution`, `### 🔧 Changed - Structure`) to improve readability.
 * Use a fixed emoji mapping for section headers so icons stay consistent across releases: `Added=➕`, `Changed=🔧`, `Fixed=🩹`, `Removed=🗑️`, `Breaking=⚠️`, `Migration Notes=🧭`, `Summary=📝`, `Cleanup=🧹`, `Testing=🧪`, `Governance=🥾`, `Documentation=📚`.
 * Release flow is usually `make patch` then `cargo publish`.
 * When updating the changelog, target the upcoming release version (for example `0.13.2` while `Cargo.toml` is still `0.13.1`); do not assume changelog version equals the current `Cargo.toml` version.

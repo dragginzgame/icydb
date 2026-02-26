@@ -1,7 +1,7 @@
 //! Structural logical-plan model.
 //!
 //! Execution-phase semantics (post-access filtering, ordering, cursor windows,
-//! pagination, delete limits) are implemented in `db::executor::query_bridge`.
+//! pagination, delete limits) are implemented in `db::executor::kernel::post_access`.
 
 use crate::db::query::{
     ReadConsistency,

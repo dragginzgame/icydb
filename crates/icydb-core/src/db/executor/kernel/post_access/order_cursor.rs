@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        executor::query_bridge::PlanRow,
+        executor::kernel::PlanRow,
         index::continuation_advances_from_ordering,
         query::{
             contracts::cursor::{CursorBoundary, CursorBoundarySlot},
@@ -125,7 +125,7 @@ pub(super) fn apply_order_spec_bounded<E, R>(
 }
 
 // Apply a strict continuation boundary using the canonical order comparator.
-pub(super) fn apply_cursor_boundary<E, R>(
+pub(in crate::db::executor::kernel) fn apply_cursor_boundary<E, R>(
     rows: &mut Vec<R>,
     order: &OrderSpec,
     boundary: &CursorBoundary,
