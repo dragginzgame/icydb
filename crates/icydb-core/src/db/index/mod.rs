@@ -7,7 +7,6 @@ pub(in crate::db) mod predicate;
 mod range;
 mod store;
 
-pub(in crate::db) use crate::db::direction::Direction;
 pub(in crate::db) use contracts::{PrimaryKeyEquivalenceError, primary_key_matches_value};
 pub(in crate::db) use entry::{
     IndexEntry, IndexEntryCorruption, IndexEntryEncodeError, MAX_INDEX_ENTRY_BYTES, RawIndexEntry,

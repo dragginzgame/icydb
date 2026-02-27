@@ -1,9 +1,8 @@
 mod aggregate;
-mod commit_planner;
 mod context;
 mod delete;
 mod executable_plan;
-pub(in crate::db) mod grouped;
+pub(in crate::db) mod group;
 mod index_predicate;
 mod kernel;
 pub(super) mod load;
@@ -14,25 +13,24 @@ mod plan_validate;
 mod predicate_runtime;
 mod preparation;
 mod query_plan;
-mod recovery;
 pub(super) mod route;
 mod stream;
 #[cfg(test)]
 mod tests;
 mod window;
 
-pub(in crate::db::executor) use crate::db::access::{
-    LOWERED_INDEX_PREFIX_SPEC_INVALID, LOWERED_INDEX_RANGE_SPEC_INVALID, lower_index_prefix_specs,
-    lower_index_range_specs,
+use crate::db::{
+    access::{
+        LOWERED_INDEX_PREFIX_SPEC_INVALID, LOWERED_INDEX_RANGE_SPEC_INVALID,
+        LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey, lower_index_prefix_specs,
+        lower_index_range_specs,
+    },
+    cursor::{
+        RangeToken, range_token_anchor_key, range_token_from_cursor_anchor,
+        range_token_from_lowered_anchor,
+    },
 };
-pub(in crate::db) use crate::db::access::{
-    LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey,
-};
-pub(in crate::db::executor) use crate::db::cursor::{
-    RangeToken, range_token_anchor_key, range_token_from_cursor_anchor,
-    range_token_from_lowered_anchor,
-};
-pub(in crate::db) use commit_planner::prepare_row_commit_for_entity;
+
 pub(super) use context::*;
 pub(super) use delete::DeleteExecutor;
 pub(in crate::db) use executable_plan::ExecutablePlan;
@@ -46,15 +44,13 @@ pub(super) use mutation::save::SaveExecutor;
 pub(in crate::db::executor) use plan_validate::validate_executor_plan;
 #[cfg(test)]
 pub(in crate::db) use predicate_runtime::eval_compare_values;
-pub(in crate::db) use predicate_runtime::{PredicateFieldSlots, eval_with_slots};
 pub(in crate::db::executor) use preparation::ExecutionPreparation;
-pub(in crate::db) use recovery::{
-    rebuild_secondary_indexes_from_rows, replay_commit_marker_row_ops,
-};
-pub(super) use stream::access::*;
-pub(super) use stream::key::{
-    BudgetedOrderedKeyStream, KeyOrderComparator, OrderedKeyStream, OrderedKeyStreamBox,
-    VecOrderedKeyStream,
+pub(super) use stream::{
+    access::*,
+    key::{
+        BudgetedOrderedKeyStream, KeyOrderComparator, OrderedKeyStream, OrderedKeyStreamBox,
+        VecOrderedKeyStream,
+    },
 };
 pub(in crate::db) use window::compute_page_window;
 
@@ -65,6 +61,7 @@ pub(in crate::db) use window::compute_page_window;
 /// This is route-owned policy output (mode, hints, fast-path ordering),
 /// while `ExecutablePlan` remains the validated query/lowered-spec container.
 ///
+
 pub(in crate::db::executor) type ExecutionPlan = route::ExecutionRoutePlan;
 
 // Design notes:

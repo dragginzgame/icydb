@@ -6,7 +6,7 @@ use crate::{
             ExecutionPlan, ExecutionPreparation, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
         },
         index::IndexPredicateProgram,
-        plan::AccessPlannedQuery,
+        query::plan::AccessPlannedQuery,
     },
     traits::{EntityKind, EntityValue},
 };

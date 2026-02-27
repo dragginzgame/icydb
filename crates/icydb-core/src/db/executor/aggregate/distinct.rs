@@ -3,9 +3,9 @@ use crate::{
         executor::{
             ExecutablePlan,
             aggregate::field::{FieldSlot, extract_orderable_field_value},
+            group::{GroupKeySet, KeyCanonicalError},
             load::LoadExecutor,
         },
-        group_key::{GroupKeySet, KeyCanonicalError},
         response::Response,
     },
     error::InternalError,

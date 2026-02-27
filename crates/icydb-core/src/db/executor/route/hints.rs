@@ -7,7 +7,7 @@ use crate::{
             aggregate::{AggregateKind, AggregateSpec},
             load::LoadExecutor,
         },
-        plan::AccessPlannedQuery,
+        query::plan::AccessPlannedQuery,
     },
     traits::{EntityKind, EntityValue},
 };

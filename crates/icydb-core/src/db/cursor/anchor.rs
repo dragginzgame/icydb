@@ -4,8 +4,8 @@ use crate::{
         cursor::{CursorPlanError, IndexRangeCursorAnchor},
         direction::Direction,
         index::{
-            Direction as IndexDirection, IndexId, IndexKey, IndexKeyKind, KeyEnvelope,
-            PrimaryKeyEquivalenceError, RawIndexKey, primary_key_matches_value,
+            IndexId, IndexKey, IndexKeyKind, KeyEnvelope, PrimaryKeyEquivalenceError, RawIndexKey,
+            primary_key_matches_value,
         },
     },
     traits::{EntityKind, FieldValue, Storable},
@@ -103,12 +103,8 @@ pub(in crate::db) fn validate_index_range_anchor<E: EntityKind>(
             lower_cursor_anchor_index_range_bounds::<E>(index, prefix, lower, upper)
                 .map_err(invalid_continuation_cursor_payload)?;
         let anchor_raw = decoded_key.to_raw();
-        let index_direction = match direction {
-            Direction::Asc => IndexDirection::Asc,
-            Direction::Desc => IndexDirection::Desc,
-        };
 
-        if !KeyEnvelope::new(index_direction, range_start, range_end).contains(&anchor_raw) {
+        if !KeyEnvelope::new(direction, range_start, range_end).contains(&anchor_raw) {
             return Err(invalid_continuation_cursor_payload(
                 "index-range continuation anchor is outside the original range envelope",
             ));

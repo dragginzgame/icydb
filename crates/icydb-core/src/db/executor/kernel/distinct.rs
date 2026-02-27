@@ -6,7 +6,7 @@ use crate::{
             KeyOrderComparator, OrderedKeyStream, OrderedKeyStreamBox,
             load::{ResolvedExecutionKeyStream, key_stream_comparator_from_direction},
         },
-        plan::AccessPlannedQuery,
+        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
 };

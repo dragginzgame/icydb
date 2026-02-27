@@ -4,14 +4,10 @@
 //! structs/enums. Query semantic validation remains owned by
 //! `db::query::plan::validate`.
 
-use crate::db::direction::Direction;
-
-pub(in crate::db) use crate::db::query::plan::{
-    AccessPlannedQuery, LogicalPlan, OrderDirection, OrderSpec, QueryMode,
-    derive_secondary_pushdown_applicability_validated,
+use crate::db::{
+    direction::Direction,
+    query::plan::{AccessPlannedQuery, OrderSpec},
 };
-#[cfg(test)]
-pub(in crate::db) use crate::db::query::plan::{GroupedPlan, PageSpec};
 
 ///
 /// OrderSlotPolicy

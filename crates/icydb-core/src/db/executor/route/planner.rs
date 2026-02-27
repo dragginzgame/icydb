@@ -1,5 +1,5 @@
 #[cfg(test)]
-use crate::db::executor::grouped::grouped_execution_context_from_planner_config;
+use crate::db::executor::group::grouped_execution_context_from_planner_config;
 use crate::{
     db::{
         access::PushdownApplicability,
@@ -10,7 +10,7 @@ use crate::{
             aggregate::{AggregateFoldMode, AggregateKind, AggregateSpec},
             load::LoadExecutor,
         },
-        plan::AccessPlannedQuery,
+        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -196,7 +196,7 @@ where
     // Build canonical grouped aggregate routing from one grouped query wrapper.
     #[cfg(test)]
     pub(in crate::db::executor) fn build_execution_route_plan_for_grouped_plan(
-        grouped: &crate::db::plan::GroupedPlan<E::Key>,
+        grouped: &crate::db::query::plan::GroupedPlan<E::Key>,
     ) -> ExecutionPlan {
         let _grouped_execution_context =
             grouped_execution_context_from_planner_config(Some(grouped.group.execution));

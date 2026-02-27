@@ -8,7 +8,7 @@ use crate::{
             aggregate::{AggregateKind, AggregateSpec},
             load::LoadExecutor,
         },
-        plan::{AccessPlannedQuery, derive_secondary_pushdown_applicability_validated},
+        query::plan::{AccessPlannedQuery, derive_secondary_pushdown_applicability_validated},
     },
     model::entity::resolve_field_slot,
     traits::{EntityKind, EntityValue},

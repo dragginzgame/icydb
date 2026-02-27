@@ -1,5 +1,6 @@
 mod coercion;
 mod compare;
+mod hash;
 mod rank;
 mod tag;
 mod wire;
@@ -19,6 +20,9 @@ use std::cmp::Ordering;
 
 // re-exports
 pub use coercion::{CoercionFamily, CoercionFamilyExt};
+pub(crate) use hash::hash_value;
+#[cfg(test)]
+pub(crate) use hash::with_test_hash_override;
 pub use tag::ValueTag;
 
 ///

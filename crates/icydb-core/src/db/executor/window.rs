@@ -3,10 +3,10 @@ use crate::{
         cursor::{CursorBoundary, apply_cursor_boundary},
         executor::{ExecutionKernel, kernel::PlanRow},
         plan::{
-            AccessPlannedQuery,
             effective_keep_count_for_limit as plan_effective_keep_count_for_limit,
             effective_page_offset_for_window,
         },
+        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -18,6 +18,7 @@ use crate::{
 /// Canonical pagination window sizing in usize-domain.
 /// `keep_count` is `offset + limit`, and `fetch_count` adds one extra row when requested.
 ///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct PageWindow {
     pub(in crate::db) fetch_count: usize,

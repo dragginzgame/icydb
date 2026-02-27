@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Maintainer note: changelog entries that reach 4 lines or more should be split into subsection headers.
 
+## [0.32.2] - 2026-02-27 - Restructuring db/
+
+* Moved value_hash.rs back to value/hash.rs and relocated tests.
+* Moved group_key.rs to executor/group/key.rs
+
+---
+
 ## [0.32.1] - 2026-02-27
 
 ### 📝 Summary

@@ -1,11 +1,11 @@
 use crate::{
     db::{
         executor::{
-            IndexPredicateCompileMode, PredicateFieldSlots,
-            compile_index_predicate_program_from_slots, load::LoadExecutor,
+            IndexPredicateCompileMode, compile_index_predicate_program_from_slots,
+            load::LoadExecutor, predicate_runtime::PredicateFieldSlots,
         },
         index::IndexPredicateProgram,
-        plan::AccessPlannedQuery,
+        query::plan::AccessPlannedQuery,
     },
     traits::{EntityKind, EntityValue},
 };

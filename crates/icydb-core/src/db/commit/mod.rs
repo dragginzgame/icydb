@@ -17,7 +17,9 @@ pub(in crate::db) mod decode;
 mod guard;
 mod marker;
 mod memory;
+mod prepare;
 mod recovery;
+mod replay;
 mod rollback;
 mod store;
 #[cfg(test)]
@@ -38,7 +40,9 @@ pub(in crate::db) use apply::{PreparedIndexMutation, PreparedRowCommitOp};
 pub(in crate::db) use guard::{CommitApplyGuard, CommitGuard, begin_commit, finish_commit};
 pub(in crate::db) use marker::CommitRowOp;
 pub(in crate::db) use marker::{CommitIndexOp, CommitMarker, MAX_COMMIT_BYTES};
+pub(in crate::db) use prepare::prepare_row_commit_for_entity;
 pub(in crate::db) use recovery::{ensure_recovered, ensure_recovered_for_write};
+pub(in crate::db) use replay::{rebuild_secondary_indexes_from_rows, replay_commit_marker_row_ops};
 pub(in crate::db) use rollback::{rollback_prepared_row_ops_reverse, snapshot_row_rollback};
 pub(in crate::db) use validate::validate_commit_marker_shape;
 

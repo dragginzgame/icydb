@@ -12,10 +12,11 @@ use crate::{
         },
         direction::Direction,
         executor::{
-            ExecutionKernel, PredicateFieldSlots, eval_with_slots as eval_predicate_with_slots,
+            ExecutionKernel, predicate_runtime::PredicateFieldSlots,
+            predicate_runtime::eval_with_slots as eval_predicate_with_slots,
         },
-        plan::AccessPlannedQuery,
         policy,
+        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntitySchema, EntityValue},
@@ -495,7 +496,7 @@ mod tests {
         access::AccessPath,
         contracts::Predicate,
         cursor::CursorBoundary,
-        plan::{AccessPlannedQuery, OrderDirection, OrderSpec, PageSpec},
+        query::plan::{AccessPlannedQuery, OrderDirection, OrderSpec, PageSpec},
     };
     use crate::{db::ReadConsistency, model::field::FieldKind, types::Ulid};
 

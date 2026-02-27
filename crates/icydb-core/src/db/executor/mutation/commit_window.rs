@@ -3,9 +3,9 @@ use crate::{
         Db,
         commit::{
             CommitApplyGuard, CommitGuard, CommitMarker, CommitRowOp, PreparedRowCommitOp,
-            begin_commit, finish_commit, rollback_prepared_row_ops_reverse, snapshot_row_rollback,
+            begin_commit, finish_commit, prepare_row_commit_for_entity,
+            rollback_prepared_row_ops_reverse, snapshot_row_rollback,
         },
-        executor::prepare_row_commit_for_entity,
         index::IndexStore,
     },
     error::InternalError,

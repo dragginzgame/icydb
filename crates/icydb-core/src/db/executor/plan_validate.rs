@@ -1,5 +1,7 @@
 use crate::{
-    db::{access::validate_access_structure, contracts::SchemaInfo, plan::AccessPlannedQuery},
+    db::{
+        access::validate_access_structure, contracts::SchemaInfo, query::plan::AccessPlannedQuery,
+    },
     error::InternalError,
     traits::EntityKind,
 };

@@ -2,7 +2,7 @@ use crate::db::{
     access::{AccessPath, AccessPlan},
     direction::Direction,
     executor::load::ExecutionAccessPathVariant,
-    plan::OrderDirection,
+    query::plan::OrderDirection,
 };
 
 pub(super) fn access_path_variant<K>(access: &AccessPlan<K>) -> ExecutionAccessPathVariant {

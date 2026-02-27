@@ -7,7 +7,7 @@ use crate::{
         Db,
         commit::ensure_recovered_for_write,
         executor::{Context, load::LoadExecutor, validate_executor_plan},
-        plan::AccessPlannedQuery,
+        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},

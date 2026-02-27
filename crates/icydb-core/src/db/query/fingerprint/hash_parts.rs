@@ -12,9 +12,8 @@ use crate::{
             intent::QueryMode,
             plan::{AccessPlanProjection, OrderDirection, project_explain_access_path},
         },
-        value_hash::hash_value,
     },
-    value::Value,
+    value::{Value, hash_value},
 };
 use sha2::{Digest, Sha256};
 use std::ops::Bound;

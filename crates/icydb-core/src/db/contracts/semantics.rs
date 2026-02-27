@@ -1,4 +1,4 @@
-use crate::{db::group_key::GroupKey, value::Value};
+use crate::{db::executor::group::GroupKey, value::Value};
 use std::cmp::Ordering;
 
 ///
@@ -72,7 +72,7 @@ mod tests {
     use crate::{
         db::{
             contracts::{canonical_group_key_equals, canonical_value_compare},
-            group_key::CanonicalKey,
+            executor::group::CanonicalKey,
         },
         types::Decimal,
         value::Value,

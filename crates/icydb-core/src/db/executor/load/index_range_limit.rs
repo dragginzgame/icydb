@@ -8,7 +8,7 @@ use crate::{
             range_token_anchor_key,
         },
         index::predicate::IndexPredicateExecution,
-        plan::AccessPlannedQuery,
+        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},

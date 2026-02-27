@@ -47,7 +47,7 @@ fn test_hash_override() -> Option<[u8; 16]> {
 // Execute one closure with a thread-local test hash override and always restore
 // the previous override state, even if the closure panics.
 #[cfg(test)]
-pub(in crate::db) fn with_test_hash_override<T>(
+pub(crate) fn with_test_hash_override<T>(
     override_hash: [u8; 16],
     f: impl FnOnce() -> T + std::panic::UnwindSafe,
 ) -> T {

@@ -17,7 +17,7 @@ use crate::{
                 ResolvedExecutionKeyStream,
             },
         },
-        plan::AccessPlannedQuery,
+        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},

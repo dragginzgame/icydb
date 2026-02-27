@@ -1,13 +1,9 @@
-pub(crate) mod access;
 // 1️⃣ Module declarations
+pub(crate) mod access;
 pub(crate) mod contracts;
 pub(crate) mod cursor;
 pub(crate) mod diagnostics;
-pub(in crate::db) mod direction;
-pub(in crate::db) mod group_key;
-pub(in crate::db) mod hash;
 pub(crate) mod identity;
-pub(in crate::db) mod plan;
 pub(crate) mod policy;
 pub(crate) mod query;
 pub(crate) mod registry;
@@ -17,10 +13,11 @@ pub(crate) mod session;
 pub(in crate::db) mod codec;
 pub(in crate::db) mod commit;
 pub(in crate::db) mod data;
+pub(in crate::db) mod direction;
 pub(in crate::db) mod executor;
 pub(in crate::db) mod index;
+pub(in crate::db) mod plan;
 pub(in crate::db) mod relation;
-pub(in crate::db) mod value_hash;
 
 // 2️⃣ Public re-exports (Tier-2 API surface)
 pub use codec::cursor::{decode_cursor, encode_cursor};
@@ -48,18 +45,16 @@ pub use registry::StoreRegistry;
 pub use relation::validate_delete_strong_relations_for_source;
 pub use response::{Response, ResponseError, Row, WriteBatchResponse, WriteResponse};
 pub use session::DbSession;
-#[cfg(test)]
-pub(crate) use value_hash::hash_value;
 
 // 3️⃣ Internal imports (implementation wiring)
 use crate::{
     db::{
-        commit::{CommitRowOp, PreparedRowCommitOp, ensure_recovered},
-        data::RawDataKey,
-        executor::{
-            Context, prepare_row_commit_for_entity, rebuild_secondary_indexes_from_rows,
-            replay_commit_marker_row_ops,
+        commit::{
+            CommitRowOp, PreparedRowCommitOp, ensure_recovered, prepare_row_commit_for_entity,
+            rebuild_secondary_indexes_from_rows, replay_commit_marker_row_ops,
         },
+        data::RawDataKey,
+        executor::Context,
         relation::StrongRelationDeleteValidateFn,
     },
     error::InternalError,

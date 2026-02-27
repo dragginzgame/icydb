@@ -1,7 +1,7 @@
 use crate::{
     db::{
         contracts::canonical_group_key_equals,
-        hash::{StableHash, stable_hash_value},
+        executor::group::{StableHash, stable_hash_value},
     },
     error::InternalError,
     value::{MapValueError, Value},
@@ -190,11 +190,10 @@ mod tests {
     use crate::{
         db::{
             contracts::canonical_group_key_equals,
-            group_key::{CanonicalKey, GroupKeySet, KeyCanonicalError},
-            value_hash::with_test_hash_override,
+            executor::group::{CanonicalKey, GroupKeySet, KeyCanonicalError},
         },
         types::Decimal,
-        value::{MapValueError, Value},
+        value::{MapValueError, Value, with_test_hash_override},
     };
 
     fn map_value(entries: Vec<(Value, Value)>) -> Value {

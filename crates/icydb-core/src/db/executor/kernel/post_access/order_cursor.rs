@@ -5,7 +5,7 @@ use crate::{
             apply_order_spec_bounded as apply_cursor_order_spec_bounded,
         },
         executor::kernel::post_access::PlanRow,
-        plan::OrderSpec,
+        query::plan::OrderSpec,
     },
     traits::{EntityKind, EntityValue},
 };

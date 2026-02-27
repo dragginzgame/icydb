@@ -29,7 +29,7 @@ pub(crate) use token::{ContinuationSignature, ContinuationToken, ContinuationTok
 use crate::{
     db::{
         direction::Direction,
-        plan::{AccessPlannedQuery, OrderSpec},
+        query::plan::{AccessPlannedQuery, OrderSpec},
     },
     error::InternalError,
     traits::{EntityKind, FieldValue},

@@ -218,21 +218,33 @@ When splitting a Rust module into multiple files:
 ## Commenting & Code Narration
 
 Code must be readable top-down without reverse-engineering intent.
+Commenting quality is a merge gate: code that is correct but under-documented is incomplete.
+
+### Priority & Default
+
+* Favor more explanation over less when intent is not obvious from types and signatures alone.
+* For non-trivial logic, assume reviewers should understand the flow from comments without tracing every branch first.
+* If uncertain whether a block needs a comment, add one.
 
 ### Required
 
+* Every public module (`mod`) declaration and every public API item MUST have doc comments (`///`).
 * Every public `struct`, `enum`, `trait`, and `fn` MUST have a doc comment (`///`).
-* Public `struct` definitions MUST be preceded by **at least three consecutive doc comment lines**.
-* Every non-trivial `struct` (public or private) MUST be preceded by **at least three consecutive doc comment lines**.
-* For every non-trivial `struct`, the first doc comment line MUST repeat the struct name (for example, `/// QueryDiagnostics`).
-* For every non-trivial `struct`, use this exact doc-block shape:
-  * Line 1: `/// <StructName>`
-  * Line 2: `///`
-  * Line 3+: one or more descriptive `///` lines
-  * Then one blank source line before `struct <StructName> { ... }`
-* After the doc comment block for a `struct`, there MUST be a blank line before the `struct` definition.
-* Every non-trivial private function or struct MUST have at least a brief explanatory comment.
+* Public `struct` and `trait` definitions MUST be preceded by **at least three consecutive doc comment lines**.
+* Every non-trivial `struct` or `trait` (public or private) MUST be preceded by **at least three consecutive doc comment lines**.
+* For every non-trivial `struct` or `trait`, use this exact doc-block shape:
+  * Line 1: `///`
+  * Line 2: `/// <TypeName>`
+  * Line 3: `///`
+  * Line 4+: one or more descriptive `///` lines
+  * Final line: `///`
+  * Then one blank source line before `struct <TypeName> { ... }` or `trait <TypeName> { ... }`
+* For every non-trivial `struct` or `trait`, the `<TypeName>` line MUST exactly repeat the declared type name.
+* After the doc comment block for a `struct` or `trait`, there MUST be a blank line before the type definition.
+* Every non-trivial private function or type MUST have at least a brief explanatory comment.
+* Inherent `impl <TypeName>` blocks SHOULD appear immediately after the type definition (after derives/attrs and doc block) and before unrelated items whenever feasible.
 * Functions with multiple logical phases MUST include inline comments separating those phases.
+* Non-trivial functions longer than ~30 lines MUST include phase-level header comments that label each major step.
 
 ### Inline Comment Guidance
 
@@ -240,6 +252,7 @@ Code must be readable top-down without reverse-engineering intent.
 * As a rule of thumb, no uninterrupted block of complex logic should exceed ~8–12 lines without an explanatory comment.
 * In larger functions, add a little more phase-level commentary around major logic blocks (light-touch, not excessive) to improve scanability.
 * Comments should explain intent, invariants, and risk — not restate syntax.
+* Explain why branches exist when behavior is defensive, security-sensitive, or invariant-preserving.
 * In non-trivial functions, insert a blank line immediately before the final return expression (or last `return` at the bottom) to visually separate the result from the preceding logic.
 
 ### Section Banners
@@ -405,6 +418,7 @@ Code is considered non-trivial if it:
 * [ ] Imports declared once at top using `crate::{...}`
 * [ ] No `super::` usage outside tests without justification
 * [ ] No large unexplained blocks of logic
+* [ ] Non-trivial functions over ~30 lines include labeled phase/header comments
 * [ ] Complex functions are commented in phases
 * [ ] Public APIs document invariants and intent
 

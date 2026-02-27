@@ -1,4 +1,10 @@
-#![allow(unused_imports)]
+mod hash;
+mod key;
+
+pub(in crate::db) use hash::{StableHash, stable_hash_value};
+#[cfg(test)]
+pub(in crate::db) use key::CanonicalKey;
+pub(in crate::db) use key::{GroupKey, GroupKeySet, KeyCanonicalError};
 
 ///
 /// GROUPED EXECUTION SCAFFOLD
@@ -11,11 +17,10 @@
 /// Grouped execution contracts are re-exported here so grouped runtime work has
 /// one obvious executor entrypoint.
 ///
-pub(in crate::db::executor) use crate::db::executor::aggregate::{
-    ExecutionConfig, ExecutionContext, GroupAggregateSpec, GroupAggregateSpecSupportError,
+use crate::db::{
+    executor::aggregate::{ExecutionConfig, ExecutionContext},
+    query::grouped::GroupedExecutionConfig,
 };
-pub(in crate::db::executor) use crate::db::executor::route::ExecutionModeRouteCase;
-pub(in crate::db::executor) use crate::db::query::grouped::GroupedExecutionConfig;
 
 const GROUPED_DEFAULT_MAX_GROUPS: u64 = 10_000;
 const GROUPED_DEFAULT_MAX_GROUP_BYTES: u64 = 16 * 1024 * 1024;

@@ -1,4 +1,7 @@
-use crate::{db::value_hash::hash_value, error::InternalError, value::Value};
+use crate::{
+    error::InternalError,
+    value::{Value, hash_value},
+};
 
 ///
 /// StableHash
@@ -29,11 +32,8 @@ pub(in crate::db) fn stable_hash_value(value: &Value) -> Result<StableHash, Inte
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        db::hash::{stable_hash_from_digest, stable_hash_value},
-        types::Decimal,
-        value::Value,
-    };
+    use super::*;
+    use crate::{types::Decimal, value::Value};
 
     #[test]
     fn stable_hash_uses_digest_prefix_contract() {

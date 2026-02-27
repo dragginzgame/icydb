@@ -3,7 +3,7 @@ use crate::{
         contracts::{SchemaInfo, canonical_value_compare, literal_matches_type},
         cursor::CursorPlanError,
         direction::Direction,
-        plan::{OrderDirection, OrderSpec},
+        query::plan::{OrderDirection, OrderSpec},
     },
     model::entity::{EntityModel, resolve_field_slot},
     traits::{EntityKind, EntityValue, FieldValue},

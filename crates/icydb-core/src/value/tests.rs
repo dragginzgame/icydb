@@ -1,12 +1,14 @@
 use crate::{
-    db::hash_value,
     serialize::{deserialize, serialize},
     traits::NumFromPrimitive,
     types::{
         Account, Date, Decimal, Duration, Float32 as F32, Float64 as F64, Int, Int128, Nat, Nat128,
         Principal, Subaccount, Timestamp, Ulid,
     },
-    value::{CoercionFamily, CoercionFamilyExt, SchemaInvariantError, TextMode, Value, ValueEnum},
+    value::{
+        CoercionFamily, CoercionFamilyExt, SchemaInvariantError, TextMode, Value, ValueEnum,
+        hash_value,
+    },
 };
 use std::cmp::Ordering;
 

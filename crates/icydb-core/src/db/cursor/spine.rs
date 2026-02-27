@@ -11,7 +11,7 @@ use crate::{
             validate_cursor_window_offset,
         },
         direction::Direction,
-        plan::OrderSpec,
+        query::plan::OrderSpec,
     },
     model::entity::EntityModel,
     traits::{EntityKind, FieldValue},

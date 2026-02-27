@@ -4,7 +4,7 @@ use crate::{
             CursorBoundary, CursorBoundarySlot, apply_order_direction, compare_boundary_slots,
         },
         index::continuation_advances_from_ordering,
-        plan::{OrderDirection, OrderSpec},
+        query::plan::{OrderDirection, OrderSpec},
     },
     model::entity::resolve_field_slot,
     traits::{EntityKind, EntityValue},

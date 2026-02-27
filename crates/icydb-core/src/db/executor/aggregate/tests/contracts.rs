@@ -7,12 +7,11 @@ use crate::{
             ExecutionConfig, ExecutionContext, GroupAggregateSpec, GroupAggregateSpecSupportError,
             GroupError, GroupedAggregateOutput,
         },
-        group_key::CanonicalKey,
-        value_hash::with_test_hash_override,
+        executor::group::CanonicalKey,
     },
     model::field::FieldKind,
     testing,
-    value::Value,
+    value::{Value, with_test_hash_override},
 };
 use icydb_derive::FieldProjection;
 use serde::{Deserialize, Serialize};
@@ -45,7 +44,7 @@ crate::test_entity_schema! {
     canister = GroupedStateTestCanister,
 }
 
-fn group_key(value: Value) -> crate::db::group_key::GroupKey {
+fn group_key(value: Value) -> crate::db::executor::group::GroupKey {
     value
         .canonical_key()
         .expect("group key canonicalization should succeed")
