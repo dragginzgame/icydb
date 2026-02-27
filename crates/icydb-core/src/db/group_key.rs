@@ -182,7 +182,11 @@ fn canonicalize_map_entries(entries: &[(Value, Value)]) -> Result<Value, KeyCano
 #[cfg(test)]
 mod tests {
     use crate::{
-        db::group_key::{CanonicalKey, GroupKeySet, KeyCanonicalError},
+        db::{
+            contracts::canonical_group_key_equals,
+            group_key::{CanonicalKey, GroupKeySet, KeyCanonicalError},
+            value_hash::with_test_hash_override,
+        },
         types::Decimal,
         value::{MapValueError, Value},
     };
@@ -251,5 +255,98 @@ mod tests {
             !set.insert_value(&second).expect("insert"),
             "second insert should be deduplicated by canonical key equality"
         );
+    }
+
+    #[test]
+    fn canonical_equal_keys_always_share_stable_hash() {
+        let equivalent_pairs = vec![
+            (
+                Value::Decimal(Decimal::new(1000, 3)),
+                Value::Decimal(Decimal::new(1, 0)),
+            ),
+            (
+                Value::Map(vec![
+                    (Value::Text("z".to_string()), Value::Uint(9)),
+                    (Value::Text("a".to_string()), Value::Uint(1)),
+                ]),
+                Value::Map(vec![
+                    (Value::Text("a".to_string()), Value::Uint(1)),
+                    (Value::Text("z".to_string()), Value::Uint(9)),
+                ]),
+            ),
+            (
+                Value::List(vec![Value::Decimal(Decimal::new(10, 1)), Value::Uint(4)]),
+                Value::List(vec![Value::Decimal(Decimal::new(1, 0)), Value::Uint(4)]),
+            ),
+            (
+                Value::List(vec![
+                    Value::Map(vec![
+                        (Value::Text("z".to_string()), Value::Uint(9)),
+                        (Value::Text("a".to_string()), Value::Uint(1)),
+                    ]),
+                    Value::Decimal(Decimal::new(2500, 2)),
+                ]),
+                Value::List(vec![
+                    Value::Map(vec![
+                        (Value::Text("a".to_string()), Value::Uint(1)),
+                        (Value::Text("z".to_string()), Value::Uint(9)),
+                    ]),
+                    Value::Decimal(Decimal::new(25, 0)),
+                ]),
+            ),
+        ];
+
+        for (left_value, right_value) in equivalent_pairs {
+            let left_key = left_value.canonical_key().expect("left canonical key");
+            let right_key = right_value.canonical_key().expect("right canonical key");
+            assert!(
+                canonical_group_key_equals(&left_key, &right_key),
+                "pair should be canonical-equal under group key contract",
+            );
+            assert_eq!(
+                left_key.hash(),
+                right_key.hash(),
+                "canonical-equal keys must hash to the same stable hash",
+            );
+        }
+    }
+
+    #[test]
+    fn group_key_set_handles_hash_collisions_with_equality_check() {
+        with_test_hash_override([0xAB; 16], || {
+            let mut set = GroupKeySet::default();
+            let first = Value::Text("alpha".to_string())
+                .canonical_key()
+                .expect("first canonical key");
+            let second = Value::Text("beta".to_string())
+                .canonical_key()
+                .expect("second canonical key");
+
+            assert_eq!(
+                first.hash(),
+                second.hash(),
+                "test setup requires an artificial hash collision",
+            );
+            assert!(
+                !canonical_group_key_equals(&first, &second),
+                "collision pair must remain distinct by canonical equality",
+            );
+            assert!(
+                set.insert_key(first.clone()),
+                "first colliding key should insert as new",
+            );
+            assert!(
+                set.insert_key(second.clone()),
+                "second colliding key must not be dropped on hash match alone",
+            );
+            assert!(
+                !set.insert_key(first),
+                "re-inserting first key should dedupe by canonical equality",
+            );
+            assert!(
+                !set.insert_key(second),
+                "re-inserting second key should dedupe by canonical equality",
+            );
+        });
     }
 }

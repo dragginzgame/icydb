@@ -19,6 +19,7 @@ Pre-`GROUP BY` substrate work focused on deterministic key/equality behavior in 
 
 * Added canonical key infrastructure (`GroupKey`, `CanonicalKey`, `KeyCanonicalError`) for grouping/distinct materialization.
 * Added stable key hashing under `db/hash` with `StableHash` derived from the deterministic value hash contract.
+* Locked value-hash digest and stable-hash upgrade contracts with frozen vectors, plus explicit seed/version invariants for canonical value hashing.
 * Formalized equality vs ordering contracts under `db::contracts::semantics` and routed cursor ordering through the ordering contract.
 * Migrated aggregate field-target distinct reducers (`count_distinct_by`, `distinct_values_by`) to `GroupKeySet`.
 * Locked DISTINCT semantic domains: kernel row DISTINCT uses `DataKey` identity, while value DISTINCT uses canonical `GroupKey` equality.
@@ -26,6 +27,7 @@ Pre-`GROUP BY` substrate work focused on deterministic key/equality behavior in 
 ### 🧪 Testing
 
 * Added row DISTINCT invariants: identical `DataKey` values never duplicate, and different `DataKey` values remain distinct even when projected values are equal.
+* Added hash/equality invariance coverage to prove canonical-equal keys always share the same stable hash.
 
 ---
 

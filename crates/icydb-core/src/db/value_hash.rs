@@ -1,6 +1,12 @@
 use crate::{error::InternalError, types::Repr, value::Value};
 use canic_utils::hash::Xxh3;
 
+/// Value-hash format version byte used by canonical digest encoding.
+pub(crate) const VALUE_HASH_VERSION: u8 = 1;
+
+/// Stable XXH3 seed used by canonical value hashing across upgrades.
+pub(crate) const VALUE_HASH_SEED: u64 = 0;
+
 fn feed_i32(h: &mut Xxh3, x: i32) {
     h.update(&x.to_be_bytes());
 }
@@ -36,6 +42,22 @@ thread_local! {
 #[expect(clippy::redundant_closure_for_method_calls)]
 fn test_hash_override() -> Option<[u8; 16]> {
     TEST_HASH_OVERRIDE.with(|cell| cell.get())
+}
+
+// Execute one closure with a thread-local test hash override and always restore
+// the previous override state, even if the closure panics.
+#[cfg(test)]
+pub(in crate::db) fn with_test_hash_override<T>(
+    override_hash: [u8; 16],
+    f: impl FnOnce() -> T + std::panic::UnwindSafe,
+) -> T {
+    let previous = TEST_HASH_OVERRIDE.with(|cell| cell.replace(Some(override_hash)));
+    let result = std::panic::catch_unwind(f);
+    TEST_HASH_OVERRIDE.with(|cell| cell.set(previous));
+    match result {
+        Ok(value) => value,
+        Err(payload) => std::panic::resume_unwind(payload),
+    }
 }
 
 // Hash map entries under canonical key order to keep fingerprints deterministic
@@ -189,15 +211,13 @@ fn write_to_hasher(value: &Value, h: &mut Xxh3) -> Result<(), InternalError> {
 
 /// Stable hash used for canonical value fingerprinting across db layers.
 pub(crate) fn hash_value(value: &Value) -> Result<[u8; 16], InternalError> {
-    const VERSION: u8 = 1;
-
     #[cfg(test)]
     if let Some(override_hash) = test_hash_override() {
         return Ok(override_hash);
     }
 
-    let mut h = Xxh3::with_seed(0);
-    feed_u8(&mut h, VERSION); // version
+    let mut h = Xxh3::with_seed(VALUE_HASH_SEED);
+    feed_u8(&mut h, VALUE_HASH_VERSION); // version
 
     write_to_hasher(value, &mut h)?;
     Ok(h.digest128().to_be_bytes())
@@ -214,6 +234,80 @@ mod tests {
         types::{Decimal, Float32 as F32, Float64 as F64},
         value::{Value, ValueEnum},
     };
+
+    #[test]
+    fn hash_contract_seed_and_version_are_frozen() {
+        assert_eq!(VALUE_HASH_SEED, 0);
+        assert_eq!(VALUE_HASH_VERSION, 1);
+    }
+
+    #[test]
+    fn hash_digest_contract_vectors_are_frozen_for_upgrade_stability() {
+        let vectors = vec![
+            (
+                "null",
+                Value::Null,
+                0x07d3_310a_0679_d482_1974_aae7_68bf_e723,
+            ),
+            (
+                "empty_list",
+                Value::List(Vec::new()),
+                0xc961_6022_4099_6188_601a_2e1d_a3d4_577d,
+            ),
+            (
+                "empty_map",
+                Value::Map(Vec::new()),
+                0xfe53_d0af_a864_e41f_7540_c693_50b9_b8d7,
+            ),
+            (
+                "uint_42",
+                Value::Uint(42),
+                0x8c99_03a0_7f2c_731c_2e7a_9cd6_52cb_010f,
+            ),
+            (
+                "int_neg7",
+                Value::Int(-7),
+                0x7470_6cc5_9093_df80_0d3b_e517_da6b_0104,
+            ),
+            (
+                "text_alpha",
+                Value::Text("alpha".to_string()),
+                0x6ec7_96a5_45c2_ad82_58ff_9d4a_4ea8_1c2b,
+            ),
+            (
+                "decimal_1",
+                Value::Decimal(Decimal::new(10, 1)),
+                0x7d42_1e3f_fffc_9100_0be6_fa20_26b6_0b82,
+            ),
+            (
+                "map_a1_z9",
+                Value::Map(vec![
+                    (Value::Text("a".to_string()), Value::Uint(1)),
+                    (Value::Text("z".to_string()), Value::Uint(9)),
+                ]),
+                0xea0e_28c9_f878_6d85_c240_88c8_f0d7_9d81,
+            ),
+            (
+                "nested_list_map",
+                Value::List(vec![
+                    Value::Map(vec![
+                        (Value::Text("z".to_string()), Value::Uint(9)),
+                        (Value::Text("a".to_string()), Value::Uint(1)),
+                    ]),
+                    Value::Decimal(Decimal::new(25, 0)),
+                ]),
+                0x65e9_3e05_85b6_72cc_de03_6d05_eaa9_8c57,
+            ),
+        ];
+        for (label, value, expected_digest) in vectors {
+            let actual_digest = hash_value(&value).expect("hash value");
+            assert_eq!(
+                u128::from_be_bytes(actual_digest),
+                expected_digest,
+                "value-hash digest vector drift for {label}; canonical encoding/seed/version contract changed",
+            );
+        }
+    }
 
     fn v_f64(x: f64) -> Value {
         Value::Float64(F64::try_new(x).expect("finite f64"))

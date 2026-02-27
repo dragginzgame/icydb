@@ -7,7 +7,7 @@ use crate::{
             aggregate::{AggregateKind, AggregateOutput, AggregateSpec},
             load::LoadExecutor,
         },
-        group_key::GroupKeySet,
+        group_key::{GroupKeySet, KeyCanonicalError},
         response::Response,
     },
     error::InternalError,
@@ -191,7 +191,7 @@ where
                 .map_err(Self::map_aggregate_field_value_error)?;
             if !distinct_values
                 .insert_value(&value)
-                .map_err(|err| err.into_internal_error())?
+                .map_err(KeyCanonicalError::into_internal_error)?
             {
                 continue;
             }

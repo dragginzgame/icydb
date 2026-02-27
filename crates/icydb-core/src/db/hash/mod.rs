@@ -72,4 +72,38 @@ mod tests {
             "stable hash must not depend on non-canonical map insertion order",
         );
     }
+
+    #[test]
+    fn stable_hash_contract_vectors_are_frozen_for_upgrade_stability() {
+        let vectors = vec![
+            ("null", Value::Null, 0x07d3_310a_0679_d482),
+            ("uint_42", Value::Uint(42), 0x8c99_03a0_7f2c_731c),
+            ("int_neg7", Value::Int(-7), 0x7470_6cc5_9093_df80),
+            (
+                "text_alpha",
+                Value::Text("alpha".to_string()),
+                0x6ec7_96a5_45c2_ad82,
+            ),
+            (
+                "decimal_1",
+                Value::Decimal(Decimal::new(10, 1)),
+                0x7d42_1e3f_fffc_9100,
+            ),
+            (
+                "map_a1_z9",
+                Value::Map(vec![
+                    (Value::Text("a".to_string()), Value::Uint(1)),
+                    (Value::Text("z".to_string()), Value::Uint(9)),
+                ]),
+                0xea0e_28c9_f878_6d85,
+            ),
+        ];
+        for (label, value, expected_hash) in vectors {
+            let actual_hash = stable_hash_value(&value).expect("stable hash");
+            assert_eq!(
+                actual_hash, expected_hash,
+                "stable hash vector drift for {label}; seed/version/encoding contract changed",
+            );
+        }
+    }
 }
