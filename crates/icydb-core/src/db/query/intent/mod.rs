@@ -125,7 +125,7 @@ impl AccessPlan<Value> {
                     out.push(child.into_executable::<E>(model)?);
                 }
 
-                Ok(AccessPlan::Union(out))
+                Ok(AccessPlan::union(out))
             }
             Self::Intersection(children) => {
                 let mut out = Vec::with_capacity(children.len());
@@ -133,7 +133,7 @@ impl AccessPlan<Value> {
                     out.push(child.into_executable::<E>(model)?);
                 }
 
-                Ok(AccessPlan::Intersection(out))
+                Ok(AccessPlan::intersection(out))
             }
         }
     }

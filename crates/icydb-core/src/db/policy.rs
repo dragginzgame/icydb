@@ -5,7 +5,7 @@
 //!
 //! Ownership contract:
 //! - This module is the sole owner of query shape-policy rules.
-//! - ORDER semantic validation stays in `query::plan_validate`.
+//! - ORDER semantic validation stays in `query::plan::validate`.
 //! - Executors may assert these rules defensively, but must not redefine them.
 
 use crate::db::query::{

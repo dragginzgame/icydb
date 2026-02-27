@@ -17,3 +17,6 @@ pub(crate) use crate::db::query::plan::validate::{
 pub(crate) use crate::db::query::plan::{
     GroupAggregateKind, GroupAggregateSpec, GroupSpec, GroupedExecutionConfig, GroupedPlan,
 };
+
+#[cfg(test)]
+mod tests_validate;

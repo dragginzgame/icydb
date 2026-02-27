@@ -3,6 +3,7 @@
 mod planner;
 #[cfg(test)]
 mod tests;
+pub(crate) mod validate;
 
 use crate::{
     db::{
@@ -23,26 +24,7 @@ use crate::{
 use std::ops::{Bound, Deref, DerefMut};
 
 pub(in crate::db) use crate::db::query::fingerprint::canonical;
-
-#[cfg(test)]
-pub(crate) use validate::OrderPlanError;
-
-/// Re-Exports
-pub(crate) use validate::PlanError;
-
-/// validate
-///
-/// Semantic query-plan validation namespace.
-///
-/// This explicit nested namespace keeps semantic validation ownership
-/// anchored under query planning (`db::query::plan::validate`).
-pub(crate) mod validate {
-    pub(crate) use crate::db::query::plan_validate::{
-        GroupPlanError, validate_group_query_semantics, validate_group_spec, validate_order,
-        validate_query_semantics,
-    };
-    pub(crate) use crate::db::query::plan_validate::{OrderPlanError, PlanError};
-}
+pub use validate::PlanError;
 
 ///
 /// QueryMode
@@ -51,6 +33,7 @@ pub(crate) mod validate {
 /// Encodes mode-specific fields so invalid states are unrepresentable.
 /// Mode checks are explicit and stable at execution time.
 ///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum QueryMode {
     Load(LoadSpec),
@@ -549,7 +532,7 @@ fn assess_secondary_order_pushdown_for_plan<K>(
         if let Some((index, prefix_len)) = access_plan.first_index_range_details() {
             return SecondaryOrderPushdownEligibility::Rejected(
                 SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                    index,
+                    index: index.name,
                     prefix_len,
                 },
             );
@@ -579,7 +562,10 @@ fn assess_secondary_order_pushdown_for_plan<K>(
     }
     if let Some((index, prefix_len)) = access.index_range_details() {
         return SecondaryOrderPushdownEligibility::Rejected(
-            SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported { index, prefix_len },
+            SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
+                index: index.name,
+                prefix_len,
+            },
         );
     }
 

@@ -187,7 +187,7 @@ fn load_limit_without_order_rejects_unordered_pagination() {
                 crate::db::query::plan::PlanError::Policy(ref inner)
                     if matches!(
                         inner.as_ref(),
-                        crate::db::query::plan_validate::PolicyPlanError::UnorderedPagination
+                        crate::db::query::plan::validate::PolicyPlanError::UnorderedPagination
                     )
             )
     ));
@@ -210,7 +210,7 @@ fn load_rejects_duplicate_non_primary_order_field() {
                 crate::db::query::plan::PlanError::Order(ref inner)
                     if matches!(
                         inner.as_ref(),
-                        crate::db::query::plan_validate::OrderPlanError::DuplicateOrderField { field }
+                        crate::db::query::plan::validate::OrderPlanError::DuplicateOrderField { field }
                             if field == "name"
                     )
             )
@@ -232,7 +232,7 @@ fn load_offset_without_order_rejects_unordered_pagination() {
                 crate::db::query::plan::PlanError::Policy(ref inner)
                     if matches!(
                         inner.as_ref(),
-                        crate::db::query::plan_validate::PolicyPlanError::UnorderedPagination
+                        crate::db::query::plan::validate::PolicyPlanError::UnorderedPagination
                     )
             )
     ));
@@ -254,7 +254,7 @@ fn load_limit_and_offset_without_order_rejects_unordered_pagination() {
                 crate::db::query::plan::PlanError::Policy(ref inner)
                     if matches!(
                         inner.as_ref(),
-                        crate::db::query::plan_validate::PolicyPlanError::UnorderedPagination
+                        crate::db::query::plan::validate::PolicyPlanError::UnorderedPagination
                     )
             )
     ));

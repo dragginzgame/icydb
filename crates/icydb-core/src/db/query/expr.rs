@@ -1,7 +1,5 @@
 use crate::db::query::{
-    plan::OrderDirection,
-    plan::PlanError,
-    plan::validate::validate_order,
+    plan::{OrderDirection, PlanError, validate::validate_order},
     predicate::{self, normalize, normalize_enum_literals},
 };
 use crate::db::{

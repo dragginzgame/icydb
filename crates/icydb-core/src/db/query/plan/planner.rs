@@ -106,9 +106,9 @@ fn plan_predicate(
                 plans.push(AccessPlan::path(prefix));
             }
 
-            AccessPlan::Intersection(plans)
+            AccessPlan::intersection(plans)
         }
-        Predicate::Or(children) => AccessPlan::Union(
+        Predicate::Or(children) => AccessPlan::union(
             children
                 .iter()
                 .map(|child| plan_predicate(model, schema, child))
@@ -138,7 +138,7 @@ fn plan_compare(
     match cmp.op {
         CompareOp::Eq => {
             if let Some(paths) = index_prefix_for_eq(model, schema, &cmp.field, &cmp.value) {
-                return AccessPlan::Union(paths);
+                return AccessPlan::union(paths);
             }
         }
         CompareOp::In => {
@@ -150,7 +150,7 @@ fn plan_compare(
                     }
                 }
                 if !plans.is_empty() {
-                    return AccessPlan::Union(plans);
+                    return AccessPlan::union(plans);
                 }
             }
         }

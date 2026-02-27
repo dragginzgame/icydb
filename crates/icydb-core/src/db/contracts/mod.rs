@@ -13,6 +13,8 @@ mod consistency;
 mod predicate_model;
 mod predicate_schema;
 mod semantics;
+#[cfg(test)]
+mod tests;
 
 pub use consistency::ReadConsistency;
 #[cfg(test)]

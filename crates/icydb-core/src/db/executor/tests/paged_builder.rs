@@ -447,7 +447,7 @@ fn invalid_order_field_remains_plan_error_not_execute_error() {
             crate::db::query::plan::PlanError::Order(ref inner)
                 if matches!(
                     inner.as_ref(),
-                    crate::db::query::plan::OrderPlanError::UnknownField { field }
+                    crate::db::query::plan::validate::OrderPlanError::UnknownField { field }
                         if field == "definitely_not_a_field"
                 )
         ),

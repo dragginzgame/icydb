@@ -8,6 +8,9 @@
 //! - Ordering semantics follow the length-prefixed stored-byte layout, not
 //!   lexicographic string ordering.
 
+#[cfg(test)]
+mod tests;
+
 use crate::MAX_INDEX_FIELDS;
 use std::{
     cmp::Ordering,
@@ -356,10 +359,3 @@ impl Display for IndexName {
         f.write_str(self.as_str())
     }
 }
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests;

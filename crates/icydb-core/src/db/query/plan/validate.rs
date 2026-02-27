@@ -406,6 +406,3 @@ pub(crate) fn validate_primary_key_tie_break(
         }))
     }
 }
-
-#[cfg(test)]
-mod tests;

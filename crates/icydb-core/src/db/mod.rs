@@ -30,7 +30,6 @@ pub use diagnostics::StorageReport;
 pub use executor::{ExecutionAccessPathVariant, ExecutionOptimization, ExecutionTrace};
 pub use identity::{EntityName, IndexName};
 pub use index::IndexStore;
-pub use query::plan_validate::PlanError;
 pub use query::{
     builder::field::FieldRef,
     expr::{FilterExpr, SortExpr},
@@ -39,7 +38,7 @@ pub use query::{
         load::{FluentLoadQuery, PagedLoadQuery},
     },
     intent::{DeleteSpec, IntentError, LoadSpec, Query, QueryError, QueryMode},
-    plan::OrderDirection,
+    plan::{OrderDirection, PlanError},
 };
 pub use registry::StoreRegistry;
 pub use relation::validate_delete_strong_relations_for_source;

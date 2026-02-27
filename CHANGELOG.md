@@ -9,8 +9,17 @@ Maintainer note: changelog entries that reach 4 lines or more should be split in
 
 ## [0.32.2] - 2026-02-27 - Restructuring db/
 
-* Moved value_hash.rs back to value/hash.rs and relocated tests.
-* Moved group_key.rs to executor/group/key.rs
+### 📝 Summary
+
+* Continued `db/` boundary cleanup by consolidating access-plan canonicalization and tightening pushdown ownership contracts.
+
+### 🔧 Changed
+
+* Moved `value_hash.rs` back to `value/hash.rs` and relocated tests.
+* Moved `group_key.rs` to `executor/group/key.rs`.
+* Added canonical `AccessPlan::union(...)` and `AccessPlan::intersection(...)` constructors to flatten nested composites and collapse empty/single-child composite shapes.
+* Tightened pushdown ownership by making `SecondaryOrderPushdownEligibility` crate-scoped and keeping surface projection through explain-facing contracts.
+* Replaced string-only index-range detail plumbing with typed index references, converting to index names only at rejection/report boundaries.
 
 ---
 
