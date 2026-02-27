@@ -14,7 +14,6 @@ use crate::db::{
         aggregate::{AggregateFoldMode, AggregateSpec},
         compute_page_window,
     },
-    query::plan::{OrderDirection, OrderSpec},
 };
 use crate::error::InternalError;
 
@@ -43,35 +42,6 @@ use crate::error::InternalError;
 pub(super) enum ExecutionMode {
     Streaming,
     Materialized,
-}
-
-///
-/// RouteOrderSlotPolicy
-///
-/// Slot-selection policy for deriving route-owned scan direction from canonical
-/// order definitions.
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum RouteOrderSlotPolicy {
-    First,
-    Last,
-}
-
-/// Derive route-owned scan direction from an optional canonical order spec.
-#[must_use]
-pub(super) fn derive_scan_direction(
-    order: Option<&OrderSpec>,
-    slot_policy: RouteOrderSlotPolicy,
-) -> Direction {
-    let selected = order.and_then(|order| match slot_policy {
-        RouteOrderSlotPolicy::First => order.fields.first(),
-        RouteOrderSlotPolicy::Last => order.fields.last(),
-    });
-
-    match selected.map(|(_, direction)| direction) {
-        Some(OrderDirection::Desc) => Direction::Desc,
-        _ => Direction::Asc,
-    }
 }
 
 /// Return true when this access path is eligible for PK stream fast-path execution.
@@ -129,6 +99,7 @@ pub(super) enum ContinuationMode {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(super) struct RouteWindowPlan {
     pub(super) effective_offset: u32,
+    limit: Option<u32>,
     keep_count: Option<usize>,
     fetch_count: Option<usize>,
 }
@@ -147,9 +118,15 @@ impl RouteWindowPlan {
 
         Self {
             effective_offset,
+            limit,
             keep_count,
             fetch_count,
         }
+    }
+
+    #[must_use]
+    pub(super) const fn limit(&self) -> Option<u32> {
+        self.limit
     }
 
     #[must_use]
@@ -205,7 +182,7 @@ impl ExecutionRoutePlan {
     }
 
     #[must_use]
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(super) const fn execution_mode_case(&self) -> ExecutionModeRouteCase {
         self.execution_mode_case
     }
@@ -309,6 +286,7 @@ impl ExecutionRoutePlan {
             continuation_mode: ContinuationMode::Initial,
             window: RouteWindowPlan {
                 effective_offset: 0,
+                limit: None,
                 keep_count: None,
                 fetch_count: None,
             },
@@ -370,16 +348,24 @@ pub(super) const GROUPED_AGGREGATE_FAST_PATH_ORDER: [FastPathOrder; 0] = [];
 // load/aggregate fast-path precedence.
 pub(super) const MUTATION_FAST_PATH_ORDER: [FastPathOrder; 0] = [];
 
-/// Iterate route-owned fast-path precedence and return the first successful hit.
-pub(in crate::db::executor) fn try_first_fast_path_hit<T, F>(
+/// Iterate route-owned fast-path precedence through a shared verify+execute gate.
+///
+/// Verification runs first for each route; execution is attempted only when
+/// verification returns a marker. Returns the first successful execution hit.
+pub(in crate::db::executor) fn try_first_verified_fast_path_hit<T, M, V, E>(
     fast_path_order: &[FastPathOrder],
-    mut try_route: F,
+    mut verify_route: V,
+    mut execute_verified_route: E,
 ) -> Result<Option<T>, InternalError>
 where
-    F: FnMut(FastPathOrder) -> Result<Option<T>, InternalError>,
+    V: FnMut(FastPathOrder) -> Result<Option<M>, InternalError>,
+    E: FnMut(M) -> Result<Option<T>, InternalError>,
 {
     for route in fast_path_order.iter().copied() {
-        if let Some(hit) = try_route(route)? {
+        let Some(marker) = verify_route(route)? else {
+            continue;
+        };
+        if let Some(hit) = execute_verified_route(marker)? {
             return Ok(Some(hit));
         }
     }
@@ -428,7 +414,6 @@ enum RouteIntent {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[allow(dead_code)]
 pub(in crate::db::executor) enum ExecutionModeRouteCase {
     Load,
     AggregateCount,

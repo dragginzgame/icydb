@@ -3,10 +3,10 @@ use crate::{
         Context,
         cursor::{ContinuationSignature, CursorBoundary},
         direction::Direction,
-        executor::PredicateFieldSlots,
         executor::load::{CursorPage, LoadExecutor},
         executor::{BudgetedOrderedKeyStream, OrderedKeyStream},
-        query::plan::AccessPlannedQuery,
+        executor::{ExecutionKernel, PredicateFieldSlots},
+        plan::AccessPlannedQuery,
         response::Response,
     },
     error::InternalError,
@@ -78,12 +78,14 @@ where
         direction: Direction,
         continuation_signature: ContinuationSignature,
     ) -> Result<CursorPage<E>, InternalError> {
-        let stats = plan.apply_post_access_with_cursor_and_compiled_predicate::<E, _>(
+        let stats = ExecutionKernel::apply_post_access_with_cursor_and_compiled_predicate::<E, _, _>(
+            plan,
             rows,
             cursor_boundary,
             predicate_slots,
         )?;
-        let next_cursor = plan.next_cursor_for_materialized_rows(
+        let next_cursor = ExecutionKernel::next_cursor_for_materialized_rows(
+            plan,
             rows,
             &stats,
             cursor_boundary,

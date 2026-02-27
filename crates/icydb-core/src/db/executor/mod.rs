@@ -3,6 +3,7 @@ mod commit_planner;
 mod context;
 mod delete;
 mod executable_plan;
+pub(in crate::db) mod grouped;
 mod index_predicate;
 mod kernel;
 pub(super) mod load;
@@ -12,6 +13,7 @@ mod plan_metrics;
 mod plan_validate;
 mod predicate_runtime;
 mod preparation;
+mod query_plan;
 mod recovery;
 pub(super) mod route;
 mod stream;
@@ -27,8 +29,8 @@ pub(in crate::db) use crate::db::access::{
     LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey,
 };
 pub(in crate::db::executor) use crate::db::cursor::{
-    RangeToken, cursor_anchor_from_index_key, range_token_anchor_key,
-    range_token_from_cursor_anchor, range_token_from_lowered_anchor,
+    RangeToken, range_token_anchor_key, range_token_from_cursor_anchor,
+    range_token_from_lowered_anchor,
 };
 pub(in crate::db) use commit_planner::prepare_row_commit_for_entity;
 pub(super) use context::*;
@@ -79,7 +81,7 @@ use crate::{
         contracts::ValidateError,
         cursor::CursorPlanError,
         data::DataKey,
-        query::plan::{OrderPlanError, PlanError},
+        query::plan::validate::{OrderPlanError, PlanError},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
 };

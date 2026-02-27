@@ -1,15 +1,10 @@
 use crate::{
     db::{
         Context,
-        direction::Direction,
         executor::load::{ExecutionOptimization, FastPathKeyResult, LoadExecutor},
-        executor::{
-            AccessPlanStreamRequest, AccessStreamBindings, KeyOrderComparator,
-            LoweredIndexPrefixSpec,
-            route::{RouteOrderSlotPolicy, derive_scan_direction},
-        },
+        executor::{AccessPlanStreamRequest, AccessStreamBindings, LoweredIndexPrefixSpec},
         index::predicate::IndexPredicateExecution,
-        query::plan::AccessPlannedQuery,
+        plan::{AccessPlannedQuery, OrderSlotPolicy, derive_scan_direction},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -41,20 +36,14 @@ where
             index,
             "secondary fast-path spec/index alignment must be validated by resolver",
         );
-        let stream_direction = Self::secondary_index_stream_direction(plan);
+        let stream_direction = derive_scan_direction(plan.order.as_ref(), OrderSlotPolicy::Last);
 
-        let stream_request = AccessPlanStreamRequest {
-            access: &plan.access,
-            bindings: AccessStreamBindings {
-                index_prefix_specs: std::slice::from_ref(index_prefix_spec),
-                index_range_specs: &[],
-                index_range_anchor: None,
-                direction: stream_direction,
-            },
-            key_comparator: KeyOrderComparator::from_direction(stream_direction),
-            physical_fetch_hint: probe_fetch_hint,
+        let stream_request = AccessPlanStreamRequest::from_bindings(
+            &plan.access,
+            AccessStreamBindings::with_index_prefix(index_prefix_spec, stream_direction),
+            probe_fetch_hint,
             index_predicate_execution,
-        };
+        );
 
         let fast = Self::execute_fast_stream_request(
             ctx,
@@ -70,9 +59,5 @@ where
         }
 
         Ok(Some(fast))
-    }
-
-    fn secondary_index_stream_direction(plan: &AccessPlannedQuery<E::Key>) -> Direction {
-        derive_scan_direction(plan.order.as_ref(), RouteOrderSlotPolicy::Last)
     }
 }

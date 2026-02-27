@@ -7,15 +7,13 @@ use crate::{
         Db,
         commit::ensure_recovered_for_write,
         executor::{Context, load::LoadExecutor, validate_executor_plan},
-        query::plan::AccessPlannedQuery,
+        plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
 };
 
-pub(super) use commit_window::{
-    OpenCommitWindow, apply_prepared_row_ops, emit_index_delta_metrics, open_commit_window,
-};
+pub(super) use commit_window::{commit_row_ops_with_window, emit_index_delta_metrics};
 
 /// Run mutation write-entry recovery checks and return a write-ready context.
 pub(in crate::db::executor) fn mutation_write_context<E>(

@@ -23,7 +23,6 @@ use std::{cell::RefCell, ptr, thread::LocalKey};
 ///
 
 pub(in crate::db::executor) struct PreparedRowOpDelta {
-    pub(in crate::db::executor) rows_touched: usize,
     pub(in crate::db::executor) index_inserts: usize,
     pub(in crate::db::executor) index_removes: usize,
     pub(in crate::db::executor) reverse_index_inserts: usize,
@@ -63,7 +62,6 @@ pub(in crate::db::executor) fn summarize_prepared_row_ops(
     prepared_row_ops: &[PreparedRowCommitOp],
 ) -> PreparedRowOpDelta {
     let mut summary = PreparedRowOpDelta {
-        rows_touched: prepared_row_ops.len(),
         index_inserts: 0,
         index_removes: 0,
         reverse_index_inserts: 0,
@@ -201,6 +199,36 @@ pub(in crate::db::executor) fn apply_prepared_row_ops(
 
         Ok(())
     })
+}
+
+/// Open one commit window and apply row ops through the shared apply boundary.
+///
+/// Save/delete executors should use this helper so commit-window sequencing
+/// (preflight marker open + mechanical apply) stays behaviorally aligned.
+pub(in crate::db::executor) fn commit_row_ops_with_window<E: EntityKind + EntityValue>(
+    db: &Db<E::Canister>,
+    row_ops: Vec<CommitRowOp>,
+    apply_phase: &'static str,
+    on_index_applied: impl FnOnce(&PreparedRowOpDelta),
+    on_data_applied: impl FnOnce(),
+) -> Result<(), InternalError> {
+    let OpenCommitWindow {
+        commit,
+        prepared_row_ops,
+        index_store_guards,
+        delta,
+    } = open_commit_window::<E>(db, row_ops)?;
+
+    apply_prepared_row_ops(
+        commit,
+        apply_phase,
+        prepared_row_ops,
+        index_store_guards,
+        || on_index_applied(&delta),
+        on_data_applied,
+    )?;
+
+    Ok(())
 }
 
 // Capture unique touched index stores and their generation after preflight.

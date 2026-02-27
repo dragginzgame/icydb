@@ -11,11 +11,11 @@ use crate::{
             compile_index_predicate_program_from_slots, range_token_from_lowered_anchor,
             route::{
                 ExecutionMode, FastPathOrder, RoutedKeyStreamRequest,
-                ensure_load_fast_path_spec_arity, try_first_fast_path_hit,
+                ensure_load_fast_path_spec_arity, try_first_verified_fast_path_hit,
             },
         },
         index::predicate::IndexPredicateExecution,
-        query::plan::AccessPlannedQuery,
+        plan::AccessPlannedQuery,
     },
     error::InternalError,
     obs::sink::Span,
@@ -76,6 +76,17 @@ enum FastPathDecision {
     None,
 }
 
+///
+/// VerifiedLoadFastPathRoute
+///
+/// Capability marker returned only by load fast-path eligibility verification.
+/// Branch execution requires this marker so route eligibility checks and
+/// branch dispatch stay coupled under one shared gate.
+///
+struct VerifiedLoadFastPathRoute {
+    route: FastPathOrder,
+}
+
 impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
@@ -130,15 +141,12 @@ where
                 // Phase 2: resolve canonical fallback access stream.
                 let fallback_fetch_hint =
                     route_plan.fallback_physical_fetch_hint(inputs.stream_bindings.direction);
-                let stream_request = AccessPlanStreamRequest {
-                    access: &inputs.plan.access,
-                    bindings: inputs.stream_bindings,
-                    key_comparator: super::key_stream_comparator_from_direction(
-                        inputs.stream_bindings.direction,
-                    ),
-                    physical_fetch_hint: fallback_fetch_hint,
+                let stream_request = AccessPlanStreamRequest::from_bindings(
+                    &inputs.plan.access,
+                    inputs.stream_bindings,
+                    fallback_fetch_hint,
                     index_predicate_execution,
-                };
+                );
                 let key_stream = Self::resolve_routed_key_stream(
                     inputs.ctx,
                     RoutedKeyStreamRequest::AccessPlan(stream_request),
@@ -173,58 +181,88 @@ where
             inputs.stream_bindings.index_range_specs.len(),
         )?;
 
-        let fast = try_first_fast_path_hit(route_plan.fast_path_order(), |route| match route {
-            FastPathOrder::PrimaryKey => {
-                if route_plan.pk_order_fast_path_eligible() {
-                    return Self::try_execute_pk_order_stream(
-                        inputs.ctx,
-                        inputs.plan,
-                        route_plan.scan_hints.physical_fetch_hint,
-                    );
-                }
-
-                Ok(None)
-            }
-            FastPathOrder::SecondaryPrefix => {
-                if route_plan.secondary_fast_path_eligible() {
-                    return Self::try_execute_secondary_index_order_stream(
-                        inputs.ctx,
-                        inputs.plan,
-                        inputs.stream_bindings.index_prefix_specs.first(),
-                        route_plan.scan_hints.physical_fetch_hint,
-                        index_predicate_execution,
-                    );
-                }
-
-                Ok(None)
-            }
-            FastPathOrder::IndexRange => {
-                let index_range_token = inputs
-                    .stream_bindings
-                    .index_range_anchor
-                    .map(range_token_from_lowered_anchor);
-                if let Some(spec) = route_plan.index_range_limit_spec.as_ref() {
-                    return Self::try_execute_index_range_limit_pushdown_stream(
-                        inputs.ctx,
-                        inputs.plan,
-                        inputs.stream_bindings.index_range_specs.first(),
-                        index_range_token.as_ref(),
-                        inputs.stream_bindings.direction,
-                        spec.fetch,
-                        index_predicate_execution,
-                    );
-                }
-
-                Ok(None)
-            }
-            FastPathOrder::PrimaryScan | FastPathOrder::Composite => Ok(None),
-        })?;
+        let fast = try_first_verified_fast_path_hit(
+            route_plan.fast_path_order(),
+            |route| Ok(Self::verify_load_fast_path_eligibility(route_plan, route)),
+            |verified_route| {
+                Self::try_execute_verified_load_fast_path(
+                    inputs,
+                    route_plan,
+                    index_predicate_execution,
+                    verified_route,
+                )
+            },
+        )?;
 
         if let Some(fast) = fast {
             return Ok(FastPathDecision::Hit(fast));
         }
 
         Ok(FastPathDecision::None)
+    }
+
+    fn verify_load_fast_path_eligibility(
+        route_plan: &ExecutionPlan,
+        route: FastPathOrder,
+    ) -> Option<VerifiedLoadFastPathRoute> {
+        let verified = match route {
+            FastPathOrder::PrimaryKey if route_plan.pk_order_fast_path_eligible() => Some(route),
+            FastPathOrder::SecondaryPrefix if route_plan.secondary_fast_path_eligible() => {
+                Some(route)
+            }
+            FastPathOrder::IndexRange if route_plan.index_range_limit_fast_path_enabled() => {
+                Some(route)
+            }
+            FastPathOrder::PrimaryScan
+            | FastPathOrder::Composite
+            | FastPathOrder::PrimaryKey
+            | FastPathOrder::SecondaryPrefix
+            | FastPathOrder::IndexRange => None,
+        };
+
+        verified.map(|route| VerifiedLoadFastPathRoute { route })
+    }
+
+    fn try_execute_verified_load_fast_path(
+        inputs: &ExecutionInputs<'_, E>,
+        route_plan: &ExecutionPlan,
+        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
+        verified_route: VerifiedLoadFastPathRoute,
+    ) -> Result<Option<FastPathKeyResult>, InternalError> {
+        match verified_route.route {
+            FastPathOrder::PrimaryKey => Self::try_execute_pk_order_stream(
+                inputs.ctx,
+                inputs.plan,
+                route_plan.scan_hints.physical_fetch_hint,
+            ),
+            FastPathOrder::SecondaryPrefix => Self::try_execute_secondary_index_order_stream(
+                inputs.ctx,
+                inputs.plan,
+                inputs.stream_bindings.index_prefix_specs.first(),
+                route_plan.scan_hints.physical_fetch_hint,
+                index_predicate_execution,
+            ),
+            FastPathOrder::IndexRange => {
+                let index_range_token = inputs
+                    .stream_bindings
+                    .index_range_anchor
+                    .map(range_token_from_lowered_anchor);
+                let Some(spec) = route_plan.index_range_limit_spec.as_ref() else {
+                    return Ok(None);
+                };
+
+                Self::try_execute_index_range_limit_pushdown_stream(
+                    inputs.ctx,
+                    inputs.plan,
+                    inputs.stream_bindings.index_range_specs.first(),
+                    index_range_token.as_ref(),
+                    inputs.stream_bindings.direction,
+                    spec.fetch,
+                    index_predicate_execution,
+                )
+            }
+            FastPathOrder::PrimaryScan | FastPathOrder::Composite => Ok(None),
+        }
     }
 
     // Apply shared path finalization hooks after page materialization.

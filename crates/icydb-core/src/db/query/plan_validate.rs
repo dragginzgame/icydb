@@ -7,9 +7,6 @@
 //! Future rule changes must declare a semantic owner. Defensive re-check layers may mirror
 //! rules, but must not reinterpret semantics or error class intent.
 
-use crate::db::query::plan::{
-    AccessPlannedQuery, GroupAggregateKind, GroupSpec, GroupedPlan, OrderSpec,
-};
 use crate::{
     db::{
         access::{
@@ -19,7 +16,11 @@ use crate::{
         contracts::{SchemaInfo, ValidateError},
         cursor::CursorPlanError,
         policy::{self, PlanPolicyError},
-        query::predicate,
+        query::{
+            grouped::{GroupAggregateKind, GroupSpec, GroupedPlan},
+            plan::{AccessPlannedQuery, OrderSpec},
+            predicate,
+        },
     },
     model::entity::EntityModel,
     value::Value,
@@ -117,7 +118,6 @@ pub enum PolicyPlanError {
 /// GROUP BY wrapper validation failures owned by query planning.
 ///
 #[derive(Clone, Debug, Eq, PartialEq, ThisError)]
-#[allow(dead_code)]
 pub enum GroupPlanError {
     /// GROUP BY requires at least one declared grouping field.
     #[error("group specification must include at least one group field")]
@@ -254,7 +254,6 @@ pub(crate) fn validate_group_query_semantics(
 }
 
 /// Validate one grouped declarative spec against schema-level field surface.
-#[allow(dead_code)]
 pub(crate) fn validate_group_spec(schema: &SchemaInfo, group: &GroupSpec) -> Result<(), PlanError> {
     if group.group_fields.is_empty() {
         return Err(PlanError::from(GroupPlanError::EmptyGroupFields));

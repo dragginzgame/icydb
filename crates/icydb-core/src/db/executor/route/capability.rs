@@ -1,6 +1,9 @@
 use crate::{
     db::{
-        access::{AccessPath, AccessPlan, PushdownApplicability},
+        access::{
+            AccessPath, AccessPlan, PushdownApplicability, SecondaryOrderPushdownEligibility,
+            SecondaryOrderPushdownRejection,
+        },
         direction::Direction,
         executor::{
             ExecutionKernel,
@@ -8,11 +11,9 @@ use crate::{
             aggregate::{AggregateKind, AggregateSpec},
             load::LoadExecutor,
         },
-        query::plan::{
-            AccessPlannedQuery, assess_secondary_order_pushdown_if_applicable_validated,
-        },
+        plan::{AccessPlannedQuery, OrderDirection},
     },
-    model::entity::resolve_field_slot,
+    model::entity::{EntityModel, resolve_field_slot},
     traits::{EntityKind, EntityValue},
 };
 
@@ -29,7 +30,7 @@ where
     pub(in crate::db::executor::route) fn derive_secondary_pushdown_applicability(
         plan: &AccessPlannedQuery<E::Key>,
     ) -> PushdownApplicability {
-        assess_secondary_order_pushdown_if_applicable_validated(E::MODEL, plan)
+        derive_secondary_pushdown_applicability_validated(E::MODEL, plan)
     }
 
     // Derive a canonical route capability snapshot for one plan + direction.
@@ -44,7 +45,9 @@ where
             Self::assess_field_max_fast_path_eligibility(plan, direction, aggregate_spec);
 
         RouteCapabilities {
-            streaming_access_shape_safe: plan.is_streaming_access_shape_safe::<E>(),
+            streaming_access_shape_safe: ExecutionKernel::is_streaming_access_shape_safe::<E, _>(
+                plan,
+            ),
             pk_order_fast_path_eligible: Self::pk_order_stream_fast_path_shape_supported(plan),
             desc_physical_reverse_supported: Self::is_desc_physical_reverse_traversal_supported(
                 &plan.access,
@@ -274,7 +277,7 @@ where
             return false;
         }
 
-        let metadata = plan.budget_safety_metadata::<E>();
+        let metadata = ExecutionKernel::budget_safety_metadata::<E, _>(plan);
         if metadata.has_residual_filter {
             return false;
         }
@@ -344,4 +347,191 @@ where
 
         true
     }
+}
+
+fn order_fields_as_direction_refs(
+    order_fields: &[(String, OrderDirection)],
+) -> Vec<(&str, Direction)> {
+    order_fields
+        .iter()
+        .map(|(field, direction)| (field.as_str(), direction.as_direction()))
+        .collect()
+}
+
+fn applicability_from_eligibility(
+    eligibility: SecondaryOrderPushdownEligibility,
+) -> PushdownApplicability {
+    match eligibility {
+        SecondaryOrderPushdownEligibility::Rejected(
+            SecondaryOrderPushdownRejection::NoOrderBy
+            | SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix,
+        ) => PushdownApplicability::NotApplicable,
+        other => PushdownApplicability::Applicable(other),
+    }
+}
+
+fn match_secondary_order_pushdown_core(
+    model: &EntityModel,
+    order_fields: &[(&str, Direction)],
+    index_name: &'static str,
+    index_fields: &[&'static str],
+    prefix_len: usize,
+) -> SecondaryOrderPushdownEligibility {
+    let Some((last_field, last_direction)) = order_fields.last() else {
+        return SecondaryOrderPushdownEligibility::Rejected(
+            SecondaryOrderPushdownRejection::NoOrderBy,
+        );
+    };
+    if *last_field != model.primary_key.name {
+        return SecondaryOrderPushdownEligibility::Rejected(
+            SecondaryOrderPushdownRejection::MissingPrimaryKeyTieBreak {
+                field: model.primary_key.name.to_string(),
+            },
+        );
+    }
+
+    let expected_direction = *last_direction;
+    for (field, direction) in order_fields {
+        if *direction != expected_direction {
+            return SecondaryOrderPushdownEligibility::Rejected(
+                SecondaryOrderPushdownRejection::MixedDirectionNotEligible {
+                    field: (*field).to_string(),
+                },
+            );
+        }
+    }
+
+    let actual_non_pk_len = order_fields.len().saturating_sub(1);
+    let matches_expected_suffix = actual_non_pk_len
+        == index_fields.len().saturating_sub(prefix_len)
+        && order_fields
+            .iter()
+            .take(actual_non_pk_len)
+            .map(|(field, _)| *field)
+            .zip(index_fields.iter().skip(prefix_len).copied())
+            .all(|(actual, expected)| actual == expected);
+    let matches_expected_full = actual_non_pk_len == index_fields.len()
+        && order_fields
+            .iter()
+            .take(actual_non_pk_len)
+            .map(|(field, _)| *field)
+            .zip(index_fields.iter().copied())
+            .all(|(actual, expected)| actual == expected);
+    if matches_expected_suffix || matches_expected_full {
+        return SecondaryOrderPushdownEligibility::Eligible {
+            index: index_name,
+            prefix_len,
+        };
+    }
+
+    SecondaryOrderPushdownEligibility::Rejected(
+        SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
+            index: index_name,
+            prefix_len,
+            expected_suffix: index_fields
+                .iter()
+                .skip(prefix_len)
+                .map(|field| (*field).to_string())
+                .collect(),
+            expected_full: index_fields
+                .iter()
+                .map(|field| (*field).to_string())
+                .collect(),
+            actual: order_fields
+                .iter()
+                .take(actual_non_pk_len)
+                .map(|(field, _)| (*field).to_string())
+                .collect(),
+        },
+    )
+}
+
+fn assess_secondary_order_pushdown_for_applicable_shape(
+    model: &EntityModel,
+    order_fields: &[(&str, Direction)],
+    index_name: &'static str,
+    index_fields: &[&'static str],
+    prefix_len: usize,
+) -> SecondaryOrderPushdownEligibility {
+    match_secondary_order_pushdown_core(model, order_fields, index_name, index_fields, prefix_len)
+}
+
+fn assess_secondary_order_pushdown_for_plan<K>(
+    model: &EntityModel,
+    order_fields: Option<&[(&str, Direction)]>,
+    access_plan: &AccessPlan<K>,
+) -> SecondaryOrderPushdownEligibility {
+    let Some(order_fields) = order_fields else {
+        return SecondaryOrderPushdownEligibility::Rejected(
+            SecondaryOrderPushdownRejection::NoOrderBy,
+        );
+    };
+    if order_fields.is_empty() {
+        return SecondaryOrderPushdownEligibility::Rejected(
+            SecondaryOrderPushdownRejection::NoOrderBy,
+        );
+    }
+
+    let Some(access) = access_plan.as_path() else {
+        if let Some((index, prefix_len)) = access_plan.first_index_range_details() {
+            return SecondaryOrderPushdownEligibility::Rejected(
+                SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
+                    index,
+                    prefix_len,
+                },
+            );
+        }
+
+        return SecondaryOrderPushdownEligibility::Rejected(
+            SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix,
+        );
+    };
+    if let Some((index, values)) = access.as_index_prefix() {
+        if values.len() > index.fields.len() {
+            return SecondaryOrderPushdownEligibility::Rejected(
+                SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
+                    prefix_len: values.len(),
+                    index_field_len: index.fields.len(),
+                },
+            );
+        }
+
+        return assess_secondary_order_pushdown_for_applicable_shape(
+            model,
+            order_fields,
+            index.name,
+            index.fields,
+            values.len(),
+        );
+    }
+    if let Some((index, prefix_len)) = access.index_range_details() {
+        return SecondaryOrderPushdownEligibility::Rejected(
+            SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported { index, prefix_len },
+        );
+    }
+
+    SecondaryOrderPushdownEligibility::Rejected(
+        SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix,
+    )
+}
+
+// Derive pushdown applicability from a plan already validated by planner + executor.
+fn derive_secondary_pushdown_applicability_validated<K>(
+    model: &EntityModel,
+    plan: &AccessPlannedQuery<K>,
+) -> PushdownApplicability {
+    debug_assert!(
+        !matches!(plan.order.as_ref(), Some(order) if order.fields.is_empty()),
+        "validated plan must not contain an empty ORDER BY specification",
+    );
+    let order_fields = plan
+        .order
+        .as_ref()
+        .map(|order| order_fields_as_direction_refs(&order.fields));
+
+    applicability_from_eligibility(assess_secondary_order_pushdown_for_plan(
+        model,
+        order_fields.as_deref(),
+        &plan.access,
+    ))
 }

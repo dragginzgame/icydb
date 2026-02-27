@@ -5,6 +5,7 @@ pub(crate) mod cursor;
 pub(crate) mod diagnostics;
 pub(in crate::db) mod direction;
 pub(crate) mod identity;
+pub(in crate::db) mod plan;
 pub(crate) mod policy;
 pub(crate) mod query;
 pub(crate) mod registry;
@@ -30,6 +31,7 @@ pub use diagnostics::StorageReport;
 pub use executor::{ExecutionAccessPathVariant, ExecutionOptimization, ExecutionTrace};
 pub use identity::{EntityName, IndexName};
 pub use index::IndexStore;
+pub use query::plan_validate::PlanError;
 pub use query::{
     builder::field::FieldRef,
     expr::{FilterExpr, SortExpr},
@@ -38,7 +40,7 @@ pub use query::{
         load::{FluentLoadQuery, PagedLoadQuery},
     },
     intent::{DeleteSpec, IntentError, LoadSpec, Query, QueryError, QueryMode},
-    plan::{OrderDirection, PlanError},
+    plan::OrderDirection,
 };
 pub use registry::StoreRegistry;
 pub use relation::validate_delete_strong_relations_for_source;

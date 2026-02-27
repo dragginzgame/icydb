@@ -7,7 +7,7 @@ use crate::{
         QueryError, ReadConsistency, Response, WriteBatchResponse, WriteResponse,
         cursor::CursorPlanError,
         decode_cursor,
-        executor::{DeleteExecutor, ExecutorPlanError, LoadExecutor, SaveExecutor},
+        executor::{DeleteExecutor, ExecutablePlan, ExecutorPlanError, LoadExecutor, SaveExecutor},
         query::intent::QueryMode,
     },
     error::InternalError,
@@ -197,24 +197,34 @@ impl<C: CanisterKind> DbSession<C> {
         result.map_err(QueryError::Execute)
     }
 
-    pub(crate) fn execute_load_query_count<E>(&self, query: &Query<E>) -> Result<u32, QueryError>
+    // Shared load-query terminal wrapper: build plan, run under metrics, map
+    // execution errors into query-facing errors.
+    fn execute_load_query_with<E, T>(
+        &self,
+        query: &Query<E>,
+        op: impl FnOnce(LoadExecutor<E>, ExecutablePlan<E>) -> Result<T, InternalError>,
+    ) -> Result<T, QueryError>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
         let plan = query.plan()?;
 
-        self.with_metrics(|| self.load_executor::<E>().aggregate_count(plan))
+        self.with_metrics(|| op(self.load_executor::<E>(), plan))
             .map_err(QueryError::Execute)
+    }
+
+    pub(crate) fn execute_load_query_count<E>(&self, query: &Query<E>) -> Result<u32, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        self.execute_load_query_with(query, |load, plan| load.aggregate_count(plan))
     }
 
     pub(crate) fn execute_load_query_exists<E>(&self, query: &Query<E>) -> Result<bool, QueryError>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let plan = query.plan()?;
-
-        self.with_metrics(|| self.load_executor::<E>().aggregate_exists(plan))
-            .map_err(QueryError::Execute)
+        self.execute_load_query_with(query, |load, plan| load.aggregate_exists(plan))
     }
 
     pub(crate) fn execute_load_query_min<E>(
@@ -224,10 +234,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let plan = query.plan()?;
-
-        self.with_metrics(|| self.load_executor::<E>().aggregate_min(plan))
-            .map_err(QueryError::Execute)
+        self.execute_load_query_with(query, |load, plan| load.aggregate_min(plan))
     }
 
     pub(crate) fn execute_load_query_max<E>(
@@ -237,10 +244,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let plan = query.plan()?;
-
-        self.with_metrics(|| self.load_executor::<E>().aggregate_max(plan))
-            .map_err(QueryError::Execute)
+        self.execute_load_query_with(query, |load, plan| load.aggregate_max(plan))
     }
 
     pub(crate) fn execute_load_query_min_by<E>(
@@ -251,13 +255,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let plan = query.plan()?;
-
-        self.with_metrics(|| {
-            self.load_executor::<E>()
-                .aggregate_min_by(plan, target_field)
+        self.execute_load_query_with(query, |load, plan| {
+            load.aggregate_min_by(plan, target_field)
         })
-        .map_err(QueryError::Execute)
     }
 
     pub(crate) fn execute_load_query_max_by<E>(
@@ -268,13 +268,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let plan = query.plan()?;
-
-        self.with_metrics(|| {
-            self.load_executor::<E>()
-                .aggregate_max_by(plan, target_field)
+        self.execute_load_query_with(query, |load, plan| {
+            load.aggregate_max_by(plan, target_field)
         })
-        .map_err(QueryError::Execute)
     }
 
     pub(crate) fn execute_load_query_nth_by<E>(
@@ -286,13 +282,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let plan = query.plan()?;
-
-        self.with_metrics(|| {
-            self.load_executor::<E>()
-                .aggregate_nth_by(plan, target_field, nth)
+        self.execute_load_query_with(query, |load, plan| {
+            load.aggregate_nth_by(plan, target_field, nth)
         })
-        .map_err(QueryError::Execute)
     }
 
     pub(crate) fn execute_load_query_sum_by<E>(
@@ -303,13 +295,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let plan = query.plan()?;
-
-        self.with_metrics(|| {
-            self.load_executor::<E>()
-                .aggregate_sum_by(plan, target_field)
+        self.execute_load_query_with(query, |load, plan| {
+            load.aggregate_sum_by(plan, target_field)
         })
-        .map_err(QueryError::Execute)
     }
 
     pub(crate) fn execute_load_query_avg_by<E>(
@@ -320,13 +308,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let plan = query.plan()?;
-
-        self.with_metrics(|| {
-            self.load_executor::<E>()
-                .aggregate_avg_by(plan, target_field)
+        self.execute_load_query_with(query, |load, plan| {
+            load.aggregate_avg_by(plan, target_field)
         })
-        .map_err(QueryError::Execute)
     }
 
     pub(crate) fn execute_load_query_median_by<E>(
@@ -337,13 +321,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let plan = query.plan()?;
-
-        self.with_metrics(|| {
-            self.load_executor::<E>()
-                .aggregate_median_by(plan, target_field)
+        self.execute_load_query_with(query, |load, plan| {
+            load.aggregate_median_by(plan, target_field)
         })
-        .map_err(QueryError::Execute)
     }
 
     pub(crate) fn execute_load_query_count_distinct_by<E>(
@@ -354,13 +334,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let plan = query.plan()?;
-
-        self.with_metrics(|| {
-            self.load_executor::<E>()
-                .aggregate_count_distinct_by(plan, target_field)
+        self.execute_load_query_with(query, |load, plan| {
+            load.aggregate_count_distinct_by(plan, target_field)
         })
-        .map_err(QueryError::Execute)
     }
 
     #[expect(clippy::type_complexity)]
@@ -372,13 +348,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let plan = query.plan()?;
-
-        self.with_metrics(|| {
-            self.load_executor::<E>()
-                .aggregate_min_max_by(plan, target_field)
+        self.execute_load_query_with(query, |load, plan| {
+            load.aggregate_min_max_by(plan, target_field)
         })
-        .map_err(QueryError::Execute)
     }
 
     pub(crate) fn execute_load_query_values_by<E>(
@@ -389,10 +361,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let plan = query.plan()?;
-
-        self.with_metrics(|| self.load_executor::<E>().values_by(plan, target_field))
-            .map_err(QueryError::Execute)
+        self.execute_load_query_with(query, |load, plan| load.values_by(plan, target_field))
     }
 
     pub(crate) fn execute_load_query_take<E>(
@@ -403,10 +372,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let plan = query.plan()?;
-
-        self.with_metrics(|| self.load_executor::<E>().take(plan, take_count))
-            .map_err(QueryError::Execute)
+        self.execute_load_query_with(query, |load, plan| load.take(plan, take_count))
     }
 
     pub(crate) fn execute_load_query_top_k_by<E>(
@@ -418,13 +384,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let plan = query.plan()?;
-
-        self.with_metrics(|| {
-            self.load_executor::<E>()
-                .top_k_by(plan, target_field, take_count)
+        self.execute_load_query_with(query, |load, plan| {
+            load.top_k_by(plan, target_field, take_count)
         })
-        .map_err(QueryError::Execute)
     }
 
     pub(crate) fn execute_load_query_bottom_k_by<E>(
@@ -436,13 +398,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let plan = query.plan()?;
-
-        self.with_metrics(|| {
-            self.load_executor::<E>()
-                .bottom_k_by(plan, target_field, take_count)
+        self.execute_load_query_with(query, |load, plan| {
+            load.bottom_k_by(plan, target_field, take_count)
         })
-        .map_err(QueryError::Execute)
     }
 
     pub(crate) fn execute_load_query_top_k_by_values<E>(
@@ -454,13 +412,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let plan = query.plan()?;
-
-        self.with_metrics(|| {
-            self.load_executor::<E>()
-                .top_k_by_values(plan, target_field, take_count)
+        self.execute_load_query_with(query, |load, plan| {
+            load.top_k_by_values(plan, target_field, take_count)
         })
-        .map_err(QueryError::Execute)
     }
 
     pub(crate) fn execute_load_query_bottom_k_by_values<E>(
@@ -472,13 +426,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let plan = query.plan()?;
-
-        self.with_metrics(|| {
-            self.load_executor::<E>()
-                .bottom_k_by_values(plan, target_field, take_count)
+        self.execute_load_query_with(query, |load, plan| {
+            load.bottom_k_by_values(plan, target_field, take_count)
         })
-        .map_err(QueryError::Execute)
     }
 
     pub(crate) fn execute_load_query_top_k_by_with_ids<E>(
@@ -490,13 +440,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let plan = query.plan()?;
-
-        self.with_metrics(|| {
-            self.load_executor::<E>()
-                .top_k_by_with_ids(plan, target_field, take_count)
+        self.execute_load_query_with(query, |load, plan| {
+            load.top_k_by_with_ids(plan, target_field, take_count)
         })
-        .map_err(QueryError::Execute)
     }
 
     pub(crate) fn execute_load_query_bottom_k_by_with_ids<E>(
@@ -508,13 +454,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let plan = query.plan()?;
-
-        self.with_metrics(|| {
-            self.load_executor::<E>()
-                .bottom_k_by_with_ids(plan, target_field, take_count)
+        self.execute_load_query_with(query, |load, plan| {
+            load.bottom_k_by_with_ids(plan, target_field, take_count)
         })
-        .map_err(QueryError::Execute)
     }
 
     pub(crate) fn execute_load_query_distinct_values_by<E>(
@@ -525,13 +467,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let plan = query.plan()?;
-
-        self.with_metrics(|| {
-            self.load_executor::<E>()
-                .distinct_values_by(plan, target_field)
+        self.execute_load_query_with(query, |load, plan| {
+            load.distinct_values_by(plan, target_field)
         })
-        .map_err(QueryError::Execute)
     }
 
     pub(crate) fn execute_load_query_values_by_with_ids<E>(
@@ -542,13 +480,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let plan = query.plan()?;
-
-        self.with_metrics(|| {
-            self.load_executor::<E>()
-                .values_by_with_ids(plan, target_field)
+        self.execute_load_query_with(query, |load, plan| {
+            load.values_by_with_ids(plan, target_field)
         })
-        .map_err(QueryError::Execute)
     }
 
     pub(crate) fn execute_load_query_first_value_by<E>(
@@ -559,10 +493,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let plan = query.plan()?;
-
-        self.with_metrics(|| self.load_executor::<E>().first_value_by(plan, target_field))
-            .map_err(QueryError::Execute)
+        self.execute_load_query_with(query, |load, plan| load.first_value_by(plan, target_field))
     }
 
     pub(crate) fn execute_load_query_last_value_by<E>(
@@ -573,10 +504,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let plan = query.plan()?;
-
-        self.with_metrics(|| self.load_executor::<E>().last_value_by(plan, target_field))
-            .map_err(QueryError::Execute)
+        self.execute_load_query_with(query, |load, plan| load.last_value_by(plan, target_field))
     }
 
     pub(crate) fn execute_load_query_first<E>(
@@ -586,10 +514,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let plan = query.plan()?;
-
-        self.with_metrics(|| self.load_executor::<E>().aggregate_first(plan))
-            .map_err(QueryError::Execute)
+        self.execute_load_query_with(query, |load, plan| load.aggregate_first(plan))
     }
 
     pub(crate) fn execute_load_query_last<E>(
@@ -599,10 +524,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let plan = query.plan()?;
-
-        self.with_metrics(|| self.load_executor::<E>().aggregate_last(plan))
-            .map_err(QueryError::Execute)
+        self.execute_load_query_with(query, |load, plan| load.aggregate_last(plan))
     }
 
     pub(crate) fn execute_load_query_paged_with_trace<E>(

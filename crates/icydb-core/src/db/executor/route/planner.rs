@@ -8,7 +8,7 @@ use crate::{
             aggregate::{AggregateFoldMode, AggregateKind, AggregateSpec},
             load::LoadExecutor,
         },
-        query::plan::AccessPlannedQuery,
+        plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -194,7 +194,7 @@ where
     // Build canonical grouped aggregate routing from one grouped query wrapper.
     #[cfg(test)]
     pub(in crate::db::executor) fn build_execution_route_plan_for_grouped_plan(
-        grouped: &crate::db::query::plan::GroupedPlan<E::Key>,
+        grouped: &crate::db::plan::GroupedPlan<E::Key>,
     ) -> ExecutionPlan {
         let execution_preparation = ExecutionPreparation::for_plan::<E>(&grouped.base);
 
@@ -532,12 +532,13 @@ where
         // Aggregate probes must not assume DESC physical reverse traversal
         // when the access shape cannot emit descending order natively.
         let count_pushdown_probe_fetch_hint = if count_pushdown_eligible {
-            Self::count_pushdown_fetch_hint(plan, capabilities)
+            Self::count_pushdown_fetch_hint(route_window, capabilities)
         } else {
             None
         };
-        let aggregate_terminal_probe_fetch_hint = aggregate_spec
-            .and_then(|spec| Self::aggregate_probe_fetch_hint(plan, spec, direction, capabilities));
+        let aggregate_terminal_probe_fetch_hint = aggregate_spec.and_then(|spec| {
+            Self::aggregate_probe_fetch_hint(spec, direction, capabilities, route_window)
+        });
         let aggregate_physical_fetch_hint =
             count_pushdown_probe_fetch_hint.or(aggregate_terminal_probe_fetch_hint);
         let aggregate_secondary_extrema_probe_fetch_hint = match kind {

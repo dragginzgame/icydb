@@ -4,11 +4,11 @@ use crate::{
         direction::Direction,
         executor::load::{ExecutionOptimization, FastPathKeyResult, LoadExecutor},
         executor::{
-            AccessPlanStreamRequest, AccessStreamBindings, KeyOrderComparator,
-            LoweredIndexRangeSpec, RangeToken, range_token_anchor_key,
+            AccessPlanStreamRequest, AccessStreamBindings, LoweredIndexRangeSpec, RangeToken,
+            range_token_anchor_key,
         },
         index::predicate::IndexPredicateExecution,
-        query::plan::AccessPlannedQuery,
+        plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -41,18 +41,16 @@ where
             index,
             "index-range fast-path spec/index alignment must be validated by resolver",
         );
-        let stream_request = AccessPlanStreamRequest {
-            access: &plan.access,
-            bindings: AccessStreamBindings {
-                index_prefix_specs: &[],
-                index_range_specs: std::slice::from_ref(index_range_spec),
-                index_range_anchor: index_range_anchor.map(range_token_anchor_key),
+        let stream_request = AccessPlanStreamRequest::from_bindings(
+            &plan.access,
+            AccessStreamBindings::with_index_range(
+                index_range_spec,
+                index_range_anchor.map(range_token_anchor_key),
                 direction,
-            },
-            key_comparator: KeyOrderComparator::from_direction(direction),
-            physical_fetch_hint: Some(effective_fetch),
+            ),
+            Some(effective_fetch),
             index_predicate_execution,
-        };
+        );
 
         Ok(Some(Self::execute_fast_stream_request(
             ctx,

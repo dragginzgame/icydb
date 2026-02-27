@@ -11,16 +11,15 @@ use crate::{
     db::{
         access::{AccessPath, AccessPlan, AccessPlanError},
         contracts::{Predicate, ReadConsistency, SchemaInfo, ValidateError},
-        executor::ExecutablePlan,
         policy,
         query::{
             explain::ExplainPlan,
             expr::{FilterExpr, SortExpr, SortLowerError},
+            plan::validate::validate_query_semantics,
             plan::{
                 AccessPlannedQuery, DeleteLimitSpec, LogicalPlan, OrderDirection, OrderSpec,
                 PageSpec, PlanError, PlannerError, canonical, plan_access,
             },
-            plan_validate::validate_query_semantics,
             predicate::{
                 lower_to_execution_model, normalize, normalize_enum_literals,
                 validate::reject_unsupported_query_features,
@@ -477,12 +476,6 @@ impl<E: EntityKind> PlannedQuery<E> {
     }
 }
 
-impl<E: EntityKind> From<PlannedQuery<E>> for ExecutablePlan<E> {
-    fn from(value: PlannedQuery<E>) -> Self {
-        Self::new(value.into_inner())
-    }
-}
-
 #[derive(Debug)]
 pub struct Query<E: EntityKind> {
     intent: QueryModel<'static, E::Key>,
@@ -621,11 +614,6 @@ impl<E: EntityKind> Query<E> {
         let plan = self.build_plan()?;
 
         Ok(PlannedQuery::new(plan))
-    }
-
-    /// Compile this logical planned query into executor runtime state.
-    pub fn plan(&self) -> Result<ExecutablePlan<E>, QueryError> {
-        self.planned().map(ExecutablePlan::from)
     }
 
     // Build a logical plan for the current intent.

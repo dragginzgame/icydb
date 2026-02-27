@@ -1,24 +1,31 @@
 //! Kernel-owned post-access execution semantics for planned queries.
 
-pub(in crate::db::executor) mod order_cursor;
+mod order_cursor;
 mod window;
 
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},
-        cursor::{ContinuationSignature, ContinuationToken, CursorBoundary},
+        cursor::{
+            ContinuationSignature, ContinuationToken, CursorBoundary,
+            next_cursor_for_materialized_rows as derive_next_materialized_cursor,
+        },
         direction::Direction,
         executor::{
-            ExecutionKernel, PredicateFieldSlots, cursor_anchor_from_index_key,
-            eval_with_slots as eval_predicate_with_slots,
+            ExecutionKernel, PredicateFieldSlots, eval_with_slots as eval_predicate_with_slots,
         },
-        index::IndexKey,
+        plan::AccessPlannedQuery,
         policy,
-        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntitySchema, EntityValue},
     types::Id,
+};
+use std::ops::Deref;
+
+use crate::db::executor::kernel::post_access::order_cursor::{
+    apply_order_spec as apply_post_access_order_spec,
+    apply_order_spec_bounded as apply_post_access_order_spec_bounded,
 };
 
 ///
@@ -82,9 +89,102 @@ pub(crate) struct BudgetSafetyMetadata {
     pub(crate) requires_post_access_sort: bool,
 }
 
-impl<K> AccessPlannedQuery<K> {
+///
+/// PostAccessPlan
+///
+/// Executor-owned post-access operation wrapper over one plan contract.
+///
+
+struct PostAccessPlan<'a, K> {
+    plan: &'a AccessPlannedQuery<K>,
+}
+
+impl<'a, K> PostAccessPlan<'a, K> {
+    const fn new(plan: &'a AccessPlannedQuery<K>) -> Self {
+        Self { plan }
+    }
+}
+
+impl<K> Deref for PostAccessPlan<'_, K> {
+    type Target = AccessPlannedQuery<K>;
+
+    fn deref(&self) -> &Self::Target {
+        self.plan
+    }
+}
+
+impl ExecutionKernel {
+    pub(crate) fn apply_post_access_with_compiled_predicate<E, R, K>(
+        plan: &AccessPlannedQuery<K>,
+        rows: &mut Vec<R>,
+        compiled_predicate: Option<&PredicateFieldSlots>,
+    ) -> Result<PostAccessStats, InternalError>
+    where
+        E: EntityKind + EntityValue,
+        R: PlanRow<E>,
+    {
+        PostAccessPlan::new(plan)
+            .apply_post_access_with_compiled_predicate::<E, R>(rows, compiled_predicate)
+    }
+
+    pub(crate) fn apply_post_access_with_cursor_and_compiled_predicate<E, R, K>(
+        plan: &AccessPlannedQuery<K>,
+        rows: &mut Vec<R>,
+        cursor: Option<&CursorBoundary>,
+        compiled_predicate: Option<&PredicateFieldSlots>,
+    ) -> Result<PostAccessStats, InternalError>
+    where
+        E: EntityKind + EntityValue,
+        R: PlanRow<E>,
+    {
+        PostAccessPlan::new(plan).apply_post_access_with_cursor_and_compiled_predicate::<E, R>(
+            rows,
+            cursor,
+            compiled_predicate,
+        )
+    }
+
+    pub(in crate::db::executor) fn next_cursor_for_materialized_rows<E>(
+        plan: &AccessPlannedQuery<E::Key>,
+        rows: &[(Id<E>, E)],
+        stats: &PostAccessStats,
+        cursor_boundary: Option<&CursorBoundary>,
+        direction: Direction,
+        signature: ContinuationSignature,
+    ) -> Result<Option<ContinuationToken>, InternalError>
+    where
+        E: EntityKind + EntityValue,
+    {
+        derive_next_materialized_cursor(
+            plan,
+            rows,
+            stats.rows_after_cursor,
+            cursor_boundary,
+            direction,
+            signature,
+        )
+    }
+
+    #[must_use]
+    pub(crate) fn budget_safety_metadata<E, K>(plan: &AccessPlannedQuery<K>) -> BudgetSafetyMetadata
+    where
+        E: EntitySchema<Key = K>,
+    {
+        PostAccessPlan::new(plan).budget_safety_metadata::<E>()
+    }
+
+    #[must_use]
+    pub(crate) fn is_streaming_access_shape_safe<E, K>(plan: &AccessPlannedQuery<K>) -> bool
+    where
+        E: EntitySchema<Key = K>,
+    {
+        PostAccessPlan::new(plan).is_streaming_access_shape_safe::<E>()
+    }
+}
+
+impl<K> PostAccessPlan<'_, K> {
     /// Apply predicate, ordering, and pagination in plan order with one precompiled predicate.
-    pub(crate) fn apply_post_access_with_compiled_predicate<E, R>(
+    fn apply_post_access_with_compiled_predicate<E, R>(
         &self,
         rows: &mut Vec<R>,
         compiled_predicate: Option<&PredicateFieldSlots>,
@@ -101,7 +201,7 @@ impl<K> AccessPlannedQuery<K> {
     }
 
     /// Apply predicate, ordering, cursor boundary, and pagination with a precompiled predicate.
-    pub(crate) fn apply_post_access_with_cursor_and_compiled_predicate<E, R>(
+    fn apply_post_access_with_cursor_and_compiled_predicate<E, R>(
         &self,
         rows: &mut Vec<R>,
         cursor: Option<&CursorBoundary>,
@@ -233,9 +333,9 @@ impl<K> AccessPlannedQuery<K> {
             let ordered_total = rows.len();
             if rows.len() > 1 {
                 if let Some(keep_count) = bounded_order_keep {
-                    order_cursor::apply_order_spec_bounded::<E, R>(rows, order, keep_count);
+                    apply_post_access_order_spec_bounded::<E, R>(rows, order, keep_count);
                 } else {
-                    order_cursor::apply_order_spec::<E, R>(rows, order);
+                    apply_post_access_order_spec::<E, R>(rows, order);
                 }
             }
 
@@ -298,97 +398,9 @@ impl<K> AccessPlannedQuery<K> {
         Ok((delete_was_limited, rows.len()))
     }
 
-    /// Build a cursor boundary from one materialized entity using this plan's canonical ordering.
-    pub(crate) fn cursor_boundary_from_entity<E>(
-        &self,
-        entity: &E,
-    ) -> Result<CursorBoundary, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
-        let Some(order) = self.order.as_ref() else {
-            return Err(InternalError::query_executor_invariant(
-                "cannot build cursor boundary without ordering",
-            ));
-        };
-
-        Ok(CursorBoundary::from_ordered_entity(entity, order))
-    }
-
-    /// Build a continuation token for one materialized entity.
-    fn next_cursor_for_entity<E>(
-        &self,
-        entity: &E,
-        direction: Direction,
-        signature: ContinuationSignature,
-    ) -> Result<ContinuationToken, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
-        let boundary = self.cursor_boundary_from_entity(entity)?;
-        let initial_offset = self.page.as_ref().map_or(0, |page| page.offset);
-        let token = if let Some((index, _, _, _)) = self.access.as_index_range_path() {
-            let index_key = IndexKey::new(entity, index)?.ok_or_else(|| {
-                InternalError::query_executor_invariant(
-                    "cursor row is not indexable for planned index-range access",
-                )
-            })?;
-
-            ContinuationToken::new_index_range_with_direction(
-                signature,
-                boundary,
-                cursor_anchor_from_index_key(&index_key),
-                direction,
-                initial_offset,
-            )
-        } else {
-            ContinuationToken::new_with_direction(signature, boundary, direction, initial_offset)
-        };
-
-        Ok(token)
-    }
-
-    /// Derive the next continuation token from one post-access materialized page.
-    pub(in crate::db::executor) fn next_cursor_for_materialized_rows<E>(
-        &self,
-        rows: &[(Id<E>, E)],
-        stats: &PostAccessStats,
-        cursor_boundary: Option<&CursorBoundary>,
-        direction: Direction,
-        signature: ContinuationSignature,
-    ) -> Result<Option<ContinuationToken>, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
-        let Some(page) = self.page.as_ref() else {
-            return Ok(None);
-        };
-        let Some(limit) = page.limit else {
-            return Ok(None);
-        };
-        if rows.is_empty() {
-            return Ok(None);
-        }
-
-        // Continuation eligibility is computed from the post-cursor cardinality
-        // against the effective page window for this request.
-        let page_end =
-            ExecutionKernel::effective_keep_count_for_limit(self, cursor_boundary, limit);
-        if stats.rows_after_cursor <= page_end {
-            return Ok(None);
-        }
-
-        let Some((_, last_entity)) = rows.last() else {
-            return Ok(None);
-        };
-
-        self.next_cursor_for_entity(last_entity, direction, signature)
-            .map(Some)
-    }
-
     /// Build budget-safety metadata used by guarded execution scan budgeting.
     #[must_use]
-    pub(crate) fn budget_safety_metadata<E>(&self) -> BudgetSafetyMetadata
+    fn budget_safety_metadata<E>(&self) -> BudgetSafetyMetadata
     where
         E: EntitySchema<Key = K>,
     {
@@ -410,7 +422,7 @@ impl<K> AccessPlannedQuery<K> {
     // Shared streaming eligibility gate for execution paths that consume
     // the resolved ordered key stream directly without post-access filtering/sorting.
     #[must_use]
-    pub(crate) fn is_streaming_access_shape_safe<E>(&self) -> bool
+    fn is_streaming_access_shape_safe<E>(&self) -> bool
     where
         E: EntitySchema<Key = K>,
     {
@@ -483,7 +495,7 @@ mod tests {
         access::AccessPath,
         contracts::Predicate,
         cursor::CursorBoundary,
-        query::plan::{AccessPlannedQuery, OrderDirection, OrderSpec, PageSpec},
+        plan::{AccessPlannedQuery, OrderDirection, OrderSpec, PageSpec},
     };
     use crate::{db::ReadConsistency, model::field::FieldKind, types::Ulid};
 
@@ -541,7 +553,10 @@ mod tests {
             fields: vec![("id".to_string(), OrderDirection::Asc)],
         });
 
-        let metadata = plan.budget_safety_metadata::<BudgetMetadataEntity>();
+        let metadata = crate::db::executor::ExecutionKernel::budget_safety_metadata::<
+            BudgetMetadataEntity,
+            _,
+        >(&plan);
         assert!(
             metadata.access_order_satisfied_by_path,
             "single-field PK ordering should be marked access-order-satisfied"
@@ -565,7 +580,10 @@ mod tests {
         });
         plan.predicate = Some(Predicate::True);
 
-        let metadata = plan.budget_safety_metadata::<BudgetMetadataEntity>();
+        let metadata = crate::db::executor::ExecutionKernel::budget_safety_metadata::<
+            BudgetMetadataEntity,
+            _,
+        >(&plan);
         assert!(
             metadata.has_residual_filter,
             "predicate-bearing plan must report residual filtering"

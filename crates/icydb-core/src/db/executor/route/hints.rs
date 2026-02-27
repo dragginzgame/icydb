@@ -7,7 +7,7 @@ use crate::{
             aggregate::{AggregateKind, AggregateSpec},
             load::LoadExecutor,
         },
-        query::plan::AccessPlannedQuery,
+        plan::AccessPlannedQuery,
     },
     traits::{EntityKind, EntityValue},
 };
@@ -51,7 +51,7 @@ where
             return Some(IndexRangeLimitSpec { fetch: 0 });
         }
 
-        let fetch = Self::page_window_fetch_count(route_window, true)?;
+        let fetch = route_window.fetch_count_for(true)?;
         if plan.predicate.is_some() && !Self::residual_predicate_pushdown_fetch_is_safe(fetch) {
             return None;
         }
@@ -72,7 +72,7 @@ where
             return None;
         }
 
-        Self::page_window_fetch_count(route_window, true)
+        route_window.fetch_count_for(true)
     }
 
     // Shared bounded-probe safety gate for aggregate key-stream hints.
@@ -98,23 +98,22 @@ where
         256
     }
 
-    pub(super) fn count_pushdown_fetch_hint(
-        plan: &AccessPlannedQuery<E::Key>,
+    pub(super) const fn count_pushdown_fetch_hint(
+        route_window: RouteWindowPlan,
         capabilities: RouteCapabilities,
     ) -> Option<usize> {
         if !capabilities.bounded_probe_hint_safe {
             return None;
         }
 
-        let route_window = Self::derive_route_window(plan, None);
-        Self::page_window_fetch_count(route_window, false)
+        route_window.fetch_count_for(false)
     }
 
     pub(super) fn aggregate_probe_fetch_hint(
-        plan: &AccessPlannedQuery<E::Key>,
         spec: &AggregateSpec,
         direction: Direction,
         capabilities: RouteCapabilities,
+        route_window: RouteWindowPlan,
     ) -> Option<usize> {
         if spec.target_field().is_some() {
             return None;
@@ -130,7 +129,7 @@ where
         ) {
             return None;
         }
-        if plan.page.as_ref().is_some_and(|page| page.limit == Some(0)) {
+        if route_window.limit() == Some(0) {
             return Some(0);
         }
         if !direction_allows_physical_fetch_hint(
@@ -143,12 +142,9 @@ where
             return None;
         }
 
-        let offset = usize::try_from(ExecutionKernel::effective_page_offset(plan, None))
-            .unwrap_or(usize::MAX);
-        let page_limit = plan
-            .page
-            .as_ref()
-            .and_then(|page| page.limit)
+        let offset = usize::try_from(route_window.effective_offset).unwrap_or(usize::MAX);
+        let page_limit = route_window
+            .limit()
             .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
 
         match kind {
@@ -158,13 +154,5 @@ where
             AggregateKind::Last => page_limit.map(|limit| offset.saturating_add(limit)),
             _ => None,
         }
-    }
-
-    // Shared page-window fetch computation for bounded routing hints.
-    pub(super) const fn page_window_fetch_count(
-        route_window: RouteWindowPlan,
-        needs_extra: bool,
-    ) -> Option<usize> {
-        route_window.fetch_count_for(needs_extra)
     }
 }

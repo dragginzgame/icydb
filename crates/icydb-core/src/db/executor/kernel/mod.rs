@@ -3,7 +3,6 @@ mod post_access;
 mod reducer;
 
 pub(in crate::db::executor) use crate::db::executor::index_predicate::IndexPredicateCompileMode;
-pub(in crate::db::executor) use post_access::order_cursor::apply_cursor_boundary;
 #[allow(unused_imports)]
 pub(in crate::db::executor) use post_access::{PlanRow, PostAccessStats};
 
@@ -14,11 +13,11 @@ use crate::{
         executor::{
             ExecutionPlan, OrderedKeyStreamBox,
             load::{
-                ExecutionInputs, LoadExecutor, MaterializedExecutionAttempt,
+                CursorPage, ExecutionInputs, LoadExecutor, MaterializedExecutionAttempt,
                 ResolvedExecutionKeyStream,
             },
         },
-        query::plan::AccessPlannedQuery,
+        plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -67,7 +66,6 @@ impl ExecutionKernel {
 
     // Materialize one load execution attempt with optional residual retry
     // through the canonical kernel boundary.
-    #[expect(clippy::too_many_lines)]
     pub(in crate::db::executor) fn materialize_with_optional_residual_retry<E>(
         inputs: &ExecutionInputs<'_, E>,
         route_plan: &ExecutionPlan,
@@ -81,28 +79,13 @@ impl ExecutionKernel {
         let mut resolved =
             Self::resolve_execution_key_stream(inputs, route_plan, predicate_compile_mode)?;
         let (mut page, keys_scanned, mut post_access_rows) =
-            if let Some((page, keys_scanned, post_access_rows)) =
-                Self::try_materialize_load_via_row_collector(
-                    inputs.ctx,
-                    inputs.plan,
-                    cursor_boundary,
-                    resolved.key_stream.as_mut(),
-                )?
-            {
-                (page, keys_scanned, post_access_rows)
-            } else {
-                LoadExecutor::<E>::materialize_key_stream_into_page(
-                    inputs.ctx,
-                    inputs.plan,
-                    inputs.execution_preparation.compiled_predicate(),
-                    resolved.key_stream.as_mut(),
-                    route_plan.scan_hints.load_scan_budget_hint,
-                    route_plan.streaming_access_shape_safe(),
-                    cursor_boundary,
-                    route_plan.direction(),
-                    continuation_signature,
-                )?
-            };
+            Self::materialize_resolved_execution_stream(
+                inputs,
+                route_plan,
+                cursor_boundary,
+                continuation_signature,
+                &mut resolved,
+            )?;
         let mut rows_scanned = resolved.rows_scanned_override.unwrap_or(keys_scanned);
         let mut optimization = resolved.optimization;
         let mut index_predicate_applied = resolved.index_predicate_applied;
@@ -127,32 +110,13 @@ impl ExecutionKernel {
                 predicate_compile_mode,
             )?;
             let (fallback_page, fallback_keys_scanned, fallback_post_access_rows) =
-                if let Some((fallback_page, fallback_keys_scanned, fallback_post_access_rows)) =
-                    Self::try_materialize_load_via_row_collector(
-                        inputs.ctx,
-                        inputs.plan,
-                        cursor_boundary,
-                        fallback_resolved.key_stream.as_mut(),
-                    )?
-                {
-                    (
-                        fallback_page,
-                        fallback_keys_scanned,
-                        fallback_post_access_rows,
-                    )
-                } else {
-                    LoadExecutor::<E>::materialize_key_stream_into_page(
-                        inputs.ctx,
-                        inputs.plan,
-                        inputs.execution_preparation.compiled_predicate(),
-                        fallback_resolved.key_stream.as_mut(),
-                        fallback_route_plan.scan_hints.load_scan_budget_hint,
-                        fallback_route_plan.streaming_access_shape_safe(),
-                        cursor_boundary,
-                        fallback_route_plan.direction(),
-                        continuation_signature,
-                    )?
-                };
+                Self::materialize_resolved_execution_stream(
+                    inputs,
+                    &fallback_route_plan,
+                    cursor_boundary,
+                    continuation_signature,
+                    &mut fallback_resolved,
+                )?;
             let fallback_rows_scanned = fallback_resolved
                 .rows_scanned_override
                 .unwrap_or(fallback_keys_scanned);
@@ -183,6 +147,42 @@ impl ExecutionKernel {
             index_predicate_keys_rejected,
             distinct_keys_deduped,
         })
+    }
+
+    // Materialize one already-resolved key stream using row-collector fast path
+    // when applicable, otherwise fall back to canonical load materialization.
+    fn materialize_resolved_execution_stream<E>(
+        inputs: &ExecutionInputs<'_, E>,
+        route_plan: &ExecutionPlan,
+        cursor_boundary: Option<&CursorBoundary>,
+        continuation_signature: ContinuationSignature,
+        resolved: &mut ResolvedExecutionKeyStream,
+    ) -> Result<(CursorPage<E>, usize, usize), InternalError>
+    where
+        E: EntityKind + EntityValue,
+    {
+        if let Some((page, keys_scanned, post_access_rows)) =
+            Self::try_materialize_load_via_row_collector(
+                inputs.ctx,
+                inputs.plan,
+                cursor_boundary,
+                resolved.key_stream.as_mut(),
+            )?
+        {
+            return Ok((page, keys_scanned, post_access_rows));
+        }
+
+        LoadExecutor::<E>::materialize_key_stream_into_page(
+            inputs.ctx,
+            inputs.plan,
+            inputs.execution_preparation.compiled_predicate(),
+            resolved.key_stream.as_mut(),
+            route_plan.scan_hints.load_scan_budget_hint,
+            route_plan.streaming_access_shape_safe(),
+            cursor_boundary,
+            route_plan.direction(),
+            continuation_signature,
+        )
     }
 
     // Retry index-range limit pushdown when a bounded residual-filter pass may

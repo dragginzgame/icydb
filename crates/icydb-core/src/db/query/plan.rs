@@ -3,28 +3,49 @@
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+use crate::db::access::PushdownApplicability;
 use crate::{
     db::{
         access::{
-            AccessPath, AccessPlan, PushdownApplicability, SecondaryOrderPushdownEligibility,
+            AccessPath, AccessPlan, SecondaryOrderPushdownEligibility,
             SecondaryOrderPushdownRejection,
         },
         contracts::{PredicateExecutionModel, ReadConsistency},
+        cursor::CursorBoundary,
         direction::Direction,
         query::explain::ExplainAccessPath,
     },
+    error::InternalError,
     model::entity::EntityModel,
+    traits::{EntityKind, EntityValue},
     value::Value,
 };
 use std::ops::{Bound, Deref, DerefMut};
 
 pub(in crate::db) use crate::db::query::fingerprint::canonical;
 
-pub(crate) use crate::db::query::plan_validate::OrderPlanError;
+#[cfg(test)]
+pub(crate) use validate::OrderPlanError;
 ///
 /// Re-Exports
 ///
-pub use crate::db::query::plan_validate::PlanError;
+pub(crate) use validate::PlanError;
+
+///
+/// validate
+///
+/// Semantic query-plan validation namespace.
+///
+/// This explicit nested namespace keeps semantic validation ownership
+/// anchored under query planning (`db::query::plan::validate`).
+pub(crate) mod validate {
+    pub(crate) use crate::db::query::plan_validate::{
+        GroupPlanError, validate_group_query_semantics, validate_group_spec, validate_order,
+        validate_query_semantics,
+    };
+    pub(crate) use crate::db::query::plan_validate::{OrderPlanError, PlanError};
+}
 
 ///
 /// QueryMode
@@ -111,6 +132,26 @@ pub enum OrderDirection {
     Desc,
 }
 
+impl OrderDirection {
+    /// Convert canonical order direction into execution scan direction.
+    #[must_use]
+    pub(in crate::db) const fn as_direction(self) -> Direction {
+        match self {
+            Self::Asc => Direction::Asc,
+            Self::Desc => Direction::Desc,
+        }
+    }
+
+    /// Convert execution scan direction into canonical order direction.
+    #[must_use]
+    pub(in crate::db) const fn from_direction(direction: Direction) -> Self {
+        match direction {
+            Direction::Asc => Self::Asc,
+            Direction::Desc => Self::Desc,
+        }
+    }
+}
+
 ///
 /// OrderSpec
 /// Executor-facing ordering specification.
@@ -165,7 +206,6 @@ pub(crate) enum GroupAggregateKind {
 /// reuse this contract without mutating the wrapper shape.
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[allow(dead_code)]
 pub(crate) struct GroupAggregateSpec {
     pub(crate) kind: GroupAggregateKind,
     pub(crate) target_field: Option<String>,
@@ -179,7 +219,6 @@ pub(crate) struct GroupAggregateSpec {
 /// execution-mode derivation remain executor-owned boundaries.
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[allow(dead_code)]
 pub(crate) struct GroupSpec {
     pub(crate) group_fields: Vec<String>,
     pub(crate) aggregates: Vec<GroupAggregateSpec>,
@@ -248,7 +287,6 @@ pub(crate) struct AccessPlannedQuery<K> {
 /// leaving existing `LogicalPlan` literals unchanged.
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[allow(dead_code)]
 pub(crate) struct GroupedPlan<K> {
     pub(crate) base: AccessPlannedQuery<K>,
     pub(crate) group: GroupSpec,
@@ -288,6 +326,23 @@ impl<K> AccessPlannedQuery<K> {
             access: AccessPlan::path(access),
         }
     }
+
+    /// Build one continuation boundary from one entity using canonical order.
+    pub(in crate::db) fn cursor_boundary_from_entity<E>(
+        &self,
+        entity: &E,
+    ) -> Result<CursorBoundary, InternalError>
+    where
+        E: EntityKind<Key = K> + EntityValue,
+    {
+        let Some(order) = self.order.as_ref() else {
+            return Err(InternalError::query_executor_invariant(
+                "cannot build cursor boundary without ordering",
+            ));
+        };
+
+        Ok(CursorBoundary::from_ordered_entity(entity, order))
+    }
 }
 
 impl<K> GroupedPlan<K> {
@@ -296,13 +351,6 @@ impl<K> GroupedPlan<K> {
     #[allow(dead_code)]
     pub(crate) const fn from_parts(base: AccessPlannedQuery<K>, group: GroupSpec) -> Self {
         Self { base, group }
-    }
-
-    /// Decompose grouped query wrapper into base access plan + group spec.
-    #[must_use]
-    #[allow(dead_code)]
-    pub(crate) fn into_parts(self) -> (AccessPlannedQuery<K>, GroupSpec) {
-        (self.base, self.group)
     }
 }
 
@@ -320,23 +368,16 @@ impl<K> DerefMut for AccessPlannedQuery<K> {
     }
 }
 
-fn direction_from_order(direction: OrderDirection) -> Direction {
-    if direction == OrderDirection::Desc {
-        Direction::Desc
-    } else {
-        Direction::Asc
-    }
-}
-
 fn order_fields_as_direction_refs(
     order_fields: &[(String, OrderDirection)],
 ) -> Vec<(&str, Direction)> {
     order_fields
         .iter()
-        .map(|(field, direction)| (field.as_str(), direction_from_order(*direction)))
+        .map(|(field, direction)| (field.as_str(), direction.as_direction()))
         .collect()
 }
 
+#[cfg(test)]
 fn applicability_from_eligibility(
     eligibility: SecondaryOrderPushdownEligibility,
 ) -> PushdownApplicability {
@@ -521,6 +562,7 @@ pub(crate) fn assess_secondary_order_pushdown_if_applicable<K>(
 
 /// Evaluate pushdown applicability for plans that have already passed full
 /// logical/executor validation.
+#[cfg(test)]
 pub(crate) fn assess_secondary_order_pushdown_if_applicable_validated<K>(
     model: &EntityModel,
     plan: &AccessPlannedQuery<K>,

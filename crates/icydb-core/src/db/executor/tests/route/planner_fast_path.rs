@@ -86,10 +86,19 @@ fn aggregate_fast_path_dispatch_requires_verified_gate_marker() {
         "aggregate fast-path branch execution must flow through a verified-dispatch helper",
     );
     assert!(
-        aggregate_fast_path_source.contains(
-            "let Some(verified_route) = Self::verify_aggregate_fast_path_eligibility(inputs, route)?"
-        ),
+        aggregate_fast_path_source.contains("try_first_verified_fast_path_hit("),
+        "aggregate fast-path loop must route dispatch through the shared verified-hit helper",
+    );
+    assert!(
+        aggregate_fast_path_source
+            .contains("|route| Self::verify_aggregate_fast_path_eligibility(inputs, route)"),
         "aggregate fast-path loop must obtain a verified marker before branch execution",
+    );
+    assert!(
+        aggregate_fast_path_source.contains(
+            "|verified_route| Self::try_execute_verified_aggregate_fast_path(inputs, verified_route)"
+        ),
+        "aggregate fast-path loop must execute branches only through verified-dispatch helper",
     );
 }
 
@@ -147,16 +156,16 @@ fn aggregate_fast_path_folding_uses_shared_stream_helpers() {
     ));
 
     assert!(
-        aggregate_fast_path_source.contains("fn fold_aggregate_over_key_stream<E>("),
-        "aggregate fast-path folding must expose a shared stream-fold helper",
+        aggregate_fast_path_source.contains("fn fold_aggregate_from_routed_stream_request"),
+        "aggregate routed-stream aggregate folding must expose a shared helper",
     );
     assert!(
         aggregate_fast_path_source.contains("fn fold_aggregate_from_fast_path_result<E>("),
         "aggregate fast-path folding must expose a shared fast-path fold helper",
     );
     assert!(
-        kernel_aggregate_source.contains("fn fold_aggregate_from_routed_stream_request"),
-        "aggregate routed-stream aggregate folding must expose a shared helper",
+        aggregate_fast_path_source.contains("Self::run_streaming_aggregate_reducer("),
+        "aggregate fold helpers must route through the shared kernel reducer runner",
     );
     assert!(
         kernel_aggregate_source.contains("fn try_fold_secondary_index_aggregate"),

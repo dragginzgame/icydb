@@ -6,8 +6,7 @@ use crate::{
         executor::{
             Context, ExecutorError,
             mutation::commit_window::{
-                OpenCommitWindow, apply_prepared_row_ops, emit_prepared_row_op_delta_metrics,
-                open_commit_window,
+                commit_row_ops_with_window, emit_prepared_row_op_delta_metrics,
             },
             mutation::mutation_write_context,
         },
@@ -394,22 +393,13 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         marker_row_op: CommitRowOp,
         span: &mut Span<E>,
     ) -> Result<(), InternalError> {
-        let marker_row_ops = vec![marker_row_op];
-        let OpenCommitWindow {
-            commit,
-            prepared_row_ops,
-            index_store_guards,
-            delta,
-        } = open_commit_window::<E>(db, marker_row_ops)?;
-
         // FIRST STABLE WRITE: commit marker is persisted before any mutations.
-        apply_prepared_row_ops(
-            commit,
+        commit_row_ops_with_window::<E>(
+            db,
+            vec![marker_row_op],
             "save_row_apply",
-            prepared_row_ops,
-            index_store_guards,
-            || {
-                emit_prepared_row_op_delta_metrics::<E>(&delta);
+            |delta| {
+                emit_prepared_row_op_delta_metrics::<E>(delta);
             },
             || {
                 span.set_rows(1);
@@ -425,21 +415,13 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         marker_row_ops: Vec<CommitRowOp>,
         span: &mut Span<E>,
     ) -> Result<(), InternalError> {
-        let OpenCommitWindow {
-            commit,
-            prepared_row_ops,
-            index_store_guards,
-            delta,
-        } = open_commit_window::<E>(db, marker_row_ops)?;
-
-        let rows_touched = u64::try_from(delta.rows_touched).unwrap_or(u64::MAX);
-        apply_prepared_row_ops(
-            commit,
+        let rows_touched = u64::try_from(marker_row_ops.len()).unwrap_or(u64::MAX);
+        commit_row_ops_with_window::<E>(
+            db,
+            marker_row_ops,
             "save_batch_atomic_row_apply",
-            prepared_row_ops,
-            index_store_guards,
-            || {
-                emit_prepared_row_op_delta_metrics::<E>(&delta);
+            |delta| {
+                emit_prepared_row_op_delta_metrics::<E>(delta);
             },
             || {
                 span.set_rows(rows_touched);

@@ -4,10 +4,10 @@ use crate::{
         commit::CommitRowOp,
         data::{DataKey, DataRow, RawRow, decode_and_validate_entity_key},
         executor::{
-            ExecutablePlan, ExecutionPreparation, ExecutorError, PlanRow,
+            ExecutablePlan, ExecutionKernel, ExecutionPreparation, ExecutorError, PlanRow,
             mutation::{
-                OpenCommitWindow, apply_prepared_row_ops, emit_index_delta_metrics,
-                mutation_write_context, open_commit_window, preflight_mutation_plan,
+                commit_row_ops_with_window, emit_index_delta_metrics, mutation_write_context,
+                preflight_mutation_plan,
             },
             plan_metrics::{record_plan_metrics, record_rows_scanned, set_rows_from_len},
         },
@@ -143,7 +143,8 @@ where
             let mut rows = decode_rows::<E>(data_rows)?;
 
             // Post-access phase: filter, order, and apply delete limits.
-            let stats = plan.apply_post_access_with_compiled_predicate::<E, _>(
+            let stats = ExecutionKernel::apply_post_access_with_compiled_predicate::<E, _, _>(
+                &plan,
                 &mut rows,
                 execution_preparation.compiled_predicate(),
             )?;
@@ -185,19 +186,11 @@ where
                     ))
                 })
                 .collect::<Result<Vec<_>, InternalError>>()?;
-            let OpenCommitWindow {
-                commit,
-                prepared_row_ops,
-                index_store_guards,
-                delta,
-            } = open_commit_window::<E>(&self.db, row_ops)?;
-
-            apply_prepared_row_ops(
-                commit,
+            commit_row_ops_with_window::<E>(
+                &self.db,
+                row_ops,
                 "delete_row_apply",
-                prepared_row_ops,
-                index_store_guards,
-                || {
+                |delta| {
                     emit_index_delta_metrics::<E>(
                         0,
                         delta.index_removes,

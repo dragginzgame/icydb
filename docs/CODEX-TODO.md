@@ -1,130 +1,124 @@
 ### LLMs PLEASE IGNORE THIS FILE
 ### It's just here so I can manage multiple prompts without scrolling up and down constantly
 
- Scope: static architectural audit of crates/icydb-core/src/db (no code changes).
+• Dead Code Candidates
 
-  Dead Code Candidates
-
-  - None found as high-confidence Safe delete in production paths.
-  - executor/route/planner.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/executor/route/planner.rs:89) -> Test-
-    only utility -> build_execution_route_plan_for_aggregate is #[cfg(test)].
-  - executor/route/planner.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/executor/route/planner.rs:98) -> Test-
-    only utility -> build_execution_route_plan_for_aggregate_spec is #[cfg(test)].
-  - executor/route/mod.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/executor/route/mod.rs:462) -> Test-only
-    utility -> route_capability_flag_count_guard is only for test budget/guard checks.
-  - executor/route/mod.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/executor/route/mod.rs:481) -> Test-only
-    utility -> route_execution_mode_case_count_guard is test-only.
-  - query/plan.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/query/plan.rs:277) -> Test-only utility ->
-    assess_secondary_order_pushdown_if_applicable is #[cfg(test)].
-  - access/plan.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/access/plan.rs:388) -> Test-only utility ->
-    assess_secondary_order_pushdown_if_applicable_from_parts is #[cfg(test)].
-  - query/predicate/validate.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/query/predicate/validate.rs:84) ->
-    Test-only utility -> validate_model is #[cfg(test)].
-  - commit/mod.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/commit/mod.rs:73) -> Test-only utility ->
-    commit_marker_present is #[cfg(test)].
-  - commit/mod.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/commit/mod.rs:82) -> Test-only utility ->
-    init_commit_store_for_tests is #[cfg(test)].
-  - query/builder/field.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/query/builder/field.rs:49) -> Future
-    extension hook -> text_eq_ci has only test references in-repo, but it is public builder API (risky to remove).
+  - query/plan.rs GroupedPlan::into_parts → Safe delete → no callsites found (including tests); grouped path never
+    consumes this deconstructor.
+  - cursor/mod.rs prepare_grouped_cursor → Future extension hook → zero production callsites; grouped continuation
+    decoding is scaffolded but not wired.
+  - cursor/mod.rs revalidate_grouped_cursor → Future extension hook → zero production callsites; grouped continuation
+    lifecycle not integrated.
+  - cursor/mod.rs validate_grouped_cursor_order_plan → Possibly dead but risky → only called by prepare_grouped_cursor
+    (itself unused); deleting now would remove the only grouped order guard.
+  - query/plan_validate.rs validate_group_query_semantics → Test-only utility → referenced from grouped validation
+    tests, not production planning path.
+  - query/plan_validate.rs validate_group_spec → Possibly dead but risky → currently only reachable from test-only
+    grouped validator, but it is the canonical grouped semantics checker.
+  - query/plan.rs GroupAggregateKind::{Exists, First, Last} → Future extension hook → no non-test usage.
+  - query/plan.rs GroupAggregateKind::Count → Test-only utility → used only in grouped tests.
+  - cursor/token.rs GroupedContinuationToken::encode → Future extension hook → no callsites; grouped next-cursor
+    emission not implemented.
+  - cursor/planned.rs GroupedPlannedCursor::last_group_key → Safe delete → no callsites.
+  - executor/route/mod.rs ExecutionRoutePlan::execution_mode_case → Test-only utility → only route tests read it.
+  - executor/route/mod.rs capability fields field_*_fast_path_ineligibility_reason → Unused capability flags / Test-
+    only utility → populated in runtime, consumed only by #[cfg(test)] diagnostics.
+  - query/plan.rs assess_secondary_order_pushdown_if_applicable → Test-only utility (#[cfg(test)]).
+  - executor/route/planner.rs build_execution_route_plan_for_grouped_plan → Test-only utility (#[cfg(test)]).
+  - commit/mod.rs commit_marker_present, init_commit_store_for_tests → Test-only utility (#[cfg(test)]).
 
   Entropy Wrappers
 
-  - executor/route/planner.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/executor/route/planner.rs:79) ->
-    Delete candidate -> validate_mutation_route_stage only calls build_execution_route_plan_for_mutation and returns
-    Ok(()).
-  - executor/stream/access/mod.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/executor/stream/access/mod.rs:356)
-    -> Delete candidate -> lower_primary_key_access is a pure pass-through to ordered_key_stream_from_access.
-  - executor/stream/access/mod.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/executor/stream/access/mod.rs:372)
-    -> Delete candidate -> lower_secondary_index_access is identical pass-through; no extra boundary semantics.
-  - cursor/mod.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/cursor/mod.rs:102) -> Delete candidate ->
-    validated_cursor_order_plan duplicates validated_cursor_order_internal.
-  - cursor/mod.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/cursor/mod.rs:124) -> Delete candidate ->
-    duplicate logic of the prior function.
-  - query/predicate/mod.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/query/predicate/mod.rs:13) -> Keep
-    (Legitimate façade) -> explicit predicate-lowering seam for query/execution model boundary.
-  - commit/recovery.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/commit/recovery.rs:70) -> Keep (Boundary
-    adapter) -> write-side recovery gate semantics (not mere forwarding).
-  - executor/load/mod.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/executor/load/mod.rs:224) -> Keep
-    (Legitimate façade) -> non-traced API boundary over traced execution path.
+  - executor/aggregate/fast_path.rs verified_aggregate_fast_path_route → Delete candidate → pure pass-through wrapper
+    over verify_aggregate_fast_path_eligibility with no transformation.
+  - executor/aggregate/fast_path.rs fold_aggregate_over_key_stream → Delete candidate → one-call indirection to
+    run_streaming_aggregate_reducer.
+  - executor/load/mod.rs execute / execute_paged_with_cursor → Keep (Legitimate façade) → public boundary
+    normalization (Response vs CursorPage) and staged entrypoint semantics.
+  - executor/mutation/save.rs insert/update/replace/*many* wrappers → Keep (Legitimate façade) → encode write-mode
+    semantics explicitly.
+  - session.rs many execute_load_query_* wrappers → Keep (Legitimate façade) → session boundary + metrics/error
+    mapping; high duplication but real API surface.
+  - executor/mutation/mod.rs mutation_write_context → Keep (Boundary adapter) → enforces ensure_recovered_for_write
+    before context creation.
+  - executor/route/planner.rs test route builders (#[cfg(test)]) → Keep (Test probe).
 
   Layering Violations
 
-  - executor/kernel/post_access/order_cursor.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/executor/kernel/
-    post_access/order_cursor.rs:1) -> Cursor comparator/boundary semantics live outside db/cursor -> High.
-  - executor/route/planner.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/executor/route/planner.rs:10) ->
-    executor route planner directly depends on query pushdown helper
-    (assess_secondary_order_pushdown_if_applicable_validated) -> Medium (cross-layer policy coupling).
-  - Explicitly confirmed: no index -> query internals, no access -> query predicate internals, and no commit -> query
-    types in non-test code.
+  - executor/* (26 production files) → executor importing query internals (query::plan::* pervasive) → High.
+  - executor/kernel/post_access/mod.rs → query type (AccessPlannedQuery) carries executor execution methods via impl
+    in executor layer → High.
+  - executor/route/capability.rs → route depends on query pushdown internals
+    (assess_secondary_order_pushdown_if_applicable_validated) → Medium.
+  - cursor/boundary.rs, cursor/mod.rs, cursor/spine.rs → cursor depends on query::plan::OrderSpec/OrderDirection →
+    Medium.
+  - executor/kernel/post_access/order_cursor.rs, executor/kernel/post_access/mod.rs → cursor logic implemented outside
+    db/cursor → High.
+  - query/fluent/load.rs, query/fluent/delete.rs, query/intent/mod.rs → query depends on executor::ExecutablePlan
+    (reverse coupling) → Medium.
+  - Confirmed: no index -> query imports in production.
+  - Confirmed: no access -> query::predicate imports in production.
+  - Confirmed: no commit -> query imports in production.
 
   Consolidation Opportunities
 
-  - executor/route (/home/adam/projects/icydb/crates/icydb-core/src/db/executor/route) -> Consolidate route derivation
-    into one immutable derivation context (direction, capabilities, hints, applicability) -> Medium.
-  - executor/aggregate (/home/adam/projects/icydb/crates/icydb-core/src/db/executor/aggregate) -> Centralize
-    AggregateKind behavior mapping to reduce repeated match trees across contracts/fast-path/helpers -> Medium-High.
-  - cursor/mod.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/cursor/mod.rs:102) -> Merge duplicated cursor-
-    order validators into one function -> Low.
-  - executor/stream/access/mod.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/executor/stream/access/mod.rs:356)
-    -> Collapse twin pass-through access lowerers -> Low.
-  - query/plan.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/query/plan.rs:277) + access/plan.rs (/home/adam/
-    projects/icydb/crates/icydb-core/src/db/access/plan.rs:388) -> Unify secondary ORDER BY pushdown applicability
-    ownership under one subsystem root -> Medium.
-  - executor/stream (/home/adam/projects/icydb/crates/icydb-core/src/db/executor/stream) and executor/load/terminal (/
-    home/adam/projects/icydb/crates/icydb-core/src/db/executor/load/terminal) -> flatten tiny single-file roots only
-    where no invariant boundary is encoded -> Low.
+  - query/plan.rs → split giant planner surface (1893 LOC) into pushdown, projection, contracts/grouped units → Risk:
+    Medium.
+  - executor/route/planner.rs + route siblings → collapse intent/feasibility/execution policy into a single typed
+    “route policy” boundary (currently spread across planner/mode/hints/capability) → Risk: Medium.
+  - executor/aggregate/mod.rs + executor/route/planner.rs + executor/route/mode.rs → centralize AggregateKind decision
+    matrix in one place; remove parallel branching copies → Risk: Medium.
+  - executor/stream/access/mod.rs + executor/physical_path.rs → unify physical access ownership (currently split root
+    + impl location) → Risk: Medium.
+  - executor/delete/mod.rs + executor/mutation/save.rs + executor/mutation/commit_window.rs → factor common commit-
+    window orchestration/metrics hooks; remove save/delete divergence → Risk: Medium.
+  - executor/kernel/post_access/order_cursor.rs → move boundary comparison logic under db/cursor to restore subsystem
+    boundary → Risk: High (hot path).
+  - query/predicate/normalize (1 production file) → flatten into query/predicate root to reduce micro-fragmentation →
+    Risk: Low.
+  - executor/kernel/post_access/window.rs (2-file dir with mod) → inline into post_access/mod.rs unless expected
+    growth → Risk: Low.
+  - index/key → no high-signal consolidation found; current split (codec, ordered, builders) is coherent.
 
   Execution Duplication
 
-  - Load vs aggregate fast-path routing -> both iterate fast_path_order with per-route eligibility + dispatch loops
-    (load/execute.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/executor/load/execute.rs:162), aggregate/
-    fast_path.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/executor/aggregate/fast_path.rs:201)) -> Medium-
-    High.
-  - Direction derivation policy duplicated across executor layers (executable_plan.rs (/home/adam/projects/icydb/crates/
-    icydb-core/src/db/executor/executable_plan.rs:21), route/mode.rs (/home/adam/projects/icydb/crates/icydb-core/src/
-    db/executor/route/mode.rs:24)) -> Medium.
-  - Pushdown eligibility logic split across query/access/route boundaries (query/plan.rs (/home/adam/projects/icydb/
-    crates/icydb-core/src/db/query/plan.rs:277), access/plan.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/
-    access/plan.rs:388), route/planner.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/executor/route/
-    planner.rs:145)) -> Medium.
-  - Mutation entry checks repeated in save/delete flows (ensure_recovered_for_write, plan/context preflight) (mutation/
-    save.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/executor/mutation/save.rs:184), delete/mod.rs (/home/
-    adam/projects/icydb/crates/icydb-core/src/db/executor/delete/mod.rs:125)) -> Medium.
-  - Cursor continuation behavior split between kernel post-access and load page assembly (kernel/post_access/mod.rs (/
-    home/adam/projects/icydb/crates/icydb-core/src/db/executor/kernel/post_access/mod.rs:312), load/page.rs (/home/adam/
-    projects/icydb/crates/icydb-core/src/db/executor/load/page.rs:99)) -> Medium-High.
+  - Load vs aggregate fast-path dispatch → duplicated route-loop and branch eligibility flow (load/execute.rs vs
+    aggregate/fast_path.rs) → Severity: High.
+  - Access stream request assembly → repeated AccessPlanStreamRequest construction patterns across load/pk_stream.rs,
+    load/secondary_index.rs, load/index_range_limit.rs, aggregate/fast_path.rs → Severity: Medium.
+  - Fallback materialization block → near-duplicate block in kernel/mod.rs for initial pass and residual-retry pass →
+    Severity: High.
+  - Direction derivation → repeated scan-direction derivation in route, load helpers, executable plan cursor prep, and
+    query pushdown conversion utilities → Severity: Medium.
+  - Window/fetch hint math → related offset/fetch decisions distributed across route/hints.rs, route/mode.rs, route/
+    planner.rs, kernel/post_access/mod.rs, window.rs → Severity: Medium.
+  - Mutation commit sequencing → save and delete each orchestrate open/apply/metrics with partially duplicated
+    behavior → Severity: Medium.
+  - Session aggregate execution path → many near-identical execute_load_query_* terminal wrappers (plan ->
+    with_metrics -> load_executor aggregate) → Severity: Low (API-level duplication).
 
   GROUP BY Risk Areas
 
-  - executor/route/planner.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/executor/route/planner.rs:135) -> God-
-    function/conditional explosion already present; GROUP BY will multiply branching -> Mitigation: split into staged
-    derivation pipeline with typed intermediate structs.
-  - executor/aggregate/contracts.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/executor/aggregate/
-    contracts.rs:41) -> AggregateSpec models one terminal aggregate only -> Mitigation: add multi-aggregate/group
-    contract (group_keys + aggregate_specs) before execution changes.
-  - executor/aggregate/mod.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/executor/aggregate/mod.rs:264) ->
-    execute_aggregate_spec is scalar-terminal oriented -> Mitigation: separate grouped reducer stage from scalar
-    terminal stage.
-  - executor/aggregate/fast_path.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/executor/aggregate/
-    fast_path.rs:201) -> route-kind branching duplicated and tightly coupled to scalar outputs -> Mitigation:
-    capability-driven strategy table per aggregate family.
-  - executor/kernel/reducer.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/executor/kernel/reducer.rs:112) ->
-    reducer output type is single AggregateOutput<E>; no per-group state abstraction -> Mitigation: introduce group
-    accumulator map abstraction at kernel boundary.
-  - executor/route/mod.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/executor/route/mod.rs:481) -> execution
-    mode taxonomy is Load | AggregateCount | AggregateNonCount only -> Mitigation: add explicit grouped execution mode
-    instead of overloading aggregate non-count path.
-  - query/plan.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/query/plan.rs:1) and query/plan_validate.rs (/
-    home/adam/projects/icydb/crates/icydb-core/src/db/query/plan_validate.rs:1) -> no group-key/group-stage planning
-    surface -> Mitigation: add dedicated grouping plan node and validation pass.
-  - executor/kernel/post_access/mod.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/executor/kernel/post_access/
-    mod.rs:1) -> post-access pipeline assumes row-level flow; grouping risks leaking into this layer -> Mitigation:
-    insert dedicated “group stage” between access and post-access.
-  - executor/load/page.rs (/home/adam/projects/icydb/crates/icydb-core/src/db/executor/load/page.rs:99) + cursor/mod.rs
-    (/home/adam/projects/icydb/crates/icydb-core/src/db/cursor/mod.rs:29) -> continuation tokens are row-boundary based,
-    not group-boundary based -> Mitigation: define grouped continuation token contract early.
-
-
-› Find and fix a bug in @filename
-
-  gpt-5.3-codex high · 78% left · ~/projects/icydb
+  - query/intent/mod.rs → query intent has no first-class grouped state; grouped contracts are detached from intent
+    pipeline → Mitigation: introduce grouped intent type before planning.
+  - query/fluent/load.rs → fluent API is scalar-terminal oriented (count/min/max/...) with no grouped projection
+    surface → Mitigation: add grouped query builder/result API, not scalar overloads.
+  - query/plan.rs → grouped structs exist but are not integrated into normal planning flow → Mitigation: make grouped
+    plan a first-class planner output variant.
+  - query/plan_validate.rs → grouped semantic validation is test-only reachable → Mitigation: wire grouped validation
+    into production plan construction.
+  - executor/route/planner.rs → RouteIntentStage uses Option<AggregateSpec> + grouped: bool; this will not scale to
+    multi-aggregate GROUP BY → Mitigation: replace with explicit enum carrying grouped aggregate list + key spec.
+  - executor/aggregate/mod.rs → hard scalar assumptions (is_grouped() rejected, aggregate_specs().len() != 1 rejected)
+    block GROUP BY directly → Mitigation: add grouped reducer pipeline with keyed accumulators.
+  - executor/aggregate/contracts.rs → grouped contract exists, but runtime mostly consumes global-terminal path only →
+    Mitigation: promote grouped contract to execution descriptor and route contract.
+  - executor/route/planner.rs + executor/aggregate/mod.rs → branch complexity risk: grouped behavior is bolted onto
+    scalar routing with special cases; GROUP BY will cause conditional explosion → Mitigation: separate grouped route
+    mode and grouped execution stages explicitly.
+  - cursor/mod.rs, cursor/token.rs, cursor/planned.rs → grouped continuation path is scaffold-only; no production
+    encode/decode roundtrip → Mitigation: implement grouped cursor protocol end-to-end before enabling grouped
+    pagination.
+  - executor/kernel/post_access/mod.rs + response/mod.rs + session.rs → post-access and response/session surfaces
+    assume row-entity outputs, not grouped rowsets → Mitigation: introduce grouped result container and grouped post-
+    access/cursor semantics.

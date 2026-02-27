@@ -13,7 +13,7 @@ use crate::{
             },
             load::CursorPage,
         },
-        query::plan::AccessPlannedQuery,
+        plan::AccessPlannedQuery,
         response::Response,
     },
     error::InternalError,

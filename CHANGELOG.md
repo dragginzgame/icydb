@@ -5,6 +5,36 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.30.16] - 2026-02-27 - Pre-GROUP BY Kernel Consolidation
+
+### 📝 Summary
+
+* Continued the pre-`GROUP BY` structural cleanup in `db/` to reduce execution-path duplication and tighten module boundaries.
+* Kept grouped runtime behavior disabled while isolating grouped scaffolding behind explicit query/cursor/executor boundaries.
+
+### 🔧 Changed - Execution Paths
+
+* Consolidated route-owned direction/window/fast-path flow so load and aggregate paths now share one verified route-dispatch contract.
+* Reduced duplication in mutation and session aggregate paths by centralizing commit-window sequencing and terminal-wrapper execution helpers.
+* Re-centered cursor ordering/continuation helpers under `db::cursor`, with `post_access` using a dedicated order bridge for stable call sites.
+
+### 🔧 Changed - Boundaries
+
+* Added explicit grouped scaffold boundaries at `db::query::grouped`, `db::cursor::grouped`, and `db::executor::grouped`, with WIP ownership notes to keep grouped work isolated.
+* Added a neutral `db::plan` contract surface for execution-relevant plan contracts and shared direction derivation.
+* Moved query-side `plan()` entry wiring to an executor-owned adapter (`db::executor::query_plan`) and kept grouped support additive-only (no grouped execution enablement yet).
+
+### 🧹 Cleanup
+
+* Removed low-value indirection wrappers in load/route/index boundaries and cleaned up stale dead-code expectations while preserving intentional grouped hooks under explicit `#[allow(dead_code)]` markers.
+* Fixed invariant guard drift by restoring the required runtime projection file (`kernel/post_access/order_cursor.rs`) and keeping executor index-predicate compilation free of `encode*` runtime symbols.
+
+### 📊 Audit
+
+* Audit footprint: updated 51 `db/` files (~915 insertions, ~918 deletions), added 7 new `db` modules for grouped/plan/cursor/query-plan boundaries, restored 1 required runtime compatibility file, and removed 4 pure-indirection wrappers.
+
+---
+
 ## [0.30.15] - 2026-02-27 - GROUP BY Audit Scaffolding
 
 ### 📝 Summary

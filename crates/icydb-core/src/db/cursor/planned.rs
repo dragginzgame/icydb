@@ -75,7 +75,6 @@ impl From<Option<CursorBoundary>> for PlannedCursor {
 /// validation. This type is additive scaffolding for grouped pagination.
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[allow(dead_code)]
 pub(in crate::db) struct GroupedPlannedCursor {
     last_group_key: Option<Vec<Value>>,
     initial_offset: u32,

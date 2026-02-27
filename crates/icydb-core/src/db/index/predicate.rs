@@ -163,7 +163,7 @@ pub(in crate::db) fn encode_index_literal(value: &Value) -> Option<Vec<u8>> {
     Some(encoded.encoded().to_vec())
 }
 
-/// Convert one literal value to canonical index-component bytes.
+/// Build canonical index-component bytes for one literal.
 #[must_use]
 pub(in crate::db) fn literal_index_component_bytes(value: &Value) -> Option<Vec<u8>> {
     encode_index_literal(value)

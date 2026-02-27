@@ -6,12 +6,11 @@ use crate::{
             ExecutorPlanError, LOWERED_INDEX_PREFIX_SPEC_INVALID, LOWERED_INDEX_RANGE_SPEC_INVALID,
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec, lower_index_prefix_specs,
             lower_index_range_specs,
-            route::{RouteOrderSlotPolicy, derive_scan_direction},
         },
-        query::plan::{AccessPlannedQuery, LogicalPlan},
-        query::{
-            explain::ExplainPlan, fingerprint::PlanFingerprint, intent::QueryMode, plan::PlanError,
+        plan::{
+            AccessPlannedQuery, LogicalPlan, OrderSlotPolicy, QueryMode, derive_scan_direction,
         },
+        query::{explain::ExplainPlan, fingerprint::PlanFingerprint, plan::validate::PlanError},
     },
     error::InternalError,
     traits::{EntityKind, FieldValue},
@@ -103,8 +102,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
     where
         E::Key: FieldValue,
     {
-        let direction =
-            derive_scan_direction(self.plan.order.as_ref(), RouteOrderSlotPolicy::First);
+        let direction = derive_scan_direction(self.plan.order.as_ref(), OrderSlotPolicy::First);
         crate::db::cursor::prepare_cursor::<E>(
             &self.plan,
             direction,
@@ -166,8 +164,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
     where
         E::Key: FieldValue,
     {
-        let direction =
-            derive_scan_direction(self.plan.order.as_ref(), RouteOrderSlotPolicy::First);
+        let direction = derive_scan_direction(self.plan.order.as_ref(), OrderSlotPolicy::First);
         crate::db::cursor::revalidate_cursor::<E>(
             &self.plan,
             direction,

@@ -1,11 +1,8 @@
 use crate::{
     db::{
-        cursor::CursorBoundary,
-        executor::{
-            ExecutionKernel,
-            kernel::{PlanRow, apply_cursor_boundary},
-        },
-        query::plan::AccessPlannedQuery,
+        cursor::{CursorBoundary, apply_cursor_boundary},
+        executor::{ExecutionKernel, kernel::PlanRow},
+        plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -186,7 +183,7 @@ impl ExecutionKernel {
                 ));
             }
 
-            apply_cursor_boundary::<E, R>(rows, order, boundary);
+            apply_cursor_boundary::<E, R, _>(rows, order, boundary, |row| row.entity());
             return Ok((true, rows.len()));
         }
 

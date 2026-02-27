@@ -1,6 +1,9 @@
 mod anchor;
 pub(crate) mod boundary;
+mod continuation;
 mod errors;
+pub(crate) mod grouped;
+mod order;
 mod planned;
 mod range_token;
 mod spine;
@@ -11,20 +14,22 @@ pub(in crate::db) use boundary::{
     apply_order_direction, compare_boundary_slots, decode_pk_cursor_boundary as decode_pk_boundary,
     validate_cursor_boundary_for_order, validate_cursor_direction, validate_cursor_window_offset,
 };
+pub(in crate::db) use continuation::next_cursor_for_materialized_rows;
 pub(crate) use errors::CursorPlanError;
-pub(in crate::db) use planned::{GroupedPlannedCursor, PlannedCursor};
+pub(in crate::db) use grouped::{GroupedContinuationToken, GroupedPlannedCursor};
+pub(in crate::db) use order::{apply_cursor_boundary, apply_order_spec, apply_order_spec_bounded};
+pub(in crate::db) use planned::PlannedCursor;
 pub(in crate::db) use range_token::{
     RangeToken, cursor_anchor_from_index_key, range_token_anchor_key,
     range_token_from_cursor_anchor, range_token_from_lowered_anchor,
 };
-pub(in crate::db) use token::GroupedContinuationToken;
 pub(in crate::db) use token::IndexRangeCursorAnchor;
 pub(crate) use token::{ContinuationSignature, ContinuationToken, ContinuationTokenError};
 
 use crate::{
     db::{
         direction::Direction,
-        query::plan::{AccessPlannedQuery, OrderSpec},
+        plan::{AccessPlannedQuery, OrderSpec},
     },
     error::InternalError,
     traits::{EntityKind, FieldValue},
@@ -173,7 +178,6 @@ fn validated_cursor_order<K>(plan: &AccessPlannedQuery<K>) -> Result<&OrderSpec,
 ///
 /// GROUP BY v1 uses canonical lexicographic group-key order by default, so
 /// explicit ordering is optional, but empty order specs remain invalid.
-#[allow(dead_code)]
 pub(in crate::db) fn validate_grouped_cursor_order_plan(
     order: Option<&OrderSpec>,
 ) -> Result<(), CursorPlanError> {

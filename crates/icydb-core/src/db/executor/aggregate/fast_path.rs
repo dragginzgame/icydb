@@ -14,11 +14,11 @@ use crate::{
             route::{
                 FastPathOrder, RoutedKeyStreamRequest,
                 ensure_index_range_aggregate_fast_path_specs,
-                ensure_secondary_aggregate_fast_path_arity, try_first_fast_path_hit,
+                ensure_secondary_aggregate_fast_path_arity, try_first_verified_fast_path_hit,
             },
         },
         index::predicate::IndexPredicateExecution,
-        query::plan::AccessPlannedQuery,
+        plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -196,21 +196,6 @@ impl ExecutionKernel {
         }
     }
 
-    fn verified_aggregate_fast_path_route<E>(
-        inputs: &AggregateFastPathInputs<'_, '_, E>,
-        route: FastPathOrder,
-    ) -> Result<Option<VerifiedAggregateFastPathRoute>, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
-        let Some(verified_route) = Self::verify_aggregate_fast_path_eligibility(inputs, route)?
-        else {
-            return Ok(None);
-        };
-
-        Ok(Some(verified_route))
-    }
-
     // Attempt aggregate fast-path execution strictly through route-owned
     // fast-path order. Returns `Some` when one branch fully resolves the terminal.
     pub(in crate::db::executor) fn try_fast_path_aggregate<E>(
@@ -219,15 +204,11 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
-        let fast_path_hit =
-            try_first_fast_path_hit(inputs.route_plan.fast_path_order(), |route| {
-                let Some(verified_route) = Self::verified_aggregate_fast_path_route(inputs, route)?
-                else {
-                    return Ok(None);
-                };
-
-                Self::try_execute_verified_aggregate_fast_path(inputs, verified_route)
-            })?;
+        let fast_path_hit = try_first_verified_fast_path_hit(
+            inputs.route_plan.fast_path_order(),
+            |route| Self::verify_aggregate_fast_path_eligibility(inputs, route),
+            |verified_route| Self::try_execute_verified_aggregate_fast_path(inputs, verified_route),
+        )?;
         if let Some((aggregate_output, rows_scanned)) = fast_path_hit {
             return Ok(Some((aggregate_output, rows_scanned)));
         }
@@ -239,22 +220,6 @@ impl ExecutionKernel {
         }
 
         Ok(None)
-    }
-
-    // Fold one aggregate terminal against an already resolved ordered key stream
-    // using canonical aggregate streaming semantics.
-    fn fold_aggregate_over_key_stream<E>(
-        ctx: &Context<'_, E>,
-        plan: &AccessPlannedQuery<E::Key>,
-        direction: Direction,
-        kind: AggregateKind,
-        fold_mode: AggregateFoldMode,
-        key_stream: &mut dyn crate::db::executor::OrderedKeyStream,
-    ) -> Result<(AggregateOutput<E>, usize), InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
-        Self::run_streaming_aggregate_reducer(ctx, plan, kind, direction, fold_mode, key_stream)
     }
 
     // Apply kernel DISTINCT decoration to one fast-path stream result, then
@@ -273,11 +238,11 @@ impl ExecutionKernel {
         fast.ordered_key_stream =
             Self::decorate_key_stream_for_plan(fast.ordered_key_stream, plan, direction);
         let rows_scanned = fast.rows_scanned;
-        let (aggregate_output, _keys_scanned) = Self::fold_aggregate_over_key_stream(
+        let (aggregate_output, _keys_scanned) = Self::run_streaming_aggregate_reducer(
             ctx,
             plan,
-            direction,
             kind,
+            direction,
             fold_mode,
             fast.ordered_key_stream.as_mut(),
         )?;
@@ -310,20 +275,12 @@ impl ExecutionKernel {
             return Ok(None);
         }
 
-        let stream_request = AccessPlanStreamRequest {
-            access: &plan.access,
-            bindings: AccessStreamBindings {
-                index_prefix_specs: &[],
-                index_range_specs: &[],
-                index_range_anchor: None,
-                direction,
-            },
-            key_comparator: crate::db::executor::load::key_stream_comparator_from_direction(
-                direction,
-            ),
-            physical_fetch_hint: None,
-            index_predicate_execution: None,
-        };
+        let stream_request = AccessPlanStreamRequest::from_bindings(
+            &plan.access,
+            AccessStreamBindings::no_index(direction),
+            None,
+            None,
+        );
         let (aggregate_output, keys_scanned) = Self::fold_aggregate_from_routed_stream_request(
             ctx,
             plan,
@@ -493,22 +450,17 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
-        let stream_request = AccessPlanStreamRequest {
-            access: &inputs.logical_plan.access,
-            bindings: AccessStreamBindings {
-                index_prefix_specs: inputs.index_prefix_specs,
-                index_range_specs: inputs.index_range_specs,
-                index_range_anchor: None,
-                direction: inputs.direction,
-            },
-            key_comparator: crate::db::executor::load::key_stream_comparator_from_direction(
+        let stream_request = AccessPlanStreamRequest::from_bindings(
+            &inputs.logical_plan.access,
+            AccessStreamBindings::new(
+                inputs.index_prefix_specs,
+                inputs.index_range_specs,
+                None,
                 inputs.direction,
             ),
-            physical_fetch_hint: inputs.physical_fetch_hint,
-            index_predicate_execution: Self::aggregate_index_predicate_execution(
-                inputs.index_predicate_program,
-            ),
-        };
+            inputs.physical_fetch_hint,
+            Self::aggregate_index_predicate_execution(inputs.index_predicate_program),
+        );
         let (aggregate_output, keys_scanned) = Self::fold_aggregate_from_routed_stream_request(
             inputs.ctx,
             inputs.logical_plan,

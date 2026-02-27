@@ -445,8 +445,15 @@ fn load_row_collector_runner_remains_kernel_ordered_and_single_owner() {
         kernel_mod_source
             .matches("Self::try_materialize_load_via_row_collector(")
             .count(),
+        1,
+        "row-collector short path should be called only from kernel-owned resolved-stream materialization helper",
+    );
+    assert_eq!(
+        kernel_mod_source
+            .matches("Self::materialize_resolved_execution_stream(")
+            .count(),
         2,
-        "row-collector short path should be called only from primary and retry materialization branches",
+        "resolved-stream materialization helper should be called only from primary and retry materialization branches",
     );
     assert!(
         kernel_aggregate_sources
@@ -464,29 +471,30 @@ fn load_row_collector_runner_remains_kernel_ordered_and_single_owner() {
     );
 
     // Order guard: the kernel must resolve/decorate execution streams before
-    // invoking the row-collector short path in both primary and retry branches.
+    // invoking the shared resolved-stream materialization helper in both
+    // primary and retry branches.
     let primary_resolve_position = kernel_mod_source.find(
         "let mut resolved =\n            Self::resolve_execution_key_stream(inputs, route_plan, predicate_compile_mode)?;",
     );
     let primary_row_runner_position =
-        kernel_mod_source.find("Self::try_materialize_load_via_row_collector(");
+        kernel_mod_source.find("Self::materialize_resolved_execution_stream(");
     assert!(
         matches!(
             (primary_resolve_position, primary_row_runner_position),
             (Some(resolve_pos), Some(row_runner_pos)) if resolve_pos < row_runner_pos
         ),
-        "primary load materialization must resolve + decorate stream before row-collector runner calls",
+        "primary load materialization must resolve + decorate stream before resolved-stream materialization",
     );
 
     let retry_resolve_position =
         kernel_mod_source.find("let mut fallback_resolved = Self::resolve_execution_key_stream(");
     let retry_row_runner_position =
-        kernel_mod_source.rfind("Self::try_materialize_load_via_row_collector(");
+        kernel_mod_source.rfind("Self::materialize_resolved_execution_stream(");
     assert!(
         matches!(
             (retry_resolve_position, retry_row_runner_position),
             (Some(resolve_pos), Some(row_runner_pos)) if resolve_pos < row_runner_pos
         ),
-        "retry load materialization must resolve + decorate stream before row-collector runner calls",
+        "retry load materialization must resolve + decorate stream before resolved-stream materialization",
     );
 }

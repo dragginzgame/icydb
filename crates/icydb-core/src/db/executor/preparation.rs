@@ -5,7 +5,7 @@ use crate::{
             compile_index_predicate_program_from_slots, load::LoadExecutor,
         },
         index::IndexPredicateProgram,
-        query::plan::AccessPlannedQuery,
+        plan::AccessPlannedQuery,
     },
     traits::{EntityKind, EntityValue},
 };

@@ -7,22 +7,19 @@ use crate::{
             aggregate::{AggregateKind, AggregateSpec},
             load::LoadExecutor,
         },
-        query::plan::AccessPlannedQuery,
+        plan::{AccessPlannedQuery, OrderSlotPolicy, derive_scan_direction},
     },
     traits::{EntityKind, EntityValue},
 };
 
-use crate::db::executor::route::{
-    ContinuationMode, RouteCapabilities, RouteOrderSlotPolicy, RouteWindowPlan,
-    derive_scan_direction,
-};
+use crate::db::executor::route::{ContinuationMode, RouteCapabilities, RouteWindowPlan};
 
 impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
     pub(super) fn derive_load_route_direction(plan: &AccessPlannedQuery<E::Key>) -> Direction {
-        derive_scan_direction(plan.order.as_ref(), RouteOrderSlotPolicy::First)
+        derive_scan_direction(plan.order.as_ref(), OrderSlotPolicy::First)
     }
 
     pub(super) fn derive_aggregate_route_direction(

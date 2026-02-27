@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error as ThisError;
 
 const MAX_CONTINUATION_TOKEN_BYTES: usize = 8 * 1024;
-#[allow(dead_code)]
 const MAX_GROUPED_CONTINUATION_TOKEN_BYTES: usize = 8 * 1024;
 
 ///
@@ -201,7 +200,6 @@ pub(crate) enum ContinuationTokenError {
 /// existing load execution paths.
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[allow(dead_code)]
 pub(in crate::db) struct GroupedContinuationToken {
     signature: ContinuationSignature,
     last_group_key: Vec<Value>,
@@ -273,7 +271,6 @@ impl GroupedContinuationToken {
 /// Grouped continuation token encode/decode failures.
 ///
 #[derive(Clone, Debug, Eq, PartialEq, ThisError)]
-#[allow(dead_code)]
 pub(crate) enum GroupedContinuationTokenError {
     #[error("failed to encode grouped continuation token: {0}")]
     Encode(String),
@@ -322,7 +319,6 @@ enum CursorTokenVersion {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[allow(dead_code)]
 enum GroupedCursorTokenVersion {
     V1,
 }
@@ -399,7 +395,6 @@ struct ContinuationTokenWire {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[allow(dead_code)]
 struct GroupedContinuationTokenWire {
     version: u8,
     signature: [u8; 32],

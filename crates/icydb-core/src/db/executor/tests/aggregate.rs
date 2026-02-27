@@ -760,7 +760,7 @@ fn count_pushdown_contract_eligible<E>(plan: &crate::db::executor::ExecutablePla
 where
     E: EntityKind<Canister = TestCanister> + EntityValue,
 {
-    plan.as_inner().is_streaming_access_shape_safe::<E>()
+    ExecutionKernel::is_streaming_access_shape_safe::<E, _>(plan.as_inner())
         && explain_access_supports_count_pushdown(&plan.explain().access)
 }
 
@@ -3473,9 +3473,7 @@ fn aggregate_composite_count_direct_path_scan_does_not_exceed_fallback() {
 
     let direct_plan = build_composite_count_plan("id");
     assert!(
-        direct_plan
-            .as_inner()
-            .is_streaming_access_shape_safe::<PhaseEntity>(),
+        ExecutionKernel::is_streaming_access_shape_safe::<PhaseEntity, _>(direct_plan.as_inner()),
         "direct composite COUNT shape should be streaming-safe"
     );
     assert!(
@@ -3488,9 +3486,9 @@ fn aggregate_composite_count_direct_path_scan_does_not_exceed_fallback() {
 
     let fallback_plan = build_composite_count_plan("label");
     assert!(
-        !fallback_plan
-            .as_inner()
-            .is_streaming_access_shape_safe::<PhaseEntity>(),
+        !ExecutionKernel::is_streaming_access_shape_safe::<PhaseEntity, _>(
+            fallback_plan.as_inner(),
+        ),
         "fallback composite COUNT shape should be streaming-unsafe"
     );
     assert!(
@@ -3567,9 +3565,7 @@ fn aggregate_composite_exists_direct_path_scan_does_not_exceed_fallback() {
 
     let direct_plan = build_composite_exists_plan("id");
     assert!(
-        direct_plan
-            .as_inner()
-            .is_streaming_access_shape_safe::<PhaseEntity>(),
+        ExecutionKernel::is_streaming_access_shape_safe::<PhaseEntity, _>(direct_plan.as_inner()),
         "direct composite EXISTS shape should be streaming-safe"
     );
     assert!(
@@ -3582,9 +3578,9 @@ fn aggregate_composite_exists_direct_path_scan_does_not_exceed_fallback() {
 
     let fallback_plan = build_composite_exists_plan("label");
     assert!(
-        !fallback_plan
-            .as_inner()
-            .is_streaming_access_shape_safe::<PhaseEntity>(),
+        !ExecutionKernel::is_streaming_access_shape_safe::<PhaseEntity, _>(
+            fallback_plan.as_inner(),
+        ),
         "fallback composite EXISTS shape should be streaming-unsafe"
     );
     assert!(
@@ -7008,9 +7004,9 @@ fn aggregate_count_pushdown_contract_matrix_preserves_parity() {
         .plan()
         .expect("full-scan count matrix plan should build");
     assert!(
-        full_scan_plan
-            .as_inner()
-            .is_streaming_access_shape_safe::<SimpleEntity>(),
+        ExecutionKernel::is_streaming_access_shape_safe::<SimpleEntity, _>(
+            full_scan_plan.as_inner(),
+        ),
         "full-scan matrix shape should be streaming-safe"
     );
     assert!(
@@ -7031,9 +7027,9 @@ fn aggregate_count_pushdown_contract_matrix_preserves_parity() {
         .plan()
         .expect("residual-filter count matrix plan should build");
     assert!(
-        !residual_filter_plan
-            .as_inner()
-            .is_streaming_access_shape_safe::<PhaseEntity>(),
+        !ExecutionKernel::is_streaming_access_shape_safe::<PhaseEntity, _>(
+            residual_filter_plan.as_inner(),
+        ),
         "residual-filter matrix shape should be streaming-unsafe"
     );
     assert!(

@@ -133,6 +133,59 @@ pub(in crate::db::executor) struct AccessStreamBindings<'a> {
     pub(in crate::db::executor) direction: Direction,
 }
 
+impl<'a> AccessStreamBindings<'a> {
+    /// Build one access-stream binding envelope with explicit lowered-spec slices.
+    #[must_use]
+    pub(in crate::db::executor) const fn new(
+        index_prefix_specs: &'a [LoweredIndexPrefixSpec],
+        index_range_specs: &'a [LoweredIndexRangeSpec],
+        index_range_anchor: Option<&'a LoweredKey>,
+        direction: Direction,
+    ) -> Self {
+        Self {
+            index_prefix_specs,
+            index_range_specs,
+            index_range_anchor,
+            direction,
+        }
+    }
+
+    /// Build one binding envelope with no index-lowered specs.
+    #[must_use]
+    pub(in crate::db::executor) const fn no_index(direction: Direction) -> Self {
+        Self::new(&[], &[], None, direction)
+    }
+
+    /// Build one binding envelope for one index-prefix spec.
+    #[must_use]
+    pub(in crate::db::executor) const fn with_index_prefix(
+        index_prefix_spec: &'a LoweredIndexPrefixSpec,
+        direction: Direction,
+    ) -> Self {
+        Self::new(
+            std::slice::from_ref(index_prefix_spec),
+            &[],
+            None,
+            direction,
+        )
+    }
+
+    /// Build one binding envelope for one index-range spec and optional anchor.
+    #[must_use]
+    pub(in crate::db::executor) const fn with_index_range(
+        index_range_spec: &'a LoweredIndexRangeSpec,
+        index_range_anchor: Option<&'a LoweredKey>,
+        direction: Direction,
+    ) -> Self {
+        Self::new(
+            &[],
+            std::slice::from_ref(index_range_spec),
+            index_range_anchor,
+            direction,
+        )
+    }
+}
+
 ///
 /// AccessPlanStreamRequest
 ///
@@ -147,6 +200,25 @@ pub(in crate::db::executor) struct AccessPlanStreamRequest<'a, K> {
     pub(in crate::db::executor) key_comparator: KeyOrderComparator,
     pub(in crate::db::executor) physical_fetch_hint: Option<usize>,
     pub(in crate::db::executor) index_predicate_execution: Option<IndexPredicateExecution<'a>>,
+}
+
+impl<'a, K> AccessPlanStreamRequest<'a, K> {
+    /// Build one canonical access-plan stream request from shared bindings.
+    #[must_use]
+    pub(in crate::db::executor) const fn from_bindings(
+        access: &'a AccessPlan<K>,
+        bindings: AccessStreamBindings<'a>,
+        physical_fetch_hint: Option<usize>,
+        index_predicate_execution: Option<IndexPredicateExecution<'a>>,
+    ) -> Self {
+        Self {
+            access,
+            bindings,
+            key_comparator: KeyOrderComparator::from_direction(bindings.direction),
+            physical_fetch_hint,
+            index_predicate_execution,
+        }
+    }
 }
 
 ///

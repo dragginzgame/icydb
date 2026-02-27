@@ -2,13 +2,12 @@ use crate::{
     db::{
         Context,
         access::AccessPath,
-        direction::Direction,
         executor::{
-            AccessPlanStreamRequest, AccessStreamBindings, KeyOrderComparator,
+            AccessPlanStreamRequest, AccessStreamBindings,
             load::{ExecutionOptimization, FastPathKeyResult, LoadExecutor},
-            route::{RouteOrderSlotPolicy, derive_scan_direction, supports_pk_stream_access_path},
+            route::supports_pk_stream_access_path,
         },
-        query::plan::AccessPlannedQuery,
+        plan::{AccessPlannedQuery, OrderSlotPolicy, derive_scan_direction},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -27,21 +26,15 @@ where
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
         // Phase 1: validate that the routed access shape is PK-stream compatible.
         Self::pk_fast_path_access(plan)?;
-        let stream_direction = Self::pk_stream_direction(plan);
+        let stream_direction = derive_scan_direction(plan.order.as_ref(), OrderSlotPolicy::First);
 
         // Phase 2: lower through the canonical access-stream resolver boundary.
-        let stream_request = AccessPlanStreamRequest {
-            access: &plan.access,
-            bindings: AccessStreamBindings {
-                index_prefix_specs: &[],
-                index_range_specs: &[],
-                index_range_anchor: None,
-                direction: stream_direction,
-            },
-            key_comparator: KeyOrderComparator::from_direction(stream_direction),
-            physical_fetch_hint: probe_fetch_hint,
-            index_predicate_execution: None,
-        };
+        let stream_request = AccessPlanStreamRequest::from_bindings(
+            &plan.access,
+            AccessStreamBindings::no_index(stream_direction),
+            probe_fetch_hint,
+            None,
+        );
         Ok(Some(Self::execute_fast_stream_request(
             ctx,
             stream_request,
@@ -65,9 +58,5 @@ where
         }
 
         Ok(access)
-    }
-
-    fn pk_stream_direction(plan: &AccessPlannedQuery<E::Key>) -> Direction {
-        derive_scan_direction(plan.order.as_ref(), RouteOrderSlotPolicy::First)
     }
 }

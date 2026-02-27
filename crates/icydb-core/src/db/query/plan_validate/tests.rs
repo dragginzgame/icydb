@@ -12,11 +12,12 @@ use crate::{
         contracts::{ReadConsistency, SchemaInfo, ValidateError},
         cursor::CursorPlanError,
         query::{
+            grouped::{GroupAggregateKind, GroupAggregateSpec, GroupSpec, GroupedPlan},
             intent::{DeleteSpec, LoadSpec, QueryMode},
             plan::{
-                AccessPlannedQuery, DeleteLimitSpec, GroupAggregateKind, GroupAggregateSpec,
-                GroupSpec, GroupedPlan, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
-                assess_secondary_order_pushdown, assess_secondary_order_pushdown_if_applicable,
+                AccessPlannedQuery, DeleteLimitSpec, LogicalPlan, OrderDirection, OrderSpec,
+                PageSpec, assess_secondary_order_pushdown,
+                assess_secondary_order_pushdown_if_applicable,
                 assess_secondary_order_pushdown_if_applicable_validated,
             },
         },
