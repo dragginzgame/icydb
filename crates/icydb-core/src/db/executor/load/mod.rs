@@ -29,7 +29,7 @@ use crate::{
             range_token_anchor_key, range_token_from_cursor_anchor, validate_executor_plan,
         },
         policy,
-        query::plan::{AccessPlannedQuery, OrderDirection},
+        query::plan::{AccessPlannedQuery, LogicalPlan, OrderDirection},
         response::Response,
     },
     error::InternalError,
@@ -235,6 +235,15 @@ where
         plan: ExecutablePlan<E>,
         cursor: impl Into<PlannedCursor>,
     ) -> Result<(CursorPage<E>, Option<ExecutionTrace>), InternalError> {
+        match &plan.as_inner().logical {
+            LogicalPlan::Scalar(_) => {}
+            LogicalPlan::Grouped(_) => {
+                return Err(InternalError::executor_unsupported(
+                    "grouped query execution is not yet enabled in this release",
+                ));
+            }
+        }
+
         let cursor: PlannedCursor = plan.revalidate_cursor(cursor.into())?;
         let cursor_boundary = cursor.boundary().cloned();
         let index_range_token = cursor

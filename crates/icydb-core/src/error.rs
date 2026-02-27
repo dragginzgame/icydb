@@ -396,6 +396,9 @@ impl InternalError {
     pub(crate) fn from_group_plan_error(err: PlanError) -> Self {
         let reason = match &err {
             PlanError::Group(inner) => match inner.as_ref() {
+                GroupPlanError::GroupedLogicalPlanRequired => {
+                    "group query validation requires grouped logical plan variant".to_string()
+                }
                 GroupPlanError::EmptyGroupFields => {
                     "group specification must include at least one group field".to_string()
                 }

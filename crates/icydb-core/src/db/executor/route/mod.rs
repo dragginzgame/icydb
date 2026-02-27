@@ -154,7 +154,6 @@ pub(super) struct ExecutionRoutePlan {
     continuation_mode: ContinuationMode,
     window: RouteWindowPlan,
     pub(super) execution_mode: ExecutionMode,
-    #[expect(dead_code)]
     execution_mode_case: ExecutionModeRouteCase,
     secondary_pushdown_applicability: PushdownApplicability,
     pub(super) index_range_limit_spec: Option<IndexRangeLimitSpec>,
@@ -189,7 +188,6 @@ impl ExecutionRoutePlan {
 
     // Grouped route observability projection for grouped-readiness scaffolding.
     // Non-grouped routes intentionally report no grouped diagnostics payload.
-    #[expect(dead_code)]
     pub(in crate::db::executor) const fn grouped_observability(
         &self,
     ) -> Option<GroupedRouteObservability> {

@@ -15,10 +15,11 @@ use crate::{
         query::{
             explain::ExplainPlan,
             expr::{FilterExpr, SortExpr, SortLowerError},
+            grouped::validate_group_query_semantics,
             plan::validate::validate_query_semantics,
             plan::{
-                AccessPlannedQuery, DeleteLimitSpec, LogicalPlan, OrderDirection, OrderSpec,
-                PageSpec, PlanError, PlannerError, ScalarPlan, canonical, plan_access,
+                AccessPlannedQuery, DeleteLimitSpec, GroupPlan, LogicalPlan, OrderDirection,
+                OrderSpec, PageSpec, PlanError, PlannerError, ScalarPlan, canonical, plan_access,
             },
             predicate::{
                 lower_to_execution_model, normalize, normalize_enum_literals,
@@ -180,6 +181,7 @@ pub(crate) struct QueryModel<'m, K> {
     predicate: Option<Predicate>,
     key_access: Option<KeyAccessState<K>>,
     key_access_conflict: bool,
+    group: Option<crate::db::query::grouped::GroupSpec>,
     order: Option<OrderSpec>,
     distinct: bool,
     consistency: ReadConsistency,
@@ -194,6 +196,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
             predicate: None,
             key_access: None,
             key_access_conflict: false,
+            group: None,
             order: None,
             distinct: false,
             consistency,
@@ -373,7 +376,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         };
 
         // Phase 3: assemble the executor-ready plan.
-        let logical = LogicalPlan::Scalar(ScalarPlan {
+        let scalar = ScalarPlan {
             mode: self.mode,
             predicate: normalized_predicate.map(lower_to_execution_model),
             // Canonicalize ORDER BY to include an explicit primary-key tie-break.
@@ -398,10 +401,18 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
                 QueryMode::Delete(_) => None,
             },
             consistency: self.consistency,
-        });
+        };
+        let logical = match self.group.clone() {
+            Some(group) => LogicalPlan::Grouped(GroupPlan { scalar, group }),
+            None => LogicalPlan::Scalar(scalar),
+        };
         let plan = AccessPlannedQuery::from_parts(logical, access_plan_value);
 
-        validate_query_semantics(&schema_info, self.model, &plan)?;
+        if matches!(&plan.logical, LogicalPlan::Grouped(_)) {
+            validate_group_query_semantics(&schema_info, self.model, &plan)?;
+        } else {
+            validate_query_semantics(&schema_info, self.model, &plan)?;
+        }
 
         Ok(plan)
     }

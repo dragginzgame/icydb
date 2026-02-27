@@ -7,6 +7,7 @@ use crate::db::query::plan::AccessPlannedQuery;
 pub(crate) use crate::db::query::plan::validate::{
     GroupPlanError, validate_group_query_semantics, validate_group_spec,
 };
+use crate::error::InternalError;
 
 ///
 /// GROUPED QUERY SCAFFOLD
@@ -21,7 +22,6 @@ pub(crate) use crate::db::query::plan::validate::{
 ///
 pub(crate) use crate::db::query::plan::{
     FieldSlot, GroupAggregateKind, GroupAggregateSpec, GroupSpec, GroupedExecutionConfig,
-    GroupedPlan,
 };
 
 ///
@@ -65,15 +65,21 @@ impl<'a, K> GroupedExecutorHandoff<'a, K> {
     }
 }
 
-/// Build one grouped executor handoff from one grouped plan wrapper.
+/// Build one grouped executor handoff from one grouped logical plan.
 #[must_use]
-pub(in crate::db) const fn grouped_executor_handoff<K>(
-    grouped: &GroupedPlan<K>,
-) -> GroupedExecutorHandoff<'_, K> {
-    GroupedExecutorHandoff {
-        base: &grouped.base,
+pub(in crate::db) fn grouped_executor_handoff<K>(
+    plan: &AccessPlannedQuery<K>,
+) -> Result<GroupedExecutorHandoff<'_, K>, InternalError> {
+    let Some(grouped) = plan.grouped_plan() else {
+        return Err(InternalError::query_executor_invariant(
+            "grouped executor handoff requires grouped logical plans",
+        ));
+    };
+
+    Ok(GroupedExecutorHandoff {
+        base: plan,
         group_fields: grouped.group.group_fields.as_slice(),
         aggregates: grouped.group.aggregates.as_slice(),
         execution: grouped.group.execution,
-    }
+    })
 }

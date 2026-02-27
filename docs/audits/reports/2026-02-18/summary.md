@@ -31,8 +31,8 @@ Structural Stress Metrics:
 - PlanError variants: 24
 
 Notable Changes Since Previous Audit:
-- No previous `docs/audit-results/*` baseline was found in this repository snapshot.
-- Established first dated audit-results baseline at `docs/audit-results/2026-02-18/`.
+- No previous `docs/audits/reports/*` baseline was found in this repository snapshot.
+- Established first dated reports baseline at `docs/audits/reports/2026-02-18/*.md`.
 - Completed `boundary-semantics` audit and recorded one medium drift-sensitive finding.
 - Completed `complexity-accretion` baseline audit.
 - Completed `cursor-ordering` audit with no critical invariant breaks; current risk index is `3/10` (low risk).

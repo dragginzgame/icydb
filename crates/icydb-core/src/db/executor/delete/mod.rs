@@ -11,6 +11,7 @@ use crate::{
             plan_metrics::{record_plan_metrics, record_rows_scanned, set_rows_from_len},
         },
         policy,
+        query::plan::LogicalPlan,
         response::Response,
     },
     error::InternalError,
@@ -109,6 +110,15 @@ where
     // ─────────────────────────────────────────────
 
     pub(crate) fn execute(self, plan: ExecutablePlan<E>) -> Result<Response<E>, InternalError> {
+        match &plan.as_inner().logical {
+            LogicalPlan::Scalar(_) => {}
+            LogicalPlan::Grouped(_) => {
+                return Err(InternalError::executor_unsupported(
+                    "grouped query execution is not yet enabled in this release",
+                ));
+            }
+        }
+
         if !plan.mode().is_delete() {
             return Err(InternalError::query_executor_invariant(
                 "delete executor requires delete plans",

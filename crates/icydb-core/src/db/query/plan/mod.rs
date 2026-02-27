@@ -454,10 +454,34 @@ impl<K> AccessPlannedQuery<K> {
         (self.logical, self.access)
     }
 
+    /// Convert this plan into grouped logical form with one explicit group spec.
+    #[must_use]
+    pub(in crate::db) fn into_grouped(self, group: GroupSpec) -> Self {
+        let Self { logical, access } = self;
+        let scalar = match logical {
+            LogicalPlan::Scalar(plan) => plan,
+            LogicalPlan::Grouped(plan) => plan.scalar,
+        };
+
+        Self {
+            logical: LogicalPlan::Grouped(GroupPlan { scalar, group }),
+            access,
+        }
+    }
+
     /// Borrow scalar semantic fields shared by scalar/grouped logical variants.
     #[must_use]
     pub(in crate::db) const fn scalar_plan(&self) -> &ScalarPlan {
         self.logical.scalar_semantics()
+    }
+
+    /// Borrow grouped semantic fields when this plan is grouped.
+    #[must_use]
+    pub(in crate::db) const fn grouped_plan(&self) -> Option<&GroupPlan> {
+        match &self.logical {
+            LogicalPlan::Scalar(_) => None,
+            LogicalPlan::Grouped(plan) => Some(plan),
+        }
     }
 
     /// Borrow scalar semantic fields mutably across logical variants.
@@ -528,39 +552,6 @@ impl<K> Deref for AccessPlannedQuery<K> {
 impl<K> DerefMut for AccessPlannedQuery<K> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.scalar_plan_mut()
-    }
-}
-
-///
-/// GroupedPlan
-///
-/// Declarative grouped wrapper around one access-planned base query.
-/// This wrapper keeps grouped execution wiring separate while runtime
-/// grouped dispatch remains behind staged integration.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct GroupedPlan<K> {
-    pub(crate) base: AccessPlannedQuery<K>,
-    pub(crate) group: GroupSpec,
-}
-
-impl<K> GroupedPlan<K> {
-    /// Build one grouped query wrapper from base access plan + group spec.
-    #[must_use]
-    pub(crate) fn from_parts(base: AccessPlannedQuery<K>, group: GroupSpec) -> Self {
-        let AccessPlannedQuery { logical, access } = base;
-        let scalar = match logical {
-            LogicalPlan::Scalar(plan) => plan,
-            LogicalPlan::Grouped(plan) => plan.scalar,
-        };
-        let logical = LogicalPlan::Grouped(GroupPlan {
-            scalar,
-            group: group.clone(),
-        });
-        let base = AccessPlannedQuery { logical, access };
-
-        Self { base, group }
     }
 }
 

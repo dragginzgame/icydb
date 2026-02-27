@@ -26,21 +26,19 @@ fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_pat
     base.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
-    let grouped = GroupedPlan::from_parts(
-        base,
-        GroupSpec {
-            group_fields: grouped_field_slots(&["rank"]),
-            aggregates: vec![GroupAggregateSpec {
-                kind: GroupAggregateKind::Count,
-                target_field: None,
-            }],
-            execution: GroupedExecutionConfig::unbounded(),
-        },
-    );
+    let grouped = base.into_grouped(GroupSpec {
+        group_fields: grouped_field_slots(&["rank"]),
+        aggregates: vec![GroupAggregateSpec {
+            kind: GroupAggregateKind::Count,
+            target_field: None,
+        }],
+        execution: GroupedExecutionConfig::unbounded(),
+    });
 
     let route_plan =
         LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_grouped_handoff(
-            grouped_executor_handoff(&grouped),
+            grouped_executor_handoff(&grouped)
+                .expect("grouped logical plans should build grouped handoff"),
         );
 
     assert_eq!(
@@ -73,21 +71,19 @@ fn route_plan_grouped_wrapper_keeps_blocking_shape_under_tight_budget_config() {
     base.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
-    let grouped = GroupedPlan::from_parts(
-        base,
-        GroupSpec {
-            group_fields: grouped_field_slots(&["rank"]),
-            aggregates: vec![GroupAggregateSpec {
-                kind: GroupAggregateKind::Count,
-                target_field: None,
-            }],
-            execution: GroupedExecutionConfig::with_hard_limits(1, 1),
-        },
-    );
+    let grouped = base.into_grouped(GroupSpec {
+        group_fields: grouped_field_slots(&["rank"]),
+        aggregates: vec![GroupAggregateSpec {
+            kind: GroupAggregateKind::Count,
+            target_field: None,
+        }],
+        execution: GroupedExecutionConfig::with_hard_limits(1, 1),
+    });
 
     let route_plan =
         LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_grouped_handoff(
-            grouped_executor_handoff(&grouped),
+            grouped_executor_handoff(&grouped)
+                .expect("grouped logical plans should build grouped handoff"),
         );
 
     assert_eq!(
@@ -123,9 +119,8 @@ fn route_plan_grouped_wrapper_lowers_kind_matrix_into_executor_contract() {
         (GroupAggregateKind::First, AggregateKind::First),
         (GroupAggregateKind::Last, AggregateKind::Last),
     ];
-    let grouped = GroupedPlan::from_parts(
-        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk),
-        GroupSpec {
+    let grouped = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk)
+        .into_grouped(GroupSpec {
             group_fields: grouped_field_slots(&["rank"]),
             aggregates: kind_cases
                 .iter()
@@ -135,10 +130,10 @@ fn route_plan_grouped_wrapper_lowers_kind_matrix_into_executor_contract() {
                 })
                 .collect(),
             execution: GroupedExecutionConfig::unbounded(),
-        },
-    );
+        });
 
-    let grouped_handoff = grouped_executor_handoff(&grouped);
+    let grouped_handoff =
+        grouped_executor_handoff(&grouped).expect("grouped logical plans should build handoff");
     let lowered = LoadExecutor::<RouteMatrixEntity>::lower_grouped_spec_for_executor_contract(
         &grouped_handoff,
     );
@@ -153,19 +148,18 @@ fn route_plan_grouped_wrapper_lowers_kind_matrix_into_executor_contract() {
 
 #[test]
 fn route_plan_grouped_wrapper_lowers_target_field_into_executor_contract() {
-    let grouped = GroupedPlan::from_parts(
-        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk),
-        GroupSpec {
+    let grouped = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk)
+        .into_grouped(GroupSpec {
             group_fields: grouped_field_slots(&["rank", "label"]),
             aggregates: vec![GroupAggregateSpec {
                 kind: GroupAggregateKind::Max,
                 target_field: Some("rank".to_string()),
             }],
             execution: GroupedExecutionConfig::unbounded(),
-        },
-    );
+        });
 
-    let grouped_handoff = grouped_executor_handoff(&grouped);
+    let grouped_handoff =
+        grouped_executor_handoff(&grouped).expect("grouped logical plans should build handoff");
     let lowered = LoadExecutor::<RouteMatrixEntity>::lower_grouped_spec_for_executor_contract(
         &grouped_handoff,
     );
@@ -191,9 +185,8 @@ fn route_plan_grouped_wrapper_lowers_supported_target_field_matrix_into_executor
         (GroupAggregateKind::First, None),
         (GroupAggregateKind::Last, None),
     ];
-    let grouped = GroupedPlan::from_parts(
-        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk),
-        GroupSpec {
+    let grouped = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk)
+        .into_grouped(GroupSpec {
             group_fields: grouped_field_slots(&["rank", "label"]),
             aggregates: grouped_cases
                 .iter()
@@ -203,10 +196,10 @@ fn route_plan_grouped_wrapper_lowers_supported_target_field_matrix_into_executor
                 })
                 .collect(),
             execution: GroupedExecutionConfig::unbounded(),
-        },
-    );
+        });
 
-    let grouped_handoff = grouped_executor_handoff(&grouped);
+    let grouped_handoff =
+        grouped_executor_handoff(&grouped).expect("grouped logical plans should build handoff");
     let lowered = LoadExecutor::<RouteMatrixEntity>::lower_grouped_spec_for_executor_contract(
         &grouped_handoff,
     );
@@ -234,21 +227,20 @@ fn route_plan_grouped_wrapper_lowers_supported_target_field_matrix_into_executor
 
 #[test]
 fn route_plan_grouped_wrapper_observability_vector_is_frozen() {
-    let grouped = GroupedPlan::from_parts(
-        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk),
-        GroupSpec {
+    let grouped = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk)
+        .into_grouped(GroupSpec {
             group_fields: grouped_field_slots(&["rank"]),
             aggregates: vec![GroupAggregateSpec {
                 kind: GroupAggregateKind::Count,
                 target_field: None,
             }],
             execution: GroupedExecutionConfig::with_hard_limits(11, 2048),
-        },
-    );
+        });
 
     let route_plan =
         LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_grouped_handoff(
-            grouped_executor_handoff(&grouped),
+            grouped_executor_handoff(&grouped)
+                .expect("grouped logical plans should build grouped handoff"),
         );
     let observability = route_plan.grouped_observability().expect(
         "grouped route should always project grouped observability while runtime is disabled",

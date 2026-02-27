@@ -17,8 +17,8 @@ use crate::{
         cursor::CursorPlanError,
         policy::{self, PlanPolicyError},
         query::{
-            grouped::{GroupAggregateKind, GroupSpec, GroupedPlan},
-            plan::{AccessPlannedQuery, OrderSpec, ScalarPlan},
+            grouped::{GroupAggregateKind, GroupSpec},
+            plan::{AccessPlannedQuery, LogicalPlan, OrderSpec, ScalarPlan},
             predicate,
         },
     },
@@ -122,6 +122,10 @@ pub enum PolicyPlanError {
 
 #[derive(Clone, Debug, Eq, PartialEq, ThisError)]
 pub enum GroupPlanError {
+    /// Grouped validation entrypoint received a scalar logical plan.
+    #[error("group query validation requires grouped logical plan variant")]
+    GroupedLogicalPlanRequired,
+
     /// GROUP BY requires at least one declared grouping field.
     #[error("group specification must include at least one group field")]
     EmptyGroupFields,
@@ -241,22 +245,28 @@ pub(crate) fn validate_query_semantics(
 pub(crate) fn validate_group_query_semantics(
     schema: &SchemaInfo,
     model: &EntityModel,
-    plan: &GroupedPlan<Value>,
+    plan: &AccessPlannedQuery<Value>,
 ) -> Result<(), PlanError> {
-    let logical = plan.base.scalar_plan();
+    let logical = plan.scalar_plan();
+    let group = match &plan.logical {
+        LogicalPlan::Grouped(grouped) => &grouped.group,
+        LogicalPlan::Scalar(_) => {
+            return Err(PlanError::from(GroupPlanError::GroupedLogicalPlanRequired));
+        }
+    };
 
     validate_plan_core(
         schema,
         model,
         logical,
-        &plan.base,
+        plan,
         validate_order,
         |schema, model, plan| {
             validate_access_structure_model_shared(schema, model, &plan.access)
                 .map_err(PlanError::from)
         },
     )?;
-    validate_group_spec(schema, model, &plan.group)?;
+    validate_group_spec(schema, model, group)?;
 
     Ok(())
 }

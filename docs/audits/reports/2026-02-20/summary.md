@@ -109,15 +109,15 @@ Structural Stress Metrics:
 
 ## Reports Produced This Run
 
-- `docs/audit-results/2026-02-20/boundary-semantics.md`
-- `docs/audit-results/2026-02-20/complexity-accretion.md`
-- `docs/audit-results/2026-02-20/cursor-ordering.md`
-- `docs/audit-results/2026-02-20/dry-consolidation.md`
-- `docs/audit-results/2026-02-20/error-taxonomy.md`
-- `docs/audit-results/2026-02-20/index-integrity.md`
-- `docs/audit-results/2026-02-20/invariant-preservation.md`
-- `docs/audit-results/2026-02-20/module-structure.md`
-- `docs/audit-results/2026-02-20/recovery-consistency.md`
-- `docs/audit-results/2026-02-20/state-machine-integrity.md`
-- `docs/audit-results/2026-02-20/velocity-preservation.md`
-- `docs/audit-results/2026-02-20/meta-audit.md`
+- `docs/audits/reports/2026-02-20/boundary-semantics.md`
+- `docs/audits/reports/2026-02-20/complexity-accretion.md`
+- `docs/audits/reports/2026-02-20/cursor-ordering.md`
+- `docs/audits/reports/2026-02-20/dry-consolidation.md`
+- `docs/audits/reports/2026-02-20/error-taxonomy.md`
+- `docs/audits/reports/2026-02-20/index-integrity.md`
+- `docs/audits/reports/2026-02-20/invariant-preservation.md`
+- `docs/audits/reports/2026-02-20/module-structure.md`
+- `docs/audits/reports/2026-02-20/recovery-consistency.md`
+- `docs/audits/reports/2026-02-20/state-machine-integrity.md`
+- `docs/audits/reports/2026-02-20/velocity-preservation.md`
+- `docs/audits/reports/2026-02-20/meta-audit.md`

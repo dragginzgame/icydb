@@ -1,305 +1,76 @@
-# `docs/audits/AUDIT_GOVERNANCE.md`
-
 # Audit Governance (META-AUDIT)
 
-This document audits the quality, rigor, scope discipline, and structural coherence of the audit suite itself.
-
-This is NOT a code audit.
-
-This evaluates:
-
-* Audit clarity
-* Audit focus discipline
-* Audit redundancy
-* Audit drift
-* Coverage completeness
-* Governance integrity
-
-Run this quarterly or at major milestones.
-
----
-
-# STEP 1 — Audit Inventory
-
-Enumerate all audit definition files in:
-
-```
-docs/audits/
-```
-
-Produce:
-
-| Audit | Primary Focus | Last Modified | Overlaps With |
-
-If an audit does not have a clearly defined primary focus in its first 20 lines, flag it.
-
----
-
-# STEP 2 — Scope Discipline Scoring
-
-For each audit:
-
-Evaluate:
-
-1. Scope is explicitly constrained
-2. Non-goals are clearly declared
-3. Guardrails are defined
-4. It does not drift into:
-
-   * Style commentary
-   * Refactor suggestions
-   * Feature proposals
-   * Performance discussion
-
-Risk Index (1–10, lower is better):
-
-| Audit | Scope Clarity Risk Index (1–10, lower is better) | Drift Risk | Notes |
-
-Interpretation:
-1–3  = Low risk / structurally healthy
-4–6  = Moderate risk / manageable pressure
-7–8  = High risk / requires monitoring
-9–10 = Critical risk / structural instability
-
----
-
-# STEP 3 — Invariant Precision Quality
-
-For audits that claim to evaluate invariants:
-
-Check:
-
-* Are invariants explicitly enumerated?
-* Are boundary cases listed?
-* Are failure scenarios enumerated?
-* Are enforcement locations required?
-* Are symmetry checks required (normal vs recovery)?
-* Is envelope containment explicitly tested?
-
-Risk Index (1–10, lower is better):
-
-| Audit | Invariant Precision Risk Index (1–10, lower is better) | Boundary Enumeration | Risk |
-
----
-
-# STEP 4 — Structural Depth Evaluation
-
-For each audit:
-
-Check whether it:
-
-* Reasons about layer boundaries
-* Identifies cross-layer leakage
-* Detects idempotence risk
-* Detects envelope escape risk
-* Detects mutation ordering differences
-* Detects amplification risk
-* Detects drift sensitivity
-
-Risk Index (1–10, lower is better):
-
-| Audit | Structural Depth Risk Index (1–10, lower is better) | Missing Dimensions | Risk |
-
----
-
-# STEP 5 — Signal-to-Noise Ratio
-
-Identify audits that:
-
-* Contain vague phrases (“looks clean”, “appears correct”)
-* Allow narrative answers without tables
-* Do not enforce quantitative measures
-* Allow unstructured conclusions
-
-Risk Index (1–10, lower is better):
-
-| Audit | Signal Density Risk Index (1–10, lower is better) | Narrative Drift Risk |
-
----
-
-# STEP 6 — Risk Identification Discipline
-
-For each audit:
-
-Check whether it:
-
-* Requires risk classification
-* Requires risk ranking
-* Separates high-risk from low-risk findings
-* Labels hypothetical vs observed risks
-* Defines scoring scale
-
-Risk Index (1–10, lower is better):
-
-| Audit | Risk Discipline Risk Index (1–10, lower is better) | Missing Scoring | Risk |
-
----
-
-# STEP 7 — Redundancy & Overlap Matrix
-
-Construct a matrix of invariant categories vs audits.
-
-Invariant categories may include:
-
-* Ordering
-* Envelope safety
-* Identity enforcement
-* Index consistency
-* Reverse relation symmetry
-* Recovery idempotence
-* Plan immutability
-* Layer boundary discipline
-* Visibility discipline
-* Complexity growth
-* Velocity amplification
-* DRY divergence
-
-Produce:
-
-| Invariant Category | Audits Covering It | Necessary Overlap? | Redundant? |
-
-Flag:
-
-* Categories covered by 3+ audits unnecessarily
-* Categories not covered by any audit
-
----
-
-# STEP 8 — Audit Bloat Detection
-
-Flag audits that:
-
-* Exceed reasonable length
-* Attempt to evaluate too many domains
-* Combine structural + velocity + invariant checks
-* Contain overlapping tables with other audits
-
-Produce:
-
-| Audit | Scope Expansion Since Last Review | Bloat Risk |
-
----
-
-# STEP 9 — Drift Since Last Governance Audit
-
-If prior governance audit exists:
-
-Compare:
-
-* Audit count growth
-* Scope expansion
-* Overlap increase
-* Scoring consistency
-* Structural focus drift
-
-Produce:
-
-| Area | Previous | Current | Drift | Risk |
-
----
-
-# STEP 10 — Missing Audit Dimensions
-
-Identify invariant categories or structural dimensions not covered by any audit, such as:
-
-* Plan cache correctness
-* Index encode/decode symmetry
-* Error taxonomy containment
-* Public API creep
-* Commit phase expansion risk
-* Composite path amplification risk
-* AccessPath growth sensitivity
-
-Produce:
-
-| Missing Dimension | Impact | Recommend New Audit? |
-
----
-
-# STEP 11 — Consolidation Opportunities
-
-Identify:
-
-* Audits that could be merged without losing focus
-* Audits that overlap heavily
-* Audits that could be narrowed
-
-Do NOT propose redesign.
-Only identify governance-level consolidation.
-
----
-
-# STEP 12 — Governance Risk Index
-
-Rate the audit framework overall with a Risk Index (1–10, lower is better):
-
-| Dimension           | Risk Index (1–10, lower is better) |
-| ------------------- | ----------------------------------- |
-| Scope Discipline    |                                     |
-| Invariant Precision |                                     |
-| Structural Depth    |                                     |
-| Redundancy Control  |                                     |
-| Drift Detection     |                                     |
-| Risk Clarity        |                                     |
-
-Overall Audit Governance Risk Index (1–10, lower is better)
-
-Interpretation:
-1–3  = Low risk / structurally healthy
-4–6  = Moderate risk / manageable pressure
-7–8  = High risk / requires monitoring
-9–10 = Critical risk / structural instability
-
----
-
-# Required Output Sections
-
-1. Audit Quality Risk Index per Document
-2. Structural Weaknesses per Document
-3. Overlap Matrix
-4. Drift Warnings
-5. Missing Dimensions
-6. Consolidation Opportunities
-7. Governance Risk Index
-
----
-
-# Hard Constraints
-
-Do NOT:
-
-* Evaluate code
-* Evaluate performance
-* Propose feature changes
-* Suggest refactors outside audit definitions
-* Collapse audits without clear redundancy proof
-
----
-
-# Purpose
-
-Audit governance ensures:
-
-* Audit suite does not sprawl
-* Invariant coverage is complete but not redundant
-* Structural focus remains sharp
-* Risk scoring remains consistent
-* Architectural telemetry remains meaningful
-
-Without governance, audits themselves drift.
-
----
-
-# Why This Version Is Better
-
-It:
-
-* Forces quantification
-* Forces overlap mapping
-* Detects meta-bloat
-* Detects scope creep
-* Detects coverage gaps
-* Enforces scoring discipline
-* Tracks audit growth over time
-
-This keeps the audit framework from becoming what it was meant to prevent.
+This document defines the architecture contracts that recurring audits enforce.
+
+## 1. Layered Boundaries
+
+IcyDB audit governance enforces these layered boundaries:
+
+1. `value/representation`
+2. `storage (data/index)`
+3. `execution (executor/kernel/group)`
+4. `query planning`
+5. `commit/recovery`
+6. `infrastructure (registry/wiring)`
+
+Every recurring audit must evaluate directional ownership against these layers.
+
+## 2. Architectural Invariants
+
+Recurring audits must enforce at least these invariants:
+- Dependency direction remains downward or lateral within allowed boundaries.
+- Semantic ownership stays in its canonical layer.
+- Cross-layer orchestration does not absorb domain logic.
+- Planning semantics do not leak into executor-only responsibilities.
+- Value canonicalization and hashing stay in value-owned boundaries.
+- Grouping and ordering contracts remain deterministic and explicitly validated.
+- Recovery behavior preserves execution invariants and replay equivalence.
+
+## 3. Forbidden Dependency Edges
+
+The following edges are forbidden unless explicitly approved and documented:
+- `storage -> execution`
+- `storage -> query planning`
+- `index/data -> query semantic types`
+- `commit/recovery -> query semantics`
+- `value/representation -> executor orchestration`
+- `infrastructure -> business/domain semantics`
+
+## 4. Required Audit Coverage
+
+Recurring domains under `docs/audits/recurring/` must continuously cover:
+- planner contracts
+- executor boundaries
+- cursor/order guarantees
+- access/index integrity
+- storage/recovery consistency
+- invariants and boundary preservation
+- error/contracts taxonomy integrity
+
+Cross-domain findings belong in `recurring/crosscutting/`.
+
+## 5. Governance Enforcement
+
+Recurring audits are contract enforcement, not advisory style review.
+
+Required:
+- classify violations by architectural risk
+- identify broken boundary or invariant
+- record concrete evidence path
+- preserve all historical reports
+- keep reports grouped by day under `docs/audits/reports/YYYY-MM-DD/`
+
+Prohibited:
+- deleting prior reports
+- collapsing historical records
+- redefining contract boundaries ad hoc in a run
+
+## 6. Source of Truth Paths
+
+Audit governance paths are:
+- `docs/audits/AUDIT-HOWTO.md`
+- `docs/audits/META-AUDIT.md`
+- `docs/audits/recurring/`
+- `docs/audits/oneoff/`
+- `docs/audits/reports/`
+- `docs/audits/domains/`

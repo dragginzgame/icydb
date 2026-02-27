@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod tests;
+
 use crate::{
     db::{
         Db, EntityName,
@@ -222,10 +225,3 @@ pub(crate) fn storage_report<C: CanisterKind>(
         corrupted_entries,
     })
 }
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests;

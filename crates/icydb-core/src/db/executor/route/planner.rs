@@ -196,7 +196,6 @@ where
     }
 
     // Build canonical grouped aggregate routing from one grouped executor handoff.
-    #[expect(dead_code)]
     pub(in crate::db::executor) fn build_execution_route_plan_for_grouped_handoff(
         grouped: GroupedExecutorHandoff<'_, E::Key>,
     ) -> ExecutionPlan {

@@ -33,7 +33,7 @@ Structural Stress Metrics:
 
 Notable Changes Since Previous Audit:
 - Re-ran `dry-consolidation` against current 0.16 union-stream working tree.
-- Re-ran `complexity-accretion` against current 0.17/0.18 execution state and saved results at `docs/audit-results/2026-02-19/complexity-accretion.md`.
+- Re-ran `complexity-accretion` against current 0.17/0.18 execution state and saved results at `docs/audits/reports/2026-02-19/complexity-accretion.md`.
 - Composite `Union` execution now uses pairwise stream merge in executor context.
 - Composite `Intersection` execution is now stream-native pairwise, removing prior set-materialization asymmetry.
 - Merge stream now enforces explicit direction and rejects child stream direction mismatch (`InvariantViolation`).

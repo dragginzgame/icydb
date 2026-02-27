@@ -106,4 +106,4 @@ Structural Stress Metrics:
 
 ## Reports Produced This Run
 
-- `docs/audit-results/2026-02-22/dry-consolidation.md`
+- `docs/audits/reports/2026-02-22/dry-consolidation.md`

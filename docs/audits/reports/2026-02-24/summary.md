@@ -111,16 +111,16 @@ Note:
 - Standalone ad-hoc "execution-contract" report was intentionally not retained; findings are mapped to the existing audit taxonomy above.
 
 Reports Produced This Run:
-- `docs/audit-results/2026-02-24/invariant-preservation.md`
-- `docs/audit-results/2026-02-24/recovery-consistency.md`
-- `docs/audit-results/2026-02-24/cursor-ordering.md`
-- `docs/audit-results/2026-02-24/boundary-semantics.md`
-- `docs/audit-results/2026-02-24/index-integrity.md`
-- `docs/audit-results/2026-02-24/state-machine-integrity.md`
-- `docs/audit-results/2026-02-24/module-structure.md`
-- `docs/audit-results/2026-02-24/complexity-accretion.md`
-- `docs/audit-results/2026-02-24/velocity-preservation.md`
-- `docs/audit-results/2026-02-24/dry-consolidation.md`
-- `docs/audit-results/2026-02-24/error-taxonomy.md`
-- `docs/audit-results/2026-02-24/meta-audit.md`
-- `docs/audit-results/2026-02-24/summary.md`
+- `docs/audits/reports/2026-02-24/invariant-preservation.md`
+- `docs/audits/reports/2026-02-24/recovery-consistency.md`
+- `docs/audits/reports/2026-02-24/cursor-ordering.md`
+- `docs/audits/reports/2026-02-24/boundary-semantics.md`
+- `docs/audits/reports/2026-02-24/index-integrity.md`
+- `docs/audits/reports/2026-02-24/state-machine-integrity.md`
+- `docs/audits/reports/2026-02-24/module-structure.md`
+- `docs/audits/reports/2026-02-24/complexity-accretion.md`
+- `docs/audits/reports/2026-02-24/velocity-preservation.md`
+- `docs/audits/reports/2026-02-24/dry-consolidation.md`
+- `docs/audits/reports/2026-02-24/error-taxonomy.md`
+- `docs/audits/reports/2026-02-24/meta-audit.md`
+- `docs/audits/reports/2026-02-24/summary.md`

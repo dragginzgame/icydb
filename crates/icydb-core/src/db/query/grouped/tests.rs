@@ -5,8 +5,7 @@ use crate::{
         query::{
             grouped::{
                 FieldSlot, GroupAggregateKind, GroupAggregateSpec, GroupPlanError, GroupSpec,
-                GroupedExecutionConfig, GroupedPlan, grouped_executor_handoff,
-                validate_group_query_semantics,
+                GroupedExecutionConfig, grouped_executor_handoff, validate_group_query_semantics,
             },
             intent::{LoadSpec, QueryMode},
             plan::validate::{PlanError, PolicyPlanError, validate_query_semantics},
@@ -56,23 +55,20 @@ fn grouped_plan(
     base: AccessPlannedQuery<Value>,
     group_fields: Vec<&str>,
     aggregates: Vec<GroupAggregateSpec>,
-) -> GroupedPlan<Value> {
+) -> AccessPlannedQuery<Value> {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    GroupedPlan::from_parts(
-        base,
-        GroupSpec {
-            group_fields: group_fields
-                .into_iter()
-                .map(|field| {
-                    FieldSlot::resolve(model, field).unwrap_or_else(|| {
-                        FieldSlot::from_parts_for_test(usize::MAX, field.to_string())
-                    })
+    base.into_grouped(GroupSpec {
+        group_fields: group_fields
+            .into_iter()
+            .map(|field| {
+                FieldSlot::resolve(model, field).unwrap_or_else(|| {
+                    FieldSlot::from_parts_for_test(usize::MAX, field.to_string())
                 })
-                .collect(),
-            aggregates,
-            execution: GroupedExecutionConfig::unbounded(),
-        },
-    )
+            })
+            .collect(),
+        aggregates,
+        execution: GroupedExecutionConfig::unbounded(),
+    })
 }
 
 #[test]
@@ -182,30 +178,28 @@ fn grouped_plan_rejects_field_target_non_extrema_kind() {
 #[test]
 fn grouped_executor_handoff_preserves_group_fields_aggregates_and_execution_config() {
     let base = load_plan(AccessPlan::path(AccessPath::FullScan));
-    let grouped = GroupedPlan::from_parts(
-        base,
-        GroupSpec {
-            group_fields: vec![
-                FieldSlot::resolve(<PlanValidateGroupedEntity as EntitySchema>::MODEL, "rank")
-                    .expect("rank field must resolve"),
-                FieldSlot::resolve(<PlanValidateGroupedEntity as EntitySchema>::MODEL, "tag")
-                    .expect("tag field must resolve"),
-            ],
-            aggregates: vec![
-                GroupAggregateSpec {
-                    kind: GroupAggregateKind::Count,
-                    target_field: None,
-                },
-                GroupAggregateSpec {
-                    kind: GroupAggregateKind::Max,
-                    target_field: Some("rank".to_string()),
-                },
-            ],
-            execution: GroupedExecutionConfig::with_hard_limits(11, 2048),
-        },
-    );
+    let grouped = base.into_grouped(GroupSpec {
+        group_fields: vec![
+            FieldSlot::resolve(<PlanValidateGroupedEntity as EntitySchema>::MODEL, "rank")
+                .expect("rank field must resolve"),
+            FieldSlot::resolve(<PlanValidateGroupedEntity as EntitySchema>::MODEL, "tag")
+                .expect("tag field must resolve"),
+        ],
+        aggregates: vec![
+            GroupAggregateSpec {
+                kind: GroupAggregateKind::Count,
+                target_field: None,
+            },
+            GroupAggregateSpec {
+                kind: GroupAggregateKind::Max,
+                target_field: Some("rank".to_string()),
+            },
+        ],
+        execution: GroupedExecutionConfig::with_hard_limits(11, 2048),
+    });
 
-    let handoff = grouped_executor_handoff(&grouped);
+    let handoff =
+        grouped_executor_handoff(&grouped).expect("grouped logical plans should build handoff");
 
     assert_eq!(
         handoff
@@ -227,7 +221,7 @@ fn grouped_executor_handoff_preserves_group_fields_aggregates_and_execution_conf
     assert_eq!(handoff.execution().max_group_bytes(), 2048);
     assert_eq!(
         handoff.base().logical.consistency,
-        grouped.base.logical.consistency
+        grouped.scalar_plan().consistency
     );
 }
 
@@ -276,8 +270,9 @@ fn grouped_executor_handoff_contract_matrix_vectors_are_frozen() {
     )> = grouped_cases
         .iter()
         .map(|group| {
-            let grouped = GroupedPlan::from_parts(base.clone(), group.clone());
-            let handoff = grouped_executor_handoff(&grouped);
+            let grouped = base.clone().into_grouped(group.clone());
+            let handoff = grouped_executor_handoff(&grouped)
+                .expect("grouped logical plans should build handoff");
             let aggregate_vector = handoff
                 .aggregates()
                 .iter()

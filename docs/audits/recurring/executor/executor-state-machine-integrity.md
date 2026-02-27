@@ -1,4 +1,4 @@
-# audits/state-machine-integrity.md
+# docs/audits/recurring/executor/executor-state-machine-integrity.md
 
 # Weekly Audit: State Machine & Transition Integrity
 
