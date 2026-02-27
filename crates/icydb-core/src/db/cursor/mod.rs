@@ -87,7 +87,6 @@ where
 }
 
 /// Validate and decode a grouped continuation cursor into grouped cursor state.
-#[allow(dead_code)]
 pub(in crate::db) fn prepare_grouped_cursor(
     entity_path: &'static str,
     order: Option<&OrderSpec>,
@@ -125,7 +124,6 @@ pub(in crate::db) fn prepare_grouped_cursor(
 }
 
 /// Revalidate grouped cursor state through grouped cursor invariants.
-#[allow(dead_code)]
 pub(in crate::db) fn revalidate_grouped_cursor(
     initial_offset: u32,
     cursor: GroupedPlannedCursor,

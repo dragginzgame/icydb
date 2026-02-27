@@ -1,9 +1,13 @@
 #![allow(unused_imports)]
 
+#[cfg(test)]
+mod tests;
+
 use crate::db::query::plan::AccessPlannedQuery;
 pub(crate) use crate::db::query::plan::validate::{
     GroupPlanError, validate_group_query_semantics, validate_group_spec,
 };
+
 ///
 /// GROUPED QUERY SCAFFOLD
 ///
@@ -16,7 +20,8 @@ pub(crate) use crate::db::query::plan::validate::{
 /// scattered across unrelated query modules.
 ///
 pub(crate) use crate::db::query::plan::{
-    GroupAggregateKind, GroupAggregateSpec, GroupSpec, GroupedExecutionConfig, GroupedPlan,
+    FieldSlot, GroupAggregateKind, GroupAggregateSpec, GroupSpec, GroupedExecutionConfig,
+    GroupedPlan,
 };
 
 ///
@@ -26,15 +31,14 @@ pub(crate) use crate::db::query::plan::{
 /// This contract keeps grouped execution routing input explicit while grouped
 /// runtime remains disabled in `0.32.x`.
 ///
-#[allow(dead_code)]
+
 pub(in crate::db) struct GroupedExecutorHandoff<'a, K> {
     base: &'a AccessPlannedQuery<K>,
-    group_fields: &'a [String],
+    group_fields: &'a [FieldSlot],
     aggregates: &'a [GroupAggregateSpec],
     execution: GroupedExecutionConfig,
 }
 
-#[allow(dead_code)]
 impl<'a, K> GroupedExecutorHandoff<'a, K> {
     /// Borrow the grouped query base plan.
     #[must_use]
@@ -44,7 +48,7 @@ impl<'a, K> GroupedExecutorHandoff<'a, K> {
 
     /// Borrow declared grouped key fields.
     #[must_use]
-    pub(in crate::db) const fn group_fields(&self) -> &'a [String] {
+    pub(in crate::db) const fn group_fields(&self) -> &'a [FieldSlot] {
         self.group_fields
     }
 
@@ -63,7 +67,6 @@ impl<'a, K> GroupedExecutorHandoff<'a, K> {
 
 /// Build one grouped executor handoff from one grouped plan wrapper.
 #[must_use]
-#[allow(dead_code)]
 pub(in crate::db) const fn grouped_executor_handoff<K>(
     grouped: &GroupedPlan<K>,
 ) -> GroupedExecutorHandoff<'_, K> {
@@ -74,6 +77,3 @@ pub(in crate::db) const fn grouped_executor_handoff<K>(
         execution: grouped.group.execution,
     }
 }
-
-#[cfg(test)]
-mod tests_validate;

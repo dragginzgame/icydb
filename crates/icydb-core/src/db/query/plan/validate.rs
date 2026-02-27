@@ -63,6 +63,7 @@ pub enum PlanError {
 ///
 /// ORDER BY-specific validation failures.
 ///
+
 #[derive(Debug, ThisError)]
 pub enum OrderPlanError {
     /// ORDER BY references an unknown field.
@@ -87,6 +88,7 @@ pub enum OrderPlanError {
 ///
 /// Plan-shape policy failures.
 ///
+
 #[derive(Clone, Debug, Eq, PartialEq, ThisError)]
 pub enum PolicyPlanError {
     /// ORDER BY must specify at least one field.
@@ -117,6 +119,7 @@ pub enum PolicyPlanError {
 ///
 /// GROUP BY wrapper validation failures owned by query planning.
 ///
+
 #[derive(Clone, Debug, Eq, PartialEq, ThisError)]
 pub enum GroupPlanError {
     /// GROUP BY requires at least one declared grouping field.
@@ -235,7 +238,6 @@ pub(crate) fn validate_query_semantics(
 /// Ownership:
 /// - semantic owner for GROUP BY wrapper validation
 /// - failures here are user-visible planning failures (`PlanError`)
-#[allow(dead_code)]
 pub(crate) fn validate_group_query_semantics(
     schema: &SchemaInfo,
     model: &EntityModel,
@@ -254,13 +256,17 @@ pub(crate) fn validate_group_query_semantics(
                 .map_err(PlanError::from)
         },
     )?;
-    validate_group_spec(schema, &plan.group)?;
+    validate_group_spec(schema, model, &plan.group)?;
 
     Ok(())
 }
 
 /// Validate one grouped declarative spec against schema-level field surface.
-pub(crate) fn validate_group_spec(schema: &SchemaInfo, group: &GroupSpec) -> Result<(), PlanError> {
+pub(crate) fn validate_group_spec(
+    schema: &SchemaInfo,
+    model: &EntityModel,
+    group: &GroupSpec,
+) -> Result<(), PlanError> {
     if group.group_fields.is_empty() {
         return Err(PlanError::from(GroupPlanError::EmptyGroupFields));
     }
@@ -268,10 +274,10 @@ pub(crate) fn validate_group_spec(schema: &SchemaInfo, group: &GroupSpec) -> Res
         return Err(PlanError::from(GroupPlanError::EmptyAggregates));
     }
 
-    for field in &group.group_fields {
-        if schema.field(field).is_none() {
+    for field_slot in &group.group_fields {
+        if model.fields.get(field_slot.index()).is_none() {
             return Err(PlanError::from(GroupPlanError::UnknownGroupField {
-                field: field.clone(),
+                field: field_slot.field().to_string(),
             }));
         }
     }

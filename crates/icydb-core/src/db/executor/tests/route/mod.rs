@@ -16,15 +16,15 @@ use crate::{
         },
         query::{
             grouped::{
-                GroupAggregateKind, GroupAggregateSpec, GroupSpec, GroupedExecutionConfig,
-                GroupedPlan, grouped_executor_handoff,
+                FieldSlot, GroupAggregateKind, GroupAggregateSpec, GroupSpec,
+                GroupedExecutionConfig, GroupedPlan, grouped_executor_handoff,
             },
             intent::{DeleteSpec, QueryMode},
             plan::{AccessPlannedQuery, OrderDirection, OrderSpec, PageSpec},
         },
     },
     model::{field::FieldKind, index::IndexModel},
-    traits::Path,
+    traits::{EntitySchema, Path},
     types::Ulid,
     value::Value,
 };
@@ -126,6 +126,18 @@ fn field_extrema_index_range_plan(
     plan.distinct = distinct;
 
     plan
+}
+
+fn grouped_field_slot(field: &str) -> FieldSlot {
+    FieldSlot::resolve(<RouteMatrixEntity as EntitySchema>::MODEL, field)
+        .expect("grouped field must resolve in route matrix entity model")
+}
+
+fn grouped_field_slots(fields: &[&str]) -> Vec<FieldSlot> {
+    fields
+        .iter()
+        .map(|field| grouped_field_slot(field))
+        .collect()
 }
 
 mod aggregate;

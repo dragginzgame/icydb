@@ -80,7 +80,7 @@ pub(in crate::db) struct GroupedPlannedCursor {
     initial_offset: u32,
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 impl GroupedPlannedCursor {
     #[must_use]
     pub(in crate::db) const fn none() -> Self {

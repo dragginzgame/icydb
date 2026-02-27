@@ -87,7 +87,6 @@ impl GroupKey {
     }
 
     #[must_use]
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(in crate::db) const fn canonical_value(&self) -> &Value {
         &self.raw.0
     }

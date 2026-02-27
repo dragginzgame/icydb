@@ -29,7 +29,7 @@ fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_pat
     let grouped = GroupedPlan::from_parts(
         base,
         GroupSpec {
-            group_fields: vec!["rank".to_string()],
+            group_fields: grouped_field_slots(&["rank"]),
             aggregates: vec![GroupAggregateSpec {
                 kind: GroupAggregateKind::Count,
                 target_field: None,
@@ -76,7 +76,7 @@ fn route_plan_grouped_wrapper_keeps_blocking_shape_under_tight_budget_config() {
     let grouped = GroupedPlan::from_parts(
         base,
         GroupSpec {
-            group_fields: vec!["rank".to_string()],
+            group_fields: grouped_field_slots(&["rank"]),
             aggregates: vec![GroupAggregateSpec {
                 kind: GroupAggregateKind::Count,
                 target_field: None,
@@ -126,7 +126,7 @@ fn route_plan_grouped_wrapper_lowers_kind_matrix_into_executor_contract() {
     let grouped = GroupedPlan::from_parts(
         AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk),
         GroupSpec {
-            group_fields: vec!["rank".to_string()],
+            group_fields: grouped_field_slots(&["rank"]),
             aggregates: kind_cases
                 .iter()
                 .map(|(kind, _)| GroupAggregateSpec {
@@ -156,7 +156,7 @@ fn route_plan_grouped_wrapper_lowers_target_field_into_executor_contract() {
     let grouped = GroupedPlan::from_parts(
         AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk),
         GroupSpec {
-            group_fields: vec!["rank".to_string(), "label".to_string()],
+            group_fields: grouped_field_slots(&["rank", "label"]),
             aggregates: vec![GroupAggregateSpec {
                 kind: GroupAggregateKind::Max,
                 target_field: Some("rank".to_string()),
@@ -194,7 +194,7 @@ fn route_plan_grouped_wrapper_lowers_supported_target_field_matrix_into_executor
     let grouped = GroupedPlan::from_parts(
         AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk),
         GroupSpec {
-            group_fields: vec!["rank".to_string(), "label".to_string()],
+            group_fields: grouped_field_slots(&["rank", "label"]),
             aggregates: grouped_cases
                 .iter()
                 .map(|(kind, target_field)| GroupAggregateSpec {
@@ -237,7 +237,7 @@ fn route_plan_grouped_wrapper_observability_vector_is_frozen() {
     let grouped = GroupedPlan::from_parts(
         AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk),
         GroupSpec {
-            group_fields: vec!["rank".to_string()],
+            group_fields: grouped_field_slots(&["rank"]),
             aggregates: vec![GroupAggregateSpec {
                 kind: GroupAggregateKind::Count,
                 target_field: None,

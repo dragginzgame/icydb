@@ -4,7 +4,7 @@ use crate::{
         contracts::{ReadConsistency, SchemaInfo},
         query::{
             grouped::{
-                GroupAggregateKind, GroupAggregateSpec, GroupPlanError, GroupSpec,
+                FieldSlot, GroupAggregateKind, GroupAggregateSpec, GroupPlanError, GroupSpec,
                 GroupedExecutionConfig, GroupedPlan, grouped_executor_handoff,
                 validate_group_query_semantics,
             },
@@ -57,10 +57,18 @@ fn grouped_plan(
     group_fields: Vec<&str>,
     aggregates: Vec<GroupAggregateSpec>,
 ) -> GroupedPlan<Value> {
+    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
     GroupedPlan::from_parts(
         base,
         GroupSpec {
-            group_fields: group_fields.into_iter().map(str::to_string).collect(),
+            group_fields: group_fields
+                .into_iter()
+                .map(|field| {
+                    FieldSlot::resolve(model, field).unwrap_or_else(|| {
+                        FieldSlot::from_parts_for_test(usize::MAX, field.to_string())
+                    })
+                })
+                .collect(),
             aggregates,
             execution: GroupedExecutionConfig::unbounded(),
         },
@@ -177,7 +185,12 @@ fn grouped_executor_handoff_preserves_group_fields_aggregates_and_execution_conf
     let grouped = GroupedPlan::from_parts(
         base,
         GroupSpec {
-            group_fields: vec!["rank".to_string(), "tag".to_string()],
+            group_fields: vec![
+                FieldSlot::resolve(<PlanValidateGroupedEntity as EntitySchema>::MODEL, "rank")
+                    .expect("rank field must resolve"),
+                FieldSlot::resolve(<PlanValidateGroupedEntity as EntitySchema>::MODEL, "tag")
+                    .expect("tag field must resolve"),
+            ],
             aggregates: vec![
                 GroupAggregateSpec {
                     kind: GroupAggregateKind::Count,
@@ -195,8 +208,12 @@ fn grouped_executor_handoff_preserves_group_fields_aggregates_and_execution_conf
     let handoff = grouped_executor_handoff(&grouped);
 
     assert_eq!(
-        handoff.group_fields(),
-        &["rank".to_string(), "tag".to_string()]
+        handoff
+            .group_fields()
+            .iter()
+            .map(|field| field.field().to_string())
+            .collect::<Vec<_>>(),
+        vec!["rank".to_string(), "tag".to_string()]
     );
     assert_eq!(handoff.aggregates().len(), 2);
     assert_eq!(handoff.aggregates()[0].kind, GroupAggregateKind::Count);
@@ -219,7 +236,10 @@ fn grouped_executor_handoff_contract_matrix_vectors_are_frozen() {
     let base = load_plan(AccessPlan::path(AccessPath::FullScan));
     let grouped_cases = [
         GroupSpec {
-            group_fields: vec!["rank".to_string()],
+            group_fields: vec![
+                FieldSlot::resolve(<PlanValidateGroupedEntity as EntitySchema>::MODEL, "rank")
+                    .expect("rank field must resolve"),
+            ],
             aggregates: vec![GroupAggregateSpec {
                 kind: GroupAggregateKind::Count,
                 target_field: None,
@@ -227,7 +247,12 @@ fn grouped_executor_handoff_contract_matrix_vectors_are_frozen() {
             execution: GroupedExecutionConfig::unbounded(),
         },
         GroupSpec {
-            group_fields: vec!["tag".to_string(), "rank".to_string()],
+            group_fields: vec![
+                FieldSlot::resolve(<PlanValidateGroupedEntity as EntitySchema>::MODEL, "tag")
+                    .expect("tag field must resolve"),
+                FieldSlot::resolve(<PlanValidateGroupedEntity as EntitySchema>::MODEL, "rank")
+                    .expect("rank field must resolve"),
+            ],
             aggregates: vec![
                 GroupAggregateSpec {
                     kind: GroupAggregateKind::Max,
@@ -260,7 +285,11 @@ fn grouped_executor_handoff_contract_matrix_vectors_are_frozen() {
                 .collect::<Vec<_>>();
 
             (
-                handoff.group_fields().to_vec(),
+                handoff
+                    .group_fields()
+                    .iter()
+                    .map(|field| field.field().to_string())
+                    .collect::<Vec<_>>(),
                 aggregate_vector,
                 handoff.execution().max_groups(),
                 handoff.execution().max_group_bytes(),

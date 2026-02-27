@@ -393,7 +393,6 @@ impl InternalError {
     }
 
     /// Map grouped plan-surface failures into query invalid-plan invariants.
-    #[allow(dead_code)]
     pub(crate) fn from_group_plan_error(err: PlanError) -> Self {
         let reason = match &err {
             PlanError::Group(inner) => match inner.as_ref() {

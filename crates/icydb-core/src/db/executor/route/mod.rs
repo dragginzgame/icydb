@@ -154,7 +154,7 @@ pub(super) struct ExecutionRoutePlan {
     continuation_mode: ContinuationMode,
     window: RouteWindowPlan,
     pub(super) execution_mode: ExecutionMode,
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     execution_mode_case: ExecutionModeRouteCase,
     secondary_pushdown_applicability: PushdownApplicability,
     pub(super) index_range_limit_spec: Option<IndexRangeLimitSpec>,
@@ -189,7 +189,7 @@ impl ExecutionRoutePlan {
 
     // Grouped route observability projection for grouped-readiness scaffolding.
     // Non-grouped routes intentionally report no grouped diagnostics payload.
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     pub(in crate::db::executor) const fn grouped_observability(
         &self,
     ) -> Option<GroupedRouteObservability> {
@@ -409,7 +409,6 @@ pub(in crate::db::executor) enum RoutedKeyStreamRequest<'a, K> {
 /// RouteIntent
 ///
 
-#[allow(dead_code)]
 enum RouteIntent {
     Load,
     Aggregate {
@@ -443,7 +442,7 @@ pub(in crate::db::executor) enum ExecutionModeRouteCase {
 /// This keeps grouped route diagnostics explicit while grouped runtime remains
 /// disabled in `0.32.x`.
 ///
-#[allow(dead_code)]
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) enum GroupedRouteDecisionOutcome {
     MaterializedBlocked,
@@ -455,7 +454,7 @@ pub(in crate::db::executor) enum GroupedRouteDecisionOutcome {
 /// Grouped route rejection taxonomy for grouped observability scaffolding.
 /// Runtime-enabled grouped execution should replace this placeholder reason set.
 ///
-#[allow(dead_code)]
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) enum GroupedRouteRejectionReason {
     RuntimeDisabled,
@@ -467,14 +466,13 @@ pub(in crate::db::executor) enum GroupedRouteRejectionReason {
 /// Grouped route observability payload locked for grouped-readiness.
 /// Carries one explicit route outcome and one grouped rejection reason.
 ///
-#[allow(dead_code)]
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) struct GroupedRouteObservability {
     outcome: GroupedRouteDecisionOutcome,
     rejection_reason: GroupedRouteRejectionReason,
 }
 
-#[allow(dead_code)]
 impl GroupedRouteObservability {
     #[must_use]
     pub(in crate::db::executor) const fn outcome(self) -> GroupedRouteDecisionOutcome {

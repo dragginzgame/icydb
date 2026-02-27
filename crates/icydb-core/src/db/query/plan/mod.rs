@@ -17,7 +17,7 @@ use crate::{
         query::explain::ExplainAccessPath,
     },
     error::InternalError,
-    model::entity::EntityModel,
+    model::entity::{EntityModel, resolve_field_slot},
     traits::{EntityKind, EntityValue},
     value::Value,
 };
@@ -175,7 +175,6 @@ pub(crate) struct PageSpec {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[allow(dead_code)]
 pub(crate) enum GroupAggregateKind {
     Count,
     Exists,
@@ -192,10 +191,70 @@ pub(crate) enum GroupAggregateKind {
 /// `target_field` remains optional so future field-target grouped terminals can
 /// reuse this contract without mutating the wrapper shape.
 ///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct GroupAggregateSpec {
     pub(crate) kind: GroupAggregateKind,
     pub(crate) target_field: Option<String>,
+}
+
+///
+/// FieldSlot
+///
+/// Canonical resolved field reference used by logical planning.
+/// `index` is the stable slot in `EntityModel::fields`; `field` is retained
+/// for diagnostics and explain surfaces.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct FieldSlot {
+    index: usize,
+    field: String,
+}
+
+impl FieldSlot {
+    /// Resolve one field name into its canonical model slot.
+    #[must_use]
+    pub(crate) fn resolve(model: &EntityModel, field: &str) -> Option<Self> {
+        let index = resolve_field_slot(model, field)?;
+        let canonical = model
+            .fields
+            .get(index)
+            .map_or(field, |model_field| model_field.name);
+
+        Some(Self {
+            index,
+            field: canonical.to_string(),
+        })
+    }
+
+    /// Build one field slot directly for tests that need invalid slot shapes.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn from_parts_for_test(index: usize, field: impl Into<String>) -> Self {
+        Self {
+            index,
+            field: field.into(),
+        }
+    }
+
+    /// Return the stable slot index in `EntityModel::fields`.
+    #[must_use]
+    pub(crate) const fn index(&self) -> usize {
+        self.index
+    }
+
+    /// Return the diagnostic field label associated with this slot.
+    #[must_use]
+    pub(crate) fn field(&self) -> &str {
+        &self.field
+    }
+
+    /// Resolve the canonical model field name for this slot index.
+    #[must_use]
+    pub(crate) fn canonical_name<'a>(&self, model: &'a EntityModel) -> Option<&'a str> {
+        model.fields.get(self.index).map(|field| field.name)
+    }
 }
 
 ///
@@ -257,7 +316,7 @@ impl Default for GroupedExecutionConfig {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct GroupSpec {
-    pub(crate) group_fields: Vec<String>,
+    pub(crate) group_fields: Vec<FieldSlot>,
     pub(crate) aggregates: Vec<GroupAggregateSpec>,
     pub(crate) execution: GroupedExecutionConfig,
 }
@@ -310,13 +369,13 @@ pub(crate) struct ScalarPlan {
 /// GroupPlan
 ///
 /// Pure grouped logical intent emitted by grouped planning.
-/// This stage only captures grouping keys and aggregate declarations.
+/// Group metadata is carried through one canonical `GroupSpec` contract.
 ///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct GroupPlan {
     pub(crate) scalar: ScalarPlan,
-    pub(crate) group_fields: Vec<String>,
-    pub(crate) aggregates: Vec<GroupAggregateSpec>,
+    pub(crate) group: GroupSpec,
 }
 
 ///
@@ -325,10 +384,10 @@ pub(crate) struct GroupPlan {
 /// Exclusive logical query intent emitted by planning.
 /// Scalar and grouped semantics are distinct variants by construction.
 ///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum LogicalPlan {
     Scalar(ScalarPlan),
-    #[allow(dead_code)]
     Grouped(GroupPlan),
 }
 
@@ -345,11 +404,27 @@ impl LogicalPlan {
     /// Borrow scalar semantic fields mutably across logical variants.
     #[must_use]
     #[cfg(test)]
-    pub(in crate::db) fn scalar_semantics_mut(&mut self) -> &mut ScalarPlan {
+    pub(in crate::db) const fn scalar_semantics_mut(&mut self) -> &mut ScalarPlan {
         match self {
             Self::Scalar(plan) => plan,
             Self::Grouped(plan) => &mut plan.scalar,
         }
+    }
+}
+
+#[cfg(test)]
+impl Deref for LogicalPlan {
+    type Target = ScalarPlan;
+
+    fn deref(&self) -> &Self::Target {
+        self.scalar_semantics()
+    }
+}
+
+#[cfg(test)]
+impl DerefMut for LogicalPlan {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.scalar_semantics_mut()
     }
 }
 
@@ -359,24 +434,11 @@ impl LogicalPlan {
 /// Access-planned query produced after access-path selection.
 /// Binds one pure `LogicalPlan` to one chosen `AccessPlan`.
 ///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct AccessPlannedQuery<K> {
     pub(crate) logical: LogicalPlan,
     pub(crate) access: AccessPlan<K>,
-}
-
-///
-/// GroupedPlan
-///
-/// Declarative grouped wrapper around one access-planned base query.
-/// This wrapper keeps grouped execution wiring separate while runtime
-/// grouped dispatch remains behind staged integration.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct GroupedPlan<K> {
-    pub(crate) base: AccessPlannedQuery<K>,
-    pub(crate) group: GroupSpec,
 }
 
 impl<K> AccessPlannedQuery<K> {
@@ -401,7 +463,7 @@ impl<K> AccessPlannedQuery<K> {
     /// Borrow scalar semantic fields mutably across logical variants.
     #[must_use]
     #[cfg(test)]
-    pub(in crate::db) fn scalar_plan_mut(&mut self) -> &mut ScalarPlan {
+    pub(in crate::db) const fn scalar_plan_mut(&mut self) -> &mut ScalarPlan {
         self.logical.scalar_semantics_mut()
     }
 
@@ -453,43 +515,6 @@ impl<K> AccessPlannedQuery<K> {
     }
 }
 
-impl<K> GroupedPlan<K> {
-    /// Build one grouped query wrapper from base access plan + group spec.
-    #[must_use]
-    #[allow(dead_code)]
-    pub(crate) fn from_parts(base: AccessPlannedQuery<K>, group: GroupSpec) -> Self {
-        let AccessPlannedQuery { logical, access } = base;
-        let scalar = match logical {
-            LogicalPlan::Scalar(plan) => plan,
-            LogicalPlan::Grouped(plan) => plan.scalar,
-        };
-        let logical = LogicalPlan::Grouped(GroupPlan {
-            scalar,
-            group_fields: group.group_fields.clone(),
-            aggregates: group.aggregates.clone(),
-        });
-        let base = AccessPlannedQuery { logical, access };
-
-        Self { base, group }
-    }
-}
-
-#[cfg(test)]
-impl Deref for LogicalPlan {
-    type Target = ScalarPlan;
-
-    fn deref(&self) -> &Self::Target {
-        self.scalar_semantics()
-    }
-}
-
-#[cfg(test)]
-impl DerefMut for LogicalPlan {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.scalar_semantics_mut()
-    }
-}
-
 #[cfg(test)]
 impl<K> Deref for AccessPlannedQuery<K> {
     type Target = ScalarPlan;
@@ -503,6 +528,39 @@ impl<K> Deref for AccessPlannedQuery<K> {
 impl<K> DerefMut for AccessPlannedQuery<K> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.scalar_plan_mut()
+    }
+}
+
+///
+/// GroupedPlan
+///
+/// Declarative grouped wrapper around one access-planned base query.
+/// This wrapper keeps grouped execution wiring separate while runtime
+/// grouped dispatch remains behind staged integration.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct GroupedPlan<K> {
+    pub(crate) base: AccessPlannedQuery<K>,
+    pub(crate) group: GroupSpec,
+}
+
+impl<K> GroupedPlan<K> {
+    /// Build one grouped query wrapper from base access plan + group spec.
+    #[must_use]
+    pub(crate) fn from_parts(base: AccessPlannedQuery<K>, group: GroupSpec) -> Self {
+        let AccessPlannedQuery { logical, access } = base;
+        let scalar = match logical {
+            LogicalPlan::Scalar(plan) => plan,
+            LogicalPlan::Grouped(plan) => plan.scalar,
+        };
+        let logical = LogicalPlan::Grouped(GroupPlan {
+            scalar,
+            group: group.clone(),
+        });
+        let base = AccessPlannedQuery { logical, access };
+
+        Self { base, group }
     }
 }
 

@@ -124,7 +124,6 @@ pub(in crate::db::executor) struct AggregateSpec {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(not(test), allow(dead_code))]
 pub(in crate::db::executor) struct GroupAggregateSpec {
     group_keys: Vec<String>,
     aggregate_specs: Vec<AggregateSpec>,
@@ -156,7 +155,6 @@ pub(in crate::db::executor) enum AggregateSpecSupportError {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq, ThisError)]
-#[cfg_attr(not(test), allow(dead_code))]
 pub(in crate::db::executor) enum GroupAggregateSpecSupportError {
     #[error("group aggregate spec requires at least one aggregate terminal")]
     MissingAggregateSpecs,
@@ -210,34 +208,6 @@ pub(in crate::db::executor) struct ExecutionBudget {
     estimated_bytes: u64,
 }
 
-///
-/// ExecutionConfig
-///
-/// ExecutionConfig defines hard grouped-execution limits selected by planning.
-/// Limits stay policy-owned at executor boundaries instead of inside operator
-/// state containers so memory policy remains centralized and composable.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) struct ExecutionConfig {
-    max_groups: u64,
-    max_group_bytes: u64,
-}
-
-///
-/// ExecutionContext
-///
-/// ExecutionContext carries grouped execution policy plus mutable budget usage.
-/// Planner/executor boundaries own this context and pass it down to grouped
-/// operators so accounting is consistent across all future grouped operators.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) struct ExecutionContext {
-    config: ExecutionConfig,
-    budget: ExecutionBudget,
-}
-
 impl ExecutionBudget {
     /// Build one zeroed grouped-execution budget.
     #[must_use]
@@ -249,19 +219,16 @@ impl ExecutionBudget {
         }
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     #[must_use]
     pub(in crate::db::executor) const fn groups(&self) -> u64 {
         self.groups
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     #[must_use]
     pub(in crate::db::executor) const fn aggregate_states(&self) -> u64 {
         self.aggregate_states
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     #[must_use]
     pub(in crate::db::executor) const fn estimated_bytes(&self) -> u64 {
         self.estimated_bytes
@@ -308,7 +275,35 @@ impl Default for ExecutionBudget {
     }
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
+///
+/// ExecutionConfig
+///
+/// ExecutionConfig defines hard grouped-execution limits selected by planning.
+/// Limits stay policy-owned at executor boundaries instead of inside operator
+/// state containers so memory policy remains centralized and composable.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) struct ExecutionConfig {
+    max_groups: u64,
+    max_group_bytes: u64,
+}
+
+///
+/// ExecutionContext
+///
+/// ExecutionContext carries grouped execution policy plus mutable budget usage.
+/// Planner/executor boundaries own this context and pass it down to grouped
+/// operators so accounting is consistent across all future grouped operators.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) struct ExecutionContext {
+    config: ExecutionConfig,
+    budget: ExecutionBudget,
+}
+
+#[cfg_attr(not(test), expect(dead_code))]
 impl ExecutionConfig {
     /// Build one grouped hard-limit configuration.
     #[must_use]
@@ -339,7 +334,6 @@ impl ExecutionConfig {
     }
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
 impl ExecutionContext {
     /// Build one execution context from grouped hard-limit policy.
     #[must_use]
@@ -350,13 +344,11 @@ impl ExecutionContext {
         }
     }
 
-    #[allow(dead_code)]
     #[must_use]
     pub(in crate::db::executor) const fn config(&self) -> &ExecutionConfig {
         &self.config
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     #[must_use]
     pub(in crate::db::executor) const fn budget(&self) -> &ExecutionBudget {
         &self.budget
@@ -366,7 +358,7 @@ impl ExecutionContext {
     ///
     /// This keeps grouped state construction policy-owned by executor context
     /// so grouped operators cannot bypass centralized budget/config plumbing.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg_attr(not(test), expect(dead_code))]
     #[must_use]
     pub(in crate::db::executor) fn create_grouped_state<E: EntityKind>(
         &self,
@@ -478,7 +470,7 @@ impl AggregateSpec {
     }
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg_attr(not(test), expect(dead_code))]
 impl GroupAggregateSpec {
     /// Build one grouped aggregate contract from group-key + terminal specs.
     #[must_use]
@@ -782,13 +774,12 @@ impl AggregateStateFactory {
 /// Finalized rows are emitted in deterministic canonical order.
 ///
 
-#[cfg_attr(not(test), allow(dead_code))]
 pub(in crate::db::executor) struct GroupedAggregateOutput<E: EntityKind> {
     group_key: GroupKey,
     output: AggregateOutput<E>,
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg_attr(not(test), expect(dead_code))]
 impl<E: EntityKind> GroupedAggregateOutput<E> {
     #[must_use]
     pub(in crate::db::executor) const fn group_key(&self) -> &GroupKey {
@@ -809,10 +800,16 @@ impl<E: EntityKind> GroupedAggregateOutput<E> {
 /// Slots remain bucket-local and are finalized deterministically.
 ///
 
-#[cfg_attr(not(test), allow(dead_code))]
 struct GroupedAggregateStateSlot<E: EntityKind> {
     group_key: GroupKey,
     state: TerminalAggregateState<E>,
+}
+
+impl<E: EntityKind> GroupedAggregateStateSlot<E> {
+    #[must_use]
+    const fn group_key(&self) -> &GroupKey {
+        &self.group_key
+    }
 }
 
 ///
@@ -824,14 +821,13 @@ struct GroupedAggregateStateSlot<E: EntityKind> {
 /// deterministic order independent of insertion order.
 ///
 
-#[cfg_attr(not(test), allow(dead_code))]
 pub(in crate::db::executor) struct GroupedAggregateState<E: EntityKind> {
     kind: AggregateKind,
     direction: Direction,
     groups: BTreeMap<StableHash, Vec<GroupedAggregateStateSlot<E>>>,
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg_attr(not(test), expect(dead_code))]
 impl<E: EntityKind> GroupedAggregateState<E> {
     /// Build one empty grouped aggregate state container.
     #[must_use]
@@ -912,14 +908,6 @@ impl<E: EntityKind> GroupedAggregateState<E> {
         }
 
         out
-    }
-}
-
-#[cfg_attr(not(test), allow(dead_code))]
-impl<E: EntityKind> GroupedAggregateStateSlot<E> {
-    #[must_use]
-    const fn group_key(&self) -> &GroupKey {
-        &self.group_key
     }
 }
 

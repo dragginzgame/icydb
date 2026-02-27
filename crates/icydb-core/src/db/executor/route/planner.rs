@@ -196,7 +196,7 @@ where
     }
 
     // Build canonical grouped aggregate routing from one grouped executor handoff.
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     pub(in crate::db::executor) fn build_execution_route_plan_for_grouped_handoff(
         grouped: GroupedExecutorHandoff<'_, E::Key>,
     ) -> ExecutionPlan {
@@ -224,6 +224,16 @@ where
     pub(in crate::db::executor) fn lower_grouped_spec_for_executor_contract(
         grouped: &GroupedExecutorHandoff<'_, E::Key>,
     ) -> GroupAggregateSpec {
+        let group_keys = grouped
+            .group_fields()
+            .iter()
+            .map(|field_slot| {
+                field_slot
+                    .canonical_name(E::MODEL)
+                    .unwrap_or_else(|| field_slot.field())
+                    .to_string()
+            })
+            .collect();
         let aggregate_specs = grouped
             .aggregates()
             .iter()
@@ -237,7 +247,7 @@ where
             })
             .collect();
 
-        GroupAggregateSpec::new(grouped.group_fields().to_vec(), aggregate_specs)
+        GroupAggregateSpec::new(group_keys, aggregate_specs)
     }
 
     // Lower one query-owned grouped aggregate kind into the executor-owned

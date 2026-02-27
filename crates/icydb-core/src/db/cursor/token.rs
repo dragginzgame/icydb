@@ -199,6 +199,7 @@ pub(crate) enum ContinuationTokenError {
 /// This audit-pass token type is additive and intentionally not wired into
 /// existing load execution paths.
 ///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct GroupedContinuationToken {
     signature: ContinuationSignature,
@@ -207,7 +208,6 @@ pub(in crate::db) struct GroupedContinuationToken {
     initial_offset: u32,
 }
 
-#[allow(dead_code)]
 impl GroupedContinuationToken {
     pub(in crate::db) const fn new_with_direction(
         signature: ContinuationSignature,
