@@ -140,6 +140,52 @@ pub(crate) struct PageSpec {
 }
 
 ///
+/// GroupAggregateKind
+///
+/// Declarative grouped aggregate terminal taxonomy owned by query planning.
+/// This query-layer enum intentionally avoids coupling to executor aggregate
+/// reducer internals while preserving terminal intent shape.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[allow(dead_code)]
+pub(crate) enum GroupAggregateKind {
+    Count,
+    Exists,
+    Min,
+    Max,
+    First,
+    Last,
+}
+
+///
+/// GroupAggregateSpec
+///
+/// One grouped aggregate terminal specification declared at query-plan time.
+/// `target_field` remains optional so future field-target grouped terminals can
+/// reuse this contract without mutating the wrapper shape.
+///
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[allow(dead_code)]
+pub(crate) struct GroupAggregateSpec {
+    pub(crate) kind: GroupAggregateKind,
+    pub(crate) target_field: Option<String>,
+}
+
+///
+/// GroupSpec
+///
+/// Declarative GROUP BY stage contract attached to a validated base plan.
+/// This wrapper is intentionally semantic-only; field-slot resolution and
+/// execution-mode derivation remain executor-owned boundaries.
+///
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[allow(dead_code)]
+pub(crate) struct GroupSpec {
+    pub(crate) group_fields: Vec<String>,
+    pub(crate) aggregates: Vec<GroupAggregateSpec>,
+}
+
+///
 /// LogicalPlan
 ///
 /// Pure logical query intent produced by the planner.
@@ -194,6 +240,20 @@ pub(crate) struct AccessPlannedQuery<K> {
     pub(crate) access: AccessPlan<K>,
 }
 
+///
+/// GroupedPlan
+///
+/// Declarative grouped wrapper around one access-planned base query.
+/// This wrapper keeps GROUP BY scaffolding additive and low-churn while
+/// leaving existing `LogicalPlan` literals unchanged.
+///
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[allow(dead_code)]
+pub(crate) struct GroupedPlan<K> {
+    pub(crate) base: AccessPlannedQuery<K>,
+    pub(crate) group: GroupSpec,
+}
+
 impl<K> AccessPlannedQuery<K> {
     /// Construct an access-planned query from logical + access stages.
     #[must_use]
@@ -227,6 +287,22 @@ impl<K> AccessPlannedQuery<K> {
             },
             access: AccessPlan::path(access),
         }
+    }
+}
+
+impl<K> GroupedPlan<K> {
+    /// Build one grouped query wrapper from base access plan + group spec.
+    #[must_use]
+    #[allow(dead_code)]
+    pub(crate) const fn from_parts(base: AccessPlannedQuery<K>, group: GroupSpec) -> Self {
+        Self { base, group }
+    }
+
+    /// Decompose grouped query wrapper into base access plan + group spec.
+    #[must_use]
+    #[allow(dead_code)]
+    pub(crate) fn into_parts(self) -> (AccessPlannedQuery<K>, GroupSpec) {
+        (self.base, self.group)
     }
 }
 

@@ -19,6 +19,35 @@ fn route_plan_aggregate_uses_route_owned_fast_path_order() {
 }
 
 #[test]
+fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_paths() {
+    let mut base =
+        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    base.order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
+    });
+    let grouped = GroupedPlan::from_parts(
+        base,
+        GroupSpec {
+            group_fields: vec!["rank".to_string()],
+            aggregates: vec![GroupAggregateSpec {
+                kind: GroupAggregateKind::Count,
+                target_field: None,
+            }],
+        },
+    );
+
+    let route_plan =
+        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_grouped_plan(&grouped);
+
+    assert_eq!(
+        route_plan.execution_mode_case(),
+        ExecutionModeRouteCase::AggregateGrouped
+    );
+    assert_eq!(route_plan.execution_mode, ExecutionMode::Materialized);
+    assert_eq!(route_plan.fast_path_order(), &[]);
+}
+
+#[test]
 fn route_matrix_aggregate_count_pk_order_is_streaming_keys_only() {
     let mut plan =
         AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);

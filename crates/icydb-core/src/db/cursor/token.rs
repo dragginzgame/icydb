@@ -1,11 +1,14 @@
 use crate::{
     db::{codec::deserialize_protocol_payload, cursor::CursorBoundary, direction::Direction},
     serialize::serialize,
+    value::Value,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error as ThisError;
 
 const MAX_CONTINUATION_TOKEN_BYTES: usize = 8 * 1024;
+#[allow(dead_code)]
+const MAX_GROUPED_CONTINUATION_TOKEN_BYTES: usize = 8 * 1024;
 
 ///
 /// ContinuationSignature
@@ -191,6 +194,98 @@ pub(crate) enum ContinuationTokenError {
 }
 
 ///
+/// GroupedContinuationToken
+///
+/// Dedicated continuation payload for grouped result pagination.
+/// This audit-pass token type is additive and intentionally not wired into
+/// existing load execution paths.
+///
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[allow(dead_code)]
+pub(in crate::db) struct GroupedContinuationToken {
+    signature: ContinuationSignature,
+    last_group_key: Vec<Value>,
+    direction: Direction,
+    initial_offset: u32,
+}
+
+#[allow(dead_code)]
+impl GroupedContinuationToken {
+    pub(in crate::db) const fn new_with_direction(
+        signature: ContinuationSignature,
+        last_group_key: Vec<Value>,
+        direction: Direction,
+        initial_offset: u32,
+    ) -> Self {
+        Self {
+            signature,
+            last_group_key,
+            direction,
+            initial_offset,
+        }
+    }
+
+    pub(in crate::db) const fn signature(&self) -> ContinuationSignature {
+        self.signature
+    }
+
+    pub(in crate::db) const fn last_group_key(&self) -> &[Value] {
+        self.last_group_key.as_slice()
+    }
+
+    pub(in crate::db) const fn direction(&self) -> Direction {
+        self.direction
+    }
+
+    pub(in crate::db) const fn initial_offset(&self) -> u32 {
+        self.initial_offset
+    }
+
+    pub(in crate::db) fn encode(&self) -> Result<Vec<u8>, GroupedContinuationTokenError> {
+        let wire = GroupedContinuationTokenWire {
+            version: GroupedCursorTokenVersion::V1.encode(),
+            signature: self.signature.into_bytes(),
+            last_group_key: self.last_group_key.clone(),
+            direction: self.direction,
+            initial_offset: self.initial_offset,
+        };
+
+        serialize(&wire).map_err(|err| GroupedContinuationTokenError::Encode(err.to_string()))
+    }
+
+    pub(in crate::db) fn decode(bytes: &[u8]) -> Result<Self, GroupedContinuationTokenError> {
+        let wire: GroupedContinuationTokenWire =
+            deserialize_protocol_payload(bytes, MAX_GROUPED_CONTINUATION_TOKEN_BYTES)
+                .map_err(|err| GroupedContinuationTokenError::Decode(err.to_string()))?;
+        let version = GroupedCursorTokenVersion::decode(wire.version)?;
+
+        Ok(Self::new_with_direction(
+            ContinuationSignature::from_bytes(wire.signature),
+            wire.last_group_key,
+            wire.direction,
+            version.decode_initial_offset(wire.initial_offset),
+        ))
+    }
+}
+
+///
+/// GroupedContinuationTokenError
+/// Grouped continuation token encode/decode failures.
+///
+#[derive(Clone, Debug, Eq, PartialEq, ThisError)]
+#[allow(dead_code)]
+pub(crate) enum GroupedContinuationTokenError {
+    #[error("failed to encode grouped continuation token: {0}")]
+    Encode(String),
+
+    #[error("failed to decode grouped continuation token: {0}")]
+    Decode(String),
+
+    #[error("unsupported grouped continuation token version: {version}")]
+    UnsupportedVersion { version: u8 },
+}
+
+///
 /// IndexRangeCursorAnchor
 /// Dedicated continuation anchor for `AccessPath::IndexRange`.
 ///
@@ -224,6 +319,35 @@ impl IndexRangeCursorAnchor {
 enum CursorTokenVersion {
     V1,
     V2,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[allow(dead_code)]
+enum GroupedCursorTokenVersion {
+    V1,
+}
+
+impl GroupedCursorTokenVersion {
+    const V1_TAG: u8 = 1;
+
+    const fn decode(raw: u8) -> Result<Self, GroupedContinuationTokenError> {
+        match raw {
+            Self::V1_TAG => Ok(Self::V1),
+            version => Err(GroupedContinuationTokenError::UnsupportedVersion { version }),
+        }
+    }
+
+    const fn encode(self) -> u8 {
+        match self {
+            Self::V1 => Self::V1_TAG,
+        }
+    }
+
+    const fn decode_initial_offset(self, wire_initial_offset: u32) -> u32 {
+        match self {
+            Self::V1 => wire_initial_offset,
+        }
+    }
 }
 
 impl CursorTokenVersion {
@@ -272,6 +396,18 @@ struct ContinuationTokenWire {
     initial_offset: u32,
     #[serde(default)]
     index_range_anchor: Option<IndexRangeCursorAnchorWire>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[allow(dead_code)]
+struct GroupedContinuationTokenWire {
+    version: u8,
+    signature: [u8; 32],
+    last_group_key: Vec<Value>,
+    #[serde(default)]
+    direction: Direction,
+    #[serde(default)]
+    initial_offset: u32,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

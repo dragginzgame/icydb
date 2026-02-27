@@ -177,6 +177,8 @@ pub(super) struct ExecutionRoutePlan {
     continuation_mode: ContinuationMode,
     window: RouteWindowPlan,
     pub(super) execution_mode: ExecutionMode,
+    #[allow(dead_code)]
+    execution_mode_case: ExecutionModeRouteCase,
     secondary_pushdown_applicability: PushdownApplicability,
     pub(super) index_range_limit_spec: Option<IndexRangeLimitSpec>,
     capabilities: RouteCapabilities,
@@ -200,6 +202,12 @@ impl ExecutionRoutePlan {
     #[must_use]
     pub(super) const fn window(&self) -> RouteWindowPlan {
         self.window
+    }
+
+    #[must_use]
+    #[allow(dead_code)]
+    pub(super) const fn execution_mode_case(&self) -> ExecutionModeRouteCase {
+        self.execution_mode_case
     }
 
     // Return the effective physical fetch hint for fallback stream resolution.
@@ -305,6 +313,7 @@ impl ExecutionRoutePlan {
                 fetch_count: None,
             },
             execution_mode: ExecutionMode::Materialized,
+            execution_mode_case: ExecutionModeRouteCase::Load,
             secondary_pushdown_applicability: PushdownApplicability::NotApplicable,
             index_range_limit_spec: None,
             capabilities,
@@ -353,6 +362,10 @@ pub(super) const AGGREGATE_FAST_PATH_ORDER: [FastPathOrder; 5] = [
     FastPathOrder::Composite,
 ];
 
+// Contract: grouped aggregate routes are materialized-only in this audit pass
+// and must not participate in scalar aggregate fast-path dispatch.
+pub(super) const GROUPED_AGGREGATE_FAST_PATH_ORDER: [FastPathOrder; 0] = [];
+
 // Contract: mutation routes are materialized-only and do not participate in
 // load/aggregate fast-path precedence.
 pub(super) const MUTATION_FAST_PATH_ORDER: [FastPathOrder; 0] = [];
@@ -395,10 +408,14 @@ pub(in crate::db::executor) enum RoutedKeyStreamRequest<'a, K> {
 /// RouteIntent
 ///
 
+#[allow(dead_code)]
 enum RouteIntent {
     Load,
     Aggregate {
         spec: AggregateSpec,
+        aggregate_force_materialized_due_to_predicate_uncertainty: bool,
+    },
+    AggregateGrouped {
         aggregate_force_materialized_due_to_predicate_uncertainty: bool,
     },
 }
@@ -411,10 +428,12 @@ enum RouteIntent {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ExecutionModeRouteCase {
+#[allow(dead_code)]
+pub(in crate::db::executor) enum ExecutionModeRouteCase {
     Load,
     AggregateCount,
     AggregateNonCount,
+    AggregateGrouped,
 }
 
 ///
@@ -501,9 +520,10 @@ pub(in crate::db::executor) const fn route_execution_mode_case_count_guard() -> 
         ExecutionModeRouteCase::Load,
         ExecutionModeRouteCase::AggregateCount,
         ExecutionModeRouteCase::AggregateNonCount,
+        ExecutionModeRouteCase::AggregateGrouped,
     ];
 
-    3
+    4
 }
 
 const fn direction_allows_physical_fetch_hint(

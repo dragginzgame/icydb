@@ -1,4 +1,5 @@
 use crate::db::cursor::{CursorBoundary, IndexRangeCursorAnchor};
+use crate::value::Value;
 
 ///
 /// PlannedCursor
@@ -64,5 +65,52 @@ impl From<Option<CursorBoundary>> for PlannedCursor {
             index_range_anchor: None,
             initial_offset: 0,
         }
+    }
+}
+
+///
+/// GroupedPlannedCursor
+///
+/// Executor-facing grouped continuation state produced after grouped cursor
+/// validation. This type is additive scaffolding for grouped pagination.
+///
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[allow(dead_code)]
+pub(in crate::db) struct GroupedPlannedCursor {
+    last_group_key: Option<Vec<Value>>,
+    initial_offset: u32,
+}
+
+#[allow(dead_code)]
+impl GroupedPlannedCursor {
+    #[must_use]
+    pub(in crate::db) const fn none() -> Self {
+        Self {
+            last_group_key: None,
+            initial_offset: 0,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn new(last_group_key: Vec<Value>, initial_offset: u32) -> Self {
+        Self {
+            last_group_key: Some(last_group_key),
+            initial_offset,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) fn last_group_key(&self) -> Option<&[Value]> {
+        self.last_group_key.as_deref()
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn initial_offset(&self) -> u32 {
+        self.initial_offset
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn is_empty(&self) -> bool {
+        self.last_group_key.is_none() && self.initial_offset == 0
     }
 }

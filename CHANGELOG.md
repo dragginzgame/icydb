@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.30.15] - 2026-02-27 - GROUP BY Audit Scaffolding
+
+### 📝 Summary
+
+* Added GROUP BY readiness scaffolding across query planning, route taxonomy, and cursor continuation types to reduce future integration churn.
+* This release is substrate-only: grouped execution is still unsupported, and existing non-group/scalar aggregate runtime behavior is unchanged.
+
+---
+
 ## [0.30.14] - 2026-02-27 - DB Entropy Reduction
 
 ### 📝 Summary

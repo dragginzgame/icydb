@@ -16,8 +16,8 @@ use crate::{
 
 use crate::db::executor::route::{
     AGGREGATE_FAST_PATH_ORDER, ContinuationMode, ExecutionMode, ExecutionModeRouteCase,
-    ExecutionRoutePlan, FastPathOrder, IndexRangeLimitSpec, LOAD_FAST_PATH_ORDER,
-    RouteCapabilities, RouteIntent, RouteWindowPlan, ScanHintPlan,
+    ExecutionRoutePlan, FastPathOrder, GROUPED_AGGREGATE_FAST_PATH_ORDER, IndexRangeLimitSpec,
+    LOAD_FAST_PATH_ORDER, RouteCapabilities, RouteIntent, RouteWindowPlan, ScanHintPlan,
 };
 
 ///
@@ -48,6 +48,7 @@ struct RouteDerivationContext {
 
 struct RouteIntentStage {
     aggregate_spec: Option<AggregateSpec>,
+    grouped: bool,
     fast_path_order: &'static [FastPathOrder],
     aggregate_force_materialized_due_to_predicate_uncertainty: bool,
 }
@@ -82,6 +83,7 @@ struct RouteFeasibilityStage {
 ///
 
 struct RouteExecutionStage {
+    execution_mode_case: ExecutionModeRouteCase,
     execution_mode: ExecutionMode,
     aggregate_fold_mode: AggregateFoldMode,
     index_range_limit_spec: Option<IndexRangeLimitSpec>,
@@ -189,6 +191,27 @@ where
         )
     }
 
+    // Build canonical grouped aggregate routing from one grouped query wrapper.
+    #[cfg(test)]
+    pub(in crate::db::executor) fn build_execution_route_plan_for_grouped_plan(
+        grouped: &crate::db::query::plan::GroupedPlan<E::Key>,
+    ) -> ExecutionPlan {
+        let execution_preparation = ExecutionPreparation::for_plan::<E>(&grouped.base);
+
+        Self::build_execution_route_plan(
+            &grouped.base,
+            None,
+            None,
+            None,
+            RouteIntent::AggregateGrouped {
+                aggregate_force_materialized_due_to_predicate_uncertainty:
+                    Self::aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
+                        &execution_preparation,
+                    ),
+            },
+        )
+    }
+
     // Shared route gate for load + aggregate execution.
     fn build_execution_route_plan(
         plan: &AccessPlannedQuery<E::Key>,
@@ -221,6 +244,7 @@ where
         let stage = match intent {
             RouteIntent::Load => RouteIntentStage {
                 aggregate_spec: None,
+                grouped: false,
                 fast_path_order: &LOAD_FAST_PATH_ORDER,
                 aggregate_force_materialized_due_to_predicate_uncertainty: false,
             },
@@ -229,16 +253,35 @@ where
                 aggregate_force_materialized_due_to_predicate_uncertainty,
             } => RouteIntentStage {
                 aggregate_spec: Some(spec),
+                grouped: false,
                 fast_path_order: &AGGREGATE_FAST_PATH_ORDER,
+                aggregate_force_materialized_due_to_predicate_uncertainty,
+            },
+            RouteIntent::AggregateGrouped {
+                aggregate_force_materialized_due_to_predicate_uncertainty,
+            } => RouteIntentStage {
+                aggregate_spec: None,
+                grouped: true,
+                fast_path_order: &GROUPED_AGGREGATE_FAST_PATH_ORDER,
                 aggregate_force_materialized_due_to_predicate_uncertainty,
             },
         };
         let kind = stage.kind();
         debug_assert!(
-            (kind.is_none() && stage.fast_path_order == LOAD_FAST_PATH_ORDER.as_slice())
+            (kind.is_none()
+                && !stage.grouped
+                && stage.fast_path_order == LOAD_FAST_PATH_ORDER.as_slice())
                 || (kind.is_some()
-                    && stage.fast_path_order == AGGREGATE_FAST_PATH_ORDER.as_slice()),
+                    && !stage.grouped
+                    && stage.fast_path_order == AGGREGATE_FAST_PATH_ORDER.as_slice())
+                || (kind.is_none()
+                    && stage.grouped
+                    && stage.fast_path_order == GROUPED_AGGREGATE_FAST_PATH_ORDER.as_slice()),
             "route invariant: route intent must map to the canonical fast-path order contract",
+        );
+        debug_assert!(
+            !stage.grouped || stage.aggregate_spec.is_none() && stage.fast_path_order.is_empty(),
+            "route invariant: grouped intent must not carry scalar aggregate specs or fast-path routes",
         );
 
         stage
@@ -257,6 +300,7 @@ where
         let derivation = Self::derive_route_derivation_context(
             plan,
             intent_stage.aggregate_spec.as_ref(),
+            intent_stage.grouped,
             continuation_mode,
             route_window,
             probe_fetch_hint,
@@ -267,7 +311,7 @@ where
 
         // COUNT fold-mode discipline: non-count pushdowns must not route COUNT
         // through non-COUNT streaming fast paths.
-        let index_range_limit_spec = if count_terminal {
+        let index_range_limit_spec = if count_terminal || intent_stage.grouped {
             None
         } else {
             Self::assess_index_range_limit_pushdown(
@@ -280,6 +324,7 @@ where
             )
         };
         if kind.is_none()
+            && !intent_stage.grouped
             && let (Some(index_range_limit_spec), Some(load_scan_budget_hint)) = (
                 index_range_limit_spec,
                 derivation.scan_hints.load_scan_budget_hint,
@@ -311,6 +356,13 @@ where
                 || cursor_boundary.is_none() && derivation.capabilities.streaming_access_shape_safe,
             "route invariant: load scan-budget hints require non-continuation streaming-safe shape",
         );
+        debug_assert!(
+            !intent_stage.grouped
+                || derivation.scan_hints.load_scan_budget_hint.is_none()
+                    && derivation.scan_hints.physical_fetch_hint.is_none()
+                    && index_range_limit_spec.is_none(),
+            "route invariant: grouped intent must not derive load/aggregate scan hints or index-range pushdown specs",
+        );
 
         RouteFeasibilityStage {
             continuation_mode,
@@ -326,19 +378,24 @@ where
         feasibility_stage: &RouteFeasibilityStage,
     ) -> RouteExecutionStage {
         let kind = intent_stage.kind();
-        let aggregate_force_materialized_due_to_predicate_uncertainty = kind.is_some()
+        let aggregate_force_materialized_due_to_predicate_uncertainty = (kind.is_some()
+            || intent_stage.grouped)
             && intent_stage.aggregate_force_materialized_due_to_predicate_uncertainty;
         let count_terminal = matches!(kind, Some(AggregateKind::Count));
-        let execution_case = match kind {
-            None => ExecutionModeRouteCase::Load,
-            Some(AggregateKind::Count) => ExecutionModeRouteCase::AggregateCount,
-            Some(
-                AggregateKind::Exists
-                | AggregateKind::Min
-                | AggregateKind::Max
-                | AggregateKind::First
-                | AggregateKind::Last,
-            ) => ExecutionModeRouteCase::AggregateNonCount,
+        let execution_case = if intent_stage.grouped {
+            ExecutionModeRouteCase::AggregateGrouped
+        } else {
+            match kind {
+                None => ExecutionModeRouteCase::Load,
+                Some(AggregateKind::Count) => ExecutionModeRouteCase::AggregateCount,
+                Some(
+                    AggregateKind::Exists
+                    | AggregateKind::Min
+                    | AggregateKind::Max
+                    | AggregateKind::First
+                    | AggregateKind::Last,
+                ) => ExecutionModeRouteCase::AggregateNonCount,
+            }
         };
         let execution_mode = match execution_case {
             ExecutionModeRouteCase::Load => {
@@ -377,14 +434,18 @@ where
                     ExecutionMode::Materialized
                 }
             }
+            ExecutionModeRouteCase::AggregateGrouped => ExecutionMode::Materialized,
         };
-        let mut index_range_limit_spec = feasibility_stage.index_range_limit_spec;
-        if kind.is_some() && matches!(execution_mode, ExecutionMode::Materialized) {
-            index_range_limit_spec = None;
-        }
+        let index_range_limit_spec = if (kind.is_some() || intent_stage.grouped)
+            && matches!(execution_mode, ExecutionMode::Materialized)
+        {
+            None
+        } else {
+            feasibility_stage.index_range_limit_spec
+        };
 
         debug_assert!(
-            kind.is_none()
+            (kind.is_none() && !intent_stage.grouped)
                 || index_range_limit_spec.is_none()
                 || matches!(execution_mode, ExecutionMode::Streaming),
             "route invariant: aggregate index-range limit pushdown must execute in streaming mode",
@@ -413,6 +474,7 @@ where
         };
 
         RouteExecutionStage {
+            execution_mode_case: execution_case,
             execution_mode,
             aggregate_fold_mode,
             index_range_limit_spec,
@@ -436,6 +498,7 @@ where
             continuation_mode,
             window: route_window,
             execution_mode: execution_stage.execution_mode,
+            execution_mode_case: execution_stage.execution_mode_case,
             secondary_pushdown_applicability: derivation.secondary_pushdown_applicability,
             index_range_limit_spec: execution_stage.index_range_limit_spec,
             capabilities: derivation.capabilities,
@@ -450,6 +513,7 @@ where
     fn derive_route_derivation_context(
         plan: &AccessPlannedQuery<E::Key>,
         aggregate_spec: Option<&AggregateSpec>,
+        grouped: bool,
         continuation_mode: ContinuationMode,
         route_window: RouteWindowPlan,
         probe_fetch_hint: Option<usize>,
@@ -489,10 +553,12 @@ where
 
         let physical_fetch_hint = if kind.is_some() {
             aggregate_physical_fetch_hint
+        } else if grouped {
+            None
         } else {
             probe_fetch_hint
         };
-        let load_scan_budget_hint = if kind.is_none() {
+        let load_scan_budget_hint = if kind.is_none() && !grouped {
             Self::load_scan_budget_hint(continuation_mode, route_window, capabilities)
         } else {
             None

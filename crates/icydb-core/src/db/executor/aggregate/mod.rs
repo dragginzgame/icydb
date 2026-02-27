@@ -14,6 +14,8 @@ pub(in crate::db::executor) use contracts::{
     AggregateFoldMode, AggregateKind, AggregateOutput, AggregateReducerState, AggregateSpec,
     FoldControl,
 };
+#[allow(unused_imports)]
+pub(in crate::db::executor) use contracts::{GroupAggregateSpec, GroupAggregateSpecSupportError};
 pub(in crate::db::executor) use execution::{
     AggregateExecutionDescriptor, AggregateFastPathInputs, PreparedAggregateStreamingInputs,
 };
@@ -75,6 +77,12 @@ enum AggregateReducerSelection<E: EntityKind + EntityValue> {
     Streaming(ExecutablePlan<E>),
 }
 
+// Grouped reducer-stage gate output.
+// This boundary intentionally routes only scalar-terminal shapes in 0.30.x.
+enum GroupedReducerStage {
+    ScalarTerminal { spec: AggregateSpec },
+}
+
 impl<'a> AggregateReducerDispatch<'a> {
     // Derive one reducer adapter from a validated aggregate descriptor.
     fn from_descriptor(descriptor: &'a AggregateExecutionDescriptor) -> Self {
@@ -132,6 +140,35 @@ impl<'a> AggregateReducerDispatch<'a> {
 }
 
 impl ExecutionKernel {
+    // Validate grouped aggregate contract shape and route supported inputs into
+    // the scalar terminal execution stage.
+    fn resolve_grouped_reducer_stage(
+        grouped_spec: &GroupAggregateSpec,
+    ) -> Result<GroupedReducerStage, InternalError> {
+        grouped_spec
+            .ensure_supported_for_execution()
+            .map_err(|err| InternalError::executor_unsupported(err.to_string()))?;
+
+        if grouped_spec.is_grouped() {
+            return Err(InternalError::executor_unsupported(
+                "grouped aggregate execution is not yet enabled in this release",
+            ));
+        }
+        if grouped_spec.aggregate_specs().len() != 1 {
+            return Err(InternalError::executor_unsupported(
+                "multi-terminal aggregate execution is not yet enabled in this release",
+            ));
+        }
+
+        let Some(spec) = grouped_spec.aggregate_specs().first() else {
+            return Err(InternalError::query_executor_invariant(
+                "grouped reducer stage requires one terminal aggregate spec",
+            ));
+        };
+
+        Ok(GroupedReducerStage::ScalarTerminal { spec: spec.clone() })
+    }
+
     // Build one canonical aggregate descriptor so kernel dispatch works from a
     // validated shape with route-owned mode/direction/fold decisions.
     fn build_aggregate_execution_descriptor<E>(
@@ -259,9 +296,10 @@ impl ExecutionKernel {
         }
     }
 
-    // Execute one aggregate spec through kernel-owned orchestration while
-    // preserving route-owned execution-mode and fast-path behavior.
-    pub(in crate::db::executor) fn execute_aggregate_spec<E>(
+    // Execute one scalar terminal aggregate stage through kernel-owned
+    // orchestration while preserving route-owned execution-mode and fast-path
+    // behavior.
+    fn execute_scalar_terminal_stage<E>(
         executor: &LoadExecutor<E>,
         plan: ExecutablePlan<E>,
         spec: AggregateSpec,
@@ -345,5 +383,25 @@ impl ExecutionKernel {
         record_rows_scanned::<E>(rows_scanned);
 
         Ok(aggregate_output)
+    }
+
+    // Execute one aggregate spec through staged grouped/scalar orchestration.
+    // Grouped stage currently validates contract shape and routes only
+    // scalar-terminal shapes into the scalar execution stage.
+    pub(in crate::db::executor) fn execute_aggregate_spec<E>(
+        executor: &LoadExecutor<E>,
+        plan: ExecutablePlan<E>,
+        spec: AggregateSpec,
+    ) -> Result<AggregateOutput<E>, InternalError>
+    where
+        E: EntityKind + EntityValue,
+    {
+        // Stage 1: grouped reducer-stage contract boundary.
+        let grouped_spec = GroupAggregateSpec::for_global_terminal(spec);
+        let GroupedReducerStage::ScalarTerminal { spec } =
+            Self::resolve_grouped_reducer_stage(&grouped_spec)?;
+
+        // Stage 2: scalar terminal execution boundary.
+        Self::execute_scalar_terminal_stage(executor, plan, spec)
     }
 }

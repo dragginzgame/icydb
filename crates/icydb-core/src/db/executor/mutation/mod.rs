@@ -18,9 +18,9 @@ pub(super) use commit_window::{
 };
 
 /// Run mutation write-entry recovery checks and return a write-ready context.
-pub(in crate::db::executor) fn mutation_write_context<'a, E>(
-    db: &'a Db<E::Canister>,
-) -> Result<Context<'a, E>, InternalError>
+pub(in crate::db::executor) fn mutation_write_context<E>(
+    db: &'_ Db<E::Canister>,
+) -> Result<Context<'_, E>, InternalError>
 where
     E: EntityKind + EntityValue,
 {

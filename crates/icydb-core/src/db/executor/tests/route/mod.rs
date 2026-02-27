@@ -8,14 +8,18 @@ use crate::{
             aggregate::{AggregateFoldMode, AggregateKind, AggregateSpec},
             load::LoadExecutor,
             route::{
-                AGGREGATE_FAST_PATH_ORDER, ContinuationMode, ExecutionMode, FastPathOrder,
-                FieldExtremaIneligibilityReason, LOAD_FAST_PATH_ORDER, MUTATION_FAST_PATH_ORDER,
-                route_capability_flag_count_guard, route_execution_mode_case_count_guard,
+                AGGREGATE_FAST_PATH_ORDER, ContinuationMode, ExecutionMode, ExecutionModeRouteCase,
+                FastPathOrder, FieldExtremaIneligibilityReason, LOAD_FAST_PATH_ORDER,
+                MUTATION_FAST_PATH_ORDER, route_capability_flag_count_guard,
+                route_execution_mode_case_count_guard,
             },
         },
         query::{
             intent::{DeleteSpec, QueryMode},
-            plan::{AccessPlannedQuery, OrderDirection, OrderSpec, PageSpec},
+            plan::{
+                AccessPlannedQuery, GroupAggregateKind, GroupAggregateSpec, GroupSpec, GroupedPlan,
+                OrderDirection, OrderSpec, PageSpec,
+            },
         },
     },
     model::{field::FieldKind, index::IndexModel},

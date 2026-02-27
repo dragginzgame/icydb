@@ -1,5 +1,8 @@
 // NOTE: Invalid helpers remain only for intentionally invalid schemas.
-use super::{OrderPlanError, PlanError, PolicyPlanError, validate_query_semantics};
+use super::{
+    GroupPlanError, OrderPlanError, PlanError, PolicyPlanError, validate_group_query_semantics,
+    validate_query_semantics,
+};
 use crate::{
     db::{
         access::{
@@ -11,9 +14,9 @@ use crate::{
         query::{
             intent::{DeleteSpec, LoadSpec, QueryMode},
             plan::{
-                AccessPlannedQuery, DeleteLimitSpec, LogicalPlan, OrderDirection, OrderSpec,
-                PageSpec, assess_secondary_order_pushdown,
-                assess_secondary_order_pushdown_if_applicable,
+                AccessPlannedQuery, DeleteLimitSpec, GroupAggregateKind, GroupAggregateSpec,
+                GroupSpec, GroupedPlan, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
+                assess_secondary_order_pushdown, assess_secondary_order_pushdown_if_applicable,
                 assess_secondary_order_pushdown_if_applicable_validated,
             },
         },
@@ -130,6 +133,20 @@ fn load_index_range_plan(
     load_plan(
         AccessPlan::path(AccessPath::index_range(INDEX_MODEL, prefix, lower, upper)),
         order,
+    )
+}
+
+fn grouped_plan(
+    base: AccessPlannedQuery<Value>,
+    group_fields: Vec<&str>,
+    aggregates: Vec<GroupAggregateSpec>,
+) -> GroupedPlan<Value> {
+    GroupedPlan::from_parts(
+        base,
+        GroupSpec {
+            group_fields: group_fields.into_iter().map(str::to_string).collect(),
+            aggregates,
+        },
     )
 }
 
@@ -576,6 +593,110 @@ fn plan_rejects_unordered_pagination() {
     assert!(matches!(err, PlanError::Policy(inner) if matches!(
         inner.as_ref(),
         PolicyPlanError::UnorderedPagination
+    )));
+}
+
+#[test]
+fn grouped_plan_rejects_empty_group_fields() {
+    let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::from_entity_model(model).expect("valid model");
+    let grouped = grouped_plan(
+        load_plan(AccessPlan::path(AccessPath::FullScan), None),
+        Vec::new(),
+        vec![GroupAggregateSpec {
+            kind: GroupAggregateKind::Count,
+            target_field: None,
+        }],
+    );
+
+    let err = validate_group_query_semantics(&schema, model, &grouped)
+        .expect_err("empty group-fields spec must fail");
+    assert!(matches!(err, PlanError::Group(inner) if matches!(
+        inner.as_ref(),
+        GroupPlanError::EmptyGroupFields
+    )));
+}
+
+#[test]
+fn grouped_plan_rejects_unknown_group_field() {
+    let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::from_entity_model(model).expect("valid model");
+    let grouped = grouped_plan(
+        load_plan(AccessPlan::path(AccessPath::FullScan), None),
+        vec!["missing_group_field"],
+        vec![GroupAggregateSpec {
+            kind: GroupAggregateKind::Count,
+            target_field: None,
+        }],
+    );
+
+    let err = validate_group_query_semantics(&schema, model, &grouped)
+        .expect_err("unknown group field must fail");
+    assert!(matches!(err, PlanError::Group(inner) if matches!(
+        inner.as_ref(),
+        GroupPlanError::UnknownGroupField { field } if field == "missing_group_field"
+    )));
+}
+
+#[test]
+fn grouped_plan_rejects_empty_aggregate_spec_list() {
+    let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::from_entity_model(model).expect("valid model");
+    let grouped = grouped_plan(
+        load_plan(AccessPlan::path(AccessPath::FullScan), None),
+        vec!["rank"],
+        Vec::new(),
+    );
+
+    let err = validate_group_query_semantics(&schema, model, &grouped)
+        .expect_err("empty grouped aggregate list must fail");
+    assert!(matches!(err, PlanError::Group(inner) if matches!(
+        inner.as_ref(),
+        GroupPlanError::EmptyAggregates
+    )));
+}
+
+#[test]
+fn grouped_plan_rejects_unknown_aggregate_target_field() {
+    let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::from_entity_model(model).expect("valid model");
+    let grouped = grouped_plan(
+        load_plan(AccessPlan::path(AccessPath::FullScan), None),
+        vec!["rank"],
+        vec![GroupAggregateSpec {
+            kind: GroupAggregateKind::Min,
+            target_field: Some("missing_target".to_string()),
+        }],
+    );
+
+    let err = validate_group_query_semantics(&schema, model, &grouped)
+        .expect_err("unknown grouped aggregate target field must fail");
+    assert!(matches!(err, PlanError::Group(inner) if matches!(
+        inner.as_ref(),
+        GroupPlanError::UnknownAggregateTargetField { index, field }
+            if *index == 0 && field == "missing_target"
+    )));
+}
+
+#[test]
+fn grouped_plan_rejects_field_target_non_extrema_kind() {
+    let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::from_entity_model(model).expect("valid model");
+    let grouped = grouped_plan(
+        load_plan(AccessPlan::path(AccessPath::FullScan), None),
+        vec!["rank"],
+        vec![GroupAggregateSpec {
+            kind: GroupAggregateKind::Count,
+            target_field: Some("rank".to_string()),
+        }],
+    );
+
+    let err = validate_group_query_semantics(&schema, model, &grouped)
+        .expect_err("field-target grouped non-extrema terminal must fail");
+    assert!(matches!(err, PlanError::Group(inner) if matches!(
+        inner.as_ref(),
+        GroupPlanError::FieldTargetRequiresExtrema { index, kind, field }
+            if *index == 0 && kind == "Count" && field == "rank"
     )));
 }
 

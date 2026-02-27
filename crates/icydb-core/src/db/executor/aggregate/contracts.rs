@@ -4,6 +4,7 @@ use crate::{
     traits::EntityKind,
     types::Id,
 };
+use std::collections::BTreeSet;
 use thiserror::Error as ThisError;
 
 ///
@@ -110,6 +111,20 @@ pub(in crate::db::executor) struct AggregateSpec {
 }
 
 ///
+/// GroupAggregateSpec
+///
+/// Canonical grouped aggregate contract for future GROUP BY execution.
+/// Carries grouping keys plus one-or-more aggregate terminal specifications.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub(in crate::db::executor) struct GroupAggregateSpec {
+    group_keys: Vec<String>,
+    aggregate_specs: Vec<AggregateSpec>,
+}
+
+///
 /// AggregateSpecSupportError
 ///
 /// Canonical unsupported taxonomy for aggregate spec shape validation.
@@ -124,6 +139,30 @@ pub(in crate::db::executor) enum AggregateSpecSupportError {
     FieldTargetRequiresExtrema {
         kind: AggregateKind,
         target_field: String,
+    },
+}
+
+///
+/// GroupAggregateSpecSupportError
+///
+/// Canonical unsupported taxonomy for grouped aggregate contract validation.
+/// Keeps GROUP BY contract shape failures explicit before execution is enabled.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq, ThisError)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub(in crate::db::executor) enum GroupAggregateSpecSupportError {
+    #[error("group aggregate spec requires at least one aggregate terminal")]
+    MissingAggregateSpecs,
+
+    #[error("group aggregate spec has duplicate group key: {field}")]
+    DuplicateGroupKey { field: String },
+
+    #[error("group aggregate spec contains unsupported terminal at index={index}: {source}")]
+    AggregateSpecUnsupported {
+        index: usize,
+        #[source]
+        source: AggregateSpecSupportError,
     },
 }
 
@@ -174,6 +213,74 @@ impl AggregateSpec {
                 target_field: target_field.to_string(),
             });
         }
+        Ok(())
+    }
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+impl GroupAggregateSpec {
+    /// Build one grouped aggregate contract from group-key + terminal specs.
+    #[must_use]
+    pub(in crate::db::executor) const fn new(
+        group_keys: Vec<String>,
+        aggregate_specs: Vec<AggregateSpec>,
+    ) -> Self {
+        Self {
+            group_keys,
+            aggregate_specs,
+        }
+    }
+
+    /// Build one global aggregate contract from a single terminal aggregate.
+    #[must_use]
+    pub(in crate::db::executor) fn for_global_terminal(spec: AggregateSpec) -> Self {
+        Self {
+            group_keys: Vec::new(),
+            aggregate_specs: vec![spec],
+        }
+    }
+
+    /// Borrow grouped key fields in declared order.
+    #[must_use]
+    pub(in crate::db::executor) const fn group_keys(&self) -> &[String] {
+        self.group_keys.as_slice()
+    }
+
+    /// Borrow aggregate terminal specifications in declared projection order.
+    #[must_use]
+    pub(in crate::db::executor) const fn aggregate_specs(&self) -> &[AggregateSpec] {
+        self.aggregate_specs.as_slice()
+    }
+
+    /// Return true when this contract models grouped aggregation.
+    #[must_use]
+    pub(in crate::db::executor) const fn is_grouped(&self) -> bool {
+        !self.group_keys.is_empty()
+    }
+
+    /// Validate support boundaries for grouped aggregate contracts.
+    pub(in crate::db::executor) fn ensure_supported_for_execution(
+        &self,
+    ) -> Result<(), GroupAggregateSpecSupportError> {
+        if self.aggregate_specs.is_empty() {
+            return Err(GroupAggregateSpecSupportError::MissingAggregateSpecs);
+        }
+
+        let mut seen_group_keys = BTreeSet::<&str>::new();
+        for field in &self.group_keys {
+            if !seen_group_keys.insert(field.as_str()) {
+                return Err(GroupAggregateSpecSupportError::DuplicateGroupKey {
+                    field: field.clone(),
+                });
+            }
+        }
+
+        for (index, spec) in self.aggregate_specs.iter().enumerate() {
+            spec.ensure_supported_for_execution().map_err(|source| {
+                GroupAggregateSpecSupportError::AggregateSpecUnsupported { index, source }
+            })?;
+        }
+
         Ok(())
     }
 }
@@ -345,7 +452,10 @@ pub(in crate::db::executor) enum AggregateFoldMode {
 
 #[cfg(test)]
 mod tests {
-    use super::{AggregateKind, AggregateSpec, AggregateSpecSupportError};
+    use super::{
+        AggregateKind, AggregateSpec, AggregateSpecSupportError, GroupAggregateSpec,
+        GroupAggregateSpecSupportError,
+    };
 
     #[test]
     fn aggregate_spec_support_accepts_terminal_specs_without_field_targets() {
@@ -371,5 +481,86 @@ mod tests {
     fn aggregate_spec_support_accepts_field_target_extrema() {
         let spec = AggregateSpec::for_target_field(AggregateKind::Min, "rank");
         assert!(spec.ensure_supported_for_execution().is_ok());
+    }
+
+    #[test]
+    fn group_aggregate_spec_support_accepts_group_keys_and_supported_specs() {
+        let grouped = GroupAggregateSpec::new(
+            vec!["tenant".to_string(), "region".to_string()],
+            vec![
+                AggregateSpec::for_terminal(AggregateKind::Count),
+                AggregateSpec::for_target_field(AggregateKind::Max, "score"),
+            ],
+        );
+
+        assert!(grouped.is_grouped());
+        assert_eq!(
+            grouped.group_keys(),
+            &["tenant".to_string(), "region".to_string()]
+        );
+        assert_eq!(grouped.aggregate_specs().len(), 2);
+        assert!(grouped.ensure_supported_for_execution().is_ok());
+    }
+
+    #[test]
+    fn group_aggregate_spec_support_rejects_empty_terminal_list() {
+        let grouped = GroupAggregateSpec::new(vec!["tenant".to_string()], Vec::new());
+        let err = grouped
+            .ensure_supported_for_execution()
+            .expect_err("grouped aggregate contract must reject empty aggregate terminal list");
+
+        assert_eq!(err, GroupAggregateSpecSupportError::MissingAggregateSpecs);
+    }
+
+    #[test]
+    fn group_aggregate_spec_support_rejects_duplicate_group_key() {
+        let grouped = GroupAggregateSpec::new(
+            vec!["tenant".to_string(), "tenant".to_string()],
+            vec![AggregateSpec::for_terminal(AggregateKind::Count)],
+        );
+        let err = grouped
+            .ensure_supported_for_execution()
+            .expect_err("grouped aggregate contract must reject duplicate group keys");
+
+        assert_eq!(
+            err,
+            GroupAggregateSpecSupportError::DuplicateGroupKey {
+                field: "tenant".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn group_aggregate_spec_support_rejects_unsupported_nested_terminal() {
+        let grouped = GroupAggregateSpec::new(
+            vec!["tenant".to_string()],
+            vec![
+                AggregateSpec::for_terminal(AggregateKind::Count),
+                AggregateSpec::for_target_field(AggregateKind::Exists, "rank"),
+            ],
+        );
+        let err = grouped
+            .ensure_supported_for_execution()
+            .expect_err("grouped aggregate contract must reject unsupported nested terminals");
+
+        assert!(matches!(
+            err,
+            GroupAggregateSpecSupportError::AggregateSpecUnsupported {
+                index: 1,
+                source: AggregateSpecSupportError::FieldTargetRequiresExtrema { .. },
+            }
+        ));
+    }
+
+    #[test]
+    fn group_aggregate_spec_support_accepts_global_terminal_constructor() {
+        let grouped = GroupAggregateSpec::for_global_terminal(AggregateSpec::for_terminal(
+            AggregateKind::Count,
+        ));
+
+        assert!(!grouped.is_grouped());
+        assert!(grouped.group_keys().is_empty());
+        assert_eq!(grouped.aggregate_specs().len(), 1);
+        assert!(grouped.ensure_supported_for_execution().is_ok());
     }
 }

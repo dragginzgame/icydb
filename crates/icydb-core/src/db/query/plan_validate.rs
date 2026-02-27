@@ -7,7 +7,9 @@
 //! Future rule changes must declare a semantic owner. Defensive re-check layers may mirror
 //! rules, but must not reinterpret semantics or error class intent.
 
-use crate::db::query::plan::{AccessPlannedQuery, OrderSpec};
+use crate::db::query::plan::{
+    AccessPlannedQuery, GroupAggregateKind, GroupSpec, GroupedPlan, OrderSpec,
+};
 use crate::{
     db::{
         access::{
@@ -50,6 +52,9 @@ pub enum PlanError {
 
     #[error("{0}")]
     Cursor(Box<CursorPlanError>),
+
+    #[error("{0}")]
+    Group(Box<GroupPlanError>),
 }
 
 ///
@@ -106,6 +111,41 @@ pub enum PolicyPlanError {
     UnorderedPagination,
 }
 
+///
+/// GroupPlanError
+///
+/// GROUP BY wrapper validation failures owned by query planning.
+///
+#[derive(Clone, Debug, Eq, PartialEq, ThisError)]
+#[allow(dead_code)]
+pub enum GroupPlanError {
+    /// GROUP BY requires at least one declared grouping field.
+    #[error("group specification must include at least one group field")]
+    EmptyGroupFields,
+
+    /// GROUP BY requires at least one aggregate terminal.
+    #[error("group specification must include at least one aggregate terminal")]
+    EmptyAggregates,
+
+    /// GROUP BY references an unknown group field.
+    #[error("unknown group field '{field}'")]
+    UnknownGroupField { field: String },
+
+    /// Aggregate target fields must resolve in the model schema.
+    #[error("unknown grouped aggregate target field at index={index}: '{field}'")]
+    UnknownAggregateTargetField { index: usize, field: String },
+
+    /// Field-target grouped terminals are currently limited to MIN/MAX.
+    #[error(
+        "grouped aggregate at index={index} requires MIN/MAX when targeting field '{field}': found {kind}"
+    )]
+    FieldTargetRequiresExtrema {
+        index: usize,
+        kind: String,
+        field: String,
+    },
+}
+
 impl From<PlanPolicyError> for PolicyPlanError {
     fn from(err: PlanPolicyError) -> Self {
         match err {
@@ -148,6 +188,12 @@ impl From<CursorPlanError> for PlanError {
     }
 }
 
+impl From<GroupPlanError> for PlanError {
+    fn from(err: GroupPlanError) -> Self {
+        Self::Group(Box::new(err))
+    }
+}
+
 impl From<PlanPolicyError> for PlanError {
     fn from(err: PlanPolicyError) -> Self {
         Self::from(PolicyPlanError::from(err))
@@ -177,6 +223,79 @@ pub(crate) fn validate_query_semantics(
                 .map_err(PlanError::from)
         },
     )?;
+
+    Ok(())
+}
+
+/// Validate grouped query semantics for one grouped plan wrapper.
+///
+/// Ownership:
+/// - semantic owner for GROUP BY wrapper validation
+/// - failures here are user-visible planning failures (`PlanError`)
+#[allow(dead_code)]
+pub(crate) fn validate_group_query_semantics(
+    schema: &SchemaInfo,
+    model: &EntityModel,
+    plan: &GroupedPlan<Value>,
+) -> Result<(), PlanError> {
+    validate_plan_core(
+        schema,
+        model,
+        &plan.base,
+        validate_order,
+        |schema, model, plan| {
+            validate_access_structure_model_shared(schema, model, &plan.access)
+                .map_err(PlanError::from)
+        },
+    )?;
+    validate_group_spec(schema, &plan.group)?;
+
+    Ok(())
+}
+
+/// Validate one grouped declarative spec against schema-level field surface.
+#[allow(dead_code)]
+pub(crate) fn validate_group_spec(schema: &SchemaInfo, group: &GroupSpec) -> Result<(), PlanError> {
+    if group.group_fields.is_empty() {
+        return Err(PlanError::from(GroupPlanError::EmptyGroupFields));
+    }
+    if group.aggregates.is_empty() {
+        return Err(PlanError::from(GroupPlanError::EmptyAggregates));
+    }
+
+    for field in &group.group_fields {
+        if schema.field(field).is_none() {
+            return Err(PlanError::from(GroupPlanError::UnknownGroupField {
+                field: field.clone(),
+            }));
+        }
+    }
+
+    for (index, aggregate) in group.aggregates.iter().enumerate() {
+        let Some(target_field) = aggregate.target_field.as_ref() else {
+            continue;
+        };
+        if schema.field(target_field).is_none() {
+            return Err(PlanError::from(
+                GroupPlanError::UnknownAggregateTargetField {
+                    index,
+                    field: target_field.clone(),
+                },
+            ));
+        }
+        if !matches!(
+            aggregate.kind,
+            GroupAggregateKind::Min | GroupAggregateKind::Max
+        ) {
+            return Err(PlanError::from(
+                GroupPlanError::FieldTargetRequiresExtrema {
+                    index,
+                    kind: format!("{:?}", aggregate.kind),
+                    field: target_field.clone(),
+                },
+            ));
+        }
+    }
 
     Ok(())
 }
