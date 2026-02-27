@@ -395,7 +395,6 @@ Code is considered non-trivial if it:
 * Changelog bullets do not need to be single-line only; use extra sentence space when needed to preserve important context.
 * Do not add a `### 🧪 Testing` section for routine validation runs (for example `make check`, `make test`, `cargo test`); include `Testing` only when the release adds or changes tests, test coverage, or test tooling.
 * Prefer explaining **why** a change matters over listing only **what** changed.
-* For cleanup/audit releases, always include one `Audit footprint` bullet with concrete counts (for example moved/renamed/deleted files, removed shims/bridges, or reduced directories).
 * Include code examples only when they are relevant to a developer (for example usage, migration, or behavior that is hard to infer from bullets alone).
 * Use fenced code blocks only when they add clarity; do not force them into every changelog entry.
 

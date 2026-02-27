@@ -11,28 +11,53 @@ Maintainer note: changelog entries that reach 4 lines or more should be split in
 
 ### 📝 Summary
 
-* Tightened grouped aggregate execution scaffolding, moved large inline test modules to dedicated files, and standardized audit telemetry capture.
+* Tightened grouped aggregate execution scaffolding and standardized audit telemetry capture.
 
 ### 🔧 Changed
 
 * Tightened grouped state creation under `ExecutionContext` by validating grouped hard-limit configuration at the creation boundary.
 * Removed clippy-cleanup scaffolding in grouped state construction and aggregate terminal routing to keep `-D warnings` runs clean.
 * Moved large aggregate contract tests out of inline `contracts.rs` into `executor/aggregate/tests/contracts.rs` to align with the repository test-layout contract.
-* Moved additional inline test modules into dedicated files: `executor/aggregate/field`, `executor/context`, `executor/index_predicate`, `query/explain/explain`, and `query/predicate/normalize/enum` now use module-local `tests.rs`, index-key codec tests now live in `index/key/codec/tests.rs`, `db/identity` was split into `identity/mod.rs` + `identity/tests.rs`, and `db/diagnostics` tests moved to `diagnostics/tests.rs`.
+* Moved additional inline test modules into dedicated files: `executor/aggregate/field` now uses `field/tests.rs`, and index-key codec tests now live in `index/key/codec/tests.rs`.
 * Kept grouped runtime behavior unchanged: grouped execution remains disabled in this patch line.
 
 ### 📚 Documentation
 
 * Standardized audit telemetry docs to use `scripts/dev/cloc.sh` for test/non-test codebase size snapshots instead of manual split `cloc` commands.
-* Script example:
 
 ```bash
 scripts/dev/cloc.sh --include-lang=Rust
+
+=== Test files ===
+      69 text files.
+      56 unique files.
+      13 files ignored.
+
+github.com/AlDanial/cloc v 1.98  T=0.05 s (1131.0 files/s, 659562.8 lines/s)
+-------------------------------------------------------------------------------
+Language                     files          blank        comment           code
+-------------------------------------------------------------------------------
+Rust                            56           2929            365          29363
+-------------------------------------------------------------------------------
+SUM:                            56           2929            365          29363
+-------------------------------------------------------------------------------
+
+=== Non-test files ===
+     449 text files.
+     445 unique files.
+       4 files ignored.
+
+github.com/AlDanial/cloc v 1.98  T=0.12 s (3801.8 files/s, 608830.6 lines/s)
+-------------------------------------------------------------------------------
+Language                     files          blank        comment           code
+-------------------------------------------------------------------------------
+Rust                           429           9408           8281          53282
+TOML                             8             22              0            172
+Markdown                         8             39              0             59
+-------------------------------------------------------------------------------
+SUM:                           445           9469           8281          53513
+-------------------------------------------------------------------------------
 ```
-
-### 📊 Audit
-
-* Latest Rust snapshot (`scripts/dev/cloc.sh --include-lang=Rust`): test files=62, blank=3150, comment=370, code=30999; non-test files=429, blank=9187, comment=8276, code=51636; combined files=491, blank=12337, comment=8646, code=82635.
 
 ---
 
