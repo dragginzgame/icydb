@@ -9,6 +9,8 @@ mod helpers;
 mod numeric;
 mod projection;
 mod terminals;
+#[cfg(test)]
+mod tests;
 
 pub(in crate::db::executor) use contracts::{
     AggregateFoldMode, AggregateKind, AggregateOutput, AggregateSpec, AggregateState,

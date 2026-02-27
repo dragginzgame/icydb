@@ -65,7 +65,7 @@ Taxonomy
 - Score: 4/10
 - Run Context: rerun on current working tree (`error-taxonomy.md`)
 
-Codebase Size Snapshot (`cd crates && cloc .`):
+Codebase Size Snapshot (`scripts/dev/cloc.sh`):
 - Rust: files=398, blank=9709, comment=6910, code=57883
 - SUM: files=414, blank=9771, comment=6910, code=58120
 

@@ -65,14 +65,14 @@ Taxonomy
 - Score: 4/10
 - Run Context: from 2026-02-20 (`error-taxonomy.md`)
 
-Codebase Size Snapshot (split `cloc` runs):
-- Non-test snapshot (`cd crates && cloc . --not-match-f='(^|/)tests\.rs$'`):
+Codebase Size Snapshot (`scripts/dev/cloc.sh`):
+- Non-test snapshot (`=== Non-test files ===`):
   - Rust: files=415, blank=9744, comment=7269, code=57941
   - SUM: files=431, blank=9806, comment=7269, code=58178
-- `tests.rs` snapshot (`cd crates && cloc . --match-f='(^|/)tests\.rs$'`):
+- Test snapshot (`=== Test files ===`):
   - Rust: files=7, blank=574, comment=84, code=4821
   - SUM: files=7, blank=574, comment=84, code=4821
-- Optional combined total (non-test + `tests.rs`):
+- Optional combined total (non-test + test):
   - Rust: files=422, blank=10318, comment=7353, code=62762
   - SUM: files=438, blank=10380, comment=7353, code=62999
 

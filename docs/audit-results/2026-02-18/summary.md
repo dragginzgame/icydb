@@ -22,7 +22,7 @@ Interpretation:
 | DRY                 | 4/10  | run on 2026-02-18 baseline |
 | Taxonomy            | 4/10  | run on 2026-02-18 baseline |
 
-Codebase Size Snapshot (`cd crates && cloc .`):
+Codebase Size Snapshot (`scripts/dev/cloc.sh`):
 - Rust: files=390, blank=9417, comment=6629, code=53997
 - SUM: files=406, blank=9459, comment=6629, code=54213
 

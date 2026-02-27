@@ -65,9 +65,9 @@ Taxonomy
 - Score: 4/10
 - Run Context: run on current working tree (`error-taxonomy.md`)
 
-Codebase Size Snapshot (split `cloc` runs):
-- Non-test Rust (`cd crates && cloc . --not-match-f='(^|/)(tests\.rs$|tests/)')`): files=425, blank=10962, comment=7882, code=68952
-- Test files only (`cd crates && cloc . --match-f='(^|/)(tests\.rs$|tests/)')`): files=7, blank=591, comment=86, code=4993
+Codebase Size Snapshot (`scripts/dev/cloc.sh`):
+- Non-test files (`=== Non-test files ===`): files=425, blank=10962, comment=7882, code=68952
+- Test files (`=== Test files ===`): files=7, blank=591, comment=86, code=4993
 - Optional combined total (Rust non-test + test): files=432, blank=11553, comment=7968, code=73945
 
 Structural Stress Metrics:
