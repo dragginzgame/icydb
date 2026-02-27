@@ -296,26 +296,7 @@ where
 
 struct AccessPlanStreamResolver;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum PhysicalAccessKind {
-    PrimaryKeyFullScan,
-    PrimaryKeyRange,
-    SecondaryIndex,
-}
-
 impl AccessPlanStreamResolver {
-    // Classify one path into the coarse physical lowering shape used by resolver internals.
-    const fn physical_access_kind<K>(path: &AccessPath<K>) -> Option<PhysicalAccessKind> {
-        match path {
-            AccessPath::FullScan => Some(PhysicalAccessKind::PrimaryKeyFullScan),
-            AccessPath::KeyRange { .. } => Some(PhysicalAccessKind::PrimaryKeyRange),
-            AccessPath::IndexPrefix { .. } | AccessPath::IndexRange { .. } => {
-                Some(PhysicalAccessKind::SecondaryIndex)
-            }
-            AccessPath::ByKey(_) | AccessPath::ByKeys(_) => None,
-        }
-    }
-
     // Lower one path through the canonical physical resolver boundary.
     fn lower_path_access<E, K>(
         path: &AccessPath<K>,
@@ -336,49 +317,6 @@ impl AccessPlanStreamResolver {
             physical_fetch_hint: inputs.physical_fetch_hint,
             predicate_execution: inputs.index_predicate_execution,
         };
-        match Self::physical_access_kind(path) {
-            Some(PhysicalAccessKind::PrimaryKeyFullScan | PhysicalAccessKind::PrimaryKeyRange) => {
-                Self::lower_primary_key_access(path, inputs, constraints, hints)
-            }
-            Some(PhysicalAccessKind::SecondaryIndex) => {
-                Self::lower_secondary_index_access(path, inputs, constraints, hints)
-            }
-            None => inputs.ctx.ordered_key_stream_from_access(
-                path,
-                constraints,
-                inputs.direction,
-                hints,
-            ),
-        }
-    }
-
-    // Lower one primary-key physical path through context-owned store resolution.
-    fn lower_primary_key_access<'a, E, K>(
-        path: &AccessPath<K>,
-        inputs: &AccessStreamInputs<'_, 'a, E>,
-        constraints: IndexStreamConstraints<'a>,
-        hints: StreamExecutionHints<'a>,
-    ) -> Result<OrderedKeyStreamBox, InternalError>
-    where
-        E: EntityKind<Key = K> + EntityValue,
-        K: Copy,
-    {
-        inputs
-            .ctx
-            .ordered_key_stream_from_access(path, constraints, inputs.direction, hints)
-    }
-
-    // Lower one secondary-index physical path through context-owned index resolution.
-    fn lower_secondary_index_access<'a, E, K>(
-        path: &AccessPath<K>,
-        inputs: &AccessStreamInputs<'_, 'a, E>,
-        constraints: IndexStreamConstraints<'a>,
-        hints: StreamExecutionHints<'a>,
-    ) -> Result<OrderedKeyStreamBox, InternalError>
-    where
-        E: EntityKind<Key = K> + EntityValue,
-        K: Copy,
-    {
         inputs
             .ctx
             .ordered_key_stream_from_access(path, constraints, inputs.direction, hints)

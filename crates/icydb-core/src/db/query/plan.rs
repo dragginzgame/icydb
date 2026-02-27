@@ -1,5 +1,8 @@
 //! Query plan contracts, planning, and validation wiring.
 
+#[cfg(test)]
+mod tests;
+
 use crate::{
     db::{
         access::{
@@ -1666,6 +1669,3 @@ mod planner {
         }
     }
 }
-
-#[cfg(test)]
-mod tests;

@@ -129,7 +129,7 @@ where
             let plan = plan.into_inner();
             let execution_preparation = ExecutionPreparation::for_plan::<E>(&plan);
             validate_executor_plan::<E>(&plan)?;
-            LoadExecutor::<E>::validate_mutation_route_stage(&plan)?;
+            let _ = LoadExecutor::<E>::build_execution_route_plan_for_mutation(&plan)?;
             let ctx = self.db.recovered_context::<E>()?;
 
             let mut span = Span::<E>::new(ExecKind::Delete);

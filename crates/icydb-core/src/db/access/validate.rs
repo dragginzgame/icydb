@@ -15,6 +15,7 @@ use thiserror::Error as ThisError;
 ///
 /// Access-path and key-shape validation failures.
 ///
+
 #[derive(Debug, ThisError)]
 pub enum AccessPlanError {
     /// Access plan references an index not declared on the entity.
@@ -50,6 +51,7 @@ pub enum AccessPlanError {
 /// AccessPlanKeyAdapter
 /// Adapter for key validation and ordering across access-plan representations.
 ///
+
 trait AccessPlanKeyAdapter<K> {
     /// Validate a key against the entity's primary key type.
     fn validate_pk_key(
@@ -73,6 +75,7 @@ trait AccessPlanKeyAdapter<K> {
 /// GenericKeyAdapater
 /// Adapter for typed key plans (FieldValue + Ord)
 ///
+
 struct GenericKeyAdapter;
 
 impl<K> AccessPlanKeyAdapter<K> for GenericKeyAdapter

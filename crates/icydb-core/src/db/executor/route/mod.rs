@@ -56,16 +56,16 @@ pub(super) enum RouteOrderSlotPolicy {
     Last,
 }
 
-/// Derive route-owned scan direction from one canonical order spec.
+/// Derive route-owned scan direction from an optional canonical order spec.
 #[must_use]
 pub(super) fn derive_scan_direction(
-    order: &OrderSpec,
+    order: Option<&OrderSpec>,
     slot_policy: RouteOrderSlotPolicy,
 ) -> Direction {
-    let selected = match slot_policy {
+    let selected = order.and_then(|order| match slot_policy {
         RouteOrderSlotPolicy::First => order.fields.first(),
         RouteOrderSlotPolicy::Last => order.fields.last(),
-    };
+    });
 
     match selected.map(|(_, direction)| direction) {
         Some(OrderDirection::Desc) => Direction::Desc,

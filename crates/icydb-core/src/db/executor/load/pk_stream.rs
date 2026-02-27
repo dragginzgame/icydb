@@ -68,8 +68,6 @@ where
     }
 
     fn pk_stream_direction(plan: &AccessPlannedQuery<E::Key>) -> Direction {
-        plan.order.as_ref().map_or(Direction::Asc, |order| {
-            derive_scan_direction(order, RouteOrderSlotPolicy::First)
-        })
+        derive_scan_direction(plan.order.as_ref(), RouteOrderSlotPolicy::First)
     }
 }

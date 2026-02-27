@@ -22,9 +22,7 @@ where
     E: EntityKind + EntityValue,
 {
     pub(super) fn derive_load_route_direction(plan: &AccessPlannedQuery<E::Key>) -> Direction {
-        plan.order.as_ref().map_or(Direction::Asc, |order| {
-            derive_scan_direction(order, RouteOrderSlotPolicy::First)
-        })
+        derive_scan_direction(plan.order.as_ref(), RouteOrderSlotPolicy::First)
     }
 
     pub(super) fn derive_aggregate_route_direction(

@@ -2,13 +2,13 @@ use crate::{
     db::{
         access::AccessPlan,
         cursor::{ContinuationSignature, PlannedCursor},
-        direction::Direction,
         executor::{
             ExecutorPlanError, LOWERED_INDEX_PREFIX_SPEC_INVALID, LOWERED_INDEX_RANGE_SPEC_INVALID,
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec, lower_index_prefix_specs,
             lower_index_range_specs,
+            route::{RouteOrderSlotPolicy, derive_scan_direction},
         },
-        query::plan::{AccessPlannedQuery, LogicalPlan, OrderDirection},
+        query::plan::{AccessPlannedQuery, LogicalPlan},
         query::{
             explain::ExplainPlan, fingerprint::PlanFingerprint, intent::QueryMode, plan::PlanError,
         },
@@ -17,18 +17,6 @@ use crate::{
     traits::{EntityKind, FieldValue},
 };
 use std::marker::PhantomData;
-
-fn derive_direction(plan: &LogicalPlan) -> Direction {
-    let Some((_, direction)) = plan.order.as_ref().and_then(|order| order.fields.first()) else {
-        return Direction::Asc;
-    };
-
-    if *direction == OrderDirection::Desc {
-        Direction::Desc
-    } else {
-        Direction::Asc
-    }
-}
 
 ///
 /// ExecutablePlan
@@ -115,7 +103,8 @@ impl<E: EntityKind> ExecutablePlan<E> {
     where
         E::Key: FieldValue,
     {
-        let direction = derive_direction(&self.plan.logical);
+        let direction =
+            derive_scan_direction(self.plan.order.as_ref(), RouteOrderSlotPolicy::First);
         crate::db::cursor::prepare_cursor::<E>(
             &self.plan,
             direction,
@@ -177,7 +166,8 @@ impl<E: EntityKind> ExecutablePlan<E> {
     where
         E::Key: FieldValue,
     {
-        let direction = derive_direction(&self.plan.logical);
+        let direction =
+            derive_scan_direction(self.plan.order.as_ref(), RouteOrderSlotPolicy::First);
         crate::db::cursor::revalidate_cursor::<E>(
             &self.plan,
             direction,

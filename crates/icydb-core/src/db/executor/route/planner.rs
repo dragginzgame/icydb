@@ -76,14 +76,6 @@ where
         Ok(ExecutionRoutePlan::for_mutation(capabilities))
     }
 
-    pub(in crate::db::executor) fn validate_mutation_route_stage(
-        plan: &AccessPlannedQuery<E::Key>,
-    ) -> Result<(), InternalError> {
-        let _mutation_route_plan = Self::build_execution_route_plan_for_mutation(plan)?;
-
-        Ok(())
-    }
-
     // Build canonical execution routing for aggregate execution.
     #[cfg(test)]
     pub(in crate::db::executor) fn build_execution_route_plan_for_aggregate(

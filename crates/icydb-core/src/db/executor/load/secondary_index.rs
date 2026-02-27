@@ -73,8 +73,6 @@ where
     }
 
     fn secondary_index_stream_direction(plan: &AccessPlannedQuery<E::Key>) -> Direction {
-        plan.order.as_ref().map_or(Direction::Asc, |order| {
-            derive_scan_direction(order, RouteOrderSlotPolicy::Last)
-        })
+        derive_scan_direction(plan.order.as_ref(), RouteOrderSlotPolicy::Last)
     }
 }
