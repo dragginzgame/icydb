@@ -251,6 +251,22 @@ impl GroupedContinuationToken {
         serialize(&wire).map_err(|err| GroupedContinuationTokenError::Encode(err.to_string()))
     }
 
+    #[cfg(test)]
+    pub(crate) fn encode_with_version_for_test(
+        &self,
+        version: u8,
+    ) -> Result<Vec<u8>, GroupedContinuationTokenError> {
+        let wire = GroupedContinuationTokenWire {
+            version,
+            signature: self.signature.into_bytes(),
+            last_group_key: self.last_group_key.clone(),
+            direction: self.direction,
+            initial_offset: self.initial_offset,
+        };
+
+        serialize(&wire).map_err(|err| GroupedContinuationTokenError::Encode(err.to_string()))
+    }
+
     pub(in crate::db) fn decode(bytes: &[u8]) -> Result<Self, GroupedContinuationTokenError> {
         let wire: GroupedContinuationTokenWire =
             deserialize_protocol_payload(bytes, MAX_GROUPED_CONTINUATION_TOKEN_BYTES)

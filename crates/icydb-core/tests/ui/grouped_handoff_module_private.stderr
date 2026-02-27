@@ -1,0 +1,13 @@
+error[E0603]: module `query` is private
+ --> tests/ui/grouped_handoff_module_private.rs:1:21
+  |
+1 | use icydb_core::db::query::grouped::GroupedExecutorHandoff;
+  |                     ^^^^^  ------- module `grouped` is not publicly re-exported
+  |                     |
+  |                     private module
+  |
+note: the module `query` is defined here
+ --> src/db/mod.rs
+  |
+  | pub(crate) mod query;
+  | ^^^^^^^^^^^^^^^^^^^^

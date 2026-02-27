@@ -1,0 +1,13 @@
+error[E0599]: no method named `execute_grouped` found for reference `&DbSession<C>` in the current scope
+  --> tests/ui/session_execute_grouped_missing.rs:10:21
+   |
+10 |     let _ = session.execute_grouped();
+   |                     ^^^^^^^^^^^^^^^
+   |
+help: there is a method `execute_query` with a similar name, but with different arguments
+  --> src/db/session.rs
+   |
+   | /     pub fn execute_query<E>(&self, query: &Query<E>) -> Result<Response<E>, QueryError>
+   | |     where
+   | |         E: EntityKind<Canister = C> + EntityValue,
+   | |__________________________________________________^

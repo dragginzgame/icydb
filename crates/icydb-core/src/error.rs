@@ -1,7 +1,9 @@
 use crate::{
     db::{
-        access::AccessPlanError, cursor::CursorPlanError, policy::PlanPolicyError,
-        query::plan::PlanError,
+        access::AccessPlanError,
+        cursor::CursorPlanError,
+        policy::PlanPolicyError,
+        query::plan::{PlanError, validate::GroupPlanError},
     },
     patch::MergePatchError,
 };
@@ -390,6 +392,33 @@ impl InternalError {
         Self::query_invariant(message)
     }
 
+    /// Map grouped plan-surface failures into query invalid-plan invariants.
+    #[allow(dead_code)]
+    pub(crate) fn from_group_plan_error(err: PlanError) -> Self {
+        let reason = match &err {
+            PlanError::Group(inner) => match inner.as_ref() {
+                GroupPlanError::EmptyGroupFields => {
+                    "group specification must include at least one group field".to_string()
+                }
+                GroupPlanError::EmptyAggregates => {
+                    "group specification must include at least one aggregate terminal".to_string()
+                }
+                GroupPlanError::UnknownGroupField { field } => {
+                    format!("unknown group field '{field}'")
+                }
+                GroupPlanError::UnknownAggregateTargetField { index, field } => {
+                    format!("unknown grouped aggregate target field at index={index}: '{field}'")
+                }
+                GroupPlanError::FieldTargetRequiresExtrema { index, kind, field } => format!(
+                    "grouped aggregate at index={index} requires MIN/MAX when targeting field '{field}': found {kind}"
+                ),
+            },
+            _ => err.to_string(),
+        };
+
+        Self::query_invalid_logical_plan(reason)
+    }
+
     /// Map shared access-validation failures into executor-boundary invariants.
     pub(crate) fn from_executor_access_plan_error(err: AccessPlanError) -> Self {
         Self::query_invariant(err.to_string())
@@ -589,6 +618,22 @@ mod tests {
         assert_eq!(
             err.message,
             "executor invariant violated: delete limit requires explicit ordering",
+        );
+    }
+
+    #[test]
+    fn group_plan_error_mapping_uses_invalid_logical_plan_prefix() {
+        let err = InternalError::from_group_plan_error(PlanError::from(
+            GroupPlanError::UnknownGroupField {
+                field: "tenant".to_string(),
+            },
+        ));
+
+        assert_eq!(err.class, ErrorClass::InvariantViolation);
+        assert_eq!(err.origin, ErrorOrigin::Query);
+        assert_eq!(
+            err.message,
+            "invalid logical plan: unknown group field 'tenant'",
         );
     }
 }

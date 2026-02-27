@@ -16,6 +16,7 @@ fn route_plan_aggregate_uses_route_owned_fast_path_order() {
     );
 
     assert_eq!(route_plan.fast_path_order(), &AGGREGATE_FAST_PATH_ORDER);
+    assert_eq!(route_plan.grouped_observability(), None);
 }
 
 #[test]
@@ -38,7 +39,9 @@ fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_pat
     );
 
     let route_plan =
-        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_grouped_plan(&grouped);
+        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_grouped_handoff(
+            grouped_executor_handoff(&grouped),
+        );
 
     assert_eq!(
         route_plan.execution_mode_case(),
@@ -50,6 +53,17 @@ fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_pat
     assert_eq!(route_plan.scan_hints.physical_fetch_hint, None);
     assert_eq!(route_plan.scan_hints.load_scan_budget_hint, None);
     assert_eq!(route_plan.fast_path_order(), &[]);
+    let grouped_observability = route_plan
+        .grouped_observability()
+        .expect("grouped route should project grouped observability payload");
+    assert_eq!(
+        grouped_observability.outcome(),
+        GroupedRouteDecisionOutcome::MaterializedBlocked
+    );
+    assert_eq!(
+        grouped_observability.rejection_reason(),
+        GroupedRouteRejectionReason::RuntimeDisabled
+    );
 }
 
 #[test]
@@ -72,7 +86,9 @@ fn route_plan_grouped_wrapper_keeps_blocking_shape_under_tight_budget_config() {
     );
 
     let route_plan =
-        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_grouped_plan(&grouped);
+        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_grouped_handoff(
+            grouped_executor_handoff(&grouped),
+        );
 
     assert_eq!(
         route_plan.execution_mode_case(),
@@ -84,6 +100,166 @@ fn route_plan_grouped_wrapper_keeps_blocking_shape_under_tight_budget_config() {
     assert_eq!(route_plan.scan_hints.physical_fetch_hint, None);
     assert_eq!(route_plan.scan_hints.load_scan_budget_hint, None);
     assert_eq!(route_plan.fast_path_order(), &[]);
+    let grouped_observability = route_plan
+        .grouped_observability()
+        .expect("grouped route should project grouped observability payload");
+    assert_eq!(
+        grouped_observability.outcome(),
+        GroupedRouteDecisionOutcome::MaterializedBlocked
+    );
+    assert_eq!(
+        grouped_observability.rejection_reason(),
+        GroupedRouteRejectionReason::RuntimeDisabled
+    );
+}
+
+#[test]
+fn route_plan_grouped_wrapper_lowers_kind_matrix_into_executor_contract() {
+    let kind_cases = [
+        (GroupAggregateKind::Count, AggregateKind::Count),
+        (GroupAggregateKind::Exists, AggregateKind::Exists),
+        (GroupAggregateKind::Min, AggregateKind::Min),
+        (GroupAggregateKind::Max, AggregateKind::Max),
+        (GroupAggregateKind::First, AggregateKind::First),
+        (GroupAggregateKind::Last, AggregateKind::Last),
+    ];
+    let grouped = GroupedPlan::from_parts(
+        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk),
+        GroupSpec {
+            group_fields: vec!["rank".to_string()],
+            aggregates: kind_cases
+                .iter()
+                .map(|(kind, _)| GroupAggregateSpec {
+                    kind: *kind,
+                    target_field: None,
+                })
+                .collect(),
+            execution: GroupedExecutionConfig::unbounded(),
+        },
+    );
+
+    let grouped_handoff = grouped_executor_handoff(&grouped);
+    let lowered = LoadExecutor::<RouteMatrixEntity>::lower_grouped_spec_for_executor_contract(
+        &grouped_handoff,
+    );
+
+    assert_eq!(lowered.group_keys(), &["rank".to_string()]);
+    assert_eq!(lowered.aggregate_specs().len(), kind_cases.len());
+    for (index, (_, expected_kind)) in kind_cases.iter().enumerate() {
+        assert_eq!(lowered.aggregate_specs()[index].kind(), *expected_kind);
+        assert_eq!(lowered.aggregate_specs()[index].target_field(), None);
+    }
+}
+
+#[test]
+fn route_plan_grouped_wrapper_lowers_target_field_into_executor_contract() {
+    let grouped = GroupedPlan::from_parts(
+        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk),
+        GroupSpec {
+            group_fields: vec!["rank".to_string(), "label".to_string()],
+            aggregates: vec![GroupAggregateSpec {
+                kind: GroupAggregateKind::Max,
+                target_field: Some("rank".to_string()),
+            }],
+            execution: GroupedExecutionConfig::unbounded(),
+        },
+    );
+
+    let grouped_handoff = grouped_executor_handoff(&grouped);
+    let lowered = LoadExecutor::<RouteMatrixEntity>::lower_grouped_spec_for_executor_contract(
+        &grouped_handoff,
+    );
+
+    assert_eq!(
+        lowered.group_keys(),
+        &["rank".to_string(), "label".to_string()]
+    );
+    assert_eq!(lowered.aggregate_specs().len(), 1);
+    assert_eq!(lowered.aggregate_specs()[0].kind(), AggregateKind::Max);
+    assert_eq!(lowered.aggregate_specs()[0].target_field(), Some("rank"));
+}
+
+#[test]
+fn route_plan_grouped_wrapper_lowers_supported_target_field_matrix_into_executor_contract() {
+    let grouped_cases = [
+        (GroupAggregateKind::Count, None),
+        (GroupAggregateKind::Exists, None),
+        (GroupAggregateKind::Min, None),
+        (GroupAggregateKind::Min, Some("rank")),
+        (GroupAggregateKind::Max, None),
+        (GroupAggregateKind::Max, Some("label")),
+        (GroupAggregateKind::First, None),
+        (GroupAggregateKind::Last, None),
+    ];
+    let grouped = GroupedPlan::from_parts(
+        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk),
+        GroupSpec {
+            group_fields: vec!["rank".to_string(), "label".to_string()],
+            aggregates: grouped_cases
+                .iter()
+                .map(|(kind, target_field)| GroupAggregateSpec {
+                    kind: *kind,
+                    target_field: target_field.map(str::to_string),
+                })
+                .collect(),
+            execution: GroupedExecutionConfig::unbounded(),
+        },
+    );
+
+    let grouped_handoff = grouped_executor_handoff(&grouped);
+    let lowered = LoadExecutor::<RouteMatrixEntity>::lower_grouped_spec_for_executor_contract(
+        &grouped_handoff,
+    );
+
+    assert_eq!(
+        lowered.group_keys(),
+        &["rank".to_string(), "label".to_string()]
+    );
+    assert_eq!(lowered.aggregate_specs().len(), grouped_cases.len());
+    for (index, (expected_kind, expected_target)) in grouped_cases.iter().enumerate() {
+        let lowered_spec = &lowered.aggregate_specs()[index];
+        let expected_kind = match expected_kind {
+            GroupAggregateKind::Count => AggregateKind::Count,
+            GroupAggregateKind::Exists => AggregateKind::Exists,
+            GroupAggregateKind::Min => AggregateKind::Min,
+            GroupAggregateKind::Max => AggregateKind::Max,
+            GroupAggregateKind::First => AggregateKind::First,
+            GroupAggregateKind::Last => AggregateKind::Last,
+        };
+
+        assert_eq!(lowered_spec.kind(), expected_kind);
+        assert_eq!(lowered_spec.target_field(), *expected_target);
+    }
+}
+
+#[test]
+fn route_plan_grouped_wrapper_observability_vector_is_frozen() {
+    let grouped = GroupedPlan::from_parts(
+        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk),
+        GroupSpec {
+            group_fields: vec!["rank".to_string()],
+            aggregates: vec![GroupAggregateSpec {
+                kind: GroupAggregateKind::Count,
+                target_field: None,
+            }],
+            execution: GroupedExecutionConfig::with_hard_limits(11, 2048),
+        },
+    );
+
+    let route_plan =
+        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_grouped_handoff(
+            grouped_executor_handoff(&grouped),
+        );
+    let observability = route_plan.grouped_observability().expect(
+        "grouped route should always project grouped observability while runtime is disabled",
+    );
+    let actual = (observability.outcome(), observability.rejection_reason());
+    let expected = (
+        GroupedRouteDecisionOutcome::MaterializedBlocked,
+        GroupedRouteRejectionReason::RuntimeDisabled,
+    );
+
+    assert_eq!(actual, expected);
 }
 
 #[test]

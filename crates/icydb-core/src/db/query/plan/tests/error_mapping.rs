@@ -1,7 +1,7 @@
 use crate::db::{
     access::AccessPlanError,
     cursor::CursorPlanError,
-    query::plan::validate::{OrderPlanError, PlanError, PolicyPlanError},
+    query::plan::validate::{GroupPlanError, OrderPlanError, PlanError, PolicyPlanError},
 };
 
 #[test]
@@ -56,6 +56,22 @@ fn plan_error_from_cursor_maps_to_cursor_domain_variant() {
                     expected: 2,
                     found: 1
                 }
+            )
+    ));
+}
+
+#[test]
+fn plan_error_from_group_maps_to_group_domain_variant() {
+    let err = PlanError::from(GroupPlanError::UnknownGroupField {
+        field: "tenant".to_string(),
+    });
+
+    assert!(matches!(
+        err,
+        PlanError::Group(inner)
+            if matches!(
+                inner.as_ref(),
+                GroupPlanError::UnknownGroupField { field } if field == "tenant"
             )
     ));
 }

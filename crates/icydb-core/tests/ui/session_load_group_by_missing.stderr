@@ -1,0 +1,5 @@
+error[E0599]: no method named `group_by` found for struct `FluentLoadQuery<'a, E>` in the current scope
+  --> tests/ui/session_load_group_by_missing.rs:11:33
+   |
+11 |     let _ = session.load::<E>().group_by("rank");
+   |                                 ^^^^^^^^ method not found in `FluentLoadQuery<'_, E>`

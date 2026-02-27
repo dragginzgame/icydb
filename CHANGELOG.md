@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Maintainer note: changelog entries that reach 4 lines or more should be split into subsection headers.
 
+## [0.32.3] - 2026-02-27 - Grouped Readiness Scaffolding
+
+### 📝 Summary
+
+* Completed `0.32.3` grouped-readiness scaffolding without enabling grouped runtime execution.
+
+### 🔧 Changed
+
+* Added one internal grouped query-to-executor handoff contract and wired grouped route planning through that boundary.
+* Added explicit grouped error-conversion scaffolding for plan-domain grouped validation failures.
+* Added grouped observability scaffolding fields for route outcome/rejection and grouped budget snapshots.
+* Added grouped planner-to-executor aggregate-kind lowering adapter coverage to lock grouped terminal contract mapping ahead of runtime enablement.
+
+### 🧪 Testing
+
+* Expanded grouped determinism fixtures across insertion-order and forced-hash-collision permutation matrices.
+* Added grouped-disabled guardrail tests that lock grouped runtime and multi-terminal grouped reducer rejection behavior.
+* Added frozen grouped handoff, grouped lowering, route observability, and grouped budget observability vectors to lock pre-enable contracts.
+* Added grouped continuation-token wire vector coverage plus grouped cursor negative/revalidate vectors (unsupported version, oversized payload, signature mismatch, direction mismatch, and offset mismatch).
+* Added compile-fail boundary tests to lock grouped internals and to ensure scalar session APIs do not expose `execute_grouped(...)` or `group_by(...)` before `0.33`.
+
+---
+
 ## [0.32.2] - 2026-02-27 - Restructuring db/
 
 ### 📝 Summary

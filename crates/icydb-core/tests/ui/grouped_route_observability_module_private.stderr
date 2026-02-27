@@ -1,0 +1,13 @@
+error[E0603]: module `executor` is private
+ --> tests/ui/grouped_route_observability_module_private.rs:1:21
+  |
+1 | use icydb_core::db::executor::route::GroupedRouteObservability;
+  |                     ^^^^^^^^  ----- module `route` is not publicly re-exported
+  |                     |
+  |                     private module
+  |
+note: the module `executor` is defined here
+ --> src/db/mod.rs
+  |
+  | pub(in crate::db) mod executor;
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

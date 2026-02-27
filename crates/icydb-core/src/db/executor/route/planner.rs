@@ -1,4 +1,3 @@
-#[cfg(test)]
 use crate::db::executor::group::grouped_execution_context_from_planner_config;
 use crate::{
     db::{
@@ -7,10 +6,13 @@ use crate::{
         direction::Direction,
         executor::{
             Context, ExecutionPlan, ExecutionPreparation, OrderedKeyStreamBox, RangeToken,
-            aggregate::{AggregateFoldMode, AggregateKind, AggregateSpec},
+            aggregate::{AggregateFoldMode, AggregateKind, AggregateSpec, GroupAggregateSpec},
             load::LoadExecutor,
         },
-        query::plan::AccessPlannedQuery,
+        query::{
+            grouped::{GroupAggregateKind as QueryGroupAggregateKind, GroupedExecutorHandoff},
+            plan::AccessPlannedQuery,
+        },
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -193,17 +195,18 @@ where
         )
     }
 
-    // Build canonical grouped aggregate routing from one grouped query wrapper.
-    #[cfg(test)]
-    pub(in crate::db::executor) fn build_execution_route_plan_for_grouped_plan(
-        grouped: &crate::db::query::plan::GroupedPlan<E::Key>,
+    // Build canonical grouped aggregate routing from one grouped executor handoff.
+    #[allow(dead_code)]
+    pub(in crate::db::executor) fn build_execution_route_plan_for_grouped_handoff(
+        grouped: GroupedExecutorHandoff<'_, E::Key>,
     ) -> ExecutionPlan {
+        let _grouped_executor_contract = Self::lower_grouped_spec_for_executor_contract(&grouped);
         let _grouped_execution_context =
-            grouped_execution_context_from_planner_config(Some(grouped.group.execution));
-        let execution_preparation = ExecutionPreparation::for_plan::<E>(&grouped.base);
+            grouped_execution_context_from_planner_config(Some(grouped.execution()));
+        let execution_preparation = ExecutionPreparation::for_plan::<E>(grouped.base());
 
         Self::build_execution_route_plan(
-            &grouped.base,
+            grouped.base(),
             None,
             None,
             None,
@@ -214,6 +217,40 @@ where
                     ),
             },
         )
+    }
+
+    // Lower one query-owned grouped handoff into one executor-owned grouped
+    // aggregate contract without enabling grouped execution in this release.
+    pub(in crate::db::executor) fn lower_grouped_spec_for_executor_contract(
+        grouped: &GroupedExecutorHandoff<'_, E::Key>,
+    ) -> GroupAggregateSpec {
+        let aggregate_specs = grouped
+            .aggregates()
+            .iter()
+            .map(|aggregate| {
+                let kind = Self::lower_grouped_kind_for_executor(aggregate.kind);
+                let Some(target_field) = aggregate.target_field.as_deref() else {
+                    return AggregateSpec::for_terminal(kind);
+                };
+
+                AggregateSpec::for_target_field(kind, target_field)
+            })
+            .collect();
+
+        GroupAggregateSpec::new(grouped.group_fields().to_vec(), aggregate_specs)
+    }
+
+    // Lower one query-owned grouped aggregate kind into the executor-owned
+    // aggregate kind taxonomy.
+    const fn lower_grouped_kind_for_executor(kind: QueryGroupAggregateKind) -> AggregateKind {
+        match kind {
+            QueryGroupAggregateKind::Count => AggregateKind::Count,
+            QueryGroupAggregateKind::Exists => AggregateKind::Exists,
+            QueryGroupAggregateKind::Min => AggregateKind::Min,
+            QueryGroupAggregateKind::Max => AggregateKind::Max,
+            QueryGroupAggregateKind::First => AggregateKind::First,
+            QueryGroupAggregateKind::Last => AggregateKind::Last,
+        }
     }
 
     // Shared route gate for load + aggregate execution.

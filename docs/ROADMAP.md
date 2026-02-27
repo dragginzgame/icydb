@@ -12,13 +12,15 @@ This roadmap is directional and planning-oriented, not a release contract.
 
 Active execution/planning references:
 
-- `docs/design/0.22-streaming-aggregates.md`
-- `docs/design/0.23-decimal-consolidation.md`
-- `docs/design/0.23.6-indexrange-aggregate-direct-path.md`
-- `docs/design/0.24-feature-selection.md`
-- `docs/design/0.25-aggregate-expansion.md`
-- `docs/status/0.25-status.md`
-- `docs/status/0.23-status.md`
+- `docs/design/0.30-execution-kernel.md`
+- `docs/design/0.31-deterministic-keys.md`
+- `docs/design/0.32-aggregate-execution-stability.md`
+- `docs/design/0.32.3-group-by-readiness.md`
+- `docs/design/0.33-planner-group-by-integration.md`
+- `docs/status/0.30-execution-kernel-status.md`
+- `docs/status/0.31-deterministic-keys-status.md`
+- `docs/status/0.32-aggregate-execution-stability-status.md`
+- `docs/status/0.32.3-group-by-readiness-status.md`
 
 ---
 
@@ -53,6 +55,7 @@ Focus: finish current execution hardening and reduce drift risk before larger ar
   - streaming scalar folds (`sum`, `avg`) where semantics stay deterministic
   - broader early-termination wins (`exists`, `min`/`max`, and limit-aware streaming)
 - Keep load and aggregate safety decisions centralized to avoid rule divergence.
+- Complete `0.32.3` grouped-readiness scaffolding so `0.33` focuses on enablement rather than contract discovery.
 - Continue cleanup passes that reduce cross-cutting complexity (error mapping, boundary handling, and test-surface maintainability).
 - Keep changelog/status docs aligned as features move from design to shipped.
 - Keep milestone tracking current in `docs/status/` as each feature closes.

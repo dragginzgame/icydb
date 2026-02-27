@@ -9,15 +9,15 @@ use crate::{
             load::LoadExecutor,
             route::{
                 AGGREGATE_FAST_PATH_ORDER, ContinuationMode, ExecutionMode, ExecutionModeRouteCase,
-                FastPathOrder, FieldExtremaIneligibilityReason, LOAD_FAST_PATH_ORDER,
-                MUTATION_FAST_PATH_ORDER, route_capability_flag_count_guard,
-                route_execution_mode_case_count_guard,
+                FastPathOrder, FieldExtremaIneligibilityReason, GroupedRouteDecisionOutcome,
+                GroupedRouteRejectionReason, LOAD_FAST_PATH_ORDER, MUTATION_FAST_PATH_ORDER,
+                route_capability_flag_count_guard, route_execution_mode_case_count_guard,
             },
         },
         query::{
             grouped::{
                 GroupAggregateKind, GroupAggregateSpec, GroupSpec, GroupedExecutionConfig,
-                GroupedPlan,
+                GroupedPlan, grouped_executor_handoff,
             },
             intent::{DeleteSpec, QueryMode},
             plan::{AccessPlannedQuery, OrderDirection, OrderSpec, PageSpec},

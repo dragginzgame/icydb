@@ -2,13 +2,17 @@ use crate::{
     db::{
         data::DataKey,
         direction::Direction,
-        executor::aggregate::contracts::{
-            AggregateKind, AggregateOutput, AggregateSpec, AggregateSpecSupportError,
-            ExecutionConfig, ExecutionContext, GroupAggregateSpec, GroupAggregateSpecSupportError,
-            GroupError, GroupedAggregateOutput,
-        },
         executor::group::CanonicalKey,
+        executor::{
+            ExecutionKernel,
+            aggregate::contracts::{
+                AggregateKind, AggregateOutput, AggregateSpec, AggregateSpecSupportError,
+                ExecutionConfig, ExecutionContext, GroupAggregateSpec,
+                GroupAggregateSpecSupportError, GroupError, GroupedAggregateOutput,
+            },
+        },
     },
+    error::{ErrorClass, ErrorOrigin},
     model::field::FieldKind,
     testing,
     value::{Value, with_test_hash_override},
@@ -63,6 +67,35 @@ fn count_rows(rows: &[GroupedAggregateOutput<GroupedStateTestEntity>]) -> Vec<(V
             (row.group_key().canonical_value().clone(), *count)
         })
         .collect()
+}
+
+// Apply one fixed grouped-count fixture through one insertion-order projection
+// and return finalized `(group_key, count)` rows in emitted order.
+fn grouped_count_rows_for_order(order: &[usize]) -> Vec<(Value, u32)> {
+    let fixtures = [
+        ("alpha", 1_u64),
+        ("beta", 2_u64),
+        ("alpha", 3_u64),
+        ("gamma", 4_u64),
+        ("beta", 5_u64),
+    ];
+    let mut execution_context = ExecutionContext::new(ExecutionConfig::unbounded());
+    let mut grouped = execution_context
+        .create_grouped_state::<GroupedStateTestEntity>(AggregateKind::Count, Direction::Asc);
+
+    for fixture_index in order {
+        let (group, id) = fixtures[*fixture_index];
+        grouped
+            .apply(
+                group_key(Value::Text(group.to_string())),
+                &data_key(id),
+                &mut execution_context,
+            )
+            .expect("determinism fixture rows should apply");
+    }
+
+    let finalized = grouped.finalize();
+    count_rows(finalized.as_slice())
 }
 
 #[test]
@@ -268,6 +301,50 @@ fn grouped_aggregate_state_finalization_is_deterministic_under_hash_collisions()
 }
 
 #[test]
+fn grouped_aggregate_state_finalization_is_stable_across_insertion_order_matrix() {
+    let insertion_orders = [
+        vec![0, 1, 2, 3, 4],
+        vec![4, 3, 2, 1, 0],
+        vec![1, 3, 0, 4, 2],
+        vec![2, 0, 4, 1, 3],
+    ];
+    let expected = grouped_count_rows_for_order(&[0, 1, 2, 3, 4]);
+
+    for order in insertion_orders {
+        assert_eq!(
+            grouped_count_rows_for_order(order.as_slice()),
+            expected,
+            "grouped finalization must be invariant to insertion order permutations",
+        );
+    }
+}
+
+#[test]
+fn grouped_aggregate_state_finalization_is_stable_across_collision_order_matrix() {
+    with_test_hash_override([0xAB; 16], || {
+        let expected = vec![
+            (Value::Text("alpha".to_string()), 2),
+            (Value::Text("beta".to_string()), 2),
+            (Value::Text("gamma".to_string()), 1),
+        ];
+        let insertion_orders = [
+            vec![0, 1, 2, 3, 4],
+            vec![4, 3, 2, 1, 0],
+            vec![1, 3, 0, 4, 2],
+            vec![2, 0, 4, 1, 3],
+        ];
+
+        for order in insertion_orders {
+            assert_eq!(
+                grouped_count_rows_for_order(order.as_slice()),
+                expected,
+                "grouped finalization must stay stable under forced hash collisions and insertion-order permutations",
+            );
+        }
+    });
+}
+
+#[test]
 fn grouped_aggregate_state_enforces_max_groups_hard_limit() {
     let mut execution_context =
         ExecutionContext::new(ExecutionConfig::with_hard_limits(2, u64::MAX));
@@ -371,5 +448,52 @@ fn grouped_aggregate_state_budget_violation_keeps_existing_finalization_intact()
         count_rows(finalized.as_slice()),
         vec![(Value::Text("a".to_string()), 1)],
         "budget-limit errors must preserve previously committed grouped outputs",
+    );
+}
+
+#[test]
+fn grouped_reducer_stage_rejects_grouped_runtime_while_disabled() {
+    let grouped_spec = GroupAggregateSpec::new(
+        vec!["tenant".to_string()],
+        vec![AggregateSpec::for_terminal(AggregateKind::Count)],
+    );
+    let execution_context = ExecutionContext::new(ExecutionConfig::unbounded());
+
+    let Err(err) =
+        ExecutionKernel::resolve_grouped_reducer_stage(&grouped_spec, &execution_context)
+    else {
+        panic!("grouped runtime must remain disabled in 0.32.x")
+    };
+
+    assert_eq!(err.class, ErrorClass::Unsupported);
+    assert_eq!(err.origin, ErrorOrigin::Executor);
+    assert_eq!(
+        err.message,
+        "grouped aggregate execution is not yet enabled in this release",
+    );
+}
+
+#[test]
+fn grouped_reducer_stage_rejects_multi_terminal_shape_while_disabled() {
+    let grouped_spec = GroupAggregateSpec::new(
+        Vec::new(),
+        vec![
+            AggregateSpec::for_terminal(AggregateKind::Count),
+            AggregateSpec::for_terminal(AggregateKind::Exists),
+        ],
+    );
+    let execution_context = ExecutionContext::new(ExecutionConfig::unbounded());
+
+    let Err(err) =
+        ExecutionKernel::resolve_grouped_reducer_stage(&grouped_spec, &execution_context)
+    else {
+        panic!("multi-terminal grouped reducer stage must remain disabled in 0.32.x")
+    };
+
+    assert_eq!(err.class, ErrorClass::Unsupported);
+    assert_eq!(err.origin, ErrorOrigin::Executor);
+    assert_eq!(
+        err.message,
+        "multi-terminal aggregate execution is not yet enabled in this release",
     );
 }

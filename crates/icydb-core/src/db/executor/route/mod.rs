@@ -187,6 +187,21 @@ impl ExecutionRoutePlan {
         self.execution_mode_case
     }
 
+    // Grouped route observability projection for grouped-readiness scaffolding.
+    // Non-grouped routes intentionally report no grouped diagnostics payload.
+    #[allow(dead_code)]
+    pub(in crate::db::executor) const fn grouped_observability(
+        &self,
+    ) -> Option<GroupedRouteObservability> {
+        match self.execution_mode_case {
+            ExecutionModeRouteCase::AggregateGrouped => Some(GroupedRouteObservability {
+                outcome: GroupedRouteDecisionOutcome::MaterializedBlocked,
+                rejection_reason: GroupedRouteRejectionReason::RuntimeDisabled,
+            }),
+            _ => None,
+        }
+    }
+
     // Return the effective physical fetch hint for fallback stream resolution.
     // DESC fallback must disable bounded hints when reverse traversal is unavailable.
     pub(super) const fn fallback_physical_fetch_hint(&self, direction: Direction) -> Option<usize> {
@@ -419,6 +434,57 @@ pub(in crate::db::executor) enum ExecutionModeRouteCase {
     AggregateCount,
     AggregateNonCount,
     AggregateGrouped,
+}
+
+///
+/// GroupedRouteDecisionOutcome
+///
+/// Grouped route decision outcome surface for grouped observability scaffolding.
+/// This keeps grouped route diagnostics explicit while grouped runtime remains
+/// disabled in `0.32.x`.
+///
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) enum GroupedRouteDecisionOutcome {
+    MaterializedBlocked,
+}
+
+///
+/// GroupedRouteRejectionReason
+///
+/// Grouped route rejection taxonomy for grouped observability scaffolding.
+/// Runtime-enabled grouped execution should replace this placeholder reason set.
+///
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) enum GroupedRouteRejectionReason {
+    RuntimeDisabled,
+}
+
+///
+/// GroupedRouteObservability
+///
+/// Grouped route observability payload locked for grouped-readiness.
+/// Carries one explicit route outcome and one grouped rejection reason.
+///
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) struct GroupedRouteObservability {
+    outcome: GroupedRouteDecisionOutcome,
+    rejection_reason: GroupedRouteRejectionReason,
+}
+
+#[allow(dead_code)]
+impl GroupedRouteObservability {
+    #[must_use]
+    pub(in crate::db::executor) const fn outcome(self) -> GroupedRouteDecisionOutcome {
+        self.outcome
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn rejection_reason(self) -> GroupedRouteRejectionReason {
+        self.rejection_reason
+    }
 }
 
 ///
