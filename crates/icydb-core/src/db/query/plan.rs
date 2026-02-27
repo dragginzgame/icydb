@@ -7,8 +7,7 @@ use crate::{
     db::{
         access::{
             AccessPath, AccessPlan, PushdownApplicability, SecondaryOrderPushdownEligibility,
-            assess_secondary_order_pushdown_from_parts,
-            assess_secondary_order_pushdown_if_applicable_validated_from_parts,
+            SecondaryOrderPushdownRejection, assess_secondary_order_pushdown_from_parts,
         },
         contracts::{PredicateExecutionModel, ReadConsistency},
         direction::Direction,
@@ -262,6 +261,18 @@ fn order_fields_as_direction_refs(
         .collect()
 }
 
+fn applicability_from_eligibility(
+    eligibility: SecondaryOrderPushdownEligibility,
+) -> PushdownApplicability {
+    match eligibility {
+        SecondaryOrderPushdownEligibility::Rejected(
+            SecondaryOrderPushdownRejection::NoOrderBy
+            | SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix,
+        ) => PushdownApplicability::NotApplicable,
+        other => PushdownApplicability::Applicable(other),
+    }
+}
+
 /// Evaluate the secondary-index ORDER BY pushdown matrix for one plan.
 pub(crate) fn assess_secondary_order_pushdown<K>(
     model: &EntityModel,
@@ -281,16 +292,7 @@ pub(crate) fn assess_secondary_order_pushdown_if_applicable<K>(
     model: &EntityModel,
     plan: &AccessPlannedQuery<K>,
 ) -> PushdownApplicability {
-    let order_fields = plan
-        .order
-        .as_ref()
-        .map(|order| order_fields_as_direction_refs(&order.fields));
-
-    crate::db::access::assess_secondary_order_pushdown_if_applicable_from_parts(
-        model,
-        order_fields.as_deref(),
-        &plan.access,
-    )
+    applicability_from_eligibility(assess_secondary_order_pushdown(model, plan))
 }
 
 /// Evaluate pushdown applicability for plans that have already passed full
@@ -299,16 +301,12 @@ pub(crate) fn assess_secondary_order_pushdown_if_applicable_validated<K>(
     model: &EntityModel,
     plan: &AccessPlannedQuery<K>,
 ) -> PushdownApplicability {
-    let order_fields = plan
-        .order
-        .as_ref()
-        .map(|order| order_fields_as_direction_refs(&order.fields));
+    debug_assert!(
+        !matches!(plan.order.as_ref(), Some(order) if order.fields.is_empty()),
+        "validated plan must not contain an empty ORDER BY specification",
+    );
 
-    assess_secondary_order_pushdown_if_applicable_validated_from_parts(
-        model,
-        order_fields.as_deref(),
-        &plan.access,
-    )
+    applicability_from_eligibility(assess_secondary_order_pushdown(model, plan))
 }
 
 pub(crate) use planner::{PlannerError, plan_access};

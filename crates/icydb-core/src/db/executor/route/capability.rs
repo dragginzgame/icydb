@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        access::{AccessPath, AccessPlan},
+        access::{AccessPath, AccessPlan, PushdownApplicability},
         direction::Direction,
         executor::{
             ExecutionKernel,
@@ -8,7 +8,9 @@ use crate::{
             aggregate::{AggregateKind, AggregateSpec},
             load::LoadExecutor,
         },
-        query::plan::AccessPlannedQuery,
+        query::plan::{
+            AccessPlannedQuery, assess_secondary_order_pushdown_if_applicable_validated,
+        },
     },
     model::entity::resolve_field_slot,
     traits::{EntityKind, EntityValue},
@@ -23,6 +25,13 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
+    // Route-owned bridge for validated secondary ORDER BY pushdown applicability.
+    pub(in crate::db::executor::route) fn derive_secondary_pushdown_applicability(
+        plan: &AccessPlannedQuery<E::Key>,
+    ) -> PushdownApplicability {
+        assess_secondary_order_pushdown_if_applicable_validated(E::MODEL, plan)
+    }
+
     // Derive a canonical route capability snapshot for one plan + direction.
     pub(in crate::db::executor::route) fn derive_route_capabilities(
         plan: &AccessPlannedQuery<E::Key>,

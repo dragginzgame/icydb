@@ -246,24 +246,13 @@ pub(crate) fn assess_secondary_order_pushdown_from_parts<K>(
     }
 }
 
-/// Evaluate pushdown eligibility for plans that are already known to be
-/// structurally applicable (ORDER BY + single index-prefix access path).
-///
-/// `EnforceAndReject` is used for defensive assessors, while
-/// `AssumeValidated` keeps validated-path invariants as debug assertions.
-enum PkTieBreakPolicy {
-    EnforceAndReject,
-    AssumeValidated,
-}
-
-// Core matcher shared by defensive and validated pushdown assessors.
+// Core matcher for secondary ORDER BY pushdown eligibility.
 fn match_secondary_order_pushdown_core(
     model: &EntityModel,
     order_fields: &[OrderFieldRef<'_>],
     index_name: &'static str,
     index_fields: &[&'static str],
     prefix_len: usize,
-    pk_policy: PkTieBreakPolicy,
 ) -> SecondaryOrderPushdownEligibility {
     let Some((last_field, last_direction)) = order_fields.last() else {
         return SecondaryOrderPushdownEligibility::Rejected(
@@ -271,22 +260,12 @@ fn match_secondary_order_pushdown_core(
         );
     };
 
-    match pk_policy {
-        PkTieBreakPolicy::EnforceAndReject => {
-            if *last_field != model.primary_key.name {
-                return SecondaryOrderPushdownEligibility::Rejected(
-                    SecondaryOrderPushdownRejection::MissingPrimaryKeyTieBreak {
-                        field: model.primary_key.name.to_string(),
-                    },
-                );
-            }
-        }
-        PkTieBreakPolicy::AssumeValidated => {
-            debug_assert_eq!(
-                *last_field, model.primary_key.name,
-                "validated plan must include PK tie-break"
-            );
-        }
+    if *last_field != model.primary_key.name {
+        return SecondaryOrderPushdownEligibility::Rejected(
+            SecondaryOrderPushdownRejection::MissingPrimaryKeyTieBreak {
+                field: model.primary_key.name.to_string(),
+            },
+        );
     }
 
     let expected_direction = *last_direction;
@@ -356,119 +335,5 @@ fn assess_secondary_order_pushdown_for_applicable_shape(
     index_fields: &[&'static str],
     prefix_len: usize,
 ) -> SecondaryOrderPushdownEligibility {
-    match_secondary_order_pushdown_core(
-        model,
-        order_fields,
-        index_name,
-        index_fields,
-        prefix_len,
-        PkTieBreakPolicy::EnforceAndReject,
-    )
-}
-
-#[cfg(test)]
-fn applicability_from_eligibility(
-    eligibility: SecondaryOrderPushdownEligibility,
-) -> PushdownApplicability {
-    match eligibility {
-        SecondaryOrderPushdownEligibility::Rejected(
-            SecondaryOrderPushdownRejection::NoOrderBy
-            | SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix,
-        ) => PushdownApplicability::NotApplicable,
-        other => PushdownApplicability::Applicable(other),
-    }
-}
-
-/// Evaluate pushdown eligibility only when secondary-index ORDER BY is applicable.
-///
-/// Returns `PushdownApplicability::NotApplicable` for non-applicable shapes:
-/// - no ORDER BY fields
-/// - access path is not a secondary index path
-#[cfg(test)]
-pub(crate) fn assess_secondary_order_pushdown_if_applicable_from_parts<K>(
-    model: &EntityModel,
-    order_fields: Option<&[OrderFieldRef<'_>]>,
-    access_plan: &AccessPlan<K>,
-) -> PushdownApplicability {
-    applicability_from_eligibility(assess_secondary_order_pushdown_from_parts(
-        model,
-        order_fields,
-        access_plan,
-    ))
-}
-
-/// Evaluate pushdown applicability for plans that have already passed full
-/// logical/executor validation.
-///
-/// This variant keeps applicability explicit and assumes validated invariants
-/// with debug assertions, while preserving safe fallbacks in release builds.
-pub(crate) fn assess_secondary_order_pushdown_if_applicable_validated_from_parts<K>(
-    model: &EntityModel,
-    order_fields: Option<&[OrderFieldRef<'_>]>,
-    access_plan: &AccessPlan<K>,
-) -> PushdownApplicability {
-    let Some(order_fields) = order_fields else {
-        return PushdownApplicability::NotApplicable;
-    };
-    debug_assert!(
-        !order_fields.is_empty(),
-        "validated plan must not contain an empty ORDER BY specification"
-    );
-
-    let Some(access) = access_plan.as_path() else {
-        if let Some((index, prefix_len)) = access_plan.first_index_range_details() {
-            return PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Rejected(
-                SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                    index,
-                    prefix_len,
-                },
-            ));
-        }
-
-        return PushdownApplicability::NotApplicable;
-    };
-
-    if let Some((index, values)) = access.as_index_prefix() {
-        debug_assert!(
-            values.len() <= index.fields.len(),
-            "validated plan must keep index-prefix bounds within declared index fields"
-        );
-
-        return PushdownApplicability::Applicable(
-            assess_secondary_order_pushdown_for_validated_shape(
-                model,
-                order_fields,
-                index.name,
-                index.fields,
-                values.len(),
-            ),
-        );
-    }
-
-    if let Some((index, prefix_len)) = access.index_range_details() {
-        return PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Rejected(
-            SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported { index, prefix_len },
-        ));
-    }
-
-    PushdownApplicability::NotApplicable
-}
-
-// Evaluate pushdown eligibility for validated plans without re-checking
-// upstream ORDER/access-shape invariants.
-fn assess_secondary_order_pushdown_for_validated_shape(
-    model: &EntityModel,
-    order_fields: &[OrderFieldRef<'_>],
-    index_name: &'static str,
-    index_fields: &[&'static str],
-    prefix_len: usize,
-) -> SecondaryOrderPushdownEligibility {
-    match_secondary_order_pushdown_core(
-        model,
-        order_fields,
-        index_name,
-        index_fields,
-        prefix_len,
-        PkTieBreakPolicy::AssumeValidated,
-    )
+    match_secondary_order_pushdown_core(model, order_fields, index_name, index_fields, prefix_len)
 }

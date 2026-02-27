@@ -124,7 +124,7 @@ where
         target_field: &str,
         terminal_kind: AggregateKind,
     ) -> Result<Option<Value>, InternalError> {
-        if !matches!(terminal_kind, AggregateKind::First | AggregateKind::Last) {
+        if !terminal_kind.supports_terminal_value_projection() {
             return Err(InternalError::query_executor_invariant(
                 "terminal value projection requires FIRST/LAST aggregate kind",
             ));

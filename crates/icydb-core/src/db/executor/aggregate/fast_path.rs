@@ -523,14 +523,7 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
-        match kind {
-            AggregateKind::Count => AggregateOutput::Count(0),
-            AggregateKind::Exists => AggregateOutput::Exists(false),
-            AggregateKind::Min => AggregateOutput::Min(None),
-            AggregateKind::Max => AggregateOutput::Max(None),
-            AggregateKind::First => AggregateOutput::First(None),
-            AggregateKind::Last => AggregateOutput::Last(None),
-        }
+        kind.zero_output()
     }
 
     // MissingOk can skip stale leading index entries. If a bounded Min/Max
@@ -549,7 +542,7 @@ impl ExecutionKernel {
         if !matches!(consistency, ReadConsistency::MissingOk) {
             return false;
         }
-        if !matches!(kind, AggregateKind::Min | AggregateKind::Max) {
+        if !kind.is_extrema() {
             return false;
         }
 
@@ -560,10 +553,6 @@ impl ExecutionKernel {
             return false;
         }
 
-        matches!(
-            (kind, probe_output),
-            (AggregateKind::Min, AggregateOutput::Min(None))
-                | (AggregateKind::Max, AggregateOutput::Max(None))
-        )
+        kind.is_unresolved_extrema_output(probe_output)
     }
 }

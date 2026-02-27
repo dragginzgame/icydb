@@ -250,16 +250,11 @@ where
     pub(in crate::db::executor) fn field_extrema_aggregate_direction(
         kind: AggregateKind,
     ) -> Result<Direction, InternalError> {
-        match kind {
-            AggregateKind::Min => Ok(Direction::Asc),
-            AggregateKind::Max => Ok(Direction::Desc),
-            AggregateKind::Count
-            | AggregateKind::Exists
-            | AggregateKind::First
-            | AggregateKind::Last => Err(InternalError::query_executor_invariant(
+        kind.extrema_direction().ok_or_else(|| {
+            InternalError::query_executor_invariant(
                 "field-target aggregate direction requires MIN/MAX terminal",
-            )),
-        }
+            )
+        })
     }
 
     // Adapter so aggregate submodules keep one internal mapping entrypoint while

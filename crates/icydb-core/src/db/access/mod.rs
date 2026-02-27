@@ -14,13 +14,10 @@ pub(in crate::db) use lowering::{
     lower_index_prefix_specs, lower_index_range_specs,
 };
 pub(crate) use path::{AccessPath, IndexRangePathRef, SemanticIndexRangeSpec};
-#[cfg(test)]
-pub(crate) use plan::assess_secondary_order_pushdown_if_applicable_from_parts;
 pub(crate) use plan::{
     AccessPlan, PushdownApplicability, PushdownSurfaceEligibility,
     SecondaryOrderPushdownEligibility, SecondaryOrderPushdownRejection,
     assess_secondary_order_pushdown_from_parts,
-    assess_secondary_order_pushdown_if_applicable_validated_from_parts,
 };
 pub(crate) use validate::{
     AccessPlanError, validate_access_structure, validate_access_structure_model,

@@ -28,6 +28,72 @@ impl AggregateKind {
     pub(in crate::db::executor) const fn supports_field_targets(self) -> bool {
         matches!(self, Self::Min | Self::Max)
     }
+
+    /// Return whether this terminal kind belongs to the extrema family.
+    #[must_use]
+    pub(in crate::db::executor) const fn is_extrema(self) -> bool {
+        self.supports_field_targets()
+    }
+
+    /// Return whether this terminal kind supports first/last value projection.
+    #[must_use]
+    pub(in crate::db::executor) const fn supports_terminal_value_projection(self) -> bool {
+        matches!(self, Self::First | Self::Last)
+    }
+
+    /// Return whether reducer updates for this kind require a decoded id payload.
+    #[must_use]
+    pub(in crate::db::executor) const fn requires_decoded_id(self) -> bool {
+        !matches!(self, Self::Count | Self::Exists)
+    }
+
+    /// Return the canonical extrema traversal direction for this terminal kind.
+    #[must_use]
+    pub(in crate::db::executor) const fn extrema_direction(self) -> Option<Direction> {
+        match self {
+            Self::Min => Some(Direction::Asc),
+            Self::Max => Some(Direction::Desc),
+            Self::Count | Self::Exists | Self::First | Self::Last => None,
+        }
+    }
+
+    /// Build the canonical empty-window aggregate output for this terminal kind.
+    #[must_use]
+    pub(in crate::db::executor) const fn zero_output<E: EntityKind>(self) -> AggregateOutput<E> {
+        match self {
+            Self::Count => AggregateOutput::Count(0),
+            Self::Exists => AggregateOutput::Exists(false),
+            Self::Min => AggregateOutput::Min(None),
+            Self::Max => AggregateOutput::Max(None),
+            Self::First => AggregateOutput::First(None),
+            Self::Last => AggregateOutput::Last(None),
+        }
+    }
+
+    /// Build an extrema output payload when this kind is MIN or MAX.
+    #[must_use]
+    pub(in crate::db::executor) const fn extrema_output<E: EntityKind>(
+        self,
+        id: Option<Id<E>>,
+    ) -> Option<AggregateOutput<E>> {
+        match self {
+            Self::Min => Some(AggregateOutput::Min(id)),
+            Self::Max => Some(AggregateOutput::Max(id)),
+            Self::Count | Self::Exists | Self::First | Self::Last => None,
+        }
+    }
+
+    /// Return true when this kind/output pair is an unresolved extrema result.
+    #[must_use]
+    pub(in crate::db::executor) const fn is_unresolved_extrema_output<E: EntityKind>(
+        self,
+        output: &AggregateOutput<E>,
+    ) -> bool {
+        matches!(
+            (self, output),
+            (Self::Min, AggregateOutput::Min(None)) | (Self::Max, AggregateOutput::Max(None))
+        )
+    }
 }
 
 ///
@@ -174,12 +240,10 @@ impl<E: EntityKind> AggregateReducerState<E> {
         direction: Direction,
         key: &DataKey,
     ) -> Result<FoldControl, InternalError> {
-        let id = match kind {
-            AggregateKind::Count | AggregateKind::Exists => None,
-            AggregateKind::Min
-            | AggregateKind::Max
-            | AggregateKind::First
-            | AggregateKind::Last => Some(Id::from_key(key.try_key::<E>()?)),
+        let id = if kind.requires_decoded_id() {
+            Some(Id::from_key(key.try_key::<E>()?))
+        } else {
+            None
         };
 
         self.update_with_optional_id(kind, direction, id)

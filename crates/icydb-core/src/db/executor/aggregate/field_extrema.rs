@@ -35,23 +35,16 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
-        if !matches!(kind, AggregateKind::Min | AggregateKind::Max) {
+        if !kind.is_extrema() {
             return Err(InternalError::query_executor_invariant(
                 "materialized field-extrema reduction requires MIN/MAX terminal",
             ));
         }
-        let compare_direction = match kind {
-            AggregateKind::Min => Direction::Asc,
-            AggregateKind::Max => Direction::Desc,
-            AggregateKind::Count
-            | AggregateKind::Exists
-            | AggregateKind::First
-            | AggregateKind::Last => {
-                return Err(InternalError::query_executor_invariant(
-                    "materialized field-extrema reduction reached non-extrema terminal",
-                ));
-            }
-        };
+        let compare_direction = kind.extrema_direction().ok_or_else(|| {
+            InternalError::query_executor_invariant(
+                "materialized field-extrema reduction reached non-extrema terminal",
+            )
+        })?;
 
         let mut selected: Option<(Id<E>, E)> = None;
         for (id, entity) in response {
@@ -76,17 +69,10 @@ impl ExecutionKernel {
 
         let selected_id = selected.map(|(id, _)| id);
 
-        Ok(match kind {
-            AggregateKind::Min => AggregateOutput::Min(selected_id),
-            AggregateKind::Max => AggregateOutput::Max(selected_id),
-            AggregateKind::Count
-            | AggregateKind::Exists
-            | AggregateKind::First
-            | AggregateKind::Last => {
-                return Err(InternalError::query_executor_invariant(
-                    "materialized field-extrema reduction reached non-extrema terminal",
-                ));
-            }
+        kind.extrema_output(selected_id).ok_or_else(|| {
+            InternalError::query_executor_invariant(
+                "materialized field-extrema reduction reached non-extrema terminal",
+            )
         })
     }
 
@@ -103,17 +89,14 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
-        let field_fast_path_eligible = match kind {
-            AggregateKind::Min => route_plan.field_min_fast_path_eligible(),
-            AggregateKind::Max => route_plan.field_max_fast_path_eligible(),
-            AggregateKind::Count
-            | AggregateKind::Exists
-            | AggregateKind::First
-            | AggregateKind::Last => {
-                return Err(InternalError::query_executor_invariant(
-                    "field-target aggregate execution requires MIN/MAX terminal",
-                ));
-            }
+        let field_fast_path_eligible = if kind == AggregateKind::Min {
+            route_plan.field_min_fast_path_eligible()
+        } else if kind == AggregateKind::Max {
+            route_plan.field_max_fast_path_eligible()
+        } else {
+            return Err(InternalError::query_executor_invariant(
+                "field-target aggregate execution requires MIN/MAX terminal",
+            ));
         };
         if !field_fast_path_eligible {
             return Err(InternalError::query_executor_invariant(
@@ -234,18 +217,11 @@ where
         }
 
         let selected_id = selected.map(|(id, _)| id);
-        let output = match kind {
-            AggregateKind::Min => AggregateOutput::Min(selected_id),
-            AggregateKind::Max => AggregateOutput::Max(selected_id),
-            AggregateKind::Count
-            | AggregateKind::Exists
-            | AggregateKind::First
-            | AggregateKind::Last => {
-                return Err(InternalError::query_executor_invariant(
-                    "field-extrema fold reached non-extrema terminal",
-                ));
-            }
-        };
+        let output = kind.extrema_output(selected_id).ok_or_else(|| {
+            InternalError::query_executor_invariant(
+                "field-extrema fold reached non-extrema terminal",
+            )
+        })?;
 
         Ok((output, keys_scanned))
     }
