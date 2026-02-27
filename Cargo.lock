@@ -108,9 +108,9 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
 name = "candid"
-version = "0.10.23"
+version = "0.10.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1569bddc0a586e44b10c8218d7db2770d5de9826aa4dc223f3dac56cd3b48697"
+checksum = "601b519700ec333a2a2c7eb3e8e1eca89177055e3e1fb24ca42cbbb025986696"
 dependencies = [
  "anyhow",
  "binread",
@@ -131,9 +131,9 @@ dependencies = [
 
 [[package]]
 name = "candid_derive"
-version = "0.10.23"
+version = "0.10.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d674e2817268343f9f67fcd33b10279d2ccbd7d62ac660d53c1fd60a93568aa3"
+checksum = "f195a40cd3d199191fc8b534165fadd78c08a1f9666222addaf9f58593002a73"
 dependencies = [
  "lazy_static",
  "proc-macro2",
@@ -675,7 +675,7 @@ dependencies = [
 
 [[package]]
 name = "icydb"
-version = "0.31.0"
+version = "0.32.0"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -696,7 +696,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-build"
-version = "0.31.0"
+version = "0.32.0"
 dependencies = [
  "icydb-schema",
  "proc-macro2",
@@ -706,7 +706,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-core"
-version = "0.31.0"
+version = "0.32.0"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -730,7 +730,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-derive"
-version = "0.31.0"
+version = "0.32.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -739,11 +739,11 @@ dependencies = [
 
 [[package]]
 name = "icydb-primitives"
-version = "0.31.0"
+version = "0.32.0"
 
 [[package]]
 name = "icydb-schema"
-version = "0.31.0"
+version = "0.32.0"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -759,7 +759,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-derive"
-version = "0.31.0"
+version = "0.32.0"
 dependencies = [
  "candid",
  "canic-utils",
@@ -776,7 +776,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-tests"
-version = "0.31.0"
+version = "0.32.0"
 dependencies = [
  "candid",
  "icydb",
