@@ -163,7 +163,8 @@ where
                 ineligibility_reason: Some(FieldExtremaIneligibilityReason::UnsupportedFieldType),
             };
         }
-        if plan.distinct {
+        let logical = plan.scalar_plan();
+        if logical.distinct {
             return FieldExtremaEligibility {
                 eligible: false,
                 ineligibility_reason: Some(FieldExtremaIneligibilityReason::DistinctNotSupported),
@@ -202,7 +203,11 @@ where
                 ),
             };
         }
-        if plan.page.as_ref().is_some_and(|page| page.limit.is_some()) {
+        if logical
+            .page
+            .as_ref()
+            .is_some_and(|page| page.limit.is_some())
+        {
             return FieldExtremaEligibility {
                 eligible: false,
                 ineligibility_reason: Some(FieldExtremaIneligibilityReason::PageLimitNotSupported),
@@ -310,7 +315,7 @@ where
         let index_fields = index.fields;
         let prefix_len = prefix.len();
 
-        if let Some(order) = plan.order.as_ref()
+        if let Some(order) = plan.scalar_plan().order.as_ref()
             && !order.fields.is_empty()
         {
             let Some(expected_direction) = order.fields.last().map(|(_, direction)| *direction)

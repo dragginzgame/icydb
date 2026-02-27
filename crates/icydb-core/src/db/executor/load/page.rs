@@ -52,9 +52,9 @@ where
         // represents final canonical ordering and no residual narrowing exists.
         let data_rows = if let Some(scan_budget) = scan_budget_hint {
             let mut budgeted = BudgetedOrderedKeyStream::new(key_stream, scan_budget);
-            ctx.rows_from_ordered_key_stream(&mut budgeted, plan.consistency)?
+            ctx.rows_from_ordered_key_stream(&mut budgeted, plan.scalar_plan().consistency)?
         } else {
-            ctx.rows_from_ordered_key_stream(key_stream, plan.consistency)?
+            ctx.rows_from_ordered_key_stream(key_stream, plan.scalar_plan().consistency)?
         };
         let rows_scanned = data_rows.len();
         let mut rows = Context::deserialize_rows(data_rows)?;

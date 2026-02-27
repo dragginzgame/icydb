@@ -299,7 +299,7 @@ fn load_cursor_with_offset_index_range_pushdown_resume_matrix_is_boundary_comple
     for (case_name, direction) in [("asc", OrderDirection::Asc), ("desc", OrderDirection::Desc)] {
         let build_plan = || {
             ExecutablePlan::<IndexedMetricsEntity>::new(AccessPlannedQuery {
-                logical: LogicalPlan {
+                logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
                     mode: QueryMode::Load(LoadSpec::new()),
                     predicate: None,
                     order: Some(OrderSpec {
@@ -315,7 +315,7 @@ fn load_cursor_with_offset_index_range_pushdown_resume_matrix_is_boundary_comple
                         offset: 1,
                     }),
                     consistency: ReadConsistency::MissingOk,
-                },
+                }),
                 access: AccessPlan::path(AccessPath::index_range(
                     INDEXED_METRICS_INDEX_MODELS[0],
                     Vec::new(),

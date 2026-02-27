@@ -10,8 +10,9 @@ use crate::{
         query::{
             intent::QueryMode,
             plan::{
-                AccessPlanProjection, AccessPlannedQuery, DeleteLimitSpec, OrderDirection,
-                OrderSpec, PageSpec, assess_secondary_order_pushdown, project_access_plan,
+                AccessPlanProjection, AccessPlannedQuery, DeleteLimitSpec, LogicalPlan,
+                OrderDirection, OrderSpec, PageSpec, ScalarPlan,
+                assess_secondary_order_pushdown_from_parts, project_access_plan,
             },
             predicate::normalize,
         },
@@ -190,39 +191,55 @@ where
     }
 
     fn explain_inner(&self, model: Option<&EntityModel>) -> ExplainPlan {
-        let predicate = match &self.predicate {
-            Some(predicate) => ExplainPredicate::from_predicate(&normalize(predicate)),
-            None => ExplainPredicate::None,
+        let logical = match &self.logical {
+            LogicalPlan::Scalar(logical) => logical,
+            LogicalPlan::Grouped(logical) => &logical.scalar,
         };
 
-        let order_by = explain_order(self.order.as_ref());
-        let order_pushdown = explain_order_pushdown(model, self);
-        let page = explain_page(self.page.as_ref());
-        let delete_limit = explain_delete_limit(self.delete_limit.as_ref());
+        explain_scalar_inner(logical, model, &self.access)
+    }
+}
 
-        ExplainPlan {
-            mode: self.mode,
-            access: ExplainAccessPath::from_access_plan(&self.access),
-            predicate,
-            order_by,
-            distinct: self.distinct,
-            order_pushdown,
-            page,
-            delete_limit,
-            consistency: self.consistency,
-        }
+fn explain_scalar_inner<K>(
+    logical: &ScalarPlan,
+    model: Option<&EntityModel>,
+    access: &AccessPlan<K>,
+) -> ExplainPlan
+where
+    K: FieldValue,
+{
+    let predicate = match &logical.predicate {
+        Some(predicate) => ExplainPredicate::from_predicate(&normalize(predicate)),
+        None => ExplainPredicate::None,
+    };
+
+    let order_by = explain_order(logical.order.as_ref());
+    let order_pushdown = explain_order_pushdown(model, logical, access);
+    let page = explain_page(logical.page.as_ref());
+    let delete_limit = explain_delete_limit(logical.delete_limit.as_ref());
+
+    ExplainPlan {
+        mode: logical.mode,
+        access: ExplainAccessPath::from_access_plan(access),
+        predicate,
+        order_by,
+        distinct: logical.distinct,
+        order_pushdown,
+        page,
+        delete_limit,
+        consistency: logical.consistency,
     }
 }
 
 fn explain_order_pushdown<K>(
     model: Option<&EntityModel>,
-    plan: &AccessPlannedQuery<K>,
+    logical: &ScalarPlan,
+    access: &AccessPlan<K>,
 ) -> ExplainOrderPushdown {
     let Some(model) = model else {
         return ExplainOrderPushdown::MissingModelContext;
     };
-
-    assess_secondary_order_pushdown(model, plan).into()
+    assess_secondary_order_pushdown_from_parts(model, logical, access).into()
 }
 
 impl From<SecondaryOrderPushdownEligibility> for ExplainOrderPushdown {

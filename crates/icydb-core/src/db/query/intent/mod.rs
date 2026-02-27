@@ -18,7 +18,7 @@ use crate::{
             plan::validate::validate_query_semantics,
             plan::{
                 AccessPlannedQuery, DeleteLimitSpec, LogicalPlan, OrderDirection, OrderSpec,
-                PageSpec, PlanError, PlannerError, canonical, plan_access,
+                PageSpec, PlanError, PlannerError, ScalarPlan, canonical, plan_access,
             },
             predicate::{
                 lower_to_execution_model, normalize, normalize_enum_literals,
@@ -373,7 +373,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         };
 
         // Phase 3: assemble the executor-ready plan.
-        let logical = LogicalPlan {
+        let logical = LogicalPlan::Scalar(ScalarPlan {
             mode: self.mode,
             predicate: normalized_predicate.map(lower_to_execution_model),
             // Canonicalize ORDER BY to include an explicit primary-key tie-break.
@@ -398,7 +398,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
                 QueryMode::Delete(_) => None,
             },
             consistency: self.consistency,
-        };
+        });
         let plan = AccessPlannedQuery::from_parts(logical, access_plan_value);
 
         validate_query_semantics(&schema_info, self.model, &plan)?;

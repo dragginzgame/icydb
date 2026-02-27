@@ -122,10 +122,11 @@ pub(super) fn decorate_resolved_execution_key_stream<K>(
     direction: Direction,
 ) -> ResolvedExecutionKeyStream {
     let key_comparator = key_stream_comparator_from_direction(direction);
-    let dedup_counter = plan.distinct.then(|| Rc::new(Cell::new(0u64)));
+    let distinct = plan.scalar_plan().distinct;
+    let dedup_counter = distinct.then(|| Rc::new(Cell::new(0u64)));
     let (key_stream, dedup_counter) = wrap_distinct_ordered_key_stream(
         resolved.key_stream,
-        plan.distinct,
+        distinct,
         key_comparator,
         dedup_counter,
     );
@@ -142,7 +143,13 @@ pub(in crate::db::executor) fn decorate_key_stream_for_plan<K>(
 ) -> OrderedKeyStreamBox {
     let key_comparator = key_stream_comparator_from_direction(direction);
 
-    wrap_distinct_ordered_key_stream(ordered_key_stream, plan.distinct, key_comparator, None).0
+    wrap_distinct_ordered_key_stream(
+        ordered_key_stream,
+        plan.scalar_plan().distinct,
+        key_comparator,
+        None,
+    )
+    .0
 }
 
 ///

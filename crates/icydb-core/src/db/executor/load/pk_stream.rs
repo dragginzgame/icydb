@@ -27,7 +27,7 @@ where
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
         // Phase 1: validate that the routed access shape is PK-stream compatible.
         Self::pk_fast_path_access(plan)?;
-        let stream_direction = derive_primary_scan_direction(plan.order.as_ref());
+        let stream_direction = derive_primary_scan_direction(plan.scalar_plan().order.as_ref());
 
         // Phase 2: lower through the canonical access-stream resolver boundary.
         let stream_request = AccessPlanStreamRequest::from_bindings(

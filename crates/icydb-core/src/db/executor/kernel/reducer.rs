@@ -237,6 +237,7 @@ impl ExecutionKernel {
 
         let mut window = Self::window_cursor_contract(plan, None);
         let mut keys_scanned = 0usize;
+        let consistency = plan.scalar_plan().consistency;
 
         while !window.exhausted() {
             let Some(key) = key_stream.next_key()? else {
@@ -244,7 +245,7 @@ impl ExecutionKernel {
             };
             keys_scanned = keys_scanned.saturating_add(1);
 
-            if !Self::key_qualifies_for_fold(ctx, plan.consistency, mode, &key)? {
+            if !Self::key_qualifies_for_fold(ctx, consistency, mode, &key)? {
                 continue;
             }
             if !window.accept_existing_row() {
@@ -282,10 +283,11 @@ impl ExecutionKernel {
 
         let mut rows: Vec<(Id<E>, E)> = Vec::new();
         let mut keys_scanned = 0usize;
+        let consistency = plan.scalar_plan().consistency;
 
         while let Some(data_key) = key_stream.next_key()? {
             let Some(entity) =
-                LoadExecutor::<E>::read_entity_for_field_extrema(ctx, plan.consistency, &data_key)?
+                LoadExecutor::<E>::read_entity_for_field_extrema(ctx, consistency, &data_key)?
             else {
                 continue;
             };
@@ -311,15 +313,16 @@ impl ExecutionKernel {
 
     // Return whether load execution can safely use the row-collector short path
     // without changing cursor/pagination/filter semantics.
-    fn load_row_collector_short_path_eligible<K>(
+    const fn load_row_collector_short_path_eligible<K>(
         plan: &AccessPlannedQuery<K>,
         cursor_boundary: Option<&CursorBoundary>,
     ) -> bool {
-        plan.mode.is_load()
+        let logical = plan.scalar_plan();
+        logical.mode.is_load()
             && cursor_boundary.is_none()
-            && plan.predicate.is_none()
-            && plan.order.is_none()
-            && plan.page.is_none()
+            && logical.predicate.is_none()
+            && logical.order.is_none()
+            && logical.page.is_none()
     }
 
     // Attempt one row-collector load materialization short path.

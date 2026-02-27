@@ -63,6 +63,7 @@ impl WindowCursorContract {
         ))
         .unwrap_or(usize::MAX);
         let limit = plan
+            .scalar_plan()
             .page
             .as_ref()
             .and_then(|page| page.limit)
@@ -139,11 +140,12 @@ impl ExecutionKernel {
         plan: &AccessPlannedQuery<K>,
         cursor_boundary: Option<&CursorBoundary>,
     ) -> Option<usize> {
-        if !plan.mode.is_load() || cursor_boundary.is_some() {
+        let logical = plan.scalar_plan();
+        if !logical.mode.is_load() || cursor_boundary.is_some() {
             return None;
         }
 
-        let page = plan.page.as_ref()?;
+        let page = logical.page.as_ref()?;
         let limit = page.limit?;
         if limit == 0 {
             return None;
@@ -164,10 +166,11 @@ impl ExecutionKernel {
         E: EntityKind + EntityValue,
         R: PlanRow<E>,
     {
-        if plan.mode.is_load()
+        let logical = plan.scalar_plan();
+        if logical.mode.is_load()
             && let Some(boundary) = cursor_boundary
         {
-            let Some(order) = plan.order.as_ref() else {
+            let Some(order) = logical.order.as_ref() else {
                 return Err(InternalError::query_executor_invariant(
                     "cursor boundary requires ordering",
                 ));

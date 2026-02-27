@@ -112,7 +112,7 @@ mod tests {
         let access_b = access_plan_from_keys_value(&KeyAccess::Many(vec![b, a]));
 
         let plan_a: AccessPlannedQuery<Value> = AccessPlannedQuery {
-            logical: LogicalPlan {
+            logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
                 mode: QueryMode::Load(LoadSpec::new()),
                 predicate: None,
                 order: None,
@@ -120,11 +120,11 @@ mod tests {
                 delete_limit: None,
                 page: None,
                 consistency: ReadConsistency::MissingOk,
-            },
+            }),
             access: access_a,
         };
         let plan_b: AccessPlannedQuery<Value> = AccessPlannedQuery {
-            logical: LogicalPlan {
+            logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
                 mode: QueryMode::Load(LoadSpec::new()),
                 predicate: None,
                 order: None,
@@ -132,7 +132,7 @@ mod tests {
                 delete_limit: None,
                 page: None,
                 consistency: ReadConsistency::MissingOk,
-            },
+            }),
             access: access_b,
         };
 

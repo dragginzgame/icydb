@@ -31,7 +31,8 @@ where
     pub(in crate::db::executor) fn pk_order_stream_fast_path_shape_supported(
         plan: &AccessPlannedQuery<E::Key>,
     ) -> bool {
-        if !plan.mode.is_load() {
+        let logical = plan.scalar_plan();
+        if !logical.mode.is_load() {
             return false;
         }
 
@@ -43,7 +44,7 @@ where
             return false;
         }
 
-        let Some(order) = plan.order.as_ref() else {
+        let Some(order) = logical.order.as_ref() else {
             return false;
         };
 

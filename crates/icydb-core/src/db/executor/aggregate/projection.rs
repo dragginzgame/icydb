@@ -132,7 +132,7 @@ where
         }
 
         let field_slot = Self::resolve_any_field_slot(target_field)?;
-        let consistency = plan.as_inner().consistency;
+        let consistency = plan.as_inner().scalar_plan().consistency;
         let (AggregateOutput::First(selected_id) | AggregateOutput::Last(selected_id)) =
             ExecutionKernel::execute_aggregate_spec(
                 self,

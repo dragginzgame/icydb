@@ -18,7 +18,7 @@ use crate::{
         policy::{self, PlanPolicyError},
         query::{
             grouped::{GroupAggregateKind, GroupSpec, GroupedPlan},
-            plan::{AccessPlannedQuery, OrderSpec},
+            plan::{AccessPlannedQuery, OrderSpec, ScalarPlan},
             predicate,
         },
     },
@@ -213,9 +213,12 @@ pub(crate) fn validate_query_semantics(
     model: &EntityModel,
     plan: &AccessPlannedQuery<Value>,
 ) -> Result<(), PlanError> {
+    let logical = plan.scalar_plan();
+
     validate_plan_core(
         schema,
         model,
+        logical,
         plan,
         validate_order,
         |schema, model, plan| {
@@ -238,9 +241,12 @@ pub(crate) fn validate_group_query_semantics(
     model: &EntityModel,
     plan: &GroupedPlan<Value>,
 ) -> Result<(), PlanError> {
+    let logical = plan.base.scalar_plan();
+
     validate_plan_core(
         schema,
         model,
+        logical,
         &plan.base,
         validate_order,
         |schema, model, plan| {
@@ -303,6 +309,7 @@ pub(crate) fn validate_group_spec(schema: &SchemaInfo, group: &GroupSpec) -> Res
 fn validate_plan_core<K, FOrder, FAccess>(
     schema: &SchemaInfo,
     model: &EntityModel,
+    logical: &ScalarPlan,
     plan: &AccessPlannedQuery<K>,
     validate_order_fn: FOrder,
     validate_access_fn: FAccess,
@@ -311,18 +318,18 @@ where
     FOrder: Fn(&SchemaInfo, &OrderSpec) -> Result<(), PlanError>,
     FAccess: Fn(&SchemaInfo, &EntityModel, &AccessPlannedQuery<K>) -> Result<(), PlanError>,
 {
-    if let Some(predicate) = &plan.predicate {
+    if let Some(predicate) = &logical.predicate {
         predicate::validate(schema, predicate)?;
     }
 
-    if let Some(order) = &plan.order {
+    if let Some(order) = &logical.order {
         validate_order_fn(schema, order)?;
         validate_no_duplicate_non_pk_order_fields(model, order)?;
         validate_primary_key_tie_break(model, order)?;
     }
 
     validate_access_fn(schema, model, plan)?;
-    policy::validate_plan_shape(plan)?;
+    policy::validate_plan_shape(&plan.logical)?;
 
     Ok(())
 }

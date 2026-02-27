@@ -194,16 +194,17 @@ impl ExecutionKernel {
         rows_scanned: usize,
         post_access_rows: usize,
     ) -> bool {
+        let logical = plan.scalar_plan();
         let Some(limit_spec) = route_plan.index_range_limit_spec else {
             return false;
         };
-        if plan.predicate.is_none() {
+        if logical.predicate.is_none() {
             return false;
         }
         if limit_spec.fetch == 0 {
             return false;
         }
-        let Some(limit) = plan.page.as_ref().and_then(|page| page.limit) else {
+        let Some(limit) = logical.page.as_ref().and_then(|page| page.limit) else {
             return false;
         };
         let keep_count = Self::effective_keep_count_for_limit(plan, cursor_boundary, limit);

@@ -158,8 +158,9 @@ where
 
 // Resolve cursor ordering for plan-surface decoding and executor revalidation.
 fn validated_cursor_order<K>(plan: &AccessPlannedQuery<K>) -> Result<&OrderSpec, CursorPlanError> {
+    let order = plan.scalar_plan().order.as_ref();
     let Some(order) = validated_cursor_order_internal(
-        plan.order.as_ref(),
+        order,
         true,
         "cursor pagination requires explicit ordering",
     )?

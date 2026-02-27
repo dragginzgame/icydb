@@ -138,7 +138,7 @@ where
     pub(in crate::db::executor) fn build_execution_route_plan_for_mutation(
         plan: &AccessPlannedQuery<E::Key>,
     ) -> Result<ExecutionPlan, InternalError> {
-        if !plan.mode.is_delete() {
+        if !plan.scalar_plan().mode.is_delete() {
             return Err(InternalError::query_executor_invariant(
                 "mutation route planning requires delete plans",
             ));
@@ -413,6 +413,7 @@ where
         }
     }
 
+    #[expect(clippy::too_many_lines)]
     fn derive_route_execution_stage(
         plan: &AccessPlannedQuery<E::Key>,
         intent_stage: &RouteIntentStage,
@@ -504,7 +505,11 @@ where
                     .derivation
                     .aggregate_physical_fetch_hint
                     .is_none()
-                || plan.page.as_ref().is_some_and(|page| page.limit == Some(0)),
+                || plan
+                    .scalar_plan()
+                    .page
+                    .as_ref()
+                    .is_some_and(|page| page.limit == Some(0)),
             "route invariant: DISTINCT+offset must disable bounded aggregate probe hints",
         );
 

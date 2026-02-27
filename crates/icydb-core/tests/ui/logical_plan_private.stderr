@@ -2,7 +2,7 @@ error[E0603]: module `query` is private
  --> tests/ui/logical_plan_private.rs:1:21
   |
 1 | use icydb_core::db::query::plan::LogicalPlan;
-  |                     ^^^^^  ---- module `plan` is not publicly re-exported
+  |                     ^^^^^        ----------- enum `LogicalPlan` is not publicly re-exported
   |                     |
   |                     private module
   |

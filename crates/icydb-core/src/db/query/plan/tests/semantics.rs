@@ -60,7 +60,7 @@ fn plan_rejects_unorderable_field() {
 
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
     let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
-        logical: LogicalPlan {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order: Some(OrderSpec {
@@ -70,7 +70,7 @@ fn plan_rejects_unorderable_field() {
             delete_limit: None,
             page: None,
             consistency: ReadConsistency::MissingOk,
-        },
+        }),
         access: AccessPlan::path(AccessPath::FullScan),
     };
 
@@ -86,7 +86,7 @@ fn plan_rejects_duplicate_non_primary_order_field() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
     let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
-        logical: LogicalPlan {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order: Some(OrderSpec {
@@ -100,7 +100,7 @@ fn plan_rejects_duplicate_non_primary_order_field() {
             delete_limit: None,
             page: None,
             consistency: ReadConsistency::MissingOk,
-        },
+        }),
         access: AccessPlan::path(AccessPath::FullScan),
     };
 
@@ -117,7 +117,7 @@ fn plan_rejects_index_prefix_too_long() {
     let model = model_with_index();
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
     let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
-        logical: LogicalPlan {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order: None,
@@ -125,7 +125,7 @@ fn plan_rejects_index_prefix_too_long() {
             delete_limit: None,
             page: None,
             consistency: ReadConsistency::MissingOk,
-        },
+        }),
         access: AccessPlan::path(AccessPath::IndexPrefix {
             index: INDEX_MODEL,
             values: vec![Value::Text("a".to_string()), Value::Text("b".to_string())],
@@ -144,7 +144,7 @@ fn plan_rejects_empty_index_prefix() {
     let model = model_with_index();
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
     let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
-        logical: LogicalPlan {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order: None,
@@ -152,7 +152,7 @@ fn plan_rejects_empty_index_prefix() {
             delete_limit: None,
             page: None,
             consistency: ReadConsistency::MissingOk,
-        },
+        }),
         access: AccessPlan::path(AccessPath::IndexPrefix {
             index: INDEX_MODEL,
             values: vec![],
@@ -171,7 +171,7 @@ fn plan_accepts_model_based_validation() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
     let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
-        logical: LogicalPlan {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order: None,
@@ -179,7 +179,7 @@ fn plan_accepts_model_based_validation() {
             delete_limit: None,
             page: None,
             consistency: ReadConsistency::MissingOk,
-        },
+        }),
         access: AccessPlan::path(AccessPath::ByKey(Value::Ulid(Ulid::nil()))),
     };
 
@@ -191,7 +191,7 @@ fn plan_rejects_empty_order_spec() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
     let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
-        logical: LogicalPlan {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order: Some(OrderSpec { fields: vec![] }),
@@ -199,7 +199,7 @@ fn plan_rejects_empty_order_spec() {
             delete_limit: None,
             page: None,
             consistency: ReadConsistency::MissingOk,
-        },
+        }),
         access: AccessPlan::path(AccessPath::FullScan),
     };
 
@@ -215,7 +215,7 @@ fn delete_limit_requires_order() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
     let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
-        logical: LogicalPlan {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Delete(DeleteSpec::new()),
             predicate: None,
             order: None,
@@ -223,7 +223,7 @@ fn delete_limit_requires_order() {
             delete_limit: Some(DeleteLimitSpec { max_rows: 10 }),
             page: None,
             consistency: ReadConsistency::MissingOk,
-        },
+        }),
         access: AccessPlan::path(AccessPath::FullScan),
     };
 
@@ -240,7 +240,7 @@ fn delete_plan_rejects_pagination() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
     let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
-        logical: LogicalPlan {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Delete(DeleteSpec::new()),
             predicate: None,
             order: Some(OrderSpec {
@@ -253,7 +253,7 @@ fn delete_plan_rejects_pagination() {
                 offset: 0,
             }),
             consistency: ReadConsistency::MissingOk,
-        },
+        }),
         access: AccessPlan::path(AccessPath::FullScan),
     };
 
@@ -270,7 +270,7 @@ fn load_plan_rejects_delete_limit() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
     let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
-        logical: LogicalPlan {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order: Some(OrderSpec {
@@ -280,7 +280,7 @@ fn load_plan_rejects_delete_limit() {
             delete_limit: Some(DeleteLimitSpec { max_rows: 1 }),
             page: None,
             consistency: ReadConsistency::MissingOk,
-        },
+        }),
         access: AccessPlan::path(AccessPath::FullScan),
     };
 
@@ -297,7 +297,7 @@ fn plan_rejects_unordered_pagination() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
     let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
-        logical: LogicalPlan {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order: None,
@@ -308,7 +308,7 @@ fn plan_rejects_unordered_pagination() {
                 offset: 2,
             }),
             consistency: ReadConsistency::MissingOk,
-        },
+        }),
         access: AccessPlan::path(AccessPath::FullScan),
     };
 
@@ -325,7 +325,7 @@ fn plan_accepts_ordered_pagination() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
     let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
-        logical: LogicalPlan {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order: Some(OrderSpec {
@@ -338,7 +338,7 @@ fn plan_accepts_ordered_pagination() {
                 offset: 2,
             }),
             consistency: ReadConsistency::MissingOk,
-        },
+        }),
         access: AccessPlan::path(AccessPath::FullScan),
     };
 
@@ -350,7 +350,7 @@ fn plan_rejects_order_without_terminal_primary_key_tie_break() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
     let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
-        logical: LogicalPlan {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order: Some(OrderSpec {
@@ -360,7 +360,7 @@ fn plan_rejects_order_without_terminal_primary_key_tie_break() {
             delete_limit: None,
             page: None,
             consistency: ReadConsistency::MissingOk,
-        },
+        }),
         access: AccessPlan::path(AccessPath::FullScan),
     };
 

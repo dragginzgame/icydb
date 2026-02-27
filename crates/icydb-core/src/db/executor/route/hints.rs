@@ -38,21 +38,25 @@ where
             return None;
         }
         if let Some(fetch) = probe_fetch_hint {
-            if plan.predicate.is_some() && !Self::residual_predicate_pushdown_fetch_is_safe(fetch) {
+            if plan.scalar_plan().predicate.is_some()
+                && !Self::residual_predicate_pushdown_fetch_is_safe(fetch)
+            {
                 return None;
             }
 
             return Some(IndexRangeLimitSpec { fetch });
         }
 
-        let page = plan.page.as_ref()?;
+        let page = plan.scalar_plan().page.as_ref()?;
         let limit = page.limit?;
         if limit == 0 {
             return Some(IndexRangeLimitSpec { fetch: 0 });
         }
 
         let fetch = route_window.fetch_count_for(true)?;
-        if plan.predicate.is_some() && !Self::residual_predicate_pushdown_fetch_is_safe(fetch) {
+        if plan.scalar_plan().predicate.is_some()
+            && !Self::residual_predicate_pushdown_fetch_is_safe(fetch)
+        {
             return None;
         }
 
@@ -84,7 +88,7 @@ where
     pub(super) fn bounded_probe_hint_is_safe(plan: &AccessPlannedQuery<E::Key>) -> bool {
         let offset = usize::try_from(ExecutionKernel::effective_page_offset(plan, None))
             .unwrap_or(usize::MAX);
-        !(plan.distinct && offset > 0)
+        !(plan.scalar_plan().distinct && offset > 0)
     }
 
     // Residual predicates are allowed for index-range limit pushdown only when

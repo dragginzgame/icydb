@@ -1329,7 +1329,7 @@ fn load_trace_marks_composite_index_range_pushdown_rejection_outcome() {
     seed_pushdown_rows(&pushdown_rows_trace(22_000));
 
     let logical = AccessPlannedQuery {
-        logical: LogicalPlan {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order: Some(OrderSpec {
@@ -1342,7 +1342,7 @@ fn load_trace_marks_composite_index_range_pushdown_rejection_outcome() {
                 offset: 0,
             }),
             consistency: ReadConsistency::MissingOk,
-        },
+        }),
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::index_range(
                 PUSHDOWN_PARITY_INDEX_MODELS[0],

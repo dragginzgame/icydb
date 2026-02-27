@@ -115,7 +115,7 @@ where
             ));
         }
         debug_assert!(
-            policy::validate_plan_shape(plan.as_inner()).is_ok(),
+            policy::validate_plan_shape(&plan.as_inner().logical).is_ok(),
             "delete executor received a plan shape that bypassed planning validation",
         );
         (|| {
@@ -134,7 +134,7 @@ where
                 &plan.access,
                 index_prefix_specs.as_slice(),
                 index_range_specs.as_slice(),
-                plan.consistency,
+                plan.scalar_plan().consistency,
             )?;
             record_rows_scanned::<E>(data_rows.len());
 

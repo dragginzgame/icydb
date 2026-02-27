@@ -70,8 +70,8 @@ impl<E: EntityKind> ExecutablePlan<E> {
 
     // Initial page offset used for continuation compatibility on first-page shape.
     const fn initial_page_offset(plan: &LogicalPlan) -> u32 {
-        match plan.page {
-            Some(ref page) => page.offset,
+        match plan.scalar_semantics().page.as_ref() {
+            Some(page) => page.offset,
             None => 0,
         }
     }
@@ -104,12 +104,12 @@ impl<E: EntityKind> ExecutablePlan<E> {
     where
         E::Key: FieldValue,
     {
-        let direction = derive_primary_scan_direction(self.plan.order.as_ref());
+        let direction = derive_primary_scan_direction(self.plan.scalar_plan().order.as_ref());
         crate::db::cursor::prepare_cursor::<E>(
             &self.plan,
             direction,
             self.continuation_signature(),
-            Self::initial_page_offset(&self.plan),
+            Self::initial_page_offset(&self.plan.logical),
             cursor,
         )
         .map_err(ExecutorPlanError::from)
@@ -118,7 +118,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
     /// Return the plan mode (load vs delete).
     #[must_use]
     pub(in crate::db) const fn mode(&self) -> QueryMode {
-        self.plan.logical.mode
+        self.plan.scalar_plan().mode
     }
 
     pub(in crate::db) const fn access(&self) -> &AccessPlan<E::Key> {
@@ -166,11 +166,11 @@ impl<E: EntityKind> ExecutablePlan<E> {
     where
         E::Key: FieldValue,
     {
-        let direction = derive_primary_scan_direction(self.plan.order.as_ref());
+        let direction = derive_primary_scan_direction(self.plan.scalar_plan().order.as_ref());
         crate::db::cursor::revalidate_cursor::<E>(
             &self.plan,
             direction,
-            Self::initial_page_offset(&self.plan),
+            Self::initial_page_offset(&self.plan.logical),
             cursor,
         )
         .map_err(|err| InternalError::from_cursor_plan_error(PlanError::from(err)))

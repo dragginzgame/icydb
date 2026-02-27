@@ -20,7 +20,7 @@ fn load_composite_pk_budget_trace_limits_access_rows_for_safe_shape() {
     let id6 = Ulid::from_u128(37_206);
 
     let logical = AccessPlannedQuery {
-        logical: LogicalPlan {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order: Some(OrderSpec {
@@ -33,7 +33,7 @@ fn load_composite_pk_budget_trace_limits_access_rows_for_safe_shape() {
                 offset: 1,
             }),
             consistency: ReadConsistency::MissingOk,
-        },
+        }),
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
             AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
@@ -78,7 +78,7 @@ fn load_composite_pk_budget_disabled_when_cursor_boundary_present() {
     let id6 = Ulid::from_u128(37_306);
 
     let logical = AccessPlannedQuery {
-        logical: LogicalPlan {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order: Some(OrderSpec {
@@ -91,7 +91,7 @@ fn load_composite_pk_budget_disabled_when_cursor_boundary_present() {
                 offset: 0,
             }),
             consistency: ReadConsistency::MissingOk,
-        },
+        }),
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
             AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
@@ -136,7 +136,7 @@ fn load_composite_budget_disabled_when_post_access_sort_is_required() {
     let id6 = Ulid::from_u128(37_406);
 
     let logical = AccessPlannedQuery {
-        logical: LogicalPlan {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order: Some(OrderSpec {
@@ -152,7 +152,7 @@ fn load_composite_budget_disabled_when_post_access_sort_is_required() {
                 offset: 1,
             }),
             consistency: ReadConsistency::MissingOk,
-        },
+        }),
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
             AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
@@ -192,7 +192,7 @@ fn load_composite_budget_disabled_for_offset_with_residual_filter() {
     let id6 = Ulid::from_u128(37_506);
 
     let logical = AccessPlannedQuery {
-        logical: LogicalPlan {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: Some(strict_compare_predicate(
                 "id",
@@ -209,7 +209,7 @@ fn load_composite_budget_disabled_for_offset_with_residual_filter() {
                 offset: 1,
             }),
             consistency: ReadConsistency::MissingOk,
-        },
+        }),
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
             AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
@@ -258,7 +258,7 @@ fn load_composite_pk_budget_trace_limits_access_rows_for_safe_desc_shape() {
     let id6 = Ulid::from_u128(37_606);
 
     let logical = AccessPlannedQuery {
-        logical: LogicalPlan {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order: Some(OrderSpec {
@@ -271,7 +271,7 @@ fn load_composite_pk_budget_trace_limits_access_rows_for_safe_desc_shape() {
                 offset: 1,
             }),
             consistency: ReadConsistency::MissingOk,
-        },
+        }),
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
             AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
@@ -327,7 +327,7 @@ fn load_nested_composite_pk_budget_trace_limits_access_rows_for_safe_shape() {
     let id8 = Ulid::from_u128(37_708);
 
     let logical = AccessPlannedQuery {
-        logical: LogicalPlan {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order: Some(OrderSpec {
@@ -340,7 +340,7 @@ fn load_nested_composite_pk_budget_trace_limits_access_rows_for_safe_shape() {
                 offset: 1,
             }),
             consistency: ReadConsistency::MissingOk,
-        },
+        }),
         access: AccessPlan::Union(vec![
             AccessPlan::Intersection(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4, id5])),
@@ -391,7 +391,7 @@ fn load_composite_budgeted_and_fallback_paths_emit_equivalent_continuation_bound
     let id6 = Ulid::from_u128(37_806);
 
     let budgeted_plan = ExecutablePlan::<SimpleEntity>::new(AccessPlannedQuery {
-        logical: LogicalPlan {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order: Some(OrderSpec {
@@ -404,14 +404,14 @@ fn load_composite_budgeted_and_fallback_paths_emit_equivalent_continuation_bound
                 offset: 1,
             }),
             consistency: ReadConsistency::MissingOk,
-        },
+        }),
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
             AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
         ]),
     });
     let fallback_plan = ExecutablePlan::<SimpleEntity>::new(AccessPlannedQuery {
-        logical: LogicalPlan {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: Some(Predicate::And(vec![
                 strict_compare_predicate("id", CompareOp::Gte, Value::Ulid(id1)),
@@ -427,7 +427,7 @@ fn load_composite_budgeted_and_fallback_paths_emit_equivalent_continuation_bound
                 offset: 1,
             }),
             consistency: ReadConsistency::MissingOk,
-        },
+        }),
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
             AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
@@ -494,7 +494,7 @@ fn load_composite_union_mixed_direction_fallback_preserves_order_and_pagination(
 
     let build_plan = || {
         ExecutablePlan::<PushdownParityEntity>::new(AccessPlannedQuery {
-            logical: LogicalPlan {
+            logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
                 mode: QueryMode::Load(LoadSpec::new()),
                 predicate: None,
                 order: Some(OrderSpec {
@@ -510,7 +510,7 @@ fn load_composite_union_mixed_direction_fallback_preserves_order_and_pagination(
                     offset: 0,
                 }),
                 consistency: ReadConsistency::MissingOk,
-            },
+            }),
             access: AccessPlan::Union(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id4])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id5])),

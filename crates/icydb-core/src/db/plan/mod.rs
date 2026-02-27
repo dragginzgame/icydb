@@ -57,7 +57,10 @@ pub(in crate::db) fn effective_page_offset_for_window<K>(
         return 0;
     }
 
-    plan.page.as_ref().map_or(0, |page| page.offset)
+    plan.scalar_plan()
+        .page
+        .as_ref()
+        .map_or(0, |page| page.offset)
 }
 
 /// Derive the effective keep-count (`offset + limit`) for one plan and limit.

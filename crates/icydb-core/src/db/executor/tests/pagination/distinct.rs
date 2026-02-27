@@ -21,7 +21,7 @@ fn load_distinct_flag_preserves_union_pagination_rows_and_boundaries() {
 
     let build_plan = |distinct: bool, limit: u32| {
         ExecutablePlan::<PushdownParityEntity>::new(AccessPlannedQuery {
-            logical: LogicalPlan {
+            logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
                 mode: QueryMode::Load(LoadSpec::new()),
                 predicate: None,
                 order: Some(OrderSpec {
@@ -37,7 +37,7 @@ fn load_distinct_flag_preserves_union_pagination_rows_and_boundaries() {
                     offset: 0,
                 }),
                 consistency: ReadConsistency::MissingOk,
-            },
+            }),
             access: AccessPlan::Union(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id4])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id5])),
@@ -151,7 +151,7 @@ fn load_distinct_union_resume_matrix_is_boundary_complete() {
         for limit in [1_u32, 2, 3] {
             let build_plan = || {
                 ExecutablePlan::<PushdownParityEntity>::new(AccessPlannedQuery {
-                    logical: LogicalPlan {
+                    logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
                         mode: QueryMode::Load(LoadSpec::new()),
                         predicate: None,
                         order: Some(OrderSpec {
@@ -164,7 +164,7 @@ fn load_distinct_union_resume_matrix_is_boundary_complete() {
                             offset: 0,
                         }),
                         consistency: ReadConsistency::MissingOk,
-                    },
+                    }),
                     access: AccessPlan::Union(vec![
                         AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4, id5])),
                         AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7])),
@@ -394,7 +394,7 @@ fn load_distinct_desc_index_range_limit_pushdown_resume_matrix_and_fallback_pari
         let (_seed_page, seed_trace) = load
             .execute_paged_with_cursor_traced(
                 ExecutablePlan::<IndexedMetricsEntity>::new(AccessPlannedQuery {
-                    logical: LogicalPlan {
+                    logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
                         mode: QueryMode::Load(LoadSpec::new()),
                         predicate: None,
                         order: Some(OrderSpec {
@@ -410,7 +410,7 @@ fn load_distinct_desc_index_range_limit_pushdown_resume_matrix_and_fallback_pari
                             offset: 0,
                         }),
                         consistency: ReadConsistency::MissingOk,
-                    },
+                    }),
                     access: AccessPlan::path(AccessPath::index_range(
                         INDEXED_METRICS_INDEX_MODELS[0],
                         Vec::new(),
@@ -431,7 +431,7 @@ fn load_distinct_desc_index_range_limit_pushdown_resume_matrix_and_fallback_pari
         // Phase 3: verify paged traversal and boundary-complete resume suffixes.
         let build_fast_plan = || {
             ExecutablePlan::<IndexedMetricsEntity>::new(AccessPlannedQuery {
-                logical: LogicalPlan {
+                logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
                     mode: QueryMode::Load(LoadSpec::new()),
                     predicate: None,
                     order: Some(OrderSpec {
@@ -447,7 +447,7 @@ fn load_distinct_desc_index_range_limit_pushdown_resume_matrix_and_fallback_pari
                         offset: 0,
                     }),
                     consistency: ReadConsistency::MissingOk,
-                },
+                }),
                 access: AccessPlan::path(AccessPath::index_range(
                     INDEXED_METRICS_INDEX_MODELS[0],
                     Vec::new(),
@@ -710,7 +710,7 @@ fn load_distinct_offset_fast_path_and_fallback_match_ids_and_boundaries() {
 
         let build_index_range_fast = || {
             ExecutablePlan::<IndexedMetricsEntity>::new(AccessPlannedQuery {
-                logical: LogicalPlan {
+                logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
                     mode: QueryMode::Load(LoadSpec::new()),
                     predicate: None,
                     order: Some(OrderSpec {
@@ -726,7 +726,7 @@ fn load_distinct_offset_fast_path_and_fallback_match_ids_and_boundaries() {
                         offset: 1,
                     }),
                     consistency: ReadConsistency::MissingOk,
-                },
+                }),
                 access: AccessPlan::path(AccessPath::index_range(
                     INDEXED_METRICS_INDEX_MODELS[0],
                     Vec::new(),

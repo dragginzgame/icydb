@@ -25,7 +25,8 @@ pub(in crate::db) fn next_cursor_for_materialized_rows<E>(
 where
     E: EntityKind + EntityValue,
 {
-    let Some(page) = plan.page.as_ref() else {
+    let logical = plan.scalar_plan();
+    let Some(page) = logical.page.as_ref() else {
         return Ok(None);
     };
     let Some(limit) = page.limit else {
@@ -59,7 +60,11 @@ where
     E: EntityKind + EntityValue,
 {
     let boundary = plan.cursor_boundary_from_entity(entity)?;
-    let initial_offset = plan.page.as_ref().map_or(0, |page| page.offset);
+    let initial_offset = plan
+        .scalar_plan()
+        .page
+        .as_ref()
+        .map_or(0, |page| page.offset);
     let token = if let Some((index, _, _, _)) = plan.access.as_index_range_path() {
         let index_key = IndexKey::new(entity, index)?.ok_or_else(|| {
             InternalError::query_executor_invariant(

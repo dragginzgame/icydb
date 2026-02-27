@@ -21,7 +21,9 @@ use crate::{
     traits::{EntityKind, EntityValue},
     value::Value,
 };
-use std::ops::{Bound, Deref, DerefMut};
+use std::ops::Bound;
+#[cfg(test)]
+use std::ops::{Deref, DerefMut};
 
 pub(in crate::db) use crate::db::query::fingerprint::canonical;
 pub use validate::PlanError;
@@ -203,6 +205,7 @@ pub(crate) struct GroupAggregateSpec {
 /// This remains planner-owned input; executor policy bridges may still apply
 /// defaults and enforcement strategy while grouped execution is scaffold-only.
 ///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct GroupedExecutionConfig {
     pub(crate) max_groups: u64,
@@ -251,6 +254,7 @@ impl Default for GroupedExecutionConfig {
 /// This wrapper is intentionally semantic-only; field-slot resolution and
 /// execution-mode derivation remain executor-owned boundaries.
 ///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct GroupSpec {
     pub(crate) group_fields: Vec<String>,
@@ -259,11 +263,11 @@ pub(crate) struct GroupSpec {
 }
 
 ///
-/// LogicalPlan
+/// ScalarPlan
 ///
-/// Pure logical query intent produced by the planner.
+/// Pure scalar logical query intent produced by the planner.
 ///
-/// A `LogicalPlan` represents the access-independent query semantics:
+/// A `ScalarPlan` represents the access-independent query semantics:
 /// predicate/filter, ordering, distinct behavior, pagination/delete windows,
 /// and read-consistency mode.
 ///
@@ -277,8 +281,9 @@ pub(crate) struct GroupSpec {
 /// This struct is the logical compiler stage output and intentionally excludes
 /// access-path details.
 ///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct LogicalPlan {
+pub(crate) struct ScalarPlan {
     /// Load vs delete intent.
     pub(crate) mode: QueryMode,
 
@@ -302,6 +307,53 @@ pub(crate) struct LogicalPlan {
 }
 
 ///
+/// GroupPlan
+///
+/// Pure grouped logical intent emitted by grouped planning.
+/// This stage only captures grouping keys and aggregate declarations.
+///
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct GroupPlan {
+    pub(crate) scalar: ScalarPlan,
+    pub(crate) group_fields: Vec<String>,
+    pub(crate) aggregates: Vec<GroupAggregateSpec>,
+}
+
+///
+/// LogicalPlan
+///
+/// Exclusive logical query intent emitted by planning.
+/// Scalar and grouped semantics are distinct variants by construction.
+///
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum LogicalPlan {
+    Scalar(ScalarPlan),
+    #[allow(dead_code)]
+    Grouped(GroupPlan),
+}
+
+impl LogicalPlan {
+    /// Borrow scalar semantic fields shared by scalar/grouped logical variants.
+    #[must_use]
+    pub(in crate::db) const fn scalar_semantics(&self) -> &ScalarPlan {
+        match self {
+            Self::Scalar(plan) => plan,
+            Self::Grouped(plan) => &plan.scalar,
+        }
+    }
+
+    /// Borrow scalar semantic fields mutably across logical variants.
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) fn scalar_semantics_mut(&mut self) -> &mut ScalarPlan {
+        match self {
+            Self::Scalar(plan) => plan,
+            Self::Grouped(plan) => &mut plan.scalar,
+        }
+    }
+}
+
+///
 /// AccessPlannedQuery
 ///
 /// Access-planned query produced after access-path selection.
@@ -317,9 +369,10 @@ pub(crate) struct AccessPlannedQuery<K> {
 /// GroupedPlan
 ///
 /// Declarative grouped wrapper around one access-planned base query.
-/// This wrapper keeps GROUP BY scaffolding additive and low-churn while
-/// leaving existing `LogicalPlan` literals unchanged.
+/// This wrapper keeps grouped execution wiring separate while runtime
+/// grouped dispatch remains behind staged integration.
 ///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct GroupedPlan<K> {
     pub(crate) base: AccessPlannedQuery<K>,
@@ -339,6 +392,19 @@ impl<K> AccessPlannedQuery<K> {
         (self.logical, self.access)
     }
 
+    /// Borrow scalar semantic fields shared by scalar/grouped logical variants.
+    #[must_use]
+    pub(in crate::db) const fn scalar_plan(&self) -> &ScalarPlan {
+        self.logical.scalar_semantics()
+    }
+
+    /// Borrow scalar semantic fields mutably across logical variants.
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) fn scalar_plan_mut(&mut self) -> &mut ScalarPlan {
+        self.logical.scalar_semantics_mut()
+    }
+
     /// Construct a minimal access-planned query with only an access path.
     ///
     /// Predicates, ordering, and pagination may be attached later.
@@ -348,7 +414,7 @@ impl<K> AccessPlannedQuery<K> {
         consistency: ReadConsistency,
     ) -> Self {
         Self {
-            logical: LogicalPlan {
+            logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
                 mode: QueryMode::Load(LoadSpec::new()),
                 predicate: None,
                 order: None,
@@ -356,7 +422,7 @@ impl<K> AccessPlannedQuery<K> {
                 delete_limit: None,
                 page: None,
                 consistency,
-            },
+            }),
             access: AccessPlan::path(access),
         }
     }
@@ -369,7 +435,15 @@ impl<K> AccessPlannedQuery<K> {
     where
         E: EntityKind<Key = K> + EntityValue,
     {
-        let Some(order) = self.order.as_ref() else {
+        let order = match &self.logical {
+            LogicalPlan::Scalar(logical) => logical.order.as_ref(),
+            LogicalPlan::Grouped(_) => {
+                return Err(InternalError::query_executor_invariant(
+                    "cannot build cursor boundary for grouped logical plans",
+                ));
+            }
+        };
+        let Some(order) = order else {
             return Err(InternalError::query_executor_invariant(
                 "cannot build cursor boundary without ordering",
             ));
@@ -383,22 +457,52 @@ impl<K> GroupedPlan<K> {
     /// Build one grouped query wrapper from base access plan + group spec.
     #[must_use]
     #[allow(dead_code)]
-    pub(crate) const fn from_parts(base: AccessPlannedQuery<K>, group: GroupSpec) -> Self {
+    pub(crate) fn from_parts(base: AccessPlannedQuery<K>, group: GroupSpec) -> Self {
+        let AccessPlannedQuery { logical, access } = base;
+        let scalar = match logical {
+            LogicalPlan::Scalar(plan) => plan,
+            LogicalPlan::Grouped(plan) => plan.scalar,
+        };
+        let logical = LogicalPlan::Grouped(GroupPlan {
+            scalar,
+            group_fields: group.group_fields.clone(),
+            aggregates: group.aggregates.clone(),
+        });
+        let base = AccessPlannedQuery { logical, access };
+
         Self { base, group }
     }
 }
 
-impl<K> Deref for AccessPlannedQuery<K> {
-    type Target = LogicalPlan;
+#[cfg(test)]
+impl Deref for LogicalPlan {
+    type Target = ScalarPlan;
 
     fn deref(&self) -> &Self::Target {
-        &self.logical
+        self.scalar_semantics()
     }
 }
 
+#[cfg(test)]
+impl DerefMut for LogicalPlan {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.scalar_semantics_mut()
+    }
+}
+
+#[cfg(test)]
+impl<K> Deref for AccessPlannedQuery<K> {
+    type Target = ScalarPlan;
+
+    fn deref(&self) -> &Self::Target {
+        self.scalar_plan()
+    }
+}
+
+#[cfg(test)]
 impl<K> DerefMut for AccessPlannedQuery<K> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.logical
+        self.scalar_plan_mut()
     }
 }
 
@@ -575,16 +679,25 @@ fn assess_secondary_order_pushdown_for_plan<K>(
 }
 
 /// Evaluate the secondary-index ORDER BY pushdown matrix for one plan.
-pub(crate) fn assess_secondary_order_pushdown<K>(
+pub(crate) fn assess_secondary_order_pushdown_from_parts<K>(
     model: &EntityModel,
-    plan: &AccessPlannedQuery<K>,
+    logical: &ScalarPlan,
+    access: &AccessPlan<K>,
 ) -> SecondaryOrderPushdownEligibility {
-    let order_fields = plan
+    let order_fields = logical
         .order
         .as_ref()
         .map(|order| order_fields_as_direction_refs(&order.fields));
 
-    assess_secondary_order_pushdown_for_plan(model, order_fields.as_deref(), &plan.access)
+    assess_secondary_order_pushdown_for_plan(model, order_fields.as_deref(), access)
+}
+
+/// Evaluate the secondary-index ORDER BY pushdown matrix for one plan.
+pub(crate) fn assess_secondary_order_pushdown<K>(
+    model: &EntityModel,
+    plan: &AccessPlannedQuery<K>,
+) -> SecondaryOrderPushdownEligibility {
+    assess_secondary_order_pushdown_from_parts(model, plan.scalar_plan(), &plan.access)
 }
 
 /// Derive pushdown applicability from one plan already validated by planner semantics.
@@ -592,8 +705,9 @@ pub(in crate::db) fn derive_secondary_pushdown_applicability_validated<K>(
     model: &EntityModel,
     plan: &AccessPlannedQuery<K>,
 ) -> PushdownApplicability {
+    let logical = plan.scalar_plan();
     debug_assert!(
-        !matches!(plan.order.as_ref(), Some(order) if order.fields.is_empty()),
+        !matches!(logical.order.as_ref(), Some(order) if order.fields.is_empty()),
         "validated plan must not contain an empty ORDER BY specification",
     );
 

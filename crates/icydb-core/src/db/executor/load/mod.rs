@@ -247,7 +247,7 @@ where
             ));
         }
         debug_assert!(
-            policy::validate_plan_shape(plan.as_inner()).is_ok(),
+            policy::validate_plan_shape(&plan.as_inner().logical).is_ok(),
             "load executor received a plan shape that bypassed planning validation",
         );
 

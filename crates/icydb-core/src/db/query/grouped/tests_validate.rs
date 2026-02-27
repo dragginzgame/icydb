@@ -39,7 +39,7 @@ crate::test_entity! {
 
 fn load_plan(access: AccessPlan<Value>) -> AccessPlannedQuery<Value> {
     AccessPlannedQuery {
-        logical: LogicalPlan {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order: None,
@@ -47,7 +47,7 @@ fn load_plan(access: AccessPlan<Value>) -> AccessPlannedQuery<Value> {
             delete_limit: None,
             page: None,
             consistency: ReadConsistency::MissingOk,
-        },
+        }),
         access,
     }
 }

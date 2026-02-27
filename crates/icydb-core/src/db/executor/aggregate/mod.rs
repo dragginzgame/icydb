@@ -197,7 +197,7 @@ impl ExecutionKernel {
         E: EntityKind + EntityValue,
     {
         debug_assert!(
-            policy::validate_plan_shape(plan.as_inner()).is_ok(),
+            policy::validate_plan_shape(&plan.as_inner().logical).is_ok(),
             "aggregate executor received a plan shape that bypassed planning validation",
         );
 

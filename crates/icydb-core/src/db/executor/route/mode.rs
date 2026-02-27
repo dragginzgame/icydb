@@ -20,7 +20,7 @@ where
     E: EntityKind + EntityValue,
 {
     pub(super) fn derive_load_route_direction(plan: &AccessPlannedQuery<E::Key>) -> Direction {
-        derive_primary_scan_direction(plan.order.as_ref())
+        derive_primary_scan_direction(plan.scalar_plan().order.as_ref())
     }
 
     pub(super) fn derive_aggregate_route_direction(
@@ -57,7 +57,7 @@ where
         cursor_boundary: Option<&CursorBoundary>,
     ) -> RouteWindowPlan {
         let effective_offset = ExecutionKernel::effective_page_offset(plan, cursor_boundary);
-        let limit = plan.page.as_ref().and_then(|page| page.limit);
+        let limit = plan.scalar_plan().page.as_ref().and_then(|page| page.limit);
 
         RouteWindowPlan::new(effective_offset, limit)
     }

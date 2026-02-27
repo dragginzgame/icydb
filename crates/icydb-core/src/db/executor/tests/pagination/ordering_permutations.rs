@@ -308,7 +308,7 @@ fn load_union_child_order_permutation_preserves_rows_and_continuation_boundaries
 
     let build_union_abc = || {
         ExecutablePlan::<SimpleEntity>::new(AccessPlannedQuery {
-            logical: LogicalPlan {
+            logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
                 mode: QueryMode::Load(LoadSpec::new()),
                 predicate: None,
                 order: Some(OrderSpec {
@@ -321,7 +321,7 @@ fn load_union_child_order_permutation_preserves_rows_and_continuation_boundaries
                     offset: 0,
                 }),
                 consistency: ReadConsistency::MissingOk,
-            },
+            }),
             access: AccessPlan::Union(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
@@ -331,7 +331,7 @@ fn load_union_child_order_permutation_preserves_rows_and_continuation_boundaries
     };
     let build_union_cab = || {
         ExecutablePlan::<SimpleEntity>::new(AccessPlannedQuery {
-            logical: LogicalPlan {
+            logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
                 mode: QueryMode::Load(LoadSpec::new()),
                 predicate: None,
                 order: Some(OrderSpec {
@@ -344,7 +344,7 @@ fn load_union_child_order_permutation_preserves_rows_and_continuation_boundaries
                     offset: 0,
                 }),
                 consistency: ReadConsistency::MissingOk,
-            },
+            }),
             access: AccessPlan::Union(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id6, id7, id8])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
@@ -401,7 +401,7 @@ fn load_intersection_child_order_permutation_preserves_rows_and_continuation_bou
 
     let build_intersection_abc = || {
         ExecutablePlan::<SimpleEntity>::new(AccessPlannedQuery {
-            logical: LogicalPlan {
+            logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
                 mode: QueryMode::Load(LoadSpec::new()),
                 predicate: None,
                 order: Some(OrderSpec {
@@ -414,7 +414,7 @@ fn load_intersection_child_order_permutation_preserves_rows_and_continuation_bou
                     offset: 0,
                 }),
                 consistency: ReadConsistency::MissingOk,
-            },
+            }),
             access: AccessPlan::Intersection(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4, id5, id6])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7])),
@@ -424,7 +424,7 @@ fn load_intersection_child_order_permutation_preserves_rows_and_continuation_bou
     };
     let build_intersection_bca = || {
         ExecutablePlan::<SimpleEntity>::new(AccessPlannedQuery {
-            logical: LogicalPlan {
+            logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
                 mode: QueryMode::Load(LoadSpec::new()),
                 predicate: None,
                 order: Some(OrderSpec {
@@ -437,7 +437,7 @@ fn load_intersection_child_order_permutation_preserves_rows_and_continuation_bou
                     offset: 0,
                 }),
                 consistency: ReadConsistency::MissingOk,
-            },
+            }),
             access: AccessPlan::Intersection(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id2, id4, id5, id6, id8])),
@@ -489,7 +489,7 @@ fn load_union_child_order_permutation_preserves_rows_and_boundaries_under_mixed_
 
     let build_union_abc = || {
         ExecutablePlan::<PushdownParityEntity>::new(AccessPlannedQuery {
-            logical: LogicalPlan {
+            logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
                 mode: QueryMode::Load(LoadSpec::new()),
                 predicate: None,
                 order: Some(OrderSpec {
@@ -505,7 +505,7 @@ fn load_union_child_order_permutation_preserves_rows_and_boundaries_under_mixed_
                     offset: 0,
                 }),
                 consistency: ReadConsistency::MissingOk,
-            },
+            }),
             access: AccessPlan::Union(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id3, id5, id6])),
@@ -515,7 +515,7 @@ fn load_union_child_order_permutation_preserves_rows_and_boundaries_under_mixed_
     };
     let build_union_cab = || {
         ExecutablePlan::<PushdownParityEntity>::new(AccessPlannedQuery {
-            logical: LogicalPlan {
+            logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
                 mode: QueryMode::Load(LoadSpec::new()),
                 predicate: None,
                 order: Some(OrderSpec {
@@ -531,7 +531,7 @@ fn load_union_child_order_permutation_preserves_rows_and_boundaries_under_mixed_
                     offset: 0,
                 }),
                 consistency: ReadConsistency::MissingOk,
-            },
+            }),
             access: AccessPlan::Union(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id2, id7, id8])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
@@ -583,7 +583,7 @@ fn load_intersection_child_order_permutation_preserves_rows_and_boundaries_under
 
     let build_intersection_abc = || {
         ExecutablePlan::<PushdownParityEntity>::new(AccessPlannedQuery {
-            logical: LogicalPlan {
+            logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
                 mode: QueryMode::Load(LoadSpec::new()),
                 predicate: None,
                 order: Some(OrderSpec {
@@ -599,7 +599,7 @@ fn load_intersection_child_order_permutation_preserves_rows_and_boundaries_under
                     offset: 0,
                 }),
                 consistency: ReadConsistency::MissingOk,
-            },
+            }),
             access: AccessPlan::Intersection(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4, id5, id6])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7])),
@@ -609,7 +609,7 @@ fn load_intersection_child_order_permutation_preserves_rows_and_boundaries_under
     };
     let build_intersection_bca = || {
         ExecutablePlan::<PushdownParityEntity>::new(AccessPlannedQuery {
-            logical: LogicalPlan {
+            logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
                 mode: QueryMode::Load(LoadSpec::new()),
                 predicate: None,
                 order: Some(OrderSpec {
@@ -625,7 +625,7 @@ fn load_intersection_child_order_permutation_preserves_rows_and_boundaries_under
                     offset: 0,
                 }),
                 consistency: ReadConsistency::MissingOk,
-            },
+            }),
             access: AccessPlan::Intersection(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id4, id5, id6, id8])),
@@ -697,7 +697,7 @@ fn load_union_child_order_permutation_matrix_preserves_rows_and_boundaries_under
     ] {
         let build_union_abc = || {
             ExecutablePlan::<PushdownParityEntity>::new(AccessPlannedQuery {
-                logical: LogicalPlan {
+                logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
                     mode: QueryMode::Load(LoadSpec::new()),
                     predicate: None,
                     order: Some(OrderSpec {
@@ -713,7 +713,7 @@ fn load_union_child_order_permutation_matrix_preserves_rows_and_boundaries_under
                         offset: 0,
                     }),
                     consistency: ReadConsistency::MissingOk,
-                },
+                }),
                 access: AccessPlan::Union(vec![
                     AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id4, id6])),
                     AccessPlan::path(AccessPath::ByKeys(vec![id3, id5, id6, id7])),
@@ -723,7 +723,7 @@ fn load_union_child_order_permutation_matrix_preserves_rows_and_boundaries_under
         };
         let build_union_cab = || {
             ExecutablePlan::<PushdownParityEntity>::new(AccessPlannedQuery {
-                logical: LogicalPlan {
+                logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
                     mode: QueryMode::Load(LoadSpec::new()),
                     predicate: None,
                     order: Some(OrderSpec {
@@ -739,7 +739,7 @@ fn load_union_child_order_permutation_matrix_preserves_rows_and_boundaries_under
                         offset: 0,
                     }),
                     consistency: ReadConsistency::MissingOk,
-                },
+                }),
                 access: AccessPlan::Union(vec![
                     AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id8])),
                     AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id4, id6])),
@@ -817,7 +817,7 @@ fn load_intersection_child_order_permutation_matrix_preserves_rows_and_boundarie
     ] {
         let build_intersection_abc = || {
             ExecutablePlan::<PushdownParityEntity>::new(AccessPlannedQuery {
-                logical: LogicalPlan {
+                logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
                     mode: QueryMode::Load(LoadSpec::new()),
                     predicate: None,
                     order: Some(OrderSpec {
@@ -833,7 +833,7 @@ fn load_intersection_child_order_permutation_matrix_preserves_rows_and_boundarie
                         offset: 0,
                     }),
                     consistency: ReadConsistency::MissingOk,
-                },
+                }),
                 access: AccessPlan::Intersection(vec![
                     AccessPlan::path(AccessPath::ByKeys(vec![
                         id1, id2, id3, id4, id5, id6, id7, id8,
@@ -845,7 +845,7 @@ fn load_intersection_child_order_permutation_matrix_preserves_rows_and_boundarie
         };
         let build_intersection_bca = || {
             ExecutablePlan::<PushdownParityEntity>::new(AccessPlannedQuery {
-                logical: LogicalPlan {
+                logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
                     mode: QueryMode::Load(LoadSpec::new()),
                     predicate: None,
                     order: Some(OrderSpec {
@@ -861,7 +861,7 @@ fn load_intersection_child_order_permutation_matrix_preserves_rows_and_boundarie
                         offset: 0,
                     }),
                     consistency: ReadConsistency::MissingOk,
-                },
+                }),
                 access: AccessPlan::Intersection(vec![
                     AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7, id9])),
                     AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id4, id5, id6, id7, id10])),

@@ -6,7 +6,7 @@ use crate::{
         query::{
             builder::field::FieldRef,
             expr::FilterExpr,
-            plan::{AccessPlannedQuery, LogicalPlan},
+            plan::{AccessPlannedQuery, LogicalPlan, ScalarPlan},
         },
     },
     model::{
@@ -398,7 +398,7 @@ fn typed_plan_matches_model_plan_for_same_intent() {
 
     let model_plan = model_intent.build_plan_model().expect("model plan");
     let (model_logical, model_access) = model_plan.into_parts();
-    let LogicalPlan {
+    let LogicalPlan::Scalar(ScalarPlan {
         mode,
         predicate: plan_predicate,
         order,
@@ -406,12 +406,15 @@ fn typed_plan_matches_model_plan_for_same_intent() {
         delete_limit,
         page,
         consistency,
-    } = model_logical;
+    }) = model_logical
+    else {
+        panic!("typed/model intent parity test expects scalar logical plan");
+    };
 
     let access = access_plan_to_entity_keys::<PlanEntity>(PlanEntity::MODEL, model_access)
         .expect("convert access plan");
     let model_as_typed = AccessPlannedQuery::from_parts(
-        LogicalPlan {
+        LogicalPlan::Scalar(ScalarPlan {
             mode,
             predicate: plan_predicate,
             order,
@@ -419,7 +422,7 @@ fn typed_plan_matches_model_plan_for_same_intent() {
             delete_limit,
             page,
             consistency,
-        },
+        }),
         access,
     );
 

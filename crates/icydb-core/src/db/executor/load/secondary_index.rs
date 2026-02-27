@@ -37,7 +37,8 @@ where
             index,
             "secondary fast-path spec/index alignment must be validated by resolver",
         );
-        let stream_direction = derive_secondary_order_scan_direction(plan.order.as_ref());
+        let stream_direction =
+            derive_secondary_order_scan_direction(plan.scalar_plan().order.as_ref());
 
         let stream_request = AccessPlanStreamRequest::from_bindings(
             &plan.access,

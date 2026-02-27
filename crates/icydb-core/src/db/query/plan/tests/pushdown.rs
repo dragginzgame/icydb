@@ -45,7 +45,7 @@ fn model_with_index() -> &'static EntityModel {
 
 fn load_plan(access: AccessPlan<Value>, order: Option<OrderSpec>) -> AccessPlannedQuery<Value> {
     AccessPlannedQuery {
-        logical: LogicalPlan {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order,
@@ -53,7 +53,7 @@ fn load_plan(access: AccessPlan<Value>, order: Option<OrderSpec>) -> AccessPlann
             delete_limit: None,
             page: None,
             consistency: ReadConsistency::MissingOk,
-        },
+        }),
         access,
     }
 }

@@ -270,12 +270,13 @@ impl<K> PostAccessPlan<'_, K> {
     // Guard post-access execution with internal plan-shape invariants.
     // Planner owns user-facing validation; this only catches internal misuse.
     fn validate_post_access_invariants(&self) -> Result<(), InternalError> {
-        policy::validate_plan_shape(self).map_err(InternalError::plan_invariant_violation)
+        policy::validate_plan_shape(&self.plan.logical)
+            .map_err(InternalError::plan_invariant_violation)
     }
 
     // Enforce load/delete cursor compatibility before execution phases.
     fn validate_cursor_mode(&self, cursor: Option<&CursorBoundary>) -> Result<(), InternalError> {
-        if cursor.is_some() && !self.mode.is_load() {
+        if cursor.is_some() && !self.plan.scalar_plan().mode.is_load() {
             return Err(InternalError::query_invalid_logical_plan(
                 "delete plans must not carry cursor boundaries",
             ));
@@ -294,7 +295,7 @@ impl<K> PostAccessPlan<'_, K> {
         E: EntityKind + EntityValue,
         R: PlanRow<E>,
     {
-        let filtered = if self.predicate.is_some() {
+        let filtered = if self.plan.scalar_plan().predicate.is_some() {
             let Some(compiled_predicate) = compiled_predicate else {
                 return Err(InternalError::query_executor_invariant(
                     "post-access filtering requires precompiled predicate slots",
@@ -322,10 +323,11 @@ impl<K> PostAccessPlan<'_, K> {
         R: PlanRow<E>,
     {
         let bounded_order_keep = ExecutionKernel::bounded_order_keep_count(self, cursor);
-        if let Some(order) = &self.order
+        let logical = self.plan.scalar_plan();
+        if let Some(order) = &logical.order
             && !order.fields.is_empty()
         {
-            if self.predicate.is_some() && !filtered {
+            if logical.predicate.is_some() && !filtered {
                 return Err(InternalError::query_executor_invariant(
                     "ordering must run after filtering",
                 ));
@@ -355,10 +357,11 @@ impl<K> PostAccessPlan<'_, K> {
         ordered: bool,
         cursor: Option<&CursorBoundary>,
     ) -> Result<(bool, usize), InternalError> {
-        let paged = if self.mode.is_load()
-            && let Some(page) = &self.page
+        let logical = self.plan.scalar_plan();
+        let paged = if logical.mode.is_load()
+            && let Some(page) = &logical.page
         {
-            if self.order.is_some() && !ordered {
+            if logical.order.is_some() && !ordered {
                 return Err(InternalError::query_executor_invariant(
                     "pagination must run after ordering",
                 ));
@@ -382,10 +385,11 @@ impl<K> PostAccessPlan<'_, K> {
         rows: &mut Vec<R>,
         ordered: bool,
     ) -> Result<(bool, usize), InternalError> {
-        let delete_was_limited = if self.mode.is_delete()
-            && let Some(limit) = &self.delete_limit
+        let logical = self.plan.scalar_plan();
+        let delete_was_limited = if logical.mode.is_delete()
+            && let Some(limit) = &logical.delete_limit
         {
-            if self.order.is_some() && !ordered {
+            if logical.order.is_some() && !ordered {
                 return Err(InternalError::query_executor_invariant(
                     "delete limit must run after ordering",
                 ));
@@ -405,9 +409,10 @@ impl<K> PostAccessPlan<'_, K> {
     where
         E: EntitySchema<Key = K>,
     {
-        let has_residual_filter = self.predicate.is_some();
+        let logical = self.plan.scalar_plan();
+        let has_residual_filter = logical.predicate.is_some();
         let access_order_satisfied_by_path = self.is_access_order_satisfied_by_path::<E>();
-        let has_order = self
+        let has_order = logical
             .order
             .as_ref()
             .is_some_and(|order| !order.fields.is_empty());
@@ -427,7 +432,7 @@ impl<K> PostAccessPlan<'_, K> {
     where
         E: EntitySchema<Key = K>,
     {
-        if !self.mode.is_load() {
+        if !self.plan.scalar_plan().mode.is_load() {
             return false;
         }
 
@@ -448,7 +453,7 @@ impl<K> PostAccessPlan<'_, K> {
     where
         E: EntitySchema<Key = K>,
     {
-        let Some(order) = self.order.as_ref() else {
+        let Some(order) = self.plan.scalar_plan().order.as_ref() else {
             return false;
         };
         if order.fields.len() != 1 {
@@ -458,7 +463,7 @@ impl<K> PostAccessPlan<'_, K> {
             return false;
         }
 
-        Self::access_stream_is_pk_ordered(&self.access)
+        Self::access_stream_is_pk_ordered(&self.plan.access)
     }
 
     // Composite access order is valid only when every child preserves canonical

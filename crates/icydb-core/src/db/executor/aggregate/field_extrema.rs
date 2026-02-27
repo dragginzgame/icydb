@@ -130,7 +130,7 @@ impl ExecutionKernel {
         )?;
         let (aggregate_output, keys_scanned) = LoadExecutor::<E>::fold_streaming_field_extrema(
             &prepared.ctx,
-            prepared.logical_plan.consistency,
+            prepared.logical_plan.scalar_plan().consistency,
             resolved.key_stream.as_mut(),
             target_field,
             field_slot,

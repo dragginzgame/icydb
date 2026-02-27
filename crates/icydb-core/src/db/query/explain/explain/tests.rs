@@ -74,7 +74,7 @@ fn explain_is_deterministic_for_by_keys() {
     let access_b = access_plan_from_keys_value(&KeyAccess::Many(vec![b, a]));
 
     let plan_a: AccessPlannedQuery<Value> = AccessPlannedQuery {
-        logical: LogicalPlan {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order: None,
@@ -82,11 +82,11 @@ fn explain_is_deterministic_for_by_keys() {
             delete_limit: None,
             page: None,
             consistency: ReadConsistency::MissingOk,
-        },
+        }),
         access: access_a,
     };
     let plan_b: AccessPlannedQuery<Value> = AccessPlannedQuery {
-        logical: LogicalPlan {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order: None,
@@ -94,7 +94,7 @@ fn explain_is_deterministic_for_by_keys() {
             delete_limit: None,
             page: None,
             consistency: ReadConsistency::MissingOk,
-        },
+        }),
         access: access_b,
     };
 
@@ -199,7 +199,7 @@ fn explain_with_model_reports_descending_pushdown_eligibility() {
 fn explain_with_model_reports_composite_index_range_pushdown_rejection_reason() {
     let model = <ExplainPushdownEntity as EntitySchema>::MODEL;
     let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
-        logical: LogicalPlan {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order: Some(OrderSpec {
@@ -209,7 +209,7 @@ fn explain_with_model_reports_composite_index_range_pushdown_rejection_reason() 
             delete_limit: None,
             page: None,
             consistency: ReadConsistency::MissingOk,
-        },
+        }),
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::index_range(
                 PUSHDOWN_INDEX,

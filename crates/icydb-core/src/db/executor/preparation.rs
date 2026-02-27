@@ -32,6 +32,7 @@ impl ExecutionPreparation {
         E: EntityKind + EntityValue,
     {
         let compiled_predicate = plan
+            .scalar_plan()
             .predicate
             .as_ref()
             .map(PredicateFieldSlots::resolve::<E>);

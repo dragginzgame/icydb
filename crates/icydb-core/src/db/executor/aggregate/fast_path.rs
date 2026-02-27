@@ -271,7 +271,7 @@ impl ExecutionKernel {
             AccessPath::ByKey(_) | AccessPath::ByKeys(_) => {}
             _ => return Ok(None),
         }
-        if plan.predicate.is_some() {
+        if plan.scalar_plan().predicate.is_some() {
             return Ok(None);
         }
 
@@ -329,7 +329,7 @@ impl ExecutionKernel {
         };
 
         if !Self::secondary_extrema_probe_requires_fallback(
-            inputs.logical_plan.consistency,
+            inputs.logical_plan.scalar_plan().consistency,
             kind,
             probe_fetch_hint,
             &probe_output,
