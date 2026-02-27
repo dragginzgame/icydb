@@ -8,8 +8,8 @@ use crate::{
         executor::{
             ExecutionKernel, LoadExecutor, OrderedKeyStream,
             aggregate::{
-                AggregateFoldMode, AggregateKind, AggregateOutput, AggregateReducerState,
-                FoldControl,
+                AggregateFoldMode, AggregateKind, AggregateOutput, AggregateState,
+                AggregateStateFactory, FoldControl, TerminalAggregateState,
             },
             load::CursorPage,
         },
@@ -75,37 +75,30 @@ pub(in crate::db::executor) trait KernelReducer<E: EntityKind + EntityValue> {
 }
 
 ///
-/// CountExistsReducer
+/// AggregateStateReducer
 ///
-/// Adapter reducer that reuses canonical `AggregateReducerState` transition
-/// semantics for key-stream COUNT/EXISTS terminals under the kernel runner.
+/// AggregateStateReducer adapts the canonical aggregate state-machine boundary
+/// to the kernel key-stream reducer contract.
+/// All scalar aggregate terminals fold through this one reducer adapter.
 ///
 
-struct CountExistsReducer<E: EntityKind + EntityValue> {
-    kind: AggregateKind,
-    state: AggregateReducerState<E>,
+struct AggregateStateReducer<E: EntityKind + EntityValue> {
+    state: TerminalAggregateState<E>,
 }
 
-impl<E> CountExistsReducer<E>
+impl<E> AggregateStateReducer<E>
 where
     E: EntityKind + EntityValue,
 {
-    // Build one reducer adapter for COUNT/EXISTS streaming terminals.
-    fn new(kind: AggregateKind) -> Result<Self, InternalError> {
-        if !matches!(kind, AggregateKind::Count | AggregateKind::Exists) {
-            return Err(InternalError::query_executor_invariant(
-                "count/exists reducer supports only COUNT and EXISTS terminals",
-            ));
+    // Build one reducer adapter for any scalar aggregate terminal.
+    const fn new(kind: AggregateKind, direction: Direction) -> Self {
+        Self {
+            state: AggregateStateFactory::create_terminal(kind, direction),
         }
-
-        Ok(Self {
-            kind,
-            state: AggregateReducerState::for_kind(kind),
-        })
     }
 }
 
-impl<E> KernelReducer<E> for CountExistsReducer<E>
+impl<E> KernelReducer<E> for AggregateStateReducer<E>
 where
     E: EntityKind + EntityValue,
 {
@@ -115,9 +108,7 @@ where
     fn on_item(&mut self, item: StreamItem<'_, E>) -> Result<ReducerControl, InternalError> {
         match item {
             StreamItem::Key(key) => {
-                let fold_control =
-                    self.state
-                        .update_from_data_key(self.kind, Direction::Asc, key)?;
+                let fold_control = self.state.apply(key)?;
 
                 Ok(match fold_control {
                     FoldControl::Continue => ReducerControl::Continue,
@@ -131,133 +122,7 @@ where
     }
 
     fn finish(self) -> Result<Self::Output, InternalError> {
-        Ok(self.state.into_output())
-    }
-}
-
-///
-/// ExtremumFoldReducer
-///
-/// Reducer adapter for scalar MIN/MAX terminals over the key stream.
-/// Field-target extrema stay on dedicated kernel orchestration paths.
-///
-
-struct ExtremumFoldReducer<E: EntityKind + EntityValue> {
-    kind: AggregateKind,
-    direction: Direction,
-    state: AggregateReducerState<E>,
-}
-
-impl<E> ExtremumFoldReducer<E>
-where
-    E: EntityKind + EntityValue,
-{
-    // Build one reducer adapter for scalar MIN/MAX streaming terminals.
-    fn new(kind: AggregateKind, direction: Direction) -> Result<Self, InternalError> {
-        if !matches!(kind, AggregateKind::Min | AggregateKind::Max) {
-            return Err(InternalError::query_executor_invariant(
-                "extremum reducer supports only MIN and MAX terminals",
-            ));
-        }
-
-        Ok(Self {
-            kind,
-            direction,
-            state: AggregateReducerState::for_kind(kind),
-        })
-    }
-}
-
-impl<E> KernelReducer<E> for ExtremumFoldReducer<E>
-where
-    E: EntityKind + EntityValue,
-{
-    type Output = AggregateOutput<E>;
-    const INPUT_MODE: StreamInputMode = StreamInputMode::KeyOnly;
-
-    fn on_item(&mut self, item: StreamItem<'_, E>) -> Result<ReducerControl, InternalError> {
-        match item {
-            StreamItem::Key(key) => {
-                let fold_control =
-                    self.state
-                        .update_from_data_key(self.kind, self.direction, key)?;
-
-                Ok(match fold_control {
-                    FoldControl::Continue => ReducerControl::Continue,
-                    FoldControl::Break => ReducerControl::StopEarly,
-                })
-            }
-            StreamItem::Row(_row) => Err(InternalError::query_executor_invariant(
-                "extremum reducer received row item for key-only input mode",
-            )),
-        }
-    }
-
-    fn finish(self) -> Result<Self::Output, InternalError> {
-        Ok(self.state.into_output())
-    }
-}
-
-///
-/// FirstLastReducer
-///
-/// Reducer adapter for scalar FIRST/LAST terminals over the key stream.
-/// This preserves canonical direction-aware first/last fold semantics.
-///
-
-struct FirstLastReducer<E: EntityKind + EntityValue> {
-    kind: AggregateKind,
-    direction: Direction,
-    state: AggregateReducerState<E>,
-}
-
-impl<E> FirstLastReducer<E>
-where
-    E: EntityKind + EntityValue,
-{
-    // Build one reducer adapter for scalar FIRST/LAST streaming terminals.
-    fn new(kind: AggregateKind, direction: Direction) -> Result<Self, InternalError> {
-        if !matches!(kind, AggregateKind::First | AggregateKind::Last) {
-            return Err(InternalError::query_executor_invariant(
-                "first/last reducer supports only FIRST and LAST terminals",
-            ));
-        }
-
-        Ok(Self {
-            kind,
-            direction,
-            state: AggregateReducerState::for_kind(kind),
-        })
-    }
-}
-
-impl<E> KernelReducer<E> for FirstLastReducer<E>
-where
-    E: EntityKind + EntityValue,
-{
-    type Output = AggregateOutput<E>;
-    const INPUT_MODE: StreamInputMode = StreamInputMode::KeyOnly;
-
-    fn on_item(&mut self, item: StreamItem<'_, E>) -> Result<ReducerControl, InternalError> {
-        match item {
-            StreamItem::Key(key) => {
-                let fold_control =
-                    self.state
-                        .update_from_data_key(self.kind, self.direction, key)?;
-
-                Ok(match fold_control {
-                    FoldControl::Continue => ReducerControl::Continue,
-                    FoldControl::Break => ReducerControl::StopEarly,
-                })
-            }
-            StreamItem::Row(_row) => Err(InternalError::query_executor_invariant(
-                "first/last reducer received row item for key-only input mode",
-            )),
-        }
-    }
-
-    fn finish(self) -> Result<Self::Output, InternalError> {
-        Ok(self.state.into_output())
+        Ok(self.state.finalize())
     }
 }
 
@@ -330,6 +195,25 @@ impl ExecutionKernel {
                 Err(err) => Err(err),
             },
         }
+    }
+
+    // Validate aggregate kind/fold-mode compatibility against route contracts.
+    const fn aggregate_fold_mode_matches_terminal(
+        kind: AggregateKind,
+        mode: AggregateFoldMode,
+    ) -> bool {
+        matches!(
+            (kind, mode),
+            (AggregateKind::Count, AggregateFoldMode::KeysOnly)
+                | (
+                    AggregateKind::Exists
+                        | AggregateKind::Min
+                        | AggregateKind::Max
+                        | AggregateKind::First
+                        | AggregateKind::Last,
+                    AggregateFoldMode::ExistingRows
+                )
+        )
     }
 
     // Run a key-stream reducer under canonical aggregate window and
@@ -478,52 +362,18 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
-        match (kind, mode) {
-            (AggregateKind::Count, AggregateFoldMode::KeysOnly) => Self::run_key_stream_reducer(
-                ctx,
-                plan,
-                mode,
-                key_stream,
-                CountExistsReducer::<E>::new(kind)?,
-            ),
-            (AggregateKind::Exists, AggregateFoldMode::ExistingRows) => {
-                Self::run_key_stream_reducer(
-                    ctx,
-                    plan,
-                    mode,
-                    key_stream,
-                    CountExistsReducer::<E>::new(kind)?,
-                )
-            }
-            (AggregateKind::Min | AggregateKind::Max, AggregateFoldMode::ExistingRows) => {
-                Self::run_key_stream_reducer(
-                    ctx,
-                    plan,
-                    mode,
-                    key_stream,
-                    ExtremumFoldReducer::<E>::new(kind, direction)?,
-                )
-            }
-            (AggregateKind::First | AggregateKind::Last, AggregateFoldMode::ExistingRows) => {
-                Self::run_key_stream_reducer(
-                    ctx,
-                    plan,
-                    mode,
-                    key_stream,
-                    FirstLastReducer::<E>::new(kind, direction)?,
-                )
-            }
-            (
-                AggregateKind::Count
-                | AggregateKind::Exists
-                | AggregateKind::Min
-                | AggregateKind::Max
-                | AggregateKind::First
-                | AggregateKind::Last,
-                AggregateFoldMode::KeysOnly | AggregateFoldMode::ExistingRows,
-            ) => Err(InternalError::query_executor_invariant(
+        if !Self::aggregate_fold_mode_matches_terminal(kind, mode) {
+            return Err(InternalError::query_executor_invariant(
                 "aggregate fold mode must match route fold-mode contract for aggregate terminal",
-            )),
+            ));
         }
+
+        Self::run_key_stream_reducer(
+            ctx,
+            plan,
+            mode,
+            key_stream,
+            AggregateStateReducer::<E>::new(kind, direction),
+        )
     }
 }

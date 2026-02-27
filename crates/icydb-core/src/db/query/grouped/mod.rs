@@ -15,5 +15,5 @@ pub(crate) use crate::db::query::plan::validate::{
 /// scattered across unrelated query modules.
 ///
 pub(crate) use crate::db::query::plan::{
-    GroupAggregateKind, GroupAggregateSpec, GroupSpec, GroupedPlan,
+    GroupAggregateKind, GroupAggregateSpec, GroupSpec, GroupedExecutionConfig, GroupedPlan,
 };

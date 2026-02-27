@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::db::executor::grouped::grouped_execution_context_from_planner_config;
 use crate::{
     db::{
         access::PushdownApplicability,
@@ -196,6 +198,8 @@ where
     pub(in crate::db::executor) fn build_execution_route_plan_for_grouped_plan(
         grouped: &crate::db::plan::GroupedPlan<E::Key>,
     ) -> ExecutionPlan {
+        let _grouped_execution_context =
+            grouped_execution_context_from_planner_config(Some(grouped.group.execution));
         let execution_preparation = ExecutionPreparation::for_plan::<E>(&grouped.base);
 
         Self::build_execution_route_plan(

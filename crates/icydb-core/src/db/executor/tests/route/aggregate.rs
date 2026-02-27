@@ -33,6 +33,7 @@ fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_pat
                 kind: GroupAggregateKind::Count,
                 target_field: None,
             }],
+            execution: GroupedExecutionConfig::unbounded(),
         },
     );
 
@@ -44,6 +45,44 @@ fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_pat
         ExecutionModeRouteCase::AggregateGrouped
     );
     assert_eq!(route_plan.execution_mode, ExecutionMode::Materialized);
+    assert_eq!(route_plan.continuation_mode(), ContinuationMode::Initial);
+    assert_eq!(route_plan.index_range_limit_spec, None);
+    assert_eq!(route_plan.scan_hints.physical_fetch_hint, None);
+    assert_eq!(route_plan.scan_hints.load_scan_budget_hint, None);
+    assert_eq!(route_plan.fast_path_order(), &[]);
+}
+
+#[test]
+fn route_plan_grouped_wrapper_keeps_blocking_shape_under_tight_budget_config() {
+    let mut base =
+        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    base.order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
+    });
+    let grouped = GroupedPlan::from_parts(
+        base,
+        GroupSpec {
+            group_fields: vec!["rank".to_string()],
+            aggregates: vec![GroupAggregateSpec {
+                kind: GroupAggregateKind::Count,
+                target_field: None,
+            }],
+            execution: GroupedExecutionConfig::with_hard_limits(1, 1),
+        },
+    );
+
+    let route_plan =
+        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_grouped_plan(&grouped);
+
+    assert_eq!(
+        route_plan.execution_mode_case(),
+        ExecutionModeRouteCase::AggregateGrouped
+    );
+    assert_eq!(route_plan.execution_mode, ExecutionMode::Materialized);
+    assert_eq!(route_plan.continuation_mode(), ContinuationMode::Initial);
+    assert_eq!(route_plan.index_range_limit_spec, None);
+    assert_eq!(route_plan.scan_hints.physical_fetch_hint, None);
+    assert_eq!(route_plan.scan_hints.load_scan_budget_hint, None);
     assert_eq!(route_plan.fast_path_order(), &[]);
 }
 

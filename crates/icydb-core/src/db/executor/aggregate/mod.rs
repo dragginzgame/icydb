@@ -11,8 +11,8 @@ mod projection;
 mod terminals;
 
 pub(in crate::db::executor) use contracts::{
-    AggregateFoldMode, AggregateKind, AggregateOutput, AggregateReducerState, AggregateSpec,
-    FoldControl,
+    AggregateFoldMode, AggregateKind, AggregateOutput, AggregateSpec, AggregateState,
+    AggregateStateFactory, ExecutionConfig, ExecutionContext, FoldControl, TerminalAggregateState,
 };
 #[allow(unused_imports)]
 pub(in crate::db::executor) use contracts::{GroupAggregateSpec, GroupAggregateSpecSupportError};
@@ -25,10 +25,12 @@ use crate::db::executor::aggregate::field::{
 };
 use crate::{
     db::{
+        data::DataKey,
         direction::Direction,
         executor::{
             AccessStreamBindings, ExecutablePlan, ExecutionKernel, ExecutionPreparation,
             IndexPredicateCompileMode,
+            grouped::{GroupedExecutionConfig, grouped_execution_context_from_planner_config},
             load::{ExecutionInputs, LoadExecutor},
             plan_metrics::{record_plan_metrics, record_rows_scanned},
             route::ExecutionMode,
@@ -140,11 +142,24 @@ impl<'a> AggregateReducerDispatch<'a> {
 }
 
 impl ExecutionKernel {
+    // Build one grouped execution context by resolving optional planner limits
+    // through one executor-owned policy bridge.
+    const fn build_grouped_execution_context(
+        planner_config: Option<GroupedExecutionConfig>,
+    ) -> ExecutionContext {
+        grouped_execution_context_from_planner_config(planner_config)
+    }
+
     // Validate grouped aggregate contract shape and route supported inputs into
     // the scalar terminal execution stage.
     fn resolve_grouped_reducer_stage(
         grouped_spec: &GroupAggregateSpec,
+        execution_context: &ExecutionContext,
     ) -> Result<GroupedReducerStage, InternalError> {
+        // Grouped execution is still gated, but the context boundary is plumbed
+        // end-to-end now so future grouped operators cannot bypass it.
+        let _ = execution_context;
+
         grouped_spec
             .ensure_supported_for_execution()
             .map_err(|err| InternalError::executor_unsupported(err.to_string()))?;
@@ -268,31 +283,43 @@ impl ExecutionKernel {
         }
         let response = executor.execute(plan)?;
 
-        Ok(Self::aggregate_from_materialized(response, kind))
+        Self::aggregate_from_materialized(response, kind)
     }
 
     // Reduce one materialized response into a standard aggregate terminal
-    // result using canonical materialized semantics.
+    // result using the shared aggregate state-machine boundary.
     fn aggregate_from_materialized<E>(
         response: Response<E>,
         kind: AggregateKind,
-    ) -> AggregateOutput<E>
+    ) -> Result<AggregateOutput<E>, InternalError>
     where
         E: EntityKind + EntityValue,
     {
+        // Materialized fallback can observe response order that is unrelated to
+        // primary-key order. Use non-short-circuit directions for extrema so
+        // MIN/MAX remain globally correct over the full response window.
+        let direction = Self::materialized_reduction_direction(kind);
+        let mut state = AggregateStateFactory::create_terminal::<E>(kind, direction);
+        for (id, _) in response {
+            let data_key = DataKey::try_new::<E>(id.key())?;
+            let fold_control = state.apply(&data_key)?;
+            if matches!(fold_control, FoldControl::Break) {
+                break;
+            }
+        }
+
+        Ok(state.finalize())
+    }
+
+    // Derive materialized fallback reduction direction for one scalar terminal.
+    const fn materialized_reduction_direction(kind: AggregateKind) -> Direction {
         match kind {
-            AggregateKind::Count => AggregateOutput::Count(response.count()),
-            AggregateKind::Exists => AggregateOutput::Exists(!response.is_empty()),
-            AggregateKind::Min => {
-                AggregateOutput::Min(response.into_iter().map(|(id, _)| id).min())
-            }
-            AggregateKind::Max => {
-                AggregateOutput::Max(response.into_iter().map(|(id, _)| id).max())
-            }
-            AggregateKind::First => AggregateOutput::First(response.id()),
-            AggregateKind::Last => {
-                AggregateOutput::Last(response.into_iter().map(|(id, _)| id).last())
-            }
+            AggregateKind::Min => Direction::Desc,
+            AggregateKind::Max
+            | AggregateKind::Count
+            | AggregateKind::Exists
+            | AggregateKind::First
+            | AggregateKind::Last => Direction::Asc,
         }
     }
 
@@ -398,8 +425,9 @@ impl ExecutionKernel {
     {
         // Stage 1: grouped reducer-stage contract boundary.
         let grouped_spec = GroupAggregateSpec::for_global_terminal(spec);
+        let grouped_execution_context = Self::build_grouped_execution_context(None);
         let GroupedReducerStage::ScalarTerminal { spec } =
-            Self::resolve_grouped_reducer_stage(&grouped_spec)?;
+            Self::resolve_grouped_reducer_stage(&grouped_spec, &grouped_execution_context)?;
 
         // Stage 2: scalar terminal execution boundary.
         Self::execute_scalar_terminal_stage(executor, plan, spec)

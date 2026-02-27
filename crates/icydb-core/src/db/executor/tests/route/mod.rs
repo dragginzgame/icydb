@@ -15,7 +15,10 @@ use crate::{
             },
         },
         query::{
-            grouped::{GroupAggregateKind, GroupAggregateSpec, GroupSpec, GroupedPlan},
+            grouped::{
+                GroupAggregateKind, GroupAggregateSpec, GroupSpec, GroupedExecutionConfig,
+                GroupedPlan,
+            },
             intent::{DeleteSpec, QueryMode},
             plan::{AccessPlannedQuery, OrderDirection, OrderSpec, PageSpec},
         },

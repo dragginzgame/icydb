@@ -1,10 +1,17 @@
 use crate::{
-    db::{data::DataKey, direction::Direction},
+    db::{
+        contracts::{canonical_group_key_equals, canonical_value_compare},
+        data::DataKey,
+        direction::Direction,
+        group_key::GroupKey,
+        hash::StableHash,
+    },
     error::InternalError,
     traits::EntityKind,
     types::Id,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+use std::mem::size_of;
 use thiserror::Error as ThisError;
 
 ///
@@ -166,6 +173,258 @@ pub(in crate::db::executor) enum GroupAggregateSpecSupportError {
     },
 }
 
+///
+/// GroupError
+///
+/// GroupError is the typed grouped-execution error surface.
+/// This taxonomy keeps grouped memory-limit failures explicit and prevents
+/// grouped resource guardrails from degrading into generic internal errors.
+///
+
+#[derive(Debug, ThisError)]
+pub(in crate::db::executor) enum GroupError {
+    #[error(
+        "grouped execution memory limit exceeded ({resource}): attempted={attempted}, limit={limit}"
+    )]
+    MemoryLimitExceeded {
+        resource: &'static str,
+        attempted: u64,
+        limit: u64,
+    },
+
+    #[error("{0}")]
+    Internal(#[from] InternalError),
+}
+
+///
+/// ExecutionBudget
+///
+/// ExecutionBudget tracks grouped-execution resource usage counters.
+/// `groups` and `aggregate_states` are structural counters; `estimated_bytes`
+/// is a conservative allocation estimate used for memory guardrails.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) struct ExecutionBudget {
+    groups: u64,
+    aggregate_states: u64,
+    estimated_bytes: u64,
+}
+
+///
+/// ExecutionConfig
+///
+/// ExecutionConfig defines hard grouped-execution limits selected by planning.
+/// Limits stay policy-owned at executor boundaries instead of inside operator
+/// state containers so memory policy remains centralized and composable.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) struct ExecutionConfig {
+    max_groups: u64,
+    max_group_bytes: u64,
+}
+
+///
+/// ExecutionContext
+///
+/// ExecutionContext carries grouped execution policy plus mutable budget usage.
+/// Planner/executor boundaries own this context and pass it down to grouped
+/// operators so accounting is consistent across all future grouped operators.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) struct ExecutionContext {
+    config: ExecutionConfig,
+    budget: ExecutionBudget,
+}
+
+impl ExecutionBudget {
+    /// Build one zeroed grouped-execution budget.
+    #[must_use]
+    pub(in crate::db::executor) const fn new() -> Self {
+        Self {
+            groups: 0,
+            aggregate_states: 0,
+            estimated_bytes: 0,
+        }
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    #[must_use]
+    pub(in crate::db::executor) const fn groups(&self) -> u64 {
+        self.groups
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    #[must_use]
+    pub(in crate::db::executor) const fn aggregate_states(&self) -> u64 {
+        self.aggregate_states
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    #[must_use]
+    pub(in crate::db::executor) const fn estimated_bytes(&self) -> u64 {
+        self.estimated_bytes
+    }
+
+    fn record_new_group<E: EntityKind>(
+        &mut self,
+        config: &ExecutionConfig,
+        created_bucket: bool,
+        bucket_len: usize,
+        bucket_capacity: usize,
+    ) -> Result<(), GroupError> {
+        let next_groups = self.groups.saturating_add(1);
+        if next_groups > config.max_groups() {
+            return Err(GroupError::MemoryLimitExceeded {
+                resource: "groups",
+                attempted: next_groups,
+                limit: config.max_groups(),
+            });
+        }
+
+        let bytes_delta =
+            estimated_new_group_bytes::<E>(created_bucket, bucket_len, bucket_capacity);
+        let next_bytes = self.estimated_bytes.saturating_add(bytes_delta);
+        if next_bytes > config.max_group_bytes() {
+            return Err(GroupError::MemoryLimitExceeded {
+                resource: "estimated_bytes",
+                attempted: next_bytes,
+                limit: config.max_group_bytes(),
+            });
+        }
+
+        self.groups = next_groups;
+        self.aggregate_states = self.aggregate_states.saturating_add(1);
+        self.estimated_bytes = next_bytes;
+
+        Ok(())
+    }
+}
+
+impl Default for ExecutionBudget {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+impl ExecutionConfig {
+    /// Build one grouped hard-limit configuration.
+    #[must_use]
+    pub(in crate::db::executor) const fn with_hard_limits(
+        max_groups: u64,
+        max_group_bytes: u64,
+    ) -> Self {
+        Self {
+            max_groups,
+            max_group_bytes,
+        }
+    }
+
+    /// Build one unbounded grouped configuration for scaffold callers/tests.
+    #[must_use]
+    pub(in crate::db::executor) const fn unbounded() -> Self {
+        Self::with_hard_limits(u64::MAX, u64::MAX)
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn max_groups(&self) -> u64 {
+        self.max_groups
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn max_group_bytes(&self) -> u64 {
+        self.max_group_bytes
+    }
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+impl ExecutionContext {
+    /// Build one execution context from grouped hard-limit policy.
+    #[must_use]
+    pub(in crate::db::executor) const fn new(config: ExecutionConfig) -> Self {
+        Self {
+            config,
+            budget: ExecutionBudget::new(),
+        }
+    }
+
+    #[allow(dead_code)]
+    #[must_use]
+    pub(in crate::db::executor) const fn config(&self) -> &ExecutionConfig {
+        &self.config
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    #[must_use]
+    pub(in crate::db::executor) const fn budget(&self) -> &ExecutionBudget {
+        &self.budget
+    }
+
+    /// Build one grouped aggregate state through the execution-context boundary.
+    ///
+    /// This keeps grouped state construction policy-owned by executor context
+    /// so grouped operators cannot bypass centralized budget/config plumbing.
+    #[cfg_attr(not(test), allow(dead_code))]
+    #[must_use]
+    pub(in crate::db::executor) const fn create_grouped_state<E: EntityKind>(
+        &self,
+        kind: AggregateKind,
+        direction: Direction,
+    ) -> GroupedAggregateState<E> {
+        let _ = self.config;
+        GroupedAggregateState::new(kind, direction)
+    }
+
+    fn record_new_group<E: EntityKind>(
+        &mut self,
+        created_bucket: bool,
+        bucket_len: usize,
+        bucket_capacity: usize,
+    ) -> Result<(), GroupError> {
+        self.budget
+            .record_new_group::<E>(&self.config, created_bucket, bucket_len, bucket_capacity)
+    }
+}
+
+fn estimated_new_group_bytes<E: EntityKind>(
+    created_bucket: bool,
+    bucket_len: usize,
+    bucket_capacity: usize,
+) -> u64 {
+    let slot_size = size_of::<GroupedAggregateStateSlot<E>>();
+    let map_entry_size = if created_bucket {
+        size_of::<(StableHash, Vec<GroupedAggregateStateSlot<E>>)>()
+    } else {
+        0
+    };
+
+    let slot_growth = if bucket_len < bucket_capacity {
+        slot_size
+    } else {
+        let projected_capacity = projected_vec_capacity_after_push(bucket_capacity);
+        projected_capacity
+            .saturating_sub(bucket_capacity)
+            .saturating_mul(slot_size)
+    };
+
+    saturating_u64_from_usize(map_entry_size.saturating_add(slot_growth))
+}
+
+const fn projected_vec_capacity_after_push(current_capacity: usize) -> usize {
+    if current_capacity == 0 {
+        1
+    } else {
+        current_capacity.saturating_mul(2)
+    }
+}
+
+fn saturating_u64_from_usize(value: usize) -> u64 {
+    u64::try_from(value).unwrap_or(u64::MAX)
+}
+
 impl AggregateSpec {
     /// Build a terminal aggregate spec with no explicit field target.
     #[must_use]
@@ -304,7 +563,7 @@ pub(in crate::db::executor) enum AggregateOutput<E: EntityKind> {
 /// FoldControl
 ///
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(in crate::db::executor) enum FoldControl {
     Continue,
     Break,
@@ -378,7 +637,13 @@ impl<E: EntityKind> AggregateReducerState<E> {
                         "aggregate reducer MIN update requires decoded id",
                     ));
                 };
-                *min_id = Some(id);
+                let replace = match min_id.as_ref() {
+                    Some(current) => id < *current,
+                    None => true,
+                };
+                if replace {
+                    *min_id = Some(id);
+                }
                 if direction == Direction::Asc {
                     return Ok(FoldControl::Break);
                 }
@@ -391,7 +656,13 @@ impl<E: EntityKind> AggregateReducerState<E> {
                         "aggregate reducer MAX update requires decoded id",
                     ));
                 };
-                *max_id = Some(id);
+                let replace = match max_id.as_ref() {
+                    Some(current) => id > *current,
+                    None => true,
+                };
+                if replace {
+                    *max_id = Some(id);
+                }
                 if direction == Direction::Desc {
                     return Ok(FoldControl::Break);
                 }
@@ -437,6 +708,220 @@ impl<E: EntityKind> AggregateReducerState<E> {
 }
 
 ///
+/// AggregateState
+///
+/// Canonical aggregate state-machine contract consumed by kernel reducer
+/// orchestration. Implementations must keep transitions deterministic and
+/// emit terminal outputs using the shared aggregate output taxonomy.
+///
+pub(in crate::db::executor) trait AggregateState<E: EntityKind> {
+    /// Apply one candidate data key to this aggregate state machine.
+    fn apply(&mut self, key: &DataKey) -> Result<FoldControl, InternalError>;
+
+    /// Finalize this aggregate state into one terminal output payload.
+    fn finalize(self) -> AggregateOutput<E>;
+}
+
+///
+/// TerminalAggregateState
+///
+/// TerminalAggregateState binds one aggregate kind + direction to one reducer
+/// state machine so key-stream execution can use a single canonical update
+/// pipeline across COUNT/EXISTS/MIN/MAX/FIRST/LAST terminals.
+///
+
+pub(in crate::db::executor) struct TerminalAggregateState<E: EntityKind> {
+    kind: AggregateKind,
+    direction: Direction,
+    reducer: AggregateReducerState<E>,
+}
+
+impl<E: EntityKind> AggregateState<E> for TerminalAggregateState<E> {
+    fn apply(&mut self, key: &DataKey) -> Result<FoldControl, InternalError> {
+        self.reducer
+            .update_from_data_key(self.kind, self.direction, key)
+    }
+
+    fn finalize(self) -> AggregateOutput<E> {
+        self.reducer.into_output()
+    }
+}
+
+///
+/// AggregateStateFactory
+///
+/// AggregateStateFactory builds canonical terminal aggregate state machines
+/// from route-owned kind/direction decisions.
+/// This keeps state initialization centralized at one boundary.
+///
+
+pub(in crate::db::executor) struct AggregateStateFactory;
+
+impl AggregateStateFactory {
+    /// Build one terminal aggregate state machine for kernel reducers.
+    #[must_use]
+    pub(in crate::db::executor) const fn create_terminal<E: EntityKind>(
+        kind: AggregateKind,
+        direction: Direction,
+    ) -> TerminalAggregateState<E> {
+        TerminalAggregateState {
+            kind,
+            direction,
+            reducer: AggregateReducerState::for_kind(kind),
+        }
+    }
+}
+
+///
+/// GroupedAggregateOutput
+///
+/// GroupedAggregateOutput carries one finalized grouped terminal row:
+/// one canonical group key paired with one aggregate terminal output.
+/// Finalized rows are emitted in deterministic canonical order.
+///
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(in crate::db::executor) struct GroupedAggregateOutput<E: EntityKind> {
+    group_key: GroupKey,
+    output: AggregateOutput<E>,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+impl<E: EntityKind> GroupedAggregateOutput<E> {
+    #[must_use]
+    pub(in crate::db::executor) const fn group_key(&self) -> &GroupKey {
+        &self.group_key
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn output(&self) -> &AggregateOutput<E> {
+        &self.output
+    }
+}
+
+///
+/// GroupedAggregateStateSlot
+///
+/// GroupedAggregateStateSlot stores one canonical group key with one
+/// group-local terminal aggregate state machine.
+/// Slots remain bucket-local and are finalized deterministically.
+///
+
+#[cfg_attr(not(test), allow(dead_code))]
+struct GroupedAggregateStateSlot<E: EntityKind> {
+    group_key: GroupKey,
+    state: TerminalAggregateState<E>,
+}
+
+///
+/// GroupedAggregateState
+///
+/// GroupedAggregateState stores per-group aggregate state machines keyed by
+/// canonical group keys and stable-hash buckets.
+/// Group-local states are built by `AggregateStateFactory` and finalized in a
+/// deterministic order independent of insertion order.
+///
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(in crate::db::executor) struct GroupedAggregateState<E: EntityKind> {
+    kind: AggregateKind,
+    direction: Direction,
+    groups: BTreeMap<StableHash, Vec<GroupedAggregateStateSlot<E>>>,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+impl<E: EntityKind> GroupedAggregateState<E> {
+    /// Build one empty grouped aggregate state container.
+    #[must_use]
+    const fn new(kind: AggregateKind, direction: Direction) -> Self {
+        Self {
+            kind,
+            direction,
+            groups: BTreeMap::new(),
+        }
+    }
+
+    /// Apply one `(group_key, data_key)` row into grouped aggregate state.
+    pub(in crate::db::executor) fn apply(
+        &mut self,
+        group_key: GroupKey,
+        data_key: &DataKey,
+        execution_context: &mut ExecutionContext,
+    ) -> Result<FoldControl, GroupError> {
+        // Phase 1: resolve updates for existing buckets/groups.
+        let hash = group_key.hash();
+        if let Some(bucket) = self.groups.get_mut(&hash) {
+            if let Some(slot) = bucket
+                .iter_mut()
+                .find(|slot| canonical_group_key_equals(slot.group_key(), &group_key))
+            {
+                return slot.state.apply(data_key).map_err(GroupError::from);
+            }
+
+            // New group in an existing bucket.
+            let mut state = AggregateStateFactory::create_terminal(self.kind, self.direction);
+            let fold_control = state.apply(data_key).map_err(GroupError::from)?;
+            execution_context.record_new_group::<E>(false, bucket.len(), bucket.capacity())?;
+            bucket.push(GroupedAggregateStateSlot { group_key, state });
+
+            return Ok(fold_control);
+        }
+
+        // Phase 2: create a new bucket + group when hash was unseen.
+        let mut state = AggregateStateFactory::create_terminal(self.kind, self.direction);
+        let fold_control = state.apply(data_key).map_err(GroupError::from)?;
+        execution_context.record_new_group::<E>(true, 0, 0)?;
+        self.groups
+            .insert(hash, vec![GroupedAggregateStateSlot { group_key, state }]);
+
+        Ok(fold_control)
+    }
+
+    /// Return the current number of grouped keys tracked by this state.
+    #[must_use]
+    pub(in crate::db::executor) fn group_count(&self) -> usize {
+        self.groups
+            .values()
+            .fold(0usize, |count, bucket| count.saturating_add(bucket.len()))
+    }
+
+    /// Finalize all groups into deterministic grouped aggregate outputs.
+    #[must_use]
+    pub(in crate::db::executor) fn finalize(self) -> Vec<GroupedAggregateOutput<E>> {
+        let mut out = Vec::new();
+
+        // Phase 1: walk stable-hash buckets in deterministic key order.
+        for (_, mut bucket) in self.groups {
+            // Phase 2: break hash-collision ties by canonical group-key value.
+            bucket.sort_by(|left, right| {
+                canonical_value_compare(
+                    left.group_key().canonical_value(),
+                    right.group_key().canonical_value(),
+                )
+            });
+
+            // Phase 3: finalize states in deterministic bucket order.
+            for slot in bucket {
+                out.push(GroupedAggregateOutput {
+                    group_key: slot.group_key,
+                    output: slot.state.finalize(),
+                });
+            }
+        }
+
+        out
+    }
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+impl<E: EntityKind> GroupedAggregateStateSlot<E> {
+    #[must_use]
+    const fn group_key(&self) -> &GroupKey {
+        &self.group_key
+    }
+}
+
+///
 /// AggregateFoldMode
 ///
 
@@ -453,9 +938,70 @@ pub(in crate::db::executor) enum AggregateFoldMode {
 #[cfg(test)]
 mod tests {
     use super::{
-        AggregateKind, AggregateSpec, AggregateSpecSupportError, GroupAggregateSpec,
-        GroupAggregateSpecSupportError,
+        AggregateKind, AggregateOutput, AggregateSpec, AggregateSpecSupportError, ExecutionConfig,
+        ExecutionContext, GroupAggregateSpec, GroupAggregateSpecSupportError, GroupError,
+        GroupedAggregateOutput,
     };
+    use crate::{
+        db::{
+            data::DataKey, direction::Direction, group_key::CanonicalKey,
+            value_hash::with_test_hash_override,
+        },
+        model::field::FieldKind,
+        testing,
+        value::Value,
+    };
+    use icydb_derive::FieldProjection;
+    use serde::{Deserialize, Serialize};
+
+    crate::test_canister! {
+        ident = GroupedStateTestCanister,
+        commit_memory_id = testing::test_commit_memory_id(),
+    }
+
+    crate::test_store! {
+        ident = GroupedStateTestStore,
+        canister = GroupedStateTestCanister,
+    }
+
+    #[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+    struct GroupedStateTestEntity {
+        id: u64,
+    }
+
+    crate::test_entity_schema! {
+        ident = GroupedStateTestEntity,
+        id = u64,
+        id_field = id,
+        entity_name = "GroupedStateTestEntity",
+        primary_key = "id",
+        pk_index = 0,
+        fields = [("id", FieldKind::Uint)],
+        indexes = [],
+        store = GroupedStateTestStore,
+        canister = GroupedStateTestCanister,
+    }
+
+    fn group_key(value: Value) -> crate::db::group_key::GroupKey {
+        value
+            .canonical_key()
+            .expect("group key canonicalization should succeed")
+    }
+
+    fn data_key(id: u64) -> DataKey {
+        DataKey::try_new::<GroupedStateTestEntity>(id).expect("test data key should build")
+    }
+
+    fn count_rows(rows: &[GroupedAggregateOutput<GroupedStateTestEntity>]) -> Vec<(Value, u32)> {
+        rows.iter()
+            .map(|row| {
+                let AggregateOutput::Count(count) = row.output() else {
+                    panic!("grouped count-state test expects count outputs");
+                };
+                (row.group_key().canonical_value().clone(), *count)
+            })
+            .collect()
+    }
 
     #[test]
     fn aggregate_spec_support_accepts_terminal_specs_without_field_targets() {
@@ -562,5 +1108,210 @@ mod tests {
         assert!(grouped.group_keys().is_empty());
         assert_eq!(grouped.aggregate_specs().len(), 1);
         assert!(grouped.ensure_supported_for_execution().is_ok());
+    }
+
+    #[test]
+    fn grouped_aggregate_state_reuses_per_group_state_and_counts_rows() {
+        let mut execution_context = ExecutionContext::new(ExecutionConfig::unbounded());
+        let mut grouped = execution_context
+            .create_grouped_state::<GroupedStateTestEntity>(AggregateKind::Count, Direction::Asc);
+
+        grouped
+            .apply(
+                group_key(Value::Text("alpha".to_string())),
+                &data_key(1),
+                &mut execution_context,
+            )
+            .expect("first grouped row should apply");
+        grouped
+            .apply(
+                group_key(Value::Text("alpha".to_string())),
+                &data_key(2),
+                &mut execution_context,
+            )
+            .expect("second grouped row for same group should apply");
+        grouped
+            .apply(
+                group_key(Value::Text("beta".to_string())),
+                &data_key(3),
+                &mut execution_context,
+            )
+            .expect("third grouped row for second group should apply");
+
+        assert_eq!(
+            grouped.group_count(),
+            2,
+            "grouped state should keep one slot per canonical group key",
+        );
+        assert_eq!(execution_context.budget().groups(), 2);
+        assert_eq!(execution_context.budget().aggregate_states(), 2);
+        assert!(
+            execution_context.budget().estimated_bytes() > 0,
+            "grouped budget should account for inserted group state bytes",
+        );
+
+        let finalized = grouped.finalize();
+        assert_eq!(finalized.len(), 2, "two groups should finalize");
+        assert_eq!(
+            count_rows(finalized.as_slice()),
+            vec![
+                (Value::Text("alpha".to_string()), 2),
+                (Value::Text("beta".to_string()), 1),
+            ],
+            "grouped count finalization should preserve per-group row counts",
+        );
+    }
+
+    #[test]
+    fn grouped_aggregate_state_finalization_is_deterministic_under_hash_collisions() {
+        with_test_hash_override([0xCD; 16], || {
+            let mut execution_context = ExecutionContext::new(ExecutionConfig::unbounded());
+            let mut grouped = execution_context.create_grouped_state::<GroupedStateTestEntity>(
+                AggregateKind::Count,
+                Direction::Asc,
+            );
+
+            // Intentionally insert in reverse lexical order under one forced
+            // hash bucket; finalize must still emit canonical key order.
+            grouped
+                .apply(
+                    group_key(Value::Text("gamma".to_string())),
+                    &data_key(1),
+                    &mut execution_context,
+                )
+                .expect("gamma grouped row should apply");
+            grouped
+                .apply(
+                    group_key(Value::Text("alpha".to_string())),
+                    &data_key(2),
+                    &mut execution_context,
+                )
+                .expect("alpha grouped row should apply");
+            grouped
+                .apply(
+                    group_key(Value::Text("beta".to_string())),
+                    &data_key(3),
+                    &mut execution_context,
+                )
+                .expect("beta grouped row should apply");
+
+            let finalized = grouped.finalize();
+            assert_eq!(
+                count_rows(finalized.as_slice()),
+                vec![
+                    (Value::Text("alpha".to_string()), 1),
+                    (Value::Text("beta".to_string()), 1),
+                    (Value::Text("gamma".to_string()), 1),
+                ],
+                "grouped finalization should remain deterministic across collision buckets",
+            );
+        });
+    }
+
+    #[test]
+    fn grouped_aggregate_state_enforces_max_groups_hard_limit() {
+        let mut execution_context =
+            ExecutionContext::new(ExecutionConfig::with_hard_limits(2, u64::MAX));
+        let mut grouped = execution_context
+            .create_grouped_state::<GroupedStateTestEntity>(AggregateKind::Count, Direction::Asc);
+
+        grouped
+            .apply(
+                group_key(Value::Text("a".to_string())),
+                &data_key(1),
+                &mut execution_context,
+            )
+            .expect("first group should fit budget");
+        grouped
+            .apply(
+                group_key(Value::Text("b".to_string())),
+                &data_key(2),
+                &mut execution_context,
+            )
+            .expect("second group should fit budget");
+        let err = grouped
+            .apply(
+                group_key(Value::Text("c".to_string())),
+                &data_key(3),
+                &mut execution_context,
+            )
+            .expect_err("third group should exceed max_groups hard limit");
+
+        assert!(matches!(
+            err,
+            GroupError::MemoryLimitExceeded {
+                resource: "groups",
+                attempted: 3,
+                limit: 2,
+            }
+        ));
+    }
+
+    #[test]
+    fn grouped_aggregate_state_enforces_max_estimated_bytes_hard_limit() {
+        let mut execution_context =
+            ExecutionContext::new(ExecutionConfig::with_hard_limits(u64::MAX, 1));
+        let mut grouped = execution_context
+            .create_grouped_state::<GroupedStateTestEntity>(AggregateKind::Count, Direction::Asc);
+
+        let err = grouped
+            .apply(
+                group_key(Value::Text("only".to_string())),
+                &data_key(1),
+                &mut execution_context,
+            )
+            .expect_err("tiny byte budget should reject first group insertion");
+
+        assert!(matches!(
+            err,
+            GroupError::MemoryLimitExceeded {
+                resource: "estimated_bytes",
+                attempted: _,
+                limit: 1,
+            }
+        ));
+    }
+
+    #[test]
+    fn grouped_aggregate_state_budget_violation_keeps_existing_finalization_intact() {
+        let mut execution_context =
+            ExecutionContext::new(ExecutionConfig::with_hard_limits(1, u64::MAX));
+        let mut grouped = execution_context
+            .create_grouped_state::<GroupedStateTestEntity>(AggregateKind::Count, Direction::Asc);
+
+        grouped
+            .apply(
+                group_key(Value::Text("a".to_string())),
+                &data_key(1),
+                &mut execution_context,
+            )
+            .expect("first group should fit budget");
+        let err = grouped
+            .apply(
+                group_key(Value::Text("b".to_string())),
+                &data_key(2),
+                &mut execution_context,
+            )
+            .expect_err("second group should exceed max_groups and fail atomically");
+
+        assert!(matches!(
+            err,
+            GroupError::MemoryLimitExceeded {
+                resource: "groups",
+                attempted: 2,
+                limit: 1,
+            }
+        ));
+        assert_eq!(
+            grouped.group_count(),
+            1,
+            "failed grouped insertion must not leak partial state",
+        );
+        let finalized = grouped.finalize();
+        assert_eq!(
+            count_rows(finalized.as_slice()),
+            vec![(Value::Text("a".to_string()), 1)],
+            "budget-limit errors must preserve previously committed grouped outputs",
+        );
     }
 }

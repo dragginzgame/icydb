@@ -6,6 +6,7 @@ use crate::{
         executor::{
             ExecutablePlan, ExecutionKernel,
             aggregate::{AggregateKind, AggregateSpec},
+            route::ExecutionMode,
         },
         query::{
             explain::ExplainAccessPath,
@@ -4408,6 +4409,232 @@ fn aggregate_parity_limit_zero_window() {
                 .limit(0)
         },
         "limit zero window",
+    );
+}
+
+#[test]
+#[expect(clippy::too_many_lines)]
+fn aggregate_empty_window_semantics_match_between_streaming_and_materialized_routes() {
+    let mut rows = Vec::new();
+    for rank in 0u32..160u32 {
+        rows.push((12_601u128.saturating_add(u128::from(rank)), 7, rank));
+    }
+    for rank in 0u32..40u32 {
+        rows.push((13_001u128.saturating_add(u128::from(rank)), 8, rank));
+    }
+    seed_pushdown_entities(rows.as_slice());
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let strict_filter = Predicate::And(vec![
+        u32_eq_predicate_strict("group", 7),
+        u32_in_predicate_strict("rank", &[151, 152, 153]),
+    ]);
+    let widen_filter = Predicate::And(vec![
+        u32_eq_predicate("group", 7),
+        u32_in_predicate("rank", &[151, 152, 153]),
+    ]);
+
+    // Build matching empty windows: three matching rows with offset beyond
+    // result cardinality guarantees an empty aggregate input window.
+    let strict_query = || {
+        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .filter(strict_filter.clone())
+            .order_by("rank")
+            .offset(10)
+            .limit(5)
+    };
+    let widen_query = || {
+        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .filter(widen_filter.clone())
+            .order_by("rank")
+            .offset(10)
+            .limit(5)
+    };
+
+    // Sanity-check route modes for non-count scalar terminals: strict route
+    // stays streaming while widen route forces materialized fallback.
+    for kind in [
+        AggregateKind::Exists,
+        AggregateKind::Min,
+        AggregateKind::Max,
+        AggregateKind::First,
+        AggregateKind::Last,
+    ] {
+        let strict_route =
+            LoadExecutor::<PushdownParityEntity>::build_execution_route_plan_for_aggregate(
+                strict_query()
+                    .plan()
+                    .expect("strict empty-window route plan should build")
+                    .as_inner(),
+                kind,
+            );
+        let widen_route =
+            LoadExecutor::<PushdownParityEntity>::build_execution_route_plan_for_aggregate(
+                widen_query()
+                    .plan()
+                    .expect("widen empty-window route plan should build")
+                    .as_inner(),
+                kind,
+            );
+
+        assert_eq!(
+            strict_route.execution_mode,
+            ExecutionMode::Streaming,
+            "strict empty-window route should stay streaming for terminal={kind:?}"
+        );
+        assert_eq!(
+            widen_route.execution_mode,
+            ExecutionMode::Materialized,
+            "widen empty-window route should force materialized for terminal={kind:?}"
+        );
+    }
+
+    // Validate canonical empty-input outputs for non-count scalar terminals.
+    let strict_results = (
+        load.aggregate_exists(
+            strict_query()
+                .plan()
+                .expect("strict exists empty-window plan should build"),
+        )
+        .expect("strict exists empty-window should succeed"),
+        load.aggregate_min(
+            strict_query()
+                .plan()
+                .expect("strict min empty-window plan should build"),
+        )
+        .expect("strict min empty-window should succeed"),
+        load.aggregate_max(
+            strict_query()
+                .plan()
+                .expect("strict max empty-window plan should build"),
+        )
+        .expect("strict max empty-window should succeed"),
+        load.aggregate_first(
+            strict_query()
+                .plan()
+                .expect("strict first empty-window plan should build"),
+        )
+        .expect("strict first empty-window should succeed"),
+        load.aggregate_last(
+            strict_query()
+                .plan()
+                .expect("strict last empty-window plan should build"),
+        )
+        .expect("strict last empty-window should succeed"),
+    );
+    let widen_results = (
+        load.aggregate_exists(
+            widen_query()
+                .plan()
+                .expect("widen exists empty-window plan should build"),
+        )
+        .expect("widen exists empty-window should succeed"),
+        load.aggregate_min(
+            widen_query()
+                .plan()
+                .expect("widen min empty-window plan should build"),
+        )
+        .expect("widen min empty-window should succeed"),
+        load.aggregate_max(
+            widen_query()
+                .plan()
+                .expect("widen max empty-window plan should build"),
+        )
+        .expect("widen max empty-window should succeed"),
+        load.aggregate_first(
+            widen_query()
+                .plan()
+                .expect("widen first empty-window plan should build"),
+        )
+        .expect("widen first empty-window should succeed"),
+        load.aggregate_last(
+            widen_query()
+                .plan()
+                .expect("widen last empty-window plan should build"),
+        )
+        .expect("widen last empty-window should succeed"),
+    );
+
+    // COUNT has a dedicated route gate: exercise one explicit streaming-empty
+    // shape (full-scan pushdown-safe) and one explicit materialized-empty shape
+    // (widened uncertain predicate) and assert canonical zero semantics.
+    let streaming_count_query = || {
+        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .order_by("id")
+            .offset(500)
+            .limit(5)
+    };
+    let streaming_count_route =
+        LoadExecutor::<PushdownParityEntity>::build_execution_route_plan_for_aggregate(
+            streaming_count_query()
+                .plan()
+                .expect("streaming count empty-window route plan should build")
+                .as_inner(),
+            AggregateKind::Count,
+        );
+    let materialized_count_route =
+        LoadExecutor::<PushdownParityEntity>::build_execution_route_plan_for_aggregate(
+            widen_query()
+                .plan()
+                .expect("materialized count empty-window route plan should build")
+                .as_inner(),
+            AggregateKind::Count,
+        );
+    assert_eq!(
+        streaming_count_route.execution_mode,
+        ExecutionMode::Streaming,
+        "full-scan empty-window count route should stay streaming"
+    );
+    assert_eq!(
+        materialized_count_route.execution_mode,
+        ExecutionMode::Materialized,
+        "uncertain empty-window count route should force materialized"
+    );
+    let streaming_count = load
+        .aggregate_count(
+            streaming_count_query()
+                .plan()
+                .expect("streaming count empty-window plan should build"),
+        )
+        .expect("streaming count empty-window should succeed");
+    let materialized_count = load
+        .aggregate_count(
+            widen_query()
+                .plan()
+                .expect("materialized count empty-window plan should build"),
+        )
+        .expect("materialized count empty-window should succeed");
+
+    let expected_empty = (
+        false,
+        None::<Id<PushdownParityEntity>>,
+        None::<Id<PushdownParityEntity>>,
+        None::<Id<PushdownParityEntity>>,
+        None::<Id<PushdownParityEntity>>,
+    );
+    assert_eq!(
+        strict_results, expected_empty,
+        "strict empty-window scalar aggregate semantics must stay canonical"
+    );
+    assert_eq!(
+        widen_results, expected_empty,
+        "materialized empty-window scalar aggregate semantics must stay canonical"
+    );
+    assert_eq!(
+        strict_results, widen_results,
+        "streaming and materialized empty-window scalar terminal results must match"
+    );
+    assert_eq!(
+        streaming_count, 0,
+        "streaming empty-window count should return zero"
+    );
+    assert_eq!(
+        materialized_count, 0,
+        "materialized empty-window count should return zero"
+    );
+    assert_eq!(
+        streaming_count, materialized_count,
+        "streaming and materialized empty-window count results must match"
     );
 }
 

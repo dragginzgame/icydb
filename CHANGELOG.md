@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Maintainer note: changelog entries that reach 4 lines or more should be split into subsection headers.
 
+## [0.32.0] - 2026-02-27 - Grouped Execution Budget Plumbing
+
+### 📝 Summary
+
+* Added planner-to-executor grouped budget plumbing and deterministic grouped aggregate substrate while keeping grouped runtime disabled.
+
+### 🔧 Changed
+
+* Split query planning internals into `db::query::plan::mod` + `db::query::plan::planner` to keep plan contracts and planner logic separate.
+* Unified scalar aggregate terminal state creation behind `AggregateStateFactory::create_terminal(...)` so streaming and materialized paths use one state model.
+* Added grouped aggregate state substrate with deterministic finalize ordering, hash-collision safety, and canonical group-key ordering contracts.
+* Added grouped execution policy/context contracts (`GroupedExecutionConfig`, `ExecutionConfig`, `ExecutionContext`) and threaded grouped budget accounting through one executor-owned boundary.
+* Added hard grouped guardrails for `max_groups` and estimated grouped bytes, with bounded default grouped limits for scaffolded executor policy resolution.
+* Kept grouped runtime execution disabled; grouped plans still route to materialized blocking shape and reject grouped reducer execution in this release.
+
+### 🧪 Testing
+
+* Added grouped substrate tests for deterministic collision handling, hard-limit enforcement, and budget-failure atomicity (no partial grouped output on failure).
+* Added grouped policy bridge tests to lock planner-config-to-executor-config mapping and default grouped context limits.
+* Added grouped route tests to lock blocking/materialized shape and no-streaming-hint behavior, including tight-budget grouped config cases.
+
+---
+
 ## [0.31.0] - 2026-02-27 - Deterministic Key Substrate
 
 Pre-`GROUP BY` substrate work focused on deterministic key/equality behavior in `db/`.

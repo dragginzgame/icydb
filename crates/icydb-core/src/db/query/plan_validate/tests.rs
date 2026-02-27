@@ -12,7 +12,10 @@ use crate::{
         contracts::{ReadConsistency, SchemaInfo, ValidateError},
         cursor::CursorPlanError,
         query::{
-            grouped::{GroupAggregateKind, GroupAggregateSpec, GroupSpec, GroupedPlan},
+            grouped::{
+                GroupAggregateKind, GroupAggregateSpec, GroupSpec, GroupedExecutionConfig,
+                GroupedPlan,
+            },
             intent::{DeleteSpec, LoadSpec, QueryMode},
             plan::{
                 AccessPlannedQuery, DeleteLimitSpec, LogicalPlan, OrderDirection, OrderSpec,
@@ -147,6 +150,7 @@ fn grouped_plan(
         GroupSpec {
             group_fields: group_fields.into_iter().map(str::to_string).collect(),
             aggregates,
+            execution: GroupedExecutionConfig::unbounded(),
         },
     )
 }
