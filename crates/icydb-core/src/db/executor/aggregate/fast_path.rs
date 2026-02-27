@@ -14,7 +14,7 @@ use crate::{
             route::{
                 FastPathOrder, RoutedKeyStreamRequest,
                 ensure_index_range_aggregate_fast_path_specs,
-                ensure_secondary_aggregate_fast_path_arity,
+                ensure_secondary_aggregate_fast_path_arity, try_first_fast_path_hit,
             },
         },
         index::predicate::IndexPredicateExecution,
@@ -196,6 +196,21 @@ impl ExecutionKernel {
         }
     }
 
+    fn verified_aggregate_fast_path_route<E>(
+        inputs: &AggregateFastPathInputs<'_, '_, E>,
+        route: FastPathOrder,
+    ) -> Result<Option<VerifiedAggregateFastPathRoute>, InternalError>
+    where
+        E: EntityKind + EntityValue,
+    {
+        let Some(verified_route) = Self::verify_aggregate_fast_path_eligibility(inputs, route)?
+        else {
+            return Ok(None);
+        };
+
+        Ok(Some(verified_route))
+    }
+
     // Attempt aggregate fast-path execution strictly through route-owned
     // fast-path order. Returns `Some` when one branch fully resolves the terminal.
     pub(in crate::db::executor) fn try_fast_path_aggregate<E>(
@@ -204,17 +219,17 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
-        for route in inputs.route_plan.fast_path_order().iter().copied() {
-            let Some(verified_route) = Self::verify_aggregate_fast_path_eligibility(inputs, route)?
-            else {
-                continue;
-            };
+        let fast_path_hit =
+            try_first_fast_path_hit(inputs.route_plan.fast_path_order(), |route| {
+                let Some(verified_route) = Self::verified_aggregate_fast_path_route(inputs, route)?
+                else {
+                    return Ok(None);
+                };
 
-            if let Some((aggregate_output, rows_scanned)) =
-                Self::try_execute_verified_aggregate_fast_path(inputs, verified_route)?
-            {
-                return Ok(Some((aggregate_output, rows_scanned)));
-            }
+                Self::try_execute_verified_aggregate_fast_path(inputs, verified_route)
+            })?;
+        if let Some((aggregate_output, rows_scanned)) = fast_path_hit {
+            return Ok(Some((aggregate_output, rows_scanned)));
         }
 
         // Fast exit: effective limit == 0 has an empty aggregate window and can

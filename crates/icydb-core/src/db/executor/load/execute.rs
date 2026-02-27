@@ -11,7 +11,7 @@ use crate::{
             compile_index_predicate_program_from_slots, range_token_from_lowered_anchor,
             route::{
                 ExecutionMode, FastPathOrder, RoutedKeyStreamRequest,
-                ensure_load_fast_path_spec_arity,
+                ensure_load_fast_path_spec_arity, try_first_fast_path_hit,
             },
         },
         index::predicate::IndexPredicateExecution,
@@ -173,53 +173,55 @@ where
             inputs.stream_bindings.index_range_specs.len(),
         )?;
 
-        for route in route_plan.fast_path_order().iter().copied() {
-            match route {
-                FastPathOrder::PrimaryKey => {
-                    if route_plan.pk_order_fast_path_eligible()
-                        && let Some(fast) = Self::try_execute_pk_order_stream(
-                            inputs.ctx,
-                            inputs.plan,
-                            route_plan.scan_hints.physical_fetch_hint,
-                        )?
-                    {
-                        return Ok(FastPathDecision::Hit(fast));
-                    }
+        let fast = try_first_fast_path_hit(route_plan.fast_path_order(), |route| match route {
+            FastPathOrder::PrimaryKey => {
+                if route_plan.pk_order_fast_path_eligible() {
+                    return Self::try_execute_pk_order_stream(
+                        inputs.ctx,
+                        inputs.plan,
+                        route_plan.scan_hints.physical_fetch_hint,
+                    );
                 }
-                FastPathOrder::SecondaryPrefix => {
-                    if route_plan.secondary_fast_path_eligible()
-                        && let Some(fast) = Self::try_execute_secondary_index_order_stream(
-                            inputs.ctx,
-                            inputs.plan,
-                            inputs.stream_bindings.index_prefix_specs.first(),
-                            route_plan.scan_hints.physical_fetch_hint,
-                            index_predicate_execution,
-                        )?
-                    {
-                        return Ok(FastPathDecision::Hit(fast));
-                    }
-                }
-                FastPathOrder::IndexRange => {
-                    let index_range_token = inputs
-                        .stream_bindings
-                        .index_range_anchor
-                        .map(range_token_from_lowered_anchor);
-                    if let Some(spec) = route_plan.index_range_limit_spec.as_ref()
-                        && let Some(fast) = Self::try_execute_index_range_limit_pushdown_stream(
-                            inputs.ctx,
-                            inputs.plan,
-                            inputs.stream_bindings.index_range_specs.first(),
-                            index_range_token.as_ref(),
-                            inputs.stream_bindings.direction,
-                            spec.fetch,
-                            index_predicate_execution,
-                        )?
-                    {
-                        return Ok(FastPathDecision::Hit(fast));
-                    }
-                }
-                FastPathOrder::PrimaryScan | FastPathOrder::Composite => {}
+
+                Ok(None)
             }
+            FastPathOrder::SecondaryPrefix => {
+                if route_plan.secondary_fast_path_eligible() {
+                    return Self::try_execute_secondary_index_order_stream(
+                        inputs.ctx,
+                        inputs.plan,
+                        inputs.stream_bindings.index_prefix_specs.first(),
+                        route_plan.scan_hints.physical_fetch_hint,
+                        index_predicate_execution,
+                    );
+                }
+
+                Ok(None)
+            }
+            FastPathOrder::IndexRange => {
+                let index_range_token = inputs
+                    .stream_bindings
+                    .index_range_anchor
+                    .map(range_token_from_lowered_anchor);
+                if let Some(spec) = route_plan.index_range_limit_spec.as_ref() {
+                    return Self::try_execute_index_range_limit_pushdown_stream(
+                        inputs.ctx,
+                        inputs.plan,
+                        inputs.stream_bindings.index_range_specs.first(),
+                        index_range_token.as_ref(),
+                        inputs.stream_bindings.direction,
+                        spec.fetch,
+                        index_predicate_execution,
+                    );
+                }
+
+                Ok(None)
+            }
+            FastPathOrder::PrimaryScan | FastPathOrder::Composite => Ok(None),
+        })?;
+
+        if let Some(fast) = fast {
+            return Ok(FastPathDecision::Hit(fast));
         }
 
         Ok(FastPathDecision::None)

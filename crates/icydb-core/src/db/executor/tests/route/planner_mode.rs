@@ -99,7 +99,7 @@ fn ranked_terminal_families_share_one_ranked_row_helper() {
     let terminal_source = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/src/db/executor/tests/route/",
-        "../../load/terminal/mod.rs"
+        "../../load/terminal.rs"
     ));
     assert!(
         terminal_source.contains("fn rank_k_rows_from_materialized("),
@@ -124,7 +124,7 @@ fn ranked_terminals_remain_materialized_without_heap_streaming_path() {
     let terminal_source = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/src/db/executor/tests/route/",
-        "../../load/terminal/mod.rs"
+        "../../load/terminal.rs"
     ));
 
     assert!(

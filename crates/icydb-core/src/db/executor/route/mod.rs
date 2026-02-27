@@ -16,6 +16,7 @@ use crate::db::{
     },
     query::plan::{OrderDirection, OrderSpec},
 };
+use crate::error::InternalError;
 
 // -----------------------------------------------------------------------------
 // Route Subdomains (Pre-Split Planning)
@@ -355,6 +356,23 @@ pub(super) const AGGREGATE_FAST_PATH_ORDER: [FastPathOrder; 5] = [
 // Contract: mutation routes are materialized-only and do not participate in
 // load/aggregate fast-path precedence.
 pub(super) const MUTATION_FAST_PATH_ORDER: [FastPathOrder; 0] = [];
+
+/// Iterate route-owned fast-path precedence and return the first successful hit.
+pub(in crate::db::executor) fn try_first_fast_path_hit<T, F>(
+    fast_path_order: &[FastPathOrder],
+    mut try_route: F,
+) -> Result<Option<T>, InternalError>
+where
+    F: FnMut(FastPathOrder) -> Result<Option<T>, InternalError>,
+{
+    for route in fast_path_order.iter().copied() {
+        if let Some(hit) = try_route(route)? {
+            return Ok(Some(hit));
+        }
+    }
+
+    Ok(None)
+}
 
 ///
 /// RoutedKeyStreamRequest
