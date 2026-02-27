@@ -1,17 +1,15 @@
 use crate::{
     db::{
         Db,
-        commit::{CommitRowOp, ensure_recovered_for_write},
+        commit::CommitRowOp,
         data::{DataKey, DataRow, RawRow, decode_and_validate_entity_key},
         executor::{
             ExecutablePlan, ExecutionPreparation, ExecutorError, PlanRow,
-            load::LoadExecutor,
             mutation::{
                 OpenCommitWindow, apply_prepared_row_ops, emit_index_delta_metrics,
-                open_commit_window,
+                mutation_write_context, open_commit_window, preflight_mutation_plan,
             },
             plan_metrics::{record_plan_metrics, record_rows_scanned, set_rows_from_len},
-            validate_executor_plan,
         },
         policy,
         response::Response,
@@ -122,15 +120,12 @@ where
             "delete executor received a plan shape that bypassed planning validation",
         );
         (|| {
-            // Recovery is mandatory before mutations; read paths recover separately.
-            ensure_recovered_for_write(&self.db)?;
             let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
             let index_range_specs = plan.index_range_specs()?.to_vec();
             let plan = plan.into_inner();
             let execution_preparation = ExecutionPreparation::for_plan::<E>(&plan);
-            validate_executor_plan::<E>(&plan)?;
-            let _ = LoadExecutor::<E>::build_execution_route_plan_for_mutation(&plan)?;
-            let ctx = self.db.recovered_context::<E>()?;
+            preflight_mutation_plan::<E>(&plan)?;
+            let ctx = mutation_write_context::<E>(&self.db)?;
 
             let mut span = Span::<E>::new(ExecKind::Delete);
             record_plan_metrics(&plan.access);

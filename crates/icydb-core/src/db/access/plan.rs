@@ -1,9 +1,6 @@
 use crate::{
-    db::{
-        access::{AccessPath, IndexRangePathRef},
-        direction::Direction,
-    },
-    model::{entity::EntityModel, index::IndexModel},
+    db::access::{AccessPath, IndexRangePathRef},
+    model::index::IndexModel,
     value::Value,
 };
 
@@ -77,12 +74,10 @@ impl<K> From<AccessPath<K>> for AccessPlan<K> {
     }
 }
 
-type OrderFieldRef<'a> = (&'a str, Direction);
-
 ///
 /// SecondaryOrderPushdownEligibility
 ///
-/// Access-layer eligibility decision for secondary-index ORDER BY pushdown.
+/// Shared eligibility decision for secondary-index ORDER BY pushdown.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -184,156 +179,4 @@ pub enum SecondaryOrderPushdownRejection {
         expected_full: Vec<String>,
         actual: Vec<String>,
     },
-}
-
-/// Evaluate the secondary-index ORDER BY pushdown matrix for one plan shape.
-pub(crate) fn assess_secondary_order_pushdown_from_parts<K>(
-    model: &EntityModel,
-    order_fields: Option<&[OrderFieldRef<'_>]>,
-    access_plan: &AccessPlan<K>,
-) -> SecondaryOrderPushdownEligibility {
-    let Some(order_fields) = order_fields else {
-        return SecondaryOrderPushdownEligibility::Rejected(
-            SecondaryOrderPushdownRejection::NoOrderBy,
-        );
-    };
-    if order_fields.is_empty() {
-        return SecondaryOrderPushdownEligibility::Rejected(
-            SecondaryOrderPushdownRejection::NoOrderBy,
-        );
-    }
-
-    let Some(access) = access_plan.as_path() else {
-        if let Some((index, prefix_len)) = access_plan.first_index_range_details() {
-            return SecondaryOrderPushdownEligibility::Rejected(
-                SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                    index,
-                    prefix_len,
-                },
-            );
-        }
-
-        return SecondaryOrderPushdownEligibility::Rejected(
-            SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix,
-        );
-    };
-
-    if let Some((index, values)) = access.as_index_prefix() {
-        if values.len() > index.fields.len() {
-            return SecondaryOrderPushdownEligibility::Rejected(
-                SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
-                    prefix_len: values.len(),
-                    index_field_len: index.fields.len(),
-                },
-            );
-        }
-
-        assess_secondary_order_pushdown_for_applicable_shape(
-            model,
-            order_fields,
-            index.name,
-            index.fields,
-            values.len(),
-        )
-    } else if let Some((index, prefix_len)) = access.index_range_details() {
-        SecondaryOrderPushdownEligibility::Rejected(
-            SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported { index, prefix_len },
-        )
-    } else {
-        SecondaryOrderPushdownEligibility::Rejected(
-            SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix,
-        )
-    }
-}
-
-// Core matcher for secondary ORDER BY pushdown eligibility.
-fn match_secondary_order_pushdown_core(
-    model: &EntityModel,
-    order_fields: &[OrderFieldRef<'_>],
-    index_name: &'static str,
-    index_fields: &[&'static str],
-    prefix_len: usize,
-) -> SecondaryOrderPushdownEligibility {
-    let Some((last_field, last_direction)) = order_fields.last() else {
-        return SecondaryOrderPushdownEligibility::Rejected(
-            SecondaryOrderPushdownRejection::NoOrderBy,
-        );
-    };
-
-    if *last_field != model.primary_key.name {
-        return SecondaryOrderPushdownEligibility::Rejected(
-            SecondaryOrderPushdownRejection::MissingPrimaryKeyTieBreak {
-                field: model.primary_key.name.to_string(),
-            },
-        );
-    }
-
-    let expected_direction = *last_direction;
-    for (field, direction) in order_fields {
-        if *direction != expected_direction {
-            return SecondaryOrderPushdownEligibility::Rejected(
-                SecondaryOrderPushdownRejection::MixedDirectionNotEligible {
-                    field: (*field).to_string(),
-                },
-            );
-        }
-    }
-
-    let actual_non_pk_len = order_fields.len().saturating_sub(1);
-    let matches_expected_suffix = actual_non_pk_len
-        == index_fields.len().saturating_sub(prefix_len)
-        && order_fields
-            .iter()
-            .take(actual_non_pk_len)
-            .map(|(field, _)| *field)
-            .zip(index_fields.iter().skip(prefix_len).copied())
-            .all(|(actual, expected)| actual == expected);
-
-    let matches_expected_full = actual_non_pk_len == index_fields.len()
-        && order_fields
-            .iter()
-            .take(actual_non_pk_len)
-            .map(|(field, _)| *field)
-            .zip(index_fields.iter().copied())
-            .all(|(actual, expected)| actual == expected);
-
-    if matches_expected_suffix || matches_expected_full {
-        return SecondaryOrderPushdownEligibility::Eligible {
-            index: index_name,
-            prefix_len,
-        };
-    }
-
-    SecondaryOrderPushdownEligibility::Rejected(
-        SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
-            index: index_name,
-            prefix_len,
-            expected_suffix: index_fields
-                .iter()
-                .skip(prefix_len)
-                .map(|field| (*field).to_string())
-                .collect(),
-            expected_full: index_fields
-                .iter()
-                .map(|field| (*field).to_string())
-                .collect(),
-            actual: order_fields
-                .iter()
-                .take(actual_non_pk_len)
-                .map(|(field, _)| (*field).to_string())
-                .collect(),
-        },
-    )
-}
-
-// Evaluate pushdown eligibility for plans that are already known to be
-// structurally applicable (ORDER BY + single index-prefix access path).
-fn assess_secondary_order_pushdown_for_applicable_shape(
-    model: &EntityModel,
-    order_fields: &[OrderFieldRef<'_>],
-    index_name: &'static str,
-    index_fields: &[&'static str],
-    prefix_len: usize,
-) -> SecondaryOrderPushdownEligibility {
-    match_secondary_order_pushdown_core(model, order_fields, index_name, index_fields, prefix_len)
 }

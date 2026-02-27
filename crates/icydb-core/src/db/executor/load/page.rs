@@ -1,11 +1,11 @@
 use crate::{
     db::{
         Context,
-        cursor::{ContinuationSignature, ContinuationToken, CursorBoundary},
+        cursor::{ContinuationSignature, CursorBoundary},
         direction::Direction,
         executor::PredicateFieldSlots,
         executor::load::{CursorPage, LoadExecutor},
-        executor::{BudgetedOrderedKeyStream, ExecutionKernel, OrderedKeyStream, PostAccessStats},
+        executor::{BudgetedOrderedKeyStream, OrderedKeyStream},
         query::plan::AccessPlannedQuery,
         response::Response,
     },
@@ -83,8 +83,7 @@ where
             cursor_boundary,
             predicate_slots,
         )?;
-        let next_cursor = Self::build_next_cursor(
-            plan,
+        let next_cursor = plan.next_cursor_for_materialized_rows(
             rows,
             &stats,
             cursor_boundary,
@@ -94,38 +93,5 @@ where
         let items = Response(std::mem::take(rows));
 
         Ok(CursorPage { items, next_cursor })
-    }
-
-    fn build_next_cursor(
-        plan: &AccessPlannedQuery<E::Key>,
-        rows: &[(Id<E>, E)],
-        stats: &PostAccessStats,
-        cursor_boundary: Option<&CursorBoundary>,
-        direction: Direction,
-        signature: ContinuationSignature,
-    ) -> Result<Option<ContinuationToken>, InternalError> {
-        let Some(page) = plan.page.as_ref() else {
-            return Ok(None);
-        };
-        let Some(limit) = page.limit else {
-            return Ok(None);
-        };
-        if rows.is_empty() {
-            return Ok(None);
-        }
-
-        // NOTE: post-access execution materializes full in-memory rows for Phase 1.
-        let page_end =
-            ExecutionKernel::effective_keep_count_for_limit(plan, cursor_boundary, limit);
-        if stats.rows_after_cursor <= page_end {
-            return Ok(None);
-        }
-
-        let Some((_, last_entity)) = rows.last() else {
-            return Ok(None);
-        };
-
-        plan.next_cursor_for_entity(last_entity, direction, signature)
-            .map(Some)
     }
 }

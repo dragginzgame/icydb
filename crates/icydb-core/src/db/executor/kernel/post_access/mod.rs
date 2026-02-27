@@ -316,7 +316,7 @@ impl<K> AccessPlannedQuery<K> {
     }
 
     /// Build a continuation token for one materialized entity.
-    pub(in crate::db) fn next_cursor_for_entity<E>(
+    fn next_cursor_for_entity<E>(
         &self,
         entity: &E,
         direction: Direction,
@@ -346,6 +346,44 @@ impl<K> AccessPlannedQuery<K> {
         };
 
         Ok(token)
+    }
+
+    /// Derive the next continuation token from one post-access materialized page.
+    pub(in crate::db::executor) fn next_cursor_for_materialized_rows<E>(
+        &self,
+        rows: &[(Id<E>, E)],
+        stats: &PostAccessStats,
+        cursor_boundary: Option<&CursorBoundary>,
+        direction: Direction,
+        signature: ContinuationSignature,
+    ) -> Result<Option<ContinuationToken>, InternalError>
+    where
+        E: EntityKind + EntityValue,
+    {
+        let Some(page) = self.page.as_ref() else {
+            return Ok(None);
+        };
+        let Some(limit) = page.limit else {
+            return Ok(None);
+        };
+        if rows.is_empty() {
+            return Ok(None);
+        }
+
+        // Continuation eligibility is computed from the post-cursor cardinality
+        // against the effective page window for this request.
+        let page_end =
+            ExecutionKernel::effective_keep_count_for_limit(self, cursor_boundary, limit);
+        if stats.rows_after_cursor <= page_end {
+            return Ok(None);
+        }
+
+        let Some((_, last_entity)) = rows.last() else {
+            return Ok(None);
+        };
+
+        self.next_cursor_for_entity(last_entity, direction, signature)
+            .map(Some)
     }
 
     /// Build budget-safety metadata used by guarded execution scan budgeting.

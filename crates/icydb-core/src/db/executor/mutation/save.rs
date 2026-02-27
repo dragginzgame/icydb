@@ -1,7 +1,7 @@
 use crate::{
     db::{
         Db,
-        commit::{CommitRowOp, ensure_recovered_for_write},
+        commit::CommitRowOp,
         data::{DataKey, RawRow, decode_and_validate_entity_key},
         executor::{
             Context, ExecutorError,
@@ -9,6 +9,7 @@ use crate::{
                 OpenCommitWindow, apply_prepared_row_ops, emit_prepared_row_op_delta_metrics,
                 open_commit_window,
             },
+            mutation::mutation_write_context,
         },
     },
     error::InternalError,
@@ -174,15 +175,12 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
     ) -> Result<Vec<E>, InternalError> {
         (|| {
             let mut span = Span::<E>::new(ExecKind::Save);
-            let ctx = self.db.context::<E>();
+            let ctx = mutation_write_context::<E>(&self.db)?;
             let save_rule = SaveRule::from_mode(mode);
             let iter = entities.into_iter();
             let mut out = Vec::with_capacity(iter.size_hint().0);
             let mut marker_row_ops = Vec::with_capacity(iter.size_hint().0);
             let mut seen_row_keys = BTreeSet::<Vec<u8>>::new();
-
-            // Recovery is mandatory before mutations; read paths recover separately.
-            ensure_recovered_for_write(&self.db)?;
 
             // Validate and stage all row ops before opening the commit window.
             for mut entity in iter {
@@ -367,11 +365,8 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         let mut entity = entity;
         (|| {
             let mut span = Span::<E>::new(ExecKind::Save);
-            let ctx = self.db.context::<E>();
+            let ctx = mutation_write_context::<E>(&self.db)?;
             let save_rule = SaveRule::from_mode(mode);
-
-            // Recovery is mandatory before mutations; read paths recover separately.
-            ensure_recovered_for_write(&self.db)?;
 
             // Run the canonical save preflight before key extraction.
             self.preflight_entity(&mut entity)?;

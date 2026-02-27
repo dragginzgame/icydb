@@ -37,7 +37,7 @@ pub(in crate::db) use executable_plan::ExecutablePlan;
 pub(in crate::db::executor) use index_predicate::{
     IndexPredicateCompileMode, compile_index_predicate_program_from_slots,
 };
-pub(in crate::db::executor) use kernel::{ExecutionKernel, PlanRow, PostAccessStats};
+pub(in crate::db::executor) use kernel::{ExecutionKernel, PlanRow};
 pub(super) use load::LoadExecutor;
 pub use load::{ExecutionAccessPathVariant, ExecutionOptimization, ExecutionTrace};
 pub(super) use mutation::save::SaveExecutor;

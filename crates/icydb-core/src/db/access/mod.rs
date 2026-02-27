@@ -17,7 +17,6 @@ pub(crate) use path::{AccessPath, IndexRangePathRef, SemanticIndexRangeSpec};
 pub(crate) use plan::{
     AccessPlan, PushdownApplicability, PushdownSurfaceEligibility,
     SecondaryOrderPushdownEligibility, SecondaryOrderPushdownRejection,
-    assess_secondary_order_pushdown_from_parts,
 };
 pub(crate) use validate::{
     AccessPlanError, validate_access_structure, validate_access_structure_model,
