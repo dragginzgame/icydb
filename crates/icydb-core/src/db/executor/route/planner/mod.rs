@@ -5,7 +5,6 @@ mod mode;
 
 use crate::{
     db::{
-        access::assess_secondary_order_pushdown_if_applicable_validated,
         cursor::CursorBoundary,
         direction::Direction,
         executor::{
@@ -13,7 +12,9 @@ use crate::{
             aggregate_model::{AggregateFoldMode, AggregateKind, AggregateSpec},
             load::LoadExecutor,
         },
-        query::plan::AccessPlannedQuery,
+        query::plan::{
+            AccessPlannedQuery, assess_secondary_order_pushdown_if_applicable_validated,
+        },
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},

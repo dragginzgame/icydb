@@ -5,7 +5,6 @@ mod storage_key;
 mod store;
 
 // re-exports (Tier-3 → Tier-2 boundary)
-pub(crate) use crate::db::codec::MAX_ROW_BYTES;
 pub(in crate::db) use entity_decode::{
     decode_and_validate_entity_key, format_entity_key_for_mismatch,
 };

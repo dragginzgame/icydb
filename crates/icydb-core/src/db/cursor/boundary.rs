@@ -1,10 +1,9 @@
 use crate::{
     db::{
-        access::{OrderDirection, OrderSpec},
         contracts::{SchemaInfo, literal_matches_type},
         cursor::CursorPlanError,
         direction::Direction,
-        query::predicate::coercion::canonical_cmp,
+        query::plan::{OrderDirection, OrderSpec},
     },
     model::entity::{EntityModel, resolve_field_slot},
     traits::{EntityKind, EntityValue, FieldValue},
@@ -79,7 +78,7 @@ pub(in crate::db) fn compare_boundary_slots(
         (CursorBoundarySlot::Missing, CursorBoundarySlot::Present(_)) => Ordering::Less,
         (CursorBoundarySlot::Present(_), CursorBoundarySlot::Missing) => Ordering::Greater,
         (CursorBoundarySlot::Present(left_value), CursorBoundarySlot::Present(right_value)) => {
-            canonical_cmp(left_value, right_value)
+            Value::canonical_cmp(left_value, right_value)
         }
     }
 }

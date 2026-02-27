@@ -71,10 +71,11 @@ mod tests {
     use std::ops::Bound;
 
     use crate::db::access::AccessPath;
+    use crate::db::contracts::ReadConsistency;
     use crate::db::query::intent::{DeleteSpec, KeyAccess, LoadSpec, access_plan_from_keys_value};
     use crate::db::query::plan::{AccessPlannedQuery, DeleteLimitSpec, LogicalPlan, PageSpec};
     use crate::db::query::predicate::Predicate;
-    use crate::db::query::{ReadConsistency, builder::field::FieldRef, intent::QueryMode};
+    use crate::db::query::{builder::field::FieldRef, intent::QueryMode};
     use crate::model::index::IndexModel;
     use crate::types::Ulid;
     use crate::value::Value;

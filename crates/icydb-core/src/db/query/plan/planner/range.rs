@@ -1,11 +1,11 @@
 use crate::{
     db::{
         access::SemanticIndexRangeSpec,
+        contracts::SchemaInfo,
         query::{
             plan::planner::{index_literal_matches_schema, sorted_indexes},
             predicate::{
-                CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo,
-                coercion::canonical_cmp,
+                CoercionId, CompareOp, ComparePredicate, Predicate, coercion::canonical_cmp,
             },
         },
     },

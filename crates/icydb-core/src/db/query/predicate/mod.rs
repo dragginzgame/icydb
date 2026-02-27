@@ -6,7 +6,6 @@ pub(crate) mod validate;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use crate::db::contracts::SchemaInfo;
 pub use crate::db::contracts::UnsupportedQueryFeature;
 pub use crate::db::contracts::ValidateError;
 pub use ast::{CompareOp, ComparePredicate, Predicate};

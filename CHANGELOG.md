@@ -5,6 +5,31 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.30.13] - 2026-02-26 - Delete Module Compression and Design Cleanup
+
+### 📝 Summary
+
+* Compressed a thin executor module boundary and tightened the `0.31` GROUP BY substrate design doc for clearer implementation guidance.
+
+### 🔧 Changed
+
+* Merged `db::executor::delete::helpers` into `db::executor::delete` and removed the extra file, keeping delete execution ownership in one place without changing runtime behavior.
+* Merged `db::query::intent::key_access` into `db::query::intent` and removed the thin file boundary around key-only intent helpers.
+* Removed `db::query::plan::validate::semantics` and inlined its single policy call into `plan::validate`, eliminating an indirection-only module.
+* Flattened `db::query::predicate::validate` by inlining `rules` into the module root and deleting the extra routing layer.
+* Removed the `db::data::MAX_ROW_BYTES` shim re-export and switched internal call sites to the canonical owner `db::codec::MAX_ROW_BYTES`.
+* Removed cross-root `query::plan::validate` shim re-exports and rewired validation tests/imports directly to `db::access` and `db::cursor` ownership.
+* Removed internal `query::ReadConsistency`, `query::plan` access/cursor/direction shims, and the `query::predicate::SchemaInfo` shim; call sites now import directly from canonical owners (`db::contracts`, `db::access`, `db::cursor`, `db::direction`).
+* Moved continuation signature hashing from `db::query::explain` into `db::query::fingerprint`, so continuation signatures and plan fingerprints share one canonical hash ownership root.
+* Moved logical plan contracts (`LogicalPlan`, `AccessPlannedQuery`, order/page/delete specs, and query mode) from `db::access` to `db::query::plan`, removing access-layer imports of query predicate semantics and keeping access focused on access-path contracts.
+* Split validation ownership explicitly into access-structure checks (`validate_access_structure`) and query-semantic checks (`validate_query_semantics`) so `db::access` validates access shape only while query semantics stay in `db::query::plan::validate`.
+* Extracted 38 `db/` test files into `crates/icydb-core/tests/db/...` and replaced in-tree test entrypoints with thin `include!` bridges, reducing production-tree test noise while keeping existing crate-internal test visibility.
+* Eliminated dual cursor roots by moving executor cursor planning/validation state into `db::cursor` and deleting `db::executor::cursor`.
+* Kept save execution split into two files (`mutation/save.rs` and `mutation/save_validation.rs`) while collapsing the older nested `mutation/save/validation/*` tree.
+* Reformatted and clarified the `0.31` GROUP BY substrate design doc so prerequisites, deliverables, and non-goals are explicit and easier to review.
+
+---
+
 ## [0.30.12] - 2026-02-26 - Layer Convergence Follow-Up
 
 ### 📝 Summary

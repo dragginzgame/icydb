@@ -1,20 +1,8 @@
 use crate::{
-    db::{
-        cursor::{CursorPlanError, IndexRangeCursorAnchor},
-        executor::ExecutorPlanError,
-        executor::LoweredKey,
-        index::{IndexKey, RawIndexKey},
-    },
+    db::{cursor::IndexRangeCursorAnchor, executor::LoweredKey, index::IndexKey},
     traits::Storable,
 };
 use std::borrow::Cow;
-
-// Build the canonical invalid-continuation payload error variant.
-fn invalid_continuation_cursor_payload(reason: impl Into<String>) -> ExecutorPlanError {
-    ExecutorPlanError::from(CursorPlanError::InvalidContinuationCursorPayload {
-        reason: reason.into(),
-    })
-}
 
 ///
 /// LogicalKeyHandle
@@ -41,30 +29,6 @@ impl LogicalKeyHandle {
 }
 
 ///
-/// CursorAnchor
-///
-/// Executor-owned wrapper around continuation anchor payload bytes.
-/// Storage adapters decode this into canonical index keys.
-///
-
-#[derive(Clone, Copy)]
-pub(in crate::db::executor) struct CursorAnchor<'a> {
-    anchor: &'a IndexRangeCursorAnchor,
-}
-
-impl<'a> CursorAnchor<'a> {
-    #[must_use]
-    pub(in crate::db::executor) const fn new(anchor: &'a IndexRangeCursorAnchor) -> Self {
-        Self { anchor }
-    }
-
-    #[must_use]
-    const fn raw_bytes(self) -> &'a [u8] {
-        self.anchor.last_raw_key()
-    }
-}
-
-///
 /// RangeToken
 ///
 /// Executor-owned continuation token payload for index-range scans.
@@ -86,32 +50,6 @@ impl RangeToken {
     pub(in crate::db::executor) const fn anchor(&self) -> &LogicalKeyHandle {
         &self.anchor
     }
-}
-
-/// Decode one continuation anchor into a canonical index key and enforce
-/// canonical round-trip encoding.
-pub(in crate::db::executor) fn decode_canonical_cursor_anchor_index_key(
-    anchor: CursorAnchor<'_>,
-) -> Result<IndexKey, ExecutorPlanError> {
-    let anchor_raw = <RawIndexKey as Storable>::from_bytes(Cow::Borrowed(anchor.raw_bytes()));
-    let decoded_key = IndexKey::try_from_raw(&anchor_raw).map_err(|err| {
-        invalid_continuation_cursor_payload(format!(
-            "index-range continuation anchor decode failed: {err}"
-        ))
-    })?;
-    let canonical_raw = decoded_key.to_raw();
-    debug_assert_eq!(
-        canonical_raw.as_bytes(),
-        anchor.raw_bytes(),
-        "index-range continuation anchor must round-trip to identical raw bytes",
-    );
-    if canonical_raw.as_bytes() != anchor.raw_bytes() {
-        return Err(invalid_continuation_cursor_payload(
-            "index-range continuation anchor canonical encoding mismatch",
-        ));
-    }
-
-    Ok(decoded_key)
 }
 
 /// Build a continuation anchor from one canonical index key.

@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        access::{AccessPath, AccessPlan, AccessPlannedQuery},
+        access::{AccessPath, AccessPlan},
         index::{
             EncodedValue, IndexRangeNotIndexableReasonScope, RawIndexKey,
             map_index_range_not_indexable_reason, raw_bounds_for_semantic_index_component_range,
@@ -111,20 +111,20 @@ impl LoweredIndexRangeSpec {
 
 // Lower semantic index-prefix access into byte bounds at lowering time.
 pub(in crate::db) fn lower_index_prefix_specs<E: EntityKind>(
-    plan: &AccessPlannedQuery<E::Key>,
+    access_plan: &AccessPlan<E::Key>,
 ) -> Result<Vec<LoweredIndexPrefixSpec>, InternalError> {
     let mut specs = Vec::new();
-    collect_index_prefix_specs::<E>(&plan.access, &mut specs)?;
+    collect_index_prefix_specs::<E>(access_plan, &mut specs)?;
 
     Ok(specs)
 }
 
 // Lower semantic index-range access into byte bounds at lowering time.
 pub(in crate::db) fn lower_index_range_specs<E: EntityKind>(
-    plan: &AccessPlannedQuery<E::Key>,
+    access_plan: &AccessPlan<E::Key>,
 ) -> Result<Vec<LoweredIndexRangeSpec>, InternalError> {
     let mut specs = Vec::new();
-    collect_index_range_specs::<E>(&plan.access, &mut specs)?;
+    collect_index_range_specs::<E>(access_plan, &mut specs)?;
 
     Ok(specs)
 }

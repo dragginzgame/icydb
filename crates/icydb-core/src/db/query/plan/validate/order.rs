@@ -1,8 +1,8 @@
 use crate::{
-    db::query::{
-        plan::OrderSpec,
-        plan::validate::{OrderPlanError, PlanError},
-        predicate::SchemaInfo,
+    db::{
+        contracts::SchemaInfo,
+        query::plan::OrderSpec,
+        query::plan::validate::{OrderPlanError, PlanError},
     },
     model::entity::EntityModel,
 };

@@ -1,5 +1,8 @@
 use crate::{
-    db::query::predicate::{CompareOp, ComparePredicate, Predicate, SchemaInfo, ValidateError},
+    db::{
+        contracts::SchemaInfo,
+        query::predicate::{CompareOp, ComparePredicate, Predicate, ValidateError},
+    },
     model::field::FieldKind,
     value::Value,
 };
@@ -222,8 +225,9 @@ fn normalize_enum_value(
 mod tests {
     use super::normalize_enum_literals;
     use crate::{
-        db::query::predicate::{
-            CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo, ValidateError,
+        db::{
+            contracts::SchemaInfo,
+            query::predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, ValidateError},
         },
         model::field::{FieldKind, FieldModel},
         testing::entity_model_from_static,

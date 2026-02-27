@@ -2,7 +2,6 @@ use crate::{
     db::{
         access::{AccessPath, AccessPlan, SemanticIndexRangeSpec},
         contracts::{SchemaInfo, literal_matches_type},
-        query::predicate::coercion::canonical_cmp,
     },
     model::{entity::EntityModel, index::IndexModel},
     traits::FieldValue,
@@ -132,7 +131,7 @@ impl AccessPlanKeyAdapter<Value> for ValueKeyAdapter {
     ) -> Result<(), AccessPlanError> {
         validate_pk_value(schema, model, start)?;
         validate_pk_value(schema, model, end)?;
-        let ordering = canonical_cmp(start, end);
+        let ordering = Value::canonical_cmp(start, end);
         if ordering == std::cmp::Ordering::Greater {
             return Err(AccessPlanError::InvalidKeyRange);
         }
@@ -141,8 +140,8 @@ impl AccessPlanKeyAdapter<Value> for ValueKeyAdapter {
     }
 }
 
-// Validate access plans by delegating key checks to the adapter.
-fn validate_access_plan_with<K>(
+// Validate access structures by delegating key checks to the adapter.
+fn validate_access_structure_with<K>(
     schema: &SchemaInfo,
     model: &EntityModel,
     access: &AccessPlan<K>,
@@ -154,7 +153,7 @@ fn validate_access_plan_with<K>(
 /// Validate executor-visible access paths.
 ///
 /// This ensures keys, ranges, and index prefixes are schema-compatible.
-pub(crate) fn validate_access_plan<K>(
+pub(crate) fn validate_access_structure<K>(
     schema: &SchemaInfo,
     model: &EntityModel,
     access: &AccessPlan<K>,
@@ -162,16 +161,16 @@ pub(crate) fn validate_access_plan<K>(
 where
     K: FieldValue + Ord,
 {
-    validate_access_plan_with(schema, model, access, &GenericKeyAdapter)
+    validate_access_structure_with(schema, model, access, &GenericKeyAdapter)
 }
 
-/// Validate access paths that carry model-level key values.
-pub(crate) fn validate_access_plan_model(
+/// Validate model-level access paths that carry `Value` keys.
+pub(crate) fn validate_access_structure_model(
     schema: &SchemaInfo,
     model: &EntityModel,
     access: &AccessPlan<Value>,
 ) -> Result<(), AccessPlanError> {
-    validate_access_plan_with(schema, model, access, &ValueKeyAdapter)
+    validate_access_structure_with(schema, model, access, &ValueKeyAdapter)
 }
 
 /// Validate that a key matches the entity's primary key type.
@@ -325,7 +324,7 @@ fn validate_index_range(
         return Ok(());
     };
 
-    if canonical_cmp(lower_value, upper_value) == std::cmp::Ordering::Greater {
+    if Value::canonical_cmp(lower_value, upper_value) == std::cmp::Ordering::Greater {
         return Err(AccessPlanError::InvalidKeyRange);
     }
 

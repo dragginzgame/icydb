@@ -179,8 +179,9 @@ mod tests {
     use super::RawCommitMarker;
     use crate::{
         db::{
+            codec::MAX_ROW_BYTES,
             commit::{CommitMarker, CommitRowOp, MAX_COMMIT_BYTES},
-            data::{DataKey, MAX_ROW_BYTES},
+            data::DataKey,
         },
         error::{ErrorClass, ErrorOrigin},
         serialize::{SerializeError, deserialize_bounded, serialize},

@@ -1,45 +1,34 @@
 //! Query-plan validation for planner-owned logical semantics.
 //!
 //! Validation ownership contract:
-//! - `validate_logical_plan_model` owns user-facing query semantics and emits `PlanError`.
+//! - `validate_query_semantics` owns user-facing query semantics and emits `PlanError`.
 //! - executor-boundary defensive checks live in `db::executor::plan_validate`.
 //!
 //! Future rule changes must declare a semantic owner. Defensive re-check layers may mirror
 //! rules, but must not reinterpret semantics or error class intent.
 
 mod order;
-mod semantics;
 
 #[cfg(test)]
 mod tests;
 
+use crate::db::query::plan::{AccessPlannedQuery, OrderSpec};
 use crate::{
     db::{
-        access::validate_access_plan_model as validate_access_plan_model_shared,
-        cursor::CursorPlanError,
-        policy::PlanPolicyError,
-        query::{
-            plan::{AccessPlannedQuery, OrderSpec},
-            predicate::{self, SchemaInfo},
+        access::{
+            AccessPlanError,
+            validate_access_structure_model as validate_access_structure_model_shared,
         },
+        contracts::SchemaInfo,
+        cursor::CursorPlanError,
+        policy::{self, PlanPolicyError},
+        query::predicate::{self},
     },
     model::entity::EntityModel,
     value::Value,
 };
 use thiserror::Error as ThisError;
 
-// re-exports
-pub(crate) use crate::db::access::AccessPlanError;
-#[cfg(test)]
-pub(crate) use crate::db::access::assess_secondary_order_pushdown_if_applicable;
-#[cfg(test)]
-pub(crate) use crate::db::access::{
-    PushdownApplicability, assess_secondary_order_pushdown_if_applicable_validated,
-};
-pub(crate) use crate::db::access::{
-    PushdownSurfaceEligibility, SecondaryOrderPushdownEligibility, SecondaryOrderPushdownRejection,
-    assess_secondary_order_pushdown,
-};
 pub(crate) use order::{
     validate_no_duplicate_non_pk_order_fields, validate_order, validate_primary_key_tie_break,
 };
@@ -181,7 +170,7 @@ impl From<PlanPolicyError> for PlanError {
 ///
 /// New user-facing validation rules must be introduced here first, then mirrored
 /// defensively in downstream layers without changing semantics.
-pub(crate) fn validate_logical_plan_model(
+pub(crate) fn validate_query_semantics(
     schema: &SchemaInfo,
     model: &EntityModel,
     plan: &AccessPlannedQuery<Value>,
@@ -192,7 +181,8 @@ pub(crate) fn validate_logical_plan_model(
         plan,
         validate_order,
         |schema, model, plan| {
-            validate_access_plan_model_shared(schema, model, &plan.access).map_err(PlanError::from)
+            validate_access_structure_model_shared(schema, model, &plan.access)
+                .map_err(PlanError::from)
         },
     )?;
 
@@ -222,7 +212,7 @@ where
     }
 
     validate_access_fn(schema, model, plan)?;
-    semantics::validate_plan_semantics(plan)?;
+    policy::validate_plan_shape(plan)?;
 
     Ok(())
 }

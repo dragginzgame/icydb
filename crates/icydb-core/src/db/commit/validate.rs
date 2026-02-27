@@ -1,7 +1,8 @@
 use crate::{
     db::{
+        codec::MAX_ROW_BYTES,
         commit::{CommitMarker, commit_corruption_message},
-        data::{DataKey, MAX_ROW_BYTES, RawDataKey},
+        data::{DataKey, RawDataKey},
     },
     error::InternalError,
     traits::Storable,

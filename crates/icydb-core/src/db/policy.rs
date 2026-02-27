@@ -8,9 +8,9 @@
 //! - ORDER semantic validation stays in `query::plan::validate::order`.
 //! - Executors may assert these rules defensively, but must not redefine them.
 
-use crate::db::{
-    query::intent::{LoadSpec, QueryMode},
-    query::plan::{LogicalPlan, OrderSpec},
+use crate::db::query::{
+    intent::{LoadSpec, QueryMode},
+    plan::{LogicalPlan, OrderSpec},
 };
 use thiserror::Error as ThisError;
 

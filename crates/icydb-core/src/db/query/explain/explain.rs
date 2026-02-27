@@ -2,17 +2,16 @@
 
 use crate::{
     db::{
-        access::AccessPlan,
+        access::{
+            AccessPlan, PushdownSurfaceEligibility, SecondaryOrderPushdownEligibility,
+            SecondaryOrderPushdownRejection,
+        },
+        contracts::ReadConsistency,
         query::{
-            ReadConsistency,
             intent::QueryMode,
             plan::{
                 AccessPlanProjection, AccessPlannedQuery, DeleteLimitSpec, OrderDirection,
-                OrderSpec, PageSpec, project_access_plan,
-                validate::{
-                    PushdownSurfaceEligibility, SecondaryOrderPushdownEligibility,
-                    SecondaryOrderPushdownRejection, assess_secondary_order_pushdown,
-                },
+                OrderSpec, PageSpec, assess_secondary_order_pushdown, project_access_plan,
             },
             predicate::{CoercionSpec, CompareOp, ComparePredicate, Predicate, normalize},
         },
@@ -421,10 +420,11 @@ const fn explain_delete_limit(limit: Option<&DeleteLimitSpec>) -> ExplainDeleteL
 mod tests {
     use super::*;
     use crate::db::access::{AccessPath, AccessPlan};
+    use crate::db::contracts::ReadConsistency;
+    use crate::db::query::builder::field::FieldRef;
     use crate::db::query::intent::{KeyAccess, LoadSpec, QueryMode, access_plan_from_keys_value};
     use crate::db::query::plan::{AccessPlannedQuery, LogicalPlan, OrderDirection, OrderSpec};
     use crate::db::query::predicate::Predicate;
-    use crate::db::query::{ReadConsistency, builder::field::FieldRef};
     use crate::model::{field::FieldKind, index::IndexModel};
     use crate::traits::EntitySchema;
     use crate::types::Ulid;
@@ -539,7 +539,7 @@ mod tests {
                 index: chosen,
                 values: vec![Value::Text("alpha".to_string())],
             },
-            crate::db::query::ReadConsistency::MissingOk,
+            crate::db::contracts::ReadConsistency::MissingOk,
         );
 
         let explain = plan.explain();

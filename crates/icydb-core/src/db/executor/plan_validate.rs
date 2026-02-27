@@ -1,5 +1,7 @@
 use crate::{
-    db::{access::validate_access_plan, contracts::SchemaInfo, query::plan::AccessPlannedQuery},
+    db::{
+        access::validate_access_structure, contracts::SchemaInfo, query::plan::AccessPlannedQuery,
+    },
     error::InternalError,
     traits::EntityKind,
 };
@@ -19,7 +21,7 @@ pub(in crate::db::executor) fn validate_executor_plan<E: EntityKind>(
         InternalError::query_invariant(format!("entity schema invalid for {}: {err}", E::PATH))
     })?;
 
-    validate_access_plan(&schema, E::MODEL, &plan.access)
+    validate_access_structure(&schema, E::MODEL, &plan.access)
         .map_err(InternalError::from_executor_access_plan_error)?;
 
     Ok(())

@@ -3,8 +3,8 @@
 
 use crate::{
     db::{
+        contracts::ReadConsistency,
         query::{
-            ReadConsistency,
             explain::{
                 ExplainAccessPath, ExplainDeleteLimit, ExplainOrderBy, ExplainPagination,
                 ExplainPlan, ExplainPredicate,

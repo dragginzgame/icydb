@@ -17,16 +17,15 @@ use crate::{
     db::{
         Db,
         access::AccessPlan,
-        cursor::{ContinuationToken, CursorBoundary},
+        cursor::{ContinuationToken, CursorBoundary, PlannedCursor, decode_pk_cursor_boundary},
         direction::Direction,
         executor::{
             AccessStreamBindings, ExecutablePlan, ExecutionKernel, ExecutionPreparation,
-            IndexPredicateCompileMode, KeyOrderComparator, OrderedKeyStreamBox, PlannedCursor,
+            IndexPredicateCompileMode, KeyOrderComparator, OrderedKeyStreamBox,
             aggregate_model::field::{
                 AggregateFieldValueError, FieldSlot, resolve_any_aggregate_target_slot,
                 resolve_numeric_aggregate_target_slot, resolve_orderable_aggregate_target_slot,
             },
-            decode_pk_cursor_boundary,
             plan_metrics::{record_plan_metrics, record_rows_scanned},
             range_token_anchor_key, range_token_from_cursor_anchor, validate_executor_plan,
         },

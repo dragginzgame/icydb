@@ -1,19 +1,16 @@
 use crate::{
     db::{
         access::AccessPlan,
-        cursor::ContinuationSignature,
+        cursor::{ContinuationSignature, PlannedCursor},
+        direction::Direction,
         executor::{
             ExecutorPlanError, LOWERED_INDEX_PREFIX_SPEC_INVALID, LOWERED_INDEX_RANGE_SPEC_INVALID,
-            LoweredIndexPrefixSpec, LoweredIndexRangeSpec, PlannedCursor, lower_index_prefix_specs,
-            lower_index_range_specs, prepare_cursor as validate_cursor_plan,
-            revalidate_cursor as revalidate_cursor_plan,
+            LoweredIndexPrefixSpec, LoweredIndexRangeSpec, lower_index_prefix_specs,
+            lower_index_range_specs,
         },
-        query::plan::OrderDirection,
+        query::plan::{AccessPlannedQuery, LogicalPlan, OrderDirection},
         query::{
-            explain::ExplainPlan,
-            fingerprint::PlanFingerprint,
-            intent::QueryMode,
-            plan::{AccessPlannedQuery, Direction, LogicalPlan},
+            explain::ExplainPlan, fingerprint::PlanFingerprint, intent::QueryMode, plan::PlanError,
         },
     },
     error::InternalError,
@@ -62,12 +59,12 @@ impl<E: EntityKind> ExecutablePlan<E> {
 
     fn build(plan: AccessPlannedQuery<E::Key>) -> Self {
         let (index_prefix_specs, index_prefix_spec_invalid) =
-            match lower_index_prefix_specs::<E>(&plan) {
+            match lower_index_prefix_specs::<E>(&plan.access) {
                 Ok(specs) => (specs, false),
                 Err(_) => (Vec::new(), true),
             };
         let (index_range_specs, index_range_spec_invalid) =
-            match lower_index_range_specs::<E>(&plan) {
+            match lower_index_range_specs::<E>(&plan.access) {
                 Ok(specs) => (specs, false),
                 Err(_) => (Vec::new(), true),
             };
@@ -119,13 +116,14 @@ impl<E: EntityKind> ExecutablePlan<E> {
         E::Key: FieldValue,
     {
         let direction = derive_direction(&self.plan.logical);
-        validate_cursor_plan::<E>(
+        crate::db::cursor::prepare_cursor::<E>(
             &self.plan,
             direction,
             self.continuation_signature(),
             Self::initial_page_offset(&self.plan),
             cursor,
         )
+        .map_err(ExecutorPlanError::from)
     }
 
     /// Return the plan mode (load vs delete).
@@ -180,11 +178,12 @@ impl<E: EntityKind> ExecutablePlan<E> {
         E::Key: FieldValue,
     {
         let direction = derive_direction(&self.plan.logical);
-        revalidate_cursor_plan::<E>(
+        crate::db::cursor::revalidate_cursor::<E>(
             &self.plan,
             direction,
             Self::initial_page_offset(&self.plan),
             cursor,
         )
+        .map_err(|err| InternalError::from_cursor_plan_error(PlanError::from(err)))
     }
 }

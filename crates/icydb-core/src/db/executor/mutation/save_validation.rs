@@ -1,0 +1,417 @@
+use crate::{
+    db::{
+        contracts::{SchemaInfo, literal_matches_type},
+        executor::mutation::save::SaveExecutor,
+        query::predicate::coercion::canonical_cmp,
+        relation::{
+            StrongRelationTargetInfo, build_relation_target_raw_key,
+            for_each_relation_target_value, incompatible_store_error,
+            strong_relation_target_from_kind, target_key_mismatch_error,
+        },
+    },
+    error::{ErrorClass, ErrorOrigin, InternalError},
+    model::{entity::resolve_primary_key_slot, field::FieldKind},
+    sanitize::sanitize,
+    traits::{EntityKind, EntityValue},
+    validate::validate,
+    value::Value,
+};
+use std::{
+    cmp::Ordering,
+    collections::{BTreeMap, BTreeSet},
+    sync::{Mutex, OnceLock},
+};
+
+impl<E: EntityKind + EntityValue> SaveExecutor<E> {
+    // Execute the canonical save preflight pipeline before commit planning.
+    pub(super) fn preflight_entity(&self, entity: &mut E) -> Result<(), InternalError> {
+        sanitize(entity)?;
+        validate(entity)?;
+        Self::ensure_entity_invariants(entity)?;
+        self.validate_strong_relations(entity)?;
+
+        Ok(())
+    }
+
+    // Cache schema validation per entity type to keep invariant checks fast.
+    // Note: these trait boundaries may be sealed in a future major version.
+    pub(in crate::db::executor::mutation) fn ensure_entity_invariants(
+        entity: &E,
+    ) -> Result<(), InternalError> {
+        let schema = Self::schema_info()?;
+
+        Self::validate_entity_invariants(entity, schema)
+    }
+
+    // Cache schema validation results per entity type.
+    fn schema_info() -> Result<&'static SchemaInfo, InternalError> {
+        type SchemaCache = BTreeMap<&'static str, Result<&'static SchemaInfo, CachedInvariant>>;
+        static CACHE: OnceLock<Mutex<SchemaCache>> = OnceLock::new();
+
+        let cache = CACHE.get_or_init(|| Mutex::new(BTreeMap::new()));
+        let mut cache_guard = cache
+            .lock()
+            .expect("schema cache lock should not be poisoned");
+
+        let entry = cache_guard.entry(E::PATH).or_insert_with(|| {
+            SchemaInfo::from_entity_model(E::MODEL)
+                .map(|schema| Box::leak(Box::new(schema)) as &'static SchemaInfo)
+                .map_err(|err| {
+                    CachedInvariant::from_error(InternalError::executor_invariant(format!(
+                        "entity schema invalid for {}: {err}",
+                        E::PATH
+                    )))
+                })
+        });
+
+        match entry {
+            Ok(schema) => Ok(*schema),
+            Err(err) => Err(err.to_error()),
+        }
+    }
+
+    // Enforce trait boundary invariants for user-provided entities.
+    fn validate_entity_invariants(entity: &E, schema: &SchemaInfo) -> Result<(), InternalError> {
+        // Phase 1: validate primary key field presence and *shape*.
+        let Some(pk_field_index) = resolve_primary_key_slot(E::MODEL) else {
+            return Err(InternalError::executor_invariant(format!(
+                "entity primary key field missing: {} field={}",
+                E::PATH,
+                E::PRIMARY_KEY
+            )));
+        };
+        let pk_value = entity.get_value_by_index(pk_field_index).ok_or_else(|| {
+            InternalError::executor_invariant(format!(
+                "entity primary key field missing: {} field={}",
+                E::PATH,
+                E::PRIMARY_KEY
+            ))
+        })?;
+
+        // Primary key must not be Null.
+        // Unit is valid for singleton entities and is enforced by schema shape checks below.
+        if matches!(pk_value, Value::Null) {
+            return Err(InternalError::executor_invariant(format!(
+                "entity primary key field has invalid value: {} field={} value={pk_value:?}",
+                E::PATH,
+                E::PRIMARY_KEY
+            )));
+        }
+
+        // If schema knows the PK type, enforce literal shape compatibility.
+        if let Some(pk_type) = schema.field(E::PRIMARY_KEY)
+            && !literal_matches_type(&pk_value, pk_type)
+        {
+            return Err(InternalError::executor_invariant(format!(
+                "entity primary key field type mismatch: {} field={} value={pk_value:?}",
+                E::PATH,
+                E::PRIMARY_KEY
+            )));
+        }
+
+        // The declared PK field value must exactly match the runtime identity key.
+        let identity_pk = crate::traits::FieldValue::to_value(&entity.id().key());
+        if pk_value != identity_pk {
+            return Err(InternalError::executor_invariant(format!(
+                "entity primary key mismatch: {} field={} field_value={pk_value:?} id_key={identity_pk:?}",
+                E::PATH,
+                E::PRIMARY_KEY
+            )));
+        }
+
+        // Phase 2: validate field presence and runtime value shapes.
+        let indexed_fields = indexed_field_set::<E>();
+        for (field_index, field) in E::MODEL.fields.iter().enumerate() {
+            let value = entity.get_value_by_index(field_index).ok_or_else(|| {
+                let note = if indexed_fields.contains(field.name) {
+                    " (indexed)"
+                } else {
+                    ""
+                };
+                InternalError::executor_invariant(format!(
+                    "entity field missing: {} field={}{}",
+                    E::PATH,
+                    field.name,
+                    note
+                ))
+            })?;
+
+            if matches!(value, Value::Null | Value::Unit) {
+                // Null = absent, Unit = singleton sentinel; both skip type checks.
+                continue;
+            }
+
+            if !field.kind.value_kind().is_queryable() {
+                // Non-queryable structured fields are not planner-addressable.
+                continue;
+            }
+
+            let Some(field_type) = schema.field(field.name) else {
+                // Runtime-only field; treat as non-queryable.
+                continue;
+            };
+
+            if !literal_matches_type(&value, field_type) {
+                return Err(InternalError::executor_invariant(format!(
+                    "entity field type mismatch: {} field={} value={value:?}",
+                    E::PATH,
+                    field.name
+                )));
+            }
+
+            // Phase 3: enforce schema-declared decimal scales at write boundaries.
+            Self::validate_decimal_scale(field.name, &field.kind, &value)?;
+
+            // Phase 4: enforce deterministic collection/map encodings at runtime.
+            Self::validate_deterministic_field_value(field.name, &field.kind, &value)?;
+        }
+
+        Ok(())
+    }
+
+    /// Enforce fixed decimal scales across scalar and nested collection values.
+    fn validate_decimal_scale(
+        field_name: &str,
+        kind: &FieldKind,
+        value: &Value,
+    ) -> Result<(), InternalError> {
+        if matches!(value, Value::Null | Value::Unit) {
+            return Ok(());
+        }
+
+        match (kind, value) {
+            (FieldKind::Decimal { scale }, Value::Decimal(decimal)) => {
+                if decimal.scale() != *scale {
+                    return Err(InternalError::executor_unsupported(format!(
+                        "decimal field scale mismatch: {} field={} expected_scale={} actual_scale={}",
+                        E::PATH,
+                        field_name,
+                        scale,
+                        decimal.scale()
+                    )));
+                }
+
+                Ok(())
+            }
+            (FieldKind::Relation { key_kind, .. }, value) => {
+                Self::validate_decimal_scale(field_name, key_kind, value)
+            }
+            (FieldKind::List(inner) | FieldKind::Set(inner), Value::List(items)) => {
+                for item in items {
+                    Self::validate_decimal_scale(field_name, inner, item)?;
+                }
+
+                Ok(())
+            }
+            (
+                FieldKind::Map {
+                    key,
+                    value: map_value,
+                },
+                Value::Map(entries),
+            ) => {
+                for (entry_key, entry_value) in entries {
+                    Self::validate_decimal_scale(field_name, key, entry_key)?;
+                    Self::validate_decimal_scale(field_name, map_value, entry_value)?;
+                }
+
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// Enforce deterministic value encodings for collection-like field kinds.
+    pub(in crate::db::executor) fn validate_deterministic_field_value(
+        field_name: &str,
+        kind: &FieldKind,
+        value: &Value,
+    ) -> Result<(), InternalError> {
+        match kind {
+            FieldKind::Set(_) => Self::validate_set_encoding(field_name, value),
+            FieldKind::Map { .. } => Self::validate_map_encoding(field_name, value),
+            _ => Ok(()),
+        }
+    }
+
+    /// Validate canonical ordering + uniqueness for set-encoded list values.
+    fn validate_set_encoding(field_name: &str, value: &Value) -> Result<(), InternalError> {
+        if matches!(value, Value::Null) {
+            return Ok(());
+        }
+
+        let Value::List(items) = value else {
+            return Err(InternalError::executor_invariant(format!(
+                "set field must encode as Value::List: {} field={field_name}",
+                E::PATH
+            )));
+        };
+
+        for pair in items.windows(2) {
+            let [left, right] = pair else {
+                continue;
+            };
+            let ordering = canonical_cmp(left, right);
+            if ordering != Ordering::Less {
+                return Err(InternalError::executor_invariant(format!(
+                    "set field must be strictly ordered and deduplicated: {} field={field_name}",
+                    E::PATH
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Validate canonical map entry invariants for persisted map values.
+    ///
+    /// Map fields are persisted as atomic row-level value replacements; this
+    /// check guarantees each stored map payload is already canonical.
+    fn validate_map_encoding(field_name: &str, value: &Value) -> Result<(), InternalError> {
+        if matches!(value, Value::Null) {
+            return Ok(());
+        }
+
+        let Value::Map(entries) = value else {
+            return Err(InternalError::executor_invariant(format!(
+                "map field must encode as Value::Map: {} field={field_name}",
+                E::PATH
+            )));
+        };
+
+        Value::validate_map_entries(entries.as_slice()).map_err(|err| {
+            InternalError::executor_invariant(format!(
+                "map field entries violate map invariants: {} field={field_name} ({err})",
+                E::PATH
+            ))
+        })?;
+
+        let normalized = Value::normalize_map_entries(entries.clone()).map_err(|err| {
+            InternalError::executor_invariant(format!(
+                "map field entries cannot be normalized: {} field={field_name} ({err})",
+                E::PATH
+            ))
+        })?;
+        if normalized.as_slice() != entries.as_slice() {
+            return Err(InternalError::executor_invariant(format!(
+                "map field entries are not in canonical deterministic order: {} field={field_name}",
+                E::PATH
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Validate strong relation references against the target data stores.
+    pub(in crate::db::executor) fn validate_strong_relations(
+        &self,
+        entity: &E,
+    ) -> Result<(), InternalError> {
+        // Phase 1: identify strong relation fields and read their values.
+        for (field_index, field) in E::MODEL.fields.iter().enumerate() {
+            let Some(relation) = strong_relation_target_from_kind(&field.kind) else {
+                continue;
+            };
+
+            let value = entity.get_value_by_index(field_index).ok_or_else(|| {
+                InternalError::executor_invariant(format!(
+                    "entity field missing: {} field={}",
+                    E::PATH,
+                    field.name
+                ))
+            })?;
+
+            // Phase 2: validate each referenced key.
+            for_each_relation_target_value(&value, |item| {
+                // Collection enforcement is aggregate: every referenced key must exist.
+                self.validate_strong_relation_value(field.name, relation, item)
+            })?;
+        }
+
+        Ok(())
+    }
+
+    /// Validate a single strong relation key against the target store.
+    fn validate_strong_relation_value(
+        &self,
+        field_name: &str,
+        relation: StrongRelationTargetInfo,
+        value: &Value,
+    ) -> Result<(), InternalError> {
+        // Phase 1: normalize the key into a storage-compatible target raw key.
+        let raw_key =
+            build_relation_target_raw_key(relation.target_entity_name, value).map_err(|err| {
+                InternalError::relation_target_raw_key_error(
+                    err,
+                    E::PATH,
+                    field_name,
+                    relation.target_path,
+                    relation.target_entity_name,
+                    value,
+                    "strong relation key not storage-compatible",
+                    "strong relation target name invalid",
+                )
+            })?;
+
+        // Phase 2: resolve the target store and confirm existence.
+        let store = self
+            .db
+            .with_store_registry(|reg| reg.try_get_store(relation.target_store_path))
+            .map_err(|err| {
+                incompatible_store_error(
+                    E::PATH,
+                    field_name,
+                    relation.target_path,
+                    relation.target_store_path,
+                    value,
+                    err,
+                )
+            })?;
+        let exists = store.with_data(|s| s.contains_key(&raw_key));
+        if !exists {
+            return Err(target_key_mismatch_error(
+                E::PATH,
+                field_name,
+                relation.target_path,
+                value,
+            ));
+        }
+
+        Ok(())
+    }
+}
+
+///
+/// CachedInvariant
+/// Persisted error metadata for schema validation results
+///
+
+struct CachedInvariant {
+    class: ErrorClass,
+    origin: ErrorOrigin,
+    message: String,
+}
+
+impl CachedInvariant {
+    fn from_error(err: InternalError) -> Self {
+        Self {
+            class: err.class,
+            origin: err.origin,
+            message: err.message,
+        }
+    }
+
+    fn to_error(&self) -> InternalError {
+        InternalError::classified(self.class, self.origin, self.message.clone())
+    }
+}
+
+// Build the set of fields referenced by indexes for an entity.
+fn indexed_field_set<E: EntityKind>() -> BTreeSet<&'static str> {
+    let mut fields = BTreeSet::new();
+    for index in E::INDEXES {
+        fields.extend(index.fields.iter().copied());
+    }
+
+    fields
+}
