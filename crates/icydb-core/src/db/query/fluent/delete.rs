@@ -1,12 +1,12 @@
 use crate::{
     db::{
         DbSession,
+        contracts::Predicate,
         executor::ExecutablePlan,
         query::{
             explain::ExplainPlan,
             expr::{FilterExpr, SortExpr},
             intent::{PlannedQuery, Query, QueryError},
-            predicate::Predicate,
         },
         response::Response,
     },

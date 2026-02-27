@@ -5,6 +5,28 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.30.14] - 2026-02-27 - DB Entropy Reduction
+
+### 📝 Summary
+
+* This release reduces structural entropy in `db/` and tightens test ownership boundaries.
+* No production behavior change is intended; changes are ownership and layout cleanup only.
+
+### 🧹 Cleanup
+
+* Reduced internal DB structure noise by removing pass-through wrappers and routing-only shims where behavior was unchanged.
+
+### 📊 Audit
+
+* Consolidated aggregate execution into one canonical `db::executor::aggregate` root and removed the old split aggregate trees.
+* Collapsed route-planner structure so route capability, mode, hints, and fast-path logic now live under one route namespace.
+* Flattened query planning/validation ownership into `query/plan.rs` and `query/plan_validate.rs` and removed fragmented planner/validate trees.
+* Unified cursor invariants under `db::cursor` and removed duplicate cursor ownership in executor paths.
+* Reduced duplicate predicate roots by keeping shared predicate contracts in neutral `db::contracts` and narrowing query predicate modules to query-owned behavior.
+* Audit footprint: moved 31 DB-internal test files back under `src/db/**`, removed 7 legacy `tests/db/**` stubs, deleted 12 old `src/db/**` files, and removed 6 include-bridge macros.
+
+---
+
 ## [0.30.13] - 2026-02-26 - Delete Module Compression and Design Cleanup
 
 ### 📝 Summary
@@ -23,18 +45,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### 📝 Summary
 
-* Completed a merge-first follow-up pass from the DB consolidation audit to remove remaining duplicate roots and thin wrappers without changing query behavior.
-
-### 🔧 Changed
-
-* Made `db::query::predicate` the canonical predicate namespace and removed the legacy `db::predicate` root and re-export shims.
-* Moved runtime predicate filtering into `db::executor` and removed older duplicate predicate modules.
-* Kept index predicate byte encoding in `db::index::predicate`, and routed executor compile decisions through one shared path.
-* Moved `AccessPlannedQuery` and order contracts to `db::access`, so the access layer no longer depends on query-owned planning types.
-* Moved shared predicate policy types (`UnsupportedQueryFeature`, `CoercionId`) into `db::contracts` so all layers use one common owner.
-* Moved `MAX_ROW_BYTES` into `db::codec`, removing a lower-layer dependency on `db::data`.
-* Removed thin wrappers and small leftover module shells (`db::diagnostics::snapshot`, `db::index::store`) and deleted empty directories.
-* Folded executor cursor helper wrappers into `executor/cursor/mod.rs` while keeping DB-level cursor token semantics in `db::cursor`.
+* Continued the DB cleanup by removing overlapping internal ownership and extra wrapper layers.
+* Consolidated predicate handling so planning and execution use a single path instead of parallel implementations.
+* Moved shared contracts and constants to neutral shared modules to reduce cross-layer coupling.
+* Removed leftover thin modules and empty directories that no longer added behavior.
+* Kept runtime query behavior unchanged; this release is structural cleanup.
 
 ---
 
@@ -42,14 +57,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### 📝 Summary
 
-* Completed a structural cleanup pass across `db/` after the architecture audit, with no intended query behavior change.
-
-### 🔧 Changed
-
-* Added and enforced shared `db::contracts` ownership for cross-layer predicate and consistency contracts, and removed remaining executor dependencies on query-owned predicate internals.
-* Removed duplicate/overlapping roots in `db/` (`plan`, root `intent`, root `lowering`) and rewired ownership to canonical modules (`query::plan`, `query::intent`, executor-owned lowering).
-* Consolidated duplicate module surfaces (including window execution modules) and removed obsolete validation routing (`query::plan::validate::pushdown`).
-* Deleted dead scaffolding and compatibility leftovers in execution/index contracts, including unused dead-code suppressions, stale helper paths, and test-only runtime scaffolding that was no longer exercised in production code paths.
+* Completed a broad post-audit cleanup pass across `db/` to simplify ownership and reduce drift.
+* Centralized shared cross-layer contracts so execution no longer depends on query-internal details.
+* Removed duplicate roots and redundant routing so each concept has one clear home.
+* Deleted dead compatibility scaffolding and stale internal helpers that were no longer used.
+* Kept query behavior unchanged; this release focuses on structure and maintainability.
 
 ---
 

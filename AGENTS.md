@@ -378,8 +378,9 @@ Code is considered non-trivial if it:
 * Smaller changelog entries may omit the title segment; use `## [x.y.z] - YYYY-MM-DD` when no title is needed.
 * Changelog subsections are optional; include only the sections relevant to that release.
 * For small cleanup releases, prefer no subsection headers; use a short plain-language summary with a few concise bullets.
+* Exception: for structural cleanup/audit passes, use subsection headers and include an explicit `Audit` subsection with footprint stats.
 * If a section like `Changed` gets large, it is acceptable to split it into topic-based headers (for example `### 🔧 Changed - Aggregate Execution`, `### 🔧 Changed - Structure`) to improve readability.
-* Use a fixed emoji mapping for section headers so icons stay consistent across releases: `Added=➕`, `Changed=🔧`, `Fixed=🩹`, `Removed=🗑️`, `Breaking=⚠️`, `Migration Notes=🧭`, `Summary=📝`, `Cleanup=🧹`, `Testing=🧪`, `Governance=🥾`, `Documentation=📚`.
+* Use a fixed emoji mapping for section headers so icons stay consistent across releases: `Added=➕`, `Changed=🔧`, `Fixed=🩹`, `Removed=🗑️`, `Breaking=⚠️`, `Migration Notes=🧭`, `Summary=📝`, `Cleanup=🧹`, `Audit=📊`, `Testing=🧪`, `Governance=🥾`, `Documentation=📚`.
 * Release flow is usually `make patch` then `cargo publish`.
 * When updating the changelog, target the upcoming release version (for example `0.13.2` while `Cargo.toml` is still `0.13.1`); do not assume changelog version equals the current `Cargo.toml` version.
 * Use the version the user specifies or the existing latest entry; do not create a new version header if the newest entry already exists (e.g., if `0.6.5` is present while the current version is `0.6.4`, add to `0.6.5`).
@@ -393,6 +394,7 @@ Code is considered non-trivial if it:
 * Changelog bullets do not need to be single-line only; use extra sentence space when needed to preserve important context.
 * Do not add a `### 🧪 Testing` section for routine validation runs (for example `make check`, `make test`, `cargo test`); include `Testing` only when the release adds or changes tests, test coverage, or test tooling.
 * Prefer explaining **why** a change matters over listing only **what** changed.
+* For cleanup/audit releases, always include one `Audit footprint` bullet with concrete counts (for example moved/renamed/deleted files, removed shims/bridges, or reduced directories).
 * Include code examples only when they are relevant to a developer (for example usage, migration, or behavior that is hard to infer from bullets alone).
 * Use fenced code blocks only when they add clarity; do not force them into every changelog entry.
 

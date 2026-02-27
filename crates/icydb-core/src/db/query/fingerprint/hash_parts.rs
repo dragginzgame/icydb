@@ -3,7 +3,7 @@
 
 use crate::{
     db::{
-        contracts::ReadConsistency,
+        contracts::{CoercionId, ReadConsistency},
         query::{
             explain::{
                 ExplainAccessPath, ExplainDeleteLimit, ExplainOrderBy, ExplainPagination,
@@ -11,7 +11,6 @@ use crate::{
             },
             intent::QueryMode,
             plan::{AccessPlanProjection, OrderDirection, project_explain_access_path},
-            predicate::CoercionId,
         },
         value_hash::hash_value,
     },

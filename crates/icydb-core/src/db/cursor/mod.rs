@@ -2,6 +2,7 @@ mod anchor;
 pub(crate) mod boundary;
 mod errors;
 mod planned;
+mod range_token;
 mod spine;
 pub(crate) mod token;
 
@@ -12,6 +13,10 @@ pub(in crate::db) use boundary::{
 };
 pub(crate) use errors::CursorPlanError;
 pub(in crate::db) use planned::PlannedCursor;
+pub(in crate::db) use range_token::{
+    RangeToken, cursor_anchor_from_index_key, range_token_anchor_key,
+    range_token_from_cursor_anchor, range_token_from_lowered_anchor,
+};
 pub(in crate::db) use token::IndexRangeCursorAnchor;
 pub(crate) use token::{ContinuationSignature, ContinuationToken, ContinuationTokenError};
 

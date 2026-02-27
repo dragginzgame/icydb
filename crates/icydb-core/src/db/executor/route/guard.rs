@@ -37,31 +37,13 @@ fn ensure_spec_exactly_one_if_enabled(
     Ok(())
 }
 
-// Shared helper for prefix-spec arity checks used by load and aggregate routes.
-pub(in crate::db::executor) fn ensure_prefix_spec_at_most_one_if_enabled(
-    fast_path_enabled: bool,
-    index_prefix_spec_count: usize,
-    message: &'static str,
-) -> Result<(), InternalError> {
-    ensure_spec_at_most_one_if_enabled(fast_path_enabled, index_prefix_spec_count, message)
-}
-
-// Shared helper for range-spec arity checks used by load and aggregate routes.
-pub(in crate::db::executor) fn ensure_range_spec_at_most_one_if_enabled(
-    fast_path_enabled: bool,
-    index_range_spec_count: usize,
-    message: &'static str,
-) -> Result<(), InternalError> {
-    ensure_spec_at_most_one_if_enabled(fast_path_enabled, index_range_spec_count, message)
-}
-
 // Guard secondary aggregate fast-path assumptions so index-prefix
 // spec consumption cannot silently drift if planner shapes evolve.
 pub(in crate::db::executor) fn ensure_secondary_aggregate_fast_path_arity(
     secondary_pushdown_eligible: bool,
     index_prefix_spec_count: usize,
 ) -> Result<(), InternalError> {
-    ensure_prefix_spec_at_most_one_if_enabled(
+    ensure_spec_at_most_one_if_enabled(
         secondary_pushdown_eligible,
         index_prefix_spec_count,
         SECONDARY_AGGREGATE_PREFIX_ARITY_MESSAGE,
@@ -101,12 +83,12 @@ pub(in crate::db::executor) fn ensure_load_fast_path_spec_arity(
     index_range_pushdown_eligible: bool,
     index_range_spec_count: usize,
 ) -> Result<(), InternalError> {
-    ensure_prefix_spec_at_most_one_if_enabled(
+    ensure_spec_at_most_one_if_enabled(
         secondary_pushdown_eligible,
         index_prefix_spec_count,
         SECONDARY_LOAD_PREFIX_ARITY_MESSAGE,
     )?;
-    ensure_range_spec_at_most_one_if_enabled(
+    ensure_spec_at_most_one_if_enabled(
         index_range_pushdown_eligible,
         index_range_spec_count,
         INDEX_RANGE_LOAD_RANGE_ARITY_MESSAGE,

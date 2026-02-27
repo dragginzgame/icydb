@@ -73,7 +73,7 @@ mod tests {
     use crate::{
         db::{
             access::AccessPath,
-            contracts::ReadConsistency,
+            contracts::{Predicate, ReadConsistency},
             cursor::{
                 ContinuationSignature, ContinuationToken, ContinuationTokenError, CursorBoundary,
                 CursorBoundarySlot, IndexRangeCursorAnchor,
@@ -84,7 +84,6 @@ mod tests {
                 intent::{KeyAccess, LoadSpec, QueryMode, access_plan_from_keys_value},
                 plan::OrderDirection,
                 plan::{AccessPlannedQuery, LogicalPlan, OrderSpec, PageSpec},
-                predicate::Predicate,
             },
         },
         types::Ulid,

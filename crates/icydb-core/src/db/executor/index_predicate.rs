@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        contracts::CoercionId,
+        contracts::{CoercionId, CompareOp},
         executor::predicate_runtime::{
             PredicateFieldSlots, ResolvedComparePredicate, ResolvedPredicate,
         },
@@ -8,7 +8,6 @@ use crate::{
             IndexCompareOp, IndexLiteral, IndexPredicateProgram,
             predicate::literal_index_component_bytes,
         },
-        query::predicate::CompareOp,
     },
     value::Value,
 };
@@ -205,7 +204,7 @@ fn compile_compare_index_node(
 mod tests {
     use crate::{
         db::{
-            contracts::CoercionId,
+            contracts::{CoercionId, CoercionSpec, CompareOp},
             executor::predicate_runtime::{
                 PredicateFieldSlots, ResolvedComparePredicate, ResolvedPredicate,
             },
@@ -213,7 +212,6 @@ mod tests {
                 IndexCompareOp, IndexLiteral, IndexPredicateProgram,
                 predicate::literal_index_component_bytes,
             },
-            query::predicate::{CompareOp, coercion::CoercionSpec},
         },
         value::Value,
     };

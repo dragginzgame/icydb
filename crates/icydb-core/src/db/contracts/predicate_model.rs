@@ -1,9 +1,15 @@
 use crate::{
     model::field::FieldKind,
     traits::FieldValueKind,
-    value::{CoercionFamily, Value},
+    value::{CoercionFamily, TextMode, Value},
 };
-use std::fmt;
+use std::{
+    cmp::Ordering,
+    collections::BTreeMap,
+    fmt,
+    mem::discriminant,
+    ops::{BitAnd, BitOr},
+};
 use thiserror::Error as ThisError;
 
 ///
@@ -316,3 +322,430 @@ impl fmt::Display for FieldType {
         }
     }
 }
+
+///
+/// CoercionSpec
+///
+/// Fully-specified coercion policy for predicate comparisons.
+///
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CoercionSpec {
+    pub id: CoercionId,
+    pub params: BTreeMap<String, String>,
+}
+
+impl CoercionSpec {
+    #[must_use]
+    pub const fn new(id: CoercionId) -> Self {
+        Self {
+            id,
+            params: BTreeMap::new(),
+        }
+    }
+}
+
+impl Default for CoercionSpec {
+    fn default() -> Self {
+        Self::new(CoercionId::Strict)
+    }
+}
+
+///
+/// CoercionRuleFamily
+///
+/// Rule-side matcher for coercion routing families.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum CoercionRuleFamily {
+    Any,
+    Family(CoercionFamily),
+}
+
+///
+/// CoercionRule
+///
+/// Declarative coercion routing rule between value families.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct CoercionRule {
+    pub left: CoercionRuleFamily,
+    pub right: CoercionRuleFamily,
+    pub id: CoercionId,
+}
+
+pub(crate) const COERCION_TABLE: &[CoercionRule] = &[
+    CoercionRule {
+        left: CoercionRuleFamily::Any,
+        right: CoercionRuleFamily::Any,
+        id: CoercionId::Strict,
+    },
+    CoercionRule {
+        left: CoercionRuleFamily::Family(CoercionFamily::Numeric),
+        right: CoercionRuleFamily::Family(CoercionFamily::Numeric),
+        id: CoercionId::NumericWiden,
+    },
+    CoercionRule {
+        left: CoercionRuleFamily::Family(CoercionFamily::Textual),
+        right: CoercionRuleFamily::Family(CoercionFamily::Textual),
+        id: CoercionId::TextCasefold,
+    },
+    CoercionRule {
+        left: CoercionRuleFamily::Any,
+        right: CoercionRuleFamily::Any,
+        id: CoercionId::CollectionElement,
+    },
+];
+
+/// Returns whether a coercion rule exists for the provided routing families.
+#[must_use]
+pub(in crate::db) fn supports_coercion(
+    left: CoercionFamily,
+    right: CoercionFamily,
+    id: CoercionId,
+) -> bool {
+    COERCION_TABLE.iter().any(|rule| {
+        rule.id == id && family_matches(rule.left, left) && family_matches(rule.right, right)
+    })
+}
+
+fn family_matches(rule: CoercionRuleFamily, value: CoercionFamily) -> bool {
+    match rule {
+        CoercionRuleFamily::Any => true,
+        CoercionRuleFamily::Family(expected) => expected == value,
+    }
+}
+
+///
+/// TextOp
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum TextOp {
+    StartsWith,
+    EndsWith,
+}
+
+/// Perform equality comparison under an explicit coercion policy.
+#[must_use]
+pub(in crate::db) fn compare_eq(
+    left: &Value,
+    right: &Value,
+    coercion: &CoercionSpec,
+) -> Option<bool> {
+    match coercion.id {
+        CoercionId::Strict | CoercionId::CollectionElement => {
+            same_variant(left, right).then_some(left == right)
+        }
+        CoercionId::NumericWiden => {
+            if !left.supports_numeric_coercion() || !right.supports_numeric_coercion() {
+                return None;
+            }
+
+            left.cmp_numeric(right).map(|ord| ord == Ordering::Equal)
+        }
+        CoercionId::TextCasefold => compare_casefold(left, right),
+    }
+}
+
+/// Perform ordering comparison under an explicit coercion policy.
+#[must_use]
+pub(in crate::db) fn compare_order(
+    left: &Value,
+    right: &Value,
+    coercion: &CoercionSpec,
+) -> Option<Ordering> {
+    match coercion.id {
+        CoercionId::Strict | CoercionId::CollectionElement => {
+            if !same_variant(left, right) {
+                return None;
+            }
+            Value::strict_order_cmp(left, right)
+        }
+        CoercionId::NumericWiden => {
+            if !left.supports_numeric_coercion() || !right.supports_numeric_coercion() {
+                return None;
+            }
+
+            left.cmp_numeric(right)
+        }
+        CoercionId::TextCasefold => {
+            let left = casefold_value(left)?;
+            let right = casefold_value(right)?;
+            Some(left.cmp(&right))
+        }
+    }
+}
+
+/// Canonical total ordering for database predicate semantics.
+#[must_use]
+pub(in crate::db) fn canonical_cmp(left: &Value, right: &Value) -> Ordering {
+    if let Some(ordering) = Value::strict_order_cmp(left, right) {
+        return ordering;
+    }
+
+    left.canonical_rank().cmp(&right.canonical_rank())
+}
+
+/// Perform text-specific comparison operations.
+#[must_use]
+pub(in crate::db) fn compare_text(
+    left: &Value,
+    right: &Value,
+    coercion: &CoercionSpec,
+    op: TextOp,
+) -> Option<bool> {
+    if !matches!(left, Value::Text(_)) || !matches!(right, Value::Text(_)) {
+        return None;
+    }
+
+    let mode = match coercion.id {
+        CoercionId::Strict => TextMode::Cs,
+        CoercionId::TextCasefold => TextMode::Ci,
+        _ => return None,
+    };
+
+    match op {
+        TextOp::StartsWith => left.text_starts_with(right, mode),
+        TextOp::EndsWith => left.text_ends_with(right, mode),
+    }
+}
+
+fn same_variant(left: &Value, right: &Value) -> bool {
+    discriminant(left) == discriminant(right)
+}
+
+fn compare_casefold(left: &Value, right: &Value) -> Option<bool> {
+    let left = casefold_value(left)?;
+    let right = casefold_value(right)?;
+    Some(left == right)
+}
+
+fn casefold_value(value: &Value) -> Option<String> {
+    match value {
+        Value::Text(text) => Some(casefold(text)),
+        _ => None,
+    }
+}
+
+fn casefold(input: &str) -> String {
+    if input.is_ascii() {
+        return input.to_ascii_lowercase();
+    }
+
+    input.to_lowercase()
+}
+
+///
+/// CompareOp
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum CompareOp {
+    Eq = 0x01,
+    Ne = 0x02,
+    Lt = 0x03,
+    Lte = 0x04,
+    Gt = 0x05,
+    Gte = 0x06,
+    In = 0x07,
+    NotIn = 0x08,
+    Contains = 0x09,
+    StartsWith = 0x0a,
+    EndsWith = 0x0b,
+}
+
+impl CompareOp {
+    #[must_use]
+    pub const fn tag(self) -> u8 {
+        self as u8
+    }
+}
+
+///
+/// ComparePredicate
+///
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ComparePredicate {
+    pub field: String,
+    pub op: CompareOp,
+    pub value: Value,
+    pub coercion: CoercionSpec,
+}
+
+impl ComparePredicate {
+    fn new(field: String, op: CompareOp, value: Value) -> Self {
+        Self {
+            field,
+            op,
+            value,
+            coercion: CoercionSpec::default(),
+        }
+    }
+
+    /// Construct a comparison predicate with an explicit coercion policy.
+    #[must_use]
+    pub fn with_coercion(
+        field: impl Into<String>,
+        op: CompareOp,
+        value: Value,
+        coercion: CoercionId,
+    ) -> Self {
+        Self {
+            field: field.into(),
+            op,
+            value,
+            coercion: CoercionSpec::new(coercion),
+        }
+    }
+
+    #[must_use]
+    pub fn eq(field: String, value: Value) -> Self {
+        Self::new(field, CompareOp::Eq, value)
+    }
+
+    #[must_use]
+    pub fn ne(field: String, value: Value) -> Self {
+        Self::new(field, CompareOp::Ne, value)
+    }
+
+    #[must_use]
+    pub fn lt(field: String, value: Value) -> Self {
+        Self::new(field, CompareOp::Lt, value)
+    }
+
+    #[must_use]
+    pub fn lte(field: String, value: Value) -> Self {
+        Self::new(field, CompareOp::Lte, value)
+    }
+
+    #[must_use]
+    pub fn gt(field: String, value: Value) -> Self {
+        Self::new(field, CompareOp::Gt, value)
+    }
+
+    #[must_use]
+    pub fn gte(field: String, value: Value) -> Self {
+        Self::new(field, CompareOp::Gte, value)
+    }
+
+    #[must_use]
+    pub fn in_(field: String, values: Vec<Value>) -> Self {
+        Self::new(field, CompareOp::In, Value::List(values))
+    }
+
+    #[must_use]
+    pub fn not_in(field: String, values: Vec<Value>) -> Self {
+        Self::new(field, CompareOp::NotIn, Value::List(values))
+    }
+}
+
+///
+/// Predicate
+///
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Predicate {
+    True,
+    False,
+    And(Vec<Self>),
+    Or(Vec<Self>),
+    Not(Box<Self>),
+    Compare(ComparePredicate),
+    IsNull { field: String },
+    IsMissing { field: String },
+    IsEmpty { field: String },
+    IsNotEmpty { field: String },
+    TextContains { field: String, value: Value },
+    TextContainsCi { field: String, value: Value },
+}
+
+impl Predicate {
+    #[must_use]
+    pub const fn and(preds: Vec<Self>) -> Self {
+        Self::And(preds)
+    }
+
+    #[must_use]
+    pub const fn or(preds: Vec<Self>) -> Self {
+        Self::Or(preds)
+    }
+
+    #[must_use]
+    #[expect(clippy::should_implement_trait)]
+    pub fn not(pred: Self) -> Self {
+        Self::Not(Box::new(pred))
+    }
+
+    #[must_use]
+    pub fn eq(field: String, value: Value) -> Self {
+        Self::Compare(ComparePredicate::eq(field, value))
+    }
+
+    #[must_use]
+    pub fn ne(field: String, value: Value) -> Self {
+        Self::Compare(ComparePredicate::ne(field, value))
+    }
+
+    #[must_use]
+    pub fn lt(field: String, value: Value) -> Self {
+        Self::Compare(ComparePredicate::lt(field, value))
+    }
+
+    #[must_use]
+    pub fn lte(field: String, value: Value) -> Self {
+        Self::Compare(ComparePredicate::lte(field, value))
+    }
+
+    #[must_use]
+    pub fn gt(field: String, value: Value) -> Self {
+        Self::Compare(ComparePredicate::gt(field, value))
+    }
+
+    #[must_use]
+    pub fn gte(field: String, value: Value) -> Self {
+        Self::Compare(ComparePredicate::gte(field, value))
+    }
+
+    #[must_use]
+    pub fn in_(field: String, values: Vec<Value>) -> Self {
+        Self::Compare(ComparePredicate::in_(field, values))
+    }
+
+    #[must_use]
+    pub fn not_in(field: String, values: Vec<Value>) -> Self {
+        Self::Compare(ComparePredicate::not_in(field, values))
+    }
+}
+
+impl BitAnd for Predicate {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self::Output {
+        Self::And(vec![self, rhs])
+    }
+}
+
+impl BitAnd for &Predicate {
+    type Output = Predicate;
+
+    fn bitand(self, rhs: Self) -> Self::Output {
+        Predicate::And(vec![self.clone(), rhs.clone()])
+    }
+}
+
+impl BitOr for Predicate {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self::Or(vec![self, rhs])
+    }
+}
+
+impl BitOr for &Predicate {
+    type Output = Predicate;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Predicate::Or(vec![self.clone(), rhs.clone()])
+    }
+}
+
+/// Neutral predicate model consumed by executor/index layers.
+pub(crate) type PredicateExecutionModel = Predicate;

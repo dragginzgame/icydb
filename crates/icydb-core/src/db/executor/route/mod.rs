@@ -1,4 +1,8 @@
+mod capability;
+mod fast_path;
 mod guard;
+mod hints;
+mod mode;
 mod planner;
 pub(super) use guard::*;
 
@@ -7,7 +11,7 @@ use crate::db::{
     direction::Direction,
     executor::{
         AccessPlanStreamRequest, IndexStreamConstraints, StreamExecutionHints,
-        aggregate_model::{AggregateFoldMode, AggregateSpec},
+        aggregate::{AggregateFoldMode, AggregateSpec},
         compute_page_window,
     },
     query::plan::{OrderDirection, OrderSpec},

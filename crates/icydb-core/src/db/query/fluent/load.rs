@@ -1,13 +1,13 @@
 use crate::{
     db::{
         DbSession, PagedLoadExecution, PagedLoadExecutionWithTrace,
+        contracts::Predicate,
         executor::ExecutablePlan,
         policy,
         query::{
             explain::ExplainPlan,
             expr::{FilterExpr, SortExpr},
             intent::{IntentError, PlannedQuery, Query, QueryError},
-            predicate::Predicate,
         },
         response::Response,
     },

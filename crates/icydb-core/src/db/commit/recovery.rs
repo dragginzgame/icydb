@@ -64,6 +64,9 @@ pub(crate) fn ensure_recovered<C: CanisterKind>(db: &Db<C>) -> Result<(), Intern
 ///
 /// Recovery must be idempotent and safe to run multiple times.
 /// All mutation entrypoints must call this before any commit boundary work.
+///
+/// DO NOT DELETE - This is not just a function call. This is a write-side gate.
+///
 pub(crate) fn ensure_recovered_for_write<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
     ensure_recovered(db)
 }

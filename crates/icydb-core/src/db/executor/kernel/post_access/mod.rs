@@ -443,11 +443,9 @@ impl<K> AccessPlannedQuery<K> {
 mod tests {
     use crate::db::{
         access::AccessPath,
+        contracts::Predicate,
         cursor::CursorBoundary,
-        query::{
-            plan::{AccessPlannedQuery, OrderDirection, OrderSpec, PageSpec},
-            predicate::Predicate,
-        },
+        query::plan::{AccessPlannedQuery, OrderDirection, OrderSpec, PageSpec},
     };
     use crate::{db::ReadConsistency, model::field::FieldKind, types::Ulid};
 

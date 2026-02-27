@@ -2,10 +2,7 @@ mod r#enum;
 pub(crate) use r#enum::normalize_enum_literals;
 
 use crate::{
-    db::query::predicate::{
-        ComparePredicate, Predicate,
-        coercion::{CoercionId, CoercionSpec},
-    },
+    db::contracts::{CoercionId, CoercionSpec, ComparePredicate, Predicate},
     value::{Value, ValueEnum},
 };
 
@@ -417,7 +414,7 @@ fn push_str(out: &mut Vec<u8>, s: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{db::query::predicate::CompareOp, types::Decimal};
+    use crate::{db::contracts::CompareOp, types::Decimal};
 
     #[test]
     fn sort_key_distinguishes_list_text_with_delimiters() {

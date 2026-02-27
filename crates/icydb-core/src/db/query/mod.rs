@@ -24,4 +24,5 @@ pub(crate) mod fingerprint;
 pub(crate) mod fluent;
 pub(crate) mod intent;
 pub(crate) mod plan;
+pub(crate) mod plan_validate;
 pub(crate) mod predicate;

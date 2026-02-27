@@ -1,7 +1,7 @@
 use crate::{
-    db::query::predicate::{
-        CompareOp, ComparePredicate, Predicate,
-        coercion::{CoercionSpec, TextOp, compare_eq, compare_order, compare_text},
+    db::contracts::{
+        CoercionSpec, CompareOp, ComparePredicate, Predicate, PredicateExecutionModel, TextOp,
+        compare_eq, compare_order, compare_text,
     },
     model::entity::resolve_field_slot,
     traits::{EntityKind, EntityValue},
@@ -74,7 +74,7 @@ pub(crate) struct PredicateFieldSlots {
 impl PredicateFieldSlots {
     /// Resolve a predicate into a slot-based executable form.
     #[must_use]
-    pub(crate) fn resolve<E: EntityKind>(predicate: &Predicate) -> Self {
+    pub(crate) fn resolve<E: EntityKind>(predicate: &PredicateExecutionModel) -> Self {
         let resolved = resolve_predicate_slots::<E>(predicate);
 
         Self { resolved }
@@ -111,7 +111,9 @@ enum FieldPresence {
 }
 
 // Compile field-name predicates to stable field-slot predicates once per query.
-fn resolve_predicate_slots<E: EntityKind>(predicate: &Predicate) -> ResolvedPredicate {
+fn resolve_predicate_slots<E: EntityKind>(
+    predicate: &PredicateExecutionModel,
+) -> ResolvedPredicate {
     fn resolve_field<E: EntityKind>(field_name: &str) -> Option<usize> {
         resolve_field_slot(E::MODEL, field_name)
     }

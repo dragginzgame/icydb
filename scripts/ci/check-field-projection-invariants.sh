@@ -8,12 +8,12 @@ cd "$ROOT"
 # Keep this list intentionally narrow so planner/setup code can evolve
 # without tripping execution-path projection guards.
 RUNTIME_FILES=(
-  "crates/icydb-core/src/db/executor/load/aggregate/projection.rs"
+  "crates/icydb-core/src/db/executor/aggregate/projection.rs"
   "crates/icydb-core/src/db/executor/mutation/save_validation.rs"
   "crates/icydb-core/src/db/index/key/build.rs"
   "crates/icydb-core/src/db/index/plan/unique.rs"
   "crates/icydb-core/src/db/executor/kernel/post_access/order_cursor.rs"
-  "crates/icydb-core/tests/db/query/predicate/tests/runtime.rs"
+  "crates/icydb-core/src/db/query/predicate/tests/runtime.rs"
   "crates/icydb-core/src/db/relation/reverse_index.rs"
   "crates/icydb-core/src/model/entity.rs"
   "crates/icydb-core/src/traits/mod.rs"

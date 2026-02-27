@@ -7,9 +7,8 @@ use crate::{
         cursor::{
             ContinuationSignature, ContinuationToken, ContinuationTokenError, CursorBoundary,
             CursorPlanError, IndexRangeCursorAnchor, PlannedCursor,
-            validate_cursor_boundary_for_order,
-            validate_cursor_direction as validate_cursor_direction_shared,
-            validate_cursor_window_offset as validate_cursor_window_offset_shared,
+            validate_cursor_boundary_for_order, validate_cursor_direction,
+            validate_cursor_window_offset,
         },
         direction::Direction,
         query::plan::OrderSpec,
@@ -138,22 +137,6 @@ fn validate_cursor_signature(
     }
 
     Ok(())
-}
-
-// Validate continuation token direction against the executable direction.
-fn validate_cursor_direction(
-    expected_direction: Direction,
-    actual_direction: Direction,
-) -> Result<(), CursorPlanError> {
-    validate_cursor_direction_shared(expected_direction, actual_direction)
-}
-
-// Validate continuation window shape compatibility (initial offset).
-const fn validate_cursor_window_offset(
-    expected_initial_offset: u32,
-    actual_initial_offset: u32,
-) -> Result<(), CursorPlanError> {
-    validate_cursor_window_offset_shared(expected_initial_offset, actual_initial_offset)
 }
 
 // Validate the canonical structured cursor payload and materialize executor state.

@@ -1,7 +1,8 @@
 use crate::{
     db::{
         executor::{
-            ExecutionKernel, IndexPredicateCompileMode, PredicateFieldSlots, load::LoadExecutor,
+            IndexPredicateCompileMode, PredicateFieldSlots,
+            compile_index_predicate_program_from_slots, load::LoadExecutor,
         },
         index::IndexPredicateProgram,
         query::plan::AccessPlannedQuery,
@@ -37,7 +38,7 @@ impl ExecutionPreparation {
         let slot_map = LoadExecutor::<E>::resolved_index_slots_for_access_path(&plan.access);
         let strict_mode = match (compiled_predicate.as_ref(), slot_map.as_deref()) {
             (Some(compiled_predicate), Some(slot_map)) => {
-                ExecutionKernel::compile_index_predicate_program_from_slots(
+                compile_index_predicate_program_from_slots(
                     compiled_predicate,
                     slot_map,
                     IndexPredicateCompileMode::StrictAllOrNone,

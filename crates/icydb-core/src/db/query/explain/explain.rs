@@ -6,14 +6,14 @@ use crate::{
             AccessPlan, PushdownSurfaceEligibility, SecondaryOrderPushdownEligibility,
             SecondaryOrderPushdownRejection,
         },
-        contracts::ReadConsistency,
+        contracts::{CoercionSpec, CompareOp, ComparePredicate, Predicate, ReadConsistency},
         query::{
             intent::QueryMode,
             plan::{
                 AccessPlanProjection, AccessPlannedQuery, DeleteLimitSpec, OrderDirection,
                 OrderSpec, PageSpec, assess_secondary_order_pushdown, project_access_plan,
             },
-            predicate::{CoercionSpec, CompareOp, ComparePredicate, Predicate, normalize},
+            predicate::normalize,
         },
     },
     model::entity::EntityModel,
@@ -420,11 +420,10 @@ const fn explain_delete_limit(limit: Option<&DeleteLimitSpec>) -> ExplainDeleteL
 mod tests {
     use super::*;
     use crate::db::access::{AccessPath, AccessPlan};
-    use crate::db::contracts::ReadConsistency;
+    use crate::db::contracts::{Predicate, ReadConsistency};
     use crate::db::query::builder::field::FieldRef;
     use crate::db::query::intent::{KeyAccess, LoadSpec, QueryMode, access_plan_from_keys_value};
     use crate::db::query::plan::{AccessPlannedQuery, LogicalPlan, OrderDirection, OrderSpec};
-    use crate::db::query::predicate::Predicate;
     use crate::model::{field::FieldKind, index::IndexModel};
     use crate::traits::EntitySchema;
     use crate::types::Ulid;

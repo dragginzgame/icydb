@@ -119,7 +119,7 @@ impl AccessPlanKeyAdapter<Value> for ValueKeyAdapter {
         model: &EntityModel,
         key: &Value,
     ) -> Result<(), AccessPlanError> {
-        validate_pk_value(schema, model, key)
+        validate_pk_literal(schema, model, key)
     }
 
     fn validate_key_range(
@@ -129,8 +129,8 @@ impl AccessPlanKeyAdapter<Value> for ValueKeyAdapter {
         start: &Value,
         end: &Value,
     ) -> Result<(), AccessPlanError> {
-        validate_pk_value(schema, model, start)?;
-        validate_pk_value(schema, model, end)?;
+        validate_pk_literal(schema, model, start)?;
+        validate_pk_literal(schema, model, end)?;
         let ordering = Value::canonical_cmp(start, end);
         if ordering == std::cmp::Ordering::Greater {
             return Err(AccessPlanError::InvalidKeyRange);
@@ -184,15 +184,6 @@ where
 {
     let value = key.to_value();
     validate_pk_literal(schema, model, &value)
-}
-
-// Validate that a model-level key value matches the entity's primary key type.
-fn validate_pk_value(
-    schema: &SchemaInfo,
-    model: &EntityModel,
-    key: &Value,
-) -> Result<(), AccessPlanError> {
-    validate_pk_literal(schema, model, key)
 }
 
 // Validate that a primary-key literal matches the entity primary-key schema.

@@ -164,9 +164,6 @@ pub(in crate::db) fn encode_index_literal(value: &Value) -> Option<Vec<u8>> {
 }
 
 /// Convert one literal value to canonical index-component bytes.
-///
-/// This alias keeps executor/runtime callers free from direct encoding helper
-/// naming while preserving one canonical implementation here in `db::index`.
 #[must_use]
 pub(in crate::db) fn literal_index_component_bytes(value: &Value) -> Option<Vec<u8>> {
     encode_index_literal(value)

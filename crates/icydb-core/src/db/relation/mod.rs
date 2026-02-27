@@ -62,14 +62,6 @@ pub(super) enum RelationTargetRawKeyError {
     TargetEntityName(EntityNameError),
 }
 
-// Build one relation target raw key from validated entity+storage key components.
-fn raw_relation_target_key_from_parts(
-    entity_name: EntityName,
-    storage_key: StorageKey,
-) -> Result<RawDataKey, StorageKeyEncodeError> {
-    DataKey::raw_from_parts(entity_name, storage_key)
-}
-
 impl InternalError {
     /// Map a relation-target key normalization failure into a typed `InternalError`.
     #[expect(clippy::too_many_arguments)]
@@ -132,7 +124,7 @@ pub(super) fn build_relation_target_raw_key(
     let entity_name = EntityName::try_from_str(target_entity_name)
         .map_err(RelationTargetRawKeyError::TargetEntityName)?;
 
-    raw_relation_target_key_from_parts(entity_name, storage_key)
+    DataKey::raw_from_parts(entity_name, storage_key)
         .map_err(RelationTargetRawKeyError::StorageKeyEncode)
 }
 

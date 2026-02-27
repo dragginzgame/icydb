@@ -22,15 +22,14 @@ pub(in crate::db) mod value_hash;
 // 2️⃣ Public re-exports (Tier-2 API surface)
 pub use codec::cursor::{decode_cursor, encode_cursor};
 pub use contracts::ReadConsistency;
+pub use contracts::ValidateError;
+pub use contracts::{CoercionId, CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature};
 pub use data::DataStore;
 pub(crate) use data::StorageKey;
 pub use diagnostics::StorageReport;
 pub use executor::{ExecutionAccessPathVariant, ExecutionOptimization, ExecutionTrace};
 pub use identity::{EntityName, IndexName};
 pub use index::IndexStore;
-pub use query::predicate::{
-    CoercionId, CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature,
-};
 pub use query::{
     builder::field::FieldRef,
     expr::{FilterExpr, SortExpr},
@@ -40,7 +39,6 @@ pub use query::{
     },
     intent::{DeleteSpec, IntentError, LoadSpec, Query, QueryError, QueryMode},
     plan::{OrderDirection, PlanError},
-    predicate::ValidateError,
 };
 pub use registry::StoreRegistry;
 pub use relation::validate_delete_strong_relations_for_source;

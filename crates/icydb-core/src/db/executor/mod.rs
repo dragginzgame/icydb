@@ -1,4 +1,4 @@
-pub(super) mod aggregate_model;
+mod aggregate;
 mod commit_planner;
 mod context;
 mod delete;
@@ -14,7 +14,6 @@ mod predicate_runtime;
 mod preparation;
 mod recovery;
 pub(super) mod route;
-mod storage_port;
 mod stream;
 #[cfg(test)]
 mod tests;
@@ -26,6 +25,10 @@ pub(in crate::db::executor) use crate::db::access::{
 };
 pub(in crate::db) use crate::db::access::{
     LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey,
+};
+pub(in crate::db::executor) use crate::db::cursor::{
+    RangeToken, cursor_anchor_from_index_key, range_token_anchor_key,
+    range_token_from_cursor_anchor, range_token_from_lowered_anchor,
 };
 pub(in crate::db) use commit_planner::prepare_row_commit_for_entity;
 pub(super) use context::*;
@@ -45,10 +48,6 @@ pub(in crate::db) use predicate_runtime::{PredicateFieldSlots, eval_with_slots};
 pub(in crate::db::executor) use preparation::ExecutionPreparation;
 pub(in crate::db) use recovery::{
     rebuild_secondary_indexes_from_rows, replay_commit_marker_row_ops,
-};
-pub(in crate::db::executor) use storage_port::{
-    RangeToken, cursor_anchor_from_index_key, range_token_anchor_key,
-    range_token_from_cursor_anchor, range_token_from_lowered_anchor,
 };
 pub(super) use stream::access::*;
 pub(super) use stream::key::{

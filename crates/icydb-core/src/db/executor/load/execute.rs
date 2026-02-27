@@ -6,9 +6,9 @@ use crate::{
         },
         executor::plan_metrics::set_rows_from_len,
         executor::{
-            AccessPlanStreamRequest, AccessStreamBindings, ExecutionKernel, ExecutionPlan,
-            ExecutionPreparation, IndexPredicateCompileMode, OrderedKeyStreamBox,
-            range_token_from_lowered_anchor,
+            AccessPlanStreamRequest, AccessStreamBindings, ExecutionPlan, ExecutionPreparation,
+            IndexPredicateCompileMode, OrderedKeyStreamBox,
+            compile_index_predicate_program_from_slots, range_token_from_lowered_anchor,
             route::{
                 ExecutionMode, FastPathOrder, RoutedKeyStreamRequest,
                 ensure_load_fast_path_spec_arity,
@@ -94,7 +94,7 @@ where
                 .and_then(|compiled_predicate| {
                     let slot_map = inputs.execution_preparation.slot_map()?;
 
-                    ExecutionKernel::compile_index_predicate_program_from_slots(
+                    compile_index_predicate_program_from_slots(
                         compiled_predicate,
                         slot_map,
                         predicate_compile_mode,

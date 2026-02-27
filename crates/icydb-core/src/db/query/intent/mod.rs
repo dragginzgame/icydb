@@ -10,7 +10,7 @@ pub type QueryMode = crate::db::query::plan::QueryMode;
 use crate::{
     db::{
         access::{AccessPath, AccessPlan, AccessPlanError},
-        contracts::{ReadConsistency, SchemaInfo},
+        contracts::{Predicate, ReadConsistency, SchemaInfo, ValidateError},
         executor::ExecutablePlan,
         policy,
         query::{
@@ -18,12 +18,11 @@ use crate::{
             expr::{FilterExpr, SortExpr, SortLowerError},
             plan::{
                 AccessPlannedQuery, DeleteLimitSpec, LogicalPlan, OrderDirection, OrderSpec,
-                PageSpec, PlanError, canonical,
-                planner::{PlannerError, plan_access},
-                validate::validate_query_semantics,
+                PageSpec, PlanError, PlannerError, canonical, plan_access,
             },
+            plan_validate::validate_query_semantics,
             predicate::{
-                Predicate, ValidateError, normalize, normalize_enum_literals,
+                lower_to_execution_model, normalize, normalize_enum_literals,
                 validate::reject_unsupported_query_features,
             },
         },
@@ -377,7 +376,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         // Phase 3: assemble the executor-ready plan.
         let logical = LogicalPlan {
             mode: self.mode,
-            predicate: normalized_predicate,
+            predicate: normalized_predicate.map(lower_to_execution_model),
             // Canonicalize ORDER BY to include an explicit primary-key tie-break.
             // This ensures explain/fingerprint/execution share one deterministic order shape.
             order: canonicalize_order_spec(self.model, self.order.clone()),
