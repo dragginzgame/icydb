@@ -2,7 +2,11 @@ use crate::{
     db::{
         cursor::{CursorBoundary, apply_cursor_boundary},
         executor::{ExecutionKernel, kernel::PlanRow},
-        plan::AccessPlannedQuery,
+        plan::{
+            AccessPlannedQuery,
+            effective_keep_count_for_limit as plan_effective_keep_count_for_limit,
+            effective_page_offset_for_window,
+        },
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -52,9 +56,9 @@ impl WindowCursorContract {
         plan: &AccessPlannedQuery<K>,
         cursor_boundary: Option<&CursorBoundary>,
     ) -> Self {
-        let offset = usize::try_from(ExecutionKernel::effective_page_offset(
+        let offset = usize::try_from(effective_page_offset_for_window(
             plan,
-            cursor_boundary,
+            cursor_boundary.is_some(),
         ))
         .unwrap_or(usize::MAX);
         let limit = plan
@@ -110,12 +114,7 @@ impl ExecutionKernel {
         cursor_boundary: Option<&CursorBoundary>,
         limit: u32,
     ) -> usize {
-        compute_page_window(
-            Self::effective_page_offset(plan, cursor_boundary),
-            limit,
-            false,
-        )
-        .keep_count
+        plan_effective_keep_count_for_limit(plan, cursor_boundary.is_some(), limit)
     }
 
     /// Return the effective page offset for this request.
@@ -127,11 +126,7 @@ impl ExecutionKernel {
         plan: &AccessPlannedQuery<K>,
         cursor_boundary: Option<&CursorBoundary>,
     ) -> u32 {
-        if cursor_boundary.is_some() {
-            return 0;
-        }
-
-        plan.page.as_ref().map_or(0, |page| page.offset)
+        effective_page_offset_for_window(plan, cursor_boundary.is_some())
     }
 
     // Return the bounded working-set size for ordered loads without a

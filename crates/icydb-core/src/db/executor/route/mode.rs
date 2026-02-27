@@ -7,7 +7,7 @@ use crate::{
             aggregate::{AggregateKind, AggregateSpec},
             load::LoadExecutor,
         },
-        plan::{AccessPlannedQuery, OrderSlotPolicy, derive_scan_direction},
+        plan::{AccessPlannedQuery, derive_primary_scan_direction},
     },
     traits::{EntityKind, EntityValue},
 };
@@ -19,7 +19,7 @@ where
     E: EntityKind + EntityValue,
 {
     pub(super) fn derive_load_route_direction(plan: &AccessPlannedQuery<E::Key>) -> Direction {
-        derive_scan_direction(plan.order.as_ref(), OrderSlotPolicy::First)
+        derive_primary_scan_direction(plan.order.as_ref())
     }
 
     pub(super) fn derive_aggregate_route_direction(

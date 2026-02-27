@@ -13,7 +13,9 @@ use crate::{
     traits::{EntityKind, EntityValue},
 };
 
-pub(super) use commit_window::{commit_row_ops_with_window, emit_index_delta_metrics};
+pub(super) use commit_window::{
+    commit_delete_row_ops_with_window, commit_save_row_ops_with_window,
+};
 
 /// Run mutation write-entry recovery checks and return a write-ready context.
 pub(in crate::db::executor) fn mutation_write_context<E>(

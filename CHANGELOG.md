@@ -5,6 +5,17 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.30.17] - 2026-02-27 - Last of the db/ Audits
+
+Pre-`GROUP BY` cleanup release focused on reducing drift and duplication in `db/`.
+
+* Unified secondary `ORDER BY` pushdown eligibility behind one shared implementation to prevent planner/route drift.
+* Consolidated scan-direction and pagination keep-count helpers so cursor and executor paths now use the same policy functions.
+* Simplified mutation commit-window orchestration by adding shared save/delete commit helpers and removing repeated wiring.
+* Reformatted the `0.31`/`0.32`/`0.33` design docs for clearer structure and easier review.
+
+---
+
 ## [0.30.16] - 2026-02-27 - Pre-GROUP BY Kernel Consolidation
 
 ### 📝 Summary

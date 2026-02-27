@@ -5,10 +5,7 @@ use crate::{
         data::{DataKey, RawRow, decode_and_validate_entity_key},
         executor::{
             Context, ExecutorError,
-            mutation::commit_window::{
-                commit_row_ops_with_window, emit_prepared_row_op_delta_metrics,
-            },
-            mutation::mutation_write_context,
+            mutation::{commit_save_row_ops_with_window, mutation_write_context},
         },
     },
     error::InternalError,
@@ -394,17 +391,9 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         span: &mut Span<E>,
     ) -> Result<(), InternalError> {
         // FIRST STABLE WRITE: commit marker is persisted before any mutations.
-        commit_row_ops_with_window::<E>(
-            db,
-            vec![marker_row_op],
-            "save_row_apply",
-            |delta| {
-                emit_prepared_row_op_delta_metrics::<E>(delta);
-            },
-            || {
-                span.set_rows(1);
-            },
-        )?;
+        commit_save_row_ops_with_window::<E>(db, vec![marker_row_op], "save_row_apply", || {
+            span.set_rows(1);
+        })?;
 
         Ok(())
     }
@@ -416,13 +405,10 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         span: &mut Span<E>,
     ) -> Result<(), InternalError> {
         let rows_touched = u64::try_from(marker_row_ops.len()).unwrap_or(u64::MAX);
-        commit_row_ops_with_window::<E>(
+        commit_save_row_ops_with_window::<E>(
             db,
             marker_row_ops,
             "save_batch_atomic_row_apply",
-            |delta| {
-                emit_prepared_row_op_delta_metrics::<E>(delta);
-            },
             || {
                 span.set_rows(rows_touched);
             },

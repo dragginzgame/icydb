@@ -5,7 +5,7 @@ use crate::{
         },
         direction::Direction,
         index::IndexKey,
-        plan::AccessPlannedQuery,
+        plan::{AccessPlannedQuery, effective_keep_count_for_limit},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -36,7 +36,7 @@ where
 
     // Continuation eligibility is computed from the post-cursor cardinality
     // against the effective page window for this request.
-    let page_end = effective_keep_count_for_limit::<E>(plan, cursor_boundary, limit);
+    let page_end = effective_keep_count_for_limit(plan, cursor_boundary.is_some(), limit);
     if rows_after_cursor <= page_end {
         return Ok(None);
     }
@@ -78,22 +78,4 @@ where
     };
 
     Ok(token)
-}
-
-fn effective_keep_count_for_limit<E>(
-    plan: &AccessPlannedQuery<E::Key>,
-    cursor_boundary: Option<&CursorBoundary>,
-    limit: u32,
-) -> usize
-where
-    E: EntityKind,
-{
-    let effective_offset = if cursor_boundary.is_some() {
-        0
-    } else {
-        plan.page.as_ref().map_or(0, |page| page.offset)
-    };
-    usize::try_from(effective_offset)
-        .unwrap_or(usize::MAX)
-        .saturating_add(usize::try_from(limit).unwrap_or(usize::MAX))
 }

@@ -4,7 +4,7 @@ use crate::{
         executor::load::{ExecutionOptimization, FastPathKeyResult, LoadExecutor},
         executor::{AccessPlanStreamRequest, AccessStreamBindings, LoweredIndexPrefixSpec},
         index::predicate::IndexPredicateExecution,
-        plan::{AccessPlannedQuery, OrderSlotPolicy, derive_scan_direction},
+        plan::{AccessPlannedQuery, derive_secondary_order_scan_direction},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -36,7 +36,7 @@ where
             index,
             "secondary fast-path spec/index alignment must be validated by resolver",
         );
-        let stream_direction = derive_scan_direction(plan.order.as_ref(), OrderSlotPolicy::Last);
+        let stream_direction = derive_secondary_order_scan_direction(plan.order.as_ref());
 
         let stream_request = AccessPlanStreamRequest::from_bindings(
             &plan.access,

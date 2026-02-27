@@ -231,6 +231,45 @@ pub(in crate::db::executor) fn commit_row_ops_with_window<E: EntityKind + Entity
     Ok(())
 }
 
+/// Commit save-mode row operations through one shared commit window.
+///
+/// This helper keeps save metrics wiring (`PreparedRowOpDelta`) and commit-window
+/// sequencing aligned across single-row and batch save call sites.
+pub(in crate::db::executor) fn commit_save_row_ops_with_window<E: EntityKind + EntityValue>(
+    db: &Db<E::Canister>,
+    row_ops: Vec<CommitRowOp>,
+    apply_phase: &'static str,
+    on_data_applied: impl FnOnce(),
+) -> Result<(), InternalError> {
+    commit_row_ops_with_window::<E>(
+        db,
+        row_ops,
+        apply_phase,
+        |delta| emit_prepared_row_op_delta_metrics::<E>(delta),
+        on_data_applied,
+    )
+}
+
+/// Commit delete-mode row operations through one shared commit window.
+///
+/// Delete execution emits remove-only index deltas while preserving the same
+/// commit-window sequencing and apply guarantees as other mutation paths.
+pub(in crate::db::executor) fn commit_delete_row_ops_with_window<E: EntityKind + EntityValue>(
+    db: &Db<E::Canister>,
+    row_ops: Vec<CommitRowOp>,
+    apply_phase: &'static str,
+) -> Result<(), InternalError> {
+    commit_row_ops_with_window::<E>(
+        db,
+        row_ops,
+        apply_phase,
+        |delta| {
+            emit_index_delta_metrics::<E>(0, delta.index_removes, 0, delta.reverse_index_removes);
+        },
+        || {},
+    )
+}
+
 // Capture unique touched index stores and their generation after preflight.
 fn snapshot_index_store_generations(
     prepared_row_ops: &[PreparedRowCommitOp],

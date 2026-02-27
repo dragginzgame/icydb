@@ -3,12 +3,10 @@
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
-use crate::db::access::PushdownApplicability;
 use crate::{
     db::{
         access::{
-            AccessPath, AccessPlan, SecondaryOrderPushdownEligibility,
+            AccessPath, AccessPlan, PushdownApplicability, SecondaryOrderPushdownEligibility,
             SecondaryOrderPushdownRejection,
         },
         contracts::{PredicateExecutionModel, ReadConsistency},
@@ -377,7 +375,6 @@ fn order_fields_as_direction_refs(
         .collect()
 }
 
-#[cfg(test)]
 fn applicability_from_eligibility(
     eligibility: SecondaryOrderPushdownEligibility,
 ) -> PushdownApplicability {
@@ -551,19 +548,8 @@ pub(crate) fn assess_secondary_order_pushdown<K>(
     assess_secondary_order_pushdown_for_plan(model, order_fields.as_deref(), &plan.access)
 }
 
-#[cfg(test)]
-/// Evaluate pushdown eligibility only when secondary-index ORDER BY is applicable.
-pub(crate) fn assess_secondary_order_pushdown_if_applicable<K>(
-    model: &EntityModel,
-    plan: &AccessPlannedQuery<K>,
-) -> PushdownApplicability {
-    applicability_from_eligibility(assess_secondary_order_pushdown(model, plan))
-}
-
-/// Evaluate pushdown applicability for plans that have already passed full
-/// logical/executor validation.
-#[cfg(test)]
-pub(crate) fn assess_secondary_order_pushdown_if_applicable_validated<K>(
+/// Derive pushdown applicability from one plan already validated by planner semantics.
+pub(in crate::db) fn derive_secondary_pushdown_applicability_validated<K>(
     model: &EntityModel,
     plan: &AccessPlannedQuery<K>,
 ) -> PushdownApplicability {
@@ -573,6 +559,25 @@ pub(crate) fn assess_secondary_order_pushdown_if_applicable_validated<K>(
     );
 
     applicability_from_eligibility(assess_secondary_order_pushdown(model, plan))
+}
+
+#[cfg(test)]
+/// Evaluate pushdown eligibility only when secondary-index ORDER BY is applicable.
+pub(crate) fn assess_secondary_order_pushdown_if_applicable<K>(
+    model: &EntityModel,
+    plan: &AccessPlannedQuery<K>,
+) -> PushdownApplicability {
+    derive_secondary_pushdown_applicability_validated(model, plan)
+}
+
+/// Evaluate pushdown applicability for plans that have already passed full
+/// logical/executor validation.
+#[cfg(test)]
+pub(crate) fn assess_secondary_order_pushdown_if_applicable_validated<K>(
+    model: &EntityModel,
+    plan: &AccessPlannedQuery<K>,
+) -> PushdownApplicability {
+    derive_secondary_pushdown_applicability_validated(model, plan)
 }
 
 pub(crate) use planner::{PlannerError, plan_access};

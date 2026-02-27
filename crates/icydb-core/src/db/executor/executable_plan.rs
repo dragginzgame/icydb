@@ -7,9 +7,7 @@ use crate::{
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec, lower_index_prefix_specs,
             lower_index_range_specs,
         },
-        plan::{
-            AccessPlannedQuery, LogicalPlan, OrderSlotPolicy, QueryMode, derive_scan_direction,
-        },
+        plan::{AccessPlannedQuery, LogicalPlan, QueryMode, derive_primary_scan_direction},
         query::{explain::ExplainPlan, fingerprint::PlanFingerprint, plan::validate::PlanError},
     },
     error::InternalError,
@@ -102,7 +100,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
     where
         E::Key: FieldValue,
     {
-        let direction = derive_scan_direction(self.plan.order.as_ref(), OrderSlotPolicy::First);
+        let direction = derive_primary_scan_direction(self.plan.order.as_ref());
         crate::db::cursor::prepare_cursor::<E>(
             &self.plan,
             direction,
@@ -164,7 +162,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
     where
         E::Key: FieldValue,
     {
-        let direction = derive_scan_direction(self.plan.order.as_ref(), OrderSlotPolicy::First);
+        let direction = derive_primary_scan_direction(self.plan.order.as_ref());
         crate::db::cursor::revalidate_cursor::<E>(
             &self.plan,
             direction,

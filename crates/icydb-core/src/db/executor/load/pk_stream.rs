@@ -7,7 +7,7 @@ use crate::{
             load::{ExecutionOptimization, FastPathKeyResult, LoadExecutor},
             route::supports_pk_stream_access_path,
         },
-        plan::{AccessPlannedQuery, OrderSlotPolicy, derive_scan_direction},
+        plan::{AccessPlannedQuery, derive_primary_scan_direction},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -26,7 +26,7 @@ where
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
         // Phase 1: validate that the routed access shape is PK-stream compatible.
         Self::pk_fast_path_access(plan)?;
-        let stream_direction = derive_scan_direction(plan.order.as_ref(), OrderSlotPolicy::First);
+        let stream_direction = derive_primary_scan_direction(plan.order.as_ref());
 
         // Phase 2: lower through the canonical access-stream resolver boundary.
         let stream_request = AccessPlanStreamRequest::from_bindings(

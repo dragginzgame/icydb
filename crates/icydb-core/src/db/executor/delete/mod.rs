@@ -6,8 +6,7 @@ use crate::{
         executor::{
             ExecutablePlan, ExecutionKernel, ExecutionPreparation, ExecutorError, PlanRow,
             mutation::{
-                commit_row_ops_with_window, emit_index_delta_metrics, mutation_write_context,
-                preflight_mutation_plan,
+                commit_delete_row_ops_with_window, mutation_write_context, preflight_mutation_plan,
             },
             plan_metrics::{record_plan_metrics, record_rows_scanned, set_rows_from_len},
         },
@@ -186,20 +185,7 @@ where
                     ))
                 })
                 .collect::<Result<Vec<_>, InternalError>>()?;
-            commit_row_ops_with_window::<E>(
-                &self.db,
-                row_ops,
-                "delete_row_apply",
-                |delta| {
-                    emit_index_delta_metrics::<E>(
-                        0,
-                        delta.index_removes,
-                        0,
-                        delta.reverse_index_removes,
-                    );
-                },
-                || {},
-            )?;
+            commit_delete_row_ops_with_window::<E>(&self.db, row_ops, "delete_row_apply")?;
 
             // Response identifiers are validated before begin_commit. The apply
             // phase remains mechanical after the commit boundary.
