@@ -17,6 +17,7 @@ pub(in crate::db) use crate::db::query::plan::{GroupedPlan, PageSpec};
 ///
 /// Slot-selection policy for deriving scan direction from canonical order specs.
 ///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum OrderSlotPolicy {
     First,
