@@ -18,7 +18,7 @@ Maintainer note: changelog entries that reach 4 lines or more should be split in
 * Tightened grouped state creation under `ExecutionContext` by validating grouped hard-limit configuration at the creation boundary.
 * Removed clippy-cleanup scaffolding in grouped state construction and aggregate terminal routing to keep `-D warnings` runs clean.
 * Moved large aggregate contract tests out of inline `contracts.rs` into `executor/aggregate/tests/contracts.rs` to align with the repository test-layout contract.
-* Moved additional inline test modules into dedicated files: `executor/aggregate/field`, `executor/context`, and `query/explain/explain` now use module-local `tests.rs`, index-key codec tests now live in `index/key/codec/tests.rs`, and `db/diagnostics` tests moved to `diagnostics/tests.rs`.
+* Moved additional inline test modules into dedicated files: `executor/aggregate/field`, `executor/context`, `executor/index_predicate`, `query/explain/explain`, and `query/predicate/normalize/enum` now use module-local `tests.rs`, index-key codec tests now live in `index/key/codec/tests.rs`, `db/identity` was split into `identity/mod.rs` + `identity/tests.rs`, and `db/diagnostics` tests moved to `diagnostics/tests.rs`.
 * Kept grouped runtime behavior unchanged: grouped execution remains disabled in this patch line.
 
 ### 📚 Documentation
@@ -32,7 +32,7 @@ scripts/dev/cloc.sh --include-lang=Rust
 
 ### 📊 Audit
 
-* Latest Rust snapshot (`scripts/dev/cloc.sh --include-lang=Rust`): test files=59, blank=3052, comment=367, code=30275; non-test files=429, blank=9288, comment=8279, code=52364; combined files=488, blank=12340, comment=8646, code=82639.
+* Latest Rust snapshot (`scripts/dev/cloc.sh --include-lang=Rust`): test files=62, blank=3150, comment=370, code=30999; non-test files=429, blank=9187, comment=8276, code=51636; combined files=491, blank=12337, comment=8646, code=82635.
 
 ---
 

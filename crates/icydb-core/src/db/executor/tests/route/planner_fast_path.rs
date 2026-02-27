@@ -117,7 +117,7 @@ fn strict_index_predicate_compile_policy_has_one_executor_source_of_truth() {
     let executor_compile_source = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/src/db/executor/tests/route/",
-        "../../index_predicate.rs"
+        "../../index_predicate/mod.rs"
     ));
 
     assert!(
