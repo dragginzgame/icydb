@@ -20,7 +20,6 @@ Active execution/planning references:
 - `docs/status/0.30-execution-kernel-status.md`
 - `docs/status/0.31-deterministic-keys-status.md`
 - `docs/status/0.32-aggregate-execution-stability-status.md`
-- `docs/status/0.32.3-group-by-readiness-status.md`
 
 ---
 
