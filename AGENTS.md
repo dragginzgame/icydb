@@ -377,6 +377,7 @@ Code is considered non-trivial if it:
 * Keep the existing changelog structure and header format (e.g., `## [x.y.z] - YYYY-MM-DD - Short Title`).
 * Smaller changelog entries may omit the title segment; use `## [x.y.z] - YYYY-MM-DD` when no title is needed.
 * Changelog subsections are optional; include only the sections relevant to that release.
+* If an entry reaches 4 lines or more of changelog content, split it into subsection headers.
 * For small cleanup releases, prefer no subsection headers; use a short plain-language summary with a few concise bullets.
 * Exception: for structural cleanup/audit passes, use subsection headers and include an explicit `Audit` subsection with footprint stats.
 * If a section like `Changed` gets large, it is acceptable to split it into topic-based headers (for example `### 🔧 Changed - Aggregate Execution`, `### 🔧 Changed - Structure`) to improve readability.

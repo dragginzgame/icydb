@@ -144,7 +144,7 @@ fn normalize_value_for_kind(
             // Canonicalize set literals to match persisted set encoding:
             // deterministic order + deduplicated members.
             normalized.sort_by(Value::canonical_cmp);
-            normalized.dedup_by(|left, right| Value::canonical_cmp(left, right).is_eq());
+            normalized.dedup();
 
             Ok(Value::List(normalized))
         }

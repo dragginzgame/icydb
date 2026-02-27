@@ -4,6 +4,8 @@ pub(crate) mod contracts;
 pub(crate) mod cursor;
 pub(crate) mod diagnostics;
 pub(in crate::db) mod direction;
+pub(in crate::db) mod group_key;
+pub(in crate::db) mod hash;
 pub(crate) mod identity;
 pub(in crate::db) mod plan;
 pub(crate) mod policy;

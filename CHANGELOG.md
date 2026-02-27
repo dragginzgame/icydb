@@ -5,13 +5,46 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+Maintainer note: changelog entries that reach 4 lines or more should be split into subsection headers.
+
+## [0.31.0] - 2026-02-27 - Deterministic Key Substrate
+
+Pre-`GROUP BY` substrate work focused on deterministic key/equality behavior in `db/`.
+
+### 📝 Summary
+
+* Hardened pre-`GROUP BY` key/equality substrate and locked DISTINCT semantic boundaries.
+
+### 🔧 Changed
+
+* Added canonical key infrastructure (`GroupKey`, `CanonicalKey`, `KeyCanonicalError`) for grouping/distinct materialization.
+* Added stable key hashing under `db/hash` with `StableHash` derived from the deterministic value hash contract.
+* Formalized equality vs ordering contracts under `db::contracts::semantics` and routed cursor ordering through the ordering contract.
+* Migrated aggregate field-target distinct reducers (`count_distinct_by`, `distinct_values_by`) to `GroupKeySet`.
+* Locked DISTINCT semantic domains: kernel row DISTINCT uses `DataKey` identity, while value DISTINCT uses canonical `GroupKey` equality.
+
+### 🧪 Testing
+
+* Added row DISTINCT invariants: identical `DataKey` values never duplicate, and different `DataKey` values remain distinct even when projected values are equal.
+
+---
+
 ## [0.30.17] - 2026-02-27 - Last of the db/ Audits
 
 Pre-`GROUP BY` cleanup release focused on reducing drift and duplication in `db/`.
 
+### 📝 Summary
+
+* Final pre-`GROUP BY` audit cleanup pass to reduce policy drift and duplicated execution helpers.
+
+### 🔧 Changed
+
 * Unified secondary `ORDER BY` pushdown eligibility behind one shared implementation to prevent planner/route drift.
 * Consolidated scan-direction and pagination keep-count helpers so cursor and executor paths now use the same policy functions.
 * Simplified mutation commit-window orchestration by adding shared save/delete commit helpers and removing repeated wiring.
+
+### 📚 Documentation
+
 * Reformatted the `0.31`/`0.32`/`0.33` design docs for clearer structure and easier review.
 
 ---

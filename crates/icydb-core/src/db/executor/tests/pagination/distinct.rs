@@ -64,6 +64,54 @@ fn load_distinct_flag_preserves_union_pagination_rows_and_boundaries() {
 }
 
 #[test]
+fn load_row_distinct_keeps_rows_with_same_projected_values_when_datakey_differs() {
+    setup_pagination_test();
+
+    let rows = [
+        (39_211, 7, 10, "g7-r10-a"),
+        (39_212, 7, 10, "g7-r10-b"),
+        (39_213, 7, 20, "g7-r20"),
+        (39_214, 8, 99, "g8-r99"),
+    ];
+    seed_pushdown_rows(&rows);
+
+    let expected_ids = vec![
+        Ulid::from_u128(39_211),
+        Ulid::from_u128(39_212),
+        Ulid::from_u128(39_213),
+    ];
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let response = load
+        .execute(
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(pushdown_group_predicate(7))
+                .distinct()
+                .order_by("id")
+                .plan()
+                .expect("row DISTINCT projection-invariant plan should build"),
+        )
+        .expect("row DISTINCT projection-invariant execution should succeed");
+
+    assert_eq!(
+        ids_from_items(&response.0),
+        expected_ids,
+        "row DISTINCT must keep rows with different DataKeys even when projected values are equal",
+    );
+
+    let projected_ranks = response
+        .0
+        .iter()
+        .map(|(_, entity)| entity.rank)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        projected_ranks,
+        vec![10, 10, 20],
+        "equal projected values should remain visible when DataKey identities differ",
+    );
+}
+
+#[test]
 fn load_distinct_union_resume_matrix_is_boundary_complete() {
     setup_pagination_test();
 

@@ -1,46 +1,29 @@
 use crate::{
     db::{
-        data::{DataKey, StorageKey},
+        data::DataKey,
         direction::Direction,
         executor::{
             KeyOrderComparator, OrderedKeyStream, OrderedKeyStreamBox,
             load::{ResolvedExecutionKeyStream, key_stream_comparator_from_direction},
         },
-        identity::EntityName,
         plan::AccessPlannedQuery,
     },
     error::InternalError,
 };
-use std::{cell::Cell, cmp::Ordering, rc::Rc};
-
-type DistinctKeyWitness = (EntityName, StorageKey);
-
-const fn distinct_key_witness(key: &DataKey) -> DistinctKeyWitness {
-    (*key.entity_name(), key.storage_key())
-}
-
-fn compare_distinct_witnesses(
-    comparator: KeyOrderComparator,
-    left: &DistinctKeyWitness,
-    right: &DistinctKeyWitness,
-) -> Option<Ordering> {
-    if left.0 != right.0 {
-        return None;
-    }
-
-    Some(comparator.compare_storage_keys(&left.1, &right.1))
-}
+use std::{cell::Cell, rc::Rc};
 
 ///
 /// DistinctOrderedKeyStream
 ///
 /// Kernel-local ordered stream wrapper that suppresses adjacent duplicate keys.
+/// Row DISTINCT semantics are identity-based at this boundary:
+/// duplicates are defined as identical `DataKey` values (entity + primary key).
 /// Correct DISTINCT requires contiguous equal keys in the upstream stream order.
 ///
 
 pub(super) struct DistinctOrderedKeyStream<S> {
     inner: S,
-    last_emitted: Option<DistinctKeyWitness>,
+    last_emitted: Option<DataKey>,
     comparator: KeyOrderComparator,
     deduped_keys_counter: Option<Rc<Cell<u64>>>,
 }
@@ -80,18 +63,17 @@ where
             let Some(next) = self.inner.next_key()? else {
                 return Ok(None);
             };
-            let next_witness = distinct_key_witness(&next);
 
-            if let Some(last) = self.last_emitted.as_ref()
-                && let Some(ordering) =
-                    compare_distinct_witnesses(self.comparator, last, &next_witness)
-            {
-                if ordering.is_gt() {
+            if let Some(last) = self.last_emitted.as_ref() {
+                // Keep ordering and equality semantics split:
+                // - ordering comparator enforces monotonic stream contract
+                // - exact key equality controls DISTINCT suppression
+                if self.comparator.compare_data_keys(last, &next).is_gt() {
                     return Err(InternalError::query_executor_invariant(
                         "distinct ordered stream received non-monotonic key order",
                     ));
                 }
-                if ordering.is_eq() {
+                if last == &next {
                     if let Some(counter) = self.deduped_keys_counter.as_ref() {
                         counter.set(counter.get().saturating_add(1));
                     }
@@ -99,7 +81,7 @@ where
                 }
             }
 
-            self.last_emitted = Some(next_witness);
+            self.last_emitted = Some(next.clone());
 
             return Ok(Some(next));
         }
@@ -260,6 +242,29 @@ mod tests {
 
         let out = collect_stream(&mut stream).expect("distinct stream should succeed");
         assert_eq!(out, vec![data_key(1), data_key(2), data_key(3)]);
+    }
+
+    #[test]
+    fn distinct_stream_identity_equality_never_emits_same_datakey_twice() {
+        let inner = StaticOrderedKeyStream::new(vec![data_key(7), data_key(7), data_key(7)]);
+        let dedup_counter = Rc::new(Cell::new(0u64));
+        let mut stream = DistinctOrderedKeyStream::new_with_dedup_counter(
+            inner,
+            KeyOrderComparator::from_direction(Direction::Asc),
+            dedup_counter.clone(),
+        );
+
+        let out = collect_stream(&mut stream).expect("distinct stream should succeed");
+        assert_eq!(
+            out,
+            vec![data_key(7)],
+            "identical DataKeys must collapse to one row under kernel row DISTINCT",
+        );
+        assert_eq!(
+            dedup_counter.get(),
+            2,
+            "every repeated identical DataKey should be counted as deduped",
+        );
     }
 
     #[test]

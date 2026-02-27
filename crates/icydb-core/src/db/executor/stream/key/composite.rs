@@ -234,7 +234,10 @@ where
                         self.pair.right.clear_item();
                         self.pair.left.take_item()
                     } else {
-                        let choose_left = self.comparator.compare(left_key, right_key).is_lt();
+                        let choose_left = self
+                            .comparator
+                            .compare_data_keys(left_key, right_key)
+                            .is_lt();
                         if choose_left {
                             self.pair.left.take_item()
                         } else {
@@ -361,7 +364,10 @@ where
                 return Ok(Some(next));
             }
 
-            let advance_left = self.comparator.compare(left_key, right_key).is_lt();
+            let advance_left = self
+                .comparator
+                .compare_data_keys(left_key, right_key)
+                .is_lt();
             if advance_left {
                 self.pair.left.clear_item();
             } else {

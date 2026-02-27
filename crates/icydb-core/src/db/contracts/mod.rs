@@ -12,6 +12,7 @@
 mod consistency;
 mod predicate_model;
 mod predicate_schema;
+mod semantics;
 
 pub use consistency::ReadConsistency;
 #[cfg(test)]
@@ -26,3 +27,4 @@ pub(in crate::db) use predicate_model::{
 };
 pub(crate) use predicate_schema::SchemaInfo;
 pub use predicate_schema::ValidateError;
+pub(in crate::db) use semantics::{canonical_group_key_equals, canonical_value_compare};

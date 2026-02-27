@@ -23,7 +23,11 @@ impl KeyOrderComparator {
         Self { direction }
     }
 
-    pub(super) fn compare(self, left: &DataKey, right: &DataKey) -> Ordering {
+    pub(in crate::db::executor) fn compare_data_keys(
+        self,
+        left: &DataKey,
+        right: &DataKey,
+    ) -> Ordering {
         match self.direction {
             Direction::Asc => left.cmp(right),
             Direction::Desc => right.cmp(left),

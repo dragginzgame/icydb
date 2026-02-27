@@ -5,41 +5,12 @@ use crate::{
             aggregate::field::{FieldSlot, extract_orderable_field_value},
             load::LoadExecutor,
         },
+        group_key::GroupKeySet,
         response::Response,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
-    value::Value,
 };
-use std::{cmp::Ordering, collections::BTreeSet};
-
-///
-/// CanonicalDistinctValue
-///
-/// Canonical set key wrapper for `count_distinct_by` value deduplication.
-/// Uses `Value::canonical_cmp` to provide a total ordering for `BTreeSet`.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct CanonicalDistinctValue(Value);
-
-impl Ord for CanonicalDistinctValue {
-    fn cmp(&self, other: &Self) -> Ordering {
-        let ordering = Value::canonical_cmp(&self.0, &other.0);
-        debug_assert!(
-            (ordering == Ordering::Equal) == (self.0 == other.0),
-            "canonical distinct ordering must preserve Value equality semantics",
-        );
-
-        ordering
-    }
-}
-
-impl PartialOrd for CanonicalDistinctValue {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
 
 impl<E> LoadExecutor<E>
 where
@@ -63,17 +34,22 @@ where
 
     // Reduce one materialized response into `count_distinct(field)` by
     // counting unique typed field values across the effective response window.
+    // This is value DISTINCT semantics and intentionally uses canonical
+    // `GroupKey` equality (not row/DataKey identity).
     fn aggregate_count_distinct_field_from_materialized(
         response: Response<E>,
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<u32, InternalError> {
-        let mut distinct_values: BTreeSet<CanonicalDistinctValue> = BTreeSet::new();
+        let mut distinct_values = GroupKeySet::default();
         let mut distinct_count = 0u32;
         for (_, entity) in response {
             let value = extract_orderable_field_value(&entity, target_field, field_slot)
                 .map_err(Self::map_aggregate_field_value_error)?;
-            if distinct_values.insert(CanonicalDistinctValue(value)) {
+            if distinct_values
+                .insert_value(&value)
+                .map_err(|err| err.into_internal_error())?
+            {
                 distinct_count = distinct_count.saturating_add(1);
             }
         }

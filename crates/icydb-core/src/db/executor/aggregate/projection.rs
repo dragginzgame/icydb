@@ -7,6 +7,7 @@ use crate::{
             aggregate::{AggregateKind, AggregateOutput, AggregateSpec},
             load::LoadExecutor,
         },
+        group_key::GroupKeySet,
         response::Response,
     },
     error::InternalError,
@@ -177,16 +178,21 @@ where
 
     // Project one materialized response into distinct field values while
     // preserving first-observed order within the effective response window.
+    // This is value DISTINCT semantics via canonical `GroupKey` equality.
     fn project_distinct_field_values_from_materialized(
         response: Response<E>,
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<Vec<Value>, InternalError> {
+        let mut distinct_values = GroupKeySet::default();
         let mut projected_values = Vec::new();
         for (_, entity) in response {
             let value = extract_orderable_field_value(&entity, target_field, field_slot)
                 .map_err(Self::map_aggregate_field_value_error)?;
-            if projected_values.iter().any(|existing| existing == &value) {
+            if !distinct_values
+                .insert_value(&value)
+                .map_err(|err| err.into_internal_error())?
+            {
                 continue;
             }
             projected_values.push(value);
