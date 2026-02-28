@@ -6,6 +6,7 @@ use crate::{
         executor::{
             Context, ExecutionPlan, ExecutionPreparation, OrderedKeyStreamBox, RangeToken,
             aggregate::{AggregateFoldMode, AggregateKind, AggregateSpec},
+            compute_page_window,
             load::LoadExecutor,
         },
         query::plan::{AccessPlannedQuery, GroupedExecutorHandoff},
@@ -16,8 +17,10 @@ use crate::{
 
 use crate::db::executor::route::{
     AGGREGATE_FAST_PATH_ORDER, ContinuationMode, ExecutionMode, ExecutionModeRouteCase,
-    ExecutionRoutePlan, FastPathOrder, GROUPED_AGGREGATE_FAST_PATH_ORDER, IndexRangeLimitSpec,
-    LOAD_FAST_PATH_ORDER, RouteCapabilities, RouteIntent, RouteWindowPlan, ScanHintPlan,
+    ExecutionRoutePlan, FastPathOrder, GROUPED_AGGREGATE_FAST_PATH_ORDER,
+    GroupedRouteDecisionOutcome, GroupedRouteObservability, GroupedRouteRejectionReason,
+    IndexRangeLimitSpec, LOAD_FAST_PATH_ORDER, MUTATION_FAST_PATH_ORDER, RouteCapabilities,
+    RouteIntent, RouteWindowPlan, ScanHintPlan,
 };
 
 ///
@@ -87,6 +90,87 @@ struct RouteExecutionStage {
     execution_mode: ExecutionMode,
     aggregate_fold_mode: AggregateFoldMode,
     index_range_limit_spec: Option<IndexRangeLimitSpec>,
+}
+
+impl RouteWindowPlan {
+    // Build the canonical route window payload from effective offset + optional
+    // page limit, keeping keep/fetch counts aligned with shared page math.
+    pub(in crate::db::executor::route) fn new(effective_offset: u32, limit: Option<u32>) -> Self {
+        let (keep_count, fetch_count) = match limit {
+            Some(limit) => {
+                let keep = compute_page_window(effective_offset, limit, false).keep_count;
+                let fetch = compute_page_window(effective_offset, limit, true).fetch_count;
+                (Some(keep), Some(fetch))
+            }
+            None => (None, None),
+        };
+
+        Self {
+            effective_offset,
+            limit,
+            keep_count,
+            fetch_count,
+        }
+    }
+}
+
+impl ExecutionRoutePlan {
+    pub(in crate::db::executor::route) const fn for_mutation(
+        capabilities: RouteCapabilities,
+    ) -> Self {
+        Self {
+            direction: Direction::Asc,
+            continuation_mode: ContinuationMode::Initial,
+            window: RouteWindowPlan {
+                effective_offset: 0,
+                limit: None,
+                keep_count: None,
+                fetch_count: None,
+            },
+            execution_mode: ExecutionMode::Materialized,
+            execution_mode_case: ExecutionModeRouteCase::Load,
+            secondary_pushdown_applicability: PushdownApplicability::NotApplicable,
+            index_range_limit_spec: None,
+            capabilities,
+            fast_path_order: &MUTATION_FAST_PATH_ORDER,
+            aggregate_secondary_extrema_probe_fetch_hint: None,
+            scan_hints: ScanHintPlan {
+                physical_fetch_hint: None,
+                load_scan_budget_hint: None,
+            },
+            aggregate_fold_mode: AggregateFoldMode::ExistingRows,
+        }
+    }
+
+    // Grouped route observability projection.
+    // Non-grouped routes intentionally report no grouped diagnostics payload.
+    pub(in crate::db::executor) const fn grouped_observability(
+        &self,
+    ) -> Option<GroupedRouteObservability> {
+        match self.execution_mode_case {
+            ExecutionModeRouteCase::AggregateGrouped => {
+                let eligible = self.fast_path_order.is_empty();
+                let (outcome, rejection_reason) = if !eligible {
+                    (
+                        GroupedRouteDecisionOutcome::Rejected,
+                        Some(GroupedRouteRejectionReason::CapabilityMismatch),
+                    )
+                } else if matches!(self.execution_mode, ExecutionMode::Materialized) {
+                    (GroupedRouteDecisionOutcome::MaterializedFallback, None)
+                } else {
+                    (GroupedRouteDecisionOutcome::Selected, None)
+                };
+
+                Some(GroupedRouteObservability {
+                    outcome,
+                    rejection_reason,
+                    eligible,
+                    execution_mode: self.execution_mode,
+                })
+            }
+            _ => None,
+        }
+    }
 }
 
 impl<E> LoadExecutor<E>

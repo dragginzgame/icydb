@@ -4,6 +4,7 @@
 /// This module owns the opaque wire-token format used for continuation cursors.
 /// It intentionally contains only token encoding/decoding logic and no query semantics.
 ///
+use crate::db::cursor::ContinuationSignature;
 
 // Defensive decode bound for untrusted cursor token input.
 const MAX_CURSOR_TOKEN_HEX_LEN: usize = 8 * 1024;
@@ -36,6 +37,20 @@ pub fn encode_cursor(bytes: &[u8]) -> String {
         let _ = write!(out, "{byte:02x}");
     }
     out
+}
+
+impl ContinuationSignature {
+    /// Encode this signature as a lowercase hex token.
+    #[must_use]
+    pub fn as_hex(&self) -> String {
+        encode_cursor(&self.into_bytes())
+    }
+}
+
+impl std::fmt::Display for ContinuationSignature {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.as_hex())
+    }
 }
 
 /// Decode a lowercase/uppercase hex cursor token into raw bytes.

@@ -1,3 +1,8 @@
+//! Module: db::executor::route::mode
+//! Responsibility: route-owned direction/window/continuation-mode derivation helpers.
+//! Does not own: access-shape capability decisions or route execution-mode selection.
+//! Boundary: pure derivation primitives consumed by route planning.
+
 use crate::{
     db::{
         cursor::CursorBoundary,
@@ -25,6 +30,9 @@ where
         plan: &AccessPlannedQuery<E::Key>,
         spec: &AggregateSpec,
     ) -> Direction {
+        // Aggregate direction authority flows from AggregateKind.
+        // Field-target extrema derive from `AggregateKind::extrema_direction`;
+        // all other cases inherit canonical load ordering direction.
         if spec.target_field().is_some() {
             return spec
                 .kind()

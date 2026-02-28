@@ -1,3 +1,8 @@
+//! Module: db::executor::plan_validate
+//! Responsibility: defensive structural validation at executor entry boundaries.
+//! Does not own: logical/user-shape query semantics.
+//! Boundary: catches internal planner/executor contract mismatches early.
+
 use crate::{
     db::{
         access::validate_access_structure, predicate::SchemaInfo, query::plan::AccessPlannedQuery,

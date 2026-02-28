@@ -5,10 +5,38 @@ use crate::{
         index::{IndexCompilePolicy, compile_index_program},
         query::plan::AccessPlannedQuery,
     },
+    error::InternalError,
     traits::{EntityKind, EntityValue},
 };
 
-use crate::db::executor::route::{RouteCapabilities, supports_pk_stream_access_path};
+use crate::db::executor::route::{
+    FastPathOrder, RouteCapabilities, supports_pk_stream_access_path,
+};
+
+/// Iterate route-owned fast-path precedence through a shared verify+execute gate.
+///
+/// Verification runs first for each route; execution is attempted only when
+/// verification returns a marker. Returns the first successful execution hit.
+pub(in crate::db::executor) fn try_first_verified_fast_path_hit<T, M, V, E>(
+    fast_path_order: &[FastPathOrder],
+    mut verify_route: V,
+    mut execute_verified_route: E,
+) -> Result<Option<T>, InternalError>
+where
+    V: FnMut(FastPathOrder) -> Result<Option<M>, InternalError>,
+    E: FnMut(M) -> Result<Option<T>, InternalError>,
+{
+    for route in fast_path_order.iter().copied() {
+        let Some(marker) = verify_route(route)? else {
+            continue;
+        };
+        if let Some(hit) = execute_verified_route(marker)? {
+            return Ok(Some(hit));
+        }
+    }
+
+    Ok(None)
+}
 
 impl<E> LoadExecutor<E>
 where

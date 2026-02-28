@@ -1,3 +1,8 @@
+//! Module: db::executor::executable_plan
+//! Responsibility: bind validated access-planned queries to executor-ready contracts.
+//! Does not own: logical plan semantics or route policy decisions.
+//! Boundary: shared plan container for load/delete/aggregate runtime entrypoints.
+
 use crate::{
     db::{
         access::AccessPlan,
@@ -45,11 +50,14 @@ impl<E: EntityKind> ExecutablePlan<E> {
     }
 
     fn build(plan: AccessPlannedQuery<E::Key>) -> Self {
+        // Phase 1: Lower index-prefix specs once and retain invariant state.
         let (index_prefix_specs, index_prefix_spec_invalid) =
             match lower_index_prefix_specs::<E>(&plan.access) {
                 Ok(specs) => (specs, false),
                 Err(_) => (Vec::new(), true),
             };
+
+        // Phase 2: Lower index-range specs once and retain invariant state.
         let (index_range_specs, index_range_spec_invalid) =
             match lower_index_range_specs::<E>(&plan.access) {
                 Ok(specs) => (specs, false),
@@ -97,6 +105,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
     where
         E::Key: FieldValue,
     {
+        // Grouped plans require grouped cursor contracts and must not enter scalar path.
         if matches!(&self.plan.logical, LogicalPlan::Grouped(_)) {
             return Err(ExecutorPlanError::from(
                 CursorPlanError::InvalidContinuationCursorPayload {
@@ -107,6 +116,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
             ));
         }
 
+        // Derive canonical primary traversal direction, then delegate to cursor spine.
         let direction = derive_primary_scan_direction(self.plan.scalar_plan().order.as_ref());
         crate::db::cursor::prepare_cursor::<E>(
             self.plan.access.as_path(),
@@ -170,12 +180,14 @@ impl<E: EntityKind> ExecutablePlan<E> {
     where
         E::Key: FieldValue,
     {
+        // Grouped plans require grouped cursor contracts and must not enter scalar path.
         if matches!(&self.plan.logical, LogicalPlan::Grouped(_)) {
             return Err(InternalError::query_executor_invariant(
                 "grouped plans require grouped cursor revalidation",
             ));
         }
 
+        // Re-derive canonical direction and revalidate through the cursor spine boundary.
         let direction = derive_primary_scan_direction(self.plan.scalar_plan().order.as_ref());
         crate::db::cursor::revalidate_cursor::<E>(
             self.plan.access.as_path(),

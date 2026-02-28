@@ -1,5 +1,9 @@
+//! Module: db::executor
+//! Responsibility: runtime execution boundaries for validated query plans.
+//! Does not own: logical query semantics or persistence encoding policy.
+//! Boundary: consumes query/access/cursor contracts and drives load/delete/aggregate runtime.
+
 mod aggregate;
-mod compile_bridge;
 mod context;
 mod delete;
 mod executable_plan;
@@ -58,6 +62,20 @@ pub(in crate::db) use window::compute_page_window;
 
 pub(in crate::db::executor) type ExecutionPlan = route::ExecutionRoutePlan;
 
+impl<E: EntityKind> From<CompiledQuery<E>> for ExecutablePlan<E> {
+    fn from(value: CompiledQuery<E>) -> Self {
+        Self::new(value.into_inner())
+    }
+}
+
+impl<E: EntityKind> CompiledQuery<E> {
+    /// Convert one query-owned compiled intent into an executor-ready plan.
+    #[must_use]
+    pub(in crate::db) fn into_executable(self) -> ExecutablePlan<E> {
+        ExecutablePlan::from(self)
+    }
+}
+
 // Design notes:
 // - SchemaInfo is the planner-visible schema (relational attributes). Executors may see
 //   additional tuple payload not represented in SchemaInfo.
@@ -72,9 +90,13 @@ use crate::{
         cursor::CursorPlanError,
         data::DataKey,
         predicate::ValidateError,
-        query::plan::validate::{OrderPlanError, PlanError},
+        query::{
+            intent::CompiledQuery,
+            plan::validate::{OrderPlanError, PlanError},
+        },
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
+    traits::EntityKind,
 };
 use thiserror::Error as ThisError;
 
@@ -130,6 +152,9 @@ impl From<CursorPlanError> for ExecutorPlanError {
 ///
 /// ExecutorError
 ///
+/// Executor-owned runtime failure taxonomy for execution boundaries.
+/// Keeps conflict vs corruption classification explicit for internal mapping.
+/// User-shape validation failures remain plan-layer errors.
 
 #[derive(Debug, ThisError)]
 pub(crate) enum ExecutorError {

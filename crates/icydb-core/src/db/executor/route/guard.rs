@@ -1,3 +1,8 @@
+//! Module: db::executor::route::guard
+//! Responsibility: invariant guards for route fast-path lowered-spec arity contracts.
+//! Does not own: route decision policy.
+//! Boundary: fail-closed internal validation at route/runtime handoff.
+
 use crate::error::InternalError;
 
 const SECONDARY_AGGREGATE_PREFIX_ARITY_MESSAGE: &str =

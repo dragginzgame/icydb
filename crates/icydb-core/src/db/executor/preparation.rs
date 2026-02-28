@@ -1,10 +1,16 @@
+//! Module: db::executor::preparation
+//! Responsibility: build reusable executor-side predicate/index compilation state.
+//! Does not own: access planning or runtime route policy.
+//! Boundary: one-time preparation object consumed by execution paths.
+
 use crate::{
     db::{
-        executor::load::LoadExecutor,
+        access::{AccessPath, AccessPlan},
         index::{IndexCompilePolicy, IndexPredicateProgram, compile_index_program},
         predicate::PredicateProgram,
         query::plan::AccessPlannedQuery,
     },
+    model::entity::resolve_field_slot,
     traits::{EntityKind, EntityValue},
 };
 
@@ -29,12 +35,17 @@ impl ExecutionPreparation {
     where
         E: EntityKind + EntityValue,
     {
+        // Phase 1: Compile the row-predicate once from logical plan semantics.
         let compiled_predicate = plan
             .scalar_plan()
             .predicate
             .as_ref()
             .map(PredicateProgram::compile::<E>);
-        let slot_map = LoadExecutor::<E>::resolved_index_slots_for_access_path(&plan.access);
+
+        // Phase 2: Resolve access-path slot mapping used by index predicate compilation.
+        let slot_map = resolved_index_slots_for_access_path::<E>(&plan.access);
+
+        // Phase 3: Build strict index predicate program only when both inputs exist.
         let strict_mode = match (compiled_predicate.as_ref(), slot_map.as_deref()) {
             (Some(compiled_predicate), Some(slot_map)) => compile_index_program(
                 compiled_predicate.resolved(),
@@ -43,6 +54,7 @@ impl ExecutionPreparation {
             ),
             (Some(_) | None, None) | (None, Some(_)) => None,
         };
+
         Self {
             compiled_predicate,
             slot_map,
@@ -64,4 +76,33 @@ impl ExecutionPreparation {
     pub(in crate::db::executor) const fn strict_mode(&self) -> Option<&IndexPredicateProgram> {
         self.strict_mode.as_ref()
     }
+}
+
+// Resolve index field slots from a single-path index access shape.
+fn resolved_index_slots_for_access_path<E>(access: &AccessPlan<E::Key>) -> Option<Vec<usize>>
+where
+    E: EntityKind + EntityValue,
+{
+    let path = access.as_path()?;
+    let index_fields = match path {
+        AccessPath::IndexPrefix { index, .. } => index.fields,
+        AccessPath::IndexRange { spec } => {
+            let index = spec.index();
+            index.fields
+        }
+        AccessPath::ByKey(_)
+        | AccessPath::ByKeys(_)
+        | AccessPath::KeyRange { .. }
+        | AccessPath::FullScan => {
+            return None;
+        }
+    };
+
+    let mut slots = Vec::with_capacity(index_fields.len());
+    for field_name in index_fields {
+        let slot = resolve_field_slot(E::MODEL, field_name)?;
+        slots.push(slot);
+    }
+
+    Some(slots)
 }

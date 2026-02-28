@@ -15,9 +15,39 @@ use crate::{
 };
 
 use crate::db::executor::route::{
-    FieldExtremaEligibility, FieldExtremaIneligibilityReason, RouteCapabilities,
-    direction_allows_physical_fetch_hint,
+    ExecutionRoutePlan, FieldExtremaEligibility, FieldExtremaIneligibilityReason, RouteCapabilities,
 };
+
+/// Return true when this access path is eligible for PK stream fast-path execution.
+#[must_use]
+pub(in crate::db::executor) const fn supports_pk_stream_access_path<K>(
+    path: &AccessPath<K>,
+) -> bool {
+    matches!(path, AccessPath::FullScan | AccessPath::KeyRange { .. })
+}
+
+/// Return true when bounded physical fetch hints are valid for this direction.
+pub(in crate::db::executor::route) const fn direction_allows_physical_fetch_hint(
+    direction: Direction,
+    desc_physical_reverse_supported: bool,
+) -> bool {
+    !matches!(direction, Direction::Desc) || desc_physical_reverse_supported
+}
+
+impl ExecutionRoutePlan {
+    // Return the effective physical fetch hint for fallback stream resolution.
+    // DESC fallback must disable bounded hints when reverse traversal is unavailable.
+    pub(in crate::db::executor) const fn fallback_physical_fetch_hint(
+        &self,
+        direction: Direction,
+    ) -> Option<usize> {
+        if direction_allows_physical_fetch_hint(direction, self.desc_physical_reverse_supported()) {
+            self.scan_hints.physical_fetch_hint
+        } else {
+            None
+        }
+    }
+}
 
 impl<E> LoadExecutor<E>
 where
@@ -66,34 +96,8 @@ where
         }
     }
 
-    // Resolve index fields for a single-path index access shape to entity slots.
-    pub(in crate::db::executor) fn resolved_index_slots_for_access_path(
-        access: &AccessPlan<E::Key>,
-    ) -> Option<Vec<usize>> {
-        let path = access.as_path()?;
-        let index_fields = match path {
-            AccessPath::IndexPrefix { index, .. } => index.fields,
-            AccessPath::IndexRange { spec } => {
-                let index = spec.index();
-                index.fields
-            }
-            AccessPath::ByKey(_)
-            | AccessPath::ByKeys(_)
-            | AccessPath::KeyRange { .. }
-            | AccessPath::FullScan => return None,
-        };
-
-        let mut slots = Vec::with_capacity(index_fields.len());
-        for field_name in index_fields {
-            let slot = resolve_field_slot(E::MODEL, field_name)?;
-            slots.push(slot);
-        }
-
-        Some(slots)
-    }
-
     // Placeholder assessment for future `min(field)` fast paths.
-    // Intentionally ineligible in 0.24.x while field-extrema semantics are finalized.
+    // Intentionally ineligible in 0.34.x while field-extrema semantics are finalized.
     fn assess_field_min_fast_path_eligibility(
         plan: &AccessPlannedQuery<E::Key>,
         direction: Direction,
@@ -108,7 +112,7 @@ where
     }
 
     // Placeholder assessment for future `max(field)` fast paths.
-    // Intentionally ineligible in 0.24.x while field-extrema semantics are finalized.
+    // Intentionally ineligible in 0.34.x while field-extrema semantics are finalized.
     fn assess_field_max_fast_path_eligibility(
         plan: &AccessPlannedQuery<E::Key>,
         direction: Direction,
