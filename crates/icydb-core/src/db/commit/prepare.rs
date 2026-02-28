@@ -3,8 +3,9 @@ use crate::{
         Db,
         codec::deserialize_row,
         commit::{
-            CommitRowOp, PreparedIndexMutation, PreparedRowCommitOp,
-            decode::{decode_data_key, decode_index_entry, decode_index_key},
+            CommitRowOp, PreparedIndexDeltaKind, PreparedIndexMutation, PreparedRowCommitOp,
+            UNSET_COMMIT_SCHEMA_FINGERPRINT, commit_schema_fingerprint_for_entity, decode_data_key,
+            decode_index_entry, decode_index_key,
         },
         data::{RawRow, decode_and_validate_entity_key},
         index::{IndexKey, plan_index_mutation_for_entity},
@@ -29,6 +30,17 @@ pub(in crate::db) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
             "commit marker entity path mismatch: expected '{}', found '{}'",
             E::PATH,
             op.entity_path
+        )));
+    }
+    let expected_schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
+    if op.schema_fingerprint != UNSET_COMMIT_SCHEMA_FINGERPRINT
+        && op.schema_fingerprint != expected_schema_fingerprint
+    {
+        return Err(InternalError::store_unsupported(format!(
+            "commit marker schema fingerprint mismatch for entity '{}': marker={:?}, runtime={:?}",
+            E::PATH,
+            op.schema_fingerprint,
+            expected_schema_fingerprint
         )));
     }
 
@@ -80,8 +92,7 @@ pub(in crate::db) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
         old_entity.as_ref(),
         new_pair.as_ref().map(|(_, entity)| entity),
     )?;
-    let mut index_remove_count = 0usize;
-    let mut index_insert_count = 0usize;
+    let mut index_delta_kind_by_key = BTreeMap::new();
     for index in E::INDEXES {
         let old_key = old_entity
             .as_ref()
@@ -97,11 +108,21 @@ pub(in crate::db) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
             .map(|key| key.to_raw());
 
         if old_key != new_key {
-            if old_key.is_some() {
-                index_remove_count = index_remove_count.saturating_add(1);
+            if let Some(old_key) = old_key {
+                let previous =
+                    index_delta_kind_by_key.insert(old_key, PreparedIndexDeltaKind::IndexRemove);
+                debug_assert!(
+                    previous.is_none(),
+                    "duplicate forward-index remove delta annotation for one key",
+                );
             }
-            if new_key.is_some() {
-                index_insert_count = index_insert_count.saturating_add(1);
+            if let Some(new_key) = new_key {
+                let previous =
+                    index_delta_kind_by_key.insert(new_key, PreparedIndexDeltaKind::IndexInsert);
+                debug_assert!(
+                    previous.is_none(),
+                    "duplicate forward-index insert delta annotation for one key",
+                );
             }
         }
     }
@@ -128,14 +149,23 @@ pub(in crate::db) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
             .as_ref()
             .map(|bytes| decode_index_entry(bytes))
             .transpose()?;
-        index_ops.push(PreparedIndexMutation { store, key, value });
+        let delta_kind = index_delta_kind_by_key
+            .get(&key)
+            .copied()
+            .unwrap_or(PreparedIndexDeltaKind::None);
+
+        index_ops.push(PreparedIndexMutation {
+            store,
+            key,
+            value,
+            delta_kind,
+        });
     }
-    let (reverse_index_ops, reverse_remove_count, reverse_insert_count) =
-        prepare_reverse_relation_index_mutations_for_source::<E>(
-            db,
-            old_entity.as_ref(),
-            new_pair.as_ref().map(|(_, entity)| entity),
-        )?;
+    let reverse_index_ops = prepare_reverse_relation_index_mutations_for_source::<E>(
+        db,
+        old_entity.as_ref(),
+        new_pair.as_ref().map(|(_, entity)| entity),
+    )?;
     index_ops.extend(reverse_index_ops);
 
     let data_store = db.with_store_registry(|reg| reg.try_get_store(E::Store::PATH))?;
@@ -146,9 +176,5 @@ pub(in crate::db) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
         data_store: data_store.data_store(),
         data_key: raw_key,
         data_value,
-        index_remove_count,
-        index_insert_count,
-        reverse_index_remove_count: reverse_remove_count,
-        reverse_index_insert_count: reverse_insert_count,
     })
 }

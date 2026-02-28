@@ -2,9 +2,10 @@ use crate::{
     db::{
         Db,
         commit::{
-            CommitApplyGuard, CommitGuard, CommitMarker, CommitRowOp, PreparedRowCommitOp,
-            begin_commit, finish_commit, prepare_row_commit_for_entity,
-            rollback_prepared_row_ops_reverse, snapshot_row_rollback,
+            CommitApplyGuard, CommitGuard, CommitMarker, CommitRowOp, PreparedIndexDeltaKind,
+            PreparedRowCommitOp, begin_commit, commit_schema_fingerprint_for_entity, finish_commit,
+            prepare_row_commit_for_entity, rollback_prepared_row_ops_reverse,
+            snapshot_row_rollback,
         },
         index::IndexStore,
     },
@@ -69,18 +70,23 @@ pub(in crate::db::executor) fn summarize_prepared_row_ops(
     };
 
     for row_op in prepared_row_ops {
-        summary.index_inserts = summary
-            .index_inserts
-            .saturating_add(row_op.index_insert_count);
-        summary.index_removes = summary
-            .index_removes
-            .saturating_add(row_op.index_remove_count);
-        summary.reverse_index_inserts = summary
-            .reverse_index_inserts
-            .saturating_add(row_op.reverse_index_insert_count);
-        summary.reverse_index_removes = summary
-            .reverse_index_removes
-            .saturating_add(row_op.reverse_index_remove_count);
+        for index_op in &row_op.index_ops {
+            match index_op.delta_kind {
+                PreparedIndexDeltaKind::None => {}
+                PreparedIndexDeltaKind::IndexInsert => {
+                    summary.index_inserts = summary.index_inserts.saturating_add(1);
+                }
+                PreparedIndexDeltaKind::IndexRemove => {
+                    summary.index_removes = summary.index_removes.saturating_add(1);
+                }
+                PreparedIndexDeltaKind::ReverseIndexInsert => {
+                    summary.reverse_index_inserts = summary.reverse_index_inserts.saturating_add(1);
+                }
+                PreparedIndexDeltaKind::ReverseIndexRemove => {
+                    summary.reverse_index_removes = summary.reverse_index_removes.saturating_add(1);
+                }
+            }
+        }
     }
 
     summary
@@ -154,6 +160,12 @@ pub(in crate::db::executor) fn open_commit_window<E: EntityKind + EntityValue>(
     db: &Db<E::Canister>,
     row_ops: Vec<CommitRowOp>,
 ) -> Result<OpenCommitWindow, InternalError> {
+    let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
+    let row_ops = row_ops
+        .into_iter()
+        .map(|row_op| row_op.with_schema_fingerprint(schema_fingerprint))
+        .collect::<Vec<_>>();
+
     let prepared_row_ops = preflight_prepare_row_ops::<E>(db, &row_ops)?;
     let index_store_guards = snapshot_index_store_generations(&prepared_row_ops);
     let delta = summarize_prepared_row_ops(&prepared_row_ops);

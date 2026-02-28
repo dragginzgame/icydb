@@ -1,4 +1,4 @@
-use crate::db::commit::{PreparedIndexMutation, PreparedRowCommitOp};
+use crate::db::commit::{PreparedIndexDeltaKind, PreparedIndexMutation, PreparedRowCommitOp};
 
 /// Capture the current store state needed to roll back one prepared row op.
 ///
@@ -12,6 +12,7 @@ pub(crate) fn snapshot_row_rollback(op: &PreparedRowCommitOp) -> PreparedRowComm
             store: index_op.store,
             key: index_op.key.clone(),
             value: existing,
+            delta_kind: PreparedIndexDeltaKind::None,
         });
     }
 
@@ -22,10 +23,22 @@ pub(crate) fn snapshot_row_rollback(op: &PreparedRowCommitOp) -> PreparedRowComm
         data_store: op.data_store,
         data_key: op.data_key,
         data_value,
-        index_remove_count: 0,
-        index_insert_count: 0,
-        reverse_index_remove_count: 0,
-        reverse_index_insert_count: 0,
+    }
+}
+
+/// Capture only row-store state needed to roll back one prepared row op.
+///
+/// Recovery replay applies row mutations only and rebuilds indexes in a
+/// dedicated phase, so replay rollback snapshots should remain row-scoped.
+#[must_use]
+pub(crate) fn snapshot_row_only_rollback(op: &PreparedRowCommitOp) -> PreparedRowCommitOp {
+    let data_value = op.data_store.with_borrow(|store| store.get(&op.data_key));
+
+    PreparedRowCommitOp {
+        index_ops: Vec::new(),
+        data_store: op.data_store,
+        data_key: op.data_key,
+        data_value,
     }
 }
 

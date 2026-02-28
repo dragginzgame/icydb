@@ -17,7 +17,9 @@ It must remain concise and structured.
 
 Detailed change breakdowns belong in:
 
-docs/changelog/<major>.<minor>.md
+`docs/changelog/<major>.<minor>.md`
+
+For example: [docs/changelog/0.33.md](docs/changelog/0.33.md)
 
 ---
 
@@ -31,6 +33,7 @@ docs/changelog/<major>.<minor>.md
   - Date
   - High-level summary sections
   - Links to detailed notes
+- Root minor-line summary entries should use 2-3 concise bullets per release line.
 
 ## 2.2 Detailed Minor Notes
 
@@ -42,9 +45,11 @@ docs/changelog/<major>.<minor>.md
   - Execution-shape changes
   - Validation and invariant notes
   - Migration commentary
+- This is the preferred place for code examples, LoC snapshots, and fenced blocks (` ``` `) that improve scanability.
+- Detailed minor notes may be substantially more verbose than root changelog entries.
 
 All patch releases in the same minor line share one detailed notes file.
-Example: `0.33.0`, `0.33.1`, and `0.33.2` all map to `docs/changelog/0.33.md`.
+Example: `0.33.0`, `0.33.1`, and `0.33.2` all map to [docs/changelog/0.33.md](docs/changelog/0.33.md).
 
 The root changelog must link to the detailed file when present.
 
@@ -80,10 +85,12 @@ Rules:
 10. Do not include internal refactor noise.
 11. Do not exceed ~15 bullets total in the root entry.
 12. If a section exceeds ~4 lines of explanation, move detail to `docs/changelog/<major>.<minor>.md`.
+13. For a root minor-line entry (`<major>.<minor>.x`), target 2-3 summary bullets.
 
 ## 3.1 Section Header Emoji Mapping
 
-When emoji section headers are used, use this fixed mapping:
+When section headers are used in `CHANGELOG.md` or `docs/changelog/*.md`,
+emoji-prefixed headers are the default and must use this fixed mapping:
 
 - `Added=➕`
 - `Changed=🔧`
@@ -99,6 +106,16 @@ When emoji section headers are used, use this fixed mapping:
 - `Documentation=📚`
 
 Keep emoji usage consistent across releases.
+
+## 3.2 Link Formatting
+
+For root changelog references to detailed notes, links must be clickable Markdown links.
+
+Use:
+
+`[docs/changelog/0.33.md](docs/changelog/0.33.md)`
+
+Do not use plain backticked path text for detailed-breakdown links.
 
 ---
 
@@ -118,7 +135,7 @@ When preparing a release:
    - Internal renames without surface impact
 5. Generate a concise summary entry in root CHANGELOG.md.
 6. Generate or update docs/changelog/<major>.<minor>.md with full detail.
-7. Insert link from root file to detailed file.
+7. Insert clickable Markdown link from root file to detailed file.
 8. Use the version specified by the release request or the existing latest changelog entry.
 9. Do not create a new version header if the newest entry already exists for the target version.
 
@@ -195,8 +212,9 @@ Bullet and detail rules:
 - Prefer short bullets (1-2 sentences), with inline code formatting for API/type names when relevant.
 - Bullets do not need to be single-line if additional sentence context is needed.
 - Avoid deep implementation detail (module paths, helper names, routing internals) unless required for migration/debugging.
-- Include code examples only when they improve developer clarity.
-- Use fenced code blocks only when they materially improve clarity.
+- In root `CHANGELOG.md`, avoid code examples/LoC dumps unless strictly necessary.
+- Prefer placing code examples, LoC snapshots, and fenced blocks in `docs/changelog/<major>.<minor>.md`.
+- Use fenced code blocks in detailed minor docs whenever they materially improve readability and break up dense text.
 
 Testing section rules:
 

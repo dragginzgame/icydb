@@ -47,6 +47,9 @@ Imports are considered part of a module’s public shape and architectural contr
 
 ### Required
 
+* All module import declarations MUST appear at the top of the file, immediately after module-level doc comments (if any).
+* Required top-of-file order is strict: first `mod ...;` declarations, then one blank line, then `use ...;` imports, then one blank line, then `pub use ...;` re-exports.
+* This strict import/declaration order applies to all files, including test files.
 * All non-test modules MUST declare imports at the top of the file.
 * Prefer a single top-level `use crate::{ ... };` block per module.
 * Prefer grouping related module imports into that single block (instead of multiple top-level `use` lines) when possible, e.g.:

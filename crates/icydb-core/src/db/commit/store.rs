@@ -155,6 +155,16 @@ pub(super) fn commit_marker_present_fast() -> Result<bool, InternalError> {
     with_commit_store(|store| Ok(!store.is_empty()))
 }
 
+/// Clear the persisted commit marker after successful replay and index rebuild.
+///
+/// This semantic boundary keeps marker-clear intent explicit in recovery flow.
+pub(super) fn clear_commit_marker_after_successful_rebuild() -> Result<(), InternalError> {
+    with_commit_store(|store| {
+        store.clear_infallible();
+        Ok(())
+    })
+}
+
 // Access the commit store without fallible initialization.
 pub(super) fn with_commit_store_infallible<R>(f: impl FnOnce(&mut CommitStore) -> R) -> R {
     COMMIT_STORE.with(|cell| {

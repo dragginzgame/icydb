@@ -238,7 +238,8 @@ where
     {
         self.ensure_non_paged_mode_ready()?;
 
-        self.session.execute_load_query_exists(self.query())
+        self.session
+            .execute_load_query_with(self.query(), |load, plan| load.aggregate_exists(plan))
     }
 
     /// Execute and return the number of matching rows.
@@ -248,7 +249,8 @@ where
     {
         self.ensure_non_paged_mode_ready()?;
 
-        self.session.execute_load_query_count(self.query())
+        self.session
+            .execute_load_query_with(self.query(), |load, plan| load.aggregate_count(plan))
     }
 
     /// Execute and return the smallest matching identifier, if any.
@@ -258,7 +260,8 @@ where
     {
         self.ensure_non_paged_mode_ready()?;
 
-        self.session.execute_load_query_min(self.query())
+        self.session
+            .execute_load_query_with(self.query(), |load, plan| load.aggregate_min(plan))
     }
 
     /// Execute and return the id of the row with the smallest value for `field`.
@@ -271,7 +274,9 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         self.session
-            .execute_load_query_min_by(self.query(), field.as_ref())
+            .execute_load_query_with(self.query(), |load, plan| {
+                load.aggregate_min_by(plan, field.as_ref())
+            })
     }
 
     /// Execute and return the largest matching identifier, if any.
@@ -281,7 +286,8 @@ where
     {
         self.ensure_non_paged_mode_ready()?;
 
-        self.session.execute_load_query_max(self.query())
+        self.session
+            .execute_load_query_with(self.query(), |load, plan| load.aggregate_max(plan))
     }
 
     /// Execute and return the id of the row with the largest value for `field`.
@@ -294,7 +300,9 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         self.session
-            .execute_load_query_max_by(self.query(), field.as_ref())
+            .execute_load_query_with(self.query(), |load, plan| {
+                load.aggregate_max_by(plan, field.as_ref())
+            })
     }
 
     /// Execute and return the id at zero-based ordinal `nth` when rows are
@@ -306,7 +314,9 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         self.session
-            .execute_load_query_nth_by(self.query(), field.as_ref(), nth)
+            .execute_load_query_with(self.query(), |load, plan| {
+                load.aggregate_nth_by(plan, field.as_ref(), nth)
+            })
     }
 
     /// Execute and return the sum of `field` over matching rows.
@@ -317,7 +327,9 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         self.session
-            .execute_load_query_sum_by(self.query(), field.as_ref())
+            .execute_load_query_with(self.query(), |load, plan| {
+                load.aggregate_sum_by(plan, field.as_ref())
+            })
     }
 
     /// Execute and return the average of `field` over matching rows.
@@ -328,7 +340,9 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         self.session
-            .execute_load_query_avg_by(self.query(), field.as_ref())
+            .execute_load_query_with(self.query(), |load, plan| {
+                load.aggregate_avg_by(plan, field.as_ref())
+            })
     }
 
     /// Execute and return the median id by `field` using deterministic ordering
@@ -342,7 +356,9 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         self.session
-            .execute_load_query_median_by(self.query(), field.as_ref())
+            .execute_load_query_with(self.query(), |load, plan| {
+                load.aggregate_median_by(plan, field.as_ref())
+            })
     }
 
     /// Execute and return the number of distinct values for `field` over the
@@ -354,7 +370,9 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         self.session
-            .execute_load_query_count_distinct_by(self.query(), field.as_ref())
+            .execute_load_query_with(self.query(), |load, plan| {
+                load.aggregate_count_distinct_by(plan, field.as_ref())
+            })
     }
 
     /// Execute and return both `(min_by(field), max_by(field))` in one terminal.
@@ -367,7 +385,9 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         self.session
-            .execute_load_query_min_max_by(self.query(), field.as_ref())
+            .execute_load_query_with(self.query(), |load, plan| {
+                load.aggregate_min_max_by(plan, field.as_ref())
+            })
     }
 
     /// Execute and return projected field values for the effective result window.
@@ -378,7 +398,9 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         self.session
-            .execute_load_query_values_by(self.query(), field.as_ref())
+            .execute_load_query_with(self.query(), |load, plan| {
+                load.values_by(plan, field.as_ref())
+            })
     }
 
     /// Execute and return the first `k` rows from the effective response window.
@@ -389,7 +411,7 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         self.session
-            .execute_load_query_take(self.query(), take_count)
+            .execute_load_query_with(self.query(), |load, plan| load.take(plan, take_count))
     }
 
     /// Execute and return the top `k` rows by `field` under deterministic
@@ -410,7 +432,9 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         self.session
-            .execute_load_query_top_k_by(self.query(), field.as_ref(), take_count)
+            .execute_load_query_with(self.query(), |load, plan| {
+                load.top_k_by(plan, field.as_ref(), take_count)
+            })
     }
 
     /// Execute and return the bottom `k` rows by `field` under deterministic
@@ -431,7 +455,9 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         self.session
-            .execute_load_query_bottom_k_by(self.query(), field.as_ref(), take_count)
+            .execute_load_query_with(self.query(), |load, plan| {
+                load.bottom_k_by(plan, field.as_ref(), take_count)
+            })
     }
 
     /// Execute and return projected values for the top `k` rows by `field`
@@ -452,7 +478,9 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         self.session
-            .execute_load_query_top_k_by_values(self.query(), field.as_ref(), take_count)
+            .execute_load_query_with(self.query(), |load, plan| {
+                load.top_k_by_values(plan, field.as_ref(), take_count)
+            })
     }
 
     /// Execute and return projected values for the bottom `k` rows by `field`
@@ -473,7 +501,9 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         self.session
-            .execute_load_query_bottom_k_by_values(self.query(), field.as_ref(), take_count)
+            .execute_load_query_with(self.query(), |load, plan| {
+                load.bottom_k_by_values(plan, field.as_ref(), take_count)
+            })
     }
 
     /// Execute and return projected id/value pairs for the top `k` rows by
@@ -494,7 +524,9 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         self.session
-            .execute_load_query_top_k_by_with_ids(self.query(), field.as_ref(), take_count)
+            .execute_load_query_with(self.query(), |load, plan| {
+                load.top_k_by_with_ids(plan, field.as_ref(), take_count)
+            })
     }
 
     /// Execute and return projected id/value pairs for the bottom `k` rows by
@@ -514,11 +546,10 @@ where
     {
         self.ensure_non_paged_mode_ready()?;
 
-        self.session.execute_load_query_bottom_k_by_with_ids(
-            self.query(),
-            field.as_ref(),
-            take_count,
-        )
+        self.session
+            .execute_load_query_with(self.query(), |load, plan| {
+                load.bottom_k_by_with_ids(plan, field.as_ref(), take_count)
+            })
     }
 
     /// Execute and return distinct projected field values for the effective
@@ -530,7 +561,9 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         self.session
-            .execute_load_query_distinct_values_by(self.query(), field.as_ref())
+            .execute_load_query_with(self.query(), |load, plan| {
+                load.distinct_values_by(plan, field.as_ref())
+            })
     }
 
     /// Execute and return projected field values paired with row ids for the
@@ -545,7 +578,9 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         self.session
-            .execute_load_query_values_by_with_ids(self.query(), field.as_ref())
+            .execute_load_query_with(self.query(), |load, plan| {
+                load.values_by_with_ids(plan, field.as_ref())
+            })
     }
 
     /// Execute and return the first projected field value in effective response
@@ -557,7 +592,9 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         self.session
-            .execute_load_query_first_value_by(self.query(), field.as_ref())
+            .execute_load_query_with(self.query(), |load, plan| {
+                load.first_value_by(plan, field.as_ref())
+            })
     }
 
     /// Execute and return the last projected field value in effective response
@@ -569,7 +606,9 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         self.session
-            .execute_load_query_last_value_by(self.query(), field.as_ref())
+            .execute_load_query_with(self.query(), |load, plan| {
+                load.last_value_by(plan, field.as_ref())
+            })
     }
 
     /// Execute and return the first matching identifier in response order, if any.
@@ -579,7 +618,8 @@ where
     {
         self.ensure_non_paged_mode_ready()?;
 
-        self.session.execute_load_query_first(self.query())
+        self.session
+            .execute_load_query_with(self.query(), |load, plan| load.aggregate_first(plan))
     }
 
     /// Execute and return the last matching identifier in response order, if any.
@@ -589,7 +629,8 @@ where
     {
         self.ensure_non_paged_mode_ready()?;
 
-        self.session.execute_load_query_last(self.query())
+        self.session
+            .execute_load_query_with(self.query(), |load, plan| load.aggregate_last(plan))
     }
 
     /// Execute and require exactly one matching row.

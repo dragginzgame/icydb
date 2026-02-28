@@ -18,7 +18,10 @@ use crate::{
         Db,
         commit::{
             memory::configure_commit_memory_id,
-            store::{commit_marker_present_fast, with_commit_store},
+            store::{
+                clear_commit_marker_after_successful_rebuild, commit_marker_present_fast,
+                with_commit_store,
+            },
         },
     },
     error::InternalError,
@@ -73,15 +76,19 @@ pub(crate) fn ensure_recovered_for_write<C: CanisterKind>(db: &Db<C>) -> Result<
 
 fn perform_recovery<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
     let marker = with_commit_store(|store| store.load())?;
+    let had_marker = marker.is_some();
     if let Some(marker) = marker {
+        // Phase 1: replay persisted row operations while marker authority is active.
         db.replay_commit_marker_row_ops(&marker.row_ops)?;
-        with_commit_store(|store| {
-            store.clear_infallible();
-            Ok(())
-        })?;
     }
 
+    // Phase 2: rebuild secondary indexes from authoritative data rows.
     db.rebuild_secondary_indexes_from_rows()?;
+
+    // Phase 3: clear marker only after replay + rebuild both succeed.
+    if had_marker {
+        clear_commit_marker_after_successful_rebuild()?;
+    }
 
     let _ = RECOVERED.set(());
 

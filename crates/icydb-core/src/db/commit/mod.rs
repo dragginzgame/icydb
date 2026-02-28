@@ -13,7 +13,6 @@
 //! Recovery replays row ops as recorded, not planner logic.
 
 mod apply;
-pub(in crate::db) mod decode;
 mod guard;
 mod marker;
 mod memory;
@@ -24,7 +23,6 @@ mod rollback;
 mod store;
 #[cfg(test)]
 mod tests;
-mod validate;
 
 use crate::error::InternalError;
 #[cfg(test)]
@@ -36,15 +34,20 @@ use std::fmt::Display;
 ///
 /// Re-exports
 ///
-pub(in crate::db) use apply::{PreparedIndexMutation, PreparedRowCommitOp};
+pub(in crate::db) use apply::{PreparedIndexDeltaKind, PreparedIndexMutation, PreparedRowCommitOp};
 pub(in crate::db) use guard::{CommitApplyGuard, CommitGuard, begin_commit, finish_commit};
 pub(in crate::db) use marker::CommitRowOp;
-pub(in crate::db) use marker::{CommitIndexOp, CommitMarker, MAX_COMMIT_BYTES};
+pub(in crate::db) use marker::{
+    CommitIndexOp, CommitMarker, MAX_COMMIT_BYTES, UNSET_COMMIT_SCHEMA_FINGERPRINT,
+    commit_schema_fingerprint_for_entity, decode_data_key, decode_index_entry, decode_index_key,
+    validate_commit_marker_shape,
+};
 pub(in crate::db) use prepare::prepare_row_commit_for_entity;
 pub(in crate::db) use recovery::{ensure_recovered, ensure_recovered_for_write};
 pub(in crate::db) use replay::{rebuild_secondary_indexes_from_rows, replay_commit_marker_row_ops};
-pub(in crate::db) use rollback::{rollback_prepared_row_ops_reverse, snapshot_row_rollback};
-pub(in crate::db) use validate::validate_commit_marker_shape;
+pub(in crate::db) use rollback::{
+    rollback_prepared_row_ops_reverse, snapshot_row_only_rollback, snapshot_row_rollback,
+};
 
 /// Build a standard commit-marker corruption message.
 pub(in crate::db) fn commit_corruption_message(detail: impl Display) -> String {

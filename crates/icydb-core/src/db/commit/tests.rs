@@ -3,9 +3,9 @@ use crate::{
         Db, EntityRuntimeHooks,
         commit::{
             CommitMarker, CommitRowOp, begin_commit, commit_marker_present,
-            ensure_recovered_for_write, finish_commit, init_commit_store_for_tests,
-            prepare_row_commit_for_entity, rollback_prepared_row_ops_reverse,
-            snapshot_row_rollback, store,
+            commit_schema_fingerprint_for_entity, ensure_recovered_for_write, finish_commit,
+            init_commit_store_for_tests, prepare_row_commit_for_entity,
+            rollback_prepared_row_ops_reverse, snapshot_row_rollback, store,
         },
         data::{DataKey, DataStore, RawDataKey, RawRow, StorageKey},
         index::{IndexKey, IndexStore, RawIndexEntry},
@@ -657,6 +657,56 @@ fn prepare_row_commit_rejects_duplicate_entity_paths() {
 }
 
 #[test]
+fn recovery_replay_rejects_schema_fingerprint_mismatch() {
+    reset_recovery_state();
+
+    let entity = RecoveryTestEntity {
+        id: Ulid::from_u128(9801),
+    };
+    let key = DataKey::try_new::<RecoveryTestEntity>(entity.id)
+        .expect("data key should build")
+        .to_raw()
+        .expect("data key should encode");
+    let row = serialize(&entity).expect("entity serialization should succeed");
+
+    let marker = CommitMarker::new(vec![
+        CommitRowOp::new(
+            RecoveryTestEntity::PATH,
+            key.as_bytes().to_vec(),
+            None,
+            Some(row),
+        )
+        .with_schema_fingerprint(commit_schema_fingerprint_for_entity::<RecoveryIndexedEntity>()),
+    ])
+    .expect("commit marker creation should succeed");
+    begin_commit(marker).expect("begin_commit should persist marker");
+
+    let err = ensure_recovered_for_write(&DB)
+        .expect_err("recovery should reject mismatched commit schema fingerprint");
+    assert_eq!(err.class, ErrorClass::Unsupported);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+    assert!(
+        err.message.contains("schema fingerprint mismatch"),
+        "fingerprint mismatch should include explicit reason: {err:?}"
+    );
+    assert!(
+        commit_marker_present().expect("commit marker check should succeed"),
+        "marker should remain present when replay rejects schema fingerprint mismatch"
+    );
+    assert_eq!(
+        row_bytes_for(&key),
+        None,
+        "row bytes must remain absent when replay fails before apply"
+    );
+
+    store::with_commit_store(|store| {
+        store.clear_infallible();
+        Ok(())
+    })
+    .expect("commit marker cleanup should succeed");
+}
+
+#[test]
 fn recovery_replay_merges_multi_row_shared_index_key() {
     reset_recovery_state();
 
@@ -1279,4 +1329,14 @@ fn recovery_startup_rebuild_fail_closed_restores_previous_index_state_on_corrupt
         after_snapshot, before_snapshot,
         "failed startup rebuild must restore the prior index snapshot"
     );
+    assert!(
+        commit_marker_present().expect("commit marker check should succeed"),
+        "failed startup rebuild must keep marker persisted for retry"
+    );
+
+    store::with_commit_store(|store| {
+        store.clear_infallible();
+        Ok(())
+    })
+    .expect("commit marker cleanup should succeed");
 }

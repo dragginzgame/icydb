@@ -3,7 +3,7 @@ use crate::{
         Db,
         commit::{
             CommitRowOp, PreparedIndexMutation, PreparedRowCommitOp,
-            rollback_prepared_row_ops_reverse, snapshot_row_rollback,
+            rollback_prepared_row_ops_reverse, snapshot_row_only_rollback,
         },
         data::{DataKey, RawDataKey, RawRow},
         index::{IndexStore, RawIndexEntry, RawIndexKey},
@@ -16,7 +16,10 @@ use crate::{
 /// Replay marker row ops in order, rolling back on any preparation error.
 ///
 /// Sequential replay is required for correctness when multiple row ops
-/// touch the same index entry in one marker.
+/// touch the same data row in one marker.
+///
+/// Recovery replay applies row-store mutations only; secondary indexes are
+/// rebuilt from authoritative rows in a separate phase.
 pub(in crate::db) fn replay_commit_marker_row_ops(
     db: &Db<impl CanisterKind>,
     row_ops: &[CommitRowOp],
@@ -32,8 +35,8 @@ pub(in crate::db) fn replay_commit_marker_row_ops(
             }
         };
 
-        rollbacks.push(snapshot_row_rollback(&prepared));
-        prepared.apply();
+        rollbacks.push(snapshot_row_only_rollback(&prepared));
+        prepared.apply_row_only();
     }
 
     Ok(())

@@ -7,7 +7,7 @@ use super::{
 use crate::{
     db::{
         Db,
-        commit::PreparedIndexMutation,
+        commit::{PreparedIndexDeltaKind, PreparedIndexMutation},
         data::RawDataKey,
         identity::{EntityName, IndexName},
         index::{
@@ -195,21 +195,19 @@ pub(crate) fn prepare_reverse_relation_index_mutations_for_source<S>(
     db: &Db<S::Canister>,
     old: Option<&S>,
     new: Option<&S>,
-) -> Result<(Vec<PreparedIndexMutation>, usize, usize), InternalError>
+) -> Result<Vec<PreparedIndexMutation>, InternalError>
 where
     S: EntityKind + EntityValue,
 {
     let relations = strong_relations_for_source::<S>(None);
     if relations.is_empty() {
-        return Ok((Vec::new(), 0, 0));
+        return Ok(Vec::new());
     }
 
     let old_source_key = old.map(|entity| entity.id().key());
     let new_source_key = new.map(|entity| entity.id().key());
 
     let mut ops = Vec::new();
-    let mut remove_count = 0usize;
-    let mut insert_count = 0usize;
 
     for relation in relations {
         let old_targets = match old {
@@ -263,22 +261,21 @@ where
                 .as_ref()
                 .map(|raw| decode_reverse_entry::<S>(relation, &reverse_key, raw))
                 .transpose()?;
-
-            if old_contains && let Some(source_key) = old_source_key {
+            let delta_kind = if old_contains && let Some(source_key) = old_source_key {
                 if let Some(current) = entry.as_mut() {
                     current.remove(source_key);
                 }
-                remove_count = remove_count.saturating_add(1);
-            }
-
-            if new_contains && let Some(source_key) = new_source_key {
+                PreparedIndexDeltaKind::ReverseIndexRemove
+            } else if new_contains && let Some(source_key) = new_source_key {
                 if let Some(current) = entry.as_mut() {
                     current.insert(source_key);
                 } else {
                     entry = Some(IndexEntry::new(source_key));
                 }
-                insert_count = insert_count.saturating_add(1);
-            }
+                PreparedIndexDeltaKind::ReverseIndexInsert
+            } else {
+                PreparedIndexDeltaKind::None
+            };
 
             let next_value = if let Some(next_entry) = entry {
                 if next_entry.is_empty() {
@@ -294,9 +291,10 @@ where
                 store: target_store,
                 key: reverse_key,
                 value: next_value,
+                delta_kind,
             });
         }
     }
 
-    Ok((ops, remove_count, insert_count))
+    Ok(ops)
 }
