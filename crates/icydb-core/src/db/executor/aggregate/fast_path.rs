@@ -2,7 +2,6 @@ use crate::{
     db::{
         Context,
         access::AccessPath,
-        contracts::MissingRowPolicy,
         direction::Direction,
         executor::{
             AccessPlanStreamRequest, AccessStreamBindings, ExecutionKernel, IndexStreamConstraints,
@@ -18,6 +17,7 @@ use crate::{
             },
         },
         index::predicate::IndexPredicateExecution,
+        predicate::MissingRowPolicy,
         query::plan::AccessPlannedQuery,
     },
     error::InternalError,

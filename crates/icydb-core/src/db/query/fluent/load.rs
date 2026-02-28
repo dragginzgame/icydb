@@ -1,8 +1,7 @@
 use crate::{
     db::{
-        DbSession, PagedLoadExecution, PagedLoadExecutionWithTrace,
-        contracts::Predicate,
-        policy,
+        DbSession, PagedLoadExecution, PagedLoadExecutionWithTrace, policy,
+        predicate::Predicate,
         query::{
             explain::ExplainPlan,
             expr::{FilterExpr, SortExpr},

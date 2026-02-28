@@ -1,7 +1,6 @@
 use crate::{
     db::{
         Context,
-        contracts::MissingRowPolicy,
         cursor::CursorBoundary,
         data::DataKey,
         direction::Direction,
@@ -13,6 +12,7 @@ use crate::{
             },
             load::CursorPage,
         },
+        predicate::MissingRowPolicy,
         query::plan::AccessPlannedQuery,
         response::Response,
     },

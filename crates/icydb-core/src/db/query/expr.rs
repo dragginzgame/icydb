@@ -1,9 +1,9 @@
-use crate::db::query::{
-    plan::{OrderDirection, PlanError, validate::validate_order},
-    predicate::{self, normalize, normalize_enum_literals},
-};
+use crate::db::query::plan::{OrderDirection, PlanError, validate::validate_order};
 use crate::db::{
-    contracts::{Predicate, SchemaInfo, ValidateError},
+    predicate::{
+        Predicate, SchemaInfo, ValidateError, normalize, normalize_enum_literals,
+        reject_unsupported_query_features, validate,
+    },
     query::plan::OrderSpec,
 };
 use thiserror::Error as ThisError;
@@ -21,8 +21,8 @@ impl FilterExpr {
     /// Lower the filter expression into a validated predicate for the provided schema.
     pub(crate) fn lower_with(&self, schema: &SchemaInfo) -> Result<Predicate, ValidateError> {
         let normalized_enum_literals = normalize_enum_literals(schema, &self.0)?;
-        predicate::validate::reject_unsupported_query_features(&normalized_enum_literals)?;
-        predicate::validate(schema, &normalized_enum_literals)?;
+        reject_unsupported_query_features(&normalized_enum_literals)?;
+        validate(schema, &normalized_enum_literals)?;
 
         Ok(normalize(&normalized_enum_literals))
     }

@@ -1,5 +1,5 @@
 use crate::{
-    db::contracts::{CoercionSpec, CompareOp},
+    db::predicate::{model::CompareOp, semantics::CoercionSpec},
     value::Value,
 };
 

@@ -3,7 +3,9 @@
 
 use crate::{
     db::{
-        contracts::{CoercionId, MissingRowPolicy},
+        predicate::{
+            ComparePredicate, MissingRowPolicy, Predicate, hash_predicate as hash_model_predicate,
+        },
         query::{
             explain::{
                 ExplainAccessPath, ExplainDeleteLimit, ExplainGroupAggregate,
@@ -118,67 +120,12 @@ impl AccessPlanProjection<Value> for HashAccessProjection<'_> {
 ///
 
 pub(super) fn hash_predicate(hasher: &mut Sha256, predicate: &ExplainPredicate) {
-    match predicate {
-        ExplainPredicate::None => write_tag(hasher, 0x20),
-        ExplainPredicate::True => write_tag(hasher, 0x21),
-        ExplainPredicate::False => write_tag(hasher, 0x22),
-        ExplainPredicate::And(children) => {
-            write_tag(hasher, 0x23);
-            write_u32(hasher, children.len() as u32);
-            for child in children {
-                hash_predicate(hasher, child);
-            }
-        }
-        ExplainPredicate::Or(children) => {
-            write_tag(hasher, 0x24);
-            write_u32(hasher, children.len() as u32);
-            for child in children {
-                hash_predicate(hasher, child);
-            }
-        }
-        ExplainPredicate::Not(inner) => {
-            write_tag(hasher, 0x25);
-            hash_predicate(hasher, inner);
-        }
-        ExplainPredicate::Compare {
-            field,
-            op,
-            value,
-            coercion,
-        } => {
-            write_tag(hasher, 0x26);
-            write_str(hasher, field);
-            write_tag(hasher, op.tag());
-            write_value(hasher, value);
-            hash_coercion(hasher, coercion.id, &coercion.params);
-        }
-        ExplainPredicate::IsNull { field } => {
-            write_tag(hasher, 0x27);
-            write_str(hasher, field);
-        }
-        ExplainPredicate::IsMissing { field } => {
-            write_tag(hasher, 0x28);
-            write_str(hasher, field);
-        }
-        ExplainPredicate::IsEmpty { field } => {
-            write_tag(hasher, 0x29);
-            write_str(hasher, field);
-        }
-        ExplainPredicate::IsNotEmpty { field } => {
-            write_tag(hasher, 0x2a);
-            write_str(hasher, field);
-        }
-        ExplainPredicate::TextContains { field, value } => {
-            write_tag(hasher, 0x2e);
-            write_str(hasher, field);
-            write_value(hasher, value);
-        }
-        ExplainPredicate::TextContainsCi { field, value } => {
-            write_tag(hasher, 0x2f);
-            write_str(hasher, field);
-            write_value(hasher, value);
-        }
-    }
+    let Some(predicate) = explain_predicate_to_model(predicate) else {
+        write_tag(hasher, 0x20);
+        return;
+    };
+
+    hash_model_predicate(hasher, &predicate);
 }
 
 ///
@@ -210,20 +157,63 @@ pub(super) fn hash_mode(hasher: &mut Sha256, mode: QueryMode) {
     }
 }
 
-///
-/// Hash coercion information into the plan hash stream.
-///
-
-pub(super) fn hash_coercion(
-    hasher: &mut Sha256,
-    id: CoercionId,
-    params: &std::collections::BTreeMap<String, String>,
-) {
-    write_tag(hasher, id.plan_hash_tag());
-    write_u32(hasher, params.len() as u32);
-    for (key, value) in params {
-        write_str(hasher, key);
-        write_str(hasher, value);
+fn explain_predicate_to_model(predicate: &ExplainPredicate) -> Option<Predicate> {
+    match predicate {
+        ExplainPredicate::None => None,
+        ExplainPredicate::True => Some(Predicate::True),
+        ExplainPredicate::False => Some(Predicate::False),
+        ExplainPredicate::And(children) => Some(Predicate::And(
+            children
+                .iter()
+                .map(|child| {
+                    explain_predicate_to_model(child)
+                        .expect("explain predicate AND children must be concrete predicates")
+                })
+                .collect::<Vec<_>>(),
+        )),
+        ExplainPredicate::Or(children) => Some(Predicate::Or(
+            children
+                .iter()
+                .map(|child| {
+                    explain_predicate_to_model(child)
+                        .expect("explain predicate OR children must be concrete predicates")
+                })
+                .collect::<Vec<_>>(),
+        )),
+        ExplainPredicate::Not(inner) => {
+            explain_predicate_to_model(inner).map(|inner| Predicate::Not(Box::new(inner)))
+        }
+        ExplainPredicate::Compare {
+            field,
+            op,
+            value,
+            coercion,
+        } => Some(Predicate::Compare(ComparePredicate {
+            field: field.clone(),
+            op: *op,
+            value: value.clone(),
+            coercion: coercion.clone(),
+        })),
+        ExplainPredicate::IsNull { field } => Some(Predicate::IsNull {
+            field: field.clone(),
+        }),
+        ExplainPredicate::IsMissing { field } => Some(Predicate::IsMissing {
+            field: field.clone(),
+        }),
+        ExplainPredicate::IsEmpty { field } => Some(Predicate::IsEmpty {
+            field: field.clone(),
+        }),
+        ExplainPredicate::IsNotEmpty { field } => Some(Predicate::IsNotEmpty {
+            field: field.clone(),
+        }),
+        ExplainPredicate::TextContains { field, value } => Some(Predicate::TextContains {
+            field: field.clone(),
+            value: value.clone(),
+        }),
+        ExplainPredicate::TextContainsCi { field, value } => Some(Predicate::TextContainsCi {
+            field: field.clone(),
+            value: value.clone(),
+        }),
     }
 }
 

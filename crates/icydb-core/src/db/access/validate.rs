@@ -1,7 +1,7 @@
 use crate::{
     db::{
         access::{AccessPath, AccessPlan, SemanticIndexRangeSpec},
-        contracts::{SchemaInfo, literal_matches_type},
+        predicate::{SchemaInfo, literal_matches_type},
     },
     model::{entity::EntityModel, index::IndexModel},
     traits::FieldValue,

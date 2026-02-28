@@ -1,7 +1,6 @@
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},
-        contracts::MissingRowPolicy,
         direction::Direction,
         executor::LoweredKey,
         executor::{
@@ -12,6 +11,7 @@ use crate::{
             },
         },
         index::predicate::IndexPredicateExecution,
+        predicate::MissingRowPolicy,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},

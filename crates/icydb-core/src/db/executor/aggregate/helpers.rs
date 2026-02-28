@@ -1,7 +1,6 @@
 use crate::{
     db::{
         Context,
-        contracts::MissingRowPolicy,
         direction::Direction,
         executor::{
             ExecutablePlan,
@@ -12,6 +11,7 @@ use crate::{
             },
             load::LoadExecutor,
         },
+        predicate::MissingRowPolicy,
         response::Response,
     },
     error::InternalError,

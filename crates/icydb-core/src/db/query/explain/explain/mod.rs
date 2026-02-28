@@ -6,7 +6,9 @@ use crate::{
             AccessPlan, PushdownSurfaceEligibility, SecondaryOrderPushdownEligibility,
             SecondaryOrderPushdownRejection,
         },
-        contracts::{CoercionSpec, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
+        predicate::{
+            CoercionSpec, CompareOp, ComparePredicate, MissingRowPolicy, Predicate, normalize,
+        },
         query::{
             intent::QueryMode,
             plan::{
@@ -14,7 +16,6 @@ use crate::{
                 LogicalPlan, OrderDirection, OrderSpec, PageSpec, ScalarPlan,
                 assess_secondary_order_pushdown_from_parts, project_access_plan,
             },
-            predicate::normalize,
         },
     },
     model::entity::EntityModel,

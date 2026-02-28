@@ -2,8 +2,8 @@ use crate::{
     db::{
         executor::load::LoadExecutor,
         index::{IndexCompilePolicy, IndexPredicateProgram, compile_index_program},
+        predicate::PredicateProgram,
         query::plan::AccessPlannedQuery,
-        query::predicate::runtime::PredicateProgram,
     },
     traits::{EntityKind, EntityValue},
 };

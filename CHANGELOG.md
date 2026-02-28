@@ -9,9 +9,9 @@ Maintainer note: changelog entries that reach 4 lines or more should be split in
 
 ## [0.33.x] - 2026-02-28 - Grouped Runtime Activation and Surface Consolidation
 
-- Activated grouped query runtime from planning through execution, including grouped cursor continuation/resume support and grouped route observability.
-- Reduced internal `db/` surface complexity with stream ownership cleanup and load-terminal dispatch consolidation while preserving fluent query behavior.
-- Hardened commit recovery by adding schema-fingerprint replay guards, moving marker clear to post-rebuild success, and making replay row-authoritative with one dedicated index rebuild phase.
+- Activated grouped query runtime from planning through execution, including grouped cursor continuation/resume support, grouped route observability, and stronger grouped continuation-signature safety across query-shape changes.
+- Reduced internal `db/` surface complexity with stream ownership cleanup, load-terminal dispatch consolidation, full predicate-spine convergence under one dedicated `db::predicate` boundary, and invariant tooling alignment to that new predicate runtime ownership.
+- Hardened execution correctness and recovery by enforcing grouped hard limits against unique canonical groups and by keeping commit replay/index rebuild semantics schema-fingerprint guarded and row-authoritative.
 
 See detailed breakdown:
 [docs/changelog/0.33.md](docs/changelog/0.33.md)

@@ -1,10 +1,10 @@
 use crate::{
     db::{
-        contracts::{CoercionId, CompareOp, ResolvedComparePredicate, ResolvedPredicate},
         index::{
             IndexCompareOp, IndexLiteral, IndexPredicateProgram,
             predicate::literal_index_component_bytes,
         },
+        predicate::{CoercionId, CompareOp, ResolvedComparePredicate, ResolvedPredicate},
     },
     value::Value,
 };

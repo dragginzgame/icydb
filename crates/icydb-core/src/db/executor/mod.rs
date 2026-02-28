@@ -68,9 +68,9 @@ pub(in crate::db::executor) type ExecutionPlan = route::ExecutionRoutePlan;
 
 use crate::{
     db::{
-        contracts::ValidateError,
         cursor::CursorPlanError,
         data::DataKey,
+        predicate::ValidateError,
         query::plan::validate::{OrderPlanError, PlanError},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},

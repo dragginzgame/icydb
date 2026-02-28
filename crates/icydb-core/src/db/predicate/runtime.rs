@@ -1,5 +1,5 @@
 use crate::{
-    db::contracts::{
+    db::predicate::{
         CoercionSpec, CompareOp, ComparePredicate, Predicate, PredicateExecutionModel,
         ResolvedComparePredicate, ResolvedPredicate, TextOp, compare_eq, compare_order,
         compare_text,
@@ -18,14 +18,14 @@ use std::cmp::Ordering;
 ///
 
 #[derive(Clone, Debug)]
-pub(crate) struct PredicateProgram {
+pub(in crate::db) struct PredicateProgram {
     resolved: ResolvedPredicate,
 }
 
 impl PredicateProgram {
     /// Compile a predicate into a slot-based executable form.
     #[must_use]
-    pub(crate) fn compile<E: EntityKind>(predicate: &PredicateExecutionModel) -> Self {
+    pub(in crate::db) fn compile<E: EntityKind>(predicate: &PredicateExecutionModel) -> Self {
         let resolved = compile_predicate_program::<E>(predicate);
 
         Self { resolved }
@@ -33,7 +33,7 @@ impl PredicateProgram {
 
     /// Evaluate one precompiled predicate program against one entity.
     #[must_use]
-    pub(crate) fn eval<E: EntityValue>(&self, entity: &E) -> bool {
+    pub(in crate::db) fn eval<E: EntityValue>(&self, entity: &E) -> bool {
         eval_with_resolved_slots(entity, &self.resolved)
     }
 

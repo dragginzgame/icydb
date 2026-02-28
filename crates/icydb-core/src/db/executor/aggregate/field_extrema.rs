@@ -1,7 +1,6 @@
 use crate::{
     db::{
         Context,
-        contracts::MissingRowPolicy,
         direction::Direction,
         executor::{
             AccessStreamBindings, ExecutablePlan, ExecutionKernel, ExecutionPreparation,
@@ -15,6 +14,7 @@ use crate::{
             plan_metrics::record_rows_scanned,
         },
         index::IndexCompilePolicy,
+        predicate::MissingRowPolicy,
         response::Response,
     },
     error::InternalError,

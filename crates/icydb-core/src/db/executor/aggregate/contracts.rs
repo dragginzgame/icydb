@@ -3,7 +3,7 @@ use crate::{
         contracts::{canonical_group_key_equals, canonical_value_compare},
         data::DataKey,
         direction::Direction,
-        executor::group::{GroupKey, StableHash},
+        executor::group::{GroupKey, GroupKeySet, StableHash},
     },
     error::InternalError,
     traits::EntityKind,
@@ -234,14 +234,19 @@ impl ExecutionBudget {
         self.estimated_bytes
     }
 
-    fn record_new_group<E: EntityKind>(
+    fn record_new_group_state<E: EntityKind>(
         &mut self,
         config: &ExecutionConfig,
+        new_group_key: bool,
         created_bucket: bool,
         bucket_len: usize,
         bucket_capacity: usize,
     ) -> Result<(), GroupError> {
-        let next_groups = self.groups.saturating_add(1);
+        let next_groups = if new_group_key {
+            self.groups.saturating_add(1)
+        } else {
+            self.groups
+        };
         if next_groups > config.max_groups() {
             return Err(GroupError::MemoryLimitExceeded {
                 resource: "groups",
@@ -297,10 +302,11 @@ pub(in crate::db::executor) struct ExecutionConfig {
 /// operators so accounting is consistent across all future grouped operators.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Debug)]
 pub(in crate::db::executor) struct ExecutionContext {
     config: ExecutionConfig,
     budget: ExecutionBudget,
+    seen_groups: GroupKeySet,
 }
 
 impl ExecutionConfig {
@@ -341,6 +347,7 @@ impl ExecutionContext {
         Self {
             config,
             budget: ExecutionBudget::new(),
+            seen_groups: GroupKeySet::new(),
         }
     }
 
@@ -387,12 +394,30 @@ impl ExecutionContext {
 
     fn record_new_group<E: EntityKind>(
         &mut self,
+        group_key: &GroupKey,
         created_bucket: bool,
         bucket_len: usize,
         bucket_capacity: usize,
     ) -> Result<(), GroupError> {
-        self.budget
-            .record_new_group::<E>(&self.config, created_bucket, bucket_len, bucket_capacity)
+        // Count `max_groups` against unique canonical group keys across the
+        // full grouped query, not per-aggregate state machine instance.
+        let new_group_key = !self.seen_groups.contains_key(group_key);
+        self.budget.record_new_group_state::<E>(
+            &self.config,
+            new_group_key,
+            created_bucket,
+            bucket_len,
+            bucket_capacity,
+        )?;
+        if new_group_key {
+            let inserted = self.seen_groups.insert_key(group_key.clone());
+            debug_assert!(
+                inserted,
+                "new_group_key must imply one successful seen-groups insertion",
+            );
+        }
+
+        Ok(())
     }
 }
 
@@ -872,7 +897,12 @@ impl<E: EntityKind> GroupedAggregateState<E> {
             // New group in an existing bucket.
             let mut state = AggregateStateFactory::create_terminal(self.kind, self.direction);
             let fold_control = state.apply(data_key).map_err(GroupError::from)?;
-            execution_context.record_new_group::<E>(false, bucket.len(), bucket.capacity())?;
+            execution_context.record_new_group::<E>(
+                &group_key,
+                false,
+                bucket.len(),
+                bucket.capacity(),
+            )?;
             bucket.push(GroupedAggregateStateSlot { group_key, state });
 
             return Ok(fold_control);
@@ -881,7 +911,7 @@ impl<E: EntityKind> GroupedAggregateState<E> {
         // Phase 2: create a new bucket + group when hash was unseen.
         let mut state = AggregateStateFactory::create_terminal(self.kind, self.direction);
         let fold_control = state.apply(data_key).map_err(GroupError::from)?;
-        execution_context.record_new_group::<E>(true, 0, 0)?;
+        execution_context.record_new_group::<E>(&group_key, true, 0, 0)?;
         self.groups
             .insert(hash, vec![GroupedAggregateStateSlot { group_key, state }]);
 

@@ -405,6 +405,58 @@ fn grouped_aggregate_state_enforces_max_estimated_bytes_hard_limit() {
 }
 
 #[test]
+fn grouped_aggregate_state_counts_max_groups_once_per_canonical_group_across_states() {
+    let mut execution_context = ExecutionContext::new(ExecutionConfig::with_hard_limits(1, 2048));
+    let mut grouped_count = execution_context
+        .create_grouped_state::<GroupedStateTestEntity>(AggregateKind::Count, Direction::Asc);
+    let mut grouped_exists = execution_context
+        .create_grouped_state::<GroupedStateTestEntity>(AggregateKind::Exists, Direction::Asc);
+
+    grouped_count
+        .apply(
+            group_key(Value::Text("a".to_string())),
+            &data_key(1),
+            &mut execution_context,
+        )
+        .expect("first grouped state should accept first canonical group");
+    grouped_exists
+        .apply(
+            group_key(Value::Text("a".to_string())),
+            &data_key(1),
+            &mut execution_context,
+        )
+        .expect("second grouped state should reuse the same canonical group slot");
+
+    assert_eq!(
+        execution_context.budget().groups(),
+        1,
+        "max_groups accounting must be keyed by canonical group identity across all grouped states",
+    );
+    assert_eq!(
+        execution_context.budget().aggregate_states(),
+        2,
+        "aggregate_state accounting remains per grouped terminal state",
+    );
+
+    let err = grouped_count
+        .apply(
+            group_key(Value::Text("b".to_string())),
+            &data_key(2),
+            &mut execution_context,
+        )
+        .expect_err("second canonical group should exceed max_groups hard limit");
+
+    assert!(matches!(
+        err,
+        GroupError::MemoryLimitExceeded {
+            resource: "groups",
+            attempted: 2,
+            limit: 1,
+        }
+    ));
+}
+
+#[test]
 fn grouped_aggregate_state_budget_violation_keeps_existing_finalization_intact() {
     let mut execution_context =
         ExecutionContext::new(ExecutionConfig::with_hard_limits(1, u64::MAX));

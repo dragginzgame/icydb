@@ -1,7 +1,7 @@
 use crate::{
     db::{
         DbSession,
-        contracts::Predicate,
+        predicate::Predicate,
         query::{
             explain::ExplainPlan,
             expr::{FilterExpr, SortExpr},

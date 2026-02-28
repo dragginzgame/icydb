@@ -1,34 +1,29 @@
-//! Shared execution/query contracts for `db` subsystems.
+//! Shared execution-level semantic helpers for `db` subsystems.
 //!
-//! This module defines boundary-safe DTOs and policy enums consumed by both
-//! query planning and executor runtime without requiring executor imports from
-//! `db::query::*`.
-//!
-//! Contract extraction goals:
-//! - keep layering direction explicit
-//! - centralize shared semantic contracts
-//! - prevent cross-layer namespace leakage
+//! Predicate ownership now lives under `db::predicate`.
+//! This module intentionally retains only non-predicate cross-cutting helpers,
+//! plus test-only compatibility re-exports for legacy test imports.
 
-mod consistency;
-mod predicate_model;
-mod predicate_resolved;
-mod predicate_schema;
 mod semantics;
 #[cfg(test)]
 mod tests;
 
-pub use consistency::MissingRowPolicy;
 #[cfg(test)]
-pub(crate) use predicate_model::ScalarType;
-pub use predicate_model::{
-    CoercionId, CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature,
+#[allow(unused_imports)]
+pub(crate) use crate::db::predicate::MissingRowPolicy;
+#[cfg(test)]
+#[allow(unused_imports)]
+pub(crate) use crate::db::predicate::{
+    CoercionId, CompareOp, ComparePredicate, Predicate, ScalarType, UnsupportedQueryFeature,
+    ValidateError,
 };
-pub(crate) use predicate_model::{CoercionSpec, PredicateExecutionModel};
-pub(crate) use predicate_model::{FieldType, literal_matches_type};
-pub(in crate::db) use predicate_model::{
-    TextOp, canonical_cmp, compare_eq, compare_order, compare_text, supports_coercion,
+#[cfg(test)]
+#[allow(unused_imports)]
+pub(crate) use crate::db::predicate::{CoercionSpec, FieldType, SchemaInfo, literal_matches_type};
+#[cfg(test)]
+#[allow(unused_imports)]
+pub(in crate::db) use crate::db::predicate::{
+    ResolvedComparePredicate, ResolvedPredicate, TextOp, canonical_cmp, compare_eq, compare_order,
+    compare_text, supports_coercion,
 };
-pub(in crate::db) use predicate_resolved::{ResolvedComparePredicate, ResolvedPredicate};
-pub(crate) use predicate_schema::SchemaInfo;
-pub use predicate_schema::ValidateError;
 pub(in crate::db) use semantics::{canonical_group_key_equals, canonical_value_compare};

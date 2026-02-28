@@ -4,6 +4,7 @@ use crate::{
         executor::aggregate::capability::{
             field_kind_supports_aggregate_ordering, field_kind_supports_numeric_aggregation,
         },
+        predicate::strict_value_order,
     },
     error::InternalError,
     model::{
@@ -244,7 +245,7 @@ pub(in crate::db::executor) fn compare_orderable_field_values(
     left: &Value,
     right: &Value,
 ) -> Result<Ordering, AggregateFieldValueError> {
-    let Some(ordering) = Value::strict_order_cmp(left, right) else {
+    let Some(ordering) = strict_value_order(left, right) else {
         return Err(AggregateFieldValueError::IncomparableFieldValues {
             field: target_field.to_string(),
             left: Box::new(left.clone()),

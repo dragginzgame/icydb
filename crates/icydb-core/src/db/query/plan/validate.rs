@@ -13,13 +13,10 @@ use crate::{
             AccessPlanError,
             validate_access_structure_model as validate_access_structure_model_shared,
         },
-        contracts::{SchemaInfo, ValidateError},
         cursor::CursorPlanError,
         policy::{self, PlanPolicyError},
-        query::{
-            plan::{AccessPlannedQuery, GroupSpec, LogicalPlan, OrderSpec, ScalarPlan},
-            predicate,
-        },
+        predicate::{SchemaInfo, ValidateError, validate},
+        query::plan::{AccessPlannedQuery, GroupSpec, LogicalPlan, OrderSpec, ScalarPlan},
     },
     model::entity::EntityModel,
     value::Value,
@@ -329,7 +326,7 @@ where
     FAccess: Fn(&SchemaInfo, &EntityModel, &AccessPlannedQuery<K>) -> Result<(), PlanError>,
 {
     if let Some(predicate) = &logical.predicate {
-        predicate::validate(schema, predicate)?;
+        validate(schema, predicate)?;
     }
 
     if let Some(order) = &logical.order {

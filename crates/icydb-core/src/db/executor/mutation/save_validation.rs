@@ -1,7 +1,7 @@
 use crate::{
     db::{
-        contracts::{SchemaInfo, canonical_cmp, literal_matches_type},
         executor::mutation::save::SaveExecutor,
+        predicate::{SchemaInfo, canonical_cmp, literal_matches_type},
         relation::{
             StrongRelationTargetInfo, build_relation_target_raw_key,
             for_each_relation_target_value, incompatible_store_error,

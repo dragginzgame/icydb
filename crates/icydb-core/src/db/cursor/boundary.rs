@@ -1,8 +1,9 @@
 use crate::{
     db::{
-        contracts::{SchemaInfo, canonical_value_compare, literal_matches_type},
+        contracts::canonical_value_compare,
         cursor::CursorPlanError,
         direction::Direction,
+        predicate::{SchemaInfo, literal_matches_type},
         query::plan::{OrderDirection, OrderSpec},
     },
     model::entity::{EntityModel, resolve_field_slot},

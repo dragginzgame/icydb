@@ -1,13 +1,13 @@
 use crate::{
     db::{
         Db,
-        contracts::MissingRowPolicy,
         data::{
             DataKey, DataRow, DataStore, RawDataKey, RawRow, decode_and_validate_entity_key,
             format_entity_key_for_mismatch,
         },
         executor::{ExecutorError, OrderedKeyStream},
         index::PrimaryRowReader,
+        predicate::MissingRowPolicy,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue, Path},

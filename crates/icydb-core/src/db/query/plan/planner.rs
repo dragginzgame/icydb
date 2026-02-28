@@ -6,11 +6,11 @@
 use crate::{
     db::{
         access::{AccessPath, AccessPlan, SemanticIndexRangeSpec},
-        contracts::{
+        predicate::{
             CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo, literal_matches_type,
+            normalize as normalize_predicate,
         },
         query::plan::PlanError,
-        query::predicate::normalize as normalize_predicate,
     },
     error::InternalError,
     model::entity::EntityModel,
@@ -573,7 +573,7 @@ mod range {
     use crate::{
         db::{
             access::SemanticIndexRangeSpec,
-            contracts::{
+            predicate::{
                 CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo, canonical_cmp,
             },
             query::plan::planner::{index_literal_matches_schema, sorted_indexes},

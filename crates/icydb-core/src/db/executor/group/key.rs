@@ -128,12 +128,29 @@ impl CanonicalKey for &Value {
 /// preserving canonical-value equality checks inside each bucket.
 ///
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(in crate::db) struct GroupKeySet {
     buckets: BTreeMap<StableHash, Vec<GroupKey>>,
 }
 
 impl GroupKeySet {
+    #[must_use]
+    pub(in crate::db) const fn new() -> Self {
+        Self {
+            buckets: BTreeMap::new(),
+        }
+    }
+
+    /// Return true when this canonical key is already present.
+    #[must_use]
+    pub(in crate::db) fn contains_key(&self, key: &GroupKey) -> bool {
+        self.buckets.get(&key.hash()).is_some_and(|bucket| {
+            bucket
+                .iter()
+                .any(|existing| canonical_group_key_equals(existing, key))
+        })
+    }
+
     /// Insert one canonical key and return true if it was newly observed.
     pub(in crate::db) fn insert_key(&mut self, key: GroupKey) -> bool {
         let bucket = self.buckets.entry(key.hash()).or_default();
@@ -152,6 +169,12 @@ impl GroupKeySet {
     pub(in crate::db) fn insert_value(&mut self, value: &Value) -> Result<bool, KeyCanonicalError> {
         let key = value.canonical_key()?;
         Ok(self.insert_key(key))
+    }
+}
+
+impl Default for GroupKeySet {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

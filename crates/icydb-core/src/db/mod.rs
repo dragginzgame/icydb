@@ -5,6 +5,7 @@ pub(crate) mod cursor;
 pub(crate) mod diagnostics;
 pub(crate) mod identity;
 pub(crate) mod policy;
+pub(crate) mod predicate;
 pub(crate) mod query;
 pub(crate) mod registry;
 pub(crate) mod response;
@@ -20,15 +21,15 @@ pub(in crate::db) mod relation;
 
 // 2️⃣ Public re-exports (Tier-2 API surface)
 pub use codec::cursor::{decode_cursor, encode_cursor};
-pub use contracts::MissingRowPolicy;
-pub use contracts::ValidateError;
-pub use contracts::{CoercionId, CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature};
 pub use data::DataStore;
 pub(crate) use data::StorageKey;
 pub use diagnostics::StorageReport;
 pub use executor::{ExecutionAccessPathVariant, ExecutionOptimization, ExecutionTrace};
 pub use identity::{EntityName, IndexName};
 pub use index::IndexStore;
+pub use predicate::MissingRowPolicy;
+pub use predicate::ValidateError;
+pub use predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature};
 pub use query::{
     builder::field::FieldRef,
     expr::{FilterExpr, SortExpr},
