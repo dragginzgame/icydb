@@ -1,4 +1,4 @@
-//! Module: index::contracts
+//! Module: index::pk_equivalence
 //! Responsibility: boundary contracts for index-key/semantic-value equivalence checks.
 //! Does not own: key encoding rules or predicate planning.
 //! Boundary: used by range/cursor validation paths.

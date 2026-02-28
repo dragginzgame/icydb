@@ -1,3 +1,8 @@
+//! Module: query::fluent::load
+//! Responsibility: fluent load-query builder, pagination, and execution routing.
+//! Does not own: planner semantics or row-level predicate evaluation.
+//! Boundary: session API facade over query intent/planning/execution.
+
 use crate::{
     db::{
         DbSession, PagedLoadExecution, PagedLoadExecutionWithTrace,

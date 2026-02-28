@@ -32,6 +32,7 @@ pub(in crate::db) type LoweredKey = RawIndexKey;
 ///
 /// Access-lowering scope for stable "not indexable" reason wording.
 ///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum LoweredIndexNotIndexableReasonScope {
     ValidatedSpec,
@@ -44,6 +45,7 @@ enum LoweredIndexNotIndexableReasonScope {
 /// Lowered index-prefix contract with fully materialized byte bounds.
 /// Executor runtime consumes this directly and does not perform encoding.
 ///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct LoweredIndexPrefixSpec {
     index: IndexModel,

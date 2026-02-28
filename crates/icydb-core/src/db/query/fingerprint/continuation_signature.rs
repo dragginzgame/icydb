@@ -1,4 +1,7 @@
-//! Continuation signature helpers.
+//! Module: query::fingerprint::continuation_signature
+//! Responsibility: deterministic continuation-signature derivation from explain plans.
+//! Does not own: continuation token decoding/validation.
+//! Boundary: query-plan shape signature surface used by cursor token checks.
 
 use crate::{
     db::{
@@ -9,10 +12,6 @@ use crate::{
     traits::FieldValue,
 };
 use sha2::{Digest, Sha256};
-
-///
-/// AccessPlannedQuery
-///
 
 impl<K> AccessPlannedQuery<K>
 where

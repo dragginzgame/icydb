@@ -1,3 +1,8 @@
+//! Module: query::plan::group
+//! Responsibility: grouped-plan handoff contract between query planning and executor.
+//! Does not own: grouped runtime execution logic.
+//! Boundary: explicit grouped query-to-executor transfer surface.
+
 use crate::{
     db::query::plan::{AccessPlannedQuery, FieldSlot, GroupAggregateSpec, GroupedExecutionConfig},
     error::InternalError,
@@ -49,6 +54,7 @@ impl<'a, K> GroupedExecutorHandoff<'a, K> {
 pub(in crate::db) fn grouped_executor_handoff<K>(
     plan: &AccessPlannedQuery<K>,
 ) -> Result<GroupedExecutorHandoff<'_, K>, InternalError> {
+    // Grouped handoff is valid only for plans with grouped execution payload.
     let Some(grouped) = plan.grouped_plan() else {
         return Err(InternalError::query_executor_invariant(
             "grouped executor handoff requires grouped logical plans",

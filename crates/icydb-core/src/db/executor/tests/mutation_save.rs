@@ -16,6 +16,7 @@ use crate::{
         index::IndexStore,
         query::intent::Query,
         registry::StoreRegistry,
+        relation::validate_save_strong_relations,
     },
     error::{ErrorClass, ErrorOrigin},
     model::{
@@ -343,15 +344,12 @@ crate::test_entity_schema! {
 
 #[test]
 fn strong_relation_missing_fails_preflight() {
-    let executor = SaveExecutor::<SourceEntity>::new(DB, false);
-
     let entity = SourceEntity {
         id: Ulid::generate(),
         target: Ulid::generate(), // non-existent target
     };
 
-    let err = executor
-        .validate_strong_relations(&entity)
+    let err = validate_save_strong_relations::<SourceEntity>(&DB, &entity)
         .expect_err("expected missing strong relation to fail");
 
     assert_eq!(
@@ -372,14 +370,12 @@ fn strong_relation_missing_fails_preflight() {
 
 #[test]
 fn strong_relation_invalid_metadata_fails_internal() {
-    let executor = SaveExecutor::<InvalidRelationMetadataEntity>::new(DB, false);
     let entity = InvalidRelationMetadataEntity {
         id: Ulid::generate(),
         target: Ulid::generate(),
     };
 
-    let err = executor
-        .validate_strong_relations(&entity)
+    let err = validate_save_strong_relations::<InvalidRelationMetadataEntity>(&DB, &entity)
         .expect_err("invalid relation metadata should fail deterministic preflight");
     assert_eq!(
         err.class,

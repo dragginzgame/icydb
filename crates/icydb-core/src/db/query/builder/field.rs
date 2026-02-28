@@ -1,3 +1,8 @@
+//! Module: query::builder::field
+//! Responsibility: zero-allocation field references and field-scoped predicate builders.
+//! Does not own: predicate validation or runtime execution.
+//! Boundary: ergonomic query-builder surface for field expressions.
+
 use crate::{
     db::predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
     traits::FieldValue,

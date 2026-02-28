@@ -1,4 +1,7 @@
-//! Shared deterministic hash encoding for plan fingerprinting and continuation signatures.
+//! Module: query::fingerprint::hash_parts
+//! Responsibility: canonical field/tag encoding for plan-hash profiles.
+//! Does not own: plan explain projection or token transport.
+//! Boundary: reusable hash primitives for fingerprints and continuation signatures.
 #![expect(clippy::cast_possible_truncation)]
 
 use crate::{
@@ -362,6 +365,7 @@ pub(in crate::db::query) fn hash_explain_plan_profile(
     plan: &ExplainPlan,
     profile: ExplainHashProfile<'_>,
 ) {
+    // Apply selected hash profile in declared order to preserve determinism.
     let spec = profile.spec();
     for step in spec.steps {
         write_tag(hasher, step.section_tag);

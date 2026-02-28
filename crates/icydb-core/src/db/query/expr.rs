@@ -1,3 +1,8 @@
+//! Module: query::expr
+//! Responsibility: schema-agnostic filter/sort expression wrappers and lowering.
+//! Does not own: planner route selection or executor evaluation.
+//! Boundary: intent boundary lowers these to validated predicate/order forms.
+
 use crate::db::query::plan::{OrderDirection, PlanError, validate::validate_order};
 use crate::db::{
     predicate::{
@@ -20,10 +25,14 @@ pub struct FilterExpr(pub Predicate);
 impl FilterExpr {
     /// Lower the filter expression into a validated predicate for the provided schema.
     pub(crate) fn lower_with(&self, schema: &SchemaInfo) -> Result<Predicate, ValidateError> {
+        // Phase 1: normalize enum literals using schema enum metadata.
         let normalized_enum_literals = normalize_enum_literals(schema, &self.0)?;
+
+        // Phase 2: reject unsupported query features and validate against schema.
         reject_unsupported_query_features(&normalized_enum_literals)?;
         validate(schema, &normalized_enum_literals)?;
 
+        // Phase 3: normalize structural predicate shape for deterministic planning.
         Ok(normalize(&normalized_enum_literals))
     }
 }

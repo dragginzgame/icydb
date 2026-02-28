@@ -1,4 +1,7 @@
-//! Deterministic plan fingerprinting derived from the explain projection.
+//! Module: query::fingerprint::fingerprint
+//! Responsibility: deterministic plan fingerprint derivation from explain models.
+//! Does not own: explain projection assembly or execution-plan compilation.
+//! Boundary: stable plan identity hash surface for diagnostics/caching.
 #![allow(clippy::cast_possible_truncation)]
 
 use crate::{
@@ -49,6 +52,7 @@ impl ExplainPlan {
     /// Compute a stable fingerprint for this explain plan.
     #[must_use]
     pub fn fingerprint(&self) -> PlanFingerprint {
+        // Phase 1: hash canonical explain fields under the current fingerprint profile.
         let mut hasher = Sha256::new();
         hasher.update(b"planfp:v2");
         hash_parts::hash_explain_plan_profile(
@@ -56,9 +60,12 @@ impl ExplainPlan {
             self,
             hash_parts::ExplainHashProfile::FingerprintV2,
         );
+
+        // Phase 2: finalize into the fixed-width fingerprint payload.
         let digest = hasher.finalize();
         let mut out = [0u8; 32];
         out.copy_from_slice(&digest);
+
         PlanFingerprint(out)
     }
 }

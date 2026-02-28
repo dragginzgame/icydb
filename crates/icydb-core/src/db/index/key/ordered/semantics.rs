@@ -13,6 +13,7 @@ use crate::{
 ///
 /// Internal ordered-byte encoder for fixed-width value components.
 ///
+
 pub(super) trait OrderedEncode {
     fn encode_ordered(&self, out: &mut Vec<u8>) -> Result<(), OrderedValueEncodeError>;
 }

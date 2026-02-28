@@ -1,4 +1,10 @@
 #![expect(clippy::used_underscore_binding)]
+
+//! Module: query::intent
+//! Responsibility: query intent construction, coercion, and semantic-plan compilation.
+//! Does not own: executor runtime behavior or index storage details.
+//! Boundary: typed/fluent query inputs lowered into validated logical plans.
+
 #[cfg(test)]
 mod tests;
 
@@ -74,6 +80,7 @@ pub(crate) fn access_plan_from_keys_value<K>(access: &KeyAccess<K>) -> AccessPla
 where
     K: FieldValue,
 {
+    // Phase 1: map typed keys into model-level Value access paths.
     match access {
         KeyAccess::Single(key) => AccessPlan::path(AccessPath::ByKey(key.to_value())),
         KeyAccess::Many(keys) => {

@@ -1,3 +1,8 @@
+//! Module: query::fluent::delete
+//! Responsibility: fluent delete-query builder and execution routing.
+//! Does not own: query semantic validation or response projection.
+//! Boundary: session API facade over query intent/planning/execution.
+
 use crate::{
     db::{
         DbSession,

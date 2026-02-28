@@ -1,4 +1,7 @@
-//! Deterministic, read-only explanation of logical plans; must not execute or validate.
+//! Module: query::explain
+//! Responsibility: deterministic, read-only projection of logical query plans.
+//! Does not own: plan execution or semantic validation.
+//! Boundary: diagnostics/explain surface over intent/planner outputs.
 
 use crate::{
     db::{
@@ -128,7 +131,9 @@ pub enum ExplainOrderPushdown {
 ///
 /// ExplainAccessPath
 ///
-
+/// Deterministic projection of logical access path shape for diagnostics.
+/// Mirrors planner-selected structural paths without runtime cursor state.
+///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExplainAccessPath {
     ByKey {
@@ -163,7 +168,9 @@ pub enum ExplainAccessPath {
 ///
 /// ExplainPredicate
 ///
-
+/// Deterministic projection of canonical predicate structure for explain output.
+/// This preserves normalized predicate shape used by hashing/fingerprints.
+///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExplainPredicate {
     None,
@@ -203,7 +210,8 @@ pub enum ExplainPredicate {
 ///
 /// ExplainOrderBy
 ///
-
+/// Deterministic projection of canonical ORDER BY shape.
+///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExplainOrderBy {
     None,
@@ -213,7 +221,8 @@ pub enum ExplainOrderBy {
 ///
 /// ExplainOrder
 ///
-
+/// One canonical ORDER BY field + direction pair.
+///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExplainOrder {
     pub field: String,
@@ -223,7 +232,8 @@ pub struct ExplainOrder {
 ///
 /// ExplainPagination
 ///
-
+/// Explain-surface projection of pagination window configuration.
+///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExplainPagination {
     None,
@@ -233,7 +243,8 @@ pub enum ExplainPagination {
 ///
 /// ExplainDeleteLimit
 ///
-
+/// Explain-surface projection of delete-limit configuration.
+///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExplainDeleteLimit {
     None,
@@ -258,6 +269,7 @@ where
     }
 
     fn explain_inner(&self, model: Option<&EntityModel>) -> ExplainPlan {
+        // Phase 1: project logical plan variant into scalar core + grouped metadata.
         let (logical, grouping) = match &self.logical {
             LogicalPlan::Scalar(logical) => (logical, ExplainGrouping::None),
             LogicalPlan::Grouped(logical) => (
@@ -287,6 +299,7 @@ where
             ),
         };
 
+        // Phase 2: project scalar plan + access path into deterministic explain surface.
         explain_scalar_inner(logical, grouping, model, &self.access)
     }
 }
@@ -300,17 +313,20 @@ fn explain_scalar_inner<K>(
 where
     K: FieldValue,
 {
+    // Phase 1: derive canonical predicate projection from normalized predicate model.
     let predicate_model = logical.predicate.as_ref().map(normalize);
     let predicate = match &predicate_model {
         Some(predicate) => ExplainPredicate::from_predicate(predicate),
         None => ExplainPredicate::None,
     };
 
+    // Phase 2: project scalar-plan fields into explain-specific enums.
     let order_by = explain_order(logical.order.as_ref());
     let order_pushdown = explain_order_pushdown(model, logical, access);
     let page = explain_page(logical.page.as_ref());
     let delete_limit = explain_delete_limit(logical.delete_limit.as_ref());
 
+    // Phase 3: assemble one stable explain payload.
     ExplainPlan {
         mode: logical.mode,
         access: ExplainAccessPath::from_access_plan(access),

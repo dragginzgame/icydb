@@ -4,13 +4,15 @@
 //! session execution. Types in this module form part of the
 //! stable `db` public contract.
 //!
-//! Internal write-specific helpers live in `write`.
+//! Internal response payload helpers live in `paged` and `write`.
+mod paged;
 mod write;
 
 use crate::{prelude::*, traits::AsView, types::Id};
 use thiserror::Error as ThisError;
 
 // re-exports
+pub use paged::{PagedLoadExecution, PagedLoadExecutionWithTrace};
 pub use write::{WriteBatchResponse, WriteResponse};
 
 ///

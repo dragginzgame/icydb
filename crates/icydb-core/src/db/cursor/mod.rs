@@ -21,7 +21,8 @@ pub(in crate::db) use range_token::{
     range_token_from_cursor_anchor, range_token_from_lowered_anchor,
 };
 #[allow(unreachable_pub)]
-pub use signature::{ContinuationSignature, CursorPlanError};
+pub use signature::ContinuationSignature;
+pub(crate) use spine::CursorPlanError;
 pub(crate) use token::{ContinuationToken, ContinuationTokenError};
 pub(in crate::db) use token::{GroupedContinuationToken, IndexRangeCursorAnchor};
 
