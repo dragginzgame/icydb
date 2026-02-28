@@ -1,5 +1,5 @@
 use crate::{
-    db::predicate::semantics::{CoercionId, CoercionSpec},
+    db::predicate::coercion::{CoercionId, CoercionSpec},
     value::Value,
 };
 use std::ops::{BitAnd, BitOr};

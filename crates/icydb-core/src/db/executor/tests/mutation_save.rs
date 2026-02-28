@@ -1,7 +1,10 @@
 use crate::{
     db::{
         Db,
-        commit::{CommitRowOp, ensure_recovered_for_write, init_commit_store_for_tests},
+        commit::{
+            CommitRowOp, commit_marker_present, ensure_recovered_for_write,
+            init_commit_store_for_tests,
+        },
         contracts::MissingRowPolicy,
         data::{DataKey, DataStore, RawRow},
         executor::{
@@ -86,6 +89,11 @@ fn with_data_store_mut<R>(path: &'static str, f: impl FnOnce(&mut DataStore) -> 
 
 fn with_index_store_mut<R>(path: &'static str, f: impl FnOnce(&mut IndexStore) -> R) -> R {
     DB.with_store_registry(|reg| reg.try_get_store(path).map(|store| store.with_index_mut(f)))
+        .expect("index store access should succeed")
+}
+
+fn with_index_store<R>(path: &'static str, f: impl FnOnce(&IndexStore) -> R) -> R {
+    DB.with_store_registry(|reg| reg.try_get_store(path).map(|store| store.with_index(f)))
         .expect("index store access should succeed")
 }
 
@@ -619,6 +627,81 @@ fn insert_many_empty_batch_is_noop_for_atomic_and_non_atomic_lanes() {
 
     let rows = with_data_store(TargetStore::PATH, |data_store| data_store.iter().count());
     assert_eq!(rows, 0, "empty batches must not persist rows");
+}
+
+#[test]
+fn commit_window_preflight_does_not_mutate_real_stores_before_apply() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let entity = UniqueEmailEntity {
+        id: Ulid::from_u128(89),
+        email: "preflight@example.com".to_string(),
+    };
+    let data_key = DataKey::try_new::<UniqueEmailEntity>(entity.id)
+        .expect("data key should build for preflight test")
+        .to_raw()
+        .expect("data key should encode for preflight test");
+    let row = RawRow::try_new(
+        serialize(&entity).expect("entity serialization should succeed for preflight test"),
+    )
+    .expect("row encoding should succeed for preflight test");
+    let row_op = CommitRowOp::new(
+        UniqueEmailEntity::PATH,
+        data_key.as_bytes().to_vec(),
+        None,
+        Some(row.as_bytes().to_vec()),
+    );
+
+    let baseline_index_generation =
+        with_index_store(UNIQUE_INDEX_STORE_PATH, IndexStore::generation);
+    let baseline_index_len = with_index_store(UNIQUE_INDEX_STORE_PATH, IndexStore::len);
+
+    let OpenCommitWindow {
+        commit,
+        prepared_row_ops,
+        index_store_guards,
+        ..
+    } = open_commit_window::<UniqueEmailEntity>(&DB, vec![row_op])
+        .expect("commit window open should succeed");
+
+    assert!(
+        commit_marker_present().expect("commit marker probe should succeed"),
+        "open commit window should persist commit marker before apply",
+    );
+    assert!(
+        load_unique_email_entity(entity.id).is_none(),
+        "preflight must not persist data rows before apply",
+    );
+    assert_eq!(
+        with_index_store(UNIQUE_INDEX_STORE_PATH, IndexStore::len),
+        baseline_index_len,
+        "preflight must not persist index rows before apply",
+    );
+    assert_eq!(
+        with_index_store(UNIQUE_INDEX_STORE_PATH, IndexStore::generation),
+        baseline_index_generation,
+        "preflight must not mutate index generation before apply",
+    );
+
+    apply_prepared_row_ops(
+        commit,
+        "save_row_apply_preflight_purity_test",
+        prepared_row_ops,
+        index_store_guards,
+        || {},
+        || {},
+    )
+    .expect("apply should persist prepared row ops");
+
+    assert!(
+        load_unique_email_entity(entity.id).is_some(),
+        "apply should persist the prepared row",
+    );
+    assert!(
+        with_index_store(UNIQUE_INDEX_STORE_PATH, IndexStore::len) > baseline_index_len,
+        "apply should persist index entry after preflight-only open",
+    );
 }
 
 #[test]

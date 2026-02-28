@@ -11,6 +11,7 @@ use crate::{
 /// runtime entry remains explicit at query->executor boundaries.
 ///
 
+#[derive(Clone, Copy)]
 pub(in crate::db) struct GroupedExecutorHandoff<'a, K> {
     base: &'a AccessPlannedQuery<K>,
     group_fields: &'a [FieldSlot],

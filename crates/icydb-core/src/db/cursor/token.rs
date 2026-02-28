@@ -1,5 +1,9 @@
 use crate::{
-    db::{codec::deserialize_protocol_payload, cursor::CursorBoundary, direction::Direction},
+    db::{
+        codec::deserialize_protocol_payload,
+        cursor::{ContinuationSignature, CursorBoundary},
+        direction::Direction,
+    },
     serialize::serialize,
     value::Value,
 };
@@ -9,41 +13,8 @@ use thiserror::Error as ThisError;
 const MAX_CONTINUATION_TOKEN_BYTES: usize = 8 * 1024;
 const MAX_GROUPED_CONTINUATION_TOKEN_BYTES: usize = 8 * 1024;
 
-///
-/// ContinuationSignature
-///
-/// Stable, deterministic hash of continuation-relevant plan semantics.
-/// Excludes windowing state (`limit`, `offset`) and cursor boundaries.
-///
-
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ContinuationSignature([u8; 32]);
-
-impl ContinuationSignature {
-    pub(crate) const fn from_bytes(bytes: [u8; 32]) -> Self {
-        Self(bytes)
-    }
-
-    pub(crate) const fn into_bytes(self) -> [u8; 32] {
-        self.0
-    }
-
-    #[must_use]
-    pub fn as_hex(&self) -> String {
-        crate::db::codec::cursor::encode_cursor(&self.0)
-    }
-}
-
-impl std::fmt::Display for ContinuationSignature {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.as_hex())
-    }
-}
-
-///
 /// ContinuationToken
 /// Opaque cursor payload bound to a continuation signature.
-///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ContinuationToken {

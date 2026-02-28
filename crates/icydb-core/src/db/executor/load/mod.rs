@@ -30,7 +30,10 @@ use crate::{
                 AggregateFieldValueError, FieldSlot, resolve_any_aggregate_target_slot,
                 resolve_numeric_aggregate_target_slot, resolve_orderable_aggregate_target_slot,
             },
-            aggregate::{AggregateKind, AggregateOutput, FoldControl, GroupError},
+            aggregate::{
+                AggregateOutput, FoldControl, GroupError,
+                ensure_grouped_spec_supported_for_execution,
+            },
             group::{
                 CanonicalKey, grouped_budget_observability,
                 grouped_execution_context_from_planner_config,
@@ -39,8 +42,10 @@ use crate::{
             range_token_anchor_key, range_token_from_cursor_anchor, validate_executor_plan,
         },
         index::IndexCompilePolicy,
-        policy,
-        query::plan::{AccessPlannedQuery, LogicalPlan, OrderDirection, grouped_executor_handoff},
+        query::{
+            plan::{AccessPlannedQuery, LogicalPlan, OrderDirection, grouped_executor_handoff},
+            policy,
+        },
         response::Response,
     },
     error::InternalError,
@@ -424,7 +429,6 @@ where
         let grouped_handoff = grouped_executor_handoff(plan.as_inner())?;
         let grouped_execution = grouped_handoff.execution();
         let group_fields = grouped_handoff.group_fields().to_vec();
-        let grouped_spec = Self::lower_grouped_spec_for_executor_contract(&grouped_handoff);
         let grouped_route_plan =
             Self::build_execution_route_plan_for_grouped_handoff(grouped_handoff);
         let grouped_route_observability =
@@ -442,9 +446,11 @@ where
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
 
-        grouped_spec
-            .ensure_supported_for_execution()
-            .map_err(|err| InternalError::executor_unsupported(err.to_string()))?;
+        ensure_grouped_spec_supported_for_execution(
+            grouped_handoff.group_fields(),
+            grouped_handoff.aggregates(),
+        )
+        .map_err(|err| InternalError::executor_unsupported(err.to_string()))?;
 
         let mut grouped_execution_context =
             grouped_execution_context_from_planner_config(Some(grouped_execution));
@@ -478,26 +484,26 @@ where
             ),
             "grouped execution route must remain blocking/materialized",
         );
-        let plan = plan.into_inner();
-        let execution_preparation = ExecutionPreparation::for_plan::<E>(&plan);
-        let mut grouped_engines = grouped_spec
-            .aggregate_specs()
+        let mut grouped_engines = grouped_handoff
+            .aggregates()
             .iter()
-            .map(|spec| {
-                if spec.target_field().is_some() {
+            .map(|aggregate| {
+                if aggregate.target_field().is_some() {
                     return Err(InternalError::query_executor_invariant(format!(
                         "grouped field-target aggregate reached executor after planning: {:?}",
-                        spec.kind()
+                        aggregate.kind()
                     )));
                 }
 
                 Ok(grouped_execution_context.create_grouped_engine::<E>(
-                    spec.kind(),
-                    Self::grouped_reduction_direction(spec.kind()),
+                    aggregate.kind(),
+                    aggregate.kind().materialized_fold_direction(),
                 ))
             })
             .collect::<Result<Vec<_>, _>>()?;
         let mut short_circuit_keys = vec![Vec::<Value>::new(); grouped_engines.len()];
+        let plan = plan.into_inner();
+        let execution_preparation = ExecutionPreparation::for_plan::<E>(&plan);
 
         let mut span = Span::<E>::new(ExecKind::Load);
         let ctx = self.db.recovered_context::<E>()?;
@@ -704,18 +710,6 @@ where
                 InternalError::executor_internal(err.to_string())
             }
             GroupError::Internal(inner) => inner,
-        }
-    }
-
-    // Use non-short-circuit directions for MIN/MAX grouped materialized folds.
-    const fn grouped_reduction_direction(kind: AggregateKind) -> Direction {
-        match kind {
-            AggregateKind::Min => Direction::Desc,
-            AggregateKind::Max
-            | AggregateKind::Count
-            | AggregateKind::Exists
-            | AggregateKind::First
-            | AggregateKind::Last => Direction::Asc,
         }
     }
 

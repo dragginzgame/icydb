@@ -11,8 +11,8 @@ use crate::{
         data::RawDataKey,
         identity::{EntityName, IndexName},
         index::{
-            EncodedValue, IndexEntry, IndexId, IndexKeyKind, IndexStore, RawIndexEntry,
-            RawIndexKey, raw_keys_for_encoded_prefix_with_kind,
+            EncodedValue, IndexEntry, IndexEntryReader, IndexId, IndexKeyKind, IndexStore,
+            RawIndexEntry, RawIndexKey, raw_keys_for_encoded_prefix_with_kind,
         },
     },
     error::InternalError,
@@ -193,6 +193,7 @@ where
 /// relation validation O(referrers) instead of O(source rows).
 pub(crate) fn prepare_reverse_relation_index_mutations_for_source<S>(
     db: &Db<S::Canister>,
+    index_reader: &impl IndexEntryReader<S>,
     old: Option<&S>,
     new: Option<&S>,
 ) -> Result<Vec<PreparedIndexMutation>, InternalError>
@@ -256,7 +257,7 @@ where
                 continue;
             };
 
-            let existing = target_store.with_borrow(|store| store.get(&reverse_key));
+            let existing = index_reader.read_index_entry(target_store, &reverse_key)?;
             let mut entry = existing
                 .as_ref()
                 .map(|raw| decode_reverse_entry::<S>(relation, &reverse_key, raw))

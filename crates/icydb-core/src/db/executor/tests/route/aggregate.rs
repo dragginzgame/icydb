@@ -112,7 +112,7 @@ fn route_plan_grouped_wrapper_keeps_blocking_shape_under_tight_budget_config() {
 }
 
 #[test]
-fn route_plan_grouped_wrapper_lowers_kind_matrix_into_executor_contract() {
+fn route_plan_grouped_wrapper_preserves_kind_matrix_in_query_handoff() {
     let kind_cases = [
         GroupAggregateKind::Count,
         GroupAggregateKind::Exists,
@@ -136,20 +136,18 @@ fn route_plan_grouped_wrapper_lowers_kind_matrix_into_executor_contract() {
 
     let grouped_handoff =
         grouped_executor_handoff(&grouped).expect("grouped logical plans should build handoff");
-    let lowered = LoadExecutor::<RouteMatrixEntity>::lower_grouped_spec_for_executor_contract(
-        &grouped_handoff,
-    );
 
-    assert_eq!(lowered.group_keys(), &["rank".to_string()]);
-    assert_eq!(lowered.aggregate_specs().len(), kind_cases.len());
+    assert_eq!(grouped_handoff.group_fields().len(), 1);
+    assert_eq!(grouped_handoff.group_fields()[0].field(), "rank");
+    assert_eq!(grouped_handoff.aggregates().len(), kind_cases.len());
     for (index, expected_kind) in kind_cases.iter().enumerate() {
-        assert_eq!(lowered.aggregate_specs()[index].kind(), *expected_kind);
-        assert_eq!(lowered.aggregate_specs()[index].target_field(), None);
+        assert_eq!(grouped_handoff.aggregates()[index].kind(), *expected_kind);
+        assert_eq!(grouped_handoff.aggregates()[index].target_field(), None);
     }
 }
 
 #[test]
-fn route_plan_grouped_wrapper_lowers_target_field_into_executor_contract() {
+fn route_plan_grouped_wrapper_preserves_target_field_in_query_handoff() {
     let grouped = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore)
         .into_grouped(GroupSpec {
             group_fields: grouped_field_slots(&["rank", "label"]),
@@ -162,21 +160,17 @@ fn route_plan_grouped_wrapper_lowers_target_field_into_executor_contract() {
 
     let grouped_handoff =
         grouped_executor_handoff(&grouped).expect("grouped logical plans should build handoff");
-    let lowered = LoadExecutor::<RouteMatrixEntity>::lower_grouped_spec_for_executor_contract(
-        &grouped_handoff,
-    );
 
-    assert_eq!(
-        lowered.group_keys(),
-        &["rank".to_string(), "label".to_string()]
-    );
-    assert_eq!(lowered.aggregate_specs().len(), 1);
-    assert_eq!(lowered.aggregate_specs()[0].kind(), AggregateKind::Max);
-    assert_eq!(lowered.aggregate_specs()[0].target_field(), Some("rank"));
+    assert_eq!(grouped_handoff.group_fields().len(), 2);
+    assert_eq!(grouped_handoff.group_fields()[0].field(), "rank");
+    assert_eq!(grouped_handoff.group_fields()[1].field(), "label");
+    assert_eq!(grouped_handoff.aggregates().len(), 1);
+    assert_eq!(grouped_handoff.aggregates()[0].kind(), AggregateKind::Max);
+    assert_eq!(grouped_handoff.aggregates()[0].target_field(), Some("rank"));
 }
 
 #[test]
-fn route_plan_grouped_wrapper_lowers_supported_target_field_matrix_into_executor_contract() {
+fn route_plan_grouped_wrapper_preserves_supported_target_field_matrix_in_query_handoff() {
     let grouped_cases = [
         (GroupAggregateKind::Count, None),
         (GroupAggregateKind::Exists, None),
@@ -202,19 +196,15 @@ fn route_plan_grouped_wrapper_lowers_supported_target_field_matrix_into_executor
 
     let grouped_handoff =
         grouped_executor_handoff(&grouped).expect("grouped logical plans should build handoff");
-    let lowered = LoadExecutor::<RouteMatrixEntity>::lower_grouped_spec_for_executor_contract(
-        &grouped_handoff,
-    );
 
-    assert_eq!(
-        lowered.group_keys(),
-        &["rank".to_string(), "label".to_string()]
-    );
-    assert_eq!(lowered.aggregate_specs().len(), grouped_cases.len());
+    assert_eq!(grouped_handoff.group_fields().len(), 2);
+    assert_eq!(grouped_handoff.group_fields()[0].field(), "rank");
+    assert_eq!(grouped_handoff.group_fields()[1].field(), "label");
+    assert_eq!(grouped_handoff.aggregates().len(), grouped_cases.len());
     for (index, (expected_kind, expected_target)) in grouped_cases.iter().enumerate() {
-        let lowered_spec = &lowered.aggregate_specs()[index];
-        assert_eq!(lowered_spec.kind(), *expected_kind);
-        assert_eq!(lowered_spec.target_field(), *expected_target);
+        let aggregate = &grouped_handoff.aggregates()[index];
+        assert_eq!(aggregate.kind(), *expected_kind);
+        assert_eq!(aggregate.target_field(), *expected_target);
     }
 }
 

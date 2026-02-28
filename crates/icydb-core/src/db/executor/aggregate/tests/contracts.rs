@@ -4,13 +4,15 @@ use crate::{
         direction::Direction,
         executor::aggregate::contracts::{
             AggregateKind, AggregateOutput, AggregateSpec, AggregateSpecSupportError,
-            ExecutionConfig, ExecutionContext, GroupAggregateSpec, GroupAggregateSpecSupportError,
-            GroupError, GroupedAggregateOutput,
+            ExecutionConfig, ExecutionContext, GroupAggregateSpecSupportError, GroupError,
+            GroupedAggregateOutput, ensure_grouped_spec_supported_for_execution,
         },
         executor::group::CanonicalKey,
+        query::plan::{FieldSlot, GroupAggregateSpec},
     },
     model::field::FieldKind,
     testing,
+    traits::EntitySchema,
     value::{Value, with_test_hash_override},
 };
 use icydb_derive::FieldProjection;
@@ -52,6 +54,11 @@ fn group_key(value: Value) -> crate::db::executor::group::GroupKey {
 
 fn data_key(id: u64) -> DataKey {
     DataKey::try_new::<GroupedStateTestEntity>(id).expect("test data key should build")
+}
+
+fn grouped_field_slot(field: &str) -> FieldSlot {
+    FieldSlot::resolve(<GroupedStateTestEntity as EntitySchema>::MODEL, field)
+        .expect("grouped field slot should resolve in grouped state test model")
 }
 
 fn count_rows(rows: &[GroupedAggregateOutput<GroupedStateTestEntity>]) -> Vec<(Value, u32)> {
@@ -122,63 +129,80 @@ fn aggregate_spec_support_accepts_field_target_extrema() {
 
 #[test]
 fn group_aggregate_spec_support_accepts_group_keys_and_supported_specs() {
-    let grouped = GroupAggregateSpec::new(
-        vec!["tenant".to_string(), "region".to_string()],
-        vec![
-            AggregateSpec::for_terminal(AggregateKind::Count),
-            AggregateSpec::for_target_field(AggregateKind::Max, "score"),
-        ],
-    );
+    let group_fields = vec![grouped_field_slot("id")];
+    let grouped_aggregates = vec![
+        GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: None,
+        },
+        GroupAggregateSpec {
+            kind: AggregateKind::Max,
+            target_field: Some("score".to_string()),
+        },
+    ];
 
-    assert!(grouped.is_grouped());
-    assert_eq!(
-        grouped.group_keys(),
-        &["tenant".to_string(), "region".to_string()]
+    assert!(
+        ensure_grouped_spec_supported_for_execution(
+            group_fields.as_slice(),
+            grouped_aggregates.as_slice(),
+        )
+        .is_ok()
     );
-    assert_eq!(grouped.aggregate_specs().len(), 2);
-    assert!(grouped.ensure_supported_for_execution().is_ok());
 }
 
 #[test]
 fn group_aggregate_spec_support_rejects_empty_terminal_list() {
-    let grouped = GroupAggregateSpec::new(vec!["tenant".to_string()], Vec::new());
-    let err = grouped
-        .ensure_supported_for_execution()
-        .expect_err("grouped aggregate contract must reject empty aggregate terminal list");
+    let group_fields = vec![grouped_field_slot("id")];
+    let grouped_aggregates = Vec::<GroupAggregateSpec>::new();
+    let err = ensure_grouped_spec_supported_for_execution(
+        group_fields.as_slice(),
+        grouped_aggregates.as_slice(),
+    )
+    .expect_err("grouped aggregate contract must reject empty aggregate terminal list");
 
     assert_eq!(err, GroupAggregateSpecSupportError::MissingAggregateSpecs);
 }
 
 #[test]
 fn group_aggregate_spec_support_rejects_duplicate_group_key() {
-    let grouped = GroupAggregateSpec::new(
-        vec!["tenant".to_string(), "tenant".to_string()],
-        vec![AggregateSpec::for_terminal(AggregateKind::Count)],
-    );
-    let err = grouped
-        .ensure_supported_for_execution()
-        .expect_err("grouped aggregate contract must reject duplicate group keys");
+    let duplicate_field = grouped_field_slot("id");
+    let group_fields = vec![duplicate_field.clone(), duplicate_field];
+    let grouped_aggregates = vec![GroupAggregateSpec {
+        kind: AggregateKind::Count,
+        target_field: None,
+    }];
+    let err = ensure_grouped_spec_supported_for_execution(
+        group_fields.as_slice(),
+        grouped_aggregates.as_slice(),
+    )
+    .expect_err("grouped aggregate contract must reject duplicate group keys");
 
     assert_eq!(
         err,
         GroupAggregateSpecSupportError::DuplicateGroupKey {
-            field: "tenant".to_string(),
+            field: "id".to_string(),
         }
     );
 }
 
 #[test]
 fn group_aggregate_spec_support_rejects_unsupported_nested_terminal() {
-    let grouped = GroupAggregateSpec::new(
-        vec!["tenant".to_string()],
-        vec![
-            AggregateSpec::for_terminal(AggregateKind::Count),
-            AggregateSpec::for_target_field(AggregateKind::Exists, "rank"),
-        ],
-    );
-    let err = grouped
-        .ensure_supported_for_execution()
-        .expect_err("grouped aggregate contract must reject unsupported nested terminals");
+    let group_fields = vec![grouped_field_slot("id")];
+    let grouped_aggregates = vec![
+        GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: None,
+        },
+        GroupAggregateSpec {
+            kind: AggregateKind::Exists,
+            target_field: Some("rank".to_string()),
+        },
+    ];
+    let err = ensure_grouped_spec_supported_for_execution(
+        group_fields.as_slice(),
+        grouped_aggregates.as_slice(),
+    )
+    .expect_err("grouped aggregate contract must reject unsupported nested terminals");
 
     assert!(matches!(
         err,
@@ -190,14 +214,20 @@ fn group_aggregate_spec_support_rejects_unsupported_nested_terminal() {
 }
 
 #[test]
-fn group_aggregate_spec_support_accepts_global_terminal_constructor() {
-    let grouped =
-        GroupAggregateSpec::for_global_terminal(AggregateSpec::for_terminal(AggregateKind::Count));
+fn group_aggregate_spec_support_accepts_empty_group_fields_with_one_terminal_spec() {
+    let group_fields = Vec::<FieldSlot>::new();
+    let grouped_aggregates = vec![GroupAggregateSpec {
+        kind: AggregateKind::Count,
+        target_field: None,
+    }];
 
-    assert!(!grouped.is_grouped());
-    assert!(grouped.group_keys().is_empty());
-    assert_eq!(grouped.aggregate_specs().len(), 1);
-    assert!(grouped.ensure_supported_for_execution().is_ok());
+    assert!(
+        ensure_grouped_spec_supported_for_execution(
+            group_fields.as_slice(),
+            grouped_aggregates.as_slice(),
+        )
+        .is_ok()
+    );
 }
 
 #[test]

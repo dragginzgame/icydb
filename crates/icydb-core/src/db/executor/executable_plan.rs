@@ -109,7 +109,8 @@ impl<E: EntityKind> ExecutablePlan<E> {
 
         let direction = derive_primary_scan_direction(self.plan.scalar_plan().order.as_ref());
         crate::db::cursor::prepare_cursor::<E>(
-            &self.plan,
+            self.plan.access.as_path(),
+            self.plan.scalar_plan().order.as_ref(),
             direction,
             self.continuation_signature(),
             Self::initial_page_offset(&self.plan.logical),
@@ -177,7 +178,8 @@ impl<E: EntityKind> ExecutablePlan<E> {
 
         let direction = derive_primary_scan_direction(self.plan.scalar_plan().order.as_ref());
         crate::db::cursor::revalidate_cursor::<E>(
-            &self.plan,
+            self.plan.access.as_path(),
+            self.plan.scalar_plan().order.as_ref(),
             direction,
             Self::initial_page_offset(&self.plan.logical),
             cursor,

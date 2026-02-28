@@ -5,15 +5,17 @@ use crate::{
             DataKey, DataRow, DataStore, RawDataKey, RawRow, decode_and_validate_entity_key,
             format_entity_key_for_mismatch,
         },
+        direction::Direction,
         executor::{ExecutorError, OrderedKeyStream},
-        index::PrimaryRowReader,
+        index::{IndexEntryReader, IndexStore, PrimaryRowReader, RawIndexEntry, RawIndexKey},
         predicate::MissingRowPolicy,
     },
     error::InternalError,
+    model::index::IndexModel,
     traits::{EntityKind, EntityValue, Path},
     types::Id,
 };
-use std::{collections::BTreeSet, marker::PhantomData};
+use std::{collections::BTreeSet, marker::PhantomData, ops::Bound};
 
 // -----------------------------------------------------------------------------
 // Context Subdomains
@@ -192,6 +194,45 @@ where
             Err(err) if err.is_not_found() => Ok(None),
             Err(err) => Err(err),
         }
+    }
+}
+
+impl<E> IndexEntryReader<E> for Context<'_, E>
+where
+    E: EntityKind + EntityValue,
+{
+    fn read_index_entry(
+        &self,
+        store: &'static std::thread::LocalKey<std::cell::RefCell<IndexStore>>,
+        key: &RawIndexKey,
+    ) -> Result<Option<RawIndexEntry>, InternalError> {
+        Ok(store.with_borrow(|index_store| index_store.get(key)))
+    }
+
+    fn read_index_keys_in_raw_range(
+        &self,
+        store: &'static std::thread::LocalKey<std::cell::RefCell<IndexStore>>,
+        index: &IndexModel,
+        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
+        limit: usize,
+    ) -> Result<Vec<E::Key>, InternalError> {
+        let data_keys = store.with_borrow(|index_store| {
+            index_store.resolve_data_values_in_raw_range_limited::<E>(
+                index,
+                bounds,
+                None,
+                Direction::Asc,
+                limit,
+                None,
+            )
+        })?;
+
+        let mut out = Vec::with_capacity(data_keys.len());
+        for data_key in data_keys {
+            out.push(data_key.try_key::<E>()?);
+        }
+
+        Ok(out)
     }
 }
 

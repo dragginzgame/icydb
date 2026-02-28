@@ -1,7 +1,7 @@
-//! Shared plan-policy rules used by intent, planning, and execution guardrails.
+//! Query-shape policy rules used by intent, planning, and executor guardrails.
 //!
-//! This module centralizes semantic invariants so boundary layers can map one
-//! canonical rule set into their own error types.
+//! This module centralizes query policy invariants so boundary layers can map
+//! one canonical rule set into their own error types.
 //!
 //! Ownership contract:
 //! - This module is the sole owner of query shape-policy rules.

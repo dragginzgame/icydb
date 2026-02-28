@@ -1,7 +1,8 @@
 use crate::{
     db::{
-        access::AccessPlanError, cursor::CursorPlanError, policy::PlanPolicyError,
-        query::plan::PlanError,
+        access::AccessPlanError,
+        cursor::CursorPlanError,
+        query::{plan::PlanError, policy::PlanPolicyError},
     },
     patch::MergePatchError,
 };

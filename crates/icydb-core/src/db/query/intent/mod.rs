@@ -10,7 +10,6 @@ pub type QueryMode = crate::db::query::plan::QueryMode;
 use crate::{
     db::{
         access::{AccessPath, AccessPlan, AccessPlanError, canonicalize_key_values},
-        policy,
         predicate::{
             MissingRowPolicy, Predicate, SchemaInfo, ValidateError, normalize,
             normalize_enum_literals, reject_unsupported_query_features,
@@ -24,6 +23,7 @@ use crate::{
                 OrderDirection, OrderSpec, PageSpec, PlanError, PlannerError, ScalarPlan,
                 plan_access, validate::validate_query_semantics, validate_group_query_semantics,
             },
+            policy,
         },
         response::ResponseError,
     },

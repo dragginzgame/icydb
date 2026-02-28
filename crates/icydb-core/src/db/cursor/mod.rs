@@ -1,10 +1,10 @@
 mod anchor;
 pub(crate) mod boundary;
 mod continuation;
-mod errors;
 mod order;
 mod planned;
 mod range_token;
+mod signature;
 mod spine;
 pub(crate) mod token;
 
@@ -14,28 +14,27 @@ pub(in crate::db) use boundary::{
     validate_cursor_boundary_for_order, validate_cursor_direction, validate_cursor_window_offset,
 };
 pub(in crate::db) use continuation::next_cursor_for_materialized_rows;
-pub(crate) use errors::CursorPlanError;
 pub(in crate::db) use order::{apply_cursor_boundary, apply_order_spec, apply_order_spec_bounded};
 pub(in crate::db) use planned::{GroupedPlannedCursor, PlannedCursor};
 pub(in crate::db) use range_token::{
     RangeToken, cursor_anchor_from_index_key, range_token_anchor_key,
     range_token_from_cursor_anchor, range_token_from_lowered_anchor,
 };
-pub(crate) use token::{ContinuationSignature, ContinuationToken, ContinuationTokenError};
+#[allow(unreachable_pub)]
+pub use signature::{ContinuationSignature, CursorPlanError};
+pub(crate) use token::{ContinuationToken, ContinuationTokenError};
 pub(in crate::db) use token::{GroupedContinuationToken, IndexRangeCursorAnchor};
 
 use crate::{
-    db::{
-        direction::Direction,
-        query::plan::{AccessPlannedQuery, OrderSpec},
-    },
+    db::{access::AccessPath, direction::Direction, query::plan::OrderSpec},
     error::InternalError,
-    traits::{EntityKind, FieldValue},
+    traits::{EntityKind, EntityValue, FieldValue},
 };
 
 /// Validate and decode a continuation cursor into executor-ready cursor state.
 pub(in crate::db) fn prepare_cursor<E: EntityKind>(
-    plan: &AccessPlannedQuery<E::Key>,
+    access: Option<&AccessPath<E::Key>>,
+    order: Option<&OrderSpec>,
     direction: Direction,
     continuation_signature: ContinuationSignature,
     initial_offset: u32,
@@ -44,11 +43,11 @@ pub(in crate::db) fn prepare_cursor<E: EntityKind>(
 where
     E::Key: FieldValue,
 {
-    let order = validated_cursor_order(plan)?;
+    let order = validated_cursor_order(order)?;
 
     spine::validate_planned_cursor::<E>(
         cursor,
-        plan.access.as_path(),
+        access,
         E::PATH,
         E::MODEL,
         order,
@@ -60,7 +59,8 @@ where
 
 /// Revalidate executor-provided cursor state through the canonical cursor spine.
 pub(in crate::db) fn revalidate_cursor<E: EntityKind>(
-    plan: &AccessPlannedQuery<E::Key>,
+    access: Option<&AccessPath<E::Key>>,
+    order: Option<&OrderSpec>,
     direction: Direction,
     initial_offset: u32,
     cursor: PlannedCursor,
@@ -72,11 +72,11 @@ where
         return Ok(PlannedCursor::none());
     }
 
-    let order = validated_cursor_order(plan)?;
+    let order = validated_cursor_order(order)?;
 
     spine::validate_planned_cursor_state::<E>(
         cursor,
-        plan.access.as_path(),
+        access,
         E::MODEL,
         order,
         direction,
@@ -153,8 +153,7 @@ where
 }
 
 // Resolve cursor ordering for plan-surface decoding and executor revalidation.
-fn validated_cursor_order<K>(plan: &AccessPlannedQuery<K>) -> Result<&OrderSpec, CursorPlanError> {
-    let order = plan.scalar_plan().order.as_ref();
+fn validated_cursor_order(order: Option<&OrderSpec>) -> Result<&OrderSpec, CursorPlanError> {
     let Some(order) = validated_cursor_order_internal(
         order,
         true,
@@ -169,6 +168,15 @@ fn validated_cursor_order<K>(plan: &AccessPlannedQuery<K>) -> Result<&OrderSpec,
     };
 
     Ok(order)
+}
+
+/// Build one cursor boundary from one entity under one canonical order spec.
+#[must_use]
+pub(in crate::db) fn cursor_boundary_from_entity<E: EntityKind + EntityValue>(
+    entity: &E,
+    order: &OrderSpec,
+) -> CursorBoundary {
+    CursorBoundary::from_ordered_entity(entity, order)
 }
 
 /// Validate grouped cursor ordering plan shape.

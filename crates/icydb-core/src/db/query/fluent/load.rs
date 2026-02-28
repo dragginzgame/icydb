@@ -1,11 +1,12 @@
 use crate::{
     db::{
-        DbSession, PagedLoadExecution, PagedLoadExecutionWithTrace, policy,
+        DbSession, PagedLoadExecution, PagedLoadExecutionWithTrace,
         predicate::Predicate,
         query::{
             explain::ExplainPlan,
             expr::{FilterExpr, SortExpr},
             intent::{CompiledQuery, IntentError, PlannedQuery, Query, QueryError},
+            policy,
         },
         response::Response,
     },

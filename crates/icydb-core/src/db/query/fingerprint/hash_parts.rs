@@ -10,9 +10,7 @@ use crate::{
                 ExplainOrderBy, ExplainPagination, ExplainPlan,
             },
             intent::QueryMode,
-            plan::{
-                AccessPlanProjection, AggregateKind, OrderDirection, project_explain_access_path,
-            },
+            plan::{AccessPlanProjection, OrderDirection, project_explain_access_path},
         },
     },
     value::{Value, hash_value},
@@ -445,17 +443,6 @@ fn hash_projection_default(hasher: &mut Sha256, grouping: &ExplainGrouping) {
     }
 }
 
-const fn group_aggregate_kind_tag(kind: AggregateKind) -> u8 {
-    match kind {
-        AggregateKind::Count => 0x01,
-        AggregateKind::Exists => 0x02,
-        AggregateKind::Min => 0x03,
-        AggregateKind::Max => 0x04,
-        AggregateKind::First => 0x05,
-        AggregateKind::Last => 0x06,
-    }
-}
-
 fn hash_group_aggregate_structural_fingerprint_v1(
     hasher: &mut Sha256,
     aggregate: &ExplainGroupAggregate,
@@ -469,7 +456,7 @@ fn hash_group_aggregate_structural_fingerprint_v1(
     // Future aggregate features (distinct/filter/window/precision/mode) must
     // extend this helper explicitly to preserve continuation-signature safety.
     write_tag(hasher, GROUP_AGGREGATE_STRUCTURAL_FINGERPRINT_V1);
-    write_tag(hasher, group_aggregate_kind_tag(aggregate.kind));
+    write_tag(hasher, aggregate.kind.fingerprint_tag_v1());
     match &aggregate.target_field {
         Some(field) => {
             write_tag(hasher, 0x01);

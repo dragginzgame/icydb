@@ -4,7 +4,6 @@ pub(crate) mod contracts;
 pub(crate) mod cursor;
 pub(crate) mod diagnostics;
 pub(crate) mod identity;
-pub(crate) mod policy;
 pub(crate) mod predicate;
 pub(crate) mod query;
 pub(crate) mod registry;

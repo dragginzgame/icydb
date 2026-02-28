@@ -12,11 +12,10 @@ mod terminals;
 #[cfg(test)]
 mod tests;
 
-pub(in crate::db::executor) use contracts::GroupAggregateSpec;
 pub(in crate::db::executor) use contracts::{
     AggregateEngine, AggregateFoldMode, AggregateKind, AggregateOutput, AggregateSpec,
     AggregateState, AggregateStateFactory, ExecutionConfig, ExecutionContext, FoldControl,
-    GroupError, TerminalAggregateState,
+    GroupError, TerminalAggregateState, ensure_grouped_spec_supported_for_execution,
 };
 pub(in crate::db::executor) use execution::{
     AggregateExecutionDescriptor, AggregateFastPathInputs, PreparedAggregateStreamingInputs,
@@ -37,7 +36,7 @@ use crate::{
             validate_executor_plan,
         },
         index::IndexCompilePolicy,
-        policy,
+        query::policy,
         response::Response,
     },
     error::InternalError,
@@ -251,7 +250,7 @@ impl ExecutionKernel {
         // Materialized fallback can observe response order that is unrelated to
         // primary-key order. Use non-short-circuit directions for extrema so
         // MIN/MAX remain globally correct over the full response window.
-        let direction = Self::materialized_reduction_direction(kind);
+        let direction = kind.materialized_fold_direction();
         let mut engine = AggregateEngine::new_scalar(kind, direction);
         for (id, _) in response {
             let data_key = DataKey::try_new::<E>(id.key())?;
@@ -263,19 +262,6 @@ impl ExecutionKernel {
 
         engine.finalize_scalar()
     }
-
-    // Derive materialized fallback reduction direction for one scalar terminal.
-    const fn materialized_reduction_direction(kind: AggregateKind) -> Direction {
-        match kind {
-            AggregateKind::Min => Direction::Desc,
-            AggregateKind::Max
-            | AggregateKind::Count
-            | AggregateKind::Exists
-            | AggregateKind::First
-            | AggregateKind::Last => Direction::Asc,
-        }
-    }
-
     // Execute one scalar terminal aggregate stage through kernel-owned
     // orchestration while preserving route-owned execution-mode and fast-path
     // behavior.

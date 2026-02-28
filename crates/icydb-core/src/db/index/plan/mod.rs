@@ -7,13 +7,13 @@ use crate::{
         Db,
         commit::CommitIndexOp,
         data::{DataKey, RawRow},
-        index::{IndexEntryCorruption, IndexKey, IndexStore},
+        index::{IndexEntryCorruption, IndexKey, IndexStore, RawIndexEntry, RawIndexKey},
     },
     error::InternalError,
     model::index::IndexModel,
     traits::{EntityKind, EntityValue},
 };
-use std::{cell::RefCell, thread::LocalKey};
+use std::{cell::RefCell, ops::Bound, thread::LocalKey};
 
 ///
 /// IndexApplyPlan
@@ -47,6 +47,31 @@ pub(in crate::db) trait PrimaryRowReader<E: EntityKind + EntityValue> {
     fn read_primary_row(&self, key: &DataKey) -> Result<Option<RawRow>, InternalError>;
 }
 
+///
+/// IndexEntryReader
+///
+/// Index-planning port used for reading authoritative index entries without
+/// requiring commit preflight to mutate real stores.
+///
+
+pub(in crate::db) trait IndexEntryReader<E: EntityKind + EntityValue> {
+    /// Return the index entry for `(store, key)`, or `None` when no entry exists.
+    fn read_index_entry(
+        &self,
+        store: &'static LocalKey<RefCell<IndexStore>>,
+        key: &RawIndexKey,
+    ) -> Result<Option<RawIndexEntry>, InternalError>;
+
+    /// Return up to `limit` entity keys resolved from `store` in raw key range.
+    fn read_index_keys_in_raw_range(
+        &self,
+        store: &'static LocalKey<RefCell<IndexStore>>,
+        index: &IndexModel,
+        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
+        limit: usize,
+    ) -> Result<Vec<E::Key>, InternalError>;
+}
+
 /// Plan all index mutations for a single entity transition.
 ///
 /// This function:
@@ -59,6 +84,7 @@ pub(in crate::db) trait PrimaryRowReader<E: EntityKind + EntityValue> {
 pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>(
     db: &Db<E::Canister>,
     row_reader: &impl PrimaryRowReader<E>,
+    index_reader: &impl IndexEntryReader<E>,
     old: Option<&E>,
     new: Option<&E>,
 ) -> Result<IndexMutationPlan, InternalError> {
@@ -82,7 +108,7 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
             None => None,
         };
 
-        let old_entry = load::load_existing_entry(store, index, old)?;
+        let old_entry = load::load_existing_entry(index_reader, store, index, old)?;
 
         // Prevalidate membership so commit-phase mutations cannot surface corruption.
         if let Some(old_key) = &old_key {
@@ -123,7 +149,7 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
         let new_entry = if old_key == new_key {
             old_entry.clone()
         } else {
-            load::load_existing_entry(store, index, new)?
+            load::load_existing_entry(index_reader, store, index, new)?
         };
 
         // Unique validation is evaluated against the currently committed store
@@ -131,9 +157,10 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
         // remove-old/add-new semantics, so valid key transitions are evaluated
         // on the correct post-transition logical ownership model.
         unique::validate_unique_constraint::<E>(
-            db,
             row_reader,
+            index_reader,
             index,
+            store,
             new_entity_key.as_ref(),
             new,
         )?;

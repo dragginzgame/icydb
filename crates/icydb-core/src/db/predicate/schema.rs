@@ -2,9 +2,8 @@ use crate::{
     db::{
         identity::{EntityName, EntityNameError, IndexName, IndexNameError},
         predicate::{
-            CoercionSpec, CompareOp, ComparePredicate, Predicate,
-            model::UnsupportedQueryFeature,
-            semantics::{CoercionId, supports_coercion},
+            CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate,
+            model::UnsupportedQueryFeature, supports_coercion,
         },
     },
     model::{entity::EntityModel, field::FieldKind, index::IndexModel},

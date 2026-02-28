@@ -3,9 +3,7 @@ use crate::{
         cursor::CursorBoundary,
         direction::Direction,
         executor::{
-            ExecutionKernel, RangeToken,
-            aggregate::{AggregateKind, AggregateSpec},
-            load::LoadExecutor,
+            ExecutionKernel, RangeToken, aggregate::AggregateSpec, load::LoadExecutor,
             traversal::derive_primary_scan_direction,
         },
         query::plan::AccessPlannedQuery,
@@ -28,14 +26,10 @@ where
         spec: &AggregateSpec,
     ) -> Direction {
         if spec.target_field().is_some() {
-            return match spec.kind() {
-                AggregateKind::Min => Direction::Asc,
-                AggregateKind::Max => Direction::Desc,
-                AggregateKind::Count
-                | AggregateKind::Exists
-                | AggregateKind::First
-                | AggregateKind::Last => Self::derive_load_route_direction(plan),
-            };
+            return spec
+                .kind()
+                .extrema_direction()
+                .unwrap_or_else(|| Self::derive_load_route_direction(plan));
         }
 
         Self::derive_load_route_direction(plan)
@@ -74,13 +68,10 @@ where
         if let Some(spec) = aggregate_spec
             && spec.target_field().is_some()
         {
-            return match spec.kind() {
-                AggregateKind::Min => capabilities.field_min_fast_path_eligible,
-                AggregateKind::Max => capabilities.field_max_fast_path_eligible,
-                AggregateKind::Count
-                | AggregateKind::Exists
-                | AggregateKind::First
-                | AggregateKind::Last => false,
+            return match spec.kind().extrema_direction() {
+                Some(Direction::Asc) => capabilities.field_min_fast_path_eligible,
+                Some(Direction::Desc) => capabilities.field_max_fast_path_eligible,
+                None => false,
             };
         }
 

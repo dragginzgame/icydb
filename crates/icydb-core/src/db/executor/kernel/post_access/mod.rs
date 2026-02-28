@@ -12,9 +12,8 @@ use crate::{
         },
         direction::Direction,
         executor::ExecutionKernel,
-        policy,
         predicate::PredicateProgram,
-        query::plan::AccessPlannedQuery,
+        query::{plan::AccessPlannedQuery, policy},
     },
     error::InternalError,
     traits::{EntityKind, EntitySchema, EntityValue},
@@ -155,7 +154,9 @@ impl ExecutionKernel {
         E: EntityKind + EntityValue,
     {
         derive_next_materialized_cursor(
-            plan,
+            &plan.access,
+            plan.scalar_plan().order.as_ref(),
+            plan.scalar_plan().page.as_ref(),
             rows,
             stats.rows_after_cursor,
             cursor_boundary,

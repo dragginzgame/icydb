@@ -1,5 +1,5 @@
 use crate::{
-    db::index::{IndexEntry, IndexKey, IndexStore},
+    db::index::{IndexEntry, IndexEntryReader, IndexKey, IndexStore},
     error::InternalError,
     model::index::IndexModel,
     traits::{EntityKind, EntityValue},
@@ -7,6 +7,7 @@ use crate::{
 use std::{cell::RefCell, thread::LocalKey};
 
 pub(super) fn load_existing_entry<E: EntityKind + EntityValue>(
+    index_reader: &impl IndexEntryReader<E>,
     store: &'static LocalKey<RefCell<IndexStore>>,
     index: &'static IndexModel,
     entity: Option<&E>,
@@ -20,8 +21,8 @@ pub(super) fn load_existing_entry<E: EntityKind + EntityValue>(
     };
     let raw_key = key.to_raw();
 
-    store
-        .with_borrow(|index_store| index_store.get(&raw_key))
+    index_reader
+        .read_index_entry(store, &raw_key)?
         .map(|raw_entry| {
             raw_entry.try_decode().map_err(|err| {
                 InternalError::index_plan_index_corruption(format!(

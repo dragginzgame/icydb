@@ -2,11 +2,7 @@ use crate::{
     db::{
         cursor::CursorBoundary,
         direction::Direction,
-        executor::{
-            ExecutionKernel, RangeToken,
-            aggregate::{AggregateKind, AggregateSpec},
-            load::LoadExecutor,
-        },
+        executor::{ExecutionKernel, RangeToken, aggregate::AggregateSpec, load::LoadExecutor},
         query::plan::AccessPlannedQuery,
     },
     traits::{EntityKind, EntityValue},
@@ -123,14 +119,7 @@ where
             return None;
         }
         let kind = spec.kind();
-        if !matches!(
-            kind,
-            AggregateKind::Exists
-                | AggregateKind::Min
-                | AggregateKind::Max
-                | AggregateKind::First
-                | AggregateKind::Last
-        ) {
+        if !kind.supports_bounded_probe_hint() {
             return None;
         }
         if route_window.limit() == Some(0) {
@@ -151,12 +140,6 @@ where
             .limit()
             .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
 
-        match kind {
-            AggregateKind::Exists | AggregateKind::First => Some(offset.saturating_add(1)),
-            AggregateKind::Min if direction == Direction::Asc => Some(offset.saturating_add(1)),
-            AggregateKind::Max if direction == Direction::Desc => Some(offset.saturating_add(1)),
-            AggregateKind::Last => page_limit.map(|limit| offset.saturating_add(limit)),
-            _ => None,
-        }
+        kind.bounded_probe_fetch_hint(direction, offset, page_limit)
     }
 }

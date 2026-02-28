@@ -1,5 +1,5 @@
 use crate::{
-    db::predicate::{model::CompareOp, semantics::CoercionSpec},
+    db::predicate::{coercion::CoercionSpec, model::CompareOp},
     value::Value,
 };
 
@@ -8,6 +8,7 @@ use crate::{
 ///
 /// One comparison node with a pre-resolved field slot.
 ///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct ResolvedComparePredicate {
     pub(in crate::db) field_slot: Option<usize>,
@@ -21,6 +22,7 @@ pub(in crate::db) struct ResolvedComparePredicate {
 ///
 /// Predicate AST compiled to field slots for execution hot paths.
 ///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum ResolvedPredicate {
     True,

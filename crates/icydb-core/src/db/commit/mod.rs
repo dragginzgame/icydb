@@ -42,7 +42,9 @@ pub(in crate::db) use marker::{
     commit_schema_fingerprint_for_entity, decode_data_key, decode_index_entry, decode_index_key,
     validate_commit_marker_shape,
 };
-pub(in crate::db) use prepare::prepare_row_commit_for_entity;
+pub(in crate::db) use prepare::{
+    prepare_row_commit_for_entity, prepare_row_commit_for_entity_with_readers,
+};
 pub(in crate::db) use recovery::{ensure_recovered, ensure_recovered_for_write};
 pub(in crate::db) use replay::{rebuild_secondary_indexes_from_rows, replay_commit_marker_row_ops};
 pub(in crate::db) use rollback::{

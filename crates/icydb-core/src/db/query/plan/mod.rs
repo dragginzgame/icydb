@@ -12,14 +12,11 @@ use crate::{
             AccessPath, AccessPlan, PushdownApplicability, SecondaryOrderPushdownEligibility,
             SecondaryOrderPushdownRejection,
         },
-        cursor::CursorBoundary,
         direction::Direction,
         predicate::{MissingRowPolicy, PredicateExecutionModel},
         query::explain::ExplainAccessPath,
     },
-    error::InternalError,
     model::entity::{EntityModel, resolve_field_slot},
-    traits::{EntityKind, EntityValue},
     value::Value,
 };
 use std::ops::Bound;
@@ -187,6 +184,93 @@ pub enum AggregateKind {
     Last,
 }
 
+impl AggregateKind {
+    /// Return whether this terminal kind is `COUNT`.
+    #[must_use]
+    pub(in crate::db) const fn is_count(self) -> bool {
+        matches!(self, Self::Count)
+    }
+
+    /// Return whether this terminal kind supports explicit field targets.
+    #[must_use]
+    pub(in crate::db) const fn supports_field_targets(self) -> bool {
+        matches!(self, Self::Min | Self::Max)
+    }
+
+    /// Return whether this terminal kind belongs to the extrema family.
+    #[must_use]
+    pub(in crate::db) const fn is_extrema(self) -> bool {
+        self.supports_field_targets()
+    }
+
+    /// Return whether this terminal kind supports first/last value projection.
+    #[must_use]
+    pub(in crate::db) const fn supports_terminal_value_projection(self) -> bool {
+        matches!(self, Self::First | Self::Last)
+    }
+
+    /// Return whether reducer updates for this kind require a decoded id payload.
+    #[must_use]
+    pub(in crate::db) const fn requires_decoded_id(self) -> bool {
+        !matches!(self, Self::Count | Self::Exists)
+    }
+
+    /// Return the canonical extrema traversal direction for this terminal kind.
+    #[must_use]
+    pub(in crate::db) const fn extrema_direction(self) -> Option<Direction> {
+        match self {
+            Self::Min => Some(Direction::Asc),
+            Self::Max => Some(Direction::Desc),
+            Self::Count | Self::Exists | Self::First | Self::Last => None,
+        }
+    }
+
+    /// Return the canonical non-short-circuit materialized reduction direction.
+    #[must_use]
+    pub(in crate::db) const fn materialized_fold_direction(self) -> Direction {
+        match self {
+            Self::Min => Direction::Desc,
+            Self::Count | Self::Exists | Self::Max | Self::First | Self::Last => Direction::Asc,
+        }
+    }
+
+    /// Return the canonical grouped aggregate fingerprint tag (v1).
+    #[must_use]
+    pub(in crate::db) const fn fingerprint_tag_v1(self) -> u8 {
+        match self {
+            Self::Count => 0x01,
+            Self::Exists => 0x02,
+            Self::Min => 0x03,
+            Self::Max => 0x04,
+            Self::First => 0x05,
+            Self::Last => 0x06,
+        }
+    }
+
+    /// Return true when this kind can use bounded aggregate probe hints.
+    #[must_use]
+    pub(in crate::db) const fn supports_bounded_probe_hint(self) -> bool {
+        !self.is_count()
+    }
+
+    /// Derive a bounded aggregate probe fetch hint for this kind.
+    #[must_use]
+    pub(in crate::db) fn bounded_probe_fetch_hint(
+        self,
+        direction: Direction,
+        offset: usize,
+        page_limit: Option<usize>,
+    ) -> Option<usize> {
+        match self {
+            Self::Exists | Self::First => Some(offset.saturating_add(1)),
+            Self::Min if direction == Direction::Asc => Some(offset.saturating_add(1)),
+            Self::Max if direction == Direction::Desc => Some(offset.saturating_add(1)),
+            Self::Last => page_limit.map(|limit| offset.saturating_add(limit)),
+            Self::Count | Self::Min | Self::Max => None,
+        }
+    }
+}
+
 /// Compatibility alias for grouped planning callsites.
 pub(crate) type GroupAggregateKind = AggregateKind;
 
@@ -202,6 +286,20 @@ pub(crate) type GroupAggregateKind = AggregateKind;
 pub(crate) struct GroupAggregateSpec {
     pub(crate) kind: AggregateKind,
     pub(crate) target_field: Option<String>,
+}
+
+impl GroupAggregateSpec {
+    /// Return the canonical grouped aggregate terminal kind.
+    #[must_use]
+    pub(crate) const fn kind(&self) -> AggregateKind {
+        self.kind
+    }
+
+    /// Return the optional grouped aggregate target field.
+    #[must_use]
+    pub(crate) fn target_field(&self) -> Option<&str> {
+        self.target_field.as_deref()
+    }
 }
 
 ///
@@ -254,12 +352,6 @@ impl FieldSlot {
     #[must_use]
     pub(crate) fn field(&self) -> &str {
         &self.field
-    }
-
-    /// Resolve the canonical model field name for this slot index.
-    #[must_use]
-    pub(crate) fn canonical_name<'a>(&self, model: &'a EntityModel) -> Option<&'a str> {
-        model.fields.get(self.index).map(|field| field.name)
     }
 }
 
@@ -517,31 +609,6 @@ impl<K> AccessPlannedQuery<K> {
             }),
             access: AccessPlan::path(access),
         }
-    }
-
-    /// Build one continuation boundary from one entity using canonical order.
-    pub(in crate::db) fn cursor_boundary_from_entity<E>(
-        &self,
-        entity: &E,
-    ) -> Result<CursorBoundary, InternalError>
-    where
-        E: EntityKind<Key = K> + EntityValue,
-    {
-        let order = match &self.logical {
-            LogicalPlan::Scalar(logical) => logical.order.as_ref(),
-            LogicalPlan::Grouped(_) => {
-                return Err(InternalError::query_executor_invariant(
-                    "cannot build cursor boundary for grouped logical plans",
-                ));
-            }
-        };
-        let Some(order) = order else {
-            return Err(InternalError::query_executor_invariant(
-                "cannot build cursor boundary without ordering",
-            ));
-        };
-
-        Ok(CursorBoundary::from_ordered_entity(entity, order))
     }
 }
 

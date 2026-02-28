@@ -116,6 +116,7 @@ impl IndexKey {
     }
 
     #[must_use]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(in crate::db::index) fn bounds_for_prefix<C: AsRef<[u8]>>(
         index_id: &IndexId,
         index_len: usize,

@@ -53,7 +53,7 @@ where
         kind: AggregateKind,
         capabilities: RouteCapabilities,
     ) -> bool {
-        matches!(kind, AggregateKind::Count)
+        kind.is_count()
             && capabilities.streaming_access_shape_safe
             && capabilities.count_pushdown_access_shape_supported
     }

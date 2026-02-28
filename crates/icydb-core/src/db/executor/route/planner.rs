@@ -5,7 +5,7 @@ use crate::{
         direction::Direction,
         executor::{
             Context, ExecutionPlan, ExecutionPreparation, OrderedKeyStreamBox, RangeToken,
-            aggregate::{AggregateFoldMode, AggregateKind, AggregateSpec, GroupAggregateSpec},
+            aggregate::{AggregateFoldMode, AggregateKind, AggregateSpec},
             load::LoadExecutor,
         },
         query::plan::{AccessPlannedQuery, GroupedExecutorHandoff},
@@ -211,37 +211,6 @@ where
         )
     }
 
-    // Lower one query-owned grouped handoff into one executor-owned grouped
-    // aggregate contract without enabling grouped execution in this release.
-    pub(in crate::db::executor) fn lower_grouped_spec_for_executor_contract(
-        grouped: &GroupedExecutorHandoff<'_, E::Key>,
-    ) -> GroupAggregateSpec {
-        let group_keys = grouped
-            .group_fields()
-            .iter()
-            .map(|field_slot| {
-                field_slot
-                    .canonical_name(E::MODEL)
-                    .unwrap_or_else(|| field_slot.field())
-                    .to_string()
-            })
-            .collect();
-        let aggregate_specs = grouped
-            .aggregates()
-            .iter()
-            .map(|aggregate| {
-                let kind = aggregate.kind;
-                let Some(target_field) = aggregate.target_field.as_deref() else {
-                    return AggregateSpec::for_terminal(kind);
-                };
-
-                AggregateSpec::for_target_field(kind, target_field)
-            })
-            .collect();
-
-        GroupAggregateSpec::new(group_keys, aggregate_specs)
-    }
-
     // Shared route gate for load + aggregate execution.
     fn build_execution_route_plan(
         plan: &AccessPlannedQuery<E::Key>,
@@ -337,7 +306,7 @@ where
             secondary_pushdown_applicability,
         );
         let kind = intent_stage.kind();
-        let count_terminal = matches!(kind, Some(AggregateKind::Count));
+        let count_terminal = kind.is_some_and(AggregateKind::is_count);
 
         // COUNT fold-mode discipline: non-count pushdowns must not route COUNT
         // through non-COUNT streaming fast paths.
@@ -374,7 +343,7 @@ where
         );
         debug_assert!(
             !derivation.count_pushdown_eligible
-                || matches!(kind, Some(AggregateKind::Count))
+                || kind.is_some_and(AggregateKind::is_count)
                     && derivation.capabilities.streaming_access_shape_safe
                     && derivation
                         .capabilities
@@ -402,7 +371,6 @@ where
         }
     }
 
-    #[expect(clippy::too_many_lines)]
     fn derive_route_execution_stage(
         plan: &AccessPlannedQuery<E::Key>,
         intent_stage: &RouteIntentStage,
@@ -412,21 +380,15 @@ where
         let aggregate_force_materialized_due_to_predicate_uncertainty = (kind.is_some()
             || intent_stage.grouped)
             && intent_stage.aggregate_force_materialized_due_to_predicate_uncertainty;
-        let count_terminal = matches!(kind, Some(AggregateKind::Count));
+        let count_terminal = kind.is_some_and(AggregateKind::is_count);
         let execution_case = if intent_stage.grouped {
             ExecutionModeRouteCase::AggregateGrouped
+        } else if kind.is_some_and(AggregateKind::is_count) {
+            ExecutionModeRouteCase::AggregateCount
         } else {
-            match kind {
-                None => ExecutionModeRouteCase::Load,
-                Some(AggregateKind::Count) => ExecutionModeRouteCase::AggregateCount,
-                Some(
-                    AggregateKind::Exists
-                    | AggregateKind::Min
-                    | AggregateKind::Max
-                    | AggregateKind::First
-                    | AggregateKind::Last,
-                ) => ExecutionModeRouteCase::AggregateNonCount,
-            }
+            kind.map_or(ExecutionModeRouteCase::Load, |_| {
+                ExecutionModeRouteCase::AggregateNonCount
+            })
         };
         let execution_mode = match execution_case {
             ExecutionModeRouteCase::Load => {
@@ -576,16 +538,9 @@ where
         });
         let aggregate_physical_fetch_hint =
             count_pushdown_probe_fetch_hint.or(aggregate_terminal_probe_fetch_hint);
-        let aggregate_secondary_extrema_probe_fetch_hint = match kind {
-            Some(AggregateKind::Min | AggregateKind::Max) => aggregate_physical_fetch_hint,
-            Some(
-                AggregateKind::Count
-                | AggregateKind::Exists
-                | AggregateKind::First
-                | AggregateKind::Last,
-            )
-            | None => None,
-        };
+        let aggregate_secondary_extrema_probe_fetch_hint = kind
+            .filter(|aggregate_kind| aggregate_kind.is_extrema())
+            .and(aggregate_physical_fetch_hint);
 
         let physical_fetch_hint = if kind.is_some() {
             aggregate_physical_fetch_hint

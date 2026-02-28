@@ -14,9 +14,11 @@ use crate::{
             validate_access_structure_model as validate_access_structure_model_shared,
         },
         cursor::CursorPlanError,
-        policy::{self, PlanPolicyError},
         predicate::{SchemaInfo, ValidateError, validate},
-        query::plan::{AccessPlannedQuery, GroupSpec, LogicalPlan, OrderSpec, ScalarPlan},
+        query::{
+            plan::{AccessPlannedQuery, GroupSpec, LogicalPlan, OrderSpec, ScalarPlan},
+            policy::{self, PlanPolicyError},
+        },
     },
     model::entity::EntityModel,
     value::Value,
@@ -345,7 +347,7 @@ where
 // - ORDER canonicalization (primary-key tie-break insertion) is performed at the
 //   intent boundary via `canonicalize_order_spec` before plan validation.
 // - Shape-policy checks (for example empty ORDER, pagination/order coupling) are owned by
-//   `db::policy`.
+//   `query::policy`.
 // - Executor/runtime layers may defend execution preconditions only.
 
 /// Validate ORDER BY fields against the schema.

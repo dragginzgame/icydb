@@ -4,6 +4,7 @@ use crate::{
         data::DataKey,
         direction::Direction,
         executor::group::{GroupKey, GroupKeySet, StableHash, canonical_group_key_equals},
+        query::plan::{FieldSlot, GroupAggregateSpec as QueryGroupAggregateSpec},
     },
     error::InternalError,
     traits::EntityKind,
@@ -16,40 +17,6 @@ use thiserror::Error as ThisError;
 pub(in crate::db::executor) use crate::db::query::plan::AggregateKind;
 
 impl AggregateKind {
-    /// Return whether this terminal kind supports explicit field targets.
-    #[must_use]
-    pub(in crate::db::executor) const fn supports_field_targets(self) -> bool {
-        matches!(self, Self::Min | Self::Max)
-    }
-
-    /// Return whether this terminal kind belongs to the extrema family.
-    #[must_use]
-    pub(in crate::db::executor) const fn is_extrema(self) -> bool {
-        self.supports_field_targets()
-    }
-
-    /// Return whether this terminal kind supports first/last value projection.
-    #[must_use]
-    pub(in crate::db::executor) const fn supports_terminal_value_projection(self) -> bool {
-        matches!(self, Self::First | Self::Last)
-    }
-
-    /// Return whether reducer updates for this kind require a decoded id payload.
-    #[must_use]
-    pub(in crate::db::executor) const fn requires_decoded_id(self) -> bool {
-        !matches!(self, Self::Count | Self::Exists)
-    }
-
-    /// Return the canonical extrema traversal direction for this terminal kind.
-    #[must_use]
-    pub(in crate::db::executor) const fn extrema_direction(self) -> Option<Direction> {
-        match self {
-            Self::Min => Some(Direction::Asc),
-            Self::Max => Some(Direction::Desc),
-            Self::Count | Self::Exists | Self::First | Self::Last => None,
-        }
-    }
-
     /// Build the canonical empty-window aggregate output for this terminal kind.
     #[must_use]
     pub(in crate::db::executor) const fn zero_output<E: EntityKind>(self) -> AggregateOutput<E> {
@@ -100,19 +67,6 @@ impl AggregateKind {
 pub(in crate::db::executor) struct AggregateSpec {
     kind: AggregateKind,
     target_field: Option<String>,
-}
-
-///
-/// GroupAggregateSpec
-///
-/// Canonical grouped aggregate contract for future GROUP BY execution.
-/// Carries grouping keys plus one-or-more aggregate terminal specifications.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) struct GroupAggregateSpec {
-    group_keys: Vec<String>,
-    aggregate_specs: Vec<AggregateSpec>,
 }
 
 ///
@@ -494,74 +448,49 @@ impl AggregateSpec {
     }
 }
 
-impl GroupAggregateSpec {
-    /// Build one grouped aggregate contract from group-key + terminal specs.
-    #[must_use]
-    pub(in crate::db::executor) const fn new(
-        group_keys: Vec<String>,
-        aggregate_specs: Vec<AggregateSpec>,
-    ) -> Self {
-        Self {
-            group_keys,
-            aggregate_specs,
+/// Validate support boundaries for grouped aggregate contracts using canonical
+/// query-owned grouped specs.
+pub(in crate::db::executor) fn ensure_grouped_spec_supported_for_execution(
+    group_fields: &[FieldSlot],
+    aggregate_specs: &[QueryGroupAggregateSpec],
+) -> Result<(), GroupAggregateSpecSupportError> {
+    if aggregate_specs.is_empty() {
+        return Err(GroupAggregateSpecSupportError::MissingAggregateSpecs);
+    }
+
+    let mut seen_group_slots = BTreeSet::<usize>::new();
+    for field in group_fields {
+        if !seen_group_slots.insert(field.index()) {
+            return Err(GroupAggregateSpecSupportError::DuplicateGroupKey {
+                field: field.field().to_string(),
+            });
         }
     }
 
-    /// Build one global aggregate contract from a single terminal aggregate.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db::executor) fn for_global_terminal(spec: AggregateSpec) -> Self {
-        Self {
-            group_keys: Vec::new(),
-            aggregate_specs: vec![spec],
-        }
+    for (index, spec) in aggregate_specs.iter().enumerate() {
+        ensure_query_group_aggregate_supported(spec).map_err(|source| {
+            GroupAggregateSpecSupportError::AggregateSpecUnsupported { index, source }
+        })?;
     }
 
-    /// Borrow grouped key fields in declared order.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db::executor) const fn group_keys(&self) -> &[String] {
-        self.group_keys.as_slice()
+    Ok(())
+}
+
+fn ensure_query_group_aggregate_supported(
+    spec: &QueryGroupAggregateSpec,
+) -> Result<(), AggregateSpecSupportError> {
+    let Some(target_field) = spec.target_field() else {
+        return Ok(());
+    };
+
+    if !spec.kind().supports_field_targets() {
+        return Err(AggregateSpecSupportError::FieldTargetRequiresExtrema {
+            kind: spec.kind(),
+            target_field: target_field.to_string(),
+        });
     }
 
-    /// Borrow aggregate terminal specifications in declared projection order.
-    #[must_use]
-    pub(in crate::db::executor) const fn aggregate_specs(&self) -> &[AggregateSpec] {
-        self.aggregate_specs.as_slice()
-    }
-
-    /// Return true when this contract models grouped aggregation.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db::executor) const fn is_grouped(&self) -> bool {
-        !self.group_keys.is_empty()
-    }
-
-    /// Validate support boundaries for grouped aggregate contracts.
-    pub(in crate::db::executor) fn ensure_supported_for_execution(
-        &self,
-    ) -> Result<(), GroupAggregateSpecSupportError> {
-        if self.aggregate_specs.is_empty() {
-            return Err(GroupAggregateSpecSupportError::MissingAggregateSpecs);
-        }
-
-        let mut seen_group_keys = BTreeSet::<&str>::new();
-        for field in &self.group_keys {
-            if !seen_group_keys.insert(field.as_str()) {
-                return Err(GroupAggregateSpecSupportError::DuplicateGroupKey {
-                    field: field.clone(),
-                });
-            }
-        }
-
-        for (index, spec) in self.aggregate_specs.iter().enumerate() {
-            spec.ensure_supported_for_execution().map_err(|source| {
-                GroupAggregateSpecSupportError::AggregateSpecUnsupported { index, source }
-            })?;
-        }
-
-        Ok(())
-    }
+    Ok(())
 }
 
 ///

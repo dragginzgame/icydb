@@ -842,9 +842,13 @@ fn assert_resume_after_entity<E>(
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("boundary plan should build")
-        .into_inner()
-        .cursor_boundary_from_entity(entity)
-        .expect("boundary should build");
+        .into_inner();
+    let boundary_order = boundary
+        .scalar_plan()
+        .order
+        .as_ref()
+        .expect("boundary plan order should be present");
+    let boundary = crate::db::cursor::cursor_boundary_from_entity(entity, boundary_order);
 
     let page = load
         .execute_paged_with_cursor(
@@ -875,9 +879,14 @@ fn assert_resume_from_terminal_entity_exhausts_range<E>(
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("terminal-boundary plan should build")
-        .into_inner()
-        .cursor_boundary_from_entity(terminal_entity)
-        .expect("terminal boundary should build");
+        .into_inner();
+    let terminal_order = terminal_boundary
+        .scalar_plan()
+        .order
+        .as_ref()
+        .expect("terminal-boundary plan order should be present");
+    let terminal_boundary =
+        crate::db::cursor::cursor_boundary_from_entity(terminal_entity, terminal_order);
     let resume = load
         .execute_paged_with_cursor(
             build_query()

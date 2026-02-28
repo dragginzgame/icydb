@@ -8,7 +8,7 @@ use crate::{
             decode_index_entry, decode_index_key,
         },
         data::{RawRow, decode_and_validate_entity_key},
-        index::{IndexKey, plan_index_mutation_for_entity},
+        index::{IndexEntryReader, IndexKey, PrimaryRowReader, plan_index_mutation_for_entity},
         relation::prepare_reverse_relation_index_mutations_for_source,
     },
     error::InternalError,
@@ -20,10 +20,30 @@ use std::collections::BTreeMap;
 ///
 /// This resolves store handles and index/data mutations so commit/recovery
 /// apply can remain mechanical.
-#[expect(clippy::too_many_lines)]
+pub(in crate::db) fn prepare_row_commit_for_entity_with_readers<E: EntityKind + EntityValue>(
+    db: &Db<E::Canister>,
+    op: &CommitRowOp,
+    row_reader: &impl PrimaryRowReader<E>,
+    index_reader: &impl IndexEntryReader<E>,
+) -> Result<PreparedRowCommitOp, InternalError> {
+    prepare_row_commit_for_entity_impl(db, op, row_reader, index_reader)
+}
+
+/// Prepare a typed row-level commit op against committed-store readers.
 pub(in crate::db) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
     db: &Db<E::Canister>,
     op: &CommitRowOp,
+) -> Result<PreparedRowCommitOp, InternalError> {
+    let context = db.context::<E>();
+    prepare_row_commit_for_entity_impl(db, op, &context, &context)
+}
+
+#[expect(clippy::too_many_lines)]
+fn prepare_row_commit_for_entity_impl<E: EntityKind + EntityValue>(
+    db: &Db<E::Canister>,
+    op: &CommitRowOp,
+    row_reader: &impl PrimaryRowReader<E>,
+    index_reader: &impl IndexEntryReader<E>,
 ) -> Result<PreparedRowCommitOp, InternalError> {
     if op.entity_path != E::PATH {
         return Err(InternalError::store_corruption(format!(
@@ -88,7 +108,8 @@ pub(in crate::db) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
 
     let index_plan = plan_index_mutation_for_entity::<E>(
         db,
-        &db.context::<E>(),
+        row_reader,
+        index_reader,
         old_entity.as_ref(),
         new_pair.as_ref().map(|(_, entity)| entity),
     )?;
@@ -163,6 +184,7 @@ pub(in crate::db) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
     }
     let reverse_index_ops = prepare_reverse_relation_index_mutations_for_source::<E>(
         db,
+        index_reader,
         old_entity.as_ref(),
         new_pair.as_ref().map(|(_, entity)| entity),
     )?;

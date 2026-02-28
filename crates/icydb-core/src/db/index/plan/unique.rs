@@ -1,16 +1,17 @@
 use crate::{
     db::{
-        Db,
         data::DataKey,
-        direction::Direction,
-        index::{EncodedValue, IndexEntryCorruption, IndexId, IndexKey, PrimaryRowReader},
+        index::{
+            EncodedValue, IndexEntryCorruption, IndexEntryReader, IndexId, IndexKey, IndexStore,
+            PrimaryRowReader,
+        },
     },
     error::InternalError,
     model::{entity::resolve_field_slot, index::IndexModel},
     obs::sink::{MetricsEvent, record},
     traits::{EntityKind, EntityValue, FieldValue},
 };
-use std::{collections::BTreeSet, ops::Bound};
+use std::{cell::RefCell, collections::BTreeSet, ops::Bound, thread::LocalKey};
 
 /// Validate unique index constraints against existing rows that share the same
 /// index-component prefix.
@@ -19,14 +20,15 @@ use std::{collections::BTreeSet, ops::Bound};
 /// - Index corruption (multiple existing keys for a unique value)
 /// - Uniqueness violations (conflicting key ownership)
 ///
-/// Validation is performed against the current committed store state before
-/// commit-op synthesis. It allows self-ownership (`matching_keys` contains
-/// `new_key`) and rejects only conflicting ownership.
-#[expect(clippy::too_many_lines)]
+/// Validation is performed against the current logical store view before
+/// commit-op synthesis. It allows self-ownership (entry contains `new_key`)
+/// and rejects only conflicting ownership.
+#[allow(clippy::too_many_lines)]
 pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
-    db: &Db<E::Canister>,
     row_reader: &impl PrimaryRowReader<E>,
+    index_reader: &impl IndexEntryReader<E>,
     index: &IndexModel,
+    store: &'static LocalKey<RefCell<IndexStore>>,
     new_key: Option<&E::Key>,
     new_entity: Option<&E>,
 ) -> Result<(), InternalError> {
@@ -58,8 +60,7 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
         indexed_field_slots.push((*field, field_index));
     }
 
-    // Phase 1: build the semantic prefix and short-circuit when the value is
-    // not canonically indexable (for example Null/unsupported kinds).
+    // Build and validate the semantic unique prefix for the incoming entity.
     let mut encoded_prefix = Vec::with_capacity(index.fields.len());
     for (field, field_index) in indexed_field_slots.iter().copied() {
         let expected = new_entity.get_value_by_index(field_index).ok_or_else(|| {
@@ -76,35 +77,24 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
         encoded_prefix.push(encoded_value);
     }
 
-    // Phase 2: resolve all rows currently indexed at this unique prefix.
-    let index_store = db
-        .with_store_registry(|registry| registry.try_get_store(index.store))?
-        .index_store();
     let index_id = IndexId::new::<E>(index);
     let (lower, upper) =
         IndexKey::bounds_for_prefix(&index_id, index.fields.len(), encoded_prefix.as_slice());
-    let (lower, upper) = (
-        Bound::Included(lower.to_raw()),
-        Bound::Included(upper.to_raw()),
-    );
+    let lower = Bound::Included(lower.to_raw());
+    let upper = Bound::Included(upper.to_raw());
 
     // Unique validation only needs to distinguish 0, 1, or "more than 1".
     // Capping this probe avoids scanning large corrupted buckets.
     let unique_probe_limit = 2usize;
-    let matching_data_keys = index_store.with_borrow(|store| {
-        store.resolve_data_values_in_raw_range_limited::<E>(
-            index,
-            (&lower, &upper),
-            None,
-            Direction::Asc,
-            unique_probe_limit,
-            None,
-        )
-    })?;
-
+    let matching_data_keys = index_reader.read_index_keys_in_raw_range(
+        store,
+        index,
+        (&lower, &upper),
+        unique_probe_limit,
+    )?;
     let mut matching_keys = BTreeSet::new();
-    for data_key in matching_data_keys {
-        matching_keys.insert(data_key.try_key::<E>()?);
+    for key in matching_data_keys {
+        matching_keys.insert(key);
     }
 
     if matching_keys.is_empty() {

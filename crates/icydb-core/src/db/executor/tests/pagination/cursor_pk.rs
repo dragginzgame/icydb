@@ -77,9 +77,13 @@ fn load_offset_pagination_preserves_next_cursor_boundary() {
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("comparison plan should build")
         .into_inner();
-    let expected_boundary = comparison_plan
-        .cursor_boundary_from_entity(&page.items.0[1].1)
-        .expect("expected boundary should build");
+    let comparison_order = comparison_plan
+        .scalar_plan()
+        .order
+        .as_ref()
+        .expect("comparison plan order should be present");
+    let expected_boundary =
+        crate::db::cursor::cursor_boundary_from_entity(&page.items.0[1].1, comparison_order);
     assert_eq!(
         token.boundary(),
         &expected_boundary,
@@ -1382,9 +1386,13 @@ fn load_cursor_next_cursor_uses_last_returned_row_boundary() {
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("comparison plan should build")
         .into_inner();
-    let expected_boundary = comparison_plan
-        .cursor_boundary_from_entity(&page1.items.0[1].1)
-        .expect("expected boundary should build");
+    let comparison_order = comparison_plan
+        .scalar_plan()
+        .order
+        .as_ref()
+        .expect("comparison plan order should be present");
+    let expected_boundary =
+        crate::db::cursor::cursor_boundary_from_entity(&page1.items.0[1].1, comparison_order);
     assert_eq!(
         token.boundary(),
         &expected_boundary,
