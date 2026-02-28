@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Maintainer note: changelog entries that reach 4 lines or more should be split into subsection headers.
 
+## [0.33.2] - 2026-02-28 - Grouped Runtime Activation and Stream Ownership Cleanup
+
+### 📝 Summary
+
+* Completed the grouped vertical slice from planning through execution, cursor continuation, resume revalidation, and session response plumbing.
+
+### 🔧 Changed
+
+* Enabled grouped load execution to materialize grouped aggregate rows and emit grouped continuation cursors.
+* Wired grouped continuation decode, preparation, and revalidation through load-entry resume boundaries.
+* Updated session and response surfaces so grouped queries return grouped page cursors instead of scalar continuation payloads.
+* Corrected grouped route observability to report selected, rejected, and materialized-fallback outcomes instead of disabled placeholders.
+* Compressed `db/` ownership by relocating traversal helpers to executor ownership and collapsing thin grouped planning relays.
+* Consolidated resolved predicate contracts under neutral `db` contracts so index predicate compilation no longer depends on query runtime internals.
+* Moved the production DISTINCT key-stream adapter into executor stream ownership so kernel consumes stream implementations instead of defining them.
+
+### 🗑️ Removed
+
+* Removed grouped cursor relay scaffolding in favor of direct ownership by cursor token/planned/validation modules.
+* Removed grouped session compile-fail guardrails now that grouped execution is wired and exposed through the session surface.
+
+### 📊 Audit
+
+* Structural compression removed redundant scaffold layers across planner, cursor, executor, and stream boundaries while preserving behavior and layer direction.
+
+See detailed breakdown:
+`docs/changelog/0.33.md`
+
+---
+
 ## [0.33.0] - 2026-02-27 - Grouped Plan Activation
 
 ### Added
@@ -26,7 +56,7 @@ Maintainer note: changelog entries that reach 4 lines or more should be split in
 - Removed flat recurring-audit placement in favor of domain subtrees under the normalized audit hierarchy.
 
 See detailed breakdown:
-`docs/changelog/0.33.0.md`
+`docs/changelog/0.33.md`
 
 ---
 

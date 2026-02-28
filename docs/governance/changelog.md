@@ -1,7 +1,7 @@
 # IcyDB Changelog Governance
 
 This document defines the authoritative rules for maintaining
-`CHANGELOG.md` and version-specific changelog archives.
+`CHANGELOG.md` and minor-line changelog archives.
 
 These rules are intended to be followed by automated agents.
 
@@ -17,7 +17,7 @@ It must remain concise and structured.
 
 Detailed change breakdowns belong in:
 
-docs/changelog/<version>.md
+docs/changelog/<major>.<minor>.md
 
 ---
 
@@ -32,9 +32,9 @@ docs/changelog/<version>.md
   - High-level summary sections
   - Links to detailed notes
 
-## 2.2 Detailed Version Notes
+## 2.2 Detailed Minor Notes
 
-- Location: `docs/changelog/<version>.md`
+- Location: `docs/changelog/<major>.<minor>.md`
 - Contains:
   - Deep architectural explanation
   - Internal module movements
@@ -42,6 +42,9 @@ docs/changelog/<version>.md
   - Execution-shape changes
   - Validation and invariant notes
   - Migration commentary
+
+All patch releases in the same minor line share one detailed notes file.
+Example: `0.33.0`, `0.33.1`, and `0.33.2` all map to `docs/changelog/0.33.md`.
 
 The root changelog must link to the detailed file when present.
 
@@ -76,7 +79,7 @@ Rules:
 9. Do not include test names.
 10. Do not include internal refactor noise.
 11. Do not exceed ~15 bullets total in the root entry.
-12. If a section exceeds ~4 lines of explanation, move detail to `docs/changelog/<version>.md`.
+12. If a section exceeds ~4 lines of explanation, move detail to `docs/changelog/<major>.<minor>.md`.
 
 ## 3.1 Section Header Emoji Mapping
 
@@ -114,7 +117,7 @@ When preparing a release:
    - Test-only changes (unless behaviorally significant)
    - Internal renames without surface impact
 5. Generate a concise summary entry in root CHANGELOG.md.
-6. Generate or update docs/changelog/<version>.md with full detail.
+6. Generate or update docs/changelog/<major>.<minor>.md with full detail.
 7. Insert link from root file to detailed file.
 8. Use the version specified by the release request or the existing latest changelog entry.
 9. Do not create a new version header if the newest entry already exists for the target version.
@@ -124,7 +127,7 @@ Agents must never:
 - Delete historical version entries.
 - Rewrite previous release summaries.
 - Reorder version history.
-- Collapse multiple versions into one.
+- Collapse multiple minor lines into one detailed file.
 
 ---
 
@@ -150,7 +153,7 @@ The root entry must:
 # 6. Archival Policy
 
 Older detailed entries may be moved from root CHANGELOG.md
-into docs/changelog/<version>.md if the root file grows large.
+into docs/changelog/<major>.<minor>.md if the root file grows large.
 
 When archiving:
 
@@ -208,7 +211,7 @@ For each release:
 
 1. Update version in Cargo.toml.
 2. Update CHANGELOG.md.
-3. Create or update docs/changelog/<version>.md.
+3. Create or update docs/changelog/<major>.<minor>.md.
 4. Commit.
 5. Tag release.
 
