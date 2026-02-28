@@ -1,5 +1,9 @@
+//! Module: index::plan
+//! Responsibility: preflight planning for deterministic index mutations.
+//! Does not own: commit marker protocol or runtime apply sequencing.
+//! Boundary: executor/commit call this module before writing commit markers.
+
 mod commit_ops;
-mod load;
 mod unique;
 
 use crate::{
@@ -7,7 +11,9 @@ use crate::{
         Db,
         commit::CommitIndexOp,
         data::{DataKey, RawRow},
-        index::{IndexEntryCorruption, IndexKey, IndexStore, RawIndexEntry, RawIndexKey},
+        index::{
+            IndexEntry, IndexEntryCorruption, IndexKey, IndexStore, RawIndexEntry, RawIndexKey,
+        },
     },
     error::InternalError,
     model::index::IndexModel,
@@ -88,12 +94,14 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
     old: Option<&E>,
     new: Option<&E>,
 ) -> Result<IndexMutationPlan, InternalError> {
+    // Phase 1: derive old/new entity identities and allocate plan buffers.
     let old_entity_key = old.map(|entity| entity.id().key());
     let new_entity_key = new.map(|entity| entity.id().key());
 
     let mut apply = Vec::with_capacity(E::INDEXES.len());
     let mut commit_ops = Vec::new();
 
+    // Phase 2: per-index load, validate, and synthesize commit ops.
     for index in E::INDEXES {
         let store = db
             .with_store_registry(|registry| registry.try_get_store(index.store))?
@@ -108,7 +116,7 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
             None => None,
         };
 
-        let old_entry = load::load_existing_entry(index_reader, store, index, old)?;
+        let old_entry = load_existing_entry(index_reader, store, index, old)?;
 
         // Prevalidate membership so commit-phase mutations cannot surface corruption.
         if let Some(old_key) = &old_key {
@@ -149,7 +157,7 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
         let new_entry = if old_key == new_key {
             old_entry.clone()
         } else {
-            load::load_existing_entry(index_reader, store, index, new)?
+            load_existing_entry(index_reader, store, index, new)?
         };
 
         // Unique validation is evaluated against the currently committed store
@@ -179,5 +187,38 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
         apply.push(IndexApplyPlan { index, store });
     }
 
+    // Phase 3: return deterministic apply + commit-op plan.
     Ok(IndexMutationPlan { apply, commit_ops })
+}
+
+pub(super) fn load_existing_entry<E: EntityKind + EntityValue>(
+    index_reader: &impl IndexEntryReader<E>,
+    store: &'static LocalKey<RefCell<IndexStore>>,
+    index: &'static IndexModel,
+    entity: Option<&E>,
+) -> Result<Option<IndexEntry<E>>, InternalError> {
+    // No entity transition input means no index entry to load.
+    let Some(entity) = entity else {
+        return Ok(None);
+    };
+
+    // Build the candidate key; non-indexable values produce no entry.
+    let Some(key) = IndexKey::new(entity, index)? else {
+        return Ok(None);
+    };
+    let raw_key = key.to_raw();
+
+    index_reader
+        .read_index_entry(store, &raw_key)?
+        .map(|raw_entry| {
+            raw_entry.try_decode().map_err(|err| {
+                InternalError::index_plan_index_corruption(format!(
+                    "index corrupted: {} ({}) -> {}",
+                    E::PATH,
+                    index.fields.join(", "),
+                    err
+                ))
+            })
+        })
+        .transpose()
 }

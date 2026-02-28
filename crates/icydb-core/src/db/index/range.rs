@@ -1,8 +1,10 @@
+//! Module: index::range
+//! Responsibility: semantic-to-raw range lowering for index key traversal.
+//! Does not own: continuation token verification or index-store scanning.
+//! Boundary: planner/cursor paths call this module to build raw bounds.
+
 use crate::{
-    db::{
-        direction::Direction,
-        index::{EncodedValue, IndexId, IndexKey, IndexKeyKind, KeyEnvelope, RawIndexKey},
-    },
+    db::index::{EncodedValue, IndexId, IndexKey, IndexKeyKind, RawIndexKey},
     model::index::IndexModel,
     traits::EntityKind,
     value::Value,
@@ -21,67 +23,6 @@ pub(in crate::db) enum IndexRangeBoundEncodeError {
     Prefix,
     Lower,
     Upper,
-}
-
-///
-/// IndexRangeNotIndexableReasonScope
-///
-/// Context scopes for stable index-range "not indexable" reason strings.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum IndexRangeNotIndexableReasonScope {
-    ValidatedSpec,
-    CursorContinuationAnchor,
-}
-
-///
-/// map_bound_encode_error
-///
-/// Map a bound-encode variant to the caller-provided reason string for that
-/// bound position. Callers keep ownership of their error class and boundary.
-///
-
-#[must_use]
-pub(in crate::db) const fn map_bound_encode_error(
-    err: IndexRangeBoundEncodeError,
-    prefix_reason: &'static str,
-    lower_reason: &'static str,
-    upper_reason: &'static str,
-) -> &'static str {
-    match err {
-        IndexRangeBoundEncodeError::Prefix => prefix_reason,
-        IndexRangeBoundEncodeError::Lower => lower_reason,
-        IndexRangeBoundEncodeError::Upper => upper_reason,
-    }
-}
-
-///
-/// map_index_range_not_indexable_reason
-///
-/// Map a bound-encode variant to stable, scope-specific "not indexable" reasons.
-/// This keeps reason text aligned across planner/cursor boundaries.
-///
-
-#[must_use]
-pub(in crate::db) const fn map_index_range_not_indexable_reason(
-    scope: IndexRangeNotIndexableReasonScope,
-    err: IndexRangeBoundEncodeError,
-) -> &'static str {
-    match scope {
-        IndexRangeNotIndexableReasonScope::ValidatedSpec => map_bound_encode_error(
-            err,
-            "validated index-range prefix is not indexable",
-            "validated index-range lower bound is not indexable",
-            "validated index-range upper bound is not indexable",
-        ),
-        IndexRangeNotIndexableReasonScope::CursorContinuationAnchor => map_bound_encode_error(
-            err,
-            "index-range continuation anchor prefix is not indexable",
-            "index-range cursor lower continuation bound is not indexable",
-            "index-range cursor upper continuation bound is not indexable",
-        ),
-    }
 }
 
 ///
@@ -157,81 +98,19 @@ pub(in crate::db) fn raw_bounds_for_semantic_index_component_range<E: EntityKind
     lower: &Bound<Value>,
     upper: &Bound<Value>,
 ) -> Result<(Bound<RawIndexKey>, Bound<RawIndexKey>), IndexRangeBoundEncodeError> {
+    // Phase 1: encode semantic values into canonical index-component bytes.
     let encoded_prefix =
         EncodedValue::try_encode_all(prefix).map_err(|_| IndexRangeBoundEncodeError::Prefix)?;
     let encoded_lower = encode_semantic_component_bound(lower, IndexRangeBoundEncodeError::Lower)?;
     let encoded_upper = encode_semantic_component_bound(upper, IndexRangeBoundEncodeError::Upper)?;
 
+    // Phase 2: lower encoded bounds to canonical raw index-key bounds.
     Ok(raw_bounds_for_encoded_index_component_range::<E>(
         index,
         encoded_prefix.as_slice(),
         &encoded_lower,
         &encoded_upper,
     ))
-}
-
-///
-/// resume_bounds_from_refs
-///
-/// Rewrite raw continuation bounds from borrowed envelopes while cloning only
-/// the retained bound edge.
-///
-
-#[must_use]
-pub(in crate::db) fn resume_bounds_from_refs(
-    direction: Direction,
-    lower: &Bound<RawIndexKey>,
-    upper: &Bound<RawIndexKey>,
-    anchor: &RawIndexKey,
-) -> (Bound<RawIndexKey>, Bound<RawIndexKey>) {
-    match direction {
-        Direction::Asc => (Bound::Excluded(anchor.clone()), upper.clone()),
-        Direction::Desc => (lower.clone(), Bound::Excluded(anchor.clone())),
-    }
-}
-
-///
-/// anchor_within_envelope
-///
-/// Validate that a continuation anchor stays within the original raw-key envelope.
-/// Envelope containment remains direction-agnostic over the same raw bounds.
-///
-
-#[must_use]
-pub(in crate::db) fn anchor_within_envelope(
-    _direction: Direction,
-    anchor: &RawIndexKey,
-    lower: &Bound<RawIndexKey>,
-    upper: &Bound<RawIndexKey>,
-) -> bool {
-    let lower_ok = match lower {
-        Bound::Unbounded => true,
-        Bound::Included(boundary) => anchor >= boundary,
-        Bound::Excluded(boundary) => anchor > boundary,
-    };
-    let upper_ok = match upper {
-        Bound::Unbounded => true,
-        Bound::Included(boundary) => anchor <= boundary,
-        Bound::Excluded(boundary) => anchor < boundary,
-    };
-
-    lower_ok && upper_ok
-}
-
-///
-/// continuation_advanced
-///
-/// Validate strict monotonic advancement relative to the continuation anchor.
-///
-
-#[must_use]
-pub(in crate::db) fn continuation_advanced(
-    direction: Direction,
-    candidate: &RawIndexKey,
-    anchor: &RawIndexKey,
-) -> bool {
-    KeyEnvelope::new(direction, Bound::Unbounded, Bound::Unbounded)
-        .continuation_advanced(candidate, anchor)
 }
 
 ///
@@ -245,6 +124,7 @@ pub(in crate::db) fn envelope_is_empty(
     lower: &Bound<RawIndexKey>,
     upper: &Bound<RawIndexKey>,
 ) -> bool {
+    // Unbounded envelopes are never empty by construction.
     let (Some(lower_key), Some(upper_key)) = (bound_key_ref(lower), bound_key_ref(upper)) else {
         return false;
     };
@@ -306,64 +186,10 @@ mod tests {
     use crate::{db::index::RawIndexKey, traits::Storable};
     use std::{borrow::Cow, ops::Bound};
 
-    use super::{Direction, anchor_within_envelope, continuation_advanced, envelope_is_empty};
+    use super::envelope_is_empty;
 
     fn raw_key(byte: u8) -> RawIndexKey {
         <RawIndexKey as Storable>::from_bytes(Cow::Owned(vec![byte]))
-    }
-
-    #[test]
-    fn anchor_within_envelope_is_bidirectionally_contained_for_current_model() {
-        let lower = Bound::Included(raw_key(0x10));
-        let upper = Bound::Excluded(raw_key(0x20));
-        let inside = raw_key(0x18);
-        let below = raw_key(0x0F);
-        let at_excluded_upper = raw_key(0x20);
-
-        assert_eq!(
-            anchor_within_envelope(Direction::Asc, &inside, &lower, &upper),
-            anchor_within_envelope(Direction::Desc, &inside, &lower, &upper),
-            "ASC and DESC envelope containment must match for equivalent bounds",
-        );
-        assert_eq!(
-            anchor_within_envelope(Direction::Asc, &below, &lower, &upper),
-            anchor_within_envelope(Direction::Desc, &below, &lower, &upper),
-            "ASC and DESC envelope containment must match for below-lower anchors",
-        );
-        assert_eq!(
-            anchor_within_envelope(Direction::Asc, &at_excluded_upper, &lower, &upper),
-            anchor_within_envelope(Direction::Desc, &at_excluded_upper, &lower, &upper),
-            "ASC and DESC envelope containment must match for upper-boundary anchors",
-        );
-    }
-
-    #[test]
-    fn continuation_advanced_is_directional() {
-        let anchor = raw_key(0x10);
-        let asc_candidate = raw_key(0x11);
-        let desc_candidate = raw_key(0x0F);
-
-        assert!(continuation_advanced(
-            Direction::Asc,
-            &asc_candidate,
-            &anchor
-        ));
-        assert!(!continuation_advanced(
-            Direction::Asc,
-            &desc_candidate,
-            &anchor
-        ));
-
-        assert!(continuation_advanced(
-            Direction::Desc,
-            &desc_candidate,
-            &anchor
-        ));
-        assert!(!continuation_advanced(
-            Direction::Desc,
-            &asc_candidate,
-            &anchor
-        ));
     }
 
     #[test]

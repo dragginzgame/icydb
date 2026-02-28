@@ -1,3 +1,8 @@
+//! Module: index::key::codec::envelope
+//! Responsibility: raw-key storable boundary helpers.
+//! Does not own: index-key parsing rules.
+//! Boundary: stable-memory storage adapter for `RawIndexKey`.
+
 use crate::{
     db::index::key::codec::{IndexKey, RawIndexKey},
     traits::Storable,

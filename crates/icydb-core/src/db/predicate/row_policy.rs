@@ -1,3 +1,8 @@
+//! Module: predicate::row_policy
+//! Responsibility: missing-row handling policy shared by query/executor layers.
+//! Does not own: predicate expression semantics.
+//! Boundary: consumed by query plan builders and executor flows.
+
 ///
 /// MissingRowPolicy
 ///

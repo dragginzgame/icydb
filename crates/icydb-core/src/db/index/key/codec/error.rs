@@ -1,3 +1,8 @@
+//! Module: index::key::codec::error
+//! Responsibility: stable corruption reason strings for raw index-key decode.
+//! Does not own: error class mapping.
+//! Boundary: referenced by codec decode helpers and tests.
+
 pub(super) const ERR_INVALID_KEY_KIND: &str = "corrupted IndexKey: invalid key kind";
 pub(super) const ERR_INVALID_SIZE: &str = "corrupted IndexKey: invalid size";
 pub(super) const ERR_INVALID_INDEX_NAME_BYTES: &str = "corrupted IndexKey: invalid IndexName bytes";

@@ -1,3 +1,8 @@
+//! Module: index::key::codec::scalar
+//! Responsibility: scalar tag encoding for index key namespaces.
+//! Does not own: full key framing.
+//! Boundary: consumed by codec encode/decode.
+
 use crate::db::index::key::codec::error::ERR_INVALID_KEY_KIND;
 
 ///

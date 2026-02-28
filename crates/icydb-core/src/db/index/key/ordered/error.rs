@@ -1,3 +1,8 @@
+//! Module: index::key::ordered::error
+//! Responsibility: canonical ordered-component encode error taxonomy.
+//! Does not own: error class mapping outside ordered encoding.
+//! Boundary: consumed by index-key build/predicate compile paths.
+
 use crate::error::InternalError;
 use thiserror::Error as ThisError;
 

@@ -1,3 +1,8 @@
+//! Module: data::store
+//! Responsibility: stable BTreeMap-backed row persistence.
+//! Does not own: key/row validation policy beyond type boundaries.
+//! Boundary: commit/executor call into this layer after prevalidation.
+
 use crate::db::data::{DataKey, RawDataKey, RawRow};
 use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, memory::VirtualMemory};
 use derive_more::Deref;
@@ -5,18 +10,10 @@ use derive_more::Deref;
 ///
 /// DataStore
 ///
-/// Architectural Notes:
+/// Thin persistence wrapper over one stable BTreeMap.
 ///
-/// - DataStore is a thin persistence wrapper over a stable BTreeMap.
-/// - All key and row validation occurs *before* insertion:
-///     - RawDataKey is fixed-size and validated at decode.
-///     - RawRow is size-bounded at construction.
-/// - This layer does NOT enforce transactional or commit-phase discipline.
-///   Higher layers (commit/executor) are responsible for write coordination.
-/// - Mutation methods (insert/remove/clear) are intentionally explicit to
-///   allow future interception (metrics, invariants, atomic guards).
-/// - Read surface is exposed via Deref for ergonomic iteration, but this
-///   means DataStore is not a strict policy layer.
+/// Invariant: callers provide already-validated `RawDataKey` and `RawRow`.
+/// This type intentionally does not enforce commit-phase ordering.
 ///
 
 #[derive(Deref)]
@@ -29,14 +26,17 @@ impl DataStore {
         Self(BTreeMap::init(memory))
     }
 
+    /// Insert or replace one row by raw key.
     pub fn insert(&mut self, key: RawDataKey, row: RawRow) -> Option<RawRow> {
         self.0.insert(key, row)
     }
 
+    /// Remove one row by raw key.
     pub fn remove(&mut self, key: &RawDataKey) -> Option<RawRow> {
         self.0.remove(key)
     }
 
+    /// Load one row by raw key.
     pub fn get(&self, key: &RawDataKey) -> Option<RawRow> {
         self.0.get(key)
     }
@@ -48,6 +48,7 @@ impl DataStore {
 
     /// Sum of bytes used by all stored rows.
     pub fn memory_bytes(&self) -> u64 {
+        // Report map footprint as key bytes + row bytes per entry.
         self.iter()
             .map(|entry| DataKey::STORED_SIZE_BYTES + entry.value().len() as u64)
             .sum()

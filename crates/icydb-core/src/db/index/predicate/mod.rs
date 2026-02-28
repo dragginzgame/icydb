@@ -1,3 +1,8 @@
+//! Module: index::predicate
+//! Responsibility: compiled index-only predicate program model + execution.
+//! Does not own: semantic predicate resolution or planner route policy.
+//! Boundary: query/load paths use this for conservative index prefiltering.
+
 pub(crate) mod compile;
 #[cfg(test)]
 mod tests;
@@ -112,6 +117,7 @@ pub(in crate::db) fn eval_index_program_on_decoded_key(
     key: &IndexKey,
     program: &IndexPredicateProgram,
 ) -> Result<bool, InternalError> {
+    // Evaluate recursively over the compiled index-only predicate tree.
     match program {
         IndexPredicateProgram::True => Ok(true),
         IndexPredicateProgram::False => Ok(false),

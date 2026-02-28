@@ -1,3 +1,8 @@
+//! Module: index::key::ordered::semantics
+//! Responsibility: fixed-width scalar byte transforms preserving order.
+//! Does not own: segment framing or canonical tag assignment.
+//! Boundary: internal helper trait/functions for ordered encoding.
+
 use crate::{
     db::index::key::ordered::OrderedValueEncodeError,
     types::{Date, Duration, Int128, Nat128, Repr, Timestamp},

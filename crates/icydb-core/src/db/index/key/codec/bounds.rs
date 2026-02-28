@@ -1,3 +1,8 @@
+//! Module: index::key::codec::bounds
+//! Responsibility: byte-size bounds/constants for index-key framing.
+//! Does not own: parsing logic or semantic key construction.
+//! Boundary: consumed by codec encode/decode helpers.
+
 use crate::{
     MAX_INDEX_FIELDS,
     db::{data::StorageKey, identity::IndexName, index::key::codec::IndexKey},

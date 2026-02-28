@@ -1,3 +1,8 @@
+//! Module: index::key::build
+//! Responsibility: build `IndexId`/`IndexKey` values from entity + index models.
+//! Does not own: raw key byte framing (codec) or index-store writes.
+//! Boundary: planning/mutation paths call into this constructor layer.
+
 use crate::{
     MAX_INDEX_FIELDS,
     db::{
@@ -36,6 +41,7 @@ impl IndexKey {
         entity: &E,
         index: &IndexModel,
     ) -> Result<Option<Self>, InternalError> {
+        // Phase 1: validate declared index shape and collect encoded components.
         if index.fields.len() > MAX_INDEX_FIELDS {
             return Err(InternalError::index_invariant(format!(
                 "index '{}' has {} fields (max {})",
@@ -87,6 +93,7 @@ impl IndexKey {
             components.push(component);
         }
 
+        // Phase 2: encode primary key payload and assemble full key.
         let entity_key_value = entity.id().key().to_value();
         let storage_key = StorageKey::try_from_value(&entity_key_value)?;
         let primary_key = storage_key.to_bytes()?.to_vec();
@@ -132,6 +139,7 @@ impl IndexKey {
         index_len: usize,
         prefix: &[C],
     ) -> (Self, Self) {
+        // Invalid inputs fail closed to an empty envelope sentinel.
         if index_len > MAX_INDEX_FIELDS || prefix.len() > index_len {
             debug_assert!(
                 false,
@@ -226,6 +234,7 @@ impl IndexKey {
         lower: &Bound<B>,
         upper: &Bound<B>,
     ) -> (Bound<Self>, Bound<Self>) {
+        // Validate shape before bound materialization; fail closed in debug-invalid paths.
         if index_len == 0 || index_len > MAX_INDEX_FIELDS || prefix.len() >= index_len {
             debug_assert!(
                 false,

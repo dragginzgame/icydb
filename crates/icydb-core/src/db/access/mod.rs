@@ -1,7 +1,7 @@
-//! Shared access-layer contracts.
-//!
-//! This module owns shared access contracts and access-shape lowering helpers
-//! used by query planning and executor runtime.
+//! Module: access
+//! Responsibility: access-path contracts, canonicalization, validation, and lowering.
+//! Does not own: predicate semantics or index storage internals.
+//! Boundary: query planning produces access plans; executor consumes lowered forms.
 
 pub(crate) mod canonical;
 pub(crate) mod lowering;

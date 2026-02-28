@@ -1,4 +1,7 @@
-//! Access contract types shared by query planning, lowering, and execution.
+//! Module: access::path
+//! Responsibility: access-path contract types shared by planning/lowering/runtime.
+//! Does not own: path validation or canonicalization policy.
+//! Boundary: used by access-plan construction and executor interpretation.
 
 use crate::{model::index::IndexModel, value::Value};
 use std::ops::Bound;

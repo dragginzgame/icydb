@@ -1,3 +1,8 @@
+//! Module: index::contracts
+//! Responsibility: boundary contracts for index-key/semantic-value equivalence checks.
+//! Does not own: key encoding rules or predicate planning.
+//! Boundary: used by range/cursor validation paths.
+
 use crate::{
     db::{
         data::{StorageKey, StorageKeyDecodeError, StorageKeyEncodeError},
@@ -34,9 +39,12 @@ pub(in crate::db) fn primary_key_matches_value(
     index_key: &IndexKey,
     boundary_key_value: &Value,
 ) -> Result<bool, PrimaryKeyEquivalenceError> {
+    // Phase 1: decode the persisted primary-key anchor from the index key.
     let anchor_key = index_key
         .primary_storage_key()
         .map_err(|source| PrimaryKeyEquivalenceError::AnchorDecode { source })?;
+
+    // Phase 2: encode the semantic boundary value to comparable storage form.
     let boundary_key = StorageKey::try_from_value(boundary_key_value)
         .map_err(|source| PrimaryKeyEquivalenceError::BoundaryEncode { source })?;
 

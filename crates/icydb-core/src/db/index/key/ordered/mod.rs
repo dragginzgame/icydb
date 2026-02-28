@@ -1,3 +1,8 @@
+//! Module: index::key::ordered
+//! Responsibility: canonical component encoding where byte order matches value order.
+//! Does not own: full index-key framing or index-store traversal.
+//! Boundary: used by index-key build/predicate compile/range lowering.
+
 use crate::{db::index::key::ordered::semantics::OrderedEncode, value::Value};
 
 mod error;
@@ -60,9 +65,11 @@ impl AsRef<[u8]> for EncodedValue {
 pub(crate) fn encode_canonical_index_component(
     value: &Value,
 ) -> Result<Vec<u8>, OrderedValueEncodeError> {
+    // Phase 1: emit canonical value tag to establish cross-kind ordering.
     let mut out = Vec::new();
-
     out.push(value.canonical_tag().to_u8());
+
+    // Phase 2: encode kind-specific payload preserving in-kind ordering.
     encode_component_payload(&mut out, value)?;
 
     Ok(out)

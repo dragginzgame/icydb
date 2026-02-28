@@ -1,3 +1,8 @@
+//! Module: access::validate
+//! Responsibility: schema-aware access-plan shape and key compatibility validation.
+//! Does not own: access-path lowering or runtime scan semantics.
+//! Boundary: validation boundary before lowering/execution.
+
 use crate::{
     db::{
         access::{AccessPath, AccessPlan, SemanticIndexRangeSpec},
@@ -72,7 +77,7 @@ trait AccessPlanKeyAdapter<K> {
 }
 
 ///
-/// GenericKeyAdapater
+/// GenericKeyAdapter
 /// Adapter for typed key plans (FieldValue + Ord)
 ///
 

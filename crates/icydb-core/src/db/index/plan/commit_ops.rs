@@ -1,3 +1,8 @@
+//! Module: index::plan::commit_ops
+//! Responsibility: synthesize deterministic index commit operations.
+//! Does not own: index-entry loading or uniqueness validation.
+//! Boundary: called from index planning after prevalidation succeeds.
+
 use crate::{
     db::{
         commit::CommitIndexOp,
@@ -28,6 +33,7 @@ pub(super) fn build_commit_ops_for_index<E: EntityKind>(
     old_entity_key: Option<E::Key>,
     new_entity_key: Option<E::Key>,
 ) -> Result<(), InternalError> {
+    // Phase 1: model old/new membership transitions in memory.
     let mut touched: BTreeMap<RawIndexKey, Option<IndexEntry<E>>> = BTreeMap::new();
     let fields = index.fields.join(", ");
 
@@ -75,7 +81,7 @@ pub(super) fn build_commit_ops_for_index<E: EntityKind>(
         touched.insert(raw_key, Some(entry));
     }
 
-    // Emit commit ops.
+    // Phase 2: encode touched entries into commit operations.
     for (raw_key, entry) in touched {
         let value = if let Some(entry) = entry {
             let raw = RawIndexEntry::try_from(&entry).map_err(|err| match err {

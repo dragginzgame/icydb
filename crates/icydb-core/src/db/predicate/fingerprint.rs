@@ -1,3 +1,8 @@
+//! Module: predicate::fingerprint
+//! Responsibility: deterministic predicate hashing for plan signatures.
+//! Does not own: predicate normalization or runtime execution.
+//! Boundary: used by planner/continuation fingerprinting.
+
 use crate::{
     db::predicate::{CoercionId, Predicate},
     value::{Value, hash_value},
@@ -7,6 +12,7 @@ use std::collections::BTreeMap;
 
 /// Hash predicate structure into the plan hash stream.
 pub(in crate::db) fn hash_predicate(hasher: &mut Sha256, predicate: &Predicate) {
+    // Predicate hashing is structural: same normalized tree => same bytes.
     match predicate {
         Predicate::True => write_tag(hasher, 0x21),
         Predicate::False => write_tag(hasher, 0x22),
@@ -70,6 +76,7 @@ pub(in crate::db) fn hash_coercion(
     id: CoercionId,
     params: &BTreeMap<String, String>,
 ) {
+    // Parameter maps are iterated in sorted key order (BTreeMap) for stability.
     write_tag(hasher, id.plan_hash_tag());
     write_len_u32(hasher, params.len());
     for (key, value) in params {

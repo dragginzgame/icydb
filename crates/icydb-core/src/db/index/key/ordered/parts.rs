@@ -1,3 +1,8 @@
+//! Module: index::key::ordered::parts
+//! Responsibility: ordered payload helpers for compound/scoped value kinds.
+//! Does not own: numeric normalization policy.
+//! Boundary: internal helper for ordered component encoding.
+
 use crate::{
     db::index::key::ordered::{OrderedValueEncodeError, encode_canonical_index_component},
     types::{Account, Principal},

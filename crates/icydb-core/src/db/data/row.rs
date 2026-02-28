@@ -1,3 +1,8 @@
+//! Module: data::row
+//! Responsibility: bounded raw row bytes and decode boundary helpers.
+//! Does not own: row-key encoding, commit-window ordering, or index updates.
+//! Boundary: data::store persists RawRow values produced by higher layers.
+
 use super::DataKey;
 use crate::{
     db::codec::{MAX_ROW_BYTES, deserialize_row},
@@ -86,6 +91,8 @@ impl RawRow {
 
     /// Decode into an entity.
     pub(crate) fn try_decode<E: EntityKind>(&self) -> Result<E, RowDecodeError> {
+        // Keep deserialize failures structured so callers can classify decode
+        // boundary errors without parsing free-form strings.
         deserialize_row::<E>(&self.0).map_err(|source| RowDecodeError::Deserialize { source })
     }
 }

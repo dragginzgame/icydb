@@ -262,7 +262,7 @@ fn grouped_executor_handoff_contract_matrix_vectors_are_frozen() {
         },
     ];
 
-    #[allow(clippy::type_complexity)]
+    #[expect(clippy::type_complexity)]
     let actual_vectors: Vec<(
         Vec<String>,
         Vec<(GroupAggregateKind, Option<String>)>,

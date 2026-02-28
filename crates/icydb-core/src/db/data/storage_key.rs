@@ -1,8 +1,10 @@
-//! StorageKey is a fixed-width, ordered, storage-normalized scalar used
-//! exclusively by the storage and indexing layers.
+//! Module: data::storage_key
+//! Responsibility: fixed-width scalar key encoding for persistent ordering.
+//! Does not own: typed primary-key semantics (`Id<E>`) or query coercion rules.
+//! Boundary: shared by data/index persistence layers only.
 //!
-//! It MUST NOT be used as a public primary-key abstraction.
-//! Typed primary-key values are represented by `Id<E>`.
+//! `StorageKey` is a storage-normalized scalar and MUST NOT be used as a
+//! public primary-key abstraction.
 
 #![expect(clippy::cast_possible_truncation)]
 
@@ -247,10 +249,12 @@ impl StorageKey {
 
     /// Encode this key into its fixed-size on-disk representation.
     pub fn to_bytes(self) -> Result<[u8; Self::STORED_SIZE_USIZE], StorageKeyEncodeError> {
+        // Phase 1: write variant tag and select fixed payload window.
         let mut buf = [0u8; Self::STORED_SIZE_USIZE];
         buf[Self::TAG_OFFSET] = self.tag();
         let payload = &mut buf[Self::PAYLOAD_OFFSET..=Self::PAYLOAD_SIZE];
 
+        // Phase 2: encode variant payload into the normalized fixed-width frame.
         match self {
             Self::Account(v) => {
                 let bytes = v.to_bytes().map_err(Self::from_account_encode_error)?;
@@ -289,6 +293,7 @@ impl StorageKey {
     }
 
     pub fn try_from_bytes(bytes: &[u8]) -> Result<Self, StorageKeyDecodeError> {
+        // Phase 1: enforce frame size before reading tag/payload.
         if bytes.len() != Self::STORED_SIZE_USIZE {
             return Err(StorageKeyDecodeError::InvalidSize);
         }
@@ -304,6 +309,7 @@ impl StorageKey {
             }
         };
 
+        // Phase 2: decode tagged payload and enforce zero-padding invariants.
         match tag {
             Self::TAG_ACCOUNT => {
                 let end = Account::STORED_SIZE as usize;

@@ -1,4 +1,10 @@
 #![expect(clippy::cast_possible_truncation)]
+
+//! Module: data::key
+//! Responsibility: canonical entity-aware data-key encoding and decoding.
+//! Does not own: row payload bytes, commit sequencing, or query semantics.
+//! Boundary: data::store persists `RawDataKey`; higher layers use `DataKey`.
+
 use crate::{
     db::{
         data::storage_key::{StorageKey, StorageKeyDecodeError, StorageKeyEncodeError},
@@ -216,13 +222,13 @@ impl DataKey {
 
     /// Encode into fixed-size on-disk representation, returning storage-key encode errors directly.
     pub(crate) fn to_raw_storage_key_error(&self) -> Result<RawDataKey, StorageKeyEncodeError> {
+        // Phase 1: copy entity identity bytes into the fixed prefix.
         let mut buf = [0u8; Self::STORED_SIZE_USIZE];
-
         let entity_bytes = self.entity.to_bytes();
         buf[..EntityName::STORED_SIZE_USIZE].copy_from_slice(&entity_bytes);
 
+        // Phase 2: encode the scalar storage key and copy into fixed suffix.
         let key_bytes = self.key.to_bytes()?;
-
         let key_offset = EntityName::STORED_SIZE_USIZE;
         buf[key_offset..key_offset + StorageKey::STORED_SIZE_USIZE].copy_from_slice(&key_bytes);
 
@@ -240,8 +246,10 @@ impl DataKey {
     pub(crate) fn try_from_raw(raw: &RawDataKey) -> Result<Self, DataKeyDecodeError> {
         let bytes = &raw.0;
 
+        // Phase 1: decode fixed-size entity identity prefix.
         let entity = EntityName::from_bytes(&bytes[..EntityName::STORED_SIZE_USIZE])?;
 
+        // Phase 2: decode fixed-size storage-key suffix.
         let key = StorageKey::try_from_bytes(&bytes[EntityName::STORED_SIZE_USIZE..])
             .map_err(KeyDecodeError::from)?;
 

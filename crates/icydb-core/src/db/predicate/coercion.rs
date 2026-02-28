@@ -1,3 +1,8 @@
+//! Module: predicate::coercion
+//! Responsibility: coercion identifiers/specs and family support matching.
+//! Does not own: predicate AST evaluation or schema literal validation.
+//! Boundary: consumed by predicate schema/semantics/runtime layers.
+
 use crate::value::CoercionFamily;
 use std::collections::BTreeMap;
 

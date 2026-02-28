@@ -1,3 +1,8 @@
+//! Module: index::key
+//! Responsibility: canonical index-key construction and raw encoding layers.
+//! Does not own: index-store scanning or unique-constraint policy.
+//! Boundary: used by planner/store/range modules as key authority.
+
 mod build;
 mod codec;
 mod id;

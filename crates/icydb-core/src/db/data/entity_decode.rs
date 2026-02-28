@@ -1,3 +1,8 @@
+//! Module: data::entity_decode
+//! Responsibility: shared entity decode + key-consistency checks.
+//! Does not own: storage byte decoding, commit policy, or query errors.
+//! Boundary: data helpers used by store/executor decode paths.
+
 use crate::{
     db::data::DataKey,
     error::InternalError,
@@ -26,7 +31,10 @@ where
     DecodeErrMap: FnOnce(DecodeErr) -> InternalError,
     MismatchErrMap: FnOnce(E::Key, E::Key) -> InternalError,
 {
+    // Phase 1: decode row bytes using caller-owned error mapping.
     let entity = decode_entity().map_err(map_decode_error)?;
+
+    // Phase 2: enforce expected-key identity before returning the entity.
     ensure_entity_key_match::<E, _>(expected_key, entity.id().key(), map_key_mismatch)?;
 
     Ok(entity)
@@ -39,6 +47,8 @@ where
     E: EntityKind,
     E::Key: std::fmt::Debug,
 {
+    // Prefer canonical DataKey formatting when key encoding is available.
+    // Fall back to Debug so mismatch diagnostics remain informative.
     DataKey::try_new::<E>(key).map_or_else(|_| format!("{key:?}"), |key| key.to_string())
 }
 

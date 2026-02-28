@@ -1,3 +1,8 @@
+//! Module: predicate::runtime
+//! Responsibility: compile/evaluate slot-resolved predicates against entities.
+//! Does not own: schema validation or normalization policy.
+//! Boundary: executor row filtering uses this runtime program.
+
 use crate::{
     db::predicate::{
         CoercionSpec, CompareOp, ComparePredicate, Predicate, PredicateExecutionModel,
@@ -64,6 +69,7 @@ fn compile_predicate_program<E: EntityKind>(
         resolve_field_slot(E::MODEL, field_name)
     }
 
+    // Compile field-name predicates into slot-index predicates once per query.
     match predicate {
         Predicate::True => ResolvedPredicate::True,
         Predicate::False => ResolvedPredicate::False,
@@ -140,6 +146,7 @@ fn on_present_slot<E: EntityValue>(
 
 // Evaluate one slot-resolved predicate against one entity.
 fn eval_with_resolved_slots<E: EntityValue>(entity: &E, predicate: &ResolvedPredicate) -> bool {
+    // Evaluate recursively against slot-resolved predicates.
     match predicate {
         ResolvedPredicate::True => true,
         ResolvedPredicate::False => false,

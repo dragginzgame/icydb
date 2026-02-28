@@ -1,3 +1,8 @@
+//! Module: data
+//! Responsibility: typed row-key and row-byte storage primitives.
+//! Does not own: commit orchestration, query semantics, or relation validation.
+//! Boundary: commit/executor -> data (one-way).
+
 mod entity_decode;
 mod key;
 mod row;

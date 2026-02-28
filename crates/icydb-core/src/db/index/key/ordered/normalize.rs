@@ -1,3 +1,8 @@
+//! Module: index::key::ordered::normalize
+//! Responsibility: normalized payload encoders for complex numeric domains.
+//! Does not own: cross-kind canonical tagging.
+//! Boundary: internal helper for ordered component encoding.
+
 use crate::{
     db::index::key::ordered::{
         NEGATIVE_MARKER, OrderedValueEncodeError, POSITIVE_MARKER, ZERO_MARKER,

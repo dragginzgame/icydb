@@ -1,3 +1,8 @@
+//! Module: access::plan
+//! Responsibility: composite access-plan structure and pushdown eligibility modeling.
+//! Does not own: schema validation or raw-bound lowering.
+//! Boundary: query planner emits these plans for executor routing.
+
 use crate::{
     db::access::{AccessPath, IndexRangePathRef},
     model::index::IndexModel,

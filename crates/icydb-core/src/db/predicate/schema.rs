@@ -1,3 +1,8 @@
+//! Module: predicate::schema
+//! Responsibility: schema-aware predicate validation and coercion legality checks.
+//! Does not own: runtime predicate execution or index planning strategy.
+//! Boundary: validation boundary between user predicates and executable plans.
+
 use crate::{
     db::{
         identity::{EntityName, EntityNameError, IndexName, IndexNameError},

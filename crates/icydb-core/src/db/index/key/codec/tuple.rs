@@ -1,3 +1,8 @@
+//! Module: index::key::codec::tuple
+//! Responsibility: length-prefixed tuple-segment encode/decode helpers.
+//! Does not own: index-key semantic ordering policy.
+//! Boundary: internal utility for codec framing.
+
 use crate::db::index::key::codec::{
     bounds::SEGMENT_LEN_SIZE,
     error::{
@@ -8,6 +13,7 @@ use std::cmp::Ordering;
 
 #[expect(clippy::checked_conversions)]
 pub(super) fn push_segment(bytes: &mut Vec<u8>, segment: &[u8]) {
+    // Segment length is persisted as u16 by codec contract.
     assert!(
         segment.len() <= u16::MAX as usize,
         "segment length overflowed u16 despite bounded invariants",
@@ -42,6 +48,7 @@ pub(super) fn read_segment<'a>(
     max_len: usize,
     _label: &str,
 ) -> Result<&'a [u8], &'static str> {
+    // Phase 1: decode segment length and enforce shape bounds.
     if *offset + SEGMENT_LEN_SIZE > bytes.len() {
         return Err(ERR_TRUNCATED_KEY);
     }
@@ -63,6 +70,7 @@ pub(super) fn read_segment<'a>(
         return Err(ERR_TRUNCATED_KEY);
     }
 
+    // Phase 2: return the segment slice and advance decode cursor.
     let out = &bytes[*offset..end];
     *offset = end;
 

@@ -1,3 +1,8 @@
+//! Module: predicate
+//! Responsibility: predicate AST, normalization, validation, and runtime semantics.
+//! Does not own: query routing, index key encoding, or executor commit behavior.
+//! Boundary: query/executor/index consume this as predicate authority.
+
 mod coercion;
 mod fingerprint;
 mod model;

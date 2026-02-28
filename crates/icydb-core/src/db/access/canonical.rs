@@ -1,15 +1,7 @@
-//! Deterministic access-shape canonicalization.
-//!
-//! This module is responsible **only** for making access-plan/value-key shapes
-//! stable and reproducible. It must never encode, infer, or enforce query semantics.
-//!
-//! Invariants:
-//! - Ordering here must be total and deterministic.
-//! - Ordering must not depend on runtime state or schema knowledge.
-//! - Changing order here must never change query meaning.
-//!
-//! If an ordering decision appears to imply semantic preference, it does not
-//! belong in this module.
+//! Module: access::canonical
+//! Responsibility: deterministic access-shape canonicalization.
+//! Does not own: query semantics or schema-aware ordering rules.
+//! Boundary: canonicalization is used for deterministic planning/fingerprinting.
 
 use crate::{
     db::access::{AccessPath, AccessPlan},
@@ -20,6 +12,7 @@ use std::ops::Bound;
 
 /// Canonicalize access plans that use `Value` keys.
 pub(crate) fn canonicalize_access_plans_value(plans: &mut [AccessPlan<Value>]) {
+    // Canonical sort is total and must remain deterministic.
     plans.sort_by(|left, right| left.canonical_form().cmp(&right.canonical_form()));
 }
 

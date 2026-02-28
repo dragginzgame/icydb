@@ -1,3 +1,8 @@
+//! Module: index::plan::unique
+//! Responsibility: preflight unique-constraint validation against committed state.
+//! Does not own: commit-op encoding or apply-time writes.
+//! Boundary: internal helper for index planning.
+
 use crate::{
     db::{
         data::DataKey,
@@ -23,7 +28,7 @@ use std::{cell::RefCell, collections::BTreeSet, ops::Bound, thread::LocalKey};
 /// Validation is performed against the current logical store view before
 /// commit-op synthesis. It allows self-ownership (entry contains `new_key`)
 /// and rejects only conflicting ownership.
-#[allow(clippy::too_many_lines)]
+#[expect(clippy::too_many_lines)]
 pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
     row_reader: &impl PrimaryRowReader<E>,
     index_reader: &impl IndexEntryReader<E>,
@@ -32,6 +37,7 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
     new_key: Option<&E::Key>,
     new_entity: Option<&E>,
 ) -> Result<(), InternalError> {
+    // Phase 1: fast exits for non-unique or non-insert/update paths.
     if !index.unique {
         return Ok(());
     }
@@ -47,6 +53,7 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
         ));
     };
 
+    // Phase 2: resolve indexed slots and encode unique-prefix components.
     let mut indexed_field_slots = Vec::with_capacity(index.fields.len());
     for field in index.fields {
         let Some(field_index) = resolve_field_slot(E::MODEL, field) else {

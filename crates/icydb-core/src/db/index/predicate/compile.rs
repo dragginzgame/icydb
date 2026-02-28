@@ -1,3 +1,8 @@
+//! Module: index::predicate::compile
+//! Responsibility: compile resolved semantic predicates into index-only programs.
+//! Does not own: predicate resolution or runtime key scanning.
+//! Boundary: planner/load uses this at compile/preflight time.
+
 use crate::{
     db::{
         index::{
@@ -31,6 +36,7 @@ pub(crate) fn compile_index_program(
     index_slots: &[usize],
     mode: IndexCompilePolicy,
 ) -> Option<IndexPredicateProgram> {
+    // Single policy switch boundary for conservative vs strict compilation.
     match mode {
         IndexCompilePolicy::ConservativeSubset => {
             compile_index_program_from_resolved(predicate, index_slots)
@@ -123,6 +129,7 @@ fn compile_compare_index_node(
     cmp: &ResolvedComparePredicate,
     index_slots: &[usize],
 ) -> Option<IndexPredicateProgram> {
+    // Index-only compare compilation requires strict coercion and a mapped index slot.
     if cmp.coercion.id != CoercionId::Strict {
         return None;
     }

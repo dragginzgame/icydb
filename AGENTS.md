@@ -202,6 +202,15 @@ When splitting a Rust module into multiple files:
 * Keep module wiring in `mod.rs` via `mod child;` and explicit re-exports where needed.
 * Never use `#[path]` to wire modules. No exceptions.
 
+### 0.34 Follow-Up Consolidation Notes
+
+These are intentional post-0.34 cleanup candidates identified during the DB narrative pass:
+
+* `db/index/store.rs`: split persistence concerns from raw-range scan/resolve logic. Keep storage primitives in `store.rs`; move scan/continuation traversal to a dedicated module.
+* `db/index/range.rs` and `db/index/envelope.rs`: consolidate continuation-envelope helpers (`anchor_within_envelope`, `continuation_advanced`, `resume_bounds_from_refs`) under one clear ownership boundary.
+* `db/index/plan/load.rs`: consider collapsing into `db/index/plan/mod.rs` unless maintaining file-per-phase separation is preferred.
+* `db/predicate/fingerprint.rs`: keep under predicate only if predicate domain remains the hash authority; otherwise migrate to query planning/fingerprint boundary in a dedicated follow-up.
+
 ---
 
 ## Coding Style & Naming Conventions

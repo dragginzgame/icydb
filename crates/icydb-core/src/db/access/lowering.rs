@@ -1,10 +1,14 @@
+//! Module: access::lowering
+//! Responsibility: lower validated semantic access specs into raw index-key bounds.
+//! Does not own: access-shape validation or executor scan implementation.
+//! Boundary: planner emits lowered contracts consumed directly by executor.
+
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},
         index::{
-            EncodedValue, IndexRangeNotIndexableReasonScope, RawIndexKey,
-            map_index_range_not_indexable_reason, raw_bounds_for_semantic_index_component_range,
-            raw_keys_for_encoded_prefix,
+            EncodedValue, IndexRangeBoundEncodeError, RawIndexKey,
+            raw_bounds_for_semantic_index_component_range, raw_keys_for_encoded_prefix,
         },
     },
     error::InternalError,
@@ -22,6 +26,17 @@ const LOWERED_INDEX_PREFIX_VALUE_NOT_INDEXABLE: &str =
     "validated index-prefix value is not indexable";
 
 pub(in crate::db) type LoweredKey = RawIndexKey;
+
+///
+/// LoweredIndexNotIndexableReasonScope
+///
+/// Access-lowering scope for stable "not indexable" reason wording.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LoweredIndexNotIndexableReasonScope {
+    ValidatedSpec,
+    CursorContinuationAnchor,
+}
 
 ///
 /// LoweredIndexPrefixSpec
@@ -113,6 +128,7 @@ impl LoweredIndexRangeSpec {
 pub(in crate::db) fn lower_index_prefix_specs<E: EntityKind>(
     access_plan: &AccessPlan<E::Key>,
 ) -> Result<Vec<LoweredIndexPrefixSpec>, InternalError> {
+    // Phase 1: collect semantic prefix specs from access-plan tree.
     let mut specs = Vec::new();
     collect_index_prefix_specs::<E>(access_plan, &mut specs)?;
 
@@ -123,6 +139,7 @@ pub(in crate::db) fn lower_index_prefix_specs<E: EntityKind>(
 pub(in crate::db) fn lower_index_range_specs<E: EntityKind>(
     access_plan: &AccessPlan<E::Key>,
 ) -> Result<Vec<LoweredIndexRangeSpec>, InternalError> {
+    // Phase 1: collect semantic range specs from access-plan tree.
     let mut specs = Vec::new();
     collect_index_range_specs::<E>(access_plan, &mut specs)?;
 
@@ -130,12 +147,12 @@ pub(in crate::db) fn lower_index_range_specs<E: EntityKind>(
 }
 
 // Lower one semantic range envelope into byte bounds with stable reason mapping.
-pub(in crate::db) fn lower_index_range_bounds_for_scope<E: EntityKind>(
+fn lower_index_range_bounds_for_scope<E: EntityKind>(
     index: &IndexModel,
     prefix: &[Value],
     lower: &Bound<Value>,
     upper: &Bound<Value>,
-    scope: IndexRangeNotIndexableReasonScope,
+    scope: LoweredIndexNotIndexableReasonScope,
 ) -> Result<(Bound<LoweredKey>, Bound<LoweredKey>), &'static str> {
     raw_bounds_for_semantic_index_component_range::<E>(index, prefix, lower, upper)
         .map_err(|err| map_index_range_not_indexable_reason(scope, err))
@@ -153,7 +170,7 @@ pub(in crate::db) fn lower_cursor_anchor_index_range_bounds<E: EntityKind>(
         prefix,
         lower,
         upper,
-        IndexRangeNotIndexableReasonScope::CursorContinuationAnchor,
+        LoweredIndexNotIndexableReasonScope::CursorContinuationAnchor,
     )
 }
 
@@ -209,7 +226,7 @@ fn collect_index_range_specs<E: EntityKind>(
                     spec.prefix_values(),
                     spec.lower(),
                     spec.upper(),
-                    IndexRangeNotIndexableReasonScope::ValidatedSpec,
+                    LoweredIndexNotIndexableReasonScope::ValidatedSpec,
                 )
                 .map_err(InternalError::query_executor_invariant)?;
                 specs.push(LoweredIndexRangeSpec::new(*spec.index(), lower, upper));
@@ -224,5 +241,38 @@ fn collect_index_range_specs<E: EntityKind>(
 
             Ok(())
         }
+    }
+}
+
+const fn map_bound_encode_error(
+    err: IndexRangeBoundEncodeError,
+    prefix_reason: &'static str,
+    lower_reason: &'static str,
+    upper_reason: &'static str,
+) -> &'static str {
+    match err {
+        IndexRangeBoundEncodeError::Prefix => prefix_reason,
+        IndexRangeBoundEncodeError::Lower => lower_reason,
+        IndexRangeBoundEncodeError::Upper => upper_reason,
+    }
+}
+
+const fn map_index_range_not_indexable_reason(
+    scope: LoweredIndexNotIndexableReasonScope,
+    err: IndexRangeBoundEncodeError,
+) -> &'static str {
+    match scope {
+        LoweredIndexNotIndexableReasonScope::ValidatedSpec => map_bound_encode_error(
+            err,
+            "validated index-range prefix is not indexable",
+            "validated index-range lower bound is not indexable",
+            "validated index-range upper bound is not indexable",
+        ),
+        LoweredIndexNotIndexableReasonScope::CursorContinuationAnchor => map_bound_encode_error(
+            err,
+            "index-range continuation anchor prefix is not indexable",
+            "index-range cursor lower continuation bound is not indexable",
+            "index-range cursor upper continuation bound is not indexable",
+        ),
     }
 }

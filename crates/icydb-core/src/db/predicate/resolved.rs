@@ -1,3 +1,8 @@
+//! Module: predicate::resolved
+//! Responsibility: slot-resolved predicate representation for runtime execution.
+//! Does not own: field-name schema mapping itself.
+//! Boundary: produced by predicate runtime compile stage.
+
 use crate::{
     db::predicate::{coercion::CoercionSpec, model::CompareOp},
     value::Value,

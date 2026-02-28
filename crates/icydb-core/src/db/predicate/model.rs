@@ -1,3 +1,8 @@
+//! Module: predicate::model
+//! Responsibility: public predicate AST and construction helpers.
+//! Does not own: schema validation or runtime slot resolution.
+//! Boundary: user/query-facing predicate model.
+
 use crate::{
     db::predicate::coercion::{CoercionId, CoercionSpec},
     value::Value,

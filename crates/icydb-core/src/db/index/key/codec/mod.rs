@@ -1,3 +1,8 @@
+//! Module: index::key::codec
+//! Responsibility: raw byte framing/parsing for `IndexKey`.
+//! Does not own: semantic index key construction policy.
+//! Boundary: this module is the storage-key codec authority for index keys.
+
 mod bounds;
 mod envelope;
 mod error;
@@ -60,6 +65,7 @@ impl PartialOrd for IndexKey {
 impl IndexKey {
     #[must_use]
     pub(crate) fn to_raw(&self) -> RawIndexKey {
+        // Phase 1: precompute capacity and validate in-memory invariants.
         let component_count = self.components.len();
         debug_assert!(component_count <= MAX_INDEX_FIELDS);
         debug_assert!(u8::try_from(component_count).is_ok());
@@ -75,6 +81,7 @@ impl IndexKey {
 
         let mut bytes = Vec::with_capacity(capacity);
 
+        // Phase 2: write key kind, index id, component count, and segments.
         bytes.push(self.key_kind.tag());
 
         let name_bytes = self.index_id.0.to_bytes();
@@ -94,6 +101,7 @@ impl IndexKey {
     }
 
     pub(crate) fn try_from_raw(raw: &RawIndexKey) -> Result<Self, &'static str> {
+        // Phase 1: validate frame size and read fixed prefix fields.
         let bytes = raw.as_bytes();
         if bytes.len() < Self::MIN_STORED_SIZE_USIZE || bytes.len() > Self::STORED_SIZE_USIZE {
             return Err(ERR_INVALID_SIZE);
@@ -117,6 +125,7 @@ impl IndexKey {
             return Err(ERR_INVALID_INDEX_LENGTH);
         }
 
+        // Phase 2: decode length-prefixed components + primary key.
         let mut components = Vec::with_capacity(component_count_usize);
         for _ in 0..component_count_usize {
             let component = read_segment(

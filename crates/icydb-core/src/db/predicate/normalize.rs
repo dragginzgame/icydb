@@ -1,3 +1,8 @@
+//! Module: predicate::normalize
+//! Responsibility: deterministic predicate normalization and enum-literal adjustment.
+//! Does not own: runtime evaluation or schema field-slot resolution.
+//! Boundary: normalize before validation/planning/fingerprinting.
+
 use crate::{
     db::predicate::{
         CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate, SchemaInfo, ValidateError,
@@ -26,6 +31,7 @@ use crate::{
 ///
 #[must_use]
 pub(in crate::db) fn normalize(predicate: &Predicate) -> Predicate {
+    // Normalize recursively while preserving logical equivalence.
     match predicate {
         Predicate::True => Predicate::True,
         Predicate::False => Predicate::False,
@@ -71,6 +77,7 @@ pub(in crate::db) fn normalize_enum_literals(
     schema: &SchemaInfo,
     predicate: &Predicate,
 ) -> Result<Predicate, ValidateError> {
+    // Enum literal normalization only rewrites enum payload shape, not operators.
     match predicate {
         Predicate::True => Ok(Predicate::True),
         Predicate::False => Ok(Predicate::False),

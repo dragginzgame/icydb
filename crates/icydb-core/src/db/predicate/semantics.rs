@@ -1,3 +1,8 @@
+//! Module: predicate::semantics
+//! Responsibility: value comparison semantics under explicit coercion policies.
+//! Does not own: predicate AST normalization or schema legality checks.
+//! Boundary: runtime predicate evaluation delegates compare behavior here.
+
 use crate::{
     db::predicate::coercion::{CoercionId, CoercionSpec},
     value::{TextMode, Value},
@@ -21,6 +26,7 @@ pub(in crate::db) fn compare_eq(
     right: &Value,
     coercion: &CoercionSpec,
 ) -> Option<bool> {
+    // Equality semantics are coercion-policy dependent.
     match coercion.id {
         CoercionId::Strict | CoercionId::CollectionElement => {
             same_variant(left, right).then_some(left == right)
@@ -43,6 +49,7 @@ pub(in crate::db) fn compare_order(
     right: &Value,
     coercion: &CoercionSpec,
 ) -> Option<Ordering> {
+    // Ordering semantics are coercion-policy dependent.
     match coercion.id {
         CoercionId::Strict | CoercionId::CollectionElement => {
             if !same_variant(left, right) {

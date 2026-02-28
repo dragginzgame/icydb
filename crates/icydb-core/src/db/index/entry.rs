@@ -1,3 +1,8 @@
+//! Module: index::entry
+//! Responsibility: index-entry payload encode/decode and structural validation.
+//! Does not own: commit ordering or unique-policy decisions.
+//! Boundary: commit/index-store consume raw entries after prevalidation.
+
 use crate::{
     db::{
         data::{StorageKey, StorageKeyEncodeError},
@@ -179,6 +184,7 @@ impl RawIndexEntry {
     where
         I: IntoIterator<Item = StorageKey>,
     {
+        // Phase 1: collect and bound-check key cardinality.
         let keys: Vec<StorageKey> = keys.into_iter().collect();
         let count = keys.len();
 
@@ -195,6 +201,7 @@ impl RawIndexEntry {
             }
         }
 
+        // Phase 2: encode canonical length-prefixed payload.
         let mut out =
             Vec::with_capacity(INDEX_ENTRY_LEN_BYTES + count * StorageKey::STORED_SIZE_USIZE);
 
@@ -210,6 +217,7 @@ impl RawIndexEntry {
     }
 
     pub(crate) fn decode_keys(&self) -> Result<Vec<StorageKey>, IndexEntryCorruption> {
+        // Phase 1: validate frame shape before any key decode.
         self.validate()?;
 
         let bytes = self.0.as_slice();
@@ -221,6 +229,7 @@ impl RawIndexEntry {
         let mut keys = Vec::with_capacity(count);
         let mut offset = INDEX_ENTRY_LEN_BYTES;
 
+        // Phase 2: decode each fixed-width storage key segment.
         for _ in 0..count {
             let end = offset + StorageKey::STORED_SIZE_USIZE;
             let sk = StorageKey::try_from(&bytes[offset..end])
@@ -237,6 +246,7 @@ impl RawIndexEntry {
     pub(crate) fn validate(&self) -> Result<(), IndexEntryCorruption> {
         let bytes = self.0.as_slice();
 
+        // Phase 1: frame-level checks (size, header, declared count).
         if bytes.len() > MAX_INDEX_ENTRY_BYTES as usize {
             return Err(IndexEntryCorruption::TooLarge { len: bytes.len() });
         }
@@ -264,7 +274,7 @@ impl RawIndexEntry {
             return Err(IndexEntryCorruption::LengthMismatch);
         }
 
-        // Validate each StorageKey structurally and detect duplicates
+        // Phase 2: validate each StorageKey and reject duplicates.
         let mut keys = BTreeSet::new();
         let mut offset = INDEX_ENTRY_LEN_BYTES;
 

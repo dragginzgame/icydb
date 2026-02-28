@@ -1,3 +1,8 @@
+//! Module: index::key::id
+//! Responsibility: stable logical identifier for one index definition.
+//! Does not own: key byte encoding or predicate semantics.
+//! Boundary: prefix component used by `IndexKey`.
+
 use crate::db::identity::IndexName;
 use derive_more::Display;
 
