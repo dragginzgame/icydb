@@ -58,6 +58,7 @@ Focus: finish current execution hardening and reduce drift risk before larger ar
 - Continue cleanup passes that reduce cross-cutting complexity (error mapping, boundary handling, and test-surface maintainability).
 - Keep changelog/status docs aligned as features move from design to shipped.
 - Keep milestone tracking current in `docs/status/` as each feature closes.
+- For `0.33.2` grouped enablement, execute the stress checklist in `docs/status/0.33-planner-group-by-integration-status.md` (resume parity, deterministic group order, budget enforcement, and predicate interaction).
 
 ---
 

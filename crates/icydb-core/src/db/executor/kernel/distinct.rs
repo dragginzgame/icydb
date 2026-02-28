@@ -1,92 +1,13 @@
-use crate::{
-    db::{
-        data::DataKey,
-        direction::Direction,
-        executor::{
-            KeyOrderComparator, OrderedKeyStream, OrderedKeyStreamBox,
-            load::{ResolvedExecutionKeyStream, key_stream_comparator_from_direction},
-        },
-        query::plan::AccessPlannedQuery,
+use crate::db::{
+    direction::Direction,
+    executor::{
+        KeyOrderComparator, OrderedKeyStreamBox,
+        load::{ResolvedExecutionKeyStream, key_stream_comparator_from_direction},
+        stream::key::DistinctOrderedKeyStream,
     },
-    error::InternalError,
+    query::plan::AccessPlannedQuery,
 };
 use std::{cell::Cell, rc::Rc};
-
-///
-/// DistinctOrderedKeyStream
-///
-/// Kernel-local ordered stream wrapper that suppresses adjacent duplicate keys.
-/// Row DISTINCT semantics are identity-based at this boundary:
-/// duplicates are defined as identical `DataKey` values (entity + primary key).
-/// Correct DISTINCT requires contiguous equal keys in the upstream stream order.
-///
-
-pub(super) struct DistinctOrderedKeyStream<S> {
-    inner: S,
-    last_emitted: Option<DataKey>,
-    comparator: KeyOrderComparator,
-    deduped_keys_counter: Option<Rc<Cell<u64>>>,
-}
-
-impl<S> DistinctOrderedKeyStream<S> {
-    #[must_use]
-    pub(super) const fn new(inner: S, comparator: KeyOrderComparator) -> Self {
-        Self {
-            inner,
-            last_emitted: None,
-            comparator,
-            deduped_keys_counter: None,
-        }
-    }
-
-    #[must_use]
-    pub(super) const fn new_with_dedup_counter(
-        inner: S,
-        comparator: KeyOrderComparator,
-        deduped_keys_counter: Rc<Cell<u64>>,
-    ) -> Self {
-        Self {
-            inner,
-            last_emitted: None,
-            comparator,
-            deduped_keys_counter: Some(deduped_keys_counter),
-        }
-    }
-}
-
-impl<S> OrderedKeyStream for DistinctOrderedKeyStream<S>
-where
-    S: OrderedKeyStream,
-{
-    fn next_key(&mut self) -> Result<Option<DataKey>, InternalError> {
-        loop {
-            let Some(next) = self.inner.next_key()? else {
-                return Ok(None);
-            };
-
-            if let Some(last) = self.last_emitted.as_ref() {
-                // Keep ordering and equality semantics split:
-                // - ordering comparator enforces monotonic stream contract
-                // - exact key equality controls DISTINCT suppression
-                if self.comparator.compare_data_keys(last, &next).is_gt() {
-                    return Err(InternalError::query_executor_invariant(
-                        "distinct ordered stream received non-monotonic key order",
-                    ));
-                }
-                if last == &next {
-                    if let Some(counter) = self.deduped_keys_counter.as_ref() {
-                        counter.set(counter.get().saturating_add(1));
-                    }
-                    continue;
-                }
-            }
-
-            self.last_emitted = Some(next.clone());
-
-            return Ok(Some(next));
-        }
-    }
-}
 
 fn wrap_distinct_ordered_key_stream(
     ordered_key_stream: OrderedKeyStreamBox,
@@ -164,7 +85,7 @@ mod tests {
             direction::Direction,
             executor::{
                 KeyOrderComparator, OrderedKeyStream, VecOrderedKeyStream,
-                kernel::distinct::DistinctOrderedKeyStream,
+                stream::key::DistinctOrderedKeyStream,
             },
             identity::EntityName,
         },

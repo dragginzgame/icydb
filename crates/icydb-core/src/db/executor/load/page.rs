@@ -3,7 +3,7 @@ use crate::{
         Context,
         cursor::{ContinuationSignature, CursorBoundary},
         direction::Direction,
-        executor::load::{CursorPage, LoadExecutor},
+        executor::load::{CursorPage, LoadExecutor, PageCursor},
         executor::{BudgetedOrderedKeyStream, ExecutionKernel, OrderedKeyStream},
         query::plan::AccessPlannedQuery,
         query::predicate::runtime::PredicateProgram,
@@ -91,7 +91,8 @@ where
             cursor_boundary,
             direction,
             continuation_signature,
-        )?;
+        )?
+        .map(PageCursor::Scalar);
         let items = Response(std::mem::take(rows));
 
         Ok(CursorPage { items, next_cursor })

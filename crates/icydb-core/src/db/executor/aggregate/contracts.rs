@@ -303,7 +303,6 @@ pub(in crate::db::executor) struct ExecutionContext {
     budget: ExecutionBudget,
 }
 
-#[cfg_attr(not(test), expect(dead_code))]
 impl ExecutionConfig {
     /// Build one grouped hard-limit configuration.
     #[must_use]
@@ -317,7 +316,8 @@ impl ExecutionConfig {
         }
     }
 
-    /// Build one unbounded grouped configuration for scaffold callers/tests.
+    /// Build one unbounded grouped configuration for tests.
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db::executor) const fn unbounded() -> Self {
         Self::with_hard_limits(u64::MAX, u64::MAX)
@@ -358,7 +358,6 @@ impl ExecutionContext {
     ///
     /// This keeps grouped state construction policy-owned by executor context
     /// so grouped operators cannot bypass centralized budget/config plumbing.
-    #[cfg_attr(not(test), expect(dead_code))]
     #[must_use]
     pub(in crate::db::executor) fn create_grouped_state<E: EntityKind>(
         &self,
@@ -470,7 +469,6 @@ impl AggregateSpec {
     }
 }
 
-#[cfg_attr(not(test), expect(dead_code))]
 impl GroupAggregateSpec {
     /// Build one grouped aggregate contract from group-key + terminal specs.
     #[must_use]
@@ -494,6 +492,7 @@ impl GroupAggregateSpec {
     }
 
     /// Borrow grouped key fields in declared order.
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db::executor) const fn group_keys(&self) -> &[String] {
         self.group_keys.as_slice()
@@ -779,7 +778,6 @@ pub(in crate::db::executor) struct GroupedAggregateOutput<E: EntityKind> {
     output: AggregateOutput<E>,
 }
 
-#[cfg_attr(not(test), expect(dead_code))]
 impl<E: EntityKind> GroupedAggregateOutput<E> {
     #[must_use]
     pub(in crate::db::executor) const fn group_key(&self) -> &GroupKey {
@@ -827,7 +825,6 @@ pub(in crate::db::executor) struct GroupedAggregateState<E: EntityKind> {
     groups: BTreeMap<StableHash, Vec<GroupedAggregateStateSlot<E>>>,
 }
 
-#[cfg_attr(not(test), expect(dead_code))]
 impl<E: EntityKind> GroupedAggregateState<E> {
     /// Build one empty grouped aggregate state container.
     #[must_use]
@@ -876,6 +873,7 @@ impl<E: EntityKind> GroupedAggregateState<E> {
     }
 
     /// Return the current number of grouped keys tracked by this state.
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db::executor) fn group_count(&self) -> usize {
         self.groups

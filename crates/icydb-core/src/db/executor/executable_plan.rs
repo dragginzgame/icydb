@@ -2,15 +2,14 @@ use crate::{
     db::{
         access::AccessPlan,
         cursor::{
-            ContinuationSignature, GroupedPlannedCursor, PlannedCursor, prepare_grouped_cursor,
-            revalidate_grouped_cursor,
+            ContinuationSignature, CursorPlanError, GroupedPlannedCursor, PlannedCursor,
+            prepare_grouped_cursor, revalidate_grouped_cursor,
         },
         executor::{
             ExecutorPlanError, LOWERED_INDEX_PREFIX_SPEC_INVALID, LOWERED_INDEX_RANGE_SPEC_INVALID,
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec, lower_index_prefix_specs,
-            lower_index_range_specs,
+            lower_index_range_specs, traversal::derive_primary_scan_direction,
         },
-        plan::derive_primary_scan_direction,
         query::{
             explain::ExplainPlan,
             fingerprint::PlanFingerprint,
@@ -108,16 +107,13 @@ impl<E: EntityKind> ExecutablePlan<E> {
         E::Key: FieldValue,
     {
         if matches!(&self.plan.logical, LogicalPlan::Grouped(_)) {
-            let order = self.plan.scalar_plan().order.as_ref();
-            let _ = prepare_grouped_cursor(
-                E::PATH,
-                order,
-                self.continuation_signature(),
-                Self::initial_page_offset(&self.plan.logical),
-                cursor,
-            )?;
-
-            return Ok(PlannedCursor::none());
+            return Err(ExecutorPlanError::from(
+                CursorPlanError::InvalidContinuationCursorPayload {
+                    reason: InternalError::executor_invariant_message(
+                        "grouped plans require grouped cursor preparation",
+                    ),
+                },
+            ));
         }
 
         let direction = derive_primary_scan_direction(self.plan.scalar_plan().order.as_ref());
@@ -183,13 +179,9 @@ impl<E: EntityKind> ExecutablePlan<E> {
         E::Key: FieldValue,
     {
         if matches!(&self.plan.logical, LogicalPlan::Grouped(_)) {
-            let _ = revalidate_grouped_cursor(
-                Self::initial_page_offset(&self.plan.logical),
-                GroupedPlannedCursor::none(),
-            )
-            .map_err(|err| InternalError::from_cursor_plan_error(PlanError::from(err)))?;
-
-            return Ok(PlannedCursor::none());
+            return Err(InternalError::query_executor_invariant(
+                "grouped plans require grouped cursor revalidation",
+            ));
         }
 
         let direction = derive_primary_scan_direction(self.plan.scalar_plan().order.as_ref());
@@ -200,5 +192,46 @@ impl<E: EntityKind> ExecutablePlan<E> {
             cursor,
         )
         .map_err(|err| InternalError::from_cursor_plan_error(PlanError::from(err)))
+    }
+
+    /// Validate and decode grouped continuation cursor state for grouped plans.
+    pub(in crate::db) fn prepare_grouped_cursor(
+        &self,
+        cursor: Option<&[u8]>,
+    ) -> Result<GroupedPlannedCursor, ExecutorPlanError> {
+        if !matches!(&self.plan.logical, LogicalPlan::Grouped(_)) {
+            return Err(ExecutorPlanError::from(
+                CursorPlanError::InvalidContinuationCursorPayload {
+                    reason: InternalError::executor_invariant_message(
+                        "grouped cursor preparation requires grouped logical plans",
+                    ),
+                },
+            ));
+        }
+
+        let order = self.plan.scalar_plan().order.as_ref();
+        prepare_grouped_cursor(
+            E::PATH,
+            order,
+            self.continuation_signature(),
+            Self::initial_page_offset(&self.plan.logical),
+            cursor,
+        )
+        .map_err(ExecutorPlanError::from)
+    }
+
+    /// Revalidate grouped cursor state before grouped executor entry.
+    pub(in crate::db) fn revalidate_grouped_cursor(
+        &self,
+        cursor: GroupedPlannedCursor,
+    ) -> Result<GroupedPlannedCursor, InternalError> {
+        if !matches!(&self.plan.logical, LogicalPlan::Grouped(_)) {
+            return Err(InternalError::query_executor_invariant(
+                "grouped cursor revalidation requires grouped logical plans",
+            ));
+        }
+
+        revalidate_grouped_cursor(Self::initial_page_offset(&self.plan.logical), cursor)
+            .map_err(|err| InternalError::from_cursor_plan_error(PlanError::from(err)))
     }
 }

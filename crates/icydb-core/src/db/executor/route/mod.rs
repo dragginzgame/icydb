@@ -186,16 +186,32 @@ impl ExecutionRoutePlan {
         self.execution_mode_case
     }
 
-    // Grouped route observability projection for grouped-readiness scaffolding.
+    // Grouped route observability projection.
     // Non-grouped routes intentionally report no grouped diagnostics payload.
     pub(in crate::db::executor) const fn grouped_observability(
         &self,
     ) -> Option<GroupedRouteObservability> {
         match self.execution_mode_case {
-            ExecutionModeRouteCase::AggregateGrouped => Some(GroupedRouteObservability {
-                outcome: GroupedRouteDecisionOutcome::MaterializedBlocked,
-                rejection_reason: GroupedRouteRejectionReason::RuntimeDisabled,
-            }),
+            ExecutionModeRouteCase::AggregateGrouped => {
+                let eligible = self.fast_path_order.is_empty();
+                let (outcome, rejection_reason) = if !eligible {
+                    (
+                        GroupedRouteDecisionOutcome::Rejected,
+                        Some(GroupedRouteRejectionReason::CapabilityMismatch),
+                    )
+                } else if matches!(self.execution_mode, ExecutionMode::Materialized) {
+                    (GroupedRouteDecisionOutcome::MaterializedFallback, None)
+                } else {
+                    (GroupedRouteDecisionOutcome::Selected, None)
+                };
+
+                Some(GroupedRouteObservability {
+                    outcome,
+                    rejection_reason,
+                    eligible,
+                    execution_mode: self.execution_mode,
+                })
+            }
             _ => None,
         }
     }
@@ -436,39 +452,43 @@ pub(in crate::db::executor) enum ExecutionModeRouteCase {
 ///
 /// GroupedRouteDecisionOutcome
 ///
-/// Grouped route decision outcome surface for grouped observability scaffolding.
-/// This keeps grouped route diagnostics explicit while grouped runtime remains
-/// disabled in `0.32.x`.
+/// Grouped route decision outcome surface.
+/// Keeps grouped route diagnostics aligned with route selection semantics.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) enum GroupedRouteDecisionOutcome {
-    MaterializedBlocked,
+    Selected,
+    Rejected,
+    MaterializedFallback,
 }
 
 ///
 /// GroupedRouteRejectionReason
 ///
-/// Grouped route rejection taxonomy for grouped observability scaffolding.
-/// Runtime-enabled grouped execution should replace this placeholder reason set.
+/// Grouped route rejection taxonomy.
+/// These reasons are route-owned and represent route-gate failures only.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) enum GroupedRouteRejectionReason {
-    RuntimeDisabled,
+    CapabilityMismatch,
 }
 
 ///
 /// GroupedRouteObservability
 ///
-/// Grouped route observability payload locked for grouped-readiness.
-/// Carries one explicit route outcome and one grouped rejection reason.
+/// Grouped route observability payload.
+/// Carries route outcome, optional rejection reason, eligibility, and
+/// selected execution mode for grouped intents.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) struct GroupedRouteObservability {
     outcome: GroupedRouteDecisionOutcome,
-    rejection_reason: GroupedRouteRejectionReason,
+    rejection_reason: Option<GroupedRouteRejectionReason>,
+    eligible: bool,
+    execution_mode: ExecutionMode,
 }
 
 impl GroupedRouteObservability {
@@ -478,8 +498,20 @@ impl GroupedRouteObservability {
     }
 
     #[must_use]
-    pub(in crate::db::executor) const fn rejection_reason(self) -> GroupedRouteRejectionReason {
+    pub(in crate::db::executor) const fn rejection_reason(
+        self,
+    ) -> Option<GroupedRouteRejectionReason> {
         self.rejection_reason
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn eligible(self) -> bool {
+        self.eligible
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn execution_mode(self) -> ExecutionMode {
+        self.execution_mode
     }
 }
 

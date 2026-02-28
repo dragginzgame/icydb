@@ -1,23 +1,6 @@
-#[cfg(test)]
-mod tests;
-
-use crate::db::query::plan::AccessPlannedQuery;
-pub(crate) use crate::db::query::plan::validate::{GroupPlanError, validate_group_query_semantics};
-use crate::error::InternalError;
-
-///
-/// GROUPED QUERY SCAFFOLD
-///
-/// WIP ownership note:
-/// GROUP BY is intentionally isolated behind this module for now.
-/// Keep grouped scaffold code behind this boundary for the time being and do not remove it.
-///
-/// Explicit ownership boundary for grouped intent/planning/validation scaffold.
-/// This module re-exports grouped contracts so grouped work does not stay
-/// scattered across unrelated query modules.
-///
-pub(crate) use crate::db::query::plan::{
-    FieldSlot, GroupAggregateKind, GroupAggregateSpec, GroupSpec, GroupedExecutionConfig,
+use crate::{
+    db::query::plan::{AccessPlannedQuery, FieldSlot, GroupAggregateSpec, GroupedExecutionConfig},
+    error::InternalError,
 };
 
 ///
@@ -25,7 +8,7 @@ pub(crate) use crate::db::query::plan::{
 ///
 /// Borrowed grouped planning handoff consumed at the query->executor boundary.
 /// This contract keeps grouped execution routing input explicit while grouped
-/// runtime remains disabled in `0.32.x`.
+/// runtime entry remains explicit at query->executor boundaries.
 ///
 
 pub(in crate::db) struct GroupedExecutorHandoff<'a, K> {

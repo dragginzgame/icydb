@@ -1,12 +1,11 @@
 use crate::{
     db::{
-        contracts::{CoercionId, CoercionSpec, CompareOp},
+        contracts::{
+            CoercionId, CoercionSpec, CompareOp, ResolvedComparePredicate, ResolvedPredicate,
+        },
         index::{
             IndexCompareOp, IndexLiteral, IndexPredicateProgram,
             predicate::literal_index_component_bytes,
-        },
-        query::predicate::runtime::{
-            PredicateProgram, ResolvedComparePredicate, ResolvedPredicate,
         },
     },
     value::Value,
@@ -23,9 +22,8 @@ fn compile_index_program_maps_field_slot_to_component_index() {
         coercion: CoercionSpec::new(CoercionId::Strict),
     });
 
-    let predicate_slots = PredicateProgram::from_resolved_for_test(predicate);
     let program = compile_index_program(
-        predicate_slots.resolved(),
+        &predicate,
         &[3, 7, 9],
         IndexCompilePolicy::ConservativeSubset,
     )
@@ -52,12 +50,7 @@ fn compile_index_program_rejects_non_strict_coercion() {
         coercion: CoercionSpec::new(CoercionId::NumericWiden),
     });
 
-    let predicate_slots = PredicateProgram::from_resolved_for_test(predicate);
-    let program = compile_index_program(
-        predicate_slots.resolved(),
-        &[1],
-        IndexCompilePolicy::ConservativeSubset,
-    );
+    let program = compile_index_program(&predicate, &[1], IndexCompilePolicy::ConservativeSubset);
     assert!(program.is_none());
 }
 
@@ -86,12 +79,8 @@ fn compile_index_program_operator_matrix_matches_strict_subset() {
             value,
             coercion: CoercionSpec::new(CoercionId::Strict),
         });
-        let predicate_slots = PredicateProgram::from_resolved_for_test(predicate);
-        let program = compile_index_program(
-            predicate_slots.resolved(),
-            &[1],
-            IndexCompilePolicy::ConservativeSubset,
-        );
+        let program =
+            compile_index_program(&predicate, &[1], IndexCompilePolicy::ConservativeSubset);
 
         assert!(
             program.is_some(),
@@ -111,12 +100,8 @@ fn compile_index_program_operator_matrix_matches_strict_subset() {
             value,
             coercion: CoercionSpec::new(CoercionId::Strict),
         });
-        let predicate_slots = PredicateProgram::from_resolved_for_test(predicate);
-        let program = compile_index_program(
-            predicate_slots.resolved(),
-            &[1],
-            IndexCompilePolicy::ConservativeSubset,
-        );
+        let program =
+            compile_index_program(&predicate, &[1], IndexCompilePolicy::ConservativeSubset);
 
         assert!(
             program.is_none(),
@@ -151,12 +136,8 @@ fn compile_index_program_rejects_non_strict_coercion_across_operator_subset() {
             value,
             coercion: CoercionSpec::new(CoercionId::NumericWiden),
         });
-        let predicate_slots = PredicateProgram::from_resolved_for_test(predicate);
-        let program = compile_index_program(
-            predicate_slots.resolved(),
-            &[1],
-            IndexCompilePolicy::ConservativeSubset,
-        );
+        let program =
+            compile_index_program(&predicate, &[1], IndexCompilePolicy::ConservativeSubset);
 
         assert!(
             program.is_none(),
@@ -174,12 +155,7 @@ fn compile_index_program_rejects_in_with_non_list_literal() {
         coercion: CoercionSpec::new(CoercionId::Strict),
     });
 
-    let predicate_slots = PredicateProgram::from_resolved_for_test(predicate);
-    let program = compile_index_program(
-        predicate_slots.resolved(),
-        &[1],
-        IndexCompilePolicy::ConservativeSubset,
-    );
+    let program = compile_index_program(&predicate, &[1], IndexCompilePolicy::ConservativeSubset);
     assert!(program.is_none());
 }
 
@@ -192,12 +168,7 @@ fn compile_index_program_rejects_in_with_empty_list_literal() {
         coercion: CoercionSpec::new(CoercionId::Strict),
     });
 
-    let predicate_slots = PredicateProgram::from_resolved_for_test(predicate);
-    let program = compile_index_program(
-        predicate_slots.resolved(),
-        &[1],
-        IndexCompilePolicy::ConservativeSubset,
-    );
+    let program = compile_index_program(&predicate, &[1], IndexCompilePolicy::ConservativeSubset);
     assert!(program.is_none());
 }
 
@@ -222,13 +193,9 @@ fn compile_index_program_and_subset_compiles_supported_children_only() {
         }),
     ]);
 
-    let predicate_slots = PredicateProgram::from_resolved_for_test(predicate);
-    let program = compile_index_program(
-        predicate_slots.resolved(),
-        &[1, 2],
-        IndexCompilePolicy::ConservativeSubset,
-    )
-    .expect("subset mode should keep supported children");
+    let program =
+        compile_index_program(&predicate, &[1, 2], IndexCompilePolicy::ConservativeSubset)
+            .expect("subset mode should keep supported children");
 
     let expected_left =
         literal_index_component_bytes(&Value::Uint(11)).expect("left should convert");
@@ -264,12 +231,8 @@ fn compile_index_program_and_subset_drops_fully_unsupported_and() {
         },
     ]);
 
-    let predicate_slots = PredicateProgram::from_resolved_for_test(predicate);
-    let program = compile_index_program(
-        predicate_slots.resolved(),
-        &[1, 2],
-        IndexCompilePolicy::ConservativeSubset,
-    );
+    let program =
+        compile_index_program(&predicate, &[1, 2], IndexCompilePolicy::ConservativeSubset);
     assert!(program.is_none());
 }
 
@@ -288,11 +251,6 @@ fn compile_index_program_strict_rejects_partial_and_support() {
         },
     ]);
 
-    let predicate_slots = PredicateProgram::from_resolved_for_test(predicate);
-    let program = compile_index_program(
-        predicate_slots.resolved(),
-        &[1],
-        IndexCompilePolicy::StrictAllOrNone,
-    );
+    let program = compile_index_program(&predicate, &[1], IndexCompilePolicy::StrictAllOrNone);
     assert!(program.is_none());
 }

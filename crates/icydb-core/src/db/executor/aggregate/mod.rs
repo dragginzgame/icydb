@@ -12,12 +12,12 @@ mod terminals;
 #[cfg(test)]
 mod tests;
 
+pub(in crate::db::executor) use contracts::GroupAggregateSpec;
 pub(in crate::db::executor) use contracts::{
     AggregateFoldMode, AggregateKind, AggregateOutput, AggregateSpec, AggregateState,
-    AggregateStateFactory, ExecutionConfig, ExecutionContext, FoldControl, TerminalAggregateState,
+    AggregateStateFactory, ExecutionConfig, ExecutionContext, FoldControl, GroupError,
+    TerminalAggregateState,
 };
-#[allow(unused_imports)]
-pub(in crate::db::executor) use contracts::{GroupAggregateSpec, GroupAggregateSpecSupportError};
 pub(in crate::db::executor) use execution::{
     AggregateExecutionDescriptor, AggregateFastPathInputs, PreparedAggregateStreamingInputs,
 };
@@ -39,7 +39,7 @@ use crate::{
         },
         index::IndexCompilePolicy,
         policy,
-        query::group::GroupedExecutionConfig,
+        query::plan::GroupedExecutionConfig,
         response::Response,
     },
     error::InternalError,

@@ -3,13 +3,14 @@ use crate::{
         access::{AccessPath, AccessPlan},
         contracts::{ReadConsistency, SchemaInfo},
         query::{
-            group::{
-                FieldSlot, GroupAggregateKind, GroupAggregateSpec, GroupPlanError, GroupSpec,
-                GroupedExecutionConfig, grouped_executor_handoff, validate_group_query_semantics,
-            },
             intent::{LoadSpec, QueryMode},
-            plan::validate::{PlanError, PolicyPlanError, validate_query_semantics},
-            plan::{AccessPlannedQuery, DeleteLimitSpec, LogicalPlan, OrderDirection, OrderSpec},
+            plan::{
+                AccessPlannedQuery, DeleteLimitSpec, FieldSlot, GroupAggregateKind,
+                GroupAggregateSpec, GroupPlanError, GroupSpec, GroupedExecutionConfig, LogicalPlan,
+                OrderDirection, OrderSpec, grouped_executor_handoff,
+                validate::{PlanError, PolicyPlanError, validate_query_semantics},
+                validate_group_query_semantics,
+            },
         },
     },
     model::{field::FieldKind, index::IndexModel},

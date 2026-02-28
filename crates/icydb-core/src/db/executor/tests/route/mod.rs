@@ -10,17 +10,17 @@ use crate::{
             route::{
                 AGGREGATE_FAST_PATH_ORDER, ContinuationMode, ExecutionMode, ExecutionModeRouteCase,
                 FastPathOrder, FieldExtremaIneligibilityReason, GroupedRouteDecisionOutcome,
-                GroupedRouteRejectionReason, LOAD_FAST_PATH_ORDER, MUTATION_FAST_PATH_ORDER,
-                route_capability_flag_count_guard, route_execution_mode_case_count_guard,
+                LOAD_FAST_PATH_ORDER, MUTATION_FAST_PATH_ORDER, route_capability_flag_count_guard,
+                route_execution_mode_case_count_guard,
             },
         },
         query::{
-            group::{
-                FieldSlot, GroupAggregateKind, GroupAggregateSpec, GroupSpec,
-                GroupedExecutionConfig, grouped_executor_handoff,
-            },
             intent::{DeleteSpec, QueryMode},
-            plan::{AccessPlannedQuery, OrderDirection, OrderSpec, PageSpec},
+            plan::{
+                AccessPlannedQuery, FieldSlot, GroupAggregateKind, GroupAggregateSpec, GroupSpec,
+                GroupedExecutionConfig, OrderDirection, OrderSpec, PageSpec,
+                grouped_executor_handoff,
+            },
         },
     },
     model::{field::FieldKind, index::IndexModel},

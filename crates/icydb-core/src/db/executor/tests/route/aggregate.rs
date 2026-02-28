@@ -57,11 +57,13 @@ fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_pat
         .expect("grouped route should project grouped observability payload");
     assert_eq!(
         grouped_observability.outcome(),
-        GroupedRouteDecisionOutcome::MaterializedBlocked
+        GroupedRouteDecisionOutcome::MaterializedFallback
     );
+    assert_eq!(grouped_observability.rejection_reason(), None);
+    assert!(grouped_observability.eligible());
     assert_eq!(
-        grouped_observability.rejection_reason(),
-        GroupedRouteRejectionReason::RuntimeDisabled
+        grouped_observability.execution_mode(),
+        ExecutionMode::Materialized
     );
 }
 
@@ -102,11 +104,13 @@ fn route_plan_grouped_wrapper_keeps_blocking_shape_under_tight_budget_config() {
         .expect("grouped route should project grouped observability payload");
     assert_eq!(
         grouped_observability.outcome(),
-        GroupedRouteDecisionOutcome::MaterializedBlocked
+        GroupedRouteDecisionOutcome::MaterializedFallback
     );
+    assert_eq!(grouped_observability.rejection_reason(), None);
+    assert!(grouped_observability.eligible());
     assert_eq!(
-        grouped_observability.rejection_reason(),
-        GroupedRouteRejectionReason::RuntimeDisabled
+        grouped_observability.execution_mode(),
+        ExecutionMode::Materialized
     );
 }
 
@@ -243,13 +247,20 @@ fn route_plan_grouped_wrapper_observability_vector_is_frozen() {
             grouped_executor_handoff(&grouped)
                 .expect("grouped logical plans should build grouped handoff"),
         );
-    let observability = route_plan.grouped_observability().expect(
-        "grouped route should always project grouped observability while runtime is disabled",
+    let observability = route_plan
+        .grouped_observability()
+        .expect("grouped route should always project grouped observability for grouped intents");
+    let actual = (
+        observability.outcome(),
+        observability.rejection_reason(),
+        observability.eligible(),
+        observability.execution_mode(),
     );
-    let actual = (observability.outcome(), observability.rejection_reason());
     let expected = (
-        GroupedRouteDecisionOutcome::MaterializedBlocked,
-        GroupedRouteRejectionReason::RuntimeDisabled,
+        GroupedRouteDecisionOutcome::MaterializedFallback,
+        None,
+        true,
+        ExecutionMode::Materialized,
     );
 
     assert_eq!(actual, expected);

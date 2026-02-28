@@ -5,7 +5,7 @@ mod macros;
 use crate::{
     db::{
         query::{Query, ReadConsistency},
-        response::{Response, WriteBatchResponse, WriteResponse},
+        response::{PagedGroupedResponse, Response, WriteBatchResponse, WriteResponse},
     },
     error::Error,
     obs::MetricsSink,
@@ -112,6 +112,25 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C> + EntityValue,
     {
         Ok(Response::from_core(self.inner.execute_query(query)?))
+    }
+
+    /// Execute one grouped query page with optional continuation cursor.
+    pub fn execute_grouped<E>(
+        &self,
+        query: &Query<E>,
+        cursor_token: Option<&str>,
+    ) -> Result<PagedGroupedResponse, Error>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let execution = self.inner.execute_grouped(query, cursor_token)?;
+        let next_cursor = execution.continuation_cursor().map(core::db::encode_cursor);
+
+        Ok(PagedGroupedResponse {
+            items: execution.rows().to_vec(),
+            next_cursor,
+            execution_trace: execution.execution_trace().copied(),
+        })
     }
 
     // ------------------------------------------------------------------

@@ -14,12 +14,14 @@ pub(in crate::db::executor) use self::execute::{
 use self::trace::{access_path_variant, execution_order_direction};
 use crate::{
     db::{
-        Db,
+        Context, Db, GroupedRow,
         access::AccessPlan,
+        contracts::canonical_value_compare,
         cursor::{
-            ContinuationToken, CursorBoundary, GroupedContinuationToken, PlannedCursor,
-            decode_pk_cursor_boundary, round_trip_grouped_cursor_token,
+            ContinuationToken, CursorBoundary, GroupedContinuationToken, GroupedPlannedCursor,
+            PlannedCursor, decode_pk_cursor_boundary,
         },
+        data::DataKey,
         direction::Direction,
         executor::{
             AccessStreamBindings, ExecutablePlan, ExecutionKernel, ExecutionPreparation,
@@ -28,23 +30,84 @@ use crate::{
                 AggregateFieldValueError, FieldSlot, resolve_any_aggregate_target_slot,
                 resolve_numeric_aggregate_target_slot, resolve_orderable_aggregate_target_slot,
             },
-            group::{grouped_budget_observability, grouped_execution_context_from_planner_config},
+            aggregate::{AggregateKind, AggregateOutput, FoldControl, GroupError},
+            group::{
+                CanonicalKey, grouped_budget_observability,
+                grouped_execution_context_from_planner_config,
+            },
             plan_metrics::{record_plan_metrics, record_rows_scanned},
             range_token_anchor_key, range_token_from_cursor_anchor, validate_executor_plan,
         },
         index::IndexCompilePolicy,
         policy,
-        query::{
-            group::grouped_executor_handoff,
-            plan::{AccessPlannedQuery, LogicalPlan, OrderDirection},
-        },
+        query::plan::{AccessPlannedQuery, LogicalPlan, OrderDirection, grouped_executor_handoff},
         response::Response,
     },
     error::InternalError,
     obs::sink::{ExecKind, Span},
     traits::{EntityKind, EntityValue},
+    value::Value,
 };
-use std::marker::PhantomData;
+use std::{cmp::Ordering, marker::PhantomData, ops::Deref};
+
+///
+/// PageCursor
+///
+/// Internal continuation cursor enum for scalar and grouped pagination.
+///
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) enum PageCursor {
+    Scalar(ContinuationToken),
+    Grouped(GroupedContinuationToken),
+}
+
+impl PageCursor {
+    #[must_use]
+    pub(in crate::db) const fn as_scalar(&self) -> Option<&ContinuationToken> {
+        match self {
+            Self::Scalar(token) => Some(token),
+            Self::Grouped(_) => None,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn as_grouped(&self) -> Option<&GroupedContinuationToken> {
+        match self {
+            Self::Scalar(_) => None,
+            Self::Grouped(token) => Some(token),
+        }
+    }
+
+    // Preserve scalar cursor call-site compatibility for existing scalar tests.
+    fn scalar_or_panic(&self) -> &ContinuationToken {
+        match self {
+            Self::Scalar(token) => token,
+            Self::Grouped(_) => {
+                panic!("grouped continuation cursor cannot be accessed as scalar token")
+            }
+        }
+    }
+}
+
+impl Deref for PageCursor {
+    type Target = ContinuationToken;
+
+    fn deref(&self) -> &Self::Target {
+        self.scalar_or_panic()
+    }
+}
+
+impl From<ContinuationToken> for PageCursor {
+    fn from(value: ContinuationToken) -> Self {
+        Self::Scalar(value)
+    }
+}
+
+impl From<GroupedContinuationToken> for PageCursor {
+    fn from(value: GroupedContinuationToken) -> Self {
+        Self::Grouped(value)
+    }
+}
 
 ///
 /// CursorPage
@@ -57,7 +120,18 @@ use std::marker::PhantomData;
 pub(crate) struct CursorPage<E: EntityKind> {
     pub(crate) items: Response<E>,
 
-    pub(crate) next_cursor: Option<ContinuationToken>,
+    pub(crate) next_cursor: Option<PageCursor>,
+}
+
+///
+/// GroupedCursorPage
+///
+/// Internal grouped page result with grouped rows and continuation cursor payload.
+///
+#[derive(Debug)]
+pub(in crate::db) struct GroupedCursorPage {
+    pub(in crate::db) rows: Vec<GroupedRow>,
+    pub(in crate::db) next_cursor: Option<PageCursor>,
 }
 
 ///
@@ -244,7 +318,9 @@ where
         cursor: impl Into<PlannedCursor>,
     ) -> Result<(CursorPage<E>, Option<ExecutionTrace>), InternalError> {
         if matches!(&plan.as_inner().logical, LogicalPlan::Grouped(_)) {
-            return Self::execute_grouped_path(plan, cursor.into());
+            return Err(InternalError::query_executor_invariant(
+                "grouped plans require execute_grouped pagination entrypoints",
+            ));
         }
 
         let cursor: PlannedCursor = plan.revalidate_cursor(cursor.into())?;
@@ -339,15 +415,34 @@ where
         result.map(|page| (page, execution_trace))
     }
 
-    // Wire grouped plans through handoff, route, grouped budget, and grouped
-    // cursor token contracts until grouped response surfaces are activated.
-    fn execute_grouped_path(
+    pub(in crate::db) fn execute_grouped_paged_with_cursor_traced(
+        &self,
         plan: ExecutablePlan<E>,
-        cursor: PlannedCursor,
-    ) -> Result<(CursorPage<E>, Option<ExecutionTrace>), InternalError> {
+        cursor: impl Into<GroupedPlannedCursor>,
+    ) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), InternalError> {
+        if !matches!(&plan.as_inner().logical, LogicalPlan::Grouped(_)) {
+            return Err(InternalError::query_executor_invariant(
+                "grouped execution requires grouped logical plans",
+            ));
+        }
+
+        let cursor = plan.revalidate_grouped_cursor(cursor.into())?;
+
+        self.execute_grouped_path(plan, cursor)
+    }
+
+    // Execute grouped blocking reduction and produce grouped page rows + grouped cursor.
+    #[expect(clippy::too_many_lines)]
+    fn execute_grouped_path(
+        &self,
+        plan: ExecutablePlan<E>,
+        cursor: GroupedPlannedCursor,
+    ) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), InternalError> {
         validate_executor_plan::<E>(plan.as_inner())?;
         let grouped_handoff = grouped_executor_handoff(plan.as_inner())?;
         let grouped_execution = grouped_handoff.execution();
+        let group_fields = grouped_handoff.group_fields().to_vec();
+        let grouped_spec = Self::lower_grouped_spec_for_executor_contract(&grouped_handoff);
         let grouped_route_plan =
             Self::build_execution_route_plan_for_grouped_handoff(grouped_handoff);
         let grouped_route_observability =
@@ -356,48 +451,22 @@ where
                     "grouped route planning must emit grouped observability payload",
                 )
             })?;
-        let grouped_execution_context =
+        let direction = grouped_route_plan.direction();
+        let continuation_applied = !cursor.is_empty();
+        let mut execution_trace = self
+            .debug
+            .then(|| ExecutionTrace::new(plan.access(), direction, continuation_applied));
+        let continuation_signature = plan.continuation_signature();
+        let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
+        let index_range_specs = plan.index_range_specs()?.to_vec();
+
+        grouped_spec
+            .ensure_supported_for_execution()
+            .map_err(|err| InternalError::executor_unsupported(err.to_string()))?;
+
+        let mut grouped_execution_context =
             grouped_execution_context_from_planner_config(Some(grouped_execution));
         let grouped_budget = grouped_budget_observability(&grouped_execution_context);
-        let grouped_cursor_probe = GroupedContinuationToken::new_with_direction(
-            plan.continuation_signature(),
-            Vec::new(),
-            Direction::Asc,
-            cursor.initial_offset(),
-        );
-        let grouped_cursor_probe_round_trip =
-            round_trip_grouped_cursor_token(&grouped_cursor_probe).map_err(|err| {
-                InternalError::query_executor_invariant(format!(
-                    "grouped continuation token round-trip failed: {err}"
-                ))
-            })?;
-
-        debug_assert_eq!(
-            grouped_cursor_probe_round_trip.signature(),
-            grouped_cursor_probe.signature(),
-            "grouped continuation token signature must round-trip"
-        );
-        debug_assert_eq!(
-            grouped_cursor_probe_round_trip.last_group_key(),
-            grouped_cursor_probe.last_group_key(),
-            "grouped continuation token group anchor must round-trip"
-        );
-        debug_assert_eq!(
-            grouped_cursor_probe_round_trip.direction(),
-            grouped_cursor_probe.direction(),
-            "grouped continuation token direction must round-trip"
-        );
-        debug_assert_eq!(
-            grouped_cursor_probe_round_trip.initial_offset(),
-            grouped_cursor_probe.initial_offset(),
-            "grouped continuation token initial offset must round-trip"
-        );
-        debug_assert!(grouped_cursor_probe.last_group_key().is_empty());
-        debug_assert_eq!(grouped_cursor_probe.direction(), Direction::Asc);
-        debug_assert_eq!(
-            grouped_cursor_probe.initial_offset(),
-            cursor.initial_offset(),
-        );
         debug_assert!(
             grouped_budget.max_groups() >= grouped_budget.groups()
                 && grouped_budget.max_group_bytes() >= grouped_budget.estimated_bytes()
@@ -405,12 +474,279 @@ where
             "grouped budget observability invariants must hold at grouped route entry"
         );
 
-        let _ = grouped_route_observability.outcome();
-        let _ = grouped_route_observability.rejection_reason();
+        // Observe grouped route outcome/rejection once at grouped runtime entry.
+        let grouped_route_outcome = grouped_route_observability.outcome();
+        let grouped_route_rejection_reason = grouped_route_observability.rejection_reason();
+        let grouped_route_eligible = grouped_route_observability.eligible();
+        let grouped_route_execution_mode = grouped_route_observability.execution_mode();
+        debug_assert!(
+            grouped_route_eligible == grouped_route_rejection_reason.is_none(),
+            "grouped route eligibility and rejection reason must stay aligned",
+        );
+        debug_assert!(
+            grouped_route_outcome
+                != crate::db::executor::route::GroupedRouteDecisionOutcome::Rejected
+                || grouped_route_rejection_reason.is_some(),
+            "grouped rejected outcomes must carry a rejection reason",
+        );
+        debug_assert!(
+            matches!(
+                grouped_route_execution_mode,
+                crate::db::executor::route::ExecutionMode::Materialized
+            ),
+            "grouped execution route must remain blocking/materialized",
+        );
+        let plan = plan.into_inner();
+        let execution_preparation = ExecutionPreparation::for_plan::<E>(&plan);
+        let mut grouped_states = grouped_spec
+            .aggregate_specs()
+            .iter()
+            .map(|spec| {
+                if spec.target_field().is_some() {
+                    return Err(InternalError::executor_unsupported(format!(
+                        "grouped field-target aggregates are not yet enabled: {:?}",
+                        spec.kind()
+                    )));
+                }
 
-        Err(InternalError::executor_unsupported(
-            "grouped execution route is active, but grouped response execution is not yet enabled",
+                Ok(grouped_execution_context.create_grouped_state::<E>(
+                    spec.kind(),
+                    Self::grouped_reduction_direction(spec.kind()),
+                ))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut short_circuit_keys = vec![Vec::<Value>::new(); grouped_states.len()];
+
+        let mut span = Span::<E>::new(ExecKind::Load);
+        let ctx = self.db.recovered_context::<E>()?;
+        let execution_inputs = ExecutionInputs {
+            ctx: &ctx,
+            plan: &plan,
+            stream_bindings: AccessStreamBindings {
+                index_prefix_specs: index_prefix_specs.as_slice(),
+                index_range_specs: index_range_specs.as_slice(),
+                index_range_anchor: None,
+                direction,
+            },
+            execution_preparation: &execution_preparation,
+        };
+        record_plan_metrics(&plan.access);
+        let mut resolved = Self::resolve_execution_key_stream_without_distinct(
+            &execution_inputs,
+            &grouped_route_plan,
+            IndexCompilePolicy::ConservativeSubset,
+        )?;
+        let data_rows = ctx.rows_from_ordered_key_stream(
+            resolved.key_stream.as_mut(),
+            plan.scalar_plan().consistency,
+        )?;
+        let scanned_rows = data_rows.len();
+        let mut rows = Context::<E>::deserialize_rows(data_rows)?;
+        if let Some(compiled_predicate) = execution_preparation.compiled_predicate() {
+            rows.retain(|row| compiled_predicate.eval(&row.1));
+        }
+        let filtered_rows = rows.len();
+
+        // Phase 1: fold every filtered row into per-group aggregate states.
+        for (id, entity) in &rows {
+            let group_values = group_fields
+                .iter()
+                .map(|field| {
+                    entity.get_value_by_index(field.index()).ok_or_else(|| {
+                        InternalError::query_executor_invariant(format!(
+                            "grouped field slot missing on entity: index={}",
+                            field.index()
+                        ))
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let group_key = Value::List(group_values)
+                .canonical_key()
+                .map_err(crate::db::executor::group::KeyCanonicalError::into_internal_error)?;
+            let canonical_group_value = group_key.canonical_value().clone();
+            let data_key = DataKey::try_new::<E>(id.key())?;
+
+            for (index, state) in grouped_states.iter_mut().enumerate() {
+                if short_circuit_keys[index].iter().any(|done| {
+                    canonical_value_compare(done, &canonical_group_value) == Ordering::Equal
+                }) {
+                    continue;
+                }
+
+                let fold_control = state
+                    .apply(group_key.clone(), &data_key, &mut grouped_execution_context)
+                    .map_err(Self::map_group_error)?;
+                if matches!(fold_control, FoldControl::Break) {
+                    short_circuit_keys[index].push(canonical_group_value.clone());
+                }
+            }
+        }
+
+        // Phase 2: finalize grouped aggregate states and align outputs by declared aggregate order.
+        let aggregate_count = grouped_states.len();
+        let mut grouped_rows_by_key = Vec::<(Value, Vec<Value>)>::new();
+        for (index, state) in grouped_states.into_iter().enumerate() {
+            let finalized = state.finalize();
+            for output in finalized {
+                let group_key = output.group_key().canonical_value().clone();
+                let aggregate_value = Self::aggregate_output_to_value(output.output());
+                if let Some((_, existing_aggregates)) =
+                    grouped_rows_by_key
+                        .iter_mut()
+                        .find(|(existing_group_key, _)| {
+                            canonical_value_compare(existing_group_key, &group_key)
+                                == Ordering::Equal
+                        })
+                {
+                    if let Some(slot) = existing_aggregates.get_mut(index) {
+                        *slot = aggregate_value;
+                    }
+                } else {
+                    let mut aggregates = vec![Value::Null; aggregate_count];
+                    if let Some(slot) = aggregates.get_mut(index) {
+                        *slot = aggregate_value;
+                    }
+                    grouped_rows_by_key.push((group_key, aggregates));
+                }
+            }
+        }
+        grouped_rows_by_key.sort_by(|(left, _), (right, _)| canonical_value_compare(left, right));
+
+        // Phase 3: apply grouped resume/offset/limit and build grouped continuation token.
+        let initial_offset = plan
+            .scalar_plan()
+            .page
+            .as_ref()
+            .map_or(0, |page| page.offset);
+        let resume_initial_offset = if cursor.is_empty() {
+            initial_offset
+        } else {
+            cursor.initial_offset()
+        };
+        let resume_boundary = cursor
+            .last_group_key()
+            .map(|last_group_key| Value::List(last_group_key.to_vec()));
+        let apply_initial_offset = cursor.is_empty();
+        let mut groups_skipped_for_offset = 0u32;
+        let limit = plan
+            .scalar_plan()
+            .page
+            .as_ref()
+            .and_then(|page| page.limit)
+            .and_then(|limit| usize::try_from(limit).ok());
+        let mut page_rows = Vec::<GroupedRow>::new();
+        let mut last_emitted_group_key: Option<Vec<Value>> = None;
+        let mut has_more = false;
+        for (group_key_value, aggregate_values) in grouped_rows_by_key {
+            if let Some(resume_boundary) = resume_boundary.as_ref()
+                && canonical_value_compare(&group_key_value, resume_boundary) != Ordering::Greater
+            {
+                continue;
+            }
+            if apply_initial_offset && groups_skipped_for_offset < initial_offset {
+                groups_skipped_for_offset = groups_skipped_for_offset.saturating_add(1);
+                continue;
+            }
+            if limit.is_some_and(|limit| limit == 0) {
+                break;
+            }
+            if let Some(limit) = limit
+                && page_rows.len() >= limit
+            {
+                has_more = true;
+                break;
+            }
+
+            let emitted_group_key = match group_key_value {
+                Value::List(values) => values,
+                value => {
+                    return Err(InternalError::query_executor_invariant(format!(
+                        "grouped canonical key must be Value::List, found {value:?}"
+                    )));
+                }
+            };
+            last_emitted_group_key = Some(emitted_group_key.clone());
+            page_rows.push(GroupedRow::new(emitted_group_key, aggregate_values));
+        }
+
+        let next_cursor = if has_more {
+            last_emitted_group_key.map(|last_group_key| {
+                PageCursor::Grouped(GroupedContinuationToken::new_with_direction(
+                    continuation_signature,
+                    last_group_key,
+                    Direction::Asc,
+                    resume_initial_offset,
+                ))
+            })
+        } else {
+            None
+        };
+        let rows_scanned = resolved.rows_scanned_override.unwrap_or(scanned_rows);
+        let optimization = resolved.optimization;
+        let index_predicate_applied = resolved.index_predicate_applied;
+        let index_predicate_keys_rejected = resolved.index_predicate_keys_rejected;
+        let distinct_keys_deduped = resolved
+            .distinct_keys_deduped_counter
+            .as_ref()
+            .map_or(0, |counter| counter.get());
+        let rows_returned = page_rows.len();
+
+        Self::finalize_path_outcome(
+            &mut execution_trace,
+            optimization,
+            rows_scanned,
+            rows_returned,
+            index_predicate_applied,
+            index_predicate_keys_rejected,
+            distinct_keys_deduped,
+        );
+        span.set_rows(u64::try_from(rows_returned).unwrap_or(u64::MAX));
+        debug_assert!(
+            filtered_rows >= rows_returned,
+            "grouped pagination must return at most filtered row cardinality",
+        );
+
+        Ok((
+            GroupedCursorPage {
+                rows: page_rows,
+                next_cursor,
+            },
+            execution_trace,
         ))
+    }
+
+    // Map grouped reducer errors into executor-owned error classes.
+    fn map_group_error(err: GroupError) -> InternalError {
+        match err {
+            GroupError::MemoryLimitExceeded { .. } => {
+                InternalError::executor_internal(err.to_string())
+            }
+            GroupError::Internal(inner) => inner,
+        }
+    }
+
+    // Use non-short-circuit directions for MIN/MAX grouped materialized folds.
+    const fn grouped_reduction_direction(kind: AggregateKind) -> Direction {
+        match kind {
+            AggregateKind::Min => Direction::Desc,
+            AggregateKind::Max
+            | AggregateKind::Count
+            | AggregateKind::Exists
+            | AggregateKind::First
+            | AggregateKind::Last => Direction::Asc,
+        }
+    }
+
+    // Convert one aggregate output payload into grouped response value payload.
+    fn aggregate_output_to_value(output: &AggregateOutput<E>) -> Value {
+        match output {
+            AggregateOutput::Count(value) => Value::Uint(u64::from(*value)),
+            AggregateOutput::Exists(value) => Value::Bool(*value),
+            AggregateOutput::Min(value)
+            | AggregateOutput::Max(value)
+            | AggregateOutput::First(value)
+            | AggregateOutput::Last(value) => value.map_or(Value::Null, Value::from),
+        }
     }
 
     // Record shared observability outcome for any execution path.

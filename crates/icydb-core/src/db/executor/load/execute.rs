@@ -69,7 +69,12 @@ pub(in crate::db::executor) struct MaterializedExecutionAttempt<E: EntityKind> {
     pub(in crate::db::executor) distinct_keys_deduped: u64,
 }
 
-// Canonical fast-path routing decision for one execution attempt.
+///
+/// FastPathDecision
+///
+/// Canonical fast-path routing decision for one execution attempt.
+///
+
 enum FastPathDecision {
     Hit(FastPathKeyResult),
     None,
@@ -82,6 +87,7 @@ enum FastPathDecision {
 /// Branch execution requires this marker so route eligibility checks and
 /// branch dispatch stay coupled under one shared gate.
 ///
+
 struct VerifiedLoadFastPathRoute {
     route: FastPathOrder,
 }

@@ -11,6 +11,7 @@
 
 mod consistency;
 mod predicate_model;
+mod predicate_resolved;
 mod predicate_schema;
 mod semantics;
 #[cfg(test)]
@@ -27,6 +28,7 @@ pub(crate) use predicate_model::{FieldType, literal_matches_type};
 pub(in crate::db) use predicate_model::{
     TextOp, canonical_cmp, compare_eq, compare_order, compare_text, supports_coercion,
 };
+pub(in crate::db) use predicate_resolved::{ResolvedComparePredicate, ResolvedPredicate};
 pub(crate) use predicate_schema::SchemaInfo;
 pub use predicate_schema::ValidateError;
 pub(in crate::db) use semantics::{canonical_group_key_equals, canonical_value_compare};

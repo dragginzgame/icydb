@@ -2,9 +2,11 @@ mod distinct;
 mod post_access;
 mod reducer;
 
-pub(in crate::db::executor) use crate::db::index::IndexCompilePolicy;
-#[allow(unused_imports)]
-pub(in crate::db::executor) use post_access::{PlanRow, PostAccessStats};
+use crate::db::index::IndexCompilePolicy;
+
+// Keep post-access contract ownership explicit at the kernel boundary.
+// use post_access::{PlanRow, PostAccessStats};
+pub(in crate::db::executor) use post_access::PlanRow;
 
 use crate::{
     db::{

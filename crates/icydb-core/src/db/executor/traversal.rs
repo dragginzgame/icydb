@@ -1,8 +1,8 @@
-//! Neutral execution-plan contracts shared across db subsystems.
+//! Traversal and pagination helpers shared across cursor and executor paths.
 //!
-//! This module intentionally re-exports only execution-relevant plan
-//! structs/enums. Query semantic validation remains owned by
-//! `db::query::plan::validate`.
+//! This module owns derivation helpers for scan direction and effective page
+//! windows under continuation semantics. Query semantic validation remains
+//! owned by `db::query::plan::validate`.
 
 use crate::db::{
     direction::Direction,

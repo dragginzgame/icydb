@@ -3,8 +3,9 @@
 use crate::db::{DataStore, IndexStore};
 use crate::{
     db::{
-        Db, FluentDeleteQuery, FluentLoadQuery, PagedLoadExecutionWithTrace, PlanError, Query,
-        QueryError, ReadConsistency, Response, WriteBatchResponse, WriteResponse,
+        Db, FluentDeleteQuery, FluentLoadQuery, PagedGroupedExecutionWithTrace,
+        PagedLoadExecutionWithTrace, PlanError, Query, QueryError, ReadConsistency, Response,
+        WriteBatchResponse, WriteResponse,
         cursor::CursorPlanError,
         decode_cursor,
         executor::{DeleteExecutor, ExecutablePlan, ExecutorPlanError, LoadExecutor, SaveExecutor},
@@ -536,6 +537,13 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C> + EntityValue,
     {
         let plan = query.plan()?;
+        if plan.as_inner().grouped_plan().is_some() {
+            return Err(QueryError::Execute(
+                InternalError::query_executor_invariant(
+                    "grouped plans require execute_grouped(...)",
+                ),
+            ));
+        }
         let cursor_bytes = match cursor_token {
             Some(token) => Some(decode_cursor(token).map_err(|reason| {
                 QueryError::from(PlanError::from(
@@ -557,6 +565,14 @@ impl<C: CanisterKind> DbSession<C> {
         let next_cursor = page
             .next_cursor
             .map(|token| {
+                let Some(token) = token.as_scalar() else {
+                    return Err(QueryError::Execute(
+                        InternalError::query_executor_invariant(
+                            "scalar load pagination emitted grouped continuation token",
+                        ),
+                    ));
+                };
+
                 token.encode().map_err(|err| {
                     QueryError::Execute(InternalError::serialize_internal(format!(
                         "failed to serialize continuation cursor: {err}"
@@ -567,6 +583,70 @@ impl<C: CanisterKind> DbSession<C> {
 
         Ok(PagedLoadExecutionWithTrace::new(
             page.items,
+            next_cursor,
+            trace,
+        ))
+    }
+
+    /// Execute one grouped query page with optional grouped continuation cursor.
+    ///
+    /// This is the explicit grouped execution boundary; scalar load APIs reject
+    /// grouped plans to preserve scalar response contracts.
+    pub fn execute_grouped<E>(
+        &self,
+        query: &Query<E>,
+        cursor_token: Option<&str>,
+    ) -> Result<PagedGroupedExecutionWithTrace, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let plan = query.plan()?;
+        if plan.as_inner().grouped_plan().is_none() {
+            return Err(QueryError::Execute(
+                InternalError::query_executor_invariant(
+                    "execute_grouped requires grouped logical plans",
+                ),
+            ));
+        }
+        let cursor_bytes = match cursor_token {
+            Some(token) => Some(decode_cursor(token).map_err(|reason| {
+                QueryError::from(PlanError::from(
+                    CursorPlanError::InvalidContinuationCursor { reason },
+                ))
+            })?),
+            None => None,
+        };
+        let cursor = plan
+            .prepare_grouped_cursor(cursor_bytes.as_deref())
+            .map_err(map_executor_plan_error)?;
+
+        let (page, trace) = self
+            .with_metrics(|| {
+                self.load_executor::<E>()
+                    .execute_grouped_paged_with_cursor_traced(plan, cursor)
+            })
+            .map_err(QueryError::Execute)?;
+        let next_cursor = page
+            .next_cursor
+            .map(|token| {
+                let Some(token) = token.as_grouped() else {
+                    return Err(QueryError::Execute(
+                        InternalError::query_executor_invariant(
+                            "grouped pagination emitted scalar continuation token",
+                        ),
+                    ));
+                };
+
+                token.encode().map_err(|err| {
+                    QueryError::Execute(InternalError::serialize_internal(format!(
+                        "failed to serialize grouped continuation cursor: {err}"
+                    )))
+                })
+            })
+            .transpose()?;
+
+        Ok(PagedGroupedExecutionWithTrace::new(
+            page.rows,
             next_cursor,
             trace,
         ))

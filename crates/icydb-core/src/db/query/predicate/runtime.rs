@@ -1,63 +1,14 @@
 use crate::{
     db::contracts::{
-        CoercionSpec, CompareOp, ComparePredicate, Predicate, PredicateExecutionModel, TextOp,
-        compare_eq, compare_order, compare_text,
+        CoercionSpec, CompareOp, ComparePredicate, Predicate, PredicateExecutionModel,
+        ResolvedComparePredicate, ResolvedPredicate, TextOp, compare_eq, compare_order,
+        compare_text,
     },
     model::entity::resolve_field_slot,
     traits::{EntityKind, EntityValue},
     value::{TextMode, Value},
 };
 use std::cmp::Ordering;
-
-///
-/// ResolvedComparePredicate
-///
-/// One comparison node with a pre-resolved field slot.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct ResolvedComparePredicate {
-    pub(crate) field_slot: Option<usize>,
-    pub(crate) op: CompareOp,
-    pub(crate) value: Value,
-    pub(crate) coercion: CoercionSpec,
-}
-
-///
-/// ResolvedPredicate
-///
-/// Predicate AST compiled to field slots for execution hot paths.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum ResolvedPredicate {
-    True,
-    False,
-    And(Vec<Self>),
-    Or(Vec<Self>),
-    Not(Box<Self>),
-    Compare(ResolvedComparePredicate),
-    IsNull {
-        field_slot: Option<usize>,
-    },
-    IsMissing {
-        field_slot: Option<usize>,
-    },
-    IsEmpty {
-        field_slot: Option<usize>,
-    },
-    IsNotEmpty {
-        field_slot: Option<usize>,
-    },
-    TextContains {
-        field_slot: Option<usize>,
-        value: Value,
-    },
-    TextContainsCi {
-        field_slot: Option<usize>,
-        value: Value,
-    },
-}
 
 ///
 /// PredicateProgram
@@ -90,11 +41,6 @@ impl PredicateProgram {
     #[must_use]
     pub(in crate::db) const fn resolved(&self) -> &ResolvedPredicate {
         &self.resolved
-    }
-
-    #[cfg(test)]
-    pub(crate) const fn from_resolved_for_test(resolved: ResolvedPredicate) -> Self {
-        Self { resolved }
     }
 }
 

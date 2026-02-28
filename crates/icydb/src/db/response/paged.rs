@@ -15,3 +15,15 @@ pub struct PagedResponse<E: EntityKind> {
     pub items: Vec<View<E>>,
     pub next_cursor: Option<String>,
 }
+
+///
+/// PagedGroupedResponse
+///
+/// Public grouped pagination payload.
+/// Grouped rows are returned as core grouped rows to preserve grouped value fidelity.
+///
+pub struct PagedGroupedResponse {
+    pub items: Vec<icydb_core::db::GroupedRow>,
+    pub next_cursor: Option<String>,
+    pub execution_trace: Option<icydb_core::db::ExecutionTrace>,
+}

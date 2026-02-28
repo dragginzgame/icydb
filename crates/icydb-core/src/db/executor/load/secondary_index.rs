@@ -2,9 +2,11 @@ use crate::{
     db::{
         Context,
         executor::load::{ExecutionOptimization, FastPathKeyResult, LoadExecutor},
-        executor::{AccessPlanStreamRequest, AccessStreamBindings, LoweredIndexPrefixSpec},
+        executor::{
+            AccessPlanStreamRequest, AccessStreamBindings, LoweredIndexPrefixSpec,
+            traversal::derive_secondary_order_scan_direction,
+        },
         index::predicate::IndexPredicateExecution,
-        plan::derive_secondary_order_scan_direction,
         query::plan::AccessPlannedQuery,
     },
     error::InternalError,

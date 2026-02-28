@@ -439,3 +439,83 @@ impl IndexRangeCursorAnchorWire {
         IndexRangeCursorAnchor::new(self.last_raw_key)
     }
 }
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::{ContinuationSignature, GroupedContinuationToken, GroupedContinuationTokenError};
+    use crate::{
+        db::{codec::cursor::encode_cursor, direction::Direction},
+        value::Value,
+    };
+
+    fn grouped_token_fixture(direction: Direction) -> GroupedContinuationToken {
+        GroupedContinuationToken::new_with_direction(
+            ContinuationSignature::from_bytes([0x42; 32]),
+            vec![
+                Value::Text("tenant-a".to_string()),
+                Value::Uint(7),
+                Value::Bool(true),
+            ],
+            direction,
+            4,
+        )
+    }
+
+    #[test]
+    fn grouped_continuation_token_round_trip_preserves_fields() {
+        let token = grouped_token_fixture(Direction::Asc);
+
+        let encoded = token
+            .encode()
+            .expect("grouped continuation token should encode");
+        let decoded = GroupedContinuationToken::decode(encoded.as_slice())
+            .expect("grouped continuation token should decode");
+
+        assert_eq!(decoded.signature(), token.signature());
+        assert_eq!(decoded.last_group_key(), token.last_group_key());
+        assert_eq!(decoded.direction(), token.direction());
+        assert_eq!(decoded.initial_offset(), token.initial_offset());
+    }
+
+    #[test]
+    fn grouped_continuation_token_v1_wire_vector_is_frozen() {
+        let token = grouped_token_fixture(Direction::Asc);
+
+        let encoded = token
+            .encode()
+            .expect("grouped continuation token should encode");
+        let actual_hex = encode_cursor(encoded.as_slice());
+        assert_eq!(
+            actual_hex,
+            "a56776657273696f6e01697369676e61747572659820184218421842184218421842184218421842184218421842184218421842184218421842184218421842184218421842184218421842184218421842184218426e6c6173745f67726f75705f6b657983a164546578746874656e616e742d61a16455696e7407a164426f6f6cf569646972656374696f6e634173636e696e697469616c5f6f666673657404"
+        );
+    }
+
+    #[test]
+    fn grouped_continuation_token_decode_rejects_unsupported_version() {
+        let token = grouped_token_fixture(Direction::Asc);
+        let encoded = token
+            .encode_with_version_for_test(9)
+            .expect("grouped continuation token test wire should encode");
+        let err = GroupedContinuationToken::decode(encoded.as_slice())
+            .expect_err("unknown grouped cursor wire version must fail");
+
+        assert_eq!(
+            err,
+            GroupedContinuationTokenError::UnsupportedVersion { version: 9 }
+        );
+    }
+
+    #[test]
+    fn grouped_continuation_token_decode_rejects_oversized_payload() {
+        let oversized = vec![0_u8; 8 * 1024 + 1];
+        let err = GroupedContinuationToken::decode(oversized.as_slice())
+            .expect_err("oversized grouped cursor payload must fail");
+
+        assert!(matches!(err, GroupedContinuationTokenError::Decode(_)));
+    }
+}

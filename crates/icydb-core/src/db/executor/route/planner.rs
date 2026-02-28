@@ -9,9 +9,9 @@ use crate::{
             aggregate::{AggregateFoldMode, AggregateKind, AggregateSpec, GroupAggregateSpec},
             load::LoadExecutor,
         },
-        query::{
-            group::{GroupAggregateKind as QueryGroupAggregateKind, GroupedExecutorHandoff},
-            plan::AccessPlannedQuery,
+        query::plan::{
+            AccessPlannedQuery, GroupAggregateKind as QueryGroupAggregateKind,
+            GroupedExecutorHandoff,
         },
     },
     error::InternalError,

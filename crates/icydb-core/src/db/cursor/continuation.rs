@@ -5,7 +5,6 @@ use crate::{
         },
         direction::Direction,
         index::IndexKey,
-        plan::effective_keep_count_for_limit,
         query::plan::AccessPlannedQuery,
     },
     error::InternalError,
@@ -84,4 +83,24 @@ where
     };
 
     Ok(token)
+}
+
+// Derive the effective keep-count (`offset + limit`) under cursor-window semantics.
+fn effective_keep_count_for_limit<K>(
+    plan: &AccessPlannedQuery<K>,
+    cursor_boundary_present: bool,
+    limit: u32,
+) -> usize {
+    let effective_offset = if cursor_boundary_present {
+        0
+    } else {
+        plan.scalar_plan()
+            .page
+            .as_ref()
+            .map_or(0, |page| page.offset)
+    };
+
+    usize::try_from(effective_offset)
+        .unwrap_or(usize::MAX)
+        .saturating_add(usize::try_from(limit).unwrap_or(usize::MAX))
 }

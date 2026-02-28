@@ -14,6 +14,7 @@ pub(super) mod route;
 mod stream;
 #[cfg(test)]
 mod tests;
+mod traversal;
 mod window;
 
 use crate::db::{

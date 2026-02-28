@@ -1,10 +1,13 @@
 use crate::{
     db::{
         cursor::{CursorBoundary, apply_cursor_boundary},
-        executor::{ExecutionKernel, kernel::PlanRow},
-        plan::{
-            effective_keep_count_for_limit as plan_effective_keep_count_for_limit,
-            effective_page_offset_for_window,
+        executor::{
+            ExecutionKernel,
+            kernel::PlanRow,
+            traversal::{
+                effective_keep_count_for_limit as plan_effective_keep_count_for_limit,
+                effective_page_offset_for_window,
+            },
         },
         query::plan::AccessPlannedQuery,
     },

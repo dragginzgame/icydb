@@ -9,7 +9,7 @@ use crate::{
 use icydb_core::db::Response as CoreResponse;
 
 // re-exports
-pub use paged::PagedResponse;
+pub use paged::{PagedGroupedResponse, PagedResponse};
 pub use write::*;
 
 ///

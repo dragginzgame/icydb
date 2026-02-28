@@ -1,5 +1,6 @@
 //! Query plan contracts, planning, and validation wiring.
 
+mod group;
 mod planner;
 #[cfg(test)]
 mod tests;
@@ -26,7 +27,9 @@ use std::ops::Bound;
 use std::ops::{Deref, DerefMut};
 
 pub(in crate::db) use crate::db::query::fingerprint::canonical;
+pub(in crate::db) use group::{GroupedExecutorHandoff, grouped_executor_handoff};
 pub use validate::PlanError;
+pub(crate) use validate::{GroupPlanError, validate_group_query_semantics};
 
 ///
 /// QueryMode
@@ -262,7 +265,7 @@ impl FieldSlot {
 ///
 /// Declarative grouped-execution budget policy selected by query planning.
 /// This remains planner-owned input; executor policy bridges may still apply
-/// defaults and enforcement strategy while grouped execution is scaffold-only.
+/// defaults and enforcement strategy at runtime boundaries.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -281,7 +284,7 @@ impl GroupedExecutionConfig {
         }
     }
 
-    /// Build one unbounded grouped execution config for scaffold callers.
+    /// Build one unbounded grouped execution config.
     #[must_use]
     pub(crate) const fn unbounded() -> Self {
         Self::with_hard_limits(u64::MAX, u64::MAX)

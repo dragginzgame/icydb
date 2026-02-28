@@ -72,7 +72,7 @@ impl From<Option<CursorBoundary>> for PlannedCursor {
 /// GroupedPlannedCursor
 ///
 /// Executor-facing grouped continuation state produced after grouped cursor
-/// validation. This type is additive scaffolding for grouped pagination.
+/// validation for grouped pagination.
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct GroupedPlannedCursor {
@@ -80,7 +80,6 @@ pub(in crate::db) struct GroupedPlannedCursor {
     initial_offset: u32,
 }
 
-#[expect(dead_code)]
 impl GroupedPlannedCursor {
     #[must_use]
     pub(in crate::db) const fn none() -> Self {
