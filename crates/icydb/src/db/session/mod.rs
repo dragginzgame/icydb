@@ -4,7 +4,7 @@ mod macros;
 
 use crate::{
     db::{
-        query::{Query, ReadConsistency},
+        query::{MissingRowPolicy, Query},
         response::{PagedGroupedResponse, Response, WriteBatchResponse, WriteResponse},
     },
     error::Error,
@@ -70,7 +70,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[must_use]
     pub const fn load_with_consistency<E>(
         &self,
-        consistency: ReadConsistency,
+        consistency: MissingRowPolicy,
     ) -> FluentLoadQuery<'_, E>
     where
         E: EntityKind<Canister = C>,
@@ -93,7 +93,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[must_use]
     pub fn delete_with_consistency<E>(
         &self,
-        consistency: ReadConsistency,
+        consistency: MissingRowPolicy,
     ) -> SessionDeleteQuery<'_, E>
     where
         E: EntityKind<Canister = C>,

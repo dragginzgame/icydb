@@ -12,7 +12,7 @@ use crate::{
             AccessPath, AccessPlan, PushdownApplicability, SecondaryOrderPushdownEligibility,
             SecondaryOrderPushdownRejection,
         },
-        contracts::{PredicateExecutionModel, ReadConsistency},
+        contracts::{MissingRowPolicy, PredicateExecutionModel},
         cursor::CursorBoundary,
         direction::Direction,
         query::explain::ExplainAccessPath,
@@ -177,6 +177,7 @@ pub(crate) struct PageSpec {
 /// reducer internals while preserving terminal intent shape.
 ///
 
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum GroupAggregateKind {
     Count,
@@ -365,7 +366,7 @@ pub(crate) struct ScalarPlan {
     pub(crate) page: Option<PageSpec>,
 
     /// Missing-row policy for execution.
-    pub(crate) consistency: ReadConsistency,
+    pub(crate) consistency: MissingRowPolicy,
 }
 
 ///
@@ -500,7 +501,7 @@ impl<K> AccessPlannedQuery<K> {
     #[cfg(test)]
     pub(crate) fn new(
         access: crate::db::access::AccessPath<K>,
-        consistency: ReadConsistency,
+        consistency: MissingRowPolicy,
     ) -> Self {
         Self {
             logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {

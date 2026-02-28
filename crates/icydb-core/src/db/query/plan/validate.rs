@@ -17,10 +17,7 @@ use crate::{
         cursor::CursorPlanError,
         policy::{self, PlanPolicyError},
         query::{
-            plan::{
-                AccessPlannedQuery, GroupAggregateKind, GroupSpec, LogicalPlan, OrderSpec,
-                ScalarPlan,
-            },
+            plan::{AccessPlannedQuery, GroupSpec, LogicalPlan, OrderSpec, ScalarPlan},
             predicate,
         },
     },
@@ -144,11 +141,11 @@ pub enum GroupPlanError {
     #[error("unknown grouped aggregate target field at index={index}: '{field}'")]
     UnknownAggregateTargetField { index: usize, field: String },
 
-    /// Field-target grouped terminals are currently limited to MIN/MAX.
+    /// Field-target grouped terminals are not enabled in grouped execution v1.
     #[error(
-        "grouped aggregate at index={index} requires MIN/MAX when targeting field '{field}': found {kind}"
+        "grouped aggregate at index={index} cannot target field '{field}' in this release: found {kind}"
     )]
-    FieldTargetRequiresExtrema {
+    FieldTargetAggregatesUnsupported {
         index: usize,
         kind: String,
         field: String,
@@ -306,18 +303,13 @@ pub(crate) fn validate_group_spec(
                 },
             ));
         }
-        if !matches!(
-            aggregate.kind,
-            GroupAggregateKind::Min | GroupAggregateKind::Max
-        ) {
-            return Err(PlanError::from(
-                GroupPlanError::FieldTargetRequiresExtrema {
-                    index,
-                    kind: format!("{:?}", aggregate.kind),
-                    field: target_field.clone(),
-                },
-            ));
-        }
+        return Err(PlanError::from(
+            GroupPlanError::FieldTargetAggregatesUnsupported {
+                index,
+                kind: format!("{:?}", aggregate.kind),
+                field: target_field.clone(),
+            },
+        ));
     }
 
     Ok(())

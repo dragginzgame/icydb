@@ -1,9 +1,12 @@
 use super::*;
-use crate::db::direction::Direction;
+use crate::db::{
+    cursor::{CursorPlanError, GroupedContinuationToken},
+    direction::Direction,
+};
 
 #[test]
 fn load_cursor_rejects_version_mismatch_at_plan_time() {
-    let plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("rank")
         .limit(1)
         .plan()
@@ -44,7 +47,7 @@ fn load_cursor_rejects_version_mismatch_at_plan_time() {
 
 #[test]
 fn load_cursor_rejects_boundary_value_type_mismatch_at_plan_time() {
-    let plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("rank")
         .limit(1)
         .plan()
@@ -85,7 +88,7 @@ fn load_cursor_rejects_boundary_value_type_mismatch_at_plan_time() {
 
 #[test]
 fn load_cursor_rejects_primary_key_type_mismatch_at_plan_time() {
-    let plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("rank")
         .limit(1)
         .plan()
@@ -126,7 +129,7 @@ fn load_cursor_rejects_primary_key_type_mismatch_at_plan_time() {
 
 #[test]
 fn load_cursor_rejects_wrong_entity_path_at_plan_time() {
-    let foreign_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let foreign_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .order_by("id")
         .limit(1)
         .plan()
@@ -144,7 +147,7 @@ fn load_cursor_rejects_wrong_entity_path_at_plan_time() {
     .encode()
     .expect("foreign entity cursor should encode");
 
-    let local_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let local_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("id")
         .limit(1)
         .plan()
@@ -167,7 +170,7 @@ fn load_cursor_rejects_wrong_entity_path_at_plan_time() {
 
 #[test]
 fn load_cursor_rejects_offset_mismatch_at_plan_time() {
-    let plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("rank")
         .limit(1)
         .offset(2)
@@ -209,7 +212,7 @@ fn load_cursor_rejects_offset_mismatch_at_plan_time() {
 
 #[test]
 fn load_cursor_v1_token_rejects_non_zero_offset_plan() {
-    let plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("rank")
         .limit(1)
         .offset(2)
@@ -252,7 +255,7 @@ fn load_cursor_v1_token_rejects_non_zero_offset_plan() {
 
 #[test]
 fn load_cursor_rejects_order_field_signature_mismatch_at_plan_time() {
-    let source_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let source_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("rank")
         .limit(1)
         .plan()
@@ -272,7 +275,7 @@ fn load_cursor_rejects_order_field_signature_mismatch_at_plan_time() {
     .encode()
     .expect("order-field mismatch cursor should encode");
 
-    let target_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let target_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("label")
         .limit(1)
         .plan()
@@ -295,7 +298,7 @@ fn load_cursor_rejects_order_field_signature_mismatch_at_plan_time() {
 
 #[test]
 fn load_cursor_rejects_direction_mismatch_at_plan_time() {
-    let plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("rank")
         .limit(1)
         .plan()
@@ -335,7 +338,7 @@ fn load_cursor_rejects_direction_mismatch_at_plan_time() {
 
 #[test]
 fn load_cursor_accepts_matching_offset_window_at_plan_time() {
-    let plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("rank")
         .limit(1)
         .offset(2)
@@ -367,5 +370,74 @@ fn load_cursor_accepts_matching_offset_window_at_plan_time() {
         planned.initial_offset(),
         2,
         "planned cursor should preserve the validated initial offset"
+    );
+}
+
+#[test]
+fn grouped_cursor_rejects_cross_shape_resume_token_and_encoded_bytes_differ() {
+    let grouped_by_group = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .group_by("group")
+        .expect("grouped-by-group query should build")
+        .group_count()
+        .plan()
+        .expect("grouped-by-group plan should build");
+    let grouped_by_rank = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .group_by("rank")
+        .expect("grouped-by-rank query should build")
+        .group_count()
+        .plan()
+        .expect("grouped-by-rank plan should build");
+
+    let signature_group = grouped_by_group.continuation_signature();
+    let signature_rank = grouped_by_rank.continuation_signature();
+    assert_ne!(
+        signature_group, signature_rank,
+        "grouped continuation signatures must change when group key shape changes"
+    );
+
+    let token_group = GroupedContinuationToken::new_with_direction(
+        signature_group,
+        vec![Value::Uint(7)],
+        Direction::Asc,
+        0,
+    );
+    let token_rank = GroupedContinuationToken::new_with_direction(
+        signature_rank,
+        vec![Value::Uint(7)],
+        Direction::Asc,
+        0,
+    );
+    let bytes_group = token_group
+        .encode()
+        .expect("grouped-by-group token should encode");
+    let bytes_rank = token_rank
+        .encode()
+        .expect("grouped-by-rank token should encode");
+    assert_ne!(
+        bytes_group, bytes_rank,
+        "grouped continuation token bytes must differ across grouped query shapes"
+    );
+
+    let prepared = grouped_by_group
+        .prepare_grouped_cursor(Some(bytes_group.as_slice()))
+        .expect("matching grouped token should validate");
+    assert!(
+        !prepared.is_empty(),
+        "matching grouped token should produce grouped cursor state"
+    );
+
+    let err = grouped_by_rank
+        .prepare_grouped_cursor(Some(bytes_group.as_slice()))
+        .expect_err("cross-shape grouped token must be rejected");
+    assert!(
+        matches!(
+            err,
+            crate::db::executor::ExecutorPlanError::Cursor(inner)
+                if matches!(
+                    inner.as_ref(),
+                    CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+                )
+        ),
+        "grouped resume must fail fast on continuation signature mismatch"
     );
 }

@@ -57,7 +57,7 @@ fn build_phase_composite_plan(
     ]);
     let mut logical_plan = crate::db::query::plan::AccessPlannedQuery::new(
         crate::db::access::AccessPath::FullScan,
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     logical_plan.access = access;
     logical_plan.order = Some(crate::db::query::plan::OrderSpec {
@@ -164,7 +164,7 @@ fn assert_distinct_parity_for_simple_rows(rows: &[u128], descending: bool, label
     assert_aggregate_parity_for_query(
         &load,
         || {
-            let query = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+            let query = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
                 .distinct();
             if descending {
@@ -188,7 +188,7 @@ fn assert_distinct_field_terminal_parity(rows: &[(u128, u32, u32)], descending: 
     assert_field_aggregate_parity_for_query(
         &load,
         || {
-            let query = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            let query = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
                 .distinct();
             if descending {
@@ -209,7 +209,7 @@ fn aggregate_parity_ordered_page_window_desc() {
     assert_aggregate_parity_for_query(
         &load,
         || {
-            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .order_by_desc("id")
                 .offset(1)
                 .limit(4)
@@ -225,14 +225,14 @@ fn aggregate_parity_by_id_and_by_ids_paths() {
 
     assert_aggregate_parity_for_query(
         &load,
-        || Query::<SimpleEntity>::new(ReadConsistency::MissingOk).by_id(Ulid::from_u128(8602)),
+        || Query::<SimpleEntity>::new(MissingRowPolicy::Ignore).by_id(Ulid::from_u128(8602)),
         "by_id path",
     );
 
     assert_aggregate_parity_for_query(
         &load,
         || {
-            Query::<SimpleEntity>::new(ReadConsistency::MissingOk).by_ids([
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore).by_ids([
                 Ulid::from_u128(8604),
                 Ulid::from_u128(8601),
                 Ulid::from_u128(8604),
@@ -250,7 +250,7 @@ fn aggregate_parity_by_id_window_shape() {
     assert_aggregate_parity_for_query(
         &load,
         || {
-            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .by_id(Ulid::from_u128(8611))
                 .order_by("id")
                 .offset(1)
@@ -267,7 +267,7 @@ fn aggregate_by_id_windowed_count_scans_one_candidate_key() {
 
     let (count, scanned) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
         load.aggregate_count(
-            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .by_id(Ulid::from_u128(8621))
                 .order_by("id")
                 .offset(1)
@@ -292,7 +292,7 @@ fn aggregate_by_id_strict_missing_surfaces_corruption_error() {
 
     let err = load
         .aggregate_exists(
-            Query::<SimpleEntity>::new(ReadConsistency::Strict)
+            Query::<SimpleEntity>::new(MissingRowPolicy::Error)
                 .by_id(Ulid::from_u128(8632))
                 .plan()
                 .expect("strict by_id EXISTS plan should build"),
@@ -314,7 +314,7 @@ fn aggregate_parity_by_ids_window_shape_with_duplicates() {
     assert_aggregate_parity_for_query(
         &load,
         || {
-            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .by_ids([
                     Ulid::from_u128(8645),
                     Ulid::from_u128(8642),
@@ -337,7 +337,7 @@ fn aggregate_by_ids_count_dedups_before_windowing() {
 
     let (count, scanned) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
         load.aggregate_count(
-            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .by_ids([
                     Ulid::from_u128(8654),
                     Ulid::from_u128(8652),
@@ -367,7 +367,7 @@ fn aggregate_by_ids_strict_missing_surfaces_corruption_error() {
 
     let err = load
         .aggregate_count(
-            Query::<SimpleEntity>::new(ReadConsistency::Strict)
+            Query::<SimpleEntity>::new(MissingRowPolicy::Error)
                 .by_ids([Ulid::from_u128(8662)])
                 .order_by("id")
                 .plan()
@@ -389,7 +389,7 @@ fn aggregate_count_full_scan_window_scans_offset_plus_limit() {
 
     let (count, scanned) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
         load.aggregate_count(
-            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .offset(2)
                 .limit(2)
@@ -416,7 +416,7 @@ fn aggregate_count_key_range_window_scans_offset_plus_limit() {
             start: Ulid::from_u128(8682),
             end: Ulid::from_u128(8686),
         },
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     logical_plan.order = Some(crate::db::query::plan::OrderSpec {
         fields: vec![(
@@ -461,7 +461,7 @@ fn aggregate_exists_index_range_window_scans_offset_plus_one() {
             std::ops::Bound::Included(Value::Uint(101)),
             std::ops::Bound::Excluded(Value::Uint(106)),
         ),
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     logical_plan.order = Some(crate::db::query::plan::OrderSpec {
         fields: vec![
@@ -556,7 +556,7 @@ fn aggregate_parity_union_and_intersection_paths() {
     assert_aggregate_parity_for_query(
         &load,
         || {
-            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .filter(union_predicate.clone())
                 .order_by("id")
                 .offset(1)
@@ -572,7 +572,7 @@ fn aggregate_parity_union_and_intersection_paths() {
     assert_aggregate_parity_for_query(
         &load,
         || {
-            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .filter(intersection_predicate.clone())
                 .order_by_desc("id")
                 .offset(0)
@@ -622,7 +622,7 @@ fn aggregate_parity_index_range_shape() {
     assert_aggregate_parity_for_query(
         &load,
         || {
-            Query::<UniqueIndexRangeEntity>::new(ReadConsistency::MissingOk)
+            Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
                 .filter(range_predicate.clone())
                 .order_by_desc("code")
                 .offset(1)
@@ -640,7 +640,7 @@ fn aggregate_parity_strict_consistency() {
     assert_aggregate_parity_for_query(
         &load,
         || {
-            Query::<SimpleEntity>::new(ReadConsistency::Strict)
+            Query::<SimpleEntity>::new(MissingRowPolicy::Error)
                 .order_by_desc("id")
                 .offset(1)
                 .limit(3)
@@ -657,7 +657,7 @@ fn aggregate_parity_limit_zero_window() {
     assert_aggregate_parity_for_query(
         &load,
         || {
-            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .offset(2)
                 .limit(0)

@@ -6,8 +6,7 @@ use crate::db::{
 
 #[test]
 fn route_plan_aggregate_uses_route_owned_fast_path_order() {
-    let mut plan =
-        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     plan.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
@@ -22,8 +21,7 @@ fn route_plan_aggregate_uses_route_owned_fast_path_order() {
 
 #[test]
 fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_paths() {
-    let mut base =
-        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    let mut base = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     base.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
@@ -69,8 +67,7 @@ fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_pat
 
 #[test]
 fn route_plan_grouped_wrapper_keeps_blocking_shape_under_tight_budget_config() {
-    let mut base =
-        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    let mut base = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     base.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
@@ -124,7 +121,7 @@ fn route_plan_grouped_wrapper_lowers_kind_matrix_into_executor_contract() {
         (GroupAggregateKind::First, AggregateKind::First),
         (GroupAggregateKind::Last, AggregateKind::Last),
     ];
-    let grouped = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk)
+    let grouped = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore)
         .into_grouped(GroupSpec {
             group_fields: grouped_field_slots(&["rank"]),
             aggregates: kind_cases
@@ -153,7 +150,7 @@ fn route_plan_grouped_wrapper_lowers_kind_matrix_into_executor_contract() {
 
 #[test]
 fn route_plan_grouped_wrapper_lowers_target_field_into_executor_contract() {
-    let grouped = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk)
+    let grouped = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore)
         .into_grouped(GroupSpec {
             group_fields: grouped_field_slots(&["rank", "label"]),
             aggregates: vec![GroupAggregateSpec {
@@ -190,7 +187,7 @@ fn route_plan_grouped_wrapper_lowers_supported_target_field_matrix_into_executor
         (GroupAggregateKind::First, None),
         (GroupAggregateKind::Last, None),
     ];
-    let grouped = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk)
+    let grouped = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore)
         .into_grouped(GroupSpec {
             group_fields: grouped_field_slots(&["rank", "label"]),
             aggregates: grouped_cases
@@ -232,7 +229,7 @@ fn route_plan_grouped_wrapper_lowers_supported_target_field_matrix_into_executor
 
 #[test]
 fn route_plan_grouped_wrapper_observability_vector_is_frozen() {
-    let grouped = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk)
+    let grouped = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore)
         .into_grouped(GroupSpec {
             group_fields: grouped_field_slots(&["rank"]),
             aggregates: vec![GroupAggregateSpec {
@@ -268,8 +265,7 @@ fn route_plan_grouped_wrapper_observability_vector_is_frozen() {
 
 #[test]
 fn route_matrix_aggregate_count_pk_order_is_streaming_keys_only() {
-    let mut plan =
-        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     plan.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
@@ -292,8 +288,7 @@ fn route_matrix_aggregate_count_pk_order_is_streaming_keys_only() {
 
 #[test]
 fn route_matrix_aggregate_fold_mode_contract_maps_non_count_to_existing_rows() {
-    let mut plan =
-        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     plan.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
@@ -323,7 +318,7 @@ fn route_matrix_aggregate_count_secondary_shape_materializes() {
             index: ROUTE_MATRIX_INDEX_MODELS[0],
             values: vec![Value::Uint(7)],
         },
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     plan.order = Some(OrderSpec {
         fields: vec![
@@ -345,8 +340,7 @@ fn route_matrix_aggregate_count_secondary_shape_materializes() {
 
 #[test]
 fn route_matrix_aggregate_distinct_offset_last_disables_probe_hint() {
-    let mut plan =
-        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     plan.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Desc)],
     });
@@ -370,8 +364,7 @@ fn route_matrix_aggregate_distinct_offset_last_disables_probe_hint() {
 
 #[test]
 fn route_matrix_aggregate_distinct_offset_disables_bounded_probe_hints_for_terminals() {
-    let mut plan =
-        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     plan.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
@@ -414,7 +407,7 @@ fn route_matrix_aggregate_by_keys_desc_disables_probe_hint_without_reverse_suppo
             Ulid::from_u128(7101),
             Ulid::from_u128(7102),
         ]),
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     plan.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Desc)],
@@ -440,7 +433,7 @@ fn route_matrix_aggregate_secondary_extrema_probe_hints_lock_offset_plus_one() {
             index: ROUTE_MATRIX_INDEX_MODELS[0],
             values: vec![Value::Uint(7)],
         },
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     plan.order = Some(OrderSpec {
         fields: vec![
@@ -505,7 +498,7 @@ fn route_matrix_aggregate_index_range_desc_with_window_enables_pushdown_hint() {
             Bound::Included(Value::Uint(10)),
             Bound::Excluded(Value::Uint(30)),
         ),
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     plan.order = Some(OrderSpec {
         fields: vec![
@@ -534,7 +527,7 @@ fn route_matrix_aggregate_index_range_desc_with_window_enables_pushdown_hint() {
 #[test]
 fn route_matrix_aggregate_count_pushdown_boundary_matrix() {
     let mut full_scan =
-        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     full_scan.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
@@ -554,7 +547,7 @@ fn route_matrix_aggregate_count_pushdown_boundary_matrix() {
             start: Ulid::from_u128(1),
             end: Ulid::from_u128(9),
         },
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     key_range.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
@@ -575,7 +568,7 @@ fn route_matrix_aggregate_count_pushdown_boundary_matrix() {
             index: ROUTE_MATRIX_INDEX_MODELS[0],
             values: vec![Value::Uint(7)],
         },
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     secondary.order = Some(OrderSpec {
         fields: vec![
@@ -601,7 +594,7 @@ fn route_matrix_aggregate_count_pushdown_boundary_matrix() {
             Bound::Included(Value::Uint(10)),
             Bound::Excluded(Value::Uint(30)),
         ),
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     index_range.order = Some(OrderSpec {
         fields: vec![
@@ -636,7 +629,7 @@ fn route_matrix_secondary_extrema_probe_eligibility_is_min_max_only() {
             index: ROUTE_MATRIX_INDEX_MODELS[0],
             values: vec![Value::Uint(7)],
         },
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     plan.order = Some(OrderSpec {
         fields: vec![
@@ -702,7 +695,7 @@ fn route_matrix_index_predicate_compile_mode_subset_vs_strict_boundary_is_explic
             Bound::Included(Value::Uint(10)),
             Bound::Excluded(Value::Uint(30)),
         ),
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     plan.predicate = Some(Predicate::And(vec![
         Predicate::eq("rank".to_string(), Value::Uint(12)),
@@ -759,7 +752,7 @@ fn route_matrix_aggregate_strict_compile_uncertainty_forces_materialized_executi
             Bound::Included(Value::Uint(10)),
             Bound::Excluded(Value::Uint(30)),
         ),
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     strict_compatible.predicate = Some(Predicate::eq("rank".to_string(), Value::Uint(12)));
     strict_compatible.order = Some(OrderSpec {
@@ -825,7 +818,7 @@ fn route_matrix_strict_vs_subset_decision_logs_are_stable() {
             Bound::Included(Value::Uint(10)),
             Bound::Excluded(Value::Uint(30)),
         ),
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     strict_compatible.predicate = Some(Predicate::eq("rank".to_string(), Value::Uint(12)));
     strict_compatible.order = Some(OrderSpec {

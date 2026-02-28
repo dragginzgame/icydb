@@ -34,7 +34,7 @@ fn load_cursor_live_state_reordered_update_can_skip_rows_before_boundary() {
     }
 
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
-    let page1_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let page1_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("rank")
         .limit(1)
         .plan()
@@ -42,7 +42,7 @@ fn load_cursor_live_state_reordered_update_can_skip_rows_before_boundary() {
     let page1 = load
         .execute_paged_with_cursor(
             page1_plan,
-            Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+            Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("rank")
                 .limit(1)
                 .plan()
@@ -72,7 +72,7 @@ fn load_cursor_live_state_reordered_update_can_skip_rows_before_boundary() {
         .next_cursor
         .as_ref()
         .expect("page1 should emit continuation cursor");
-    let page2_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let page2_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("rank")
         .limit(1)
         .plan()
@@ -99,7 +99,7 @@ fn load_cursor_live_state_reordered_update_can_skip_rows_before_boundary() {
         "updated row moved before the boundary is skipped in this live-state continuation"
     );
 
-    let full_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let full_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("rank")
         .plan()
         .expect("full-order plan should build");
@@ -146,7 +146,7 @@ fn load_cursor_live_state_insert_after_boundary_can_appear_on_next_page() {
     }
 
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
-    let page1_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let page1_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("rank")
         .limit(1)
         .plan()
@@ -154,7 +154,7 @@ fn load_cursor_live_state_insert_after_boundary_can_appear_on_next_page() {
     let page1 = load
         .execute_paged_with_cursor(
             page1_plan,
-            Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+            Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("rank")
                 .limit(1)
                 .plan()
@@ -184,7 +184,7 @@ fn load_cursor_live_state_insert_after_boundary_can_appear_on_next_page() {
         .next_cursor
         .as_ref()
         .expect("page1 should emit continuation cursor");
-    let page2_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let page2_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("rank")
         .limit(1)
         .plan()
@@ -241,7 +241,7 @@ fn load_cursor_live_state_delete_between_pages_can_shrink_remaining_results() {
     }
 
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
-    let page1_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let page1_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("rank")
         .limit(1)
         .plan()
@@ -249,7 +249,7 @@ fn load_cursor_live_state_delete_between_pages_can_shrink_remaining_results() {
     let page1 = load
         .execute_paged_with_cursor(
             page1_plan,
-            Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+            Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("rank")
                 .limit(1)
                 .plan()
@@ -266,7 +266,7 @@ fn load_cursor_live_state_delete_between_pages_can_shrink_remaining_results() {
     );
 
     // Remove one unseen row between page requests.
-    let delete_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let delete_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(Ulid::from_u128(4302))
         .plan()
@@ -284,7 +284,7 @@ fn load_cursor_live_state_delete_between_pages_can_shrink_remaining_results() {
         .next_cursor
         .as_ref()
         .expect("page1 should emit continuation cursor");
-    let page2_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let page2_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("rank")
         .limit(1)
         .plan()

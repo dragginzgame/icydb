@@ -2,17 +2,13 @@ use crate::{
     db::{
         data::DataKey,
         direction::Direction,
-        executor::group::CanonicalKey,
-        executor::{
-            ExecutionKernel,
-            aggregate::contracts::{
-                AggregateKind, AggregateOutput, AggregateSpec, AggregateSpecSupportError,
-                ExecutionConfig, ExecutionContext, GroupAggregateSpec,
-                GroupAggregateSpecSupportError, GroupError, GroupedAggregateOutput,
-            },
+        executor::aggregate::contracts::{
+            AggregateKind, AggregateOutput, AggregateSpec, AggregateSpecSupportError,
+            ExecutionConfig, ExecutionContext, GroupAggregateSpec, GroupAggregateSpecSupportError,
+            GroupError, GroupedAggregateOutput,
         },
+        executor::group::CanonicalKey,
     },
-    error::{ErrorClass, ErrorOrigin},
     model::field::FieldKind,
     testing,
     value::{Value, with_test_hash_override},
@@ -448,52 +444,5 @@ fn grouped_aggregate_state_budget_violation_keeps_existing_finalization_intact()
         count_rows(finalized.as_slice()),
         vec![(Value::Text("a".to_string()), 1)],
         "budget-limit errors must preserve previously committed grouped outputs",
-    );
-}
-
-#[test]
-fn grouped_reducer_stage_rejects_grouped_runtime_while_disabled() {
-    let grouped_spec = GroupAggregateSpec::new(
-        vec!["tenant".to_string()],
-        vec![AggregateSpec::for_terminal(AggregateKind::Count)],
-    );
-    let execution_context = ExecutionContext::new(ExecutionConfig::unbounded());
-
-    let Err(err) =
-        ExecutionKernel::resolve_grouped_reducer_stage(&grouped_spec, &execution_context)
-    else {
-        panic!("grouped runtime must remain disabled in 0.32.x")
-    };
-
-    assert_eq!(err.class, ErrorClass::Unsupported);
-    assert_eq!(err.origin, ErrorOrigin::Executor);
-    assert_eq!(
-        err.message,
-        "grouped aggregate execution is not yet enabled in this release",
-    );
-}
-
-#[test]
-fn grouped_reducer_stage_rejects_multi_terminal_shape_while_disabled() {
-    let grouped_spec = GroupAggregateSpec::new(
-        Vec::new(),
-        vec![
-            AggregateSpec::for_terminal(AggregateKind::Count),
-            AggregateSpec::for_terminal(AggregateKind::Exists),
-        ],
-    );
-    let execution_context = ExecutionContext::new(ExecutionConfig::unbounded());
-
-    let Err(err) =
-        ExecutionKernel::resolve_grouped_reducer_stage(&grouped_spec, &execution_context)
-    else {
-        panic!("multi-terminal grouped reducer stage must remain disabled in 0.32.x")
-    };
-
-    assert_eq!(err.class, ErrorClass::Unsupported);
-    assert_eq!(err.origin, ErrorOrigin::Executor);
-    assert_eq!(
-        err.message,
-        "multi-terminal aggregate execution is not yet enabled in this release",
     );
 }

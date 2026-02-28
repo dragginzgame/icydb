@@ -44,7 +44,7 @@ fn assert_secondary_index_order_shape(descending: bool, explicit_pk_tie_break: b
     assert_aggregate_parity_for_query(
         &load,
         || {
-            let query = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            let query = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(group_seven.clone());
             let query = if descending {
                 query.order_by_desc("rank")
@@ -65,7 +65,7 @@ fn assert_secondary_index_order_shape(descending: bool, explicit_pk_tie_break: b
 
 fn assert_secondary_id_extrema_single_step(
     rows: &[(u128, u32, u32)],
-    consistency: ReadConsistency,
+    consistency: MissingRowPolicy,
     expected_min: u128,
     expected_max: u128,
     label: &str,
@@ -126,7 +126,7 @@ fn assert_secondary_id_extrema_missing_ok_stale_fallback(
 
     let expected_min_asc = load
         .execute(secondary_group_rank_order_plan(
-            ReadConsistency::MissingOk,
+            MissingRowPolicy::Ignore,
             crate::db::query::plan::OrderDirection::Asc,
             0,
         ))
@@ -136,7 +136,7 @@ fn assert_secondary_id_extrema_missing_ok_stale_fallback(
         .min();
     let expected_max_desc = load
         .execute(secondary_group_rank_order_plan(
-            ReadConsistency::MissingOk,
+            MissingRowPolicy::Ignore,
             crate::db::query::plan::OrderDirection::Desc,
             0,
         ))
@@ -147,7 +147,7 @@ fn assert_secondary_id_extrema_missing_ok_stale_fallback(
     let (min_asc, scanned_min_asc) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
             load.aggregate_min(secondary_group_rank_order_plan(
-                ReadConsistency::MissingOk,
+                MissingRowPolicy::Ignore,
                 crate::db::query::plan::OrderDirection::Asc,
                 0,
             ))
@@ -156,7 +156,7 @@ fn assert_secondary_id_extrema_missing_ok_stale_fallback(
     let (max_desc, scanned_max_desc) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
             load.aggregate_max(secondary_group_rank_order_plan(
-                ReadConsistency::MissingOk,
+                MissingRowPolicy::Ignore,
                 crate::db::query::plan::OrderDirection::Desc,
                 0,
             ))
@@ -190,14 +190,14 @@ fn assert_secondary_id_extrema_strict_stale_corruption(
 
     let min_err = load
         .aggregate_min(secondary_group_rank_order_plan(
-            ReadConsistency::Strict,
+            MissingRowPolicy::Error,
             crate::db::query::plan::OrderDirection::Asc,
             0,
         ))
         .expect_err("strict secondary MIN should fail when leading key is stale");
     let max_err = load
         .aggregate_max(secondary_group_rank_order_plan(
-            ReadConsistency::Strict,
+            MissingRowPolicy::Error,
             crate::db::query::plan::OrderDirection::Desc,
             0,
         ))
@@ -226,7 +226,7 @@ fn assert_secondary_field_extrema_missing_ok_stale_fallback(
     let expected_min_by = expected_min_by_rank_id(
         &load
             .execute(secondary_group_rank_order_plan(
-                ReadConsistency::MissingOk,
+                MissingRowPolicy::Ignore,
                 crate::db::query::plan::OrderDirection::Asc,
                 0,
             ))
@@ -235,7 +235,7 @@ fn assert_secondary_field_extrema_missing_ok_stale_fallback(
     let expected_max_by = expected_max_by_rank_id(
         &load
             .execute(secondary_group_rank_order_plan(
-                ReadConsistency::MissingOk,
+                MissingRowPolicy::Ignore,
                 crate::db::query::plan::OrderDirection::Desc,
                 0,
             ))
@@ -245,7 +245,7 @@ fn assert_secondary_field_extrema_missing_ok_stale_fallback(
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
             load.aggregate_min_by(
                 secondary_group_rank_order_plan(
-                    ReadConsistency::MissingOk,
+                    MissingRowPolicy::Ignore,
                     crate::db::query::plan::OrderDirection::Asc,
                     0,
                 ),
@@ -257,7 +257,7 @@ fn assert_secondary_field_extrema_missing_ok_stale_fallback(
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
             load.aggregate_max_by(
                 secondary_group_rank_order_plan(
-                    ReadConsistency::MissingOk,
+                    MissingRowPolicy::Ignore,
                     crate::db::query::plan::OrderDirection::Desc,
                     0,
                 ),
@@ -295,7 +295,7 @@ fn assert_secondary_field_extrema_strict_stale_corruption(
     let min_err = load
         .aggregate_min_by(
             secondary_group_rank_order_plan(
-                ReadConsistency::Strict,
+                MissingRowPolicy::Error,
                 crate::db::query::plan::OrderDirection::Asc,
                 0,
             ),
@@ -305,7 +305,7 @@ fn assert_secondary_field_extrema_strict_stale_corruption(
     let max_err = load
         .aggregate_max_by(
             secondary_group_rank_order_plan(
-                ReadConsistency::Strict,
+                MissingRowPolicy::Error,
                 crate::db::query::plan::OrderDirection::Desc,
                 0,
             ),
@@ -353,7 +353,7 @@ fn aggregate_exists_secondary_index_window_preserves_missing_ok_scan_safety() {
 
     let (exists, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
         load.aggregate_exists(
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(group_seven.clone())
                 .order_by("rank")
                 .offset(2)
@@ -369,7 +369,7 @@ fn aggregate_exists_secondary_index_window_preserves_missing_ok_scan_safety() {
     );
     assert_eq!(
         scanned, 5,
-        "secondary-index EXISTS window should keep full prefix scan budget under MissingOk safety"
+        "secondary-index EXISTS window should keep full prefix scan budget under Ignore safety"
     );
 }
 
@@ -384,7 +384,7 @@ fn aggregate_exists_secondary_index_strict_missing_surfaces_corruption_error() {
             index: PUSHDOWN_PARITY_INDEX_MODELS[0],
             values: vec![Value::Uint(7)],
         },
-        ReadConsistency::Strict,
+        MissingRowPolicy::Error,
     );
     logical_plan.order = Some(crate::db::query::plan::OrderSpec {
         fields: vec![
@@ -416,7 +416,7 @@ fn aggregate_exists_secondary_index_strict_missing_surfaces_corruption_error() {
 fn aggregate_secondary_index_extrema_strict_single_step_scans_offset_plus_one() {
     assert_secondary_id_extrema_single_step(
         &SECONDARY_SINGLE_STEP_STRICT_ROWS,
-        ReadConsistency::Strict,
+        MissingRowPolicy::Error,
         8833,
         8832,
         "strict secondary",
@@ -427,7 +427,7 @@ fn aggregate_secondary_index_extrema_strict_single_step_scans_offset_plus_one() 
 fn aggregate_secondary_index_extrema_missing_ok_clean_single_step_scans_offset_plus_one() {
     assert_secondary_id_extrema_single_step(
         &SECONDARY_SINGLE_STEP_MISSING_OK_ROWS,
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
         8843,
         8842,
         "missing-ok secondary",
@@ -449,7 +449,7 @@ fn aggregate_field_extrema_secondary_index_eligible_shape_locks_scan_budget() {
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
             load.aggregate_min_by(
                 secondary_group_rank_order_plan(
-                    ReadConsistency::MissingOk,
+                    MissingRowPolicy::Ignore,
                     crate::db::query::plan::OrderDirection::Asc,
                     0,
                 ),
@@ -461,7 +461,7 @@ fn aggregate_field_extrema_secondary_index_eligible_shape_locks_scan_budget() {
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
             load.aggregate_max_by(
                 secondary_group_rank_order_plan(
-                    ReadConsistency::MissingOk,
+                    MissingRowPolicy::Ignore,
                     crate::db::query::plan::OrderDirection::Desc,
                     0,
                 ),
@@ -525,7 +525,7 @@ fn aggregate_field_terminal_error_classification_matrix() {
     let pushdown_load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let unknown_field_min_error = pushdown_load
         .aggregate_min_by(
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .plan()
                 .expect("unknown-field MIN(field) plan should build"),
@@ -534,7 +534,7 @@ fn aggregate_field_terminal_error_classification_matrix() {
         .expect_err("unknown field MIN(field) should fail");
     let unknown_field_median_error = pushdown_load
         .aggregate_median_by(
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .plan()
                 .expect("unknown-field MEDIAN(field) plan should build"),
@@ -543,7 +543,7 @@ fn aggregate_field_terminal_error_classification_matrix() {
         .expect_err("unknown field MEDIAN(field) should fail");
     let unknown_field_count_distinct_error = pushdown_load
         .aggregate_count_distinct_by(
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .plan()
                 .expect("unknown-field COUNT_DISTINCT(field) plan should build"),
@@ -552,7 +552,7 @@ fn aggregate_field_terminal_error_classification_matrix() {
         .expect_err("unknown field COUNT_DISTINCT(field) should fail");
     let unknown_field_min_max_error = pushdown_load
         .aggregate_min_max_by(
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .plan()
                 .expect("unknown-field MIN_MAX(field) plan should build"),
@@ -561,7 +561,7 @@ fn aggregate_field_terminal_error_classification_matrix() {
         .expect_err("unknown field MIN_MAX(field) should fail");
     let non_numeric_error = pushdown_load
         .aggregate_sum_by(
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .plan()
                 .expect("non-numeric SUM(field) plan should build"),
@@ -572,7 +572,7 @@ fn aggregate_field_terminal_error_classification_matrix() {
     let strict_stale_error = pushdown_load
         .aggregate_min_by(
             secondary_group_rank_order_plan(
-                ReadConsistency::Strict,
+                MissingRowPolicy::Error,
                 crate::db::query::plan::OrderDirection::Asc,
                 0,
             ),
@@ -582,7 +582,7 @@ fn aggregate_field_terminal_error_classification_matrix() {
     let strict_stale_median_error = pushdown_load
         .aggregate_median_by(
             secondary_group_rank_order_plan(
-                ReadConsistency::Strict,
+                MissingRowPolicy::Error,
                 crate::db::query::plan::OrderDirection::Asc,
                 0,
             ),
@@ -592,7 +592,7 @@ fn aggregate_field_terminal_error_classification_matrix() {
     let strict_stale_count_distinct_error = pushdown_load
         .aggregate_count_distinct_by(
             secondary_group_rank_order_plan(
-                ReadConsistency::Strict,
+                MissingRowPolicy::Error,
                 crate::db::query::plan::OrderDirection::Asc,
                 0,
             ),
@@ -602,7 +602,7 @@ fn aggregate_field_terminal_error_classification_matrix() {
     let strict_stale_min_max_error = pushdown_load
         .aggregate_min_max_by(
             secondary_group_rank_order_plan(
-                ReadConsistency::Strict,
+                MissingRowPolicy::Error,
                 crate::db::query::plan::OrderDirection::Asc,
                 0,
             ),
@@ -614,7 +614,7 @@ fn aggregate_field_terminal_error_classification_matrix() {
     let phase_load = LoadExecutor::<PhaseEntity>::new(DB, false);
     let non_orderable_min_error = phase_load
         .aggregate_min_by(
-            Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+            Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .plan()
                 .expect("non-orderable MIN(field) plan should build"),
@@ -623,7 +623,7 @@ fn aggregate_field_terminal_error_classification_matrix() {
         .expect_err("non-orderable MIN(field) should fail");
     let non_orderable_median_error = phase_load
         .aggregate_median_by(
-            Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+            Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .plan()
                 .expect("non-orderable MEDIAN(field) plan should build"),
@@ -632,7 +632,7 @@ fn aggregate_field_terminal_error_classification_matrix() {
         .expect_err("non-orderable MEDIAN(field) should fail");
     let non_orderable_min_max_error = phase_load
         .aggregate_min_max_by(
-            Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+            Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .plan()
                 .expect("non-orderable MIN_MAX(field) plan should build"),
@@ -717,7 +717,7 @@ fn aggregate_field_extrema_negative_lock_distinct_and_offset_shapes_avoid_single
     let (distinct_min, scanned_distinct_min) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
             load.aggregate_min_by(
-                Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                     .filter(u32_eq_predicate("group", 7))
                     .distinct()
                     .order_by("rank")
@@ -730,7 +730,7 @@ fn aggregate_field_extrema_negative_lock_distinct_and_offset_shapes_avoid_single
     let (offset_max, scanned_offset_max) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
             load.aggregate_max_by(
-                Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                     .filter(u32_eq_predicate("group", 7))
                     .order_by("rank")
                     .offset(2)

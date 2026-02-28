@@ -741,7 +741,7 @@ fn aggregate_field_target_projection_terminals_preserve_scan_budget_parity_with_
         seed_pushdown_entities(case.rows);
         let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
         let build_plan = || {
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(u32_eq_predicate("group", 7))
                 .order_by_desc("id")
                 .offset(1)

@@ -48,7 +48,7 @@ fn singleton_unit_key_insert_and_only_load_round_trip() {
     save.insert(expected.clone())
         .expect("singleton save should succeed");
 
-    let plan = Query::<SingletonUnitEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<SingletonUnitEntity>::new(MissingRowPolicy::Ignore)
         .only()
         .plan()
         .expect("singleton load plan should build");
@@ -79,7 +79,7 @@ fn load_by_ids_dedups_duplicate_input_ids() {
     }
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
-    let plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .by_ids([id_a, id_a, id_b, id_a])
         .plan()
         .expect("by_ids plan should build");
@@ -125,7 +125,7 @@ fn load_union_or_predicate_dedups_overlapping_pk_paths() {
             CoercionId::Strict,
         )),
     ]);
-    let explain = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let explain = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by("id")
         .explain()
@@ -139,7 +139,7 @@ fn load_union_or_predicate_dedups_overlapping_pk_paths() {
     );
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
-    let plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
         .order_by("id")
         .plan()
@@ -175,7 +175,7 @@ fn load_intersection_asc_keeps_overlap_in_canonical_order() {
         id_in_predicate(&[1211, 1212, 1213, 1214]),
         id_in_predicate(&[1213, 1214, 1215, 1216]),
     ]);
-    let explain = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let explain = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by("id")
         .explain()
@@ -186,7 +186,7 @@ fn load_intersection_asc_keeps_overlap_in_canonical_order() {
     );
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
-    let plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
         .order_by("id")
         .plan()
@@ -224,7 +224,7 @@ fn load_intersection_desc_keeps_overlap_in_desc_order() {
         id_in_predicate(&[1221, 1222, 1223, 1224]),
         id_in_predicate(&[1223, 1224, 1225, 1226]),
     ]);
-    let explain = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let explain = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by_desc("id")
         .explain()
@@ -235,7 +235,7 @@ fn load_intersection_desc_keeps_overlap_in_desc_order() {
     );
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
-    let plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
         .order_by_desc("id")
         .plan()
@@ -273,7 +273,7 @@ fn load_intersection_no_overlap_returns_empty() {
         id_in_predicate(&[1231, 1232]),
         id_in_predicate(&[1233, 1234]),
     ]);
-    let explain = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let explain = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by("id")
         .explain()
@@ -284,7 +284,7 @@ fn load_intersection_no_overlap_returns_empty() {
     );
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
-    let plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
         .order_by("id")
         .plan()
@@ -315,7 +315,7 @@ fn load_intersection_suppresses_duplicate_keys() {
         id_in_predicate(&[1241, 1241, 1242, 1243]),
         id_in_predicate(&[1241, 1241, 1243, 1243]),
     ]);
-    let explain = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let explain = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by("id")
         .explain()
@@ -326,7 +326,7 @@ fn load_intersection_suppresses_duplicate_keys() {
     );
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
-    let plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
         .order_by("id")
         .plan()
@@ -376,7 +376,7 @@ fn load_intersection_nested_union_children_matches_expected_overlap() {
             id_in_predicate(&[1253, 1257, 1258]),
         ]),
     ]);
-    let explain = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let explain = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by("id")
         .explain()
@@ -397,7 +397,7 @@ fn load_intersection_nested_union_children_matches_expected_overlap() {
     );
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
-    let plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
         .order_by("id")
         .plan()
@@ -437,7 +437,7 @@ fn load_intersection_desc_limit_continuation_has_no_duplicate_or_omission() {
         id_in_predicate(&[1261, 1262, 1263, 1264, 1265, 1266, 1267, 1268]),
         id_in_predicate(&[1264, 1265, 1266, 1267, 1268, 1269, 1270]),
     ]);
-    let explain = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let explain = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by_desc("id")
         .limit(2)
@@ -452,7 +452,7 @@ fn load_intersection_desc_limit_continuation_has_no_duplicate_or_omission() {
     let mut paged_ids = Vec::new();
     let mut cursor: Option<CursorBoundary> = None;
     loop {
-        let page_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        let page_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
             .filter(predicate.clone())
             .order_by_desc("id")
             .limit(2)
@@ -476,7 +476,7 @@ fn load_intersection_desc_limit_continuation_has_no_duplicate_or_omission() {
         cursor = Some(token.boundary().clone());
     }
 
-    let full_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let full_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
         .order_by_desc("id")
         .plan()
@@ -539,7 +539,7 @@ fn load_union_desc_limit_continuation_has_no_duplicate_or_omission() {
             CoercionId::Strict,
         )),
     ]);
-    let explain = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let explain = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by_desc("id")
         .limit(2)
@@ -557,7 +557,7 @@ fn load_union_desc_limit_continuation_has_no_duplicate_or_omission() {
     let mut paged_ids = Vec::new();
     let mut cursor: Option<CursorBoundary> = None;
     loop {
-        let page_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        let page_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
             .filter(predicate.clone())
             .order_by_desc("id")
             .limit(2)
@@ -581,7 +581,7 @@ fn load_union_desc_limit_continuation_has_no_duplicate_or_omission() {
         cursor = Some(token.boundary().clone());
     }
 
-    let full_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let full_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
         .order_by_desc("id")
         .plan()
@@ -656,7 +656,7 @@ fn load_union_three_children_desc_limit_continuation_has_no_duplicate_or_omissio
             CoercionId::Strict,
         )),
     ]);
-    let explain = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let explain = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by_desc("id")
         .limit(3)
@@ -674,7 +674,7 @@ fn load_union_three_children_desc_limit_continuation_has_no_duplicate_or_omissio
     let mut paged_ids = Vec::new();
     let mut cursor: Option<CursorBoundary> = None;
     loop {
-        let page_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        let page_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
             .filter(predicate.clone())
             .order_by_desc("id")
             .limit(3)
@@ -698,7 +698,7 @@ fn load_union_three_children_desc_limit_continuation_has_no_duplicate_or_omissio
         cursor = Some(token.boundary().clone());
     }
 
-    let full_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let full_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
         .order_by_desc("id")
         .plan()
@@ -738,7 +738,7 @@ fn delete_applies_order_and_delete_limit() {
     }
 
     let delete = DeleteExecutor::<SimpleEntity>::new(DB, false);
-    let plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .order_by("id")
         .limit(1)
@@ -754,7 +754,7 @@ fn delete_applies_order_and_delete_limit() {
     );
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
-    let remaining_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let remaining_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .order_by("id")
         .plan()
         .expect("remaining load plan should build");
@@ -798,7 +798,7 @@ fn load_filter_after_access_with_optional_equality() {
         Value::Uint(7),
         CoercionId::Strict,
     ));
-    let match_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let match_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .by_id(id)
         .filter(equals_opt_value)
         .plan()
@@ -818,7 +818,7 @@ fn load_filter_after_access_with_optional_equality() {
         Value::Uint(99),
         CoercionId::Strict,
     ));
-    let mismatch_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let mismatch_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .by_id(id)
         .filter(no_match)
         .plan()
@@ -886,7 +886,7 @@ fn load_in_and_text_ops_respect_ordered_pagination() {
     ]);
 
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
-    let plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
         .order_by("rank")
         .limit(1)
@@ -949,7 +949,7 @@ fn load_ordering_treats_missing_values_consistently_with_direction() {
 
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
 
-    let asc_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let asc_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("opt_rank")
         .plan()
         .expect("ascending optional-order plan should build");
@@ -968,7 +968,7 @@ fn load_ordering_treats_missing_values_consistently_with_direction() {
         "ascending order should treat missing as lowest and use PK tie-break within missing rows"
     );
 
-    let desc_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let desc_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by_desc("opt_rank")
         .plan()
         .expect("descending optional-order plan should build");
@@ -1011,7 +1011,7 @@ fn load_contains_filters_after_by_id_access() {
         CoercionId::CollectionElement,
     ));
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
-    let hit_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let hit_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .by_id(id)
         .filter(contains_nine)
         .plan()
@@ -1025,7 +1025,7 @@ fn load_contains_filters_after_by_id_access() {
         Value::Uint(8),
         CoercionId::CollectionElement,
     ));
-    let miss_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let miss_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .by_id(id)
         .filter(contains_missing)
         .plan()
@@ -1064,7 +1064,7 @@ fn load_secondary_index_missing_ok_skips_stale_keys_by_reading_primary_rows() {
         Value::Uint(7),
         CoercionId::Strict,
     ));
-    let explain = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let explain = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by("rank")
         .explain()
@@ -1075,7 +1075,7 @@ fn load_secondary_index_missing_ok_skips_stale_keys_by_reading_primary_rows() {
     );
 
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-    let plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
         .order_by("rank")
         .plan()
@@ -1092,7 +1092,7 @@ fn load_secondary_index_missing_ok_skips_stale_keys_by_reading_primary_rows() {
     assert_eq!(
         ids,
         vec![Ulid::from_u128(7102), Ulid::from_u128(7103)],
-        "MissingOk must filter stale secondary keys instead of materializing missing rows",
+        "Ignore must filter stale secondary keys instead of materializing missing rows",
     );
 }
 
@@ -1121,7 +1121,7 @@ fn load_secondary_index_strict_missing_row_surfaces_corruption() {
         CoercionId::Strict,
     ));
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-    let plan = Query::<PushdownParityEntity>::new(ReadConsistency::Strict)
+    let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
         .filter(predicate)
         .order_by("rank")
         .plan()
@@ -1187,7 +1187,7 @@ fn delete_limit_applies_to_filtered_rows_only() {
         CoercionId::NumericWiden,
     ));
     let delete = DeleteExecutor::<PhaseEntity>::new(DB, false);
-    let plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .filter(predicate)
         .order_by("rank")
@@ -1209,7 +1209,7 @@ fn delete_limit_applies_to_filtered_rows_only() {
     );
 
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
-    let remaining_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let remaining_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("rank")
         .plan()
         .expect("remaining load plan should build");
@@ -1251,7 +1251,7 @@ fn delete_blocks_when_target_has_strong_referrer() {
         .expect("source save should succeed");
 
     let target_delete = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false);
-    let delete_plan = Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
+    let delete_plan = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(target_id)
         .plan()
@@ -1332,7 +1332,7 @@ fn delete_target_succeeds_after_strong_referrer_is_removed() {
         .expect("source save should succeed");
 
     let source_delete = DeleteExecutor::<RelationSourceEntity>::new(REL_DB, false);
-    let source_delete_plan = Query::<RelationSourceEntity>::new(ReadConsistency::MissingOk)
+    let source_delete_plan = Query::<RelationSourceEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(source_id)
         .plan()
@@ -1343,7 +1343,7 @@ fn delete_target_succeeds_after_strong_referrer_is_removed() {
     assert_eq!(deleted_sources.0.len(), 1, "source row should be removed");
 
     let target_delete = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false);
-    let target_delete_plan = Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
+    let target_delete_plan = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(target_id)
         .plan()
@@ -1383,7 +1383,7 @@ fn delete_allows_target_with_weak_single_referrer() {
         "weak relation should not create reverse strong-relation index entries",
     );
 
-    let target_delete_plan = Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
+    let target_delete_plan = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(target_id)
         .plan()
@@ -1393,7 +1393,7 @@ fn delete_allows_target_with_weak_single_referrer() {
         .expect("target delete should succeed for weak referrer");
     assert_eq!(deleted_targets.0.len(), 1, "target row should be removed");
 
-    let source_plan = Query::<WeakSingleRelationSourceEntity>::new(ReadConsistency::MissingOk)
+    let source_plan = Query::<WeakSingleRelationSourceEntity>::new(MissingRowPolicy::Ignore)
         .by_id(source_id)
         .plan()
         .expect("source load plan should build");
@@ -1436,7 +1436,7 @@ fn delete_allows_target_with_weak_optional_referrer() {
         "weak optional relation should not create reverse strong-relation index entries",
     );
 
-    let target_delete_plan = Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
+    let target_delete_plan = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(target_id)
         .plan()
@@ -1446,7 +1446,7 @@ fn delete_allows_target_with_weak_optional_referrer() {
         .expect("target delete should succeed for weak optional referrer");
     assert_eq!(deleted_targets.0.len(), 1, "target row should be removed");
 
-    let source_plan = Query::<WeakOptionalRelationSourceEntity>::new(ReadConsistency::MissingOk)
+    let source_plan = Query::<WeakOptionalRelationSourceEntity>::new(MissingRowPolicy::Ignore)
         .by_id(source_id)
         .plan()
         .expect("source load plan should build");
@@ -1494,7 +1494,7 @@ fn delete_allows_target_with_weak_list_referrer() {
         "weak list relation should not create reverse strong-relation index entries",
     );
 
-    let target_delete_plan = Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
+    let target_delete_plan = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(target_id)
         .plan()
@@ -1504,7 +1504,7 @@ fn delete_allows_target_with_weak_list_referrer() {
         .expect("target delete should succeed for weak list referrer");
     assert_eq!(deleted_targets.0.len(), 1, "target row should be removed");
 
-    let source_plan = Query::<WeakListRelationSourceEntity>::new(ReadConsistency::MissingOk)
+    let source_plan = Query::<WeakListRelationSourceEntity>::new(MissingRowPolicy::Ignore)
         .by_id(source_id)
         .plan()
         .expect("source load plan should build");
@@ -1556,7 +1556,7 @@ fn strong_relation_reverse_index_tracks_source_lifecycle() {
     );
 
     let source_delete = DeleteExecutor::<RelationSourceEntity>::new(REL_DB, false);
-    let source_delete_plan = Query::<RelationSourceEntity>::new(ReadConsistency::MissingOk)
+    let source_delete_plan = Query::<RelationSourceEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(source_id)
         .plan()
@@ -1620,7 +1620,7 @@ fn strong_relation_reverse_index_moves_on_fk_update() {
         "reverse index should remove old target entry and keep only the new one",
     );
 
-    let old_target_delete_plan = Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
+    let old_target_delete_plan = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(target_a)
         .plan()
@@ -1630,12 +1630,11 @@ fn strong_relation_reverse_index_moves_on_fk_update() {
         .expect("old target should be deletable after relation retarget");
     assert_eq!(deleted_a.0.len(), 1, "old target should delete cleanly");
 
-    let protected_target_delete_plan =
-        Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
-            .delete()
-            .by_id(target_b)
-            .plan()
-            .expect("target B delete plan should build");
+    let protected_target_delete_plan = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
+        .delete()
+        .by_id(target_b)
+        .plan()
+        .expect("target B delete plan should build");
     let err = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
         .execute(protected_target_delete_plan)
         .expect_err("new target should remain protected by strong relation");
@@ -1710,7 +1709,7 @@ fn recovery_replays_reverse_relation_index_mutations() {
     );
 
     let target_delete = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false);
-    let delete_plan = Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
+    let delete_plan = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(target_id)
         .plan()
@@ -1833,7 +1832,7 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
         "delete replay should keep reverse entry while one referrer remains",
     );
 
-    let target_delete_plan = Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
+    let target_delete_plan = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(target_id)
         .plan()
@@ -1856,7 +1855,7 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
         "unexpected error: {err:?}",
     );
 
-    let source_delete_plan = Query::<RelationSourceEntity>::new(ReadConsistency::MissingOk)
+    let source_delete_plan = Query::<RelationSourceEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(source_b)
         .plan()
@@ -1865,7 +1864,7 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
         .execute(source_delete_plan)
         .expect("source B delete should succeed");
 
-    let retry_target_delete_plan = Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
+    let retry_target_delete_plan = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(target_id)
         .plan()
@@ -1934,7 +1933,7 @@ fn recovery_replays_retarget_update_moves_reverse_index_membership() {
         "retarget replay should keep one reverse entry mapped to the new target",
     );
 
-    let delete_target_a = Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
+    let delete_target_a = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(target_a)
         .plan()
@@ -1944,7 +1943,7 @@ fn recovery_replays_retarget_update_moves_reverse_index_membership() {
         .expect("old target should be deletable after replayed retarget");
     assert_eq!(deleted_target_a.0.len(), 1, "old target should be removed");
 
-    let delete_target_b = Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
+    let delete_target_b = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(target_b)
         .plan()
@@ -2082,7 +2081,7 @@ fn recovery_rollback_restores_reverse_index_state_on_prepare_error() {
         "rollback should restore original source relation target",
     );
 
-    let delete_target_a = Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
+    let delete_target_a = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(target_a)
         .plan()
@@ -2105,7 +2104,7 @@ fn recovery_rollback_restores_reverse_index_state_on_prepare_error() {
         "unexpected target A error after rollback: {err:?}",
     );
 
-    let delete_target_b = Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
+    let delete_target_b = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(target_b)
         .plan()
@@ -2228,7 +2227,7 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
         "partial FK update should split reverse entries across old/new targets",
     );
 
-    let delete_target_a = Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
+    let delete_target_a = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(target_a)
         .plan()
@@ -2253,7 +2252,7 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
         "unexpected target A error: {blocked_delete_err:?}",
     );
 
-    let delete_target_b = Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
+    let delete_target_b = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(target_b)
         .plan()
@@ -2279,7 +2278,7 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
     );
 
     // Phase 4: remove remaining refs and ensure no orphan reverse entries remain.
-    let delete_source_2 = Query::<RelationSourceEntity>::new(ReadConsistency::MissingOk)
+    let delete_source_2 = Query::<RelationSourceEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(source_2)
         .plan()
@@ -2288,7 +2287,7 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
         .execute(delete_source_2)
         .expect("source 2 delete should succeed");
 
-    let retry_delete_plan = Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
+    let retry_delete_plan = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(target_a)
         .plan()
@@ -2297,7 +2296,7 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
         .execute(retry_delete_plan)
         .expect("target A should delete once source 2 is gone");
 
-    let delete_source_1 = Query::<RelationSourceEntity>::new(ReadConsistency::MissingOk)
+    let delete_source_1 = Query::<RelationSourceEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(source_1)
         .plan()
@@ -2306,7 +2305,7 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
         .execute(delete_source_1)
         .expect("source 1 delete should succeed");
 
-    let retry_delete_plan = Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
+    let retry_delete_plan = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(target_b)
         .plan()

@@ -2,7 +2,7 @@ use crate::{
     db::{
         Db,
         commit::{CommitRowOp, ensure_recovered_for_write, init_commit_store_for_tests},
-        contracts::ReadConsistency,
+        contracts::MissingRowPolicy,
         data::{DataKey, DataStore, RawRow},
         executor::{
             DeleteExecutor, SaveExecutor,
@@ -1422,7 +1422,7 @@ fn unique_index_delete_then_insert_same_value_succeeds() {
     })
     .expect("seed unique row should save");
 
-    let delete_plan = Query::<UniqueEmailEntity>::new(ReadConsistency::MissingOk)
+    let delete_plan = Query::<UniqueEmailEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(original)
         .plan()

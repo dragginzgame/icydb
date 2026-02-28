@@ -2,7 +2,7 @@ use crate::{
     db::{
         Context,
         access::AccessPath,
-        contracts::ReadConsistency,
+        contracts::MissingRowPolicy,
         direction::Direction,
         executor::{
             AccessPlanStreamRequest, AccessStreamBindings, ExecutionKernel, IndexStreamConstraints,
@@ -338,7 +338,7 @@ impl ExecutionKernel {
             return Ok(Some((probe_output, probe_rows_scanned)));
         }
 
-        // MissingOk + bounded secondary probe can under-fetch when leading index
+        // Ignore + bounded secondary probe can under-fetch when leading index
         // entries are stale. Retry unbounded to preserve terminal correctness.
         let Some((aggregate_output, fallback_rows_scanned)) =
             Self::try_fold_secondary_index_aggregate(
@@ -493,11 +493,11 @@ impl ExecutionKernel {
         kind.zero_output()
     }
 
-    // MissingOk can skip stale leading index entries. If a bounded Min/Max
+    // Ignore can skip stale leading index entries. If a bounded Min/Max
     // probe returns None exactly at the fetch boundary, the outcome is
     // inconclusive and must retry unbounded.
     const fn secondary_extrema_probe_requires_fallback<E>(
-        consistency: ReadConsistency,
+        consistency: MissingRowPolicy,
         kind: AggregateKind,
         probe_fetch_hint: Option<usize>,
         probe_output: &AggregateOutput<E>,
@@ -506,7 +506,7 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
-        if !matches!(consistency, ReadConsistency::MissingOk) {
+        if !matches!(consistency, MissingRowPolicy::Ignore) {
             return false;
         }
         if !kind.is_extrema() {

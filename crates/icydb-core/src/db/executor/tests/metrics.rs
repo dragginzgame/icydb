@@ -186,7 +186,7 @@ fn delete_emits_remove_from_prepared_row_deltas() {
 
     let sink = CaptureSink::default();
     with_metrics_sink(&sink, || {
-        let plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+        let plan = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
             .delete()
             .by_id(id)
             .plan()
@@ -252,7 +252,7 @@ fn delete_relation_emits_reverse_index_remove_delta() {
 
     let sink = CaptureSink::default();
     with_metrics_sink(&sink, || {
-        let plan = Query::<RelationSourceEntity>::new(ReadConsistency::MissingOk)
+        let plan = Query::<RelationSourceEntity>::new(MissingRowPolicy::Ignore)
             .delete()
             .by_id(source_id)
             .plan()
@@ -289,7 +289,7 @@ fn blocked_target_delete_emits_relation_validation_metrics() {
 
     let sink = CaptureSink::default();
     with_metrics_sink(&sink, || {
-        let plan = Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
+        let plan = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
             .delete()
             .by_id(target_id)
             .plan()
@@ -330,7 +330,7 @@ fn allowed_target_delete_emits_relation_lookup_without_block() {
 
     let sink = CaptureSink::default();
     with_metrics_sink(&sink, || {
-        let plan = Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
+        let plan = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
             .delete()
             .by_id(target_id)
             .plan()

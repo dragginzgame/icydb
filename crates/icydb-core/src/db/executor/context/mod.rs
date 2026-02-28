@@ -1,7 +1,7 @@
 use crate::{
     db::{
         Db,
-        contracts::ReadConsistency,
+        contracts::MissingRowPolicy,
         data::{
             DataKey, DataRow, DataStore, RawDataKey, RawRow, decode_and_validate_entity_key,
             format_entity_key_for_mismatch,
@@ -86,7 +86,7 @@ where
     pub(crate) fn rows_from_ordered_key_stream(
         &self,
         key_stream: &mut dyn OrderedKeyStream,
-        consistency: ReadConsistency,
+        consistency: MissingRowPolicy,
     ) -> Result<Vec<DataRow>, InternalError> {
         let keys = Self::collect_ordered_keys(key_stream)?;
 
@@ -124,15 +124,15 @@ where
     fn load_many_with_consistency(
         &self,
         keys: Vec<DataKey>,
-        consistency: ReadConsistency,
+        consistency: MissingRowPolicy,
     ) -> Result<Vec<DataRow>, InternalError> {
         let mut out = Vec::with_capacity(keys.len());
         for key in keys {
             // Row storage is authoritative. Index-backed access paths only supply
             // candidate keys and must always be validated by a data-store read.
             let row = match consistency {
-                ReadConsistency::Strict => self.read_strict(&key),
-                ReadConsistency::MissingOk => self.read(&key),
+                MissingRowPolicy::Error => self.read_strict(&key),
+                MissingRowPolicy::Ignore => self.read(&key),
             };
 
             match row {

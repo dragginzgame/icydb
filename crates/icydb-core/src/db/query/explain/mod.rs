@@ -4,6 +4,6 @@ mod explain;
 #[cfg(test)]
 pub(crate) use explain::ExplainOrderPushdown;
 pub(crate) use explain::{
-    ExplainAccessPath, ExplainDeleteLimit, ExplainOrderBy, ExplainPagination, ExplainPlan,
-    ExplainPredicate,
+    ExplainAccessPath, ExplainDeleteLimit, ExplainGroupAggregate, ExplainGroupAggregateKind,
+    ExplainGrouping, ExplainOrderBy, ExplainPagination, ExplainPlan, ExplainPredicate,
 };

@@ -4,7 +4,7 @@ use crate::{
             AccessPath, AccessPlan, PushdownApplicability, SecondaryOrderPushdownEligibility,
             SecondaryOrderPushdownRejection,
         },
-        contracts::ReadConsistency,
+        contracts::MissingRowPolicy,
         query::{
             intent::{LoadSpec, QueryMode},
             plan::{
@@ -52,7 +52,7 @@ fn load_plan(access: AccessPlan<Value>, order: Option<OrderSpec>) -> AccessPlann
             distinct: false,
             delete_limit: None,
             page: None,
-            consistency: ReadConsistency::MissingOk,
+            consistency: MissingRowPolicy::Ignore,
         }),
         access,
     }

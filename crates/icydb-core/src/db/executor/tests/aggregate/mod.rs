@@ -833,7 +833,7 @@ fn u32_range_predicate(field: &str, lower_inclusive: u32, upper_exclusive: u32) 
 }
 
 fn secondary_group_rank_order_plan(
-    consistency: ReadConsistency,
+    consistency: MissingRowPolicy,
     direction: crate::db::query::plan::OrderDirection,
     offset: u32,
 ) -> crate::db::executor::ExecutablePlan<PushdownParityEntity> {
@@ -883,14 +883,14 @@ fn aggregate_empty_window_semantics_match_between_streaming_and_materialized_rou
     // Build matching empty windows: three matching rows with offset beyond
     // result cardinality guarantees an empty aggregate input window.
     let strict_query = || {
-        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(strict_filter.clone())
             .order_by("rank")
             .offset(10)
             .limit(5)
     };
     let widen_query = || {
-        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(widen_filter.clone())
             .order_by("rank")
             .offset(10)
@@ -1005,7 +1005,7 @@ fn aggregate_empty_window_semantics_match_between_streaming_and_materialized_rou
     // shape (full-scan pushdown-safe) and one explicit materialized-empty shape
     // (widened uncertain predicate) and assert canonical zero semantics.
     let streaming_count_query = || {
-        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .order_by("id")
             .offset(500)
             .limit(5)

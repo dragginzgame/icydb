@@ -15,7 +15,7 @@ fn load_single_field_between_equivalent_pushdown_matches_by_ids_fallback() {
     seed_indexed_metrics_rows(&rows);
 
     let predicate = tag_between_equivalent_predicate(10, 30);
-    let explain = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+    let explain = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by("tag")
         .explain()
@@ -28,7 +28,7 @@ fn load_single_field_between_equivalent_pushdown_matches_by_ids_fallback() {
     let fallback_ids = indexed_metrics_ids_in_between_equivalent_range(&rows, 10, 30);
     assert_pushdown_parity(
         || {
-            Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+            Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
                 .order_by("tag")
         },
@@ -45,7 +45,7 @@ fn load_composite_between_equivalent_pushdown_matches_by_ids_fallback() {
     seed_pushdown_rows(&rows);
 
     let predicate = group_rank_between_equivalent_predicate(7, 10, 30);
-    let explain = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let explain = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by("rank")
         .explain()
@@ -58,7 +58,7 @@ fn load_composite_between_equivalent_pushdown_matches_by_ids_fallback() {
     let fallback_ids = pushdown_ids_in_group_rank_between_equivalent_range(&rows, 7, 10, 30);
     assert_pushdown_parity(
         || {
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
                 .order_by("rank")
         },
@@ -86,7 +86,7 @@ fn load_single_field_range_pushdown_handles_min_and_max_tag_edges() {
 
     // Phase 1: exclusive upper bound should exclude the max-value group.
     let exclusive_predicate = tag_range_predicate(0, MAX_TAG);
-    let explain = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+    let explain = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
         .filter(exclusive_predicate.clone())
         .order_by("tag")
         .explain()
@@ -99,7 +99,7 @@ fn load_single_field_range_pushdown_handles_min_and_max_tag_edges() {
     let fallback_exclusive_ids = indexed_metrics_ids_in_tag_range(&rows, 0, MAX_TAG);
     assert_pushdown_parity(
         || {
-            Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+            Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
                 .filter(exclusive_predicate.clone())
                 .order_by("tag")
         },
@@ -112,7 +112,7 @@ fn load_single_field_range_pushdown_handles_min_and_max_tag_edges() {
     let fallback_inclusive_ids = indexed_metrics_ids_in_between_equivalent_range(&rows, 0, MAX_TAG);
     assert_pushdown_parity(
         || {
-            Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+            Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
                 .filter(inclusive_predicate.clone())
                 .order_by("tag")
         },
@@ -122,7 +122,7 @@ fn load_single_field_range_pushdown_handles_min_and_max_tag_edges() {
 
     let pushdown_inclusive_has_max = load
         .execute(
-            Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+            Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
                 .filter(inclusive_predicate)
                 .order_by("tag")
                 .plan()
@@ -158,7 +158,7 @@ fn load_composite_range_pushdown_handles_min_and_max_rank_edges() {
 
     // Phase 1: exclusive upper bound should exclude the max-value rank group.
     let exclusive_predicate = group_rank_range_predicate(7, 0, MAX_RANK);
-    let explain = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let explain = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(exclusive_predicate.clone())
         .order_by("rank")
         .explain()
@@ -171,7 +171,7 @@ fn load_composite_range_pushdown_handles_min_and_max_rank_edges() {
     let fallback_exclusive_ids = pushdown_ids_in_group_rank_range(&rows, 7, 0, MAX_RANK);
     assert_pushdown_parity(
         || {
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(exclusive_predicate.clone())
                 .order_by("rank")
         },
@@ -185,7 +185,7 @@ fn load_composite_range_pushdown_handles_min_and_max_rank_edges() {
         pushdown_ids_in_group_rank_between_equivalent_range(&rows, 7, 0, MAX_RANK);
     assert_pushdown_parity(
         || {
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(inclusive_predicate.clone())
                 .order_by("rank")
         },
@@ -195,7 +195,7 @@ fn load_composite_range_pushdown_handles_min_and_max_rank_edges() {
 
     let pushdown_inclusive_has_max = load
         .execute(
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(inclusive_predicate)
                 .order_by("rank")
                 .plan()
@@ -228,7 +228,7 @@ fn load_composite_range_cursor_pagination_matches_fallback_without_duplicates() 
     seed_pushdown_rows(&rows);
 
     let predicate = group_rank_range_predicate(7, 10, 40);
-    let explain = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let explain = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by("rank")
         .limit(2)
@@ -243,7 +243,7 @@ fn load_composite_range_cursor_pagination_matches_fallback_without_duplicates() 
     let (pushdown_ids, _) = collect_all_pages(
         &load,
         || {
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
                 .order_by("rank")
                 .limit(2)
@@ -255,7 +255,7 @@ fn load_composite_range_cursor_pagination_matches_fallback_without_duplicates() 
     let (fallback_ids, _) = collect_all_pages(
         &load,
         || {
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .by_ids(fallback_seed_ids.iter().copied())
                 .order_by("rank")
                 .limit(2)
@@ -292,7 +292,7 @@ fn load_composite_range_cursor_pagination_matches_unbounded_and_anchor_is_strict
     seed_pushdown_rows(&rows);
 
     let predicate = group_rank_range_predicate(7, 10, 40);
-    let explain = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let explain = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by("rank")
         .limit(3)
@@ -306,7 +306,7 @@ fn load_composite_range_cursor_pagination_matches_unbounded_and_anchor_is_strict
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
 
     // Baseline: one unbounded execution for the exact same predicate + order.
-    let unbounded_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let unbounded_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by("rank")
         .plan()
@@ -324,7 +324,7 @@ fn load_composite_range_cursor_pagination_matches_unbounded_and_anchor_is_strict
     let (paged_ids, paged_row_bytes) = collect_all_pages(
         &load,
         || {
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
                 .order_by("rank")
                 .limit(3)
@@ -344,7 +344,7 @@ fn load_composite_range_cursor_pagination_matches_unbounded_and_anchor_is_strict
             "composite range pagination should terminate in bounded pages"
         );
 
-        let page_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        let page_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(predicate.clone())
             .order_by("rank")
             .limit(3)
@@ -405,7 +405,7 @@ fn load_unique_index_range_cursor_pagination_matches_unbounded_case_f() {
     seed_unique_index_range_rows(&rows);
 
     let predicate = unique_code_range_predicate(10, 60);
-    let explain = Query::<UniqueIndexRangeEntity>::new(ReadConsistency::MissingOk)
+    let explain = Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by("code")
         .limit(2)
@@ -417,7 +417,7 @@ fn load_unique_index_range_cursor_pagination_matches_unbounded_case_f() {
     );
 
     let load = LoadExecutor::<UniqueIndexRangeEntity>::new(DB, false);
-    let unbounded_plan = Query::<UniqueIndexRangeEntity>::new(ReadConsistency::MissingOk)
+    let unbounded_plan = Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by("code")
         .plan()
@@ -435,7 +435,7 @@ fn load_unique_index_range_cursor_pagination_matches_unbounded_case_f() {
     let (paged_ids, paged_row_bytes) = collect_all_pages(
         &load,
         || {
-            Query::<UniqueIndexRangeEntity>::new(ReadConsistency::MissingOk)
+            Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
                 .order_by("code")
                 .limit(2)
@@ -451,7 +451,7 @@ fn load_unique_index_range_cursor_pagination_matches_unbounded_case_f() {
         pages = pages.saturating_add(1);
         assert!(pages <= 8, "unique index-range pagination should terminate");
 
-        let page_plan = Query::<UniqueIndexRangeEntity>::new(ReadConsistency::MissingOk)
+        let page_plan = Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
             .filter(predicate.clone())
             .order_by("code")
             .limit(2)
@@ -512,7 +512,7 @@ fn load_single_field_range_cursor_boundaries_respect_lower_and_upper_edges() {
     seed_indexed_metrics_rows(&rows);
 
     let predicate = tag_range_predicate(10, 30);
-    let explain = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+    let explain = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by("tag")
         .limit(10)
@@ -524,7 +524,7 @@ fn load_single_field_range_cursor_boundaries_respect_lower_and_upper_edges() {
     );
 
     let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
-    let base_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+    let base_plan = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by("tag")
         .limit(10)
@@ -543,7 +543,7 @@ fn load_single_field_range_cursor_boundaries_respect_lower_and_upper_edges() {
     let first_entity = &base_page.items.0[0].1;
     assert_resume_after_entity(
         || {
-            Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+            Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
                 .order_by("tag")
                 .limit(10)
@@ -555,7 +555,7 @@ fn load_single_field_range_cursor_boundaries_respect_lower_and_upper_edges() {
     let terminal_entity = &base_page.items.0[base_page.items.0.len() - 1].1;
     assert_resume_from_terminal_entity_exhausts_range(
         || {
-            Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+            Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
                 .filter(tag_range_predicate(10, 30))
                 .order_by("tag")
                 .limit(10)
@@ -582,7 +582,7 @@ fn load_single_field_desc_range_resume_from_upper_anchor_returns_remaining_rows(
     let predicate = tag_between_equivalent_predicate(10, 50);
     let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
 
-    let page1_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+    let page1_plan = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by_desc("tag")
         .limit(1)
@@ -604,7 +604,7 @@ fn load_single_field_desc_range_resume_from_upper_anchor_returns_remaining_rows(
         .next_cursor
         .as_ref()
         .expect("single-field desc upper-anchor page1 should emit continuation cursor");
-    let resume_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+    let resume_plan = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
         .order_by_desc("tag")
         .limit(10)
@@ -647,7 +647,7 @@ fn load_single_field_desc_range_resume_from_lower_boundary_returns_empty() {
 
     let predicate = tag_between_equivalent_predicate(10, 30);
     let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
-    let base_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+    let base_plan = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
         .order_by_desc("tag")
         .limit(10)
@@ -660,7 +660,7 @@ fn load_single_field_desc_range_resume_from_lower_boundary_returns_empty() {
     let terminal_entity = &base_page.items.0[base_page.items.0.len() - 1].1;
     assert_resume_from_terminal_entity_exhausts_range(
         || {
-            Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+            Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
                 .filter(tag_between_equivalent_predicate(10, 30))
                 .order_by_desc("tag")
                 .limit(10)
@@ -684,7 +684,7 @@ fn load_single_field_desc_range_single_element_resume_returns_empty() {
 
     let predicate = tag_between_equivalent_predicate(30, 30);
     let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
-    let page1_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+    let page1_plan = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
         .order_by_desc("tag")
         .limit(1)
@@ -705,7 +705,7 @@ fn load_single_field_desc_range_single_element_resume_returns_empty() {
 
     assert_resume_from_terminal_entity_exhausts_range(
         || {
-            Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+            Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
                 .filter(tag_between_equivalent_predicate(30, 30))
                 .order_by_desc("tag")
                 .limit(1)
@@ -732,7 +732,7 @@ fn load_single_field_desc_range_multi_page_has_no_duplicate_or_omission() {
     let predicate = tag_between_equivalent_predicate(10, 50);
     let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
 
-    let page1_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+    let page1_plan = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by_desc("tag")
         .limit(2)
@@ -754,7 +754,7 @@ fn load_single_field_desc_range_multi_page_has_no_duplicate_or_omission() {
         .next_cursor
         .as_ref()
         .expect("multi-page desc page1 should emit continuation cursor");
-    let page2_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+    let page2_plan = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by_desc("tag")
         .limit(2)
@@ -781,7 +781,7 @@ fn load_single_field_desc_range_multi_page_has_no_duplicate_or_omission() {
         .next_cursor
         .as_ref()
         .expect("multi-page desc page2 should emit continuation cursor");
-    let page3_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+    let page3_plan = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
         .order_by_desc("tag")
         .limit(2)
@@ -853,7 +853,7 @@ fn load_single_field_desc_range_mixed_edges_resume_inside_duplicate_group() {
     ]);
     let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
 
-    let base_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+    let base_plan = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by_desc("tag")
         .limit(10)
@@ -879,7 +879,7 @@ fn load_single_field_desc_range_mixed_edges_resume_inside_duplicate_group() {
     let boundary_entity = &base_page.items.0[0].1;
     assert_resume_after_entity(
         || {
-            Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+            Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
                 .order_by_desc("tag")
                 .limit(10)
@@ -892,7 +892,7 @@ fn load_single_field_desc_range_mixed_edges_resume_inside_duplicate_group() {
     let terminal_entity = &base_page.items.0[base_page.items.0.len() - 1].1;
     assert_resume_from_terminal_entity_exhausts_range(
         || {
-            Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+            Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
                 .filter(Predicate::And(vec![
                     strict_compare_predicate("tag", CompareOp::Gt, Value::Uint(10)),
                     strict_compare_predicate("tag", CompareOp::Lte, Value::Uint(30)),
@@ -927,7 +927,7 @@ fn load_composite_desc_range_mixed_edges_resume_inside_duplicate_group() {
         strict_compare_predicate("rank", CompareOp::Gt, Value::Uint(10)),
         strict_compare_predicate("rank", CompareOp::Lte, Value::Uint(30)),
     ]);
-    let explain = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let explain = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by_desc("rank")
         .limit(10)
@@ -939,7 +939,7 @@ fn load_composite_desc_range_mixed_edges_resume_inside_duplicate_group() {
     );
 
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-    let base_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let base_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by_desc("rank")
         .limit(10)
@@ -963,7 +963,7 @@ fn load_composite_desc_range_mixed_edges_resume_inside_duplicate_group() {
     let boundary_entity = &base_page.items.0[0].1;
     assert_resume_after_entity(
         || {
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
                 .order_by_desc("rank")
                 .limit(10)
@@ -976,7 +976,7 @@ fn load_composite_desc_range_mixed_edges_resume_inside_duplicate_group() {
     let terminal_entity = &base_page.items.0[base_page.items.0.len() - 1].1;
     assert_resume_from_terminal_entity_exhausts_range(
         || {
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(Predicate::And(vec![
                     strict_compare_predicate("group", CompareOp::Eq, Value::Uint(7)),
                     strict_compare_predicate("rank", CompareOp::Gt, Value::Uint(10)),
@@ -1173,7 +1173,7 @@ fn load_composite_between_cursor_boundaries_respect_duplicate_lower_and_upper_ed
     seed_pushdown_rows(&rows);
 
     let predicate = group_rank_between_equivalent_predicate(7, 10, 30);
-    let explain = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let explain = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by("rank")
         .limit(10)
@@ -1187,7 +1187,7 @@ fn load_composite_between_cursor_boundaries_respect_duplicate_lower_and_upper_ed
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
 
     // Phase 1: collect the full ranged row set and verify expected window size.
-    let base_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let base_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by("rank")
         .limit(10)
@@ -1207,7 +1207,7 @@ fn load_composite_between_cursor_boundaries_respect_duplicate_lower_and_upper_ed
     let lower_entity = &base_page.items.0[0].1;
     assert_resume_after_entity(
         || {
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
                 .order_by("rank")
                 .limit(10)
@@ -1220,7 +1220,7 @@ fn load_composite_between_cursor_boundaries_respect_duplicate_lower_and_upper_ed
     let mid_entity = &base_page.items.0[2].1;
     assert_resume_after_entity(
         || {
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
                 .order_by("rank")
                 .limit(10)
@@ -1233,7 +1233,7 @@ fn load_composite_between_cursor_boundaries_respect_duplicate_lower_and_upper_ed
     let terminal_entity = &base_page.items.0[base_page.items.0.len() - 1].1;
     assert_resume_from_terminal_entity_exhausts_range(
         || {
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(group_rank_between_equivalent_predicate(7, 10, 30))
                 .order_by("rank")
                 .limit(10)
@@ -1290,7 +1290,7 @@ fn load_trace_marks_secondary_order_pushdown_outcomes() {
         reset_store();
         seed_pushdown_rows(&pushdown_rows_trace(case.prefix));
 
-        let mut query = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk).limit(1);
+        let mut query = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore).limit(1);
         if case.include_filter {
             query = query.filter(pushdown_group_predicate(7));
         }
@@ -1341,7 +1341,7 @@ fn load_trace_marks_composite_index_range_pushdown_rejection_outcome() {
                 limit: Some(1),
                 offset: 0,
             }),
-            consistency: ReadConsistency::MissingOk,
+            consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::index_range(

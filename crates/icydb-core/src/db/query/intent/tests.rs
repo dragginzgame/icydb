@@ -134,7 +134,7 @@ crate::test_entity_schema! {
 #[test]
 fn intent_rejects_by_ids_with_predicate() {
     let model = basic_model();
-    let intent = QueryModel::<Ulid>::new(model, ReadConsistency::MissingOk)
+    let intent = QueryModel::<Ulid>::new(model, MissingRowPolicy::Ignore)
         .by_ids([Ulid::generate()])
         .filter(Predicate::True);
 
@@ -147,7 +147,7 @@ fn intent_rejects_by_ids_with_predicate() {
 #[test]
 fn intent_rejects_only_with_predicate() {
     let model = basic_model();
-    let intent = QueryModel::<Ulid>::new(model, ReadConsistency::MissingOk)
+    let intent = QueryModel::<Ulid>::new(model, MissingRowPolicy::Ignore)
         .only(Ulid::generate())
         .filter(Predicate::True);
 
@@ -160,7 +160,7 @@ fn intent_rejects_only_with_predicate() {
 #[test]
 fn intent_rejects_delete_limit_without_order() {
     let model = basic_model();
-    let intent = QueryModel::<Ulid>::new(model, ReadConsistency::MissingOk)
+    let intent = QueryModel::<Ulid>::new(model, MissingRowPolicy::Ignore)
         .delete()
         .limit(1);
 
@@ -174,7 +174,7 @@ fn intent_rejects_delete_limit_without_order() {
 
 #[test]
 fn load_limit_without_order_rejects_unordered_pagination() {
-    let err = Query::<PlanEntity>::new(ReadConsistency::MissingOk)
+    let err = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .limit(1)
         .plan()
         .expect_err("limit without order must fail");
@@ -195,7 +195,7 @@ fn load_limit_without_order_rejects_unordered_pagination() {
 
 #[test]
 fn load_rejects_duplicate_non_primary_order_field() {
-    let err = Query::<PlanEntity>::new(ReadConsistency::MissingOk)
+    let err = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .order_by("name")
         .order_by_desc("name")
         .limit(1)
@@ -219,7 +219,7 @@ fn load_rejects_duplicate_non_primary_order_field() {
 
 #[test]
 fn load_offset_without_order_rejects_unordered_pagination() {
-    let err = Query::<PlanEntity>::new(ReadConsistency::MissingOk)
+    let err = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .offset(1)
         .plan()
         .expect_err("offset without order must fail");
@@ -240,7 +240,7 @@ fn load_offset_without_order_rejects_unordered_pagination() {
 
 #[test]
 fn load_limit_and_offset_without_order_rejects_unordered_pagination() {
-    let err = Query::<PlanEntity>::new(ReadConsistency::MissingOk)
+    let err = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .limit(10)
         .offset(2)
         .plan()
@@ -262,7 +262,7 @@ fn load_limit_and_offset_without_order_rejects_unordered_pagination() {
 
 #[test]
 fn load_ordered_pagination_is_allowed() {
-    Query::<PlanEntity>::new(ReadConsistency::MissingOk)
+    Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .order_by("name")
         .limit(10)
         .offset(2)
@@ -272,7 +272,7 @@ fn load_ordered_pagination_is_allowed() {
 
 #[test]
 fn ordered_plan_appends_primary_key_tie_break() {
-    let plan = Query::<PlanEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .order_by("name")
         .plan()
         .expect("ordered plan should build")
@@ -294,7 +294,7 @@ fn ordered_plan_appends_primary_key_tie_break() {
 
 #[test]
 fn ordered_plan_moves_primary_key_to_terminal_position() {
-    let plan = Query::<PlanEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .order_by_desc("id")
         .order_by("name")
         .plan()
@@ -318,7 +318,7 @@ fn ordered_plan_moves_primary_key_to_terminal_position() {
 #[test]
 fn intent_rejects_empty_order_spec() {
     let model = basic_model();
-    let intent = QueryModel::<Ulid>::new(model, ReadConsistency::MissingOk)
+    let intent = QueryModel::<Ulid>::new(model, MissingRowPolicy::Ignore)
         .order_spec(OrderSpec { fields: Vec::new() });
 
     assert!(matches!(
@@ -332,7 +332,7 @@ fn intent_rejects_empty_order_spec() {
 #[test]
 fn intent_rejects_conflicting_key_access() {
     let model = basic_model();
-    let intent = QueryModel::<Ulid>::new(model, ReadConsistency::MissingOk)
+    let intent = QueryModel::<Ulid>::new(model, MissingRowPolicy::Ignore)
         .by_id(Ulid::generate())
         .by_ids([Ulid::generate()]);
 
@@ -346,12 +346,12 @@ fn intent_rejects_conflicting_key_access() {
 fn typed_by_ids_matches_by_id_access() {
     let key = Ulid::generate();
 
-    let by_id = Query::<PlanEntity>::new(ReadConsistency::MissingOk)
+    let by_id = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .by_id(key)
         .plan()
         .expect("by_id plan")
         .into_inner();
-    let by_ids = Query::<PlanEntity>::new(ReadConsistency::MissingOk)
+    let by_ids = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .by_ids([key])
         .plan()
         .expect("by_ids plan")
@@ -362,7 +362,7 @@ fn typed_by_ids_matches_by_id_access() {
 
 #[test]
 fn singleton_only_uses_default_key() {
-    let plan = Query::<PlanSingleton>::new(ReadConsistency::MissingOk)
+    let plan = Query::<PlanSingleton>::new(MissingRowPolicy::Ignore)
         .only()
         .plan()
         .expect("singleton plan")
@@ -377,7 +377,7 @@ fn singleton_only_uses_default_key() {
 #[test]
 fn build_plan_model_full_scan_without_predicate() {
     let model = basic_model();
-    let intent = QueryModel::<Ulid>::new(model, ReadConsistency::MissingOk);
+    let intent = QueryModel::<Ulid>::new(model, MissingRowPolicy::Ignore);
     let plan = intent.build_plan_model().expect("model plan should build");
 
     assert!(matches!(
@@ -390,7 +390,7 @@ fn build_plan_model_full_scan_without_predicate() {
 fn typed_plan_matches_model_plan_for_same_intent() {
     let predicate = FieldRef::new("id").eq(Ulid::default());
 
-    let model_intent = QueryModel::<Ulid>::new(PlanEntity::MODEL, ReadConsistency::MissingOk)
+    let model_intent = QueryModel::<Ulid>::new(PlanEntity::MODEL, MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by("name")
         .limit(10)
@@ -426,7 +426,7 @@ fn typed_plan_matches_model_plan_for_same_intent() {
         access,
     );
 
-    let typed_plan = Query::<PlanEntity>::new(ReadConsistency::MissingOk)
+    let typed_plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
         .order_by("name")
         .limit(10)
@@ -440,7 +440,7 @@ fn typed_plan_matches_model_plan_for_same_intent() {
 
 #[test]
 fn query_distinct_defaults_to_false() {
-    let plan = Query::<PlanEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .plan()
         .expect("typed plan")
         .into_inner();
@@ -453,7 +453,7 @@ fn query_distinct_defaults_to_false() {
 
 #[test]
 fn query_distinct_sets_logical_plan_flag() {
-    let plan = Query::<PlanEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .distinct()
         .plan()
         .expect("typed plan")
@@ -467,7 +467,7 @@ fn query_distinct_sets_logical_plan_flag() {
 
 #[test]
 fn build_plan_model_rejects_map_field_predicates_before_planning() {
-    let intent = QueryModel::<Ulid>::new(&MAP_PLAN_MODEL, ReadConsistency::MissingOk).filter(
+    let intent = QueryModel::<Ulid>::new(&MAP_PLAN_MODEL, MissingRowPolicy::Ignore).filter(
         Predicate::Compare(ComparePredicate::with_coercion(
             "attributes",
             CompareOp::Eq,
@@ -506,7 +506,7 @@ fn filter_expr_resolves_loose_enum_stage_filters() {
         crate::db::contracts::CoercionId::Strict,
     ));
 
-    let intent = QueryModel::<Ulid>::new(&ENUM_PLAN_MODEL, ReadConsistency::MissingOk)
+    let intent = QueryModel::<Ulid>::new(&ENUM_PLAN_MODEL, MissingRowPolicy::Ignore)
         .filter_expr(FilterExpr(predicate))
         .expect("filter expr should lower");
     let plan = intent.build_plan_model().expect("plan should build");
@@ -529,7 +529,7 @@ fn filter_expr_rejects_wrong_strict_enum_path() {
         crate::db::contracts::CoercionId::Strict,
     ));
 
-    let err = QueryModel::<Ulid>::new(&ENUM_PLAN_MODEL, ReadConsistency::MissingOk)
+    let err = QueryModel::<Ulid>::new(&ENUM_PLAN_MODEL, MissingRowPolicy::Ignore)
         .filter_expr(FilterExpr(predicate))
         .expect_err("strict enum with wrong path should fail");
     assert!(matches!(
@@ -550,7 +550,7 @@ fn direct_stage_filter_resolves_loose_enum_path() {
         crate::db::contracts::CoercionId::Strict,
     ));
 
-    let plan = QueryModel::<Ulid>::new(&ENUM_PLAN_MODEL, ReadConsistency::MissingOk)
+    let plan = QueryModel::<Ulid>::new(&ENUM_PLAN_MODEL, MissingRowPolicy::Ignore)
         .filter(predicate)
         .build_plan_model()
         .expect("direct filter should build");

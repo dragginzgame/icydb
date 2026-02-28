@@ -8,7 +8,7 @@ fn aggregate_parity_ordered_page_window_asc() {
     assert_aggregate_parity_for_query(
         &load,
         || {
-            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .offset(2)
                 .limit(3)
@@ -28,7 +28,7 @@ fn aggregate_parity_matrix_harness_covers_all_id_terminals() {
 fn aggregate_spec_field_target_non_extrema_surfaces_unsupported_taxonomy() {
     seed_pushdown_entities(&[(8_021, 7, 10), (8_022, 7, 20), (8_023, 7, 30)]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-    let plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .order_by("id")
         .plan()
         .expect("field-target non-extrema aggregate plan should build");
@@ -65,7 +65,7 @@ fn aggregate_spec_field_target_extrema_selects_deterministic_ids() {
     ]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let build_plan = || {
-        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .order_by("id")
             .plan()
             .expect("field-target extrema aggregate plan should build")
@@ -100,7 +100,7 @@ fn aggregate_spec_field_target_extrema_selects_deterministic_ids() {
 fn aggregate_spec_field_target_unknown_field_surfaces_unsupported_without_scan() {
     seed_pushdown_entities(&[(8_041, 7, 10), (8_042, 7, 20), (8_043, 7, 30)]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-    let plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .order_by("id")
         .plan()
         .expect("field-target unknown-field aggregate plan should build");
@@ -131,7 +131,7 @@ fn aggregate_spec_field_target_unknown_field_surfaces_unsupported_without_scan()
 fn aggregate_spec_field_target_non_orderable_field_surfaces_unsupported_without_scan() {
     seed_phase_entities(&[(8_051, 10), (8_052, 20), (8_053, 30)]);
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
-    let plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("id")
         .plan()
         .expect("field-target non-orderable aggregate plan should build");
@@ -167,11 +167,11 @@ fn aggregate_spec_field_target_tie_breaks_on_primary_key_ascending() {
         (8_064, 7, 20),
     ]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-    let min_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let min_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .order_by_desc("id")
         .plan()
         .expect("field-target MIN tie-break plan should build");
-    let max_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let max_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .order_by_desc("id")
         .plan()
         .expect("field-target MAX tie-break plan should build");
@@ -205,7 +205,7 @@ fn aggregate_field_target_secondary_index_min_uses_index_leading_order() {
     ]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let plan = secondary_group_rank_order_plan(
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
         crate::db::query::plan::OrderDirection::Asc,
         0,
     );
@@ -232,7 +232,7 @@ fn aggregate_field_target_secondary_index_max_tie_breaks_primary_key_ascending()
     ]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let plan = secondary_group_rank_order_plan(
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
         crate::db::query::plan::OrderDirection::Desc,
         0,
     );
@@ -259,7 +259,7 @@ fn aggregate_field_target_nth_selects_deterministic_position() {
     ]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let build_plan = || {
-        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(u32_eq_predicate("group", 7))
             .order_by_desc("id")
             .plan()
@@ -312,7 +312,7 @@ fn aggregate_field_target_nth_selects_deterministic_position() {
 fn aggregate_field_target_nth_unknown_field_fails_without_scan() {
     seed_pushdown_entities(&[(8_151, 7, 10), (8_152, 7, 20)]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-    let plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .order_by("id")
         .plan()
         .expect("field-target nth unknown-field plan should build");
@@ -335,7 +335,7 @@ fn aggregate_field_target_nth_unknown_field_fails_without_scan() {
 fn aggregate_field_target_nth_non_orderable_field_fails_without_scan() {
     seed_phase_entities(&[(8_161, 10), (8_162, 20)]);
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
-    let plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("id")
         .plan()
         .expect("field-target nth non-orderable plan should build");
@@ -366,7 +366,7 @@ fn aggregate_field_target_nth_boundary_matrix_respects_window_and_out_of_range()
     ]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let base_query = || {
-        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(u32_eq_predicate("group", 7))
             .order_by_desc("id")
             .offset(1)
@@ -396,7 +396,7 @@ fn aggregate_field_target_nth_boundary_matrix_respects_window_and_out_of_range()
 
     let empty_window_nth_zero = load
         .aggregate_nth_by(
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(u32_eq_predicate("group", 7))
                 .order_by_desc("id")
                 .offset(50)
@@ -429,7 +429,7 @@ fn aggregate_field_target_median_even_window_uses_lower_policy() {
     ]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let build_plan = || {
-        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(u32_eq_predicate("group", 7))
             .order_by_desc("id")
             .limit(4)
@@ -462,7 +462,7 @@ fn aggregate_field_target_new_terminals_unknown_field_fail_without_scan() {
     seed_pushdown_entities(&[(8_1981, 7, 10), (8_1982, 7, 20), (8_1983, 7, 30)]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let build_plan = || {
-        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .order_by("id")
             .plan()
             .expect("unknown-field terminal plan should build")
@@ -670,7 +670,7 @@ fn aggregate_field_target_top_and_bottom_k_by_non_orderable_field_fail_without_s
     seed_phase_entities(&[(8_1991, 10), (8_1992, 20), (8_1993, 30)]);
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
     let build_plan = || {
-        Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+        Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
             .order_by("id")
             .plan()
             .expect("top/bottom non-orderable target plan should build")
@@ -724,7 +724,7 @@ fn aggregate_field_target_min_max_matches_individual_extrema() {
     ]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let build_plan = || {
-        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(u32_eq_predicate("group", 7))
             .order_by_desc("id")
             .plan()
@@ -785,7 +785,7 @@ fn aggregate_field_target_min_max_metamorphic_matrix_matches_individual_extrema(
         ("desc/distinct/empty-window", true, true, 50u32, Some(3u32)),
     ] {
         let build_query = || {
-            let mut query = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            let mut query = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(overlapping_predicate.clone());
             if distinct {
                 query = query.distinct();
@@ -843,7 +843,7 @@ fn aggregate_field_target_min_max_empty_window_returns_none() {
 
     let min_max = load
         .aggregate_min_max_by(
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(u32_eq_predicate("group", 7))
                 .order_by("id")
                 .offset(50)
@@ -864,7 +864,7 @@ fn aggregate_field_target_min_max_single_row_returns_same_id_pair() {
 
     let min_max = load
         .aggregate_min_max_by(
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(u32_eq_predicate("group", 7))
                 .order_by("id")
                 .offset(1)
@@ -895,7 +895,7 @@ fn aggregate_field_target_median_order_direction_invariant_on_same_window() {
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let asc_median = load
         .aggregate_median_by(
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(u32_eq_predicate("group", 7))
                 .order_by("id")
                 .plan()
@@ -905,7 +905,7 @@ fn aggregate_field_target_median_order_direction_invariant_on_same_window() {
         .expect("median_by(rank) ASC should succeed");
     let desc_median = load
         .aggregate_median_by(
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(u32_eq_predicate("group", 7))
                 .order_by_desc("id")
                 .plan()
@@ -930,7 +930,7 @@ fn aggregate_numeric_field_sum_and_avg_use_decimal_projection() {
     ]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let build_plan = || {
-        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(u32_eq_predicate("group", 7))
             .order_by("rank")
             .plan()
@@ -962,7 +962,7 @@ fn aggregate_numeric_field_sum_and_avg_use_decimal_projection() {
 fn aggregate_numeric_field_unknown_target_fails_without_scan() {
     seed_pushdown_entities(&[(8_101, 7, 10), (8_102, 7, 20)]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-    let plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .order_by("id")
         .plan()
         .expect("numeric field unknown-target plan should build");
@@ -985,7 +985,7 @@ fn aggregate_numeric_field_unknown_target_fails_without_scan() {
 fn aggregate_numeric_field_non_numeric_target_fails_without_scan() {
     seed_pushdown_entities(&[(8_111, 7, 10), (8_112, 7, 20)]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-    let plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .order_by("id")
         .plan()
         .expect("numeric field non-numeric target plan should build");

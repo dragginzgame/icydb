@@ -1,6 +1,6 @@
 use super::*;
 use crate::db::access::{AccessPath, AccessPlan};
-use crate::db::contracts::{Predicate, ReadConsistency};
+use crate::db::contracts::{MissingRowPolicy, Predicate};
 use crate::db::query::builder::field::FieldRef;
 use crate::db::query::intent::{KeyAccess, LoadSpec, QueryMode, access_plan_from_keys_value};
 use crate::db::query::plan::{AccessPlannedQuery, LogicalPlan, OrderDirection, OrderSpec};
@@ -35,7 +35,7 @@ ident = ExplainPushdownEntity,
 fn explain_is_deterministic_for_same_query() {
     let predicate = FieldRef::new("id").eq(Ulid::default());
     let mut plan: AccessPlannedQuery<Value> =
-        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan.predicate = Some(predicate);
 
     assert_eq!(plan.explain(), plan.explain());
@@ -55,11 +55,11 @@ fn explain_is_deterministic_for_equivalent_predicates() {
     ]);
 
     let mut plan_a: AccessPlannedQuery<Value> =
-        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan_a.predicate = Some(predicate_a);
 
     let mut plan_b: AccessPlannedQuery<Value> =
-        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan_b.predicate = Some(predicate_b);
 
     assert_eq!(plan_a.explain(), plan_b.explain());
@@ -81,7 +81,7 @@ fn explain_is_deterministic_for_by_keys() {
             distinct: false,
             delete_limit: None,
             page: None,
-            consistency: ReadConsistency::MissingOk,
+            consistency: MissingRowPolicy::Ignore,
         }),
         access: access_a,
     };
@@ -93,7 +93,7 @@ fn explain_is_deterministic_for_by_keys() {
             distinct: false,
             delete_limit: None,
             page: None,
-            consistency: ReadConsistency::MissingOk,
+            consistency: MissingRowPolicy::Ignore,
         }),
         access: access_b,
     };
@@ -118,7 +118,7 @@ fn explain_reports_deterministic_index_choice() {
             index: chosen,
             values: vec![Value::Text("alpha".to_string())],
         },
-        crate::db::contracts::ReadConsistency::MissingOk,
+        crate::db::contracts::MissingRowPolicy::Ignore,
     );
 
     let explain = plan.explain();
@@ -141,10 +141,10 @@ fn explain_reports_deterministic_index_choice() {
 fn explain_differs_for_semantic_changes() {
     let plan_a: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
         AccessPath::ByKey(Value::Ulid(Ulid::from_u128(1))),
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     let plan_b: AccessPlannedQuery<Value> =
-        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
 
     assert_ne!(plan_a.explain(), plan_b.explain());
 }
@@ -157,7 +157,7 @@ fn explain_with_model_reports_eligible_order_pushdown() {
             index: PUSHDOWN_INDEX,
             values: vec![Value::Text("alpha".to_string())],
         },
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     plan.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
@@ -180,7 +180,7 @@ fn explain_with_model_reports_descending_pushdown_eligibility() {
             index: PUSHDOWN_INDEX,
             values: vec![Value::Text("alpha".to_string())],
         },
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     plan.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Desc)],
@@ -208,7 +208,7 @@ fn explain_with_model_reports_composite_index_range_pushdown_rejection_reason() 
             distinct: false,
             delete_limit: None,
             page: None,
-            consistency: ReadConsistency::MissingOk,
+            consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::index_range(
@@ -239,7 +239,7 @@ fn explain_without_model_reports_missing_model_context() {
             index: PUSHDOWN_INDEX,
             values: vec![Value::Text("alpha".to_string())],
         },
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     plan.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],

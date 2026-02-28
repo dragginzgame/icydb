@@ -8,7 +8,7 @@ fn load_index_pushdown_eligible_order_matches_index_scan_order() {
     seed_pushdown_rows(&rows);
 
     let predicate = pushdown_group_predicate(7);
-    let explain = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let explain = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by("rank")
         .explain()
@@ -25,7 +25,7 @@ fn load_index_pushdown_eligible_order_matches_index_scan_order() {
     );
 
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-    let plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
         .order_by("rank")
         .plan()
@@ -56,7 +56,7 @@ fn load_index_prefix_spec_closed_bounds_preserve_prefix_window_end_to_end() {
     let predicate = pushdown_group_predicate(7);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
 
-    let pushdown_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let pushdown_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
         .order_by("rank")
         .plan()
@@ -84,7 +84,7 @@ fn load_index_prefix_spec_closed_bounds_preserve_prefix_window_end_to_end() {
     let group7_ids = pushdown_group_ids(&rows, 7);
     let fallback_response = load
         .execute(
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .by_ids(group7_ids.iter().copied())
                 .order_by("rank")
                 .plan()
@@ -115,7 +115,7 @@ fn load_index_pushdown_desc_with_explicit_pk_desc_is_eligible_and_ordered() {
     seed_pushdown_rows(&rows);
 
     let predicate = pushdown_group_predicate(7);
-    let explain = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let explain = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by_desc("rank")
         .order_by_desc("id")
@@ -133,7 +133,7 @@ fn load_index_pushdown_desc_with_explicit_pk_desc_is_eligible_and_ordered() {
     );
 
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-    let plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
         .order_by_desc("rank")
         .order_by_desc("id")
@@ -162,7 +162,7 @@ fn load_index_pushdown_eligible_paged_results_match_index_scan_window() {
     let predicate = pushdown_group_predicate(7);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
 
-    let page1_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let page1_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by("rank")
         .limit(2)
@@ -188,7 +188,7 @@ fn load_index_pushdown_eligible_paged_results_match_index_scan_window() {
         .as_ref()
         .expect("page1 parity should emit continuation cursor")
         .clone();
-    let page2_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let page2_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
         .order_by("rank")
         .limit(2)
@@ -225,7 +225,7 @@ fn load_index_pushdown_and_fallback_emit_equivalent_cursor_boundaries() {
     let predicate = pushdown_group_predicate(7);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
 
-    let pushdown_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let pushdown_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
         .order_by("rank")
         .limit(2)
@@ -235,7 +235,7 @@ fn load_index_pushdown_and_fallback_emit_equivalent_cursor_boundaries() {
         .execute_paged_with_cursor(pushdown_plan, None)
         .expect("pushdown page should execute");
 
-    let fallback_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let fallback_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .by_ids(group7_ids.iter().copied())
         .order_by("rank")
         .limit(2)
@@ -279,7 +279,7 @@ fn load_index_pushdown_and_fallback_resume_equivalently_from_shared_boundary() {
     let predicate = pushdown_group_predicate(7);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
 
-    let seed_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let seed_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by("rank")
         .limit(2)
@@ -294,7 +294,7 @@ fn load_index_pushdown_and_fallback_resume_equivalently_from_shared_boundary() {
         .expect("seed page should emit continuation cursor");
     let shared_boundary = seed_cursor.boundary().clone();
 
-    let pushdown_page2_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let pushdown_page2_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
         .order_by("rank")
         .limit(2)
@@ -304,7 +304,7 @@ fn load_index_pushdown_and_fallback_resume_equivalently_from_shared_boundary() {
         .execute_paged_with_cursor(pushdown_page2_plan, Some(shared_boundary.clone()))
         .expect("pushdown page2 should execute");
 
-    let fallback_page2_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let fallback_page2_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .by_ids(group7_ids.iter().copied())
         .order_by("rank")
         .limit(2)
@@ -346,7 +346,7 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
     let group7_ids = pushdown_group_ids(&rows, 7);
 
     let predicate = pushdown_group_predicate(7);
-    let explain = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let explain = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by_desc("rank")
         .explain()
@@ -362,7 +362,7 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
     );
 
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-    let index_path_page1_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let index_path_page1_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by_desc("rank")
         .limit(2)
@@ -372,7 +372,7 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
         .execute_paged_with_cursor(index_path_page1_plan, None)
         .expect("index-path desc page1 should execute");
 
-    let by_ids_page1_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let by_ids_page1_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .by_ids(group7_ids.iter().copied())
         .order_by_desc("rank")
         .limit(2)
@@ -395,7 +395,7 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
         .expect("index-path desc page1 should emit cursor")
         .boundary()
         .clone();
-    let index_path_page2_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let index_path_page2_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
         .order_by_desc("rank")
         .limit(2)
@@ -405,7 +405,7 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
         .execute_paged_with_cursor(index_path_page2_plan, Some(shared_boundary.clone()))
         .expect("index-path desc page2 should execute");
 
-    let by_ids_page2_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let by_ids_page2_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .by_ids(group7_ids.iter().copied())
         .order_by_desc("rank")
         .limit(2)
@@ -433,7 +433,7 @@ fn load_index_prefix_window_cursor_past_end_returns_empty_page() {
     let predicate = pushdown_group_predicate(7);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
 
-    let page1_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let page1_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by("rank")
         .limit(2)
@@ -447,7 +447,7 @@ fn load_index_prefix_window_cursor_past_end_returns_empty_page() {
         .next_cursor
         .as_ref()
         .expect("prefix window page1 should emit continuation cursor");
-    let page2_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let page2_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
         .order_by("rank")
         .limit(2)
@@ -473,7 +473,7 @@ fn load_index_prefix_window_cursor_past_end_returns_empty_page() {
     let terminal_entity = &page2.items.0[0].1;
     assert_resume_from_terminal_entity_exhausts_range(
         || {
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(pushdown_group_predicate(7))
                 .order_by("rank")
                 .limit(2)
@@ -499,7 +499,7 @@ fn load_single_field_range_pushdown_matches_by_ids_fallback() {
     seed_indexed_metrics_rows(&rows);
 
     let predicate = tag_range_predicate(10, 30);
-    let explain = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+    let explain = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by("tag")
         .explain()
@@ -512,7 +512,7 @@ fn load_single_field_range_pushdown_matches_by_ids_fallback() {
     let fallback_ids = indexed_metrics_ids_in_tag_range(&rows, 10, 30);
     assert_pushdown_parity(
         || {
-            Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+            Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
                 .order_by("tag")
         },
@@ -529,7 +529,7 @@ fn load_composite_prefix_range_pushdown_matches_by_ids_fallback() {
     seed_pushdown_rows(&rows);
 
     let predicate = group_rank_range_predicate(7, 10, 30);
-    let explain = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let explain = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by("rank")
         .explain()
@@ -542,7 +542,7 @@ fn load_composite_prefix_range_pushdown_matches_by_ids_fallback() {
     let fallback_ids = pushdown_ids_in_group_rank_range(&rows, 7, 10, 30);
     assert_pushdown_parity(
         || {
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
                 .order_by("rank")
         },
@@ -569,7 +569,7 @@ fn load_single_field_range_full_asc_reversed_equals_full_desc() {
     let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
 
     // Phase 2: verify the surface still plans as IndexRange.
-    let explain = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+    let explain = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by("tag")
         .explain()
@@ -582,7 +582,7 @@ fn load_single_field_range_full_asc_reversed_equals_full_desc() {
     // Phase 3: assert full-result directional symmetry.
     let asc = load
         .execute(
-            Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+            Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
                 .order_by("tag")
                 .plan()
@@ -591,7 +591,7 @@ fn load_single_field_range_full_asc_reversed_equals_full_desc() {
         .expect("single-field asc execution should succeed");
     let desc = load
         .execute(
-            Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+            Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate)
                 .order_by_desc("tag")
                 .plan()
@@ -628,7 +628,7 @@ fn load_composite_range_full_asc_reversed_equals_full_desc() {
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
 
     // Phase 2: verify IndexRange planning for the composite prefix+range shape.
-    let explain = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let explain = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by("rank")
         .explain()
@@ -641,7 +641,7 @@ fn load_composite_range_full_asc_reversed_equals_full_desc() {
     // Phase 3: assert full-result directional symmetry.
     let asc = load
         .execute(
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
                 .order_by("rank")
                 .plan()
@@ -650,7 +650,7 @@ fn load_composite_range_full_asc_reversed_equals_full_desc() {
         .expect("composite asc execution should succeed");
     let desc = load
         .execute(
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate)
                 .order_by_desc("rank")
                 .plan()
@@ -687,7 +687,7 @@ fn load_unique_index_range_full_asc_reversed_equals_full_desc() {
     let load = LoadExecutor::<UniqueIndexRangeEntity>::new(DB, false);
 
     // Phase 2: verify IndexRange planning for the unique range shape.
-    let explain = Query::<UniqueIndexRangeEntity>::new(ReadConsistency::MissingOk)
+    let explain = Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by("code")
         .explain()
@@ -700,7 +700,7 @@ fn load_unique_index_range_full_asc_reversed_equals_full_desc() {
     // Phase 3: assert full-result directional symmetry.
     let asc = load
         .execute(
-            Query::<UniqueIndexRangeEntity>::new(ReadConsistency::MissingOk)
+            Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
                 .order_by("code")
                 .plan()
@@ -709,7 +709,7 @@ fn load_unique_index_range_full_asc_reversed_equals_full_desc() {
         .expect("unique asc execution should succeed");
     let desc = load
         .execute(
-            Query::<UniqueIndexRangeEntity>::new(ReadConsistency::MissingOk)
+            Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate)
                 .order_by_desc("code")
                 .plan()
@@ -743,7 +743,7 @@ fn load_single_field_range_limit_matrix_matches_unbounded() {
     seed_indexed_metrics_rows(&rows);
 
     let predicate = tag_range_predicate(10, 30);
-    let explain = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+    let explain = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by("tag")
         .limit(2)
@@ -756,7 +756,7 @@ fn load_single_field_range_limit_matrix_matches_unbounded() {
 
     assert_limit_matrix(
         || {
-            Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+            Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
                 .order_by("tag")
         },
@@ -782,7 +782,7 @@ fn load_composite_range_limit_matrix_matches_unbounded() {
     seed_pushdown_rows(&rows);
 
     let predicate = group_rank_range_predicate(7, 10, 40);
-    let explain = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let explain = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by("rank")
         .limit(2)
@@ -795,7 +795,7 @@ fn load_composite_range_limit_matrix_matches_unbounded() {
 
     assert_limit_matrix(
         || {
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
                 .order_by("rank")
         },
@@ -819,7 +819,7 @@ fn load_single_field_range_limit_exact_size_returns_single_page_without_cursor()
 
     let predicate = tag_range_predicate(10, 30);
     let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
-    let page_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+    let page_plan = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
         .order_by("tag")
         .limit(4)
@@ -870,7 +870,7 @@ fn load_composite_range_limit_terminal_page_suppresses_cursor() {
         pages = pages.saturating_add(1);
         assert!(pages <= 8, "composite terminal-page test must terminate");
 
-        let page_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        let page_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(predicate.clone())
             .order_by("rank")
             .limit(3)
@@ -922,7 +922,7 @@ fn load_index_range_limit_pushdown_trace_reports_limited_access_rows_for_eligibl
             Bound::Included(Value::Uint(10)),
             Bound::Excluded(Value::Uint(30)),
         ),
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     logical.order = Some(OrderSpec {
         fields: vec![
@@ -971,7 +971,7 @@ fn load_index_range_limit_pushdown_trace_reports_limited_access_rows_for_desc_el
             Bound::Included(Value::Uint(10)),
             Bound::Excluded(Value::Uint(30)),
         ),
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     logical.order = Some(OrderSpec {
         fields: vec![
@@ -1017,7 +1017,7 @@ fn load_index_range_limit_zero_short_circuits_access_scan_for_eligible_plan() {
             Bound::Included(Value::Uint(10)),
             Bound::Excluded(Value::Uint(30)),
         ),
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     logical.order = Some(OrderSpec {
         fields: vec![
@@ -1069,7 +1069,7 @@ fn load_index_range_limit_zero_with_offset_short_circuits_access_scan_for_eligib
             Bound::Included(Value::Uint(10)),
             Bound::Excluded(Value::Uint(30)),
         ),
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     logical.order = Some(OrderSpec {
         fields: vec![
@@ -1127,7 +1127,7 @@ fn load_index_range_limit_pushdown_with_residual_predicate_reduces_access_rows()
             Bound::Included(Value::Uint(10)),
             Bound::Excluded(Value::Uint(21)),
         ),
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     fast_logical.predicate = Some(label_contains_keep.clone());
     fast_logical.order = Some(OrderSpec {
@@ -1143,7 +1143,7 @@ fn load_index_range_limit_pushdown_with_residual_predicate_reduces_access_rows()
     let fast_plan = ExecutablePlan::<IndexedMetricsEntity>::new(fast_logical);
 
     let mut fallback_logical =
-        AccessPlannedQuery::new(AccessPath::FullScan, ReadConsistency::MissingOk);
+        AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore);
     fallback_logical.predicate = Some(Predicate::And(vec![
         strict_compare_predicate("tag", CompareOp::Gte, Value::Uint(10)),
         strict_compare_predicate("tag", CompareOp::Lt, Value::Uint(21)),
@@ -1218,7 +1218,7 @@ fn load_index_range_limit_pushdown_residual_underfill_retries_without_pushdown()
             Bound::Included(Value::Uint(10)),
             Bound::Excluded(Value::Uint(16)),
         ),
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     fast_logical.predicate = Some(label_contains_keep.clone());
     fast_logical.order = Some(OrderSpec {
@@ -1234,7 +1234,7 @@ fn load_index_range_limit_pushdown_residual_underfill_retries_without_pushdown()
     let fast_plan = ExecutablePlan::<IndexedMetricsEntity>::new(fast_logical);
 
     let mut fallback_logical =
-        AccessPlannedQuery::new(AccessPath::FullScan, ReadConsistency::MissingOk);
+        AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore);
     fallback_logical.predicate = Some(Predicate::And(vec![
         strict_compare_predicate("tag", CompareOp::Gte, Value::Uint(10)),
         strict_compare_predicate("tag", CompareOp::Lt, Value::Uint(16)),
@@ -1319,7 +1319,7 @@ fn load_index_range_limit_pushdown_residual_predicate_parity_matches_canonical_f
                 Bound::Included(Value::Uint(lower)),
                 Bound::Excluded(Value::Uint(upper)),
             ),
-            ReadConsistency::MissingOk,
+            MissingRowPolicy::Ignore,
         );
         fast_logical.predicate = Some(label_contains_keep.clone());
         fast_logical.order = Some(OrderSpec {
@@ -1335,7 +1335,7 @@ fn load_index_range_limit_pushdown_residual_predicate_parity_matches_canonical_f
         let fast_plan = ExecutablePlan::<IndexedMetricsEntity>::new(fast_logical);
 
         let mut fallback_logical =
-            AccessPlannedQuery::new(AccessPath::FullScan, ReadConsistency::MissingOk);
+            AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore);
         fallback_logical.predicate = Some(Predicate::And(vec![
             strict_compare_predicate("tag", CompareOp::Gte, Value::Uint(lower)),
             strict_compare_predicate("tag", CompareOp::Lt, Value::Uint(upper)),
@@ -1418,7 +1418,7 @@ fn load_index_only_predicate_reduces_access_rows_vs_fallback() {
 
     let (fast_page, fast_trace) = load
         .execute_paged_with_cursor_traced(
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(Predicate::And(vec![
                     pushdown_group_predicate(7),
                     rank_not_20_strict,
@@ -1433,7 +1433,7 @@ fn load_index_only_predicate_reduces_access_rows_vs_fallback() {
 
     let (fallback_page, fallback_trace) = load
         .execute_paged_with_cursor_traced(
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(Predicate::And(vec![
                     group_eq_fallback,
                     rank_not_20_fallback,
@@ -1516,7 +1516,7 @@ fn load_index_only_predicate_distinct_continuation_matches_fallback() {
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
 
     let build_fast_plan = || {
-        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(Predicate::And(vec![
                 pushdown_group_predicate(7),
                 rank_not_20_strict.clone(),
@@ -1528,7 +1528,7 @@ fn load_index_only_predicate_distinct_continuation_matches_fallback() {
             .expect("fast distinct plan should build")
     };
     let build_fallback_plan = || {
-        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(Predicate::And(vec![
                 group_eq_fallback.clone(),
                 rank_not_20_fallback.clone(),
@@ -1670,7 +1670,7 @@ fn load_index_only_predicate_distinct_desc_continuation_matches_fallback() {
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
 
     let build_fast_plan = || {
-        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(Predicate::And(vec![
                 pushdown_group_predicate(7),
                 rank_not_20_strict.clone(),
@@ -1682,7 +1682,7 @@ fn load_index_only_predicate_distinct_desc_continuation_matches_fallback() {
             .expect("fast descending distinct plan should build")
     };
     let build_fallback_plan = || {
-        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(Predicate::And(vec![
                 group_eq_fallback.clone(),
                 rank_not_20_fallback.clone(),
@@ -1813,7 +1813,7 @@ fn load_index_only_predicate_in_constants_reduces_access_rows_vs_fallback() {
     // Phase 2: execute fast and fallback plans with equivalent row semantics.
     let (fast_page, fast_trace) = load
         .execute_paged_with_cursor_traced(
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(Predicate::And(vec![
                     pushdown_group_predicate(7),
                     rank_in_strict,
@@ -1829,7 +1829,7 @@ fn load_index_only_predicate_in_constants_reduces_access_rows_vs_fallback() {
 
     let (fallback_page, fallback_trace) = load
         .execute_paged_with_cursor_traced(
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(Predicate::And(vec![
                     group_eq_fallback,
                     rank_in_fallback,
@@ -1928,7 +1928,7 @@ fn load_index_only_predicate_bounded_range_distinct_continuation_matches_fallbac
         };
 
         let build_fast_plan = || {
-            let base = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            let base = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(Predicate::And(vec![
                     pushdown_group_predicate(7),
                     rank_gte_20_strict.clone(),
@@ -1949,7 +1949,7 @@ fn load_index_only_predicate_bounded_range_distinct_continuation_matches_fallbac
             }
         };
         let build_fallback_plan = || {
-            let base = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            let base = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(Predicate::And(vec![
                     group_eq_fallback.clone(),
                     rank_gte_20_fallback.clone(),

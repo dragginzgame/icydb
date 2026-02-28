@@ -1,7 +1,7 @@
 use crate::{
     db::{
         Context,
-        contracts::ReadConsistency,
+        contracts::MissingRowPolicy,
         direction::Direction,
         executor::{
             AccessStreamBindings, ExecutablePlan, ExecutionKernel, ExecutionPreparation,
@@ -153,7 +153,7 @@ where
     // key-stream mode and stops once the first non-tie worse field value appears.
     pub(in crate::db::executor) fn fold_streaming_field_extrema(
         ctx: &Context<'_, E>,
-        consistency: ReadConsistency,
+        consistency: MissingRowPolicy,
         key_stream: &mut dyn crate::db::executor::OrderedKeyStream,
         target_field: &str,
         field_slot: FieldSlot,

@@ -3,9 +3,9 @@
 use crate::db::{DataStore, IndexStore};
 use crate::{
     db::{
-        Db, FluentDeleteQuery, FluentLoadQuery, PagedGroupedExecutionWithTrace,
-        PagedLoadExecutionWithTrace, PlanError, Query, QueryError, ReadConsistency, Response,
-        WriteBatchResponse, WriteResponse,
+        Db, FluentDeleteQuery, FluentLoadQuery, MissingRowPolicy, PagedGroupedExecutionWithTrace,
+        PagedLoadExecutionWithTrace, PlanError, Query, QueryError, Response, WriteBatchResponse,
+        WriteResponse,
         cursor::CursorPlanError,
         decode_cursor,
         executor::{DeleteExecutor, ExecutablePlan, ExecutorPlanError, LoadExecutor, SaveExecutor},
@@ -117,13 +117,13 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        FluentLoadQuery::new(self, Query::new(ReadConsistency::MissingOk))
+        FluentLoadQuery::new(self, Query::new(MissingRowPolicy::Ignore))
     }
 
     #[must_use]
     pub const fn load_with_consistency<E>(
         &self,
-        consistency: ReadConsistency,
+        consistency: MissingRowPolicy,
     ) -> FluentLoadQuery<'_, E>
     where
         E: EntityKind<Canister = C>,
@@ -136,13 +136,13 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        FluentDeleteQuery::new(self, Query::new(ReadConsistency::MissingOk).delete())
+        FluentDeleteQuery::new(self, Query::new(MissingRowPolicy::Ignore).delete())
     }
 
     #[must_use]
     pub fn delete_with_consistency<E>(
         &self,
-        consistency: ReadConsistency,
+        consistency: MissingRowPolicy,
     ) -> FluentDeleteQuery<'_, E>
     where
         E: EntityKind<Canister = C>,

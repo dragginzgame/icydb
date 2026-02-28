@@ -295,7 +295,7 @@ fn canonical_cmp_value_bound(left: &Bound<Value>, right: &Bound<Value>) -> Order
 mod tests {
     use super::*;
     use crate::{
-        db::{ReadConsistency, query::plan::AccessPlannedQuery},
+        db::{MissingRowPolicy, query::plan::AccessPlannedQuery},
         model::index::IndexModel,
     };
 
@@ -381,9 +381,9 @@ mod tests {
         );
 
         let included_plan: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(included, ReadConsistency::MissingOk);
+            AccessPlannedQuery::new(included, MissingRowPolicy::Ignore);
         let excluded_plan: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(excluded, ReadConsistency::MissingOk);
+            AccessPlannedQuery::new(excluded, MissingRowPolicy::Ignore);
         assert_ne!(included_plan.fingerprint(), excluded_plan.fingerprint());
     }
 
@@ -408,9 +408,9 @@ mod tests {
         );
 
         let plan_a: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(path_a, ReadConsistency::MissingOk);
+            AccessPlannedQuery::new(path_a, MissingRowPolicy::Ignore);
         let plan_b: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(path_b, ReadConsistency::MissingOk);
+            AccessPlannedQuery::new(path_b, MissingRowPolicy::Ignore);
         assert_ne!(plan_a.fingerprint(), plan_b.fingerprint());
     }
 }

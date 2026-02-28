@@ -1,4 +1,3 @@
-use crate::db::executor::group::grouped_execution_context_from_planner_config;
 use crate::{
     db::{
         access::PushdownApplicability,
@@ -199,9 +198,6 @@ where
     pub(in crate::db::executor) fn build_execution_route_plan_for_grouped_handoff(
         grouped: GroupedExecutorHandoff<'_, E::Key>,
     ) -> ExecutionPlan {
-        let _grouped_executor_contract = Self::lower_grouped_spec_for_executor_contract(&grouped);
-        let _grouped_execution_context =
-            grouped_execution_context_from_planner_config(Some(grouped.execution()));
         let execution_preparation = ExecutionPreparation::for_plan::<E>(grouped.base());
 
         Self::build_execution_route_plan(

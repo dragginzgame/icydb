@@ -6,12 +6,12 @@ use crate::{
             AccessPlan, PushdownSurfaceEligibility, SecondaryOrderPushdownEligibility,
             SecondaryOrderPushdownRejection,
         },
-        contracts::{CoercionSpec, CompareOp, ComparePredicate, Predicate, ReadConsistency},
+        contracts::{CoercionSpec, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::{
             intent::QueryMode,
             plan::{
-                AccessPlanProjection, AccessPlannedQuery, DeleteLimitSpec, LogicalPlan,
-                OrderDirection, OrderSpec, PageSpec, ScalarPlan,
+                AccessPlanProjection, AccessPlannedQuery, DeleteLimitSpec, GroupAggregateKind,
+                LogicalPlan, OrderDirection, OrderSpec, PageSpec, ScalarPlan,
                 assess_secondary_order_pushdown_from_parts, project_access_plan,
             },
             predicate::normalize,
@@ -36,10 +36,68 @@ pub struct ExplainPlan {
     pub predicate: ExplainPredicate,
     pub order_by: ExplainOrderBy,
     pub distinct: bool,
+    pub grouping: ExplainGrouping,
     pub order_pushdown: ExplainOrderPushdown,
     pub page: ExplainPagination,
     pub delete_limit: ExplainDeleteLimit,
-    pub consistency: ReadConsistency,
+    pub consistency: MissingRowPolicy,
+}
+
+///
+/// ExplainGrouping
+///
+/// Grouped-shape annotation for deterministic explain/fingerprint surfaces.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ExplainGrouping {
+    None,
+    Grouped {
+        group_fields: Vec<ExplainGroupField>,
+        aggregates: Vec<ExplainGroupAggregate>,
+        max_groups: u64,
+        max_group_bytes: u64,
+    },
+}
+
+///
+/// ExplainGroupField
+///
+/// Stable grouped-key field identity carried by explain/hash surfaces.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExplainGroupField {
+    pub slot_index: usize,
+    pub field: String,
+}
+
+///
+/// ExplainGroupAggregate
+///
+/// Stable explain-surface projection of one grouped aggregate terminal.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExplainGroupAggregate {
+    pub kind: ExplainGroupAggregateKind,
+    pub target_field: Option<String>,
+}
+
+///
+/// ExplainGroupAggregateKind
+///
+/// Grouped aggregate kinds carried by explain/hash surfaces.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExplainGroupAggregateKind {
+    Count,
+    Exists,
+    Min,
+    Max,
+    First,
+    Last,
 }
 
 ///
@@ -191,17 +249,42 @@ where
     }
 
     fn explain_inner(&self, model: Option<&EntityModel>) -> ExplainPlan {
-        let logical = match &self.logical {
-            LogicalPlan::Scalar(logical) => logical,
-            LogicalPlan::Grouped(logical) => &logical.scalar,
+        let (logical, grouping) = match &self.logical {
+            LogicalPlan::Scalar(logical) => (logical, ExplainGrouping::None),
+            LogicalPlan::Grouped(logical) => (
+                &logical.scalar,
+                ExplainGrouping::Grouped {
+                    group_fields: logical
+                        .group
+                        .group_fields
+                        .iter()
+                        .map(|field_slot| ExplainGroupField {
+                            slot_index: field_slot.index(),
+                            field: field_slot.field().to_string(),
+                        })
+                        .collect(),
+                    aggregates: logical
+                        .group
+                        .aggregates
+                        .iter()
+                        .map(|aggregate| ExplainGroupAggregate {
+                            kind: explain_group_aggregate_kind(aggregate.kind),
+                            target_field: aggregate.target_field.clone(),
+                        })
+                        .collect(),
+                    max_groups: logical.group.execution.max_groups(),
+                    max_group_bytes: logical.group.execution.max_group_bytes(),
+                },
+            ),
         };
 
-        explain_scalar_inner(logical, model, &self.access)
+        explain_scalar_inner(logical, grouping, model, &self.access)
     }
 }
 
 fn explain_scalar_inner<K>(
     logical: &ScalarPlan,
+    grouping: ExplainGrouping,
     model: Option<&EntityModel>,
     access: &AccessPlan<K>,
 ) -> ExplainPlan
@@ -224,10 +307,22 @@ where
         predicate,
         order_by,
         distinct: logical.distinct,
+        grouping,
         order_pushdown,
         page,
         delete_limit,
         consistency: logical.consistency,
+    }
+}
+
+const fn explain_group_aggregate_kind(kind: GroupAggregateKind) -> ExplainGroupAggregateKind {
+    match kind {
+        GroupAggregateKind::Count => ExplainGroupAggregateKind::Count,
+        GroupAggregateKind::Exists => ExplainGroupAggregateKind::Exists,
+        GroupAggregateKind::Min => ExplainGroupAggregateKind::Min,
+        GroupAggregateKind::Max => ExplainGroupAggregateKind::Max,
+        GroupAggregateKind::First => ExplainGroupAggregateKind::First,
+        GroupAggregateKind::Last => ExplainGroupAggregateKind::Last,
     }
 }
 

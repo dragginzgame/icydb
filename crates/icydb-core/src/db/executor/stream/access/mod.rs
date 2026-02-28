@@ -1,7 +1,7 @@
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},
-        contracts::ReadConsistency,
+        contracts::MissingRowPolicy,
         direction::Direction,
         executor::LoweredKey,
         executor::{
@@ -280,7 +280,7 @@ where
         access: &AccessPlan<E::Key>,
         index_prefix_specs: &[LoweredIndexPrefixSpec],
         index_range_specs: &[LoweredIndexRangeSpec],
-        consistency: ReadConsistency,
+        consistency: MissingRowPolicy,
     ) -> Result<Vec<crate::db::data::DataRow>, InternalError>
     where
         E: EntityKind,
@@ -331,7 +331,7 @@ where
         access: &AccessPlan<E::Key>,
         index_prefix_specs: &[LoweredIndexPrefixSpec],
         index_range_specs: &[LoweredIndexRangeSpec],
-        consistency: ReadConsistency,
+        consistency: MissingRowPolicy,
         index_range_anchor: Option<&LoweredKey>,
         direction: Direction,
     ) -> Result<Vec<crate::db::data::DataRow>, InternalError>

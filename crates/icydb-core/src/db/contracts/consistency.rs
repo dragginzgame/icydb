@@ -1,5 +1,5 @@
 ///
-/// ReadConsistency
+/// MissingRowPolicy
 ///
 /// Missing-row handling policy for query execution.
 ///
@@ -8,10 +8,10 @@
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ReadConsistency {
+pub enum MissingRowPolicy {
     /// Missing rows are ignored (no error).
-    MissingOk,
+    Ignore,
 
     /// Missing rows are treated as corruption.
-    Strict,
+    Error,
 }

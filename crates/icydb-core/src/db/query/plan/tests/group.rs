@@ -1,7 +1,7 @@
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},
-        contracts::{ReadConsistency, SchemaInfo},
+        contracts::{MissingRowPolicy, SchemaInfo},
         query::{
             intent::{LoadSpec, QueryMode},
             plan::{
@@ -46,7 +46,7 @@ fn load_plan(access: AccessPlan<Value>) -> AccessPlannedQuery<Value> {
             distinct: false,
             delete_limit: None,
             page: None,
-            consistency: ReadConsistency::MissingOk,
+            consistency: MissingRowPolicy::Ignore,
         }),
         access,
     }
@@ -155,24 +155,24 @@ fn grouped_plan_rejects_unknown_aggregate_target_field() {
 }
 
 #[test]
-fn grouped_plan_rejects_field_target_non_extrema_kind() {
+fn grouped_plan_rejects_field_target_aggregates_in_grouped_v1() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
     let grouped = grouped_plan(
         load_plan(AccessPlan::path(AccessPath::FullScan)),
         vec!["rank"],
         vec![GroupAggregateSpec {
-            kind: GroupAggregateKind::Count,
+            kind: GroupAggregateKind::Min,
             target_field: Some("rank".to_string()),
         }],
     );
 
     let err = validate_group_query_semantics(&schema, model, &grouped)
-        .expect_err("field-target grouped non-extrema terminal must fail");
+        .expect_err("field-target grouped terminal must fail while grouped v1 lacks support");
     assert!(matches!(err, PlanError::Group(inner) if matches!(
         inner.as_ref(),
-        GroupPlanError::FieldTargetRequiresExtrema { index, kind, field }
-            if *index == 0 && kind == "Count" && field == "rank"
+        GroupPlanError::FieldTargetAggregatesUnsupported { index, kind, field }
+            if *index == 0 && kind == "Min" && field == "rank"
     )));
 }
 

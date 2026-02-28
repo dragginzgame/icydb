@@ -35,7 +35,7 @@ fn load_mixed_direction_resume_matrix_is_boundary_complete() {
                               expected_ids: Vec<Ulid>| {
         let order_query = |limit: u32| {
             let mut query =
-                Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk).limit(limit);
+                Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore).limit(limit);
 
             if let Some(group) = filter_group {
                 query = query.filter(pushdown_group_predicate(group));
@@ -163,7 +163,7 @@ fn load_mixed_direction_fallback_matches_uniform_fast_path_when_rank_is_unique()
     let expected_ids = vec![id1, id2, id3];
 
     // Phase 1: mixed-direction shape should remain fallback-only.
-    let mixed_explain = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let mixed_explain = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by("rank")
         .order_by_desc("id")
@@ -180,7 +180,7 @@ fn load_mixed_direction_fallback_matches_uniform_fast_path_when_rank_is_unique()
     );
 
     // Phase 2: equivalent uniform-direction shape should be pushdown-eligible.
-    let uniform_explain = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let uniform_explain = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by("rank")
         .order_by("id")
@@ -195,7 +195,7 @@ fn load_mixed_direction_fallback_matches_uniform_fast_path_when_rank_is_unique()
     );
 
     let build_mixed_plan = || {
-        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(predicate.clone())
             .order_by("rank")
             .order_by_desc("id")
@@ -204,7 +204,7 @@ fn load_mixed_direction_fallback_matches_uniform_fast_path_when_rank_is_unique()
             .expect("mixed-direction plan should build")
     };
     let build_uniform_plan = || {
-        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(predicate.clone())
             .order_by("rank")
             .order_by("id")
@@ -320,7 +320,7 @@ fn load_union_child_order_permutation_preserves_rows_and_continuation_boundaries
                     limit: Some(2),
                     offset: 0,
                 }),
-                consistency: ReadConsistency::MissingOk,
+                consistency: MissingRowPolicy::Ignore,
             }),
             access: AccessPlan::Union(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
@@ -343,7 +343,7 @@ fn load_union_child_order_permutation_preserves_rows_and_continuation_boundaries
                     limit: Some(2),
                     offset: 0,
                 }),
-                consistency: ReadConsistency::MissingOk,
+                consistency: MissingRowPolicy::Ignore,
             }),
             access: AccessPlan::Union(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id6, id7, id8])),
@@ -413,7 +413,7 @@ fn load_intersection_child_order_permutation_preserves_rows_and_continuation_bou
                     limit: Some(1),
                     offset: 0,
                 }),
-                consistency: ReadConsistency::MissingOk,
+                consistency: MissingRowPolicy::Ignore,
             }),
             access: AccessPlan::Intersection(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4, id5, id6])),
@@ -436,7 +436,7 @@ fn load_intersection_child_order_permutation_preserves_rows_and_continuation_bou
                     limit: Some(1),
                     offset: 0,
                 }),
-                consistency: ReadConsistency::MissingOk,
+                consistency: MissingRowPolicy::Ignore,
             }),
             access: AccessPlan::Intersection(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7])),
@@ -504,7 +504,7 @@ fn load_union_child_order_permutation_preserves_rows_and_boundaries_under_mixed_
                     limit: Some(2),
                     offset: 0,
                 }),
-                consistency: ReadConsistency::MissingOk,
+                consistency: MissingRowPolicy::Ignore,
             }),
             access: AccessPlan::Union(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
@@ -530,7 +530,7 @@ fn load_union_child_order_permutation_preserves_rows_and_boundaries_under_mixed_
                     limit: Some(2),
                     offset: 0,
                 }),
-                consistency: ReadConsistency::MissingOk,
+                consistency: MissingRowPolicy::Ignore,
             }),
             access: AccessPlan::Union(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id2, id7, id8])),
@@ -598,7 +598,7 @@ fn load_intersection_child_order_permutation_preserves_rows_and_boundaries_under
                     limit: Some(1),
                     offset: 0,
                 }),
-                consistency: ReadConsistency::MissingOk,
+                consistency: MissingRowPolicy::Ignore,
             }),
             access: AccessPlan::Intersection(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4, id5, id6])),
@@ -624,7 +624,7 @@ fn load_intersection_child_order_permutation_preserves_rows_and_boundaries_under
                     limit: Some(1),
                     offset: 0,
                 }),
-                consistency: ReadConsistency::MissingOk,
+                consistency: MissingRowPolicy::Ignore,
             }),
             access: AccessPlan::Intersection(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7])),
@@ -712,7 +712,7 @@ fn load_union_child_order_permutation_matrix_preserves_rows_and_boundaries_under
                         limit: Some(limit),
                         offset: 0,
                     }),
-                    consistency: ReadConsistency::MissingOk,
+                    consistency: MissingRowPolicy::Ignore,
                 }),
                 access: AccessPlan::Union(vec![
                     AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id4, id6])),
@@ -738,7 +738,7 @@ fn load_union_child_order_permutation_matrix_preserves_rows_and_boundaries_under
                         limit: Some(limit),
                         offset: 0,
                     }),
-                    consistency: ReadConsistency::MissingOk,
+                    consistency: MissingRowPolicy::Ignore,
                 }),
                 access: AccessPlan::Union(vec![
                     AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id8])),
@@ -832,7 +832,7 @@ fn load_intersection_child_order_permutation_matrix_preserves_rows_and_boundarie
                         limit: Some(limit),
                         offset: 0,
                     }),
-                    consistency: ReadConsistency::MissingOk,
+                    consistency: MissingRowPolicy::Ignore,
                 }),
                 access: AccessPlan::Intersection(vec![
                     AccessPlan::path(AccessPath::ByKeys(vec![
@@ -860,7 +860,7 @@ fn load_intersection_child_order_permutation_matrix_preserves_rows_and_boundarie
                         limit: Some(limit),
                         offset: 0,
                     }),
-                    consistency: ReadConsistency::MissingOk,
+                    consistency: MissingRowPolicy::Ignore,
                 }),
                 access: AccessPlan::Intersection(vec![
                     AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7, id9])),

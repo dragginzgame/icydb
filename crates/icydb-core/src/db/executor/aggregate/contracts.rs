@@ -371,6 +371,20 @@ impl ExecutionContext {
         GroupedAggregateState::new(kind, direction)
     }
 
+    /// Build one grouped aggregate engine through the execution-context boundary.
+    ///
+    /// This is the canonical grouped constructor used by grouped execution
+    /// orchestration so scalar/grouped reducers share one aggregate engine
+    /// contract.
+    #[must_use]
+    pub(in crate::db::executor) fn create_grouped_engine<E: EntityKind>(
+        &self,
+        kind: AggregateKind,
+        direction: Direction,
+    ) -> AggregateEngine<E> {
+        AggregateEngine::from_grouped_state(self.create_grouped_state(kind, direction))
+    }
+
     fn record_new_group<E: EntityKind>(
         &mut self,
         created_bucket: bool,
@@ -483,6 +497,7 @@ impl GroupAggregateSpec {
     }
 
     /// Build one global aggregate contract from a single terminal aggregate.
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db::executor) fn for_global_terminal(spec: AggregateSpec) -> Self {
         Self {
@@ -505,6 +520,7 @@ impl GroupAggregateSpec {
     }
 
     /// Return true when this contract models grouped aggregation.
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db::executor) const fn is_grouped(&self) -> bool {
         !self.group_keys.is_empty()
@@ -906,6 +922,91 @@ impl<E: EntityKind> GroupedAggregateState<E> {
         }
 
         out
+    }
+}
+
+///
+/// AggregateEngine
+///
+/// Canonical aggregate reducer engine shared by scalar and grouped execution
+/// spines. This keeps ingest/finalize semantics centralized across both modes.
+///
+
+pub(in crate::db::executor) enum AggregateEngine<E: EntityKind> {
+    Scalar(TerminalAggregateState<E>),
+    Grouped(GroupedAggregateState<E>),
+}
+
+impl<E: EntityKind> AggregateEngine<E> {
+    /// Build one scalar aggregate engine.
+    #[must_use]
+    pub(in crate::db::executor) const fn new_scalar(
+        kind: AggregateKind,
+        direction: Direction,
+    ) -> Self {
+        Self::Scalar(AggregateStateFactory::create_terminal(kind, direction))
+    }
+
+    /// Wrap one grouped aggregate state into the shared aggregate engine.
+    #[must_use]
+    pub(in crate::db::executor) const fn from_grouped_state(
+        state: GroupedAggregateState<E>,
+    ) -> Self {
+        Self::Grouped(state)
+    }
+
+    /// Ingest one scalar row into the scalar aggregate engine.
+    pub(in crate::db::executor) fn ingest_scalar(
+        &mut self,
+        key: &DataKey,
+    ) -> Result<FoldControl, InternalError> {
+        match self {
+            Self::Scalar(state) => state.apply(key),
+            Self::Grouped(_) => Err(InternalError::query_executor_invariant(
+                "scalar aggregate ingest reached grouped aggregate engine",
+            )),
+        }
+    }
+
+    /// Ingest one grouped row into the grouped aggregate engine.
+    pub(in crate::db::executor) fn ingest_grouped(
+        &mut self,
+        group_key: GroupKey,
+        data_key: &DataKey,
+        execution_context: &mut ExecutionContext,
+    ) -> Result<FoldControl, GroupError> {
+        match self {
+            Self::Grouped(state) => state.apply(group_key, data_key, execution_context),
+            Self::Scalar(_) => Err(GroupError::Internal(
+                InternalError::query_executor_invariant(
+                    "grouped aggregate ingest reached scalar aggregate engine",
+                ),
+            )),
+        }
+    }
+
+    /// Finalize one scalar aggregate engine into one scalar aggregate output.
+    pub(in crate::db::executor) fn finalize_scalar(
+        self,
+    ) -> Result<AggregateOutput<E>, InternalError> {
+        match self {
+            Self::Scalar(state) => Ok(state.finalize()),
+            Self::Grouped(_) => Err(InternalError::query_executor_invariant(
+                "scalar aggregate finalize reached grouped aggregate engine",
+            )),
+        }
+    }
+
+    /// Finalize one grouped aggregate engine into grouped aggregate outputs.
+    pub(in crate::db::executor) fn finalize_grouped(
+        self,
+    ) -> Result<Vec<GroupedAggregateOutput<E>>, InternalError> {
+        match self {
+            Self::Grouped(state) => Ok(state.finalize()),
+            Self::Scalar(_) => Err(InternalError::query_executor_invariant(
+                "grouped aggregate finalize reached scalar aggregate engine",
+            )),
+        }
     }
 }
 

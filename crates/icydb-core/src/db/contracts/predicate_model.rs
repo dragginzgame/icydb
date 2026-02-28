@@ -20,6 +20,7 @@ use thiserror::Error as ThisError;
 /// Coercions express *how* values may be compared, not whether a comparison
 /// is valid for a given field. Validation and planning enforce legality.
 ///
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum CoercionId {
     Strict,
@@ -46,6 +47,7 @@ impl CoercionId {
 ///
 /// Policy-level query features intentionally rejected by the engine.
 ///
+
 #[derive(Clone, Debug, Eq, PartialEq, ThisError)]
 pub enum UnsupportedQueryFeature {
     #[error(
@@ -328,6 +330,7 @@ impl fmt::Display for FieldType {
 ///
 /// Fully-specified coercion policy for predicate comparisons.
 ///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CoercionSpec {
     pub id: CoercionId,
@@ -355,6 +358,7 @@ impl Default for CoercionSpec {
 ///
 /// Rule-side matcher for coercion routing families.
 ///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CoercionRuleFamily {
     Any,
@@ -366,6 +370,7 @@ pub(crate) enum CoercionRuleFamily {
 ///
 /// Declarative coercion routing rule between value families.
 ///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct CoercionRule {
     pub left: CoercionRuleFamily,
@@ -418,6 +423,7 @@ fn family_matches(rule: CoercionRuleFamily, value: CoercionFamily) -> bool {
 ///
 /// TextOp
 ///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum TextOp {
     StartsWith,
@@ -537,6 +543,7 @@ fn casefold(input: &str) -> String {
 ///
 /// CompareOp
 ///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub enum CompareOp {
@@ -641,6 +648,7 @@ impl ComparePredicate {
 ///
 /// Predicate
 ///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Predicate {
     True,

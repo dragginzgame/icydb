@@ -10,7 +10,7 @@ pub type QueryMode = crate::db::query::plan::QueryMode;
 use crate::{
     db::{
         access::{AccessPath, AccessPlan, AccessPlanError},
-        contracts::{Predicate, ReadConsistency, SchemaInfo, ValidateError},
+        contracts::{MissingRowPolicy, Predicate, SchemaInfo, ValidateError},
         policy,
         query::{
             explain::ExplainPlan,
@@ -185,12 +185,12 @@ pub(crate) struct QueryModel<'m, K> {
     group: Option<crate::db::query::plan::GroupSpec>,
     order: Option<OrderSpec>,
     distinct: bool,
-    consistency: ReadConsistency,
+    consistency: MissingRowPolicy,
 }
 
 impl<'m, K: FieldValue> QueryModel<'m, K> {
     #[must_use]
-    pub(crate) const fn new(model: &'m EntityModel, consistency: ReadConsistency) -> Self {
+    pub(crate) const fn new(model: &'m EntityModel, consistency: MissingRowPolicy) -> Self {
         Self {
             model,
             mode: QueryMode::Load(LoadSpec::new()),
@@ -552,10 +552,10 @@ pub struct Query<E: EntityKind> {
 
 impl<E: EntityKind> Query<E> {
     /// Create a new intent with an explicit missing-row policy.
-    /// MissingOk favors idempotency and may mask index/data divergence on deletes.
-    /// Use Strict to surface missing rows during scan/delete execution.
+    /// Ignore favors idempotency and may mask index/data divergence on deletes.
+    /// Use Error to surface missing rows during scan/delete execution.
     #[must_use]
-    pub const fn new(consistency: ReadConsistency) -> Self {
+    pub const fn new(consistency: MissingRowPolicy) -> Self {
         Self {
             intent: QueryModel::new(E::MODEL, consistency),
             _marker: PhantomData,
@@ -663,24 +663,6 @@ impl<E: EntityKind> Query<E> {
         self.intent = self
             .intent
             .push_group_aggregate(GroupAggregateKind::Last, None);
-        self
-    }
-
-    /// Add one grouped `min(<field>)` terminal.
-    #[must_use]
-    pub fn group_min_by(mut self, field: impl AsRef<str>) -> Self {
-        self.intent = self
-            .intent
-            .push_group_aggregate(GroupAggregateKind::Min, Some(field.as_ref().to_string()));
-        self
-    }
-
-    /// Add one grouped `max(<field>)` terminal.
-    #[must_use]
-    pub fn group_max_by(mut self, field: impl AsRef<str>) -> Self {
-        self.intent = self
-            .intent
-            .push_group_aggregate(GroupAggregateKind::Max, Some(field.as_ref().to_string()));
         self
     }
 

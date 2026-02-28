@@ -17,7 +17,7 @@ mod semantics;
 #[cfg(test)]
 mod tests;
 
-pub use consistency::ReadConsistency;
+pub use consistency::MissingRowPolicy;
 #[cfg(test)]
 pub(crate) use predicate_model::ScalarType;
 pub use predicate_model::{

@@ -71,7 +71,7 @@ mod tests {
     use std::ops::Bound;
 
     use crate::db::access::AccessPath;
-    use crate::db::contracts::{Predicate, ReadConsistency};
+    use crate::db::contracts::{MissingRowPolicy, Predicate};
     use crate::db::query::intent::{DeleteSpec, KeyAccess, LoadSpec, access_plan_from_keys_value};
     use crate::db::query::plan::{AccessPlannedQuery, DeleteLimitSpec, LogicalPlan, PageSpec};
     use crate::db::query::{builder::field::FieldRef, intent::QueryMode};
@@ -93,11 +93,11 @@ mod tests {
         ]);
 
         let mut plan_a: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
         plan_a.predicate = Some(predicate_a);
 
         let mut plan_b: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
         plan_b.predicate = Some(predicate_b);
 
         assert_eq!(plan_a.fingerprint(), plan_b.fingerprint());
@@ -119,7 +119,7 @@ mod tests {
                 distinct: false,
                 delete_limit: None,
                 page: None,
-                consistency: ReadConsistency::MissingOk,
+                consistency: MissingRowPolicy::Ignore,
             }),
             access: access_a,
         };
@@ -131,7 +131,7 @@ mod tests {
                 distinct: false,
                 delete_limit: None,
                 page: None,
-                consistency: ReadConsistency::MissingOk,
+                consistency: MissingRowPolicy::Ignore,
             }),
             access: access_b,
         };
@@ -160,14 +160,14 @@ mod tests {
                 index: INDEX_A,
                 values: vec![Value::Text("alpha".to_string())],
             },
-            ReadConsistency::MissingOk,
+            MissingRowPolicy::Ignore,
         );
         let plan_b: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
             AccessPath::IndexPrefix {
                 index: INDEX_B,
                 values: vec![Value::Text("alpha".to_string())],
             },
-            ReadConsistency::MissingOk,
+            MissingRowPolicy::Ignore,
         );
 
         assert_ne!(plan_a.fingerprint(), plan_b.fingerprint());
@@ -176,9 +176,9 @@ mod tests {
     #[test]
     fn fingerprint_changes_with_pagination() {
         let mut plan_a: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
         let mut plan_b: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
         plan_a.page = Some(PageSpec {
             limit: Some(10),
             offset: 0,
@@ -194,9 +194,9 @@ mod tests {
     #[test]
     fn fingerprint_changes_with_delete_limit() {
         let mut plan_a: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
         let mut plan_b: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
         plan_a.mode = QueryMode::Delete(DeleteSpec::new());
         plan_b.mode = QueryMode::Delete(DeleteSpec::new());
         plan_a.delete_limit = Some(DeleteLimitSpec { max_rows: 2 });
@@ -208,9 +208,9 @@ mod tests {
     #[test]
     fn fingerprint_changes_with_distinct_flag() {
         let plan_a: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
         let mut plan_b: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
         plan_b.distinct = true;
 
         assert_ne!(plan_a.fingerprint(), plan_b.fingerprint());
@@ -219,7 +219,7 @@ mod tests {
     #[test]
     fn fingerprint_is_stable_for_full_scan() {
         let plan: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
         let fingerprint_a = plan.fingerprint();
         let fingerprint_b = plan.fingerprint();
         assert_eq!(fingerprint_a, fingerprint_b);
@@ -242,7 +242,7 @@ mod tests {
                 Bound::Included(Value::Uint(100)),
                 Bound::Excluded(Value::Uint(200)),
             ),
-            ReadConsistency::MissingOk,
+            MissingRowPolicy::Ignore,
         );
         let plan_b: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
             AccessPath::index_range(
@@ -251,7 +251,7 @@ mod tests {
                 Bound::Included(Value::Uint(100)),
                 Bound::Excluded(Value::Uint(200)),
             ),
-            ReadConsistency::MissingOk,
+            MissingRowPolicy::Ignore,
         );
 
         assert_eq!(plan_a.fingerprint(), plan_b.fingerprint());
@@ -274,7 +274,7 @@ mod tests {
                 Bound::Included(Value::Uint(100)),
                 Bound::Excluded(Value::Uint(200)),
             ),
-            ReadConsistency::MissingOk,
+            MissingRowPolicy::Ignore,
         );
         let plan_excluded: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
             AccessPath::index_range(
@@ -283,7 +283,7 @@ mod tests {
                 Bound::Excluded(Value::Uint(100)),
                 Bound::Excluded(Value::Uint(200)),
             ),
-            ReadConsistency::MissingOk,
+            MissingRowPolicy::Ignore,
         );
 
         assert_ne!(plan_included.fingerprint(), plan_excluded.fingerprint());
@@ -306,7 +306,7 @@ mod tests {
                 Bound::Included(Value::Uint(100)),
                 Bound::Excluded(Value::Uint(200)),
             ),
-            ReadConsistency::MissingOk,
+            MissingRowPolicy::Ignore,
         );
         let plan_low_101: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
             AccessPath::index_range(
@@ -315,7 +315,7 @@ mod tests {
                 Bound::Included(Value::Uint(101)),
                 Bound::Excluded(Value::Uint(200)),
             ),
-            ReadConsistency::MissingOk,
+            MissingRowPolicy::Ignore,
         );
 
         assert_ne!(plan_low_100.fingerprint(), plan_low_101.fingerprint());

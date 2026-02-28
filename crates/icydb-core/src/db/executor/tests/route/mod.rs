@@ -1,7 +1,7 @@
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},
-        contracts::{Predicate, ReadConsistency},
+        contracts::{MissingRowPolicy, Predicate},
         cursor::CursorBoundary,
         direction::Direction,
         executor::{
@@ -111,7 +111,7 @@ fn field_extrema_index_range_plan(
             Bound::Included(Value::Uint(10)),
             Bound::Excluded(Value::Uint(30)),
         ),
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     plan.order = Some(OrderSpec {
         fields: vec![

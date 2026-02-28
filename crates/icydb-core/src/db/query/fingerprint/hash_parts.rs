@@ -3,10 +3,11 @@
 
 use crate::{
     db::{
-        contracts::{CoercionId, ReadConsistency},
+        contracts::{CoercionId, MissingRowPolicy},
         query::{
             explain::{
-                ExplainAccessPath, ExplainDeleteLimit, ExplainOrderBy, ExplainPagination,
+                ExplainAccessPath, ExplainDeleteLimit, ExplainGroupAggregate,
+                ExplainGroupAggregateKind, ExplainGrouping, ExplainOrderBy, ExplainPagination,
                 ExplainPlan, ExplainPredicate,
             },
             intent::QueryMode,
@@ -425,7 +426,7 @@ fn hash_explain_field(
         ExplainHashField::Page => hash_page(hasher, &plan.page),
         ExplainHashField::DeleteLimit => hash_delete_limit(hasher, &plan.delete_limit),
         ExplainHashField::Consistency => hash_consistency(hasher, plan.consistency),
-        ExplainHashField::ProjectionDefault => hash_projection_default(hasher),
+        ExplainHashField::ProjectionDefault => hash_projection_default(hasher, &plan.grouping),
     }
 }
 
@@ -477,14 +478,79 @@ fn hash_delete_limit(hasher: &mut Sha256, limit: &ExplainDeleteLimit) {
     }
 }
 
-fn hash_consistency(hasher: &mut Sha256, consistency: ReadConsistency) {
+fn hash_consistency(hasher: &mut Sha256, consistency: MissingRowPolicy) {
     match consistency {
-        ReadConsistency::MissingOk => write_tag(hasher, 0x50),
-        ReadConsistency::Strict => write_tag(hasher, 0x51),
+        MissingRowPolicy::Ignore => write_tag(hasher, 0x50),
+        MissingRowPolicy::Error => write_tag(hasher, 0x51),
     }
 }
 
 // Phase 1 projection surface is always full row `(Id<E>, E)`.
-fn hash_projection_default(hasher: &mut Sha256) {
-    write_tag(hasher, 0x70);
+fn hash_projection_default(hasher: &mut Sha256, grouping: &ExplainGrouping) {
+    match grouping {
+        ExplainGrouping::None => write_tag(hasher, 0x70),
+        ExplainGrouping::Grouped {
+            group_fields,
+            aggregates,
+            max_groups,
+            max_group_bytes,
+        } => {
+            // Preserve scalar v1 projection marker while extending grouped signatures
+            // with grouped shape and grouped budget policy.
+            write_tag(hasher, 0x71);
+            write_u32(hasher, group_fields.len() as u32);
+            for field in group_fields {
+                // Hash declared group field order using stable slot identity first,
+                // then canonical field label as an additional guardrail.
+                write_u32(hasher, field.slot_index as u32);
+                write_str(hasher, &field.field);
+            }
+
+            write_u32(hasher, aggregates.len() as u32);
+            for aggregate in aggregates {
+                hash_group_aggregate_structural_fingerprint_v1(hasher, aggregate);
+            }
+
+            write_u64(hasher, *max_groups);
+            write_u64(hasher, *max_group_bytes);
+        }
+    }
+}
+
+const fn group_aggregate_kind_tag(kind: ExplainGroupAggregateKind) -> u8 {
+    match kind {
+        ExplainGroupAggregateKind::Count => 0x01,
+        ExplainGroupAggregateKind::Exists => 0x02,
+        ExplainGroupAggregateKind::Min => 0x03,
+        ExplainGroupAggregateKind::Max => 0x04,
+        ExplainGroupAggregateKind::First => 0x05,
+        ExplainGroupAggregateKind::Last => 0x06,
+    }
+}
+
+fn hash_group_aggregate_structural_fingerprint_v1(
+    hasher: &mut Sha256,
+    aggregate: &ExplainGroupAggregate,
+) {
+    const GROUP_AGGREGATE_STRUCTURAL_FINGERPRINT_V1: u8 = 0x01;
+
+    // v1 grouped aggregate fingerprint includes exactly:
+    // - aggregate kind discriminant
+    // - optional target field
+    //
+    // Future aggregate features (distinct/filter/window/precision/mode) must
+    // extend this helper explicitly to preserve continuation-signature safety.
+    write_tag(hasher, GROUP_AGGREGATE_STRUCTURAL_FINGERPRINT_V1);
+    write_tag(hasher, group_aggregate_kind_tag(aggregate.kind));
+    match &aggregate.target_field {
+        Some(field) => {
+            write_tag(hasher, 0x01);
+            write_str(hasher, field);
+        }
+        None => write_tag(hasher, 0x00),
+    }
+}
+
+fn write_u64(hasher: &mut Sha256, value: u64) {
+    hasher.update(value.to_be_bytes());
 }

@@ -1,7 +1,7 @@
 use crate::{
     db::{
         Context,
-        contracts::ReadConsistency,
+        contracts::MissingRowPolicy,
         direction::Direction,
         executor::{
             ExecutablePlan,
@@ -221,7 +221,7 @@ where
     // consistency classification behavior.
     pub(in crate::db::executor) fn read_entity_for_field_extrema(
         ctx: &Context<'_, E>,
-        consistency: ReadConsistency,
+        consistency: MissingRowPolicy,
         key: &crate::db::data::DataKey,
     ) -> Result<Option<E>, InternalError> {
         let decode_row = |row| {
@@ -235,11 +235,11 @@ where
             Ok(entity)
         };
         match consistency {
-            ReadConsistency::Strict => {
+            MissingRowPolicy::Error => {
                 let row = ctx.read_strict(key)?;
                 Ok(Some(decode_row(row)?))
             }
-            ReadConsistency::MissingOk => match ctx.read(key) {
+            MissingRowPolicy::Ignore => match ctx.read(key) {
                 Ok(row) => Ok(Some(decode_row(row)?)),
                 Err(err) if err.is_not_found() => Ok(None),
                 Err(err) => Err(err),

@@ -14,9 +14,9 @@ mod tests;
 
 pub(in crate::db::executor) use contracts::GroupAggregateSpec;
 pub(in crate::db::executor) use contracts::{
-    AggregateFoldMode, AggregateKind, AggregateOutput, AggregateSpec, AggregateState,
-    AggregateStateFactory, ExecutionConfig, ExecutionContext, FoldControl, GroupError,
-    TerminalAggregateState,
+    AggregateEngine, AggregateFoldMode, AggregateKind, AggregateOutput, AggregateSpec,
+    AggregateState, AggregateStateFactory, ExecutionConfig, ExecutionContext, FoldControl,
+    GroupError, TerminalAggregateState,
 };
 pub(in crate::db::executor) use execution::{
     AggregateExecutionDescriptor, AggregateFastPathInputs, PreparedAggregateStreamingInputs,
@@ -31,7 +31,6 @@ use crate::{
         direction::Direction,
         executor::{
             AccessStreamBindings, ExecutablePlan, ExecutionKernel, ExecutionPreparation,
-            group::grouped_execution_context_from_planner_config,
             load::{ExecutionInputs, LoadExecutor},
             plan_metrics::{record_plan_metrics, record_rows_scanned},
             route::ExecutionMode,
@@ -39,7 +38,6 @@ use crate::{
         },
         index::IndexCompilePolicy,
         policy,
-        query::plan::GroupedExecutionConfig,
         response::Response,
     },
     error::InternalError,
@@ -80,12 +78,6 @@ enum AggregateReducerDispatch<'a> {
 enum AggregateReducerSelection<E: EntityKind + EntityValue> {
     Completed(AggregateOutput<E>),
     Streaming(ExecutablePlan<E>),
-}
-
-// Grouped reducer-stage gate output.
-// This boundary intentionally routes only scalar-terminal shapes in 0.30.x.
-enum GroupedReducerStage {
-    ScalarTerminal { spec: AggregateSpec },
 }
 
 impl<'a> AggregateReducerDispatch<'a> {
@@ -145,48 +137,6 @@ impl<'a> AggregateReducerDispatch<'a> {
 }
 
 impl ExecutionKernel {
-    // Build one grouped execution context by resolving optional planner limits
-    // through one executor-owned policy bridge.
-    const fn build_grouped_execution_context(
-        planner_config: Option<GroupedExecutionConfig>,
-    ) -> ExecutionContext {
-        grouped_execution_context_from_planner_config(planner_config)
-    }
-
-    // Validate grouped aggregate contract shape and route supported inputs into
-    // the scalar terminal execution stage.
-    fn resolve_grouped_reducer_stage(
-        grouped_spec: &GroupAggregateSpec,
-        execution_context: &ExecutionContext,
-    ) -> Result<GroupedReducerStage, InternalError> {
-        // Grouped execution is still gated, but the context boundary is plumbed
-        // end-to-end now so future grouped operators cannot bypass it.
-        let _ = execution_context;
-
-        grouped_spec
-            .ensure_supported_for_execution()
-            .map_err(|err| InternalError::executor_unsupported(err.to_string()))?;
-
-        if grouped_spec.is_grouped() {
-            return Err(InternalError::executor_unsupported(
-                "grouped aggregate execution is not yet enabled in this release",
-            ));
-        }
-        if grouped_spec.aggregate_specs().len() != 1 {
-            return Err(InternalError::executor_unsupported(
-                "multi-terminal aggregate execution is not yet enabled in this release",
-            ));
-        }
-
-        let Some(spec) = grouped_spec.aggregate_specs().first() else {
-            return Err(InternalError::query_executor_invariant(
-                "grouped reducer stage requires one terminal aggregate spec",
-            ));
-        };
-
-        Ok(GroupedReducerStage::ScalarTerminal { spec: spec.clone() })
-    }
-
     // Build one canonical aggregate descriptor so kernel dispatch works from a
     // validated shape with route-owned mode/direction/fold decisions.
     fn build_aggregate_execution_descriptor<E>(
@@ -302,16 +252,16 @@ impl ExecutionKernel {
         // primary-key order. Use non-short-circuit directions for extrema so
         // MIN/MAX remain globally correct over the full response window.
         let direction = Self::materialized_reduction_direction(kind);
-        let mut state = AggregateStateFactory::create_terminal::<E>(kind, direction);
+        let mut engine = AggregateEngine::new_scalar(kind, direction);
         for (id, _) in response {
             let data_key = DataKey::try_new::<E>(id.key())?;
-            let fold_control = state.apply(&data_key)?;
+            let fold_control = engine.ingest_scalar(&data_key)?;
             if matches!(fold_control, FoldControl::Break) {
                 break;
             }
         }
 
-        Ok(state.finalize())
+        engine.finalize_scalar()
     }
 
     // Derive materialized fallback reduction direction for one scalar terminal.
@@ -426,13 +376,7 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
-        // Stage 1: grouped reducer-stage contract boundary.
-        let grouped_spec = GroupAggregateSpec::for_global_terminal(spec);
-        let grouped_execution_context = Self::build_grouped_execution_context(None);
-        let GroupedReducerStage::ScalarTerminal { spec } =
-            Self::resolve_grouped_reducer_stage(&grouped_spec, &grouped_execution_context)?;
-
-        // Stage 2: scalar terminal execution boundary.
+        // Scalar terminal execution boundary.
         Self::execute_scalar_terminal_stage(executor, plan, spec)
     }
 }

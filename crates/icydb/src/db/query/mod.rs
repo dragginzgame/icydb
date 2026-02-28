@@ -1,7 +1,7 @@
 pub mod expr;
 
 pub use expr::{FilterExpr, OrderDirection, SortExpr};
-pub use icydb_core::db::{FieldRef, Predicate, Query, ReadConsistency};
+pub use icydb_core::db::{FieldRef, MissingRowPolicy, Predicate, Query};
 
 /// Field-reference helpers exposed by the facade query API.
 pub mod builder {

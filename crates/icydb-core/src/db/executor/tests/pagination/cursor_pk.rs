@@ -13,7 +13,7 @@ fn load_applies_order_and_pagination() {
     }
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
-    let plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .order_by("id")
         .limit(1)
         .offset(1)
@@ -42,7 +42,7 @@ fn load_offset_pagination_preserves_next_cursor_boundary() {
     }
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
-    let page_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let page_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .order_by("id")
         .limit(2)
         .offset(1)
@@ -67,7 +67,7 @@ fn load_offset_pagination_preserves_next_cursor_boundary() {
         .as_ref()
         .expect("offset page should emit continuation cursor");
     let token = cursor_bytes.clone();
-    let comparison_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let comparison_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .order_by("id")
         .limit(2)
         .offset(1)
@@ -98,7 +98,7 @@ fn load_offset_pagination_continuation_token_bytes_are_stable_for_same_plan_shap
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
 
-    let page_plan_a = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let page_plan_a = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .order_by("id")
         .limit(2)
         .offset(1)
@@ -119,7 +119,7 @@ fn load_offset_pagination_continuation_token_bytes_are_stable_for_same_plan_shap
         .encode()
         .expect("continuation cursor A should serialize");
 
-    let page_plan_b = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let page_plan_b = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .order_by("id")
         .limit(2)
         .offset(1)
@@ -175,7 +175,7 @@ fn load_cursor_with_offset_applies_offset_once_across_pages() {
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
 
     // Phase 1: first page consumes offset before applying limit.
-    let page1_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let page1_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .order_by("id")
         .limit(2)
         .offset(1)
@@ -197,7 +197,7 @@ fn load_cursor_with_offset_applies_offset_once_across_pages() {
     let cursor = page1
         .next_cursor
         .expect("first page should emit continuation cursor");
-    let page2_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let page2_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .order_by("id")
         .limit(2)
         .offset(1)
@@ -232,7 +232,7 @@ fn load_cursor_with_offset_desc_secondary_pushdown_resume_matrix_is_boundary_com
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
     for (case_name, descending) in [("asc", false), ("desc", true)] {
         let build_plan = || {
-            let base = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            let base = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
                 .limit(2)
                 .offset(1);
@@ -314,7 +314,7 @@ fn load_cursor_with_offset_index_range_pushdown_resume_matrix_is_boundary_comple
                         limit: Some(2),
                         offset: 1,
                     }),
-                    consistency: ReadConsistency::MissingOk,
+                    consistency: MissingRowPolicy::Ignore,
                 }),
                 access: AccessPlan::path(AccessPath::index_range(
                     INDEXED_METRICS_INDEX_MODELS[0],
@@ -394,7 +394,7 @@ fn load_cursor_with_offset_fallback_resume_matrix_is_boundary_complete() {
 
     for (case_name, descending) in [("asc", false), ("desc", true)] {
         let build_plan = || {
-            let base = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+            let base = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .by_ids(fallback_ids.iter().copied())
                 .limit(2)
                 .offset(1);
@@ -454,7 +454,7 @@ fn load_cursor_pagination_pk_order_round_trips_across_pages() {
     }
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
-    let page1_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let page1_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .order_by("id")
         .limit(2)
         .plan()
@@ -472,7 +472,7 @@ fn load_cursor_pagination_pk_order_round_trips_across_pages() {
         .next_cursor
         .as_ref()
         .expect("pk-order page1 should emit continuation cursor");
-    let page2_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let page2_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .order_by("id")
         .limit(2)
         .plan()
@@ -512,7 +512,7 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_post_access_semantics() 
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
 
     // Path A: full scan + PK ASC is fast-path eligible.
-    let fast_page1_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let fast_page1_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .order_by("id")
         .limit(2)
         .offset(1)
@@ -526,7 +526,7 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_post_access_semantics() 
         .expect("fast page1 should execute");
 
     // Path B: key-batch access forces non-fast path, but post-access semantics are identical.
-    let non_fast_page1_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let non_fast_page1_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .by_ids(keys.into_iter().map(Ulid::from_u128))
         .order_by("id")
         .limit(2)
@@ -567,7 +567,7 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_post_access_semantics() 
         "cursor boundaries should match even when signatures differ by access path"
     );
 
-    let fast_page2_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let fast_page2_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .order_by("id")
         .limit(2)
         .offset(1)
@@ -585,7 +585,7 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_post_access_semantics() 
         .execute_paged_with_cursor(fast_page2_plan, fast_page2_boundary)
         .expect("fast page2 should execute");
 
-    let non_fast_page2_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let non_fast_page2_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .by_ids(keys.into_iter().map(Ulid::from_u128))
         .order_by("id")
         .limit(2)
@@ -633,7 +633,7 @@ fn load_cursor_pagination_pk_fast_path_desc_matches_non_fast_post_access_semanti
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
 
     // Path A: full scan + PK DESC should use the PK stream fast path.
-    let fast_page1_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let fast_page1_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .order_by_desc("id")
         .limit(2)
         .offset(1)
@@ -647,7 +647,7 @@ fn load_cursor_pagination_pk_fast_path_desc_matches_non_fast_post_access_semanti
         .expect("fast descending page1 should execute");
 
     // Path B: key-batch access forces non-fast path, but post-access semantics are identical.
-    let non_fast_page1_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let non_fast_page1_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .by_ids(keys.into_iter().map(Ulid::from_u128))
         .order_by_desc("id")
         .limit(2)
@@ -688,7 +688,7 @@ fn load_cursor_pagination_pk_fast_path_desc_matches_non_fast_post_access_semanti
         "descending cursor boundaries should match even when signatures differ by access path"
     );
 
-    let fast_page2_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let fast_page2_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .order_by_desc("id")
         .limit(2)
         .offset(1)
@@ -706,7 +706,7 @@ fn load_cursor_pagination_pk_fast_path_desc_matches_non_fast_post_access_semanti
         .execute_paged_with_cursor(fast_page2_plan, fast_page2_boundary)
         .expect("fast descending page2 should execute");
 
-    let non_fast_page2_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let non_fast_page2_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .by_ids(keys.into_iter().map(Ulid::from_u128))
         .order_by_desc("id")
         .limit(2)
@@ -755,7 +755,7 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_with_same_cursor_boundar
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
 
     // Phase 2: capture one canonical cursor boundary from an initial fast-path page.
-    let page1_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let page1_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .order_by("id")
         .limit(3)
         .plan()
@@ -773,7 +773,7 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_with_same_cursor_boundar
     let shared_boundary = cursor_bytes.boundary().clone();
 
     // Phase 3: execute page-2 parity checks with the same typed cursor boundary.
-    let fast_page2_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let fast_page2_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .order_by("id")
         .limit(2)
         .plan()
@@ -782,7 +782,7 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_with_same_cursor_boundar
         .execute_paged_with_cursor(fast_page2_plan, Some(shared_boundary.clone()))
         .expect("fast page2 should execute");
 
-    let non_fast_page2_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let non_fast_page2_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .by_ids(keys.into_iter().map(Ulid::from_u128))
         .order_by("id")
         .limit(2)
@@ -838,7 +838,7 @@ fn load_cursor_pagination_pk_order_key_range_respects_bounds() {
             start: Ulid::from_u128(2),
             end: Ulid::from_u128(4),
         },
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     page1_logical.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
@@ -868,7 +868,7 @@ fn load_cursor_pagination_pk_order_key_range_respects_bounds() {
             start: Ulid::from_u128(2),
             end: Ulid::from_u128(4),
         },
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     page2_logical.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
@@ -914,7 +914,7 @@ fn load_cursor_pagination_pk_order_key_range_cursor_past_end_returns_empty_page(
             start: Ulid::from_u128(1),
             end: Ulid::from_u128(2),
         },
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     logical.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
@@ -961,7 +961,7 @@ fn load_cursor_pagination_pk_order_inverted_key_range_returns_empty_without_scan
                 start: Ulid::from_u128(4),
                 end: Ulid::from_u128(2),
             },
-            ReadConsistency::MissingOk,
+            MissingRowPolicy::Ignore,
         );
         logical.order = Some(OrderSpec {
             fields: vec![("id".to_string(), direction)],
@@ -1009,7 +1009,7 @@ fn load_cursor_pagination_pk_fast_path_scan_accounting_tracks_access_candidates(
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, true);
     for (case_name, descending) in [("asc", false), ("desc", true)] {
-        let base = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        let base = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
             .limit(2)
             .offset(1);
         let plan = if descending {
@@ -1051,7 +1051,7 @@ fn load_cursor_pagination_pk_order_missing_slot_is_invariant_violation() {
     }
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
-    let plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .order_by("id")
         .limit(1)
         .plan()
@@ -1094,7 +1094,7 @@ fn load_cursor_pagination_pk_order_type_mismatch_is_invariant_violation() {
     }
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
-    let plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .order_by("id")
         .limit(1)
         .plan()
@@ -1139,7 +1139,7 @@ fn load_cursor_pagination_pk_order_arity_mismatch_is_invariant_violation() {
     }
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
-    let plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .order_by("id")
         .limit(1)
         .plan()
@@ -1213,7 +1213,7 @@ fn load_cursor_pagination_skips_strictly_before_limit() {
 
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
 
-    let page1_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let page1_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("rank")
         .limit(1)
         .plan()
@@ -1231,7 +1231,7 @@ fn load_cursor_pagination_skips_strictly_before_limit() {
         .next_cursor
         .as_ref()
         .expect("page1 should emit a continuation cursor");
-    let page2_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let page2_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("rank")
         .limit(1)
         .plan()
@@ -1258,7 +1258,7 @@ fn load_cursor_pagination_skips_strictly_before_limit() {
         .next_cursor
         .as_ref()
         .expect("page2 should emit a continuation cursor");
-    let page3_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let page3_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("rank")
         .limit(1)
         .plan()
@@ -1321,7 +1321,7 @@ fn load_cursor_next_cursor_uses_last_returned_row_boundary() {
     }
 
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
-    let page1_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let page1_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("rank")
         .limit(2)
         .plan()
@@ -1345,7 +1345,7 @@ fn load_cursor_next_cursor_uses_last_returned_row_boundary() {
         .as_ref()
         .expect("page1 should include next cursor");
     let token = cursor_bytes.clone();
-    let comparison_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let comparison_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("rank")
         .limit(2)
         .plan()
@@ -1360,7 +1360,7 @@ fn load_cursor_next_cursor_uses_last_returned_row_boundary() {
         "next cursor must encode the last returned row boundary"
     );
 
-    let page2_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let page2_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("rank")
         .limit(2)
         .plan()
@@ -1427,7 +1427,7 @@ fn load_cursor_pagination_desc_order_resumes_strictly_after_boundary() {
     }
 
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
-    let page1_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let page1_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by_desc("rank")
         .limit(2)
         .plan()
@@ -1449,7 +1449,7 @@ fn load_cursor_pagination_desc_order_resumes_strictly_after_boundary() {
         .next_cursor
         .as_ref()
         .expect("descending page1 should emit continuation cursor");
-    let page2_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let page2_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by_desc("rank")
         .limit(2)
         .plan()
@@ -1516,7 +1516,7 @@ fn load_desc_order_uses_primary_key_tie_break_for_equal_rank_rows() {
     }
 
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
-    let plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by_desc("rank")
         .limit(4)
         .plan()
@@ -1563,7 +1563,7 @@ fn load_cursor_rejects_signature_mismatch() {
     }
 
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
-    let asc_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let asc_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("rank")
         .limit(1)
         .plan()
@@ -1578,7 +1578,7 @@ fn load_cursor_rejects_signature_mismatch() {
         .next_cursor
         .expect("ascending page should emit cursor");
 
-    let desc_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    let desc_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by_desc("rank")
         .limit(1)
         .plan()

@@ -563,7 +563,7 @@ fn assert_pushdown_parity<E, I, O>(
 
     let fallback = load
         .execute(
-            apply_order(Query::<E>::new(ReadConsistency::MissingOk).by_ids(fallback_ids))
+            apply_order(Query::<E>::new(MissingRowPolicy::Ignore).by_ids(fallback_ids))
                 .plan()
                 .expect("fallback plan should build"),
         )
@@ -899,7 +899,7 @@ fn run_range_pushdown_parity_matrix<E, Row>(
 
         let predicate = build_predicate(case.bounds);
         let explain = apply_order_field(
-            Query::<E>::new(ReadConsistency::MissingOk).filter(predicate.clone()),
+            Query::<E>::new(MissingRowPolicy::Ignore).filter(predicate.clone()),
             order_field,
             case.descending,
         )
@@ -917,7 +917,7 @@ fn run_range_pushdown_parity_matrix<E, Row>(
         assert_pushdown_parity(
             || {
                 apply_order_field(
-                    Query::<E>::new(ReadConsistency::MissingOk).filter(predicate.clone()),
+                    Query::<E>::new(MissingRowPolicy::Ignore).filter(predicate.clone()),
                     order_field,
                     case.descending,
                 )

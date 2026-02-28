@@ -32,7 +32,7 @@ fn load_composite_pk_budget_trace_limits_access_rows_for_safe_shape() {
                 limit: Some(2),
                 offset: 1,
             }),
-            consistency: ReadConsistency::MissingOk,
+            consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
@@ -90,7 +90,7 @@ fn load_composite_pk_budget_disabled_when_cursor_boundary_present() {
                 limit: Some(2),
                 offset: 0,
             }),
-            consistency: ReadConsistency::MissingOk,
+            consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
@@ -151,7 +151,7 @@ fn load_composite_budget_disabled_when_post_access_sort_is_required() {
                 limit: Some(2),
                 offset: 1,
             }),
-            consistency: ReadConsistency::MissingOk,
+            consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
@@ -208,7 +208,7 @@ fn load_composite_budget_disabled_for_offset_with_residual_filter() {
                 limit: Some(2),
                 offset: 1,
             }),
-            consistency: ReadConsistency::MissingOk,
+            consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
@@ -270,7 +270,7 @@ fn load_composite_pk_budget_trace_limits_access_rows_for_safe_desc_shape() {
                 limit: Some(2),
                 offset: 1,
             }),
-            consistency: ReadConsistency::MissingOk,
+            consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
@@ -339,7 +339,7 @@ fn load_nested_composite_pk_budget_trace_limits_access_rows_for_safe_shape() {
                 limit: Some(2),
                 offset: 1,
             }),
-            consistency: ReadConsistency::MissingOk,
+            consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::Union(vec![
             AccessPlan::Intersection(vec![
@@ -403,7 +403,7 @@ fn load_composite_budgeted_and_fallback_paths_emit_equivalent_continuation_bound
                 limit: Some(2),
                 offset: 1,
             }),
-            consistency: ReadConsistency::MissingOk,
+            consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
@@ -426,7 +426,7 @@ fn load_composite_budgeted_and_fallback_paths_emit_equivalent_continuation_bound
                 limit: Some(2),
                 offset: 1,
             }),
-            consistency: ReadConsistency::MissingOk,
+            consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
@@ -509,7 +509,7 @@ fn load_composite_union_mixed_direction_fallback_preserves_order_and_pagination(
                     limit: Some(2),
                     offset: 0,
                 }),
-                consistency: ReadConsistency::MissingOk,
+                consistency: MissingRowPolicy::Ignore,
             }),
             access: AccessPlan::Union(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id4])),

@@ -102,7 +102,7 @@ fn aggregate_field_target_rank_terminals_bounded_window_scan_budget_and_oracle_m
         seed_pushdown_entities(case.rows);
         let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
         let build_bounded_plan = || {
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(u32_eq_predicate("group", 7))
                 .order_by("id")
                 .limit(3)
@@ -110,7 +110,7 @@ fn aggregate_field_target_rank_terminals_bounded_window_scan_budget_and_oracle_m
                 .expect("bounded rank-window matrix plan should build")
         };
         let build_unbounded_plan = || {
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(u32_eq_predicate("group", 7))
                 .order_by("id")
                 .plan()
@@ -278,7 +278,7 @@ fn aggregate_field_target_rank_terminals_forced_shape_execute_oracle_matrix() {
         seed_simple_entities(case.full_scan_rows);
         let simple_load = LoadExecutor::<SimpleEntity>::new(DB, false);
         let build_full_scan_plan = || {
-            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .offset(1)
                 .limit(4)
@@ -309,7 +309,7 @@ fn aggregate_field_target_rank_terminals_forced_shape_execute_oracle_matrix() {
         let range_load = LoadExecutor::<UniqueIndexRangeEntity>::new(DB, false);
         let code_range = u32_range_predicate("code", 101, 106);
         let build_index_range_plan = || {
-            Query::<UniqueIndexRangeEntity>::new(ReadConsistency::MissingOk)
+            Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
                 .filter(code_range.clone())
                 .order_by_desc("code")
                 .offset(1)
@@ -400,7 +400,7 @@ fn run_simple_terminal_probe(
     load: &LoadExecutor<SimpleEntity>,
     case: SimpleTerminalProbeCase,
 ) -> Result<SimpleTerminalExpected, InternalError> {
-    let mut query = Query::<SimpleEntity>::new(ReadConsistency::MissingOk);
+    let mut query = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore);
     query = match case.direction {
         OrderDirection::Asc => query.order_by("id"),
         OrderDirection::Desc => query.order_by_desc("id"),
@@ -662,7 +662,7 @@ fn aggregate_last_unbounded_desc_large_dataset_scans_full_stream() {
     let (last_desc, scanned_last_desc) =
         capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
             load.aggregate_last(
-                Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+                Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                     .order_by_desc("id")
                     .plan()
                     .expect("last DESC large unbounded plan should build"),
@@ -698,7 +698,7 @@ fn aggregate_last_secondary_index_desc_mixed_direction_falls_back_safely() {
     let (last_desc, scanned_desc) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
             load.aggregate_last(
-                Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                     .filter(group_seven.clone())
                     .order_by_desc("rank")
                     .plan()
@@ -734,7 +734,7 @@ fn aggregate_last_index_range_ineligible_pushdown_shape_preserves_parity() {
     assert_aggregate_parity_for_query(
         &load,
         || {
-            Query::<UniqueIndexRangeEntity>::new(ReadConsistency::MissingOk)
+            Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
                 .filter(range_predicate.clone())
                 .order_by("label")
                 .offset(1)
@@ -757,7 +757,7 @@ fn aggregate_distinct_offset_probe_hint_suppression_preserves_parity() {
     assert_aggregate_parity_for_query(
         &load,
         || {
-            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .filter(duplicate_front_predicate.clone())
                 .distinct()
                 .order_by("id")
@@ -774,7 +774,7 @@ fn aggregate_count_distinct_offset_window_disables_bounded_probe_hint() {
 
     let (count_asc, scanned_asc) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
         load.aggregate_count(
-            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .distinct()
                 .order_by("id")
                 .offset(2)
@@ -786,7 +786,7 @@ fn aggregate_count_distinct_offset_window_disables_bounded_probe_hint() {
     });
     let (count_desc, scanned_desc) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
         load.aggregate_count(
-            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .distinct()
                 .order_by_desc("id")
                 .offset(2)
@@ -825,7 +825,7 @@ fn aggregate_secondary_index_strict_prefilter_preserves_parity_across_window_sha
         assert_aggregate_parity_for_query(
             &load,
             || {
-                let mut query = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                let mut query = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                     .filter(strict_filter.clone());
                 if distinct {
                     query = query.distinct();
@@ -893,7 +893,7 @@ fn run_strict_prefilter_aggregate(
     aggregate: StrictPrefilterAggregate,
     filter: Predicate,
 ) -> Result<StrictPrefilterOutput, InternalError> {
-    let query = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk).filter(filter);
+    let query = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore).filter(filter);
     let plan = match aggregate {
         StrictPrefilterAggregate::MaxBy => query
             .order_by_desc("rank")
@@ -999,26 +999,26 @@ fn aggregate_missing_ok_skips_leading_stale_secondary_keys_for_exists_min_max() 
     assert_aggregate_parity_for_query(
         &load,
         || {
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(group_seven.clone())
                 .order_by("rank")
         },
-        "MissingOk stale-leading ASC secondary path",
+        "Ignore stale-leading ASC secondary path",
     );
     assert_aggregate_parity_for_query(
         &load,
         || {
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(group_seven.clone())
                 .order_by_desc("rank")
         },
-        "MissingOk stale-leading DESC secondary path",
+        "Ignore stale-leading DESC secondary path",
     );
 
     let (exists_asc, scanned_asc) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
             load.aggregate_exists(
-                Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                     .filter(group_seven.clone())
                     .order_by("rank")
                     .plan()
@@ -1029,7 +1029,7 @@ fn aggregate_missing_ok_skips_leading_stale_secondary_keys_for_exists_min_max() 
     let (exists_desc, scanned_desc) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
             load.aggregate_exists(
-                Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                     .filter(group_seven.clone())
                     .order_by_desc("rank")
                     .plan()
@@ -1063,7 +1063,7 @@ fn aggregate_count_pushdown_contract_matrix_preserves_parity() {
     seed_simple_entities(&[9701, 9702, 9703, 9704, 9705]);
     let simple_load = LoadExecutor::<SimpleEntity>::new(DB, false);
     let full_scan_query = || {
-        Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
             .order_by("id")
             .offset(1)
             .limit(2)
@@ -1087,7 +1087,7 @@ fn aggregate_count_pushdown_contract_matrix_preserves_parity() {
     seed_phase_entities(&[(9801, 1), (9802, 2), (9803, 2), (9804, 3)]);
     let phase_load = LoadExecutor::<PhaseEntity>::new(DB, false);
     let residual_filter_query = || {
-        Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+        Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
             .filter(u32_eq_predicate("rank", 2))
             .order_by("id")
     };
@@ -1120,7 +1120,7 @@ fn aggregate_count_pushdown_contract_matrix_preserves_parity() {
     remove_pushdown_row_data(9901);
     let pushdown_load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let secondary_index_query = || {
-        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(u32_eq_predicate("group", 7))
             .order_by("rank")
     };
@@ -1145,7 +1145,7 @@ fn aggregate_count_pushdown_contract_matrix_preserves_parity() {
         id_in_predicate(&[9953, 9954, 9955, 9956]),
     ]);
     let composite_query = || {
-        Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
             .filter(composite_predicate.clone())
             .order_by("id")
     };

@@ -498,24 +498,24 @@ where
         );
         let plan = plan.into_inner();
         let execution_preparation = ExecutionPreparation::for_plan::<E>(&plan);
-        let mut grouped_states = grouped_spec
+        let mut grouped_engines = grouped_spec
             .aggregate_specs()
             .iter()
             .map(|spec| {
                 if spec.target_field().is_some() {
-                    return Err(InternalError::executor_unsupported(format!(
-                        "grouped field-target aggregates are not yet enabled: {:?}",
+                    return Err(InternalError::query_executor_invariant(format!(
+                        "grouped field-target aggregate reached executor after planning: {:?}",
                         spec.kind()
                     )));
                 }
 
-                Ok(grouped_execution_context.create_grouped_state::<E>(
+                Ok(grouped_execution_context.create_grouped_engine::<E>(
                     spec.kind(),
                     Self::grouped_reduction_direction(spec.kind()),
                 ))
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let mut short_circuit_keys = vec![Vec::<Value>::new(); grouped_states.len()];
+        let mut short_circuit_keys = vec![Vec::<Value>::new(); grouped_engines.len()];
 
         let mut span = Span::<E>::new(ExecKind::Load);
         let ctx = self.db.recovered_context::<E>()?;
@@ -566,15 +566,15 @@ where
             let canonical_group_value = group_key.canonical_value().clone();
             let data_key = DataKey::try_new::<E>(id.key())?;
 
-            for (index, state) in grouped_states.iter_mut().enumerate() {
+            for (index, engine) in grouped_engines.iter_mut().enumerate() {
                 if short_circuit_keys[index].iter().any(|done| {
                     canonical_value_compare(done, &canonical_group_value) == Ordering::Equal
                 }) {
                     continue;
                 }
 
-                let fold_control = state
-                    .apply(group_key.clone(), &data_key, &mut grouped_execution_context)
+                let fold_control = engine
+                    .ingest_grouped(group_key.clone(), &data_key, &mut grouped_execution_context)
                     .map_err(Self::map_group_error)?;
                 if matches!(fold_control, FoldControl::Break) {
                     short_circuit_keys[index].push(canonical_group_value.clone());
@@ -583,10 +583,10 @@ where
         }
 
         // Phase 2: finalize grouped aggregate states and align outputs by declared aggregate order.
-        let aggregate_count = grouped_states.len();
+        let aggregate_count = grouped_engines.len();
         let mut grouped_rows_by_key = Vec::<(Value, Vec<Value>)>::new();
-        for (index, state) in grouped_states.into_iter().enumerate() {
-            let finalized = state.finalize();
+        for (index, engine) in grouped_engines.into_iter().enumerate() {
+            let finalized = engine.finalize_grouped()?;
             for output in finalized {
                 let group_key = output.group_key().canonical_value().clone();
                 let aggregate_value = Self::aggregate_output_to_value(output.output());

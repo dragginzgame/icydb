@@ -12,7 +12,7 @@ fn aggregate_field_target_count_distinct_counts_window_values() {
     ]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let build_plan = || {
-        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(u32_eq_predicate("group", 7))
             .order_by_desc("id")
             .limit(5)
@@ -28,7 +28,7 @@ fn aggregate_field_target_count_distinct_counts_window_values() {
         .expect("count_distinct_by(rank) should succeed");
     let empty_window_count = load
         .aggregate_count_distinct_by(
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(u32_eq_predicate("group", 7))
                 .order_by_desc("id")
                 .offset(50)
@@ -57,7 +57,7 @@ fn aggregate_field_target_count_distinct_supports_non_orderable_fields() {
 
     let distinct_count = load
         .aggregate_count_distinct_by(
-            Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+            Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .plan()
                 .expect("non-orderable count-distinct plan should build"),
@@ -107,7 +107,7 @@ fn aggregate_field_target_count_distinct_list_order_semantics_are_stable() {
 
     let distinct_count = load
         .aggregate_count_distinct_by(
-            Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+            Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .plan()
                 .expect("list-order count-distinct plan should build"),
@@ -150,7 +150,7 @@ fn aggregate_field_target_count_distinct_residual_retry_parity_and_scan_budget_m
                 Bound::Included(Value::Uint(10)),
                 Bound::Excluded(Value::Uint(16)),
             ),
-            ReadConsistency::MissingOk,
+            MissingRowPolicy::Ignore,
         );
         logical.predicate = Some(Predicate::TextContainsCi {
             field: "label".to_string(),
@@ -216,7 +216,7 @@ fn aggregate_field_target_count_distinct_is_direction_invariant() {
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let asc_count = load
         .aggregate_count_distinct_by(
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(u32_eq_predicate("group", 7))
                 .order_by("rank")
                 .plan()
@@ -226,7 +226,7 @@ fn aggregate_field_target_count_distinct_is_direction_invariant() {
         .expect("direction-invariant ASC count_distinct_by(rank) should succeed");
     let desc_count = load
         .aggregate_count_distinct_by(
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(u32_eq_predicate("group", 7))
                 .order_by_desc("rank")
                 .order_by_desc("id")
@@ -247,13 +247,13 @@ fn aggregate_field_target_count_distinct_optional_field_null_values_are_rejected
     seed_optional_field_null_values_fixture();
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
     let build_plan_asc = || {
-        Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+        Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
             .order_by("rank")
             .plan()
             .expect("optional-field null-semantics ASC plan should build")
     };
     let build_plan_desc = || {
-        Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+        Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
             .order_by_desc("rank")
             .order_by_desc("id")
             .plan()
@@ -343,7 +343,7 @@ fn seed_optional_field_null_values_fixture() {
 }
 
 fn optional_field_null_plan() -> ExecutablePlan<PhaseEntity> {
-    Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+    Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("rank")
         .plan()
         .expect("optional-field null-semantics plan should build")
@@ -430,7 +430,7 @@ fn seed_missing_field_parity_fixture() {
 }
 
 fn missing_field_parity_plan() -> ExecutablePlan<PushdownParityEntity> {
-    Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .order_by("id")
         .plan()
         .expect("missing-field parity plan should build")
@@ -543,7 +543,7 @@ fn aggregate_field_target_count_distinct_distinct_modifier_tracks_effective_wind
         id_in_predicate(&[8_1972, 8_1973, 8_1975, 8_1976]),
     ]);
     let build_query = |distinct: bool| {
-        let mut query = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        let mut query = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(overlapping_predicate.clone());
         if distinct {
             query = query.distinct();
@@ -607,7 +607,7 @@ fn aggregate_field_target_values_by_distinct_remains_row_level() {
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let values = load
         .values_by(
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(u32_eq_predicate("group", 7))
                 .distinct()
                 .order_by("id")
@@ -636,7 +636,7 @@ fn aggregate_field_target_distinct_values_by_matches_effective_window_projection
     ]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let build_plan = || {
-        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(u32_eq_predicate("group", 7))
             .order_by_desc("id")
             .offset(1)
@@ -671,7 +671,7 @@ fn aggregate_field_target_distinct_values_by_matches_values_by_first_observed_de
     ]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let build_plan = || {
-        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(u32_eq_predicate("group", 7))
             .order_by_desc("id")
             .offset(1)

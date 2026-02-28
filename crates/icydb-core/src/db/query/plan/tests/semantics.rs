@@ -1,7 +1,7 @@
 use crate::{
     db::{
         access::{AccessPath, AccessPlan, AccessPlanError},
-        contracts::{ReadConsistency, SchemaInfo},
+        contracts::{MissingRowPolicy, SchemaInfo},
         query::{
             intent::{DeleteSpec, LoadSpec, QueryMode},
             plan::validate::{
@@ -69,7 +69,7 @@ fn plan_rejects_unorderable_field() {
             distinct: false,
             delete_limit: None,
             page: None,
-            consistency: ReadConsistency::MissingOk,
+            consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::path(AccessPath::FullScan),
     };
@@ -99,7 +99,7 @@ fn plan_rejects_duplicate_non_primary_order_field() {
             distinct: false,
             delete_limit: None,
             page: None,
-            consistency: ReadConsistency::MissingOk,
+            consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::path(AccessPath::FullScan),
     };
@@ -124,7 +124,7 @@ fn plan_rejects_index_prefix_too_long() {
             distinct: false,
             delete_limit: None,
             page: None,
-            consistency: ReadConsistency::MissingOk,
+            consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::path(AccessPath::IndexPrefix {
             index: INDEX_MODEL,
@@ -151,7 +151,7 @@ fn plan_rejects_empty_index_prefix() {
             distinct: false,
             delete_limit: None,
             page: None,
-            consistency: ReadConsistency::MissingOk,
+            consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::path(AccessPath::IndexPrefix {
             index: INDEX_MODEL,
@@ -178,7 +178,7 @@ fn plan_accepts_model_based_validation() {
             distinct: false,
             delete_limit: None,
             page: None,
-            consistency: ReadConsistency::MissingOk,
+            consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::path(AccessPath::ByKey(Value::Ulid(Ulid::nil()))),
     };
@@ -198,7 +198,7 @@ fn plan_rejects_empty_order_spec() {
             distinct: false,
             delete_limit: None,
             page: None,
-            consistency: ReadConsistency::MissingOk,
+            consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::path(AccessPath::FullScan),
     };
@@ -222,7 +222,7 @@ fn delete_limit_requires_order() {
             distinct: false,
             delete_limit: Some(DeleteLimitSpec { max_rows: 10 }),
             page: None,
-            consistency: ReadConsistency::MissingOk,
+            consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::path(AccessPath::FullScan),
     };
@@ -252,7 +252,7 @@ fn delete_plan_rejects_pagination() {
                 limit: Some(1),
                 offset: 0,
             }),
-            consistency: ReadConsistency::MissingOk,
+            consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::path(AccessPath::FullScan),
     };
@@ -279,7 +279,7 @@ fn load_plan_rejects_delete_limit() {
             distinct: false,
             delete_limit: Some(DeleteLimitSpec { max_rows: 1 }),
             page: None,
-            consistency: ReadConsistency::MissingOk,
+            consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::path(AccessPath::FullScan),
     };
@@ -307,7 +307,7 @@ fn plan_rejects_unordered_pagination() {
                 limit: Some(10),
                 offset: 2,
             }),
-            consistency: ReadConsistency::MissingOk,
+            consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::path(AccessPath::FullScan),
     };
@@ -337,7 +337,7 @@ fn plan_accepts_ordered_pagination() {
                 limit: Some(10),
                 offset: 2,
             }),
-            consistency: ReadConsistency::MissingOk,
+            consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::path(AccessPath::FullScan),
     };
@@ -359,7 +359,7 @@ fn plan_rejects_order_without_terminal_primary_key_tie_break() {
             distinct: false,
             delete_limit: None,
             page: None,
-            consistency: ReadConsistency::MissingOk,
+            consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::path(AccessPath::FullScan),
     };

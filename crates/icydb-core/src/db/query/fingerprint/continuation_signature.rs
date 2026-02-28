@@ -41,6 +41,7 @@ impl ExplainPlan {
     /// - normalized predicate
     /// - canonical order-by (including implicit PK tie-break)
     /// - distinct flag
+    /// - grouped shape (group keys, aggregate terminals, grouped limits)
     /// - projection marker (currently full entity row projection)
     ///
     /// Excluded fields:
@@ -73,7 +74,7 @@ mod tests {
     use crate::{
         db::{
             access::AccessPath,
-            contracts::{Predicate, ReadConsistency},
+            contracts::{MissingRowPolicy, Predicate},
             cursor::{
                 ContinuationSignature, ContinuationToken, ContinuationTokenError, CursorBoundary,
                 CursorBoundarySlot, IndexRangeCursorAnchor,
@@ -83,7 +84,10 @@ mod tests {
                 builder::field::FieldRef,
                 intent::{KeyAccess, LoadSpec, QueryMode, access_plan_from_keys_value},
                 plan::OrderDirection,
-                plan::{AccessPlannedQuery, LogicalPlan, OrderSpec, PageSpec},
+                plan::{
+                    AccessPlannedQuery, FieldSlot, GroupAggregateKind, GroupAggregateSpec,
+                    GroupSpec, GroupedExecutionConfig, LogicalPlan, OrderSpec, PageSpec,
+                },
             },
         },
         types::Ulid,
@@ -104,11 +108,11 @@ mod tests {
         ]);
 
         let mut plan_a: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
         plan_a.predicate = Some(predicate_a);
 
         let mut plan_b: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
         plan_b.predicate = Some(predicate_b);
 
         assert_eq!(
@@ -133,7 +137,7 @@ mod tests {
                 distinct: false,
                 delete_limit: None,
                 page: None,
-                consistency: ReadConsistency::MissingOk,
+                consistency: MissingRowPolicy::Ignore,
             }),
             access: access_a,
         };
@@ -145,7 +149,7 @@ mod tests {
                 distinct: false,
                 delete_limit: None,
                 page: None,
-                consistency: ReadConsistency::MissingOk,
+                consistency: MissingRowPolicy::Ignore,
             }),
             access: access_b,
         };
@@ -159,9 +163,9 @@ mod tests {
     #[test]
     fn signature_excludes_pagination_window_state() {
         let mut plan_a: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
         let mut plan_b: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
 
         plan_a.page = Some(PageSpec {
             limit: Some(10),
@@ -181,9 +185,9 @@ mod tests {
     #[test]
     fn signature_changes_when_order_changes() {
         let mut plan_a: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
         let mut plan_b: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
 
         plan_a.order = Some(OrderSpec {
             fields: vec![("name".to_string(), OrderDirection::Asc)],
@@ -201,9 +205,9 @@ mod tests {
     #[test]
     fn signature_changes_when_order_field_set_changes() {
         let mut plan_a: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
         let mut plan_b: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
 
         plan_a.order = Some(OrderSpec {
             fields: vec![("name".to_string(), OrderDirection::Asc)],
@@ -221,9 +225,9 @@ mod tests {
     #[test]
     fn signature_changes_when_distinct_flag_changes() {
         let plan_a: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
         let mut plan_b: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
         plan_b.distinct = true;
 
         assert_ne!(
@@ -235,11 +239,230 @@ mod tests {
     #[test]
     fn signature_changes_with_entity_path() {
         let plan: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
 
         assert_ne!(
             plan.continuation_signature("tests::EntityA"),
             plan.continuation_signature("tests::EntityB")
+        );
+    }
+
+    #[test]
+    fn signature_changes_when_group_fields_change() {
+        let grouped_a: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+                .into_grouped(GroupSpec {
+                    group_fields: vec![
+                        FieldSlot::from_parts_for_test(1, "tenant"),
+                        FieldSlot::from_parts_for_test(2, "phase"),
+                    ],
+                    aggregates: vec![GroupAggregateSpec {
+                        kind: GroupAggregateKind::Count,
+                        target_field: None,
+                    }],
+                    execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
+                });
+        let grouped_b: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+                .into_grouped(GroupSpec {
+                    group_fields: vec![
+                        FieldSlot::from_parts_for_test(1, "tenant"),
+                        FieldSlot::from_parts_for_test(2, "region"),
+                    ],
+                    aggregates: vec![GroupAggregateSpec {
+                        kind: GroupAggregateKind::Count,
+                        target_field: None,
+                    }],
+                    execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
+                });
+
+        assert_ne!(
+            grouped_a.continuation_signature("tests::Entity"),
+            grouped_b.continuation_signature("tests::Entity")
+        );
+    }
+
+    #[test]
+    fn signature_changes_when_group_aggregate_spec_changes() {
+        let grouped_count: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+                .into_grouped(GroupSpec {
+                    group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+                    aggregates: vec![GroupAggregateSpec {
+                        kind: GroupAggregateKind::Count,
+                        target_field: None,
+                    }],
+                    execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
+                });
+        let grouped_max_rank: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+                .into_grouped(GroupSpec {
+                    group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+                    aggregates: vec![GroupAggregateSpec {
+                        kind: GroupAggregateKind::Max,
+                        target_field: Some("rank".to_string()),
+                    }],
+                    execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
+                });
+
+        assert_ne!(
+            grouped_count.continuation_signature("tests::Entity"),
+            grouped_max_rank.continuation_signature("tests::Entity")
+        );
+    }
+
+    #[test]
+    fn signature_changes_when_group_aggregate_target_field_changes() {
+        let grouped_max_rank: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+                .into_grouped(GroupSpec {
+                    group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+                    aggregates: vec![GroupAggregateSpec {
+                        kind: GroupAggregateKind::Max,
+                        target_field: Some("rank".to_string()),
+                    }],
+                    execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
+                });
+        let grouped_max_score: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+                .into_grouped(GroupSpec {
+                    group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+                    aggregates: vec![GroupAggregateSpec {
+                        kind: GroupAggregateKind::Max,
+                        target_field: Some("score".to_string()),
+                    }],
+                    execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
+                });
+
+        assert_ne!(
+            grouped_max_rank.continuation_signature("tests::Entity"),
+            grouped_max_score.continuation_signature("tests::Entity")
+        );
+    }
+
+    #[test]
+    fn signature_changes_when_group_field_order_changes() {
+        let grouped_ab: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+                .into_grouped(GroupSpec {
+                    group_fields: vec![
+                        FieldSlot::from_parts_for_test(1, "tenant"),
+                        FieldSlot::from_parts_for_test(2, "phase"),
+                    ],
+                    aggregates: vec![GroupAggregateSpec {
+                        kind: GroupAggregateKind::Count,
+                        target_field: None,
+                    }],
+                    execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
+                });
+        let grouped_ba: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+                .into_grouped(GroupSpec {
+                    group_fields: vec![
+                        FieldSlot::from_parts_for_test(2, "phase"),
+                        FieldSlot::from_parts_for_test(1, "tenant"),
+                    ],
+                    aggregates: vec![GroupAggregateSpec {
+                        kind: GroupAggregateKind::Count,
+                        target_field: None,
+                    }],
+                    execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
+                });
+
+        assert_ne!(
+            grouped_ab.continuation_signature("tests::Entity"),
+            grouped_ba.continuation_signature("tests::Entity")
+        );
+    }
+
+    #[test]
+    fn signature_changes_when_group_aggregate_order_changes() {
+        let grouped_count_then_max: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+                .into_grouped(GroupSpec {
+                    group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+                    aggregates: vec![
+                        GroupAggregateSpec {
+                            kind: GroupAggregateKind::Count,
+                            target_field: None,
+                        },
+                        GroupAggregateSpec {
+                            kind: GroupAggregateKind::Max,
+                            target_field: Some("rank".to_string()),
+                        },
+                    ],
+                    execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
+                });
+        let grouped_max_then_count: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+                .into_grouped(GroupSpec {
+                    group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+                    aggregates: vec![
+                        GroupAggregateSpec {
+                            kind: GroupAggregateKind::Max,
+                            target_field: Some("rank".to_string()),
+                        },
+                        GroupAggregateSpec {
+                            kind: GroupAggregateKind::Count,
+                            target_field: None,
+                        },
+                    ],
+                    execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
+                });
+
+        assert_ne!(
+            grouped_count_then_max.continuation_signature("tests::Entity"),
+            grouped_max_then_count.continuation_signature("tests::Entity")
+        );
+    }
+
+    #[test]
+    fn signature_changes_between_scalar_and_grouped_shape() {
+        let scalar: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+        let grouped: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+                .into_grouped(GroupSpec {
+                    group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+                    aggregates: vec![GroupAggregateSpec {
+                        kind: GroupAggregateKind::Count,
+                        target_field: None,
+                    }],
+                    execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
+                });
+
+        assert_ne!(
+            scalar.continuation_signature("tests::Entity"),
+            grouped.continuation_signature("tests::Entity")
+        );
+    }
+
+    #[test]
+    fn signature_changes_when_grouped_limits_change() {
+        let grouped_a: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+                .into_grouped(GroupSpec {
+                    group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+                    aggregates: vec![GroupAggregateSpec {
+                        kind: GroupAggregateKind::Count,
+                        target_field: None,
+                    }],
+                    execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
+                });
+        let grouped_b: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+                .into_grouped(GroupSpec {
+                    group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+                    aggregates: vec![GroupAggregateSpec {
+                        kind: GroupAggregateKind::Count,
+                        target_field: None,
+                    }],
+                    execution: GroupedExecutionConfig::with_hard_limits(128, 4096),
+                });
+
+        assert_ne!(
+            grouped_a.continuation_signature("tests::Entity"),
+            grouped_b.continuation_signature("tests::Entity")
         );
     }
 

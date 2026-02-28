@@ -17,7 +17,7 @@ use crate::{
             CommitMarker, begin_commit, commit_marker_present, ensure_recovered_for_write,
             init_commit_store_for_tests, prepare_row_commit_for_entity,
         },
-        contracts::{CoercionId, CompareOp, ComparePredicate, Predicate, ReadConsistency},
+        contracts::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         cursor::{ContinuationToken, CursorBoundary, CursorBoundarySlot},
         data::DataStore,
         executor::{DeleteExecutor, ExecutionOptimization, LoadExecutor, SaveExecutor},

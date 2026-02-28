@@ -36,7 +36,7 @@ fn load_distinct_flag_preserves_union_pagination_rows_and_boundaries() {
                     limit: Some(limit),
                     offset: 0,
                 }),
-                consistency: ReadConsistency::MissingOk,
+                consistency: MissingRowPolicy::Ignore,
             }),
             access: AccessPlan::Union(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id4])),
@@ -84,7 +84,7 @@ fn load_row_distinct_keeps_rows_with_same_projected_values_when_datakey_differs(
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let response = load
         .execute(
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(pushdown_group_predicate(7))
                 .distinct()
                 .order_by("id")
@@ -163,7 +163,7 @@ fn load_distinct_union_resume_matrix_is_boundary_complete() {
                             limit: Some(limit),
                             offset: 0,
                         }),
-                        consistency: ReadConsistency::MissingOk,
+                        consistency: MissingRowPolicy::Ignore,
                     }),
                     access: AccessPlan::Union(vec![
                         AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4, id5])),
@@ -215,7 +215,7 @@ fn load_distinct_desc_secondary_pushdown_resume_matrix_is_boundary_complete() {
         // Phase 1: residual-filter DISTINCT DESC routing is materialized.
         let (seed_page, seed_trace) = load
             .execute_paged_with_cursor_traced(
-                Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                     .filter(predicate.clone())
                     .order_by_desc("rank")
                     .order_by_desc("id")
@@ -235,7 +235,7 @@ fn load_distinct_desc_secondary_pushdown_resume_matrix_is_boundary_complete() {
 
         // Phase 2: verify full paged traversal and boundary-complete resume suffixes.
         let build_plan = || {
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
                 .order_by_desc("rank")
                 .order_by_desc("id")
@@ -284,7 +284,7 @@ fn load_distinct_desc_secondary_fast_path_and_fallback_match_ids_and_boundaries(
         // Phase 1: residual-filter DISTINCT DESC routing remains materialized.
         let (_fast_seed_page, fast_trace) = load
             .execute_paged_with_cursor_traced(
-                Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                     .filter(predicate.clone())
                     .order_by_desc("rank")
                     .order_by_desc("id")
@@ -304,7 +304,7 @@ fn load_distinct_desc_secondary_fast_path_and_fallback_match_ids_and_boundaries(
         // Phase 2: fallback by-ids path should remain non-optimized and semantically identical.
         let (_fallback_seed_page, fallback_trace) = load
             .execute_paged_with_cursor_traced(
-                Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                     .by_ids(group7_ids.iter().copied())
                     .order_by_desc("rank")
                     .order_by_desc("id")
@@ -322,7 +322,7 @@ fn load_distinct_desc_secondary_fast_path_and_fallback_match_ids_and_boundaries(
         );
 
         let build_fast_plan = || {
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
                 .order_by_desc("rank")
                 .order_by_desc("id")
@@ -332,7 +332,7 @@ fn load_distinct_desc_secondary_fast_path_and_fallback_match_ids_and_boundaries(
                 .expect("distinct DESC fast-path plan should build")
         };
         let build_fallback_plan = || {
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .by_ids(group7_ids.iter().copied())
                 .order_by_desc("rank")
                 .order_by_desc("id")
@@ -409,7 +409,7 @@ fn load_distinct_desc_index_range_limit_pushdown_resume_matrix_and_fallback_pari
                             limit: Some(limit),
                             offset: 0,
                         }),
-                        consistency: ReadConsistency::MissingOk,
+                        consistency: MissingRowPolicy::Ignore,
                     }),
                     access: AccessPlan::path(AccessPath::index_range(
                         INDEXED_METRICS_INDEX_MODELS[0],
@@ -446,7 +446,7 @@ fn load_distinct_desc_index_range_limit_pushdown_resume_matrix_and_fallback_pari
                         limit: Some(limit),
                         offset: 0,
                     }),
-                    consistency: ReadConsistency::MissingOk,
+                    consistency: MissingRowPolicy::Ignore,
                 }),
                 access: AccessPlan::path(AccessPath::index_range(
                     INDEXED_METRICS_INDEX_MODELS[0],
@@ -475,7 +475,7 @@ fn load_distinct_desc_index_range_limit_pushdown_resume_matrix_and_fallback_pari
 
         // Phase 4: fallback by-ids semantics must match IDs and boundaries.
         let build_fallback_plan = || {
-            Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+            Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
                 .by_ids(expected_ids.iter().copied())
                 .order_by_desc("tag")
                 .order_by_desc("id")
@@ -523,7 +523,7 @@ fn load_distinct_desc_pk_fast_path_and_fallback_match_ids_and_boundaries() {
         // Phase 1: confirm full-scan DESC stays on PK fast path.
         let (_fast_seed_page, fast_trace) = load
             .execute_paged_with_cursor_traced(
-                Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+                Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                     .order_by_desc("id")
                     .distinct()
                     .limit(limit)
@@ -543,7 +543,7 @@ fn load_distinct_desc_pk_fast_path_and_fallback_match_ids_and_boundaries() {
         // Phase 2: by-ids fallback should stay non-optimized.
         let (_fallback_seed_page, fallback_trace) = load
             .execute_paged_with_cursor_traced(
-                Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+                Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                     .by_ids(keys.into_iter().map(Ulid::from_u128))
                     .order_by_desc("id")
                     .distinct()
@@ -562,7 +562,7 @@ fn load_distinct_desc_pk_fast_path_and_fallback_match_ids_and_boundaries() {
 
         // Phase 3: compare full traversal IDs and continuation boundaries.
         let build_fast_plan = || {
-            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .order_by_desc("id")
                 .distinct()
                 .limit(limit)
@@ -571,7 +571,7 @@ fn load_distinct_desc_pk_fast_path_and_fallback_match_ids_and_boundaries() {
                 .expect("distinct DESC PK fast-path plan should build")
         };
         let build_fallback_plan = || {
-            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .by_ids(keys.into_iter().map(Ulid::from_u128))
                 .order_by_desc("id")
                 .distinct()
@@ -627,7 +627,7 @@ fn load_distinct_offset_fast_path_and_fallback_match_ids_and_boundaries() {
         // ------------------------------------------------------------------
 
         let build_secondary_fast = || {
-            let base = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            let base = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(secondary_predicate.clone())
                 .distinct()
                 .limit(2)
@@ -642,7 +642,7 @@ fn load_distinct_offset_fast_path_and_fallback_match_ids_and_boundaries() {
                 .expect("distinct secondary offset fast-path plan should build")
         };
         let build_secondary_fallback = || {
-            let base = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            let base = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .by_ids(secondary_group_ids.iter().copied())
                 .distinct()
                 .limit(2)
@@ -725,7 +725,7 @@ fn load_distinct_offset_fast_path_and_fallback_match_ids_and_boundaries() {
                         limit: Some(2),
                         offset: 1,
                     }),
-                    consistency: ReadConsistency::MissingOk,
+                    consistency: MissingRowPolicy::Ignore,
                 }),
                 access: AccessPlan::path(AccessPath::index_range(
                     INDEXED_METRICS_INDEX_MODELS[0],
@@ -753,7 +753,7 @@ fn load_distinct_offset_fast_path_and_fallback_match_ids_and_boundaries() {
             .collect::<Vec<_>>();
 
         let build_index_range_fallback = || {
-            let base = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+            let base = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
                 .by_ids(index_candidate_ids.iter().copied())
                 .distinct()
                 .limit(2)
@@ -828,7 +828,7 @@ fn load_distinct_mixed_direction_secondary_shape_rejects_pushdown_and_matches_fa
 
     // Phase 1: mixed direction remains non-pushdown, even with DISTINCT.
     let predicate = pushdown_group_predicate(7);
-    let explain = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    let explain = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
         .order_by_desc("rank")
         .order_by("id")
@@ -850,7 +850,7 @@ fn load_distinct_mixed_direction_secondary_shape_rejects_pushdown_and_matches_fa
         // Phase 2: traced execution should confirm no fast-path optimization.
         let (_index_seed_page, index_seed_trace) = load
             .execute_paged_with_cursor_traced(
-                Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                     .filter(predicate.clone())
                     .order_by_desc("rank")
                     .order_by("id")
@@ -869,7 +869,7 @@ fn load_distinct_mixed_direction_secondary_shape_rejects_pushdown_and_matches_fa
 
         // Phase 3: index-shape and by-ids fallback must match IDs and boundaries.
         let build_index_shape_plan = || {
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
                 .order_by_desc("rank")
                 .order_by("id")
@@ -879,7 +879,7 @@ fn load_distinct_mixed_direction_secondary_shape_rejects_pushdown_and_matches_fa
                 .expect("distinct mixed-direction index-shape plan should build")
         };
         let build_fallback_plan = || {
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .by_ids(group7_ids.iter().copied())
                 .order_by_desc("rank")
                 .order_by("id")

@@ -1,7 +1,7 @@
 use crate::{
     db::{
         Context,
-        contracts::ReadConsistency,
+        contracts::MissingRowPolicy,
         cursor::CursorBoundary,
         data::DataKey,
         direction::Direction,
@@ -161,7 +161,7 @@ impl ExecutionKernel {
     // selected mode. Key-only mode intentionally skips row reads.
     fn key_qualifies_for_fold<E>(
         ctx: &Context<'_, E>,
-        consistency: ReadConsistency,
+        consistency: MissingRowPolicy,
         mode: AggregateFoldMode,
         key: &DataKey,
     ) -> Result<bool, InternalError>
@@ -177,19 +177,19 @@ impl ExecutionKernel {
     // Keep read-consistency behavior aligned with materialized row reads.
     fn row_exists_for_key<E>(
         ctx: &Context<'_, E>,
-        consistency: ReadConsistency,
+        consistency: MissingRowPolicy,
         key: &DataKey,
     ) -> Result<bool, InternalError>
     where
         E: EntityKind + EntityValue,
     {
         match consistency {
-            ReadConsistency::Strict => {
+            MissingRowPolicy::Error => {
                 let _ = ctx.read_strict(key)?;
 
                 Ok(true)
             }
-            ReadConsistency::MissingOk => match ctx.read(key) {
+            MissingRowPolicy::Ignore => match ctx.read(key) {
                 Ok(_) => Ok(true),
                 Err(err) if err.is_not_found() => Ok(false),
                 Err(err) => Err(err),

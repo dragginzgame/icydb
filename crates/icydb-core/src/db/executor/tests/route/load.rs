@@ -2,8 +2,7 @@ use super::*;
 
 #[test]
 fn route_plan_load_uses_route_owned_fast_path_order() {
-    let mut plan =
-        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     plan.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
@@ -19,8 +18,7 @@ fn route_plan_load_uses_route_owned_fast_path_order() {
 
 #[test]
 fn route_matrix_load_pk_desc_with_page_uses_streaming_budget_and_reverse() {
-    let mut plan =
-        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     plan.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Desc)],
     });
@@ -52,7 +50,7 @@ fn route_matrix_load_index_range_cursor_without_anchor_disables_pushdown() {
             Bound::Included(Value::Uint(10)),
             Bound::Excluded(Value::Uint(20)),
         ),
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     plan.order = Some(OrderSpec {
         fields: vec![
@@ -93,7 +91,7 @@ fn route_matrix_load_index_range_residual_predicate_allows_small_window_pushdown
             Bound::Included(Value::Uint(10)),
             Bound::Excluded(Value::Uint(20)),
         ),
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     plan.predicate = Some(Predicate::eq(
         "label".to_string(),
@@ -135,7 +133,7 @@ fn route_matrix_load_index_range_residual_predicate_large_window_disables_pushdo
             Bound::Included(Value::Uint(10)),
             Bound::Excluded(Value::Uint(20)),
         ),
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     plan.predicate = Some(Predicate::eq(
         "label".to_string(),
@@ -165,8 +163,7 @@ fn route_matrix_load_index_range_residual_predicate_large_window_disables_pushdo
 
 #[test]
 fn route_matrix_load_non_pk_order_disables_scan_budget_hint() {
-    let mut plan =
-        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     plan.order = Some(OrderSpec {
         fields: vec![("rank".to_string(), OrderDirection::Desc)],
     });
@@ -191,7 +188,7 @@ fn route_matrix_load_by_keys_desc_disables_fallback_fetch_hint_without_reverse_s
             Ulid::from_u128(7201),
             Ulid::from_u128(7202),
         ]),
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     plan.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Desc)],
@@ -218,7 +215,7 @@ fn route_matrix_load_by_keys_desc_disables_fallback_fetch_hint_without_reverse_s
 #[test]
 fn route_matrix_load_desc_reverse_support_gate_allows_and_blocks_fetch_hint() {
     let mut reverse_capable =
-        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     reverse_capable.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Desc)],
     });
@@ -246,7 +243,7 @@ fn route_matrix_load_desc_reverse_support_gate_allows_and_blocks_fetch_hint() {
             Ulid::from_u128(7_201),
             Ulid::from_u128(7_202),
         ]),
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     reverse_blocked.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Desc)],

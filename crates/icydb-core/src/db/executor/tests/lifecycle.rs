@@ -13,7 +13,7 @@ fn executor_save_then_delete_round_trip() {
     };
     let saved = save.insert(entity).expect("save should succeed");
 
-    let plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(saved.id().key())
         .plan()
@@ -57,7 +57,7 @@ fn delete_replays_incomplete_commit_marker() {
         "commit marker should be present before delete"
     );
 
-    let plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .by_id(saved.id().key())
         .plan()
@@ -84,7 +84,7 @@ fn load_replays_incomplete_commit_marker_after_startup_recovery() {
     );
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
-    let plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+    let plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .plan()
         .expect("load plan should build");
     let response = load.execute(plan).expect("load should succeed");

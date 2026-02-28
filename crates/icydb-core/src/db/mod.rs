@@ -20,7 +20,7 @@ pub(in crate::db) mod relation;
 
 // 2️⃣ Public re-exports (Tier-2 API surface)
 pub use codec::cursor::{decode_cursor, encode_cursor};
-pub use contracts::ReadConsistency;
+pub use contracts::MissingRowPolicy;
 pub use contracts::ValidateError;
 pub use contracts::{CoercionId, CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature};
 pub use data::DataStore;

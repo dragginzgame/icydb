@@ -2,7 +2,7 @@ use crate::{
     db::{
         Db,
         access::{AccessPath, AccessPlan},
-        contracts::ReadConsistency,
+        contracts::MissingRowPolicy,
         direction::Direction,
         executor::{
             Context, IndexStreamConstraints, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
@@ -204,7 +204,7 @@ fn access_plan_rejects_unused_index_range_specs() {
             &access,
             &[extra_prefix_spec],
             &[extra_spec],
-            ReadConsistency::MissingOk,
+            MissingRowPolicy::Ignore,
         )
         .expect_err("unused index-range specs must fail invariant checks");
 
@@ -225,7 +225,7 @@ fn access_plan_rejects_misaligned_index_prefix_spec() {
     let prefix_spec = dummy_index_prefix_spec();
 
     let err = ctx
-        .rows_from_access_plan(&access, &[prefix_spec], &[], ReadConsistency::MissingOk)
+        .rows_from_access_plan(&access, &[prefix_spec], &[], MissingRowPolicy::Ignore)
         .expect_err("misaligned index-prefix spec must fail invariant checks");
 
     assert!(
@@ -247,7 +247,7 @@ fn access_plan_rejects_misaligned_index_range_spec() {
     let range_spec = dummy_index_range_spec();
 
     let err = ctx
-        .rows_from_access_plan(&access, &[], &[range_spec], ReadConsistency::MissingOk)
+        .rows_from_access_plan(&access, &[], &[range_spec], MissingRowPolicy::Ignore)
         .expect_err("misaligned index-range spec must fail invariant checks");
 
     assert!(
@@ -267,7 +267,7 @@ fn composite_union_rejects_misaligned_index_prefix_spec() {
     let prefix_spec = dummy_index_prefix_spec();
 
     let err = ctx
-        .rows_from_access_plan(&access, &[prefix_spec], &[], ReadConsistency::MissingOk)
+        .rows_from_access_plan(&access, &[prefix_spec], &[], MissingRowPolicy::Ignore)
         .expect_err("misaligned composite prefix spec must fail invariant checks");
 
     assert!(
@@ -289,7 +289,7 @@ fn composite_intersection_rejects_misaligned_index_range_spec() {
     let range_spec = dummy_index_range_spec();
 
     let err = ctx
-        .rows_from_access_plan(&access, &[], &[range_spec], ReadConsistency::MissingOk)
+        .rows_from_access_plan(&access, &[], &[range_spec], MissingRowPolicy::Ignore)
         .expect_err("misaligned composite range spec must fail invariant checks");
 
     assert!(

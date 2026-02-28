@@ -2,8 +2,7 @@ use super::*;
 
 #[test]
 fn route_capabilities_full_scan_desc_pk_order_reflect_expected_flags() {
-    let mut plan =
-        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     plan.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Desc)],
     });
@@ -34,7 +33,7 @@ fn route_capabilities_by_keys_desc_distinct_offset_disable_probe_hint() {
             Ulid::from_u128(7301),
             Ulid::from_u128(7302),
         ]),
-        ReadConsistency::MissingOk,
+        MissingRowPolicy::Ignore,
     );
     plan.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Desc)],

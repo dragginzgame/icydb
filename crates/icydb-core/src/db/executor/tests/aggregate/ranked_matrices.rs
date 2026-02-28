@@ -233,7 +233,7 @@ fn aggregate_field_target_top_k_by_direction_invariance_across_forced_access_sha
     seed_simple_entities(&[8_3941, 8_3942, 8_3943, 8_3944, 8_3945, 8_3946]);
     let simple_load = LoadExecutor::<SimpleEntity>::new(DB, false);
     let full_scan_top_ids_for = |direction: OrderDirection| {
-        let query = Query::<SimpleEntity>::new(ReadConsistency::MissingOk);
+        let query = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore);
         let query = match direction {
             OrderDirection::Asc => query.order_by("id"),
             OrderDirection::Desc => query.order_by_desc("id"),
@@ -270,7 +270,7 @@ fn aggregate_field_target_top_k_by_direction_invariance_across_forced_access_sha
     let range_load = LoadExecutor::<UniqueIndexRangeEntity>::new(DB, false);
     let code_range = u32_range_predicate("code", 101, 106);
     let index_range_top_ids_for = |direction: OrderDirection| {
-        let query = Query::<UniqueIndexRangeEntity>::new(ReadConsistency::MissingOk)
+        let query = Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
             .filter(code_range.clone());
         let query = match direction {
             OrderDirection::Asc => query.order_by("code"),
@@ -610,7 +610,7 @@ fn aggregate_field_target_rank_k_one_extrema_equivalence_matrix() {
         seed_pushdown_entities(case.rows);
         let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
         let build_plan = || {
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(u32_eq_predicate("group", 7))
                 .order_by_desc("id")
                 .limit(4)
@@ -687,7 +687,7 @@ fn aggregate_field_target_take_and_rank_terminals_k_zero_return_empty_with_execu
     ]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let build_plan = || {
-        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(u32_eq_predicate("group", 7))
             .order_by_desc("id")
             .offset(1)
