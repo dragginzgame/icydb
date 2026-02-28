@@ -35,6 +35,7 @@ pub struct ExplainPlan {
     pub mode: QueryMode,
     pub access: ExplainAccessPath,
     pub predicate: ExplainPredicate,
+    predicate_model: Option<Predicate>,
     pub order_by: ExplainOrderBy,
     pub distinct: bool,
     pub grouping: ExplainGrouping,
@@ -42,6 +43,32 @@ pub struct ExplainPlan {
     pub page: ExplainPagination,
     pub delete_limit: ExplainDeleteLimit,
     pub consistency: MissingRowPolicy,
+}
+
+impl ExplainPlan {
+    /// Return the canonical predicate model used for hashing/fingerprints.
+    ///
+    /// The explain projection must remain a faithful rendering of this model.
+    #[must_use]
+    pub(crate) fn predicate_model_for_hash(&self) -> Option<&Predicate> {
+        match &self.predicate_model {
+            Some(predicate) => {
+                debug_assert_eq!(
+                    self.predicate,
+                    ExplainPredicate::from_predicate(predicate),
+                    "explain predicate surface drifted from canonical predicate model"
+                );
+                Some(predicate)
+            }
+            None => {
+                debug_assert!(
+                    matches!(self.predicate, ExplainPredicate::None),
+                    "missing canonical predicate model requires ExplainPredicate::None"
+                );
+                None
+            }
+        }
+    }
 }
 
 ///
@@ -292,8 +319,9 @@ fn explain_scalar_inner<K>(
 where
     K: FieldValue,
 {
-    let predicate = match &logical.predicate {
-        Some(predicate) => ExplainPredicate::from_predicate(&normalize(predicate)),
+    let predicate_model = logical.predicate.as_ref().map(normalize);
+    let predicate = match &predicate_model {
+        Some(predicate) => ExplainPredicate::from_predicate(predicate),
         None => ExplainPredicate::None,
     };
 
@@ -306,6 +334,7 @@ where
         mode: logical.mode,
         access: ExplainAccessPath::from_access_plan(access),
         predicate,
+        predicate_model,
         order_by,
         distinct: logical.distinct,
         grouping,

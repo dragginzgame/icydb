@@ -538,7 +538,13 @@ fn decode_boundary(cursor: &[u8], decode_message: &'static str) -> CursorBoundar
         .clone()
 }
 
-fn encode_token(token: &ContinuationToken, encode_message: &'static str) -> Vec<u8> {
+fn encode_token(
+    token: &crate::db::executor::load::PageCursor,
+    encode_message: &'static str,
+) -> Vec<u8> {
+    let Some(token) = token.as_scalar() else {
+        panic!("scalar pagination tests must not receive grouped continuation cursors");
+    };
     token.encode().expect(encode_message)
 }
 
@@ -653,6 +659,9 @@ where
             break;
         };
 
+        let Some(next_cursor) = next_cursor.as_scalar() else {
+            panic!("scalar pagination tests must not receive grouped continuation cursors");
+        };
         let next_boundary = next_cursor.boundary().clone();
         cursor = Some(next_boundary.clone());
         boundaries.push(next_boundary);
@@ -734,6 +743,9 @@ where
 
         let Some(next_cursor) = page.next_cursor else {
             break;
+        };
+        let Some(next_cursor) = next_cursor.as_scalar() else {
+            panic!("scalar pagination tests must not receive grouped continuation cursors");
         };
         cursor = Some(next_cursor.boundary().clone());
     }

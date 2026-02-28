@@ -18,9 +18,11 @@ use crate::{
             init_commit_store_for_tests, prepare_row_commit_for_entity,
         },
         contracts::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
-        cursor::{ContinuationToken, CursorBoundary, CursorBoundarySlot},
+        cursor::{ContinuationSignature, ContinuationToken, CursorBoundary, CursorBoundarySlot},
         data::DataStore,
-        executor::{DeleteExecutor, ExecutionOptimization, LoadExecutor, SaveExecutor},
+        executor::{
+            DeleteExecutor, ExecutionOptimization, LoadExecutor, SaveExecutor, load::PageCursor,
+        },
         index::IndexStore,
         query::intent::{IntentError, Query, QueryError},
         registry::StoreRegistry,
@@ -38,6 +40,39 @@ use crate::{
 use icydb_derive::FieldProjection;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
+
+/// ScalarPageCursorExt
+///
+/// Test-only compatibility helpers for scalar pagination assertions.
+/// Production code must use explicit `PageCursor::{as_scalar,as_grouped}` matching.
+trait ScalarPageCursorExt {
+    fn boundary(&self) -> &CursorBoundary;
+    fn signature(&self) -> ContinuationSignature;
+    fn encode(&self) -> Result<Vec<u8>, crate::db::cursor::ContinuationTokenError>;
+}
+
+impl ScalarPageCursorExt for PageCursor {
+    fn boundary(&self) -> &CursorBoundary {
+        let Some(token) = self.as_scalar() else {
+            panic!("scalar pagination tests must not receive grouped continuation cursors");
+        };
+        token.boundary()
+    }
+
+    fn signature(&self) -> ContinuationSignature {
+        let Some(token) = self.as_scalar() else {
+            panic!("scalar pagination tests must not receive grouped continuation cursors");
+        };
+        token.signature()
+    }
+
+    fn encode(&self) -> Result<Vec<u8>, crate::db::cursor::ContinuationTokenError> {
+        let Some(token) = self.as_scalar() else {
+            panic!("scalar pagination tests must not receive grouped continuation cursors");
+        };
+        token.encode()
+    }
+}
 
 // TestCanister
 

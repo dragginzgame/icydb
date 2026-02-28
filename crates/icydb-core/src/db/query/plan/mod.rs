@@ -26,7 +26,6 @@ use std::ops::Bound;
 #[cfg(test)]
 use std::ops::{Deref, DerefMut};
 
-pub(in crate::db) use crate::db::query::fingerprint::canonical;
 pub(in crate::db) use group::{GroupedExecutorHandoff, grouped_executor_handoff};
 pub use validate::PlanError;
 pub(crate) use validate::{GroupPlanError, validate_group_query_semantics};

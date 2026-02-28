@@ -9,7 +9,7 @@ pub type QueryMode = crate::db::query::plan::QueryMode;
 
 use crate::{
     db::{
-        access::{AccessPath, AccessPlan, AccessPlanError},
+        access::{AccessPath, AccessPlan, AccessPlanError, canonicalize_key_values},
         policy,
         predicate::{
             MissingRowPolicy, Predicate, SchemaInfo, ValidateError, normalize,
@@ -22,8 +22,7 @@ use crate::{
                 AccessPlannedQuery, DeleteLimitSpec, FieldSlot, GroupAggregateKind,
                 GroupAggregateSpec, GroupPlanError, GroupSpec, GroupedExecutionConfig, LogicalPlan,
                 OrderDirection, OrderSpec, PageSpec, PlanError, PlannerError, ScalarPlan,
-                canonical, plan_access, validate::validate_query_semantics,
-                validate_group_query_semantics,
+                plan_access, validate::validate_query_semantics, validate_group_query_semantics,
             },
         },
         response::ResponseError,
@@ -79,7 +78,7 @@ where
         KeyAccess::Single(key) => AccessPlan::path(AccessPath::ByKey(key.to_value())),
         KeyAccess::Many(keys) => {
             let mut values: Vec<Value> = keys.iter().map(FieldValue::to_value).collect();
-            canonical::canonicalize_key_values(&mut values);
+            canonicalize_key_values(&mut values);
             if let Some(first) = values.first()
                 && values.len() == 1
             {

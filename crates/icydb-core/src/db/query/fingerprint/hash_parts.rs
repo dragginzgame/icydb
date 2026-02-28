@@ -3,14 +3,12 @@
 
 use crate::{
     db::{
-        predicate::{
-            ComparePredicate, MissingRowPolicy, Predicate, hash_predicate as hash_model_predicate,
-        },
+        predicate::{MissingRowPolicy, Predicate, hash_predicate as hash_model_predicate},
         query::{
             explain::{
                 ExplainAccessPath, ExplainDeleteLimit, ExplainGroupAggregate,
                 ExplainGroupAggregateKind, ExplainGrouping, ExplainOrderBy, ExplainPagination,
-                ExplainPlan, ExplainPredicate,
+                ExplainPlan,
             },
             intent::QueryMode,
             plan::{AccessPlanProjection, OrderDirection, project_explain_access_path},
@@ -116,16 +114,15 @@ impl AccessPlanProjection<Value> for HashAccessProjection<'_> {
 }
 
 ///
-/// Hash explain predicates into the plan hash stream.
+/// Hash canonical predicate model structure into the plan hash stream.
 ///
-
-pub(super) fn hash_predicate(hasher: &mut Sha256, predicate: &ExplainPredicate) {
-    let Some(predicate) = explain_predicate_to_model(predicate) else {
+pub(super) fn hash_predicate(hasher: &mut Sha256, predicate: Option<&Predicate>) {
+    let Some(predicate) = predicate else {
         write_tag(hasher, 0x20);
         return;
     };
 
-    hash_model_predicate(hasher, &predicate);
+    hash_model_predicate(hasher, predicate);
 }
 
 ///
@@ -154,66 +151,6 @@ pub(super) fn hash_mode(hasher: &mut Sha256, mode: QueryMode) {
     match mode {
         QueryMode::Load(_) => write_tag(hasher, 0x60),
         QueryMode::Delete(_) => write_tag(hasher, 0x61),
-    }
-}
-
-fn explain_predicate_to_model(predicate: &ExplainPredicate) -> Option<Predicate> {
-    match predicate {
-        ExplainPredicate::None => None,
-        ExplainPredicate::True => Some(Predicate::True),
-        ExplainPredicate::False => Some(Predicate::False),
-        ExplainPredicate::And(children) => Some(Predicate::And(
-            children
-                .iter()
-                .map(|child| {
-                    explain_predicate_to_model(child)
-                        .expect("explain predicate AND children must be concrete predicates")
-                })
-                .collect::<Vec<_>>(),
-        )),
-        ExplainPredicate::Or(children) => Some(Predicate::Or(
-            children
-                .iter()
-                .map(|child| {
-                    explain_predicate_to_model(child)
-                        .expect("explain predicate OR children must be concrete predicates")
-                })
-                .collect::<Vec<_>>(),
-        )),
-        ExplainPredicate::Not(inner) => {
-            explain_predicate_to_model(inner).map(|inner| Predicate::Not(Box::new(inner)))
-        }
-        ExplainPredicate::Compare {
-            field,
-            op,
-            value,
-            coercion,
-        } => Some(Predicate::Compare(ComparePredicate {
-            field: field.clone(),
-            op: *op,
-            value: value.clone(),
-            coercion: coercion.clone(),
-        })),
-        ExplainPredicate::IsNull { field } => Some(Predicate::IsNull {
-            field: field.clone(),
-        }),
-        ExplainPredicate::IsMissing { field } => Some(Predicate::IsMissing {
-            field: field.clone(),
-        }),
-        ExplainPredicate::IsEmpty { field } => Some(Predicate::IsEmpty {
-            field: field.clone(),
-        }),
-        ExplainPredicate::IsNotEmpty { field } => Some(Predicate::IsNotEmpty {
-            field: field.clone(),
-        }),
-        ExplainPredicate::TextContains { field, value } => Some(Predicate::TextContains {
-            field: field.clone(),
-            value: value.clone(),
-        }),
-        ExplainPredicate::TextContainsCi { field, value } => Some(Predicate::TextContainsCi {
-            field: field.clone(),
-            value: value.clone(),
-        }),
     }
 }
 
@@ -410,7 +347,7 @@ fn hash_explain_field(
         }
         ExplainHashField::Mode => hash_mode(hasher, plan.mode),
         ExplainHashField::Access => hash_access(hasher, &plan.access),
-        ExplainHashField::Predicate => hash_predicate(hasher, &plan.predicate),
+        ExplainHashField::Predicate => hash_predicate(hasher, plan.predicate_model_for_hash()),
         ExplainHashField::Order => hash_order(hasher, &plan.order_by),
         ExplainHashField::Distinct => hash_distinct(hasher, plan.distinct),
         ExplainHashField::Page => hash_page(hasher, &plan.page),

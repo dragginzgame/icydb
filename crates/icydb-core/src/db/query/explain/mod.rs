@@ -5,5 +5,5 @@ mod explain;
 pub(crate) use explain::ExplainOrderPushdown;
 pub(crate) use explain::{
     ExplainAccessPath, ExplainDeleteLimit, ExplainGroupAggregate, ExplainGroupAggregateKind,
-    ExplainGrouping, ExplainOrderBy, ExplainPagination, ExplainPlan, ExplainPredicate,
+    ExplainGrouping, ExplainOrderBy, ExplainPagination, ExplainPlan,
 };

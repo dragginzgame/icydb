@@ -465,9 +465,8 @@ mod planner_tests {
 
 mod normalize {
     use crate::{
-        db::{
-            access::{AccessPath, AccessPlan},
-            query::plan::canonical,
+        db::access::{
+            AccessPath, AccessPlan, canonicalize_access_plans_value, canonicalize_key_values,
         },
         value::Value,
     };
@@ -527,7 +526,7 @@ mod normalize {
                 return out.pop().expect("single composite child");
             }
 
-            canonical::canonicalize_access_plans_value(&mut out);
+            canonicalize_access_plans_value(&mut out);
             out.dedup();
             if out.len() == 1 {
                 return out.pop().expect("single composite child");
@@ -560,7 +559,7 @@ mod normalize {
         fn normalize_for_planner(self) -> Self {
             match self {
                 Self::ByKeys(mut keys) => {
-                    canonical::canonicalize_key_values(&mut keys);
+                    canonicalize_key_values(&mut keys);
                     Self::ByKeys(keys)
                 }
                 other => other,

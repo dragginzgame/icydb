@@ -1,7 +1,7 @@
-//! Deterministic ordering for planner output.
+//! Deterministic access-shape canonicalization.
 //!
-//! This module is responsible **only** for making planner results stable and
-//! reproducible. It must never encode, infer, or enforce query semantics.
+//! This module is responsible **only** for making access-plan/value-key shapes
+//! stable and reproducible. It must never encode, infer, or enforce query semantics.
 //!
 //! Invariants:
 //! - Ordering here must be total and deterministic.
@@ -20,7 +20,7 @@ use std::ops::Bound;
 
 /// Canonicalize access plans that use `Value` keys.
 pub(crate) fn canonicalize_access_plans_value(plans: &mut [AccessPlan<Value>]) {
-    plans.sort_by(canonical_cmp_access_plan_value);
+    plans.sort_by(|left, right| left.canonical_form().cmp(&right.canonical_form()));
 }
 
 /// Canonicalize a list of key values for deterministic ByKeys plans.
@@ -59,6 +59,12 @@ fn canonical_cmp_access_path_value(
 }
 
 impl AccessPlan<Value> {
+    /// Build a canonical structural view used for deterministic comparisons.
+    #[must_use]
+    pub(crate) fn canonical_form(&self) -> CanonicalAccessShape<'_> {
+        CanonicalAccessShape { plan: self }
+    }
+
     // Compare access plans with a total deterministic ordering.
     fn canonical_cmp(&self, right: &Self) -> Ordering {
         match (self, right) {
@@ -76,6 +82,36 @@ impl AccessPlan<Value> {
             Self::Intersection(_) => 1,
             Self::Union(_) => 2,
         }
+    }
+}
+
+///
+/// CanonicalAccessShape
+///
+/// Borrowed canonical comparator surface for one `AccessPlan<Value>`.
+///
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct CanonicalAccessShape<'a> {
+    plan: &'a AccessPlan<Value>,
+}
+
+impl PartialEq for CanonicalAccessShape<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl Eq for CanonicalAccessShape<'_> {}
+
+impl PartialOrd for CanonicalAccessShape<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(std::cmp::Ord::cmp(self, other))
+    }
+}
+
+impl Ord for CanonicalAccessShape<'_> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        canonical_cmp_access_plan_value(self.plan, other.plan)
     }
 }
 

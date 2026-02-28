@@ -48,7 +48,7 @@ use crate::{
     traits::{EntityKind, EntityValue},
     value::Value,
 };
-use std::{cmp::Ordering, marker::PhantomData, ops::Deref};
+use std::{cmp::Ordering, marker::PhantomData};
 
 ///
 /// PageCursor
@@ -76,24 +76,6 @@ impl PageCursor {
             Self::Scalar(_) => None,
             Self::Grouped(token) => Some(token),
         }
-    }
-
-    // Preserve scalar cursor call-site compatibility for existing scalar tests.
-    fn scalar_or_panic(&self) -> &ContinuationToken {
-        match self {
-            Self::Scalar(token) => token,
-            Self::Grouped(_) => {
-                panic!("grouped continuation cursor cannot be accessed as scalar token")
-            }
-        }
-    }
-}
-
-impl Deref for PageCursor {
-    type Target = ContinuationToken;
-
-    fn deref(&self) -> &Self::Target {
-        self.scalar_or_panic()
     }
 }
 
