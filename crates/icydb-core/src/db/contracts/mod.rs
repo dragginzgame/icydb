@@ -26,4 +26,4 @@ pub(in crate::db) use crate::db::predicate::{
     ResolvedComparePredicate, ResolvedPredicate, TextOp, canonical_cmp, compare_eq, compare_order,
     compare_text, supports_coercion,
 };
-pub(in crate::db) use semantics::{canonical_group_key_equals, canonical_value_compare};
+pub(in crate::db) use semantics::canonical_value_compare;

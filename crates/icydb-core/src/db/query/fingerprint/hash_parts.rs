@@ -6,12 +6,13 @@ use crate::{
         predicate::{MissingRowPolicy, Predicate, hash_predicate as hash_model_predicate},
         query::{
             explain::{
-                ExplainAccessPath, ExplainDeleteLimit, ExplainGroupAggregate,
-                ExplainGroupAggregateKind, ExplainGrouping, ExplainOrderBy, ExplainPagination,
-                ExplainPlan,
+                ExplainAccessPath, ExplainDeleteLimit, ExplainGroupAggregate, ExplainGrouping,
+                ExplainOrderBy, ExplainPagination, ExplainPlan,
             },
             intent::QueryMode,
-            plan::{AccessPlanProjection, OrderDirection, project_explain_access_path},
+            plan::{
+                AccessPlanProjection, AggregateKind, OrderDirection, project_explain_access_path,
+            },
         },
     },
     value::{Value, hash_value},
@@ -444,14 +445,14 @@ fn hash_projection_default(hasher: &mut Sha256, grouping: &ExplainGrouping) {
     }
 }
 
-const fn group_aggregate_kind_tag(kind: ExplainGroupAggregateKind) -> u8 {
+const fn group_aggregate_kind_tag(kind: AggregateKind) -> u8 {
     match kind {
-        ExplainGroupAggregateKind::Count => 0x01,
-        ExplainGroupAggregateKind::Exists => 0x02,
-        ExplainGroupAggregateKind::Min => 0x03,
-        ExplainGroupAggregateKind::Max => 0x04,
-        ExplainGroupAggregateKind::First => 0x05,
-        ExplainGroupAggregateKind::Last => 0x06,
+        AggregateKind::Count => 0x01,
+        AggregateKind::Exists => 0x02,
+        AggregateKind::Min => 0x03,
+        AggregateKind::Max => 0x04,
+        AggregateKind::First => 0x05,
+        AggregateKind::Last => 0x06,
     }
 }
 

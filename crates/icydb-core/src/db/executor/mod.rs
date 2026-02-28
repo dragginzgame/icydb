@@ -1,4 +1,5 @@
 mod aggregate;
+mod compile_bridge;
 mod context;
 mod delete;
 mod executable_plan;

@@ -18,6 +18,7 @@ fn load_applies_order_and_pagination() {
         .limit(1)
         .offset(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("load plan should build");
 
     let response = load.execute(plan).expect("load should succeed");
@@ -47,6 +48,7 @@ fn load_offset_pagination_preserves_next_cursor_boundary() {
         .limit(2)
         .offset(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("offset page plan should build");
     let page_boundary = page_plan
         .prepare_cursor(None)
@@ -72,6 +74,7 @@ fn load_offset_pagination_preserves_next_cursor_boundary() {
         .limit(2)
         .offset(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("comparison plan should build")
         .into_inner();
     let expected_boundary = comparison_plan
@@ -103,6 +106,7 @@ fn load_offset_pagination_continuation_token_bytes_are_stable_for_same_plan_shap
         .limit(2)
         .offset(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("page plan A should build");
     let signature_a = page_plan_a.continuation_signature();
     let page_boundary_a = page_plan_a
@@ -124,6 +128,7 @@ fn load_offset_pagination_continuation_token_bytes_are_stable_for_same_plan_shap
         .limit(2)
         .offset(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("page plan B should build");
     let signature_b = page_plan_b.continuation_signature();
     let page_boundary_b = page_plan_b
@@ -180,6 +185,7 @@ fn load_cursor_with_offset_applies_offset_once_across_pages() {
         .limit(2)
         .offset(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("offset page1 plan should build");
     let page1_boundary = page1_plan
         .prepare_cursor(None)
@@ -202,6 +208,7 @@ fn load_cursor_with_offset_applies_offset_once_across_pages() {
         .limit(2)
         .offset(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("offset page2 plan should build");
     let page2_boundary = page2_plan
         .prepare_cursor(Some(
@@ -244,6 +251,7 @@ fn load_cursor_with_offset_desc_secondary_pushdown_resume_matrix_is_boundary_com
 
             ordered
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("secondary offset continuation plan should build")
         };
 
@@ -405,6 +413,7 @@ fn load_cursor_with_offset_fallback_resume_matrix_is_boundary_complete() {
             };
             ordered
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("fallback offset continuation plan should build")
         };
 
@@ -458,6 +467,7 @@ fn load_cursor_pagination_pk_order_round_trips_across_pages() {
         .order_by("id")
         .limit(2)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("pk-order page1 plan should build");
     let page1_boundary = page1_plan
         .prepare_cursor(None)
@@ -476,6 +486,7 @@ fn load_cursor_pagination_pk_order_round_trips_across_pages() {
         .order_by("id")
         .limit(2)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("pk-order page2 plan should build");
     let page2_boundary = page2_plan
         .prepare_cursor(Some(
@@ -517,6 +528,7 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_post_access_semantics() 
         .limit(2)
         .offset(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("fast page1 plan should build");
     let fast_page1_boundary = fast_page1_plan
         .prepare_cursor(None)
@@ -532,6 +544,7 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_post_access_semantics() 
         .limit(2)
         .offset(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("non-fast page1 plan should build");
     let non_fast_page1_boundary = non_fast_page1_plan
         .prepare_cursor(None)
@@ -572,6 +585,7 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_post_access_semantics() 
         .limit(2)
         .offset(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("fast page2 plan should build");
     let fast_page2_boundary = fast_page2_plan
         .prepare_cursor(Some(
@@ -591,6 +605,7 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_post_access_semantics() 
         .limit(2)
         .offset(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("non-fast page2 plan should build");
     let non_fast_page2_boundary = non_fast_page2_plan
         .prepare_cursor(Some(
@@ -638,6 +653,7 @@ fn load_cursor_pagination_pk_fast_path_desc_matches_non_fast_post_access_semanti
         .limit(2)
         .offset(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("fast descending page1 plan should build");
     let fast_page1_boundary = fast_page1_plan
         .prepare_cursor(None)
@@ -653,6 +669,7 @@ fn load_cursor_pagination_pk_fast_path_desc_matches_non_fast_post_access_semanti
         .limit(2)
         .offset(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("non-fast descending page1 plan should build");
     let non_fast_page1_boundary = non_fast_page1_plan
         .prepare_cursor(None)
@@ -693,6 +710,7 @@ fn load_cursor_pagination_pk_fast_path_desc_matches_non_fast_post_access_semanti
         .limit(2)
         .offset(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("fast descending page2 plan should build");
     let fast_page2_boundary = fast_page2_plan
         .prepare_cursor(Some(
@@ -712,6 +730,7 @@ fn load_cursor_pagination_pk_fast_path_desc_matches_non_fast_post_access_semanti
         .limit(2)
         .offset(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("non-fast descending page2 plan should build");
     let non_fast_page2_boundary = non_fast_page2_plan
         .prepare_cursor(Some(
@@ -759,6 +778,7 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_with_same_cursor_boundar
         .order_by("id")
         .limit(3)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("cursor source plan should build");
     let page1_boundary = page1_plan
         .prepare_cursor(None)
@@ -777,6 +797,7 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_with_same_cursor_boundar
         .order_by("id")
         .limit(2)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("fast page2 plan should build");
     let fast_page2 = load
         .execute_paged_with_cursor(fast_page2_plan, Some(shared_boundary.clone()))
@@ -787,6 +808,7 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_with_same_cursor_boundar
         .order_by("id")
         .limit(2)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("non-fast page2 plan should build");
     let non_fast_page2 = load
         .execute_paged_with_cursor(non_fast_page2_plan, Some(shared_boundary))
@@ -1018,6 +1040,7 @@ fn load_cursor_pagination_pk_fast_path_scan_accounting_tracks_access_candidates(
             base.order_by("id")
         }
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("pk fast-path budget plan should build");
 
         let (_page, trace) = load
@@ -1055,6 +1078,7 @@ fn load_cursor_pagination_pk_order_missing_slot_is_invariant_violation() {
         .order_by("id")
         .limit(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("pk-order plan should build");
 
     let err = load
@@ -1098,6 +1122,7 @@ fn load_cursor_pagination_pk_order_type_mismatch_is_invariant_violation() {
         .order_by("id")
         .limit(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("pk-order plan should build");
 
     let err = load
@@ -1143,6 +1168,7 @@ fn load_cursor_pagination_pk_order_arity_mismatch_is_invariant_violation() {
         .order_by("id")
         .limit(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("pk-order plan should build");
 
     let err = load
@@ -1217,6 +1243,7 @@ fn load_cursor_pagination_skips_strictly_before_limit() {
         .order_by("rank")
         .limit(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("cursor page1 plan should build");
     let page1_boundary = page1_plan
         .prepare_cursor(None)
@@ -1235,6 +1262,7 @@ fn load_cursor_pagination_skips_strictly_before_limit() {
         .order_by("rank")
         .limit(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("cursor page2 plan should build");
     let page2_boundary = page2_plan
         .prepare_cursor(Some(
@@ -1262,6 +1290,7 @@ fn load_cursor_pagination_skips_strictly_before_limit() {
         .order_by("rank")
         .limit(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("cursor page3 plan should build");
     let page3_boundary = page3_plan
         .prepare_cursor(Some(
@@ -1325,6 +1354,7 @@ fn load_cursor_next_cursor_uses_last_returned_row_boundary() {
         .order_by("rank")
         .limit(2)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("cursor next-cursor plan should build");
     let page1_boundary = page1_plan
         .prepare_cursor(None)
@@ -1349,6 +1379,7 @@ fn load_cursor_next_cursor_uses_last_returned_row_boundary() {
         .order_by("rank")
         .limit(2)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("comparison plan should build")
         .into_inner();
     let expected_boundary = comparison_plan
@@ -1364,6 +1395,7 @@ fn load_cursor_next_cursor_uses_last_returned_row_boundary() {
         .order_by("rank")
         .limit(2)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("cursor page2 plan should build");
     let page2_boundary = page2_plan
         .prepare_cursor(Some(
@@ -1431,6 +1463,7 @@ fn load_cursor_pagination_desc_order_resumes_strictly_after_boundary() {
         .order_by_desc("rank")
         .limit(2)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("descending page1 plan should build");
     let page1_boundary = page1_plan
         .prepare_cursor(None)
@@ -1453,6 +1486,7 @@ fn load_cursor_pagination_desc_order_resumes_strictly_after_boundary() {
         .order_by_desc("rank")
         .limit(2)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("descending page2 plan should build");
     let page2_boundary = page2_plan
         .prepare_cursor(Some(
@@ -1520,6 +1554,7 @@ fn load_desc_order_uses_primary_key_tie_break_for_equal_rank_rows() {
         .order_by_desc("rank")
         .limit(4)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("descending tie-break plan should build");
     let page = load
         .execute_paged_with_cursor(plan, None)
@@ -1567,6 +1602,7 @@ fn load_cursor_rejects_signature_mismatch() {
         .order_by("rank")
         .limit(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("ascending cursor plan should build");
     let asc_boundary = asc_plan
         .prepare_cursor(None)
@@ -1582,6 +1618,7 @@ fn load_cursor_rejects_signature_mismatch() {
         .order_by_desc("rank")
         .limit(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("descending plan should build");
     let err = desc_plan
         .prepare_cursor(Some(

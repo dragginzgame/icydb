@@ -17,6 +17,7 @@ fn aggregate_field_target_count_distinct_counts_window_values() {
             .order_by_desc("id")
             .limit(5)
             .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
             .expect("field-target count-distinct plan should build")
     };
 
@@ -34,6 +35,7 @@ fn aggregate_field_target_count_distinct_counts_window_values() {
                 .offset(50)
                 .limit(5)
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("empty-window count-distinct plan should build"),
             "rank",
         )
@@ -60,6 +62,7 @@ fn aggregate_field_target_count_distinct_supports_non_orderable_fields() {
             Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("non-orderable count-distinct plan should build"),
             "tags",
         )
@@ -110,6 +113,7 @@ fn aggregate_field_target_count_distinct_list_order_semantics_are_stable() {
             Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("list-order count-distinct plan should build"),
             "tags",
         )
@@ -220,6 +224,7 @@ fn aggregate_field_target_count_distinct_is_direction_invariant() {
                 .filter(u32_eq_predicate("group", 7))
                 .order_by("rank")
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("direction-invariant ASC plan should build"),
             "rank",
         )
@@ -231,6 +236,7 @@ fn aggregate_field_target_count_distinct_is_direction_invariant() {
                 .order_by_desc("rank")
                 .order_by_desc("id")
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("direction-invariant DESC plan should build"),
             "rank",
         )
@@ -250,6 +256,7 @@ fn aggregate_field_target_count_distinct_optional_field_null_values_are_rejected
         Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
             .order_by("rank")
             .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
             .expect("optional-field null-semantics ASC plan should build")
     };
     let build_plan_desc = || {
@@ -257,6 +264,7 @@ fn aggregate_field_target_count_distinct_optional_field_null_values_are_rejected
             .order_by_desc("rank")
             .order_by_desc("id")
             .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
             .expect("optional-field null-semantics DESC plan should build")
     };
     let asc_err = load
@@ -346,6 +354,7 @@ fn optional_field_null_plan() -> ExecutablePlan<PhaseEntity> {
     Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("rank")
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("optional-field null-semantics plan should build")
 }
 
@@ -433,6 +442,7 @@ fn missing_field_parity_plan() -> ExecutablePlan<PushdownParityEntity> {
     Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .order_by("id")
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("missing-field parity plan should build")
 }
 
@@ -556,6 +566,7 @@ fn aggregate_field_target_count_distinct_distinct_modifier_tracks_effective_wind
         .execute(
             build_query(false)
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("non-distinct count-distinct baseline plan should build"),
         )
         .expect("non-distinct count-distinct baseline execute should succeed");
@@ -563,6 +574,7 @@ fn aggregate_field_target_count_distinct_distinct_modifier_tracks_effective_wind
         .execute(
             build_query(true)
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("distinct count-distinct baseline plan should build"),
         )
         .expect("distinct count-distinct baseline execute should succeed");
@@ -571,6 +583,7 @@ fn aggregate_field_target_count_distinct_distinct_modifier_tracks_effective_wind
         .aggregate_count_distinct_by(
             build_query(false)
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("non-distinct count-distinct plan should build"),
             "rank",
         )
@@ -579,6 +592,7 @@ fn aggregate_field_target_count_distinct_distinct_modifier_tracks_effective_wind
         .aggregate_count_distinct_by(
             build_query(true)
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("distinct count-distinct plan should build"),
             "rank",
         )
@@ -612,6 +626,7 @@ fn aggregate_field_target_values_by_distinct_remains_row_level() {
                 .distinct()
                 .order_by("id")
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("values_by distinct plan should build"),
             "rank",
         )
@@ -642,6 +657,7 @@ fn aggregate_field_target_distinct_values_by_matches_effective_window_projection
             .offset(1)
             .limit(4)
             .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
             .expect("distinct_values_by plan should build")
     };
 
@@ -677,6 +693,7 @@ fn aggregate_field_target_distinct_values_by_matches_values_by_first_observed_de
             .offset(1)
             .limit(4)
             .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
             .expect("distinct-values invariant plan should build")
     };
 

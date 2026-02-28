@@ -190,6 +190,7 @@ fn delete_emits_remove_from_prepared_row_deltas() {
             .delete()
             .by_id(id)
             .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
             .expect("delete plan should build");
         delete.execute(plan).expect("delete should succeed");
     });
@@ -256,6 +257,7 @@ fn delete_relation_emits_reverse_index_remove_delta() {
             .delete()
             .by_id(source_id)
             .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
             .expect("source delete plan should build");
         DeleteExecutor::<RelationSourceEntity>::new(REL_DB, false)
             .execute(plan)
@@ -293,6 +295,7 @@ fn blocked_target_delete_emits_relation_validation_metrics() {
             .delete()
             .by_id(target_id)
             .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
             .expect("target delete plan should build");
         DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
             .execute(plan)
@@ -334,6 +337,7 @@ fn allowed_target_delete_emits_relation_lookup_without_block() {
             .delete()
             .by_id(target_id)
             .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
             .expect("target delete plan should build");
         DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
             .execute(plan)

@@ -126,6 +126,7 @@ fn load_single_field_range_pushdown_handles_min_and_max_tag_edges() {
                 .filter(inclusive_predicate)
                 .order_by("tag")
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("single-field extreme-edge inclusive plan should build"),
         )
         .expect("single-field extreme-edge inclusive pushdown should execute")
@@ -199,6 +200,7 @@ fn load_composite_range_pushdown_handles_min_and_max_rank_edges() {
                 .filter(inclusive_predicate)
                 .order_by("rank")
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("composite extreme-edge inclusive plan should build"),
         )
         .expect("composite extreme-edge inclusive pushdown should execute")
@@ -310,6 +312,7 @@ fn load_composite_range_cursor_pagination_matches_unbounded_and_anchor_is_strict
         .filter(predicate.clone())
         .order_by("rank")
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("unbounded plan should build");
     let unbounded = load
         .execute(unbounded_plan)
@@ -349,6 +352,7 @@ fn load_composite_range_cursor_pagination_matches_unbounded_and_anchor_is_strict
             .order_by("rank")
             .limit(3)
             .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
             .expect("page plan should build");
         let planned_cursor = page_plan
             .prepare_cursor(cursor.as_deref())
@@ -421,6 +425,7 @@ fn load_unique_index_range_cursor_pagination_matches_unbounded_case_f() {
         .filter(predicate.clone())
         .order_by("code")
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("unique unbounded plan should build");
     let unbounded = load
         .execute(unbounded_plan)
@@ -456,6 +461,7 @@ fn load_unique_index_range_cursor_pagination_matches_unbounded_case_f() {
             .order_by("code")
             .limit(2)
             .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
             .expect("unique page plan should build");
         let planned_cursor = page_plan
             .prepare_cursor(cursor.as_deref())
@@ -529,6 +535,7 @@ fn load_single_field_range_cursor_boundaries_respect_lower_and_upper_edges() {
         .order_by("tag")
         .limit(10)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("single-field base plan should build");
     let base_page = load
         .execute_paged_with_cursor(base_plan, None)
@@ -587,6 +594,7 @@ fn load_single_field_desc_range_resume_from_upper_anchor_returns_remaining_rows(
         .order_by_desc("tag")
         .limit(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("single-field desc upper-anchor page1 plan should build");
     let page1_boundary = page1_plan
         .prepare_cursor(None)
@@ -609,6 +617,7 @@ fn load_single_field_desc_range_resume_from_upper_anchor_returns_remaining_rows(
         .order_by_desc("tag")
         .limit(10)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("single-field desc upper-anchor resume plan should build");
     let resume_boundary = resume_plan
         .prepare_cursor(Some(
@@ -652,6 +661,7 @@ fn load_single_field_desc_range_resume_from_lower_boundary_returns_empty() {
         .order_by_desc("tag")
         .limit(10)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("single-field desc lower-boundary base plan should build");
     let base_page = load
         .execute_paged_with_cursor(base_plan, None)
@@ -689,6 +699,7 @@ fn load_single_field_desc_range_single_element_resume_returns_empty() {
         .order_by_desc("tag")
         .limit(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("single-element desc page1 plan should build");
     let page1 = load
         .execute_paged_with_cursor(page1_plan, None)
@@ -737,6 +748,7 @@ fn load_single_field_desc_range_multi_page_has_no_duplicate_or_omission() {
         .order_by_desc("tag")
         .limit(2)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("multi-page desc page1 plan should build");
     let page1_boundary = page1_plan
         .prepare_cursor(None)
@@ -759,6 +771,7 @@ fn load_single_field_desc_range_multi_page_has_no_duplicate_or_omission() {
         .order_by_desc("tag")
         .limit(2)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("multi-page desc page2 plan should build");
     let page2_boundary = page2_plan
         .prepare_cursor(Some(
@@ -786,6 +799,7 @@ fn load_single_field_desc_range_multi_page_has_no_duplicate_or_omission() {
         .order_by_desc("tag")
         .limit(2)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("multi-page desc page3 plan should build");
     let page3_boundary = page3_plan
         .prepare_cursor(Some(
@@ -858,6 +872,7 @@ fn load_single_field_desc_range_mixed_edges_resume_inside_duplicate_group() {
         .order_by_desc("tag")
         .limit(10)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("single-field mixed-edge desc base plan should build");
     let base_page = load
         .execute_paged_with_cursor(base_plan, None)
@@ -944,6 +959,7 @@ fn load_composite_desc_range_mixed_edges_resume_inside_duplicate_group() {
         .order_by_desc("rank")
         .limit(10)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("composite mixed-edge desc base plan should build");
     let base_page = load
         .execute_paged_with_cursor(base_plan, None)
@@ -1192,6 +1208,7 @@ fn load_composite_between_cursor_boundaries_respect_duplicate_lower_and_upper_ed
         .order_by("rank")
         .limit(10)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("composite duplicate-edge base plan should build");
     let base_page = load
         .execute_paged_with_cursor(base_plan, None)
@@ -1303,6 +1320,7 @@ fn load_trace_marks_secondary_order_pushdown_outcomes() {
 
         let plan = query
             .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
             .expect("trace outcome test plan should build for case");
 
         let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);

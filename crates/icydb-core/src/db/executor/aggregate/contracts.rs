@@ -1,9 +1,9 @@
 use crate::{
     db::{
-        contracts::{canonical_group_key_equals, canonical_value_compare},
+        contracts::canonical_value_compare,
         data::DataKey,
         direction::Direction,
-        executor::group::{GroupKey, GroupKeySet, StableHash},
+        executor::group::{GroupKey, GroupKeySet, StableHash, canonical_group_key_equals},
     },
     error::InternalError,
     traits::EntityKind,
@@ -13,21 +13,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::mem::size_of;
 use thiserror::Error as ThisError;
 
-///
-/// AggregateKind
-///
-/// Internal aggregate terminal selector shared by aggregate routing and fold execution.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) enum AggregateKind {
-    Count,
-    Exists,
-    Min,
-    Max,
-    First,
-    Last,
-}
+pub(in crate::db::executor) use crate::db::query::plan::AggregateKind;
 
 impl AggregateKind {
     /// Return whether this terminal kind supports explicit field targets.

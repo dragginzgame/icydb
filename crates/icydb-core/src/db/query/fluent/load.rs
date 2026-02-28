@@ -5,7 +5,7 @@ use crate::{
         query::{
             explain::ExplainPlan,
             expr::{FilterExpr, SortExpr},
-            intent::{IntentError, PlannedQuery, Query, QueryError},
+            intent::{CompiledQuery, IntentError, PlannedQuery, Query, QueryError},
         },
         response::Response,
     },
@@ -176,6 +176,14 @@ where
         }
 
         self.query.planned()
+    }
+
+    pub fn plan(&self) -> Result<CompiledQuery<E>, QueryError> {
+        if let Some(err) = self.cursor_intent_error() {
+            return Err(QueryError::Intent(err));
+        }
+
+        self.query.plan()
     }
 
     // ------------------------------------------------------------------

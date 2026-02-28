@@ -2,7 +2,9 @@ mod hash;
 mod key;
 
 pub(in crate::db) use hash::{StableHash, stable_hash_value};
-pub(in crate::db) use key::{CanonicalKey, GroupKey, GroupKeySet, KeyCanonicalError};
+pub(in crate::db) use key::{
+    CanonicalKey, GroupKey, GroupKeySet, KeyCanonicalError, canonical_group_key_equals,
+};
 
 ///
 /// Grouped execution ownership boundary.

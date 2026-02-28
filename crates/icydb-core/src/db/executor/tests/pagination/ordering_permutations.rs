@@ -64,6 +64,7 @@ fn load_mixed_direction_resume_matrix_is_boundary_complete() {
 
         let base_plan = order_query(16)
             .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
             .expect("mixed-direction base plan should build");
         let base_page = load
             .execute_paged_with_cursor(base_plan, None)
@@ -201,6 +202,7 @@ fn load_mixed_direction_fallback_matches_uniform_fast_path_when_rank_is_unique()
             .order_by_desc("id")
             .limit(2)
             .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
             .expect("mixed-direction plan should build")
     };
     let build_uniform_plan = || {
@@ -210,6 +212,7 @@ fn load_mixed_direction_fallback_matches_uniform_fast_path_when_rank_is_unique()
             .order_by("id")
             .limit(2)
             .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
             .expect("uniform-direction plan should build")
     };
 

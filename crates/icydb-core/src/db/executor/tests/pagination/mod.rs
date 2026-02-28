@@ -563,6 +563,7 @@ fn assert_pushdown_parity<E, I, O>(
         .execute(
             build_pushdown_query()
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("pushdown plan should build"),
         )
         .expect("pushdown execution should succeed");
@@ -571,6 +572,7 @@ fn assert_pushdown_parity<E, I, O>(
         .execute(
             apply_order(Query::<E>::new(MissingRowPolicy::Ignore).by_ids(fallback_ids))
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("fallback plan should build"),
         )
         .expect("fallback execution should succeed");
@@ -598,7 +600,10 @@ where
         pages += 1;
         assert!(pages <= max_pages, "pagination must terminate");
 
-        let plan = build_query().plan().expect("page plan should build");
+        let plan = build_query()
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("page plan should build");
 
         let planned_cursor = plan
             .prepare_cursor(cursor.as_deref())
@@ -802,6 +807,7 @@ where
         .execute(
             build_base_query()
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("unbounded plan should build"),
         )
         .expect("unbounded execution should succeed");
@@ -834,6 +840,7 @@ fn assert_resume_after_entity<E>(
 
     let boundary = build_query()
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("boundary plan should build")
         .into_inner()
         .cursor_boundary_from_entity(entity)
@@ -841,7 +848,10 @@ fn assert_resume_after_entity<E>(
 
     let page = load
         .execute_paged_with_cursor(
-            build_query().plan().expect("resume plan should build"),
+            build_query()
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("resume plan should build"),
             Some(boundary),
         )
         .expect("resume execution should succeed");
@@ -863,6 +873,7 @@ fn assert_resume_from_terminal_entity_exhausts_range<E>(
 
     let terminal_boundary = build_query()
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("terminal-boundary plan should build")
         .into_inner()
         .cursor_boundary_from_entity(terminal_entity)
@@ -871,6 +882,7 @@ fn assert_resume_from_terminal_entity_exhausts_range<E>(
         .execute_paged_with_cursor(
             build_query()
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("terminal resume plan should build"),
             Some(terminal_boundary),
         )

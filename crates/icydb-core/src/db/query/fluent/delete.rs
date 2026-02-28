@@ -5,7 +5,7 @@ use crate::{
         query::{
             explain::ExplainPlan,
             expr::{FilterExpr, SortExpr},
-            intent::{PlannedQuery, Query, QueryError},
+            intent::{CompiledQuery, PlannedQuery, Query, QueryError},
         },
         response::Response,
     },
@@ -119,6 +119,10 @@ where
 
     pub fn planned(&self) -> Result<PlannedQuery<E>, QueryError> {
         self.query.planned()
+    }
+
+    pub fn plan(&self) -> Result<CompiledQuery<E>, QueryError> {
+        self.query.plan()
     }
 
     // ------------------------------------------------------------------

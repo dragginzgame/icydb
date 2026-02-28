@@ -8,10 +8,7 @@ use crate::{
             aggregate::{AggregateFoldMode, AggregateKind, AggregateSpec, GroupAggregateSpec},
             load::LoadExecutor,
         },
-        query::plan::{
-            AccessPlannedQuery, GroupAggregateKind as QueryGroupAggregateKind,
-            GroupedExecutorHandoff,
-        },
+        query::plan::{AccessPlannedQuery, GroupedExecutorHandoff},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -233,7 +230,7 @@ where
             .aggregates()
             .iter()
             .map(|aggregate| {
-                let kind = Self::lower_grouped_kind_for_executor(aggregate.kind);
+                let kind = aggregate.kind;
                 let Some(target_field) = aggregate.target_field.as_deref() else {
                     return AggregateSpec::for_terminal(kind);
                 };
@@ -243,19 +240,6 @@ where
             .collect();
 
         GroupAggregateSpec::new(group_keys, aggregate_specs)
-    }
-
-    // Lower one query-owned grouped aggregate kind into the executor-owned
-    // aggregate kind taxonomy.
-    const fn lower_grouped_kind_for_executor(kind: QueryGroupAggregateKind) -> AggregateKind {
-        match kind {
-            QueryGroupAggregateKind::Count => AggregateKind::Count,
-            QueryGroupAggregateKind::Exists => AggregateKind::Exists,
-            QueryGroupAggregateKind::Min => AggregateKind::Min,
-            QueryGroupAggregateKind::Max => AggregateKind::Max,
-            QueryGroupAggregateKind::First => AggregateKind::First,
-            QueryGroupAggregateKind::Last => AggregateKind::Last,
-        }
     }
 
     // Shared route gate for load + aggregate execution.

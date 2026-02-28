@@ -10,6 +10,7 @@ fn load_cursor_rejects_version_mismatch_at_plan_time() {
         .order_by("rank")
         .limit(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("version-mismatch plan should build");
     let boundary = CursorBoundary {
         slots: vec![
@@ -51,6 +52,7 @@ fn load_cursor_rejects_boundary_value_type_mismatch_at_plan_time() {
         .order_by("rank")
         .limit(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("boundary-type plan should build");
     let boundary = CursorBoundary {
         slots: vec![
@@ -92,6 +94,7 @@ fn load_cursor_rejects_primary_key_type_mismatch_at_plan_time() {
         .order_by("rank")
         .limit(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("pk-type plan should build");
     let boundary = CursorBoundary {
         slots: vec![
@@ -133,6 +136,7 @@ fn load_cursor_rejects_wrong_entity_path_at_plan_time() {
         .order_by("id")
         .limit(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("foreign entity plan should build");
     let foreign_cursor = ContinuationToken::new_with_direction(
         foreign_plan.continuation_signature(),
@@ -151,6 +155,7 @@ fn load_cursor_rejects_wrong_entity_path_at_plan_time() {
         .order_by("id")
         .limit(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("local entity plan should build");
     let err = local_plan
         .prepare_cursor(Some(foreign_cursor.as_slice()))
@@ -175,6 +180,7 @@ fn load_cursor_rejects_offset_mismatch_at_plan_time() {
         .limit(1)
         .offset(2)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("offset plan should build");
     let boundary = CursorBoundary {
         slots: vec![
@@ -217,6 +223,7 @@ fn load_cursor_v1_token_rejects_non_zero_offset_plan() {
         .limit(1)
         .offset(2)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("offset plan should build");
     let boundary = CursorBoundary {
         slots: vec![
@@ -259,6 +266,7 @@ fn load_cursor_rejects_order_field_signature_mismatch_at_plan_time() {
         .order_by("rank")
         .limit(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("source plan should build");
     let boundary = CursorBoundary {
         slots: vec![
@@ -279,6 +287,7 @@ fn load_cursor_rejects_order_field_signature_mismatch_at_plan_time() {
         .order_by("label")
         .limit(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("target plan should build");
     let err = target_plan
         .prepare_cursor(Some(cursor.as_slice()))
@@ -302,6 +311,7 @@ fn load_cursor_rejects_direction_mismatch_at_plan_time() {
         .order_by("rank")
         .limit(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("direction-mismatch plan should build");
     let boundary = CursorBoundary {
         slots: vec![
@@ -343,6 +353,7 @@ fn load_cursor_accepts_matching_offset_window_at_plan_time() {
         .limit(1)
         .offset(2)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("offset plan should build");
     let boundary = CursorBoundary {
         slots: vec![
@@ -380,12 +391,14 @@ fn grouped_cursor_rejects_cross_shape_resume_token_and_encoded_bytes_differ() {
         .expect("grouped-by-group query should build")
         .group_count()
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("grouped-by-group plan should build");
     let grouped_by_rank = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .group_by("rank")
         .expect("grouped-by-rank query should build")
         .group_count()
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("grouped-by-rank plan should build");
 
     let signature_group = grouped_by_group.continuation_signature();

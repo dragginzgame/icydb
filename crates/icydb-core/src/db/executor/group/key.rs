@@ -1,8 +1,5 @@
 use crate::{
-    db::{
-        contracts::canonical_group_key_equals,
-        executor::group::{StableHash, stable_hash_value},
-    },
+    db::executor::group::{StableHash, stable_hash_value},
     error::InternalError,
     value::{MapValueError, Value},
 };
@@ -67,6 +64,12 @@ struct CanonicalValue(Value);
 pub(in crate::db) struct GroupKey {
     raw: CanonicalValue,
     hash: StableHash,
+}
+
+/// Compare two grouped keys with canonical grouped-equality semantics.
+#[must_use]
+pub(in crate::db) fn canonical_group_key_equals(left: &GroupKey, right: &GroupKey) -> bool {
+    left == right
 }
 
 impl GroupKey {
@@ -210,9 +213,8 @@ fn canonicalize_map_entries(entries: &[(Value, Value)]) -> Result<Value, KeyCano
 #[cfg(test)]
 mod tests {
     use crate::{
-        db::{
-            contracts::canonical_group_key_equals,
-            executor::group::{CanonicalKey, GroupKeySet, KeyCanonicalError},
+        db::executor::group::{
+            CanonicalKey, GroupKeySet, KeyCanonicalError, canonical_group_key_equals,
         },
         types::Decimal,
         value::{MapValueError, Value, with_test_hash_override},

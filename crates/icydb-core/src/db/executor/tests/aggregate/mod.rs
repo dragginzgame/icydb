@@ -655,6 +655,7 @@ fn assert_aggregate_parity_for_query<E>(
         .execute(
             make_query()
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("baseline materialized plan should build"),
         )
         .expect("baseline materialized execution should succeed");
@@ -667,6 +668,7 @@ fn assert_aggregate_parity_for_query<E>(
             load,
             make_query()
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("aggregate parity matrix plan should build"),
         )
         .expect("aggregate parity matrix terminal should succeed");
@@ -688,6 +690,7 @@ fn assert_field_aggregate_parity_for_query(
         .execute(
             make_query()
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("baseline field aggregate parity plan should build"),
         )
         .expect("baseline field aggregate parity execution should succeed");
@@ -698,6 +701,7 @@ fn assert_field_aggregate_parity_for_query(
             load,
             make_query()
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("field aggregate parity matrix plan should build"),
         )
         .expect("field aggregate parity matrix terminal should succeed");
@@ -721,6 +725,7 @@ fn assert_count_parity_for_query<E>(
         .execute(
             make_query()
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("baseline materialized plan should build"),
         )
         .expect("baseline materialized execution should succeed")
@@ -730,6 +735,7 @@ fn assert_count_parity_for_query<E>(
         .aggregate_count(
             make_query()
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("aggregate COUNT plan should build"),
         )
         .expect("aggregate COUNT should succeed");
@@ -910,6 +916,7 @@ fn aggregate_empty_window_semantics_match_between_streaming_and_materialized_rou
             LoadExecutor::<PushdownParityEntity>::build_execution_route_plan_for_aggregate(
                 strict_query()
                     .plan()
+                    .map(crate::db::executor::ExecutablePlan::from)
                     .expect("strict empty-window route plan should build")
                     .as_inner(),
                 kind,
@@ -918,6 +925,7 @@ fn aggregate_empty_window_semantics_match_between_streaming_and_materialized_rou
             LoadExecutor::<PushdownParityEntity>::build_execution_route_plan_for_aggregate(
                 widen_query()
                     .plan()
+                    .map(crate::db::executor::ExecutablePlan::from)
                     .expect("widen empty-window route plan should build")
                     .as_inner(),
                 kind,
@@ -940,30 +948,35 @@ fn aggregate_empty_window_semantics_match_between_streaming_and_materialized_rou
         load.aggregate_exists(
             strict_query()
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("strict exists empty-window plan should build"),
         )
         .expect("strict exists empty-window should succeed"),
         load.aggregate_min(
             strict_query()
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("strict min empty-window plan should build"),
         )
         .expect("strict min empty-window should succeed"),
         load.aggregate_max(
             strict_query()
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("strict max empty-window plan should build"),
         )
         .expect("strict max empty-window should succeed"),
         load.aggregate_first(
             strict_query()
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("strict first empty-window plan should build"),
         )
         .expect("strict first empty-window should succeed"),
         load.aggregate_last(
             strict_query()
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("strict last empty-window plan should build"),
         )
         .expect("strict last empty-window should succeed"),
@@ -972,30 +985,35 @@ fn aggregate_empty_window_semantics_match_between_streaming_and_materialized_rou
         load.aggregate_exists(
             widen_query()
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("widen exists empty-window plan should build"),
         )
         .expect("widen exists empty-window should succeed"),
         load.aggregate_min(
             widen_query()
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("widen min empty-window plan should build"),
         )
         .expect("widen min empty-window should succeed"),
         load.aggregate_max(
             widen_query()
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("widen max empty-window plan should build"),
         )
         .expect("widen max empty-window should succeed"),
         load.aggregate_first(
             widen_query()
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("widen first empty-window plan should build"),
         )
         .expect("widen first empty-window should succeed"),
         load.aggregate_last(
             widen_query()
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("widen last empty-window plan should build"),
         )
         .expect("widen last empty-window should succeed"),
@@ -1014,6 +1032,7 @@ fn aggregate_empty_window_semantics_match_between_streaming_and_materialized_rou
         LoadExecutor::<PushdownParityEntity>::build_execution_route_plan_for_aggregate(
             streaming_count_query()
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("streaming count empty-window route plan should build")
                 .as_inner(),
             AggregateKind::Count,
@@ -1022,6 +1041,7 @@ fn aggregate_empty_window_semantics_match_between_streaming_and_materialized_rou
         LoadExecutor::<PushdownParityEntity>::build_execution_route_plan_for_aggregate(
             widen_query()
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("materialized count empty-window route plan should build")
                 .as_inner(),
             AggregateKind::Count,
@@ -1040,6 +1060,7 @@ fn aggregate_empty_window_semantics_match_between_streaming_and_materialized_rou
         .aggregate_count(
             streaming_count_query()
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("streaming count empty-window plan should build"),
         )
         .expect("streaming count empty-window should succeed");
@@ -1047,6 +1068,7 @@ fn aggregate_empty_window_semantics_match_between_streaming_and_materialized_rou
         .aggregate_count(
             widen_query()
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("materialized count empty-window plan should build"),
         )
         .expect("materialized count empty-window should succeed");

@@ -14,7 +14,6 @@
 //! intentionally re-exported at the `db` boundary.
 
 pub(crate) mod builder;
-pub(crate) mod compile;
 pub(crate) mod explain;
 pub(crate) mod expr;
 pub(crate) mod fingerprint;

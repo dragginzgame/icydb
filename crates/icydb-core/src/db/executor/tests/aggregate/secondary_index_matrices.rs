@@ -358,6 +358,7 @@ fn aggregate_exists_secondary_index_window_preserves_missing_ok_scan_safety() {
                 .order_by("rank")
                 .offset(2)
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("secondary-index EXISTS window plan should build"),
         )
         .expect("secondary-index EXISTS window should succeed")
@@ -528,6 +529,7 @@ fn aggregate_field_terminal_error_classification_matrix() {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("unknown-field MIN(field) plan should build"),
             "missing_field",
         )
@@ -537,6 +539,7 @@ fn aggregate_field_terminal_error_classification_matrix() {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("unknown-field MEDIAN(field) plan should build"),
             "missing_field",
         )
@@ -546,6 +549,7 @@ fn aggregate_field_terminal_error_classification_matrix() {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("unknown-field COUNT_DISTINCT(field) plan should build"),
             "missing_field",
         )
@@ -555,6 +559,7 @@ fn aggregate_field_terminal_error_classification_matrix() {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("unknown-field MIN_MAX(field) plan should build"),
             "missing_field",
         )
@@ -564,6 +569,7 @@ fn aggregate_field_terminal_error_classification_matrix() {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("non-numeric SUM(field) plan should build"),
             "label",
         )
@@ -617,6 +623,7 @@ fn aggregate_field_terminal_error_classification_matrix() {
             Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("non-orderable MIN(field) plan should build"),
             "tags",
         )
@@ -626,6 +633,7 @@ fn aggregate_field_terminal_error_classification_matrix() {
             Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("non-orderable MEDIAN(field) plan should build"),
             "tags",
         )
@@ -635,6 +643,7 @@ fn aggregate_field_terminal_error_classification_matrix() {
             Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("non-orderable MIN_MAX(field) plan should build"),
             "tags",
         )
@@ -722,6 +731,7 @@ fn aggregate_field_extrema_negative_lock_distinct_and_offset_shapes_avoid_single
                     .distinct()
                     .order_by("rank")
                     .plan()
+                    .map(crate::db::executor::ExecutablePlan::from)
                     .expect("distinct MIN(field) plan should build"),
                 "rank",
             )
@@ -735,6 +745,7 @@ fn aggregate_field_extrema_negative_lock_distinct_and_offset_shapes_avoid_single
                     .order_by("rank")
                     .offset(2)
                     .plan()
+                    .map(crate::db::executor::ExecutablePlan::from)
                     .expect("offset MAX(field) plan should build"),
                 "rank",
             )

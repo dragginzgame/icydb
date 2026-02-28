@@ -747,6 +747,7 @@ fn aggregate_field_target_projection_terminals_preserve_scan_budget_parity_with_
                 .offset(1)
                 .limit(4)
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("projection scan-budget matrix plan should build")
         };
 

@@ -186,7 +186,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let plan = query.plan()?;
+        let plan = query.plan()?.into_executable();
 
         let result = match query.mode() {
             QueryMode::Load(_) => self.with_metrics(|| self.load_executor::<E>().execute(plan)),
@@ -206,7 +206,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let plan = query.plan()?;
+        let plan = query.plan()?.into_executable();
 
         self.with_metrics(|| op(self.load_executor::<E>(), plan))
             .map_err(QueryError::Execute)
@@ -220,7 +220,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let plan = query.plan()?;
+        let plan = query.plan()?.into_executable();
         if plan.as_inner().grouped_plan().is_some() {
             return Err(QueryError::Execute(
                 InternalError::query_executor_invariant(
@@ -284,7 +284,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let plan = query.plan()?;
+        let plan = query.plan()?.into_executable();
         if plan.as_inner().grouped_plan().is_none() {
             return Err(QueryError::Execute(
                 InternalError::query_executor_invariant(

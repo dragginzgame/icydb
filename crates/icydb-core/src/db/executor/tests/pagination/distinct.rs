@@ -89,6 +89,7 @@ fn load_row_distinct_keeps_rows_with_same_projected_values_when_datakey_differs(
                 .distinct()
                 .order_by("id")
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("row DISTINCT projection-invariant plan should build"),
         )
         .expect("row DISTINCT projection-invariant execution should succeed");
@@ -222,6 +223,7 @@ fn load_distinct_desc_secondary_pushdown_resume_matrix_is_boundary_complete() {
                     .distinct()
                     .limit(limit)
                     .plan()
+                    .map(crate::db::executor::ExecutablePlan::from)
                     .expect("distinct secondary DESC seed plan should build"),
                 None,
             )
@@ -242,6 +244,7 @@ fn load_distinct_desc_secondary_pushdown_resume_matrix_is_boundary_complete() {
                 .distinct()
                 .limit(limit)
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("distinct secondary DESC plan should build")
         };
         let (ids, boundaries) = collect_all_pages_from_executable_plan(&load, build_plan, 20);
@@ -291,6 +294,7 @@ fn load_distinct_desc_secondary_fast_path_and_fallback_match_ids_and_boundaries(
                     .distinct()
                     .limit(limit)
                     .plan()
+                    .map(crate::db::executor::ExecutablePlan::from)
                     .expect("distinct DESC fast-path seed plan should build"),
                 None,
             )
@@ -311,6 +315,7 @@ fn load_distinct_desc_secondary_fast_path_and_fallback_match_ids_and_boundaries(
                     .distinct()
                     .limit(limit)
                     .plan()
+                    .map(crate::db::executor::ExecutablePlan::from)
                     .expect("distinct DESC fallback seed plan should build"),
                 None,
             )
@@ -329,6 +334,7 @@ fn load_distinct_desc_secondary_fast_path_and_fallback_match_ids_and_boundaries(
                 .distinct()
                 .limit(limit)
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("distinct DESC fast-path plan should build")
         };
         let build_fallback_plan = || {
@@ -339,6 +345,7 @@ fn load_distinct_desc_secondary_fast_path_and_fallback_match_ids_and_boundaries(
                 .distinct()
                 .limit(limit)
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("distinct DESC fallback plan should build")
         };
 
@@ -482,6 +489,7 @@ fn load_distinct_desc_index_range_limit_pushdown_resume_matrix_and_fallback_pari
                 .distinct()
                 .limit(limit)
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("distinct DESC index-range fallback plan should build")
         };
         let (fallback_ids, fallback_boundaries) =
@@ -529,6 +537,7 @@ fn load_distinct_desc_pk_fast_path_and_fallback_match_ids_and_boundaries() {
                     .limit(limit)
                     .offset(1)
                     .plan()
+                    .map(crate::db::executor::ExecutablePlan::from)
                     .expect("distinct DESC PK fast-path seed plan should build"),
                 None,
             )
@@ -550,6 +559,7 @@ fn load_distinct_desc_pk_fast_path_and_fallback_match_ids_and_boundaries() {
                     .limit(limit)
                     .offset(1)
                     .plan()
+                    .map(crate::db::executor::ExecutablePlan::from)
                     .expect("distinct DESC PK fallback seed plan should build"),
                 None,
             )
@@ -568,6 +578,7 @@ fn load_distinct_desc_pk_fast_path_and_fallback_match_ids_and_boundaries() {
                 .limit(limit)
                 .offset(1)
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("distinct DESC PK fast-path plan should build")
         };
         let build_fallback_plan = || {
@@ -578,6 +589,7 @@ fn load_distinct_desc_pk_fast_path_and_fallback_match_ids_and_boundaries() {
                 .limit(limit)
                 .offset(1)
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("distinct DESC PK fallback plan should build")
         };
 
@@ -639,6 +651,7 @@ fn load_distinct_offset_fast_path_and_fallback_match_ids_and_boundaries() {
 
             ordered
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("distinct secondary offset fast-path plan should build")
         };
         let build_secondary_fallback = || {
@@ -654,6 +667,7 @@ fn load_distinct_offset_fast_path_and_fallback_match_ids_and_boundaries() {
 
             ordered
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("distinct secondary offset fallback plan should build")
         };
 
@@ -765,6 +779,7 @@ fn load_distinct_offset_fast_path_and_fallback_match_ids_and_boundaries() {
 
             ordered
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("distinct index-range offset fallback plan should build")
         };
 
@@ -857,6 +872,7 @@ fn load_distinct_mixed_direction_secondary_shape_rejects_pushdown_and_matches_fa
                     .distinct()
                     .limit(limit)
                     .plan()
+                    .map(crate::db::executor::ExecutablePlan::from)
                     .expect("distinct mixed-direction index-shape seed plan should build"),
                 None,
             )
@@ -876,6 +892,7 @@ fn load_distinct_mixed_direction_secondary_shape_rejects_pushdown_and_matches_fa
                 .distinct()
                 .limit(limit)
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("distinct mixed-direction index-shape plan should build")
         };
         let build_fallback_plan = || {
@@ -886,6 +903,7 @@ fn load_distinct_mixed_direction_secondary_shape_rejects_pushdown_and_matches_fa
                 .distinct()
                 .limit(limit)
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("distinct mixed-direction fallback plan should build")
         };
 

@@ -39,6 +39,7 @@ where
 {
     /// Compute a stable fingerprint for this logical plan.
     #[must_use]
+    #[cfg(test)]
     pub(crate) fn fingerprint(&self) -> PlanFingerprint {
         self.explain().fingerprint()
     }

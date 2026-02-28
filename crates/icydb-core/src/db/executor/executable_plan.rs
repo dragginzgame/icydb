@@ -10,11 +10,7 @@ use crate::{
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec, lower_index_prefix_specs,
             lower_index_range_specs, traversal::derive_primary_scan_direction,
         },
-        query::{
-            explain::ExplainPlan,
-            fingerprint::PlanFingerprint,
-            plan::{AccessPlannedQuery, LogicalPlan, QueryMode, validate::PlanError},
-        },
+        query::plan::{AccessPlannedQuery, LogicalPlan, QueryMode, validate::PlanError},
     },
     error::InternalError,
     traits::{EntityKind, FieldValue},
@@ -28,7 +24,7 @@ use std::marker::PhantomData;
 ///
 
 #[derive(Debug)]
-pub struct ExecutablePlan<E: EntityKind> {
+pub(crate) struct ExecutablePlan<E: EntityKind> {
     plan: AccessPlannedQuery<E::Key>,
     index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
     index_prefix_spec_invalid: bool,
@@ -80,21 +76,16 @@ impl<E: EntityKind> ExecutablePlan<E> {
 
     /// Explain this plan without executing it.
     #[must_use]
-    pub fn explain(&self) -> ExplainPlan {
+    #[cfg(test)]
+    pub(crate) fn explain(&self) -> crate::db::query::explain::ExplainPlan {
         self.plan.explain_with_model(E::MODEL)
-    }
-
-    /// Compute a stable fingerprint for this plan.
-    #[must_use]
-    pub fn fingerprint(&self) -> PlanFingerprint {
-        self.plan.fingerprint()
     }
 
     /// Compute a stable continuation signature for cursor compatibility checks.
     ///
     /// Unlike `fingerprint()`, this excludes window state such as `limit`/`offset`.
     #[must_use]
-    pub fn continuation_signature(&self) -> ContinuationSignature {
+    pub(in crate::db) fn continuation_signature(&self) -> ContinuationSignature {
         self.plan.continuation_signature(E::PATH)
     }
 

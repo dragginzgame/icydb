@@ -273,6 +273,7 @@ fn aggregate_by_id_windowed_count_scans_one_candidate_key() {
                 .offset(1)
                 .limit(1)
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("by_id windowed COUNT plan should build"),
         )
         .expect("by_id windowed COUNT should succeed")
@@ -295,6 +296,7 @@ fn aggregate_by_id_strict_missing_surfaces_corruption_error() {
             Query::<SimpleEntity>::new(MissingRowPolicy::Error)
                 .by_id(Ulid::from_u128(8632))
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("strict by_id EXISTS plan should build"),
         )
         .expect_err("strict by_id aggregate should fail when row is missing");
@@ -348,6 +350,7 @@ fn aggregate_by_ids_count_dedups_before_windowing() {
                 .offset(1)
                 .limit(1)
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("by_ids dedup COUNT plan should build"),
         )
         .expect("by_ids dedup COUNT should succeed")
@@ -371,6 +374,7 @@ fn aggregate_by_ids_strict_missing_surfaces_corruption_error() {
                 .by_ids([Ulid::from_u128(8662)])
                 .order_by("id")
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("strict by_ids COUNT plan should build"),
         )
         .expect_err("strict by_ids aggregate should fail when row is missing");
@@ -394,6 +398,7 @@ fn aggregate_count_full_scan_window_scans_offset_plus_limit() {
                 .offset(2)
                 .limit(2)
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("full-scan COUNT plan should build"),
         )
         .expect("full-scan COUNT should succeed")

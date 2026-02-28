@@ -61,7 +61,7 @@ fn canonical_cmp_access_path_value(
 impl AccessPlan<Value> {
     /// Build a canonical structural view used for deterministic comparisons.
     #[must_use]
-    pub(crate) fn canonical_form(&self) -> CanonicalAccessShape<'_> {
+    pub(crate) const fn canonical_form(&self) -> CanonicalAccessShape<'_> {
         CanonicalAccessShape { plan: self }
     }
 

@@ -169,16 +169,16 @@ pub(crate) struct PageSpec {
 }
 
 ///
-/// GroupAggregateKind
+/// AggregateKind
 ///
-/// Declarative grouped aggregate terminal taxonomy owned by query planning.
-/// This query-layer enum intentionally avoids coupling to executor aggregate
-/// reducer internals while preserving terminal intent shape.
+/// Canonical aggregate terminal taxonomy owned by query planning.
+/// All layers (query, explain, fingerprint, executor) must interpret aggregate
+/// terminal semantics through this single enum authority.
 ///
 
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum GroupAggregateKind {
+pub enum AggregateKind {
     Count,
     Exists,
     Min,
@@ -186,6 +186,9 @@ pub(crate) enum GroupAggregateKind {
     First,
     Last,
 }
+
+/// Compatibility alias for grouped planning callsites.
+pub(crate) type GroupAggregateKind = AggregateKind;
 
 ///
 /// GroupAggregateSpec
@@ -197,7 +200,7 @@ pub(crate) enum GroupAggregateKind {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct GroupAggregateSpec {
-    pub(crate) kind: GroupAggregateKind,
+    pub(crate) kind: AggregateKind,
     pub(crate) target_field: Option<String>,
 }
 

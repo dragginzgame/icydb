@@ -240,6 +240,7 @@ fn aggregate_field_target_top_k_by_direction_invariance_across_forced_access_sha
         };
         let plan = query
             .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
             .expect("top_k_by full-scan direction-invariance plan should build");
         assert!(
             matches!(plan.explain().access, ExplainAccessPath::FullScan),
@@ -278,6 +279,7 @@ fn aggregate_field_target_top_k_by_direction_invariance_across_forced_access_sha
         };
         let plan = query
             .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
             .expect("top_k_by index-range direction-invariance plan should build");
         assert!(
             matches!(plan.explain().access, ExplainAccessPath::IndexRange { .. }),
@@ -615,6 +617,7 @@ fn aggregate_field_target_rank_k_one_extrema_equivalence_matrix() {
                 .order_by_desc("id")
                 .limit(4)
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("ranked k-one equivalence matrix plan should build")
         };
 
@@ -693,6 +696,7 @@ fn aggregate_field_target_take_and_rank_terminals_k_zero_return_empty_with_execu
             .offset(1)
             .limit(3)
             .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
             .expect("k-zero terminal plan should build")
     };
 

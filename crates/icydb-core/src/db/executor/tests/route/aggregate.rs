@@ -114,19 +114,19 @@ fn route_plan_grouped_wrapper_keeps_blocking_shape_under_tight_budget_config() {
 #[test]
 fn route_plan_grouped_wrapper_lowers_kind_matrix_into_executor_contract() {
     let kind_cases = [
-        (GroupAggregateKind::Count, AggregateKind::Count),
-        (GroupAggregateKind::Exists, AggregateKind::Exists),
-        (GroupAggregateKind::Min, AggregateKind::Min),
-        (GroupAggregateKind::Max, AggregateKind::Max),
-        (GroupAggregateKind::First, AggregateKind::First),
-        (GroupAggregateKind::Last, AggregateKind::Last),
+        GroupAggregateKind::Count,
+        GroupAggregateKind::Exists,
+        GroupAggregateKind::Min,
+        GroupAggregateKind::Max,
+        GroupAggregateKind::First,
+        GroupAggregateKind::Last,
     ];
     let grouped = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore)
         .into_grouped(GroupSpec {
             group_fields: grouped_field_slots(&["rank"]),
             aggregates: kind_cases
                 .iter()
-                .map(|(kind, _)| GroupAggregateSpec {
+                .map(|kind| GroupAggregateSpec {
                     kind: *kind,
                     target_field: None,
                 })
@@ -142,7 +142,7 @@ fn route_plan_grouped_wrapper_lowers_kind_matrix_into_executor_contract() {
 
     assert_eq!(lowered.group_keys(), &["rank".to_string()]);
     assert_eq!(lowered.aggregate_specs().len(), kind_cases.len());
-    for (index, (_, expected_kind)) in kind_cases.iter().enumerate() {
+    for (index, expected_kind) in kind_cases.iter().enumerate() {
         assert_eq!(lowered.aggregate_specs()[index].kind(), *expected_kind);
         assert_eq!(lowered.aggregate_specs()[index].target_field(), None);
     }
@@ -213,16 +213,7 @@ fn route_plan_grouped_wrapper_lowers_supported_target_field_matrix_into_executor
     assert_eq!(lowered.aggregate_specs().len(), grouped_cases.len());
     for (index, (expected_kind, expected_target)) in grouped_cases.iter().enumerate() {
         let lowered_spec = &lowered.aggregate_specs()[index];
-        let expected_kind = match expected_kind {
-            GroupAggregateKind::Count => AggregateKind::Count,
-            GroupAggregateKind::Exists => AggregateKind::Exists,
-            GroupAggregateKind::Min => AggregateKind::Min,
-            GroupAggregateKind::Max => AggregateKind::Max,
-            GroupAggregateKind::First => AggregateKind::First,
-            GroupAggregateKind::Last => AggregateKind::Last,
-        };
-
-        assert_eq!(lowered_spec.kind(), expected_kind);
+        assert_eq!(lowered_spec.kind(), *expected_kind);
         assert_eq!(lowered_spec.target_field(), *expected_target);
     }
 }

@@ -5,12 +5,10 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-Maintainer note: changelog entries that reach 4 lines or more should be split into subsection headers.
-
 ## [0.33.x] - 2026-02-28 - Grouped Runtime Activation and Surface Consolidation
 
 - Activated grouped query runtime from planning through execution, including grouped cursor continuation/resume support, grouped route observability, stronger grouped continuation-signature safety across query-shape changes, and explicit cursor-variant handling in load paths (without scalar panic accessors).
-- Reduced internal `db/` surface complexity with stream ownership cleanup, load-terminal dispatch consolidation, full predicate-spine convergence under one dedicated `db::predicate` boundary, access-plan canonicalization ownership moved into `db::access`, and invariant tooling alignment to those ownership moves.
+- Reduced internal `db/` surface complexity with stream ownership cleanup, load-terminal dispatch consolidation, full predicate-spine convergence under one dedicated `db::predicate` boundary, access-plan canonicalization ownership moved into `db::access`, aggregate taxonomy unified under one query-owned enum authority across explain/fingerprint/executor, and query planning decoupled from executor runtime shape through an explicit query-owned compile handoff.
 - Hardened execution correctness and recovery by enforcing grouped hard limits against unique canonical groups and by keeping commit replay/index rebuild semantics schema-fingerprint guarded and row-authoritative.
 
 See detailed breakdown:

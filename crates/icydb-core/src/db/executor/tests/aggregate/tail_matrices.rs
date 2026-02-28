@@ -107,6 +107,7 @@ fn aggregate_field_target_rank_terminals_bounded_window_scan_budget_and_oracle_m
                 .order_by("id")
                 .limit(3)
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("bounded rank-window matrix plan should build")
         };
         let build_unbounded_plan = || {
@@ -114,6 +115,7 @@ fn aggregate_field_target_rank_terminals_bounded_window_scan_budget_and_oracle_m
                 .filter(u32_eq_predicate("group", 7))
                 .order_by("id")
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("unbounded rank-window matrix plan should build")
         };
 
@@ -283,6 +285,7 @@ fn aggregate_field_target_rank_terminals_forced_shape_execute_oracle_matrix() {
                 .offset(1)
                 .limit(4)
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("forced-shape FullScan matrix plan should build")
         };
         let full_scan_plan = build_full_scan_plan();
@@ -315,6 +318,7 @@ fn aggregate_field_target_rank_terminals_forced_shape_execute_oracle_matrix() {
                 .offset(1)
                 .limit(3)
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("forced-shape IndexRange matrix plan should build")
         };
         let index_range_plan = build_index_range_plan();
@@ -413,6 +417,7 @@ fn run_simple_terminal_probe(
     }
     let plan = query
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("simple short-circuit probe matrix plan should build");
 
     let output = match case.terminal {
@@ -665,6 +670,7 @@ fn aggregate_last_unbounded_desc_large_dataset_scans_full_stream() {
                 Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                     .order_by_desc("id")
                     .plan()
+                    .map(crate::db::executor::ExecutablePlan::from)
                     .expect("last DESC large unbounded plan should build"),
             )
             .expect("last DESC large unbounded should succeed")
@@ -702,6 +708,7 @@ fn aggregate_last_secondary_index_desc_mixed_direction_falls_back_safely() {
                     .filter(group_seven.clone())
                     .order_by_desc("rank")
                     .plan()
+                    .map(crate::db::executor::ExecutablePlan::from)
                     .expect("secondary last DESC unbounded plan should build"),
             )
             .expect("secondary last DESC unbounded should succeed")
@@ -780,6 +787,7 @@ fn aggregate_count_distinct_offset_window_disables_bounded_probe_hint() {
                 .offset(2)
                 .limit(2)
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("count distinct+offset ASC plan should build"),
         )
         .expect("count distinct+offset ASC should succeed")
@@ -792,6 +800,7 @@ fn aggregate_count_distinct_offset_window_disables_bounded_probe_hint() {
                 .offset(2)
                 .limit(2)
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("count distinct+offset DESC plan should build"),
         )
         .expect("count distinct+offset DESC should succeed")
@@ -898,6 +907,7 @@ fn run_strict_prefilter_aggregate(
         StrictPrefilterAggregate::MaxBy => query
             .order_by_desc("rank")
             .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
             .expect("strict prefilter DESC aggregate plan should build"),
         StrictPrefilterAggregate::Exists
         | StrictPrefilterAggregate::MinBy
@@ -905,6 +915,7 @@ fn run_strict_prefilter_aggregate(
         | StrictPrefilterAggregate::Last => query
             .order_by("rank")
             .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
             .expect("strict prefilter ASC aggregate plan should build"),
     };
 
@@ -1022,6 +1033,7 @@ fn aggregate_missing_ok_skips_leading_stale_secondary_keys_for_exists_min_max() 
                     .filter(group_seven.clone())
                     .order_by("rank")
                     .plan()
+                    .map(crate::db::executor::ExecutablePlan::from)
                     .expect("exists ASC stale-leading plan should build"),
             )
             .expect("exists ASC stale-leading should succeed")
@@ -1033,6 +1045,7 @@ fn aggregate_missing_ok_skips_leading_stale_secondary_keys_for_exists_min_max() 
                     .filter(group_seven.clone())
                     .order_by_desc("rank")
                     .plan()
+                    .map(crate::db::executor::ExecutablePlan::from)
                     .expect("exists DESC stale-leading plan should build"),
             )
             .expect("exists DESC stale-leading should succeed")
@@ -1070,6 +1083,7 @@ fn aggregate_count_pushdown_contract_matrix_preserves_parity() {
     };
     let full_scan_plan = full_scan_query()
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("full-scan count matrix plan should build");
     assert!(
         ExecutionKernel::is_streaming_access_shape_safe::<SimpleEntity, _>(
@@ -1093,6 +1107,7 @@ fn aggregate_count_pushdown_contract_matrix_preserves_parity() {
     };
     let residual_filter_plan = residual_filter_query()
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("residual-filter count matrix plan should build");
     assert!(
         !ExecutionKernel::is_streaming_access_shape_safe::<PhaseEntity, _>(
@@ -1126,6 +1141,7 @@ fn aggregate_count_pushdown_contract_matrix_preserves_parity() {
     };
     let secondary_index_plan = secondary_index_query()
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("secondary-index count matrix plan should build");
     assert!(
         !count_pushdown_contract_eligible(&secondary_index_plan),
@@ -1151,6 +1167,7 @@ fn aggregate_count_pushdown_contract_matrix_preserves_parity() {
     };
     let composite_plan = composite_query()
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("composite count matrix plan should build");
     assert!(
         matches!(

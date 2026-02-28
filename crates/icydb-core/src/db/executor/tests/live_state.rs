@@ -38,6 +38,7 @@ fn load_cursor_live_state_reordered_update_can_skip_rows_before_boundary() {
         .order_by("rank")
         .limit(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("page1 plan should build");
     let page1 = load
         .execute_paged_with_cursor(
@@ -46,6 +47,7 @@ fn load_cursor_live_state_reordered_update_can_skip_rows_before_boundary() {
                 .order_by("rank")
                 .limit(1)
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("boundary plan should build")
                 .prepare_cursor(None)
                 .expect("page1 boundary should plan"),
@@ -76,6 +78,7 @@ fn load_cursor_live_state_reordered_update_can_skip_rows_before_boundary() {
         .order_by("rank")
         .limit(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("page2 plan should build");
     let page2_boundary = page2_plan
         .prepare_cursor(Some(
@@ -102,6 +105,7 @@ fn load_cursor_live_state_reordered_update_can_skip_rows_before_boundary() {
     let full_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("rank")
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("full-order plan should build");
     let now = load
         .execute(full_plan)
@@ -150,6 +154,7 @@ fn load_cursor_live_state_insert_after_boundary_can_appear_on_next_page() {
         .order_by("rank")
         .limit(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("page1 plan should build");
     let page1 = load
         .execute_paged_with_cursor(
@@ -158,6 +163,7 @@ fn load_cursor_live_state_insert_after_boundary_can_appear_on_next_page() {
                 .order_by("rank")
                 .limit(1)
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("boundary plan should build")
                 .prepare_cursor(None)
                 .expect("page1 boundary should plan"),
@@ -188,6 +194,7 @@ fn load_cursor_live_state_insert_after_boundary_can_appear_on_next_page() {
         .order_by("rank")
         .limit(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("page2 plan should build");
     let page2_boundary = page2_plan
         .prepare_cursor(Some(
@@ -245,6 +252,7 @@ fn load_cursor_live_state_delete_between_pages_can_shrink_remaining_results() {
         .order_by("rank")
         .limit(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("page1 plan should build");
     let page1 = load
         .execute_paged_with_cursor(
@@ -253,6 +261,7 @@ fn load_cursor_live_state_delete_between_pages_can_shrink_remaining_results() {
                 .order_by("rank")
                 .limit(1)
                 .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
                 .expect("boundary plan should build")
                 .prepare_cursor(None)
                 .expect("page1 boundary should plan"),
@@ -270,6 +279,7 @@ fn load_cursor_live_state_delete_between_pages_can_shrink_remaining_results() {
         .delete()
         .by_id(Ulid::from_u128(4302))
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("delete plan should build");
     let delete = DeleteExecutor::<PhaseEntity>::new(DB, false);
     let deleted = delete.execute(delete_plan).expect("delete should succeed");
@@ -288,6 +298,7 @@ fn load_cursor_live_state_delete_between_pages_can_shrink_remaining_results() {
         .order_by("rank")
         .limit(1)
         .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
         .expect("page2 plan should build");
     let page2_boundary = page2_plan
         .prepare_cursor(Some(

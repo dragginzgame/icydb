@@ -535,6 +535,34 @@ impl<E: EntityKind> PlannedQuery<E> {
     pub fn explain(&self) -> ExplainPlan {
         self.plan.explain_with_model(E::MODEL)
     }
+}
+
+///
+/// CompiledQuery
+///
+/// Query-owned compiled handoff produced by `Query::plan()`.
+/// This type intentionally carries only logical/access query semantics.
+/// Executor runtime shape is derived explicitly at the executor boundary.
+///
+#[derive(Clone, Debug)]
+pub struct CompiledQuery<E: EntityKind> {
+    plan: AccessPlannedQuery<E::Key>,
+    _marker: PhantomData<E>,
+}
+
+impl<E: EntityKind> CompiledQuery<E> {
+    #[must_use]
+    pub(in crate::db) const fn new(plan: AccessPlannedQuery<E::Key>) -> Self {
+        Self {
+            plan,
+            _marker: PhantomData,
+        }
+    }
+
+    #[must_use]
+    pub fn explain(&self) -> ExplainPlan {
+        self.plan.explain_with_model(E::MODEL)
+    }
 
     #[must_use]
     pub(in crate::db) fn into_inner(self) -> AccessPlannedQuery<E::Key> {
@@ -731,6 +759,15 @@ impl<E: EntityKind> Query<E> {
         let plan = self.build_plan()?;
 
         Ok(PlannedQuery::new(plan))
+    }
+
+    /// Compile this intent into query-owned handoff state.
+    ///
+    /// This boundary intentionally does not expose executor runtime shape.
+    pub fn plan(&self) -> Result<CompiledQuery<E>, QueryError> {
+        let plan = self.build_plan()?;
+
+        Ok(CompiledQuery::new(plan))
     }
 
     // Build a logical plan for the current intent.
