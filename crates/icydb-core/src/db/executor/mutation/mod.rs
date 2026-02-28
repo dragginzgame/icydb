@@ -5,7 +5,7 @@ mod save_validation;
 use crate::{
     db::{
         Db,
-        commit::ensure_recovered_for_write,
+        commit::ensure_recovered,
         executor::{Context, load::LoadExecutor, validate_executor_plan},
         query::plan::AccessPlannedQuery,
     },
@@ -24,7 +24,7 @@ pub(in crate::db::executor) fn mutation_write_context<E>(
 where
     E: EntityKind + EntityValue,
 {
-    ensure_recovered_for_write(db)?;
+    ensure_recovered(db)?;
 
     Ok(db.context::<E>())
 }

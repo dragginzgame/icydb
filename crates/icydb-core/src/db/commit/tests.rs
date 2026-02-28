@@ -3,7 +3,7 @@ use crate::{
         Db, EntityRuntimeHooks,
         commit::{
             CommitMarker, CommitRowOp, begin_commit, commit_marker_present,
-            commit_schema_fingerprint_for_entity, ensure_recovered_for_write, finish_commit,
+            commit_schema_fingerprint_for_entity, ensure_recovered, finish_commit,
             init_commit_store_for_tests, prepare_row_commit_for_entity,
             rollback_prepared_row_ops_reverse, snapshot_row_rollback, store,
         },
@@ -101,12 +101,14 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
     EntityRuntimeHooks::new(
         RecoveryTestEntity::ENTITY_NAME,
         RecoveryTestEntity::PATH,
+        commit_schema_fingerprint_for_entity::<RecoveryTestEntity>,
         prepare_row_commit_for_entity::<RecoveryTestEntity>,
         validate_delete_strong_relations_for_source::<RecoveryTestEntity>,
     ),
     EntityRuntimeHooks::new(
         RecoveryIndexedEntity::ENTITY_NAME,
         RecoveryIndexedEntity::PATH,
+        commit_schema_fingerprint_for_entity::<RecoveryIndexedEntity>,
         prepare_row_commit_for_entity::<RecoveryIndexedEntity>,
         validate_delete_strong_relations_for_source::<RecoveryIndexedEntity>,
     ),
@@ -130,6 +132,7 @@ static MISWIRED_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>
     &[EntityRuntimeHooks::new(
         RecoveryTestEntity::ENTITY_NAME,
         RecoveryTestEntity::PATH,
+        commit_schema_fingerprint_for_entity::<RecoveryIndexedEntity>,
         prepare_row_commit_for_entity::<RecoveryIndexedEntity>,
         validate_delete_strong_relations_for_source::<RecoveryTestEntity>,
     )];
@@ -141,12 +144,14 @@ static DUPLICATE_NAME_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCan
     EntityRuntimeHooks::new(
         RecoveryTestEntity::ENTITY_NAME,
         RecoveryTestEntity::PATH,
+        commit_schema_fingerprint_for_entity::<RecoveryTestEntity>,
         prepare_row_commit_for_entity::<RecoveryTestEntity>,
         validate_delete_strong_relations_for_source::<RecoveryTestEntity>,
     ),
     EntityRuntimeHooks::new(
         RecoveryTestEntity::ENTITY_NAME,
         RecoveryIndexedEntity::PATH,
+        commit_schema_fingerprint_for_entity::<RecoveryIndexedEntity>,
         prepare_row_commit_for_entity::<RecoveryIndexedEntity>,
         validate_delete_strong_relations_for_source::<RecoveryIndexedEntity>,
     ),
@@ -159,12 +164,14 @@ static DUPLICATE_PATH_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCan
     EntityRuntimeHooks::new(
         RecoveryTestEntity::ENTITY_NAME,
         RecoveryTestEntity::PATH,
+        commit_schema_fingerprint_for_entity::<RecoveryTestEntity>,
         prepare_row_commit_for_entity::<RecoveryTestEntity>,
         validate_delete_strong_relations_for_source::<RecoveryTestEntity>,
     ),
     EntityRuntimeHooks::new(
         RecoveryIndexedEntity::ENTITY_NAME,
         RecoveryTestEntity::PATH,
+        commit_schema_fingerprint_for_entity::<RecoveryIndexedEntity>,
         prepare_row_commit_for_entity::<RecoveryIndexedEntity>,
         validate_delete_strong_relations_for_source::<RecoveryIndexedEntity>,
     ),
@@ -191,6 +198,32 @@ fn reset_recovery_state() {
         store.with_data_mut(DataStore::clear);
         store.with_index_mut(IndexStore::clear);
     });
+}
+
+fn row_op_for_path_with_schema(
+    path: &'static str,
+    data_key: Vec<u8>,
+    before: Option<Vec<u8>>,
+    after: Option<Vec<u8>>,
+    schema_fingerprint: [u8; 16],
+) -> CommitRowOp {
+    CommitRowOp::new(path, data_key, before, after, schema_fingerprint)
+}
+
+fn row_op_for_path(
+    path: &'static str,
+    data_key: Vec<u8>,
+    before: Option<Vec<u8>>,
+    after: Option<Vec<u8>>,
+) -> CommitRowOp {
+    let schema_fingerprint = match path {
+        RecoveryTestEntity::PATH => commit_schema_fingerprint_for_entity::<RecoveryTestEntity>(),
+        RecoveryIndexedEntity::PATH => {
+            commit_schema_fingerprint_for_entity::<RecoveryIndexedEntity>()
+        }
+        _ => [0u8; 16],
+    };
+    row_op_for_path_with_schema(path, data_key, before, after, schema_fingerprint)
 }
 
 fn row_bytes_for(key: &RawDataKey) -> Option<Vec<u8>> {
@@ -305,7 +338,7 @@ fn finish_commit_mixed_state_failure_rolls_back_index_prefix_without_row_visibil
         .to_raw()
         .expect("data key should encode");
     let row_bytes = serialize(&entity).expect("entity serialization should succeed");
-    let row_op = CommitRowOp::new(
+    let row_op = row_op_for_path(
         RecoveryIndexedEntity::PATH,
         data_key.as_bytes().to_vec(),
         None,
@@ -374,7 +407,7 @@ fn recovery_replay_is_idempotent() {
         .to_raw()
         .expect("data key should encode");
     let row_bytes = serialize(&entity).expect("entity serialization should succeed");
-    let marker = CommitMarker::new(vec![CommitRowOp::new(
+    let marker = CommitMarker::new(vec![row_op_for_path(
         RecoveryTestEntity::PATH,
         raw_key.as_bytes().to_vec(),
         None,
@@ -389,7 +422,7 @@ fn recovery_replay_is_idempotent() {
     );
 
     // First replay applies marker operations and clears the marker.
-    ensure_recovered_for_write(&DB).expect("first recovery replay should succeed");
+    ensure_recovered(&DB).expect("first recovery replay should succeed");
     assert!(
         !commit_marker_present().expect("commit marker check should succeed"),
         "commit marker should be cleared after first replay"
@@ -398,7 +431,7 @@ fn recovery_replay_is_idempotent() {
     assert_eq!(first, Some(row_bytes));
 
     // Second replay is a no-op on already recovered state.
-    ensure_recovered_for_write(&DB).expect("second recovery replay should be a no-op");
+    ensure_recovered(&DB).expect("second recovery replay should be a no-op");
     let second = row_bytes_for(&raw_key);
     assert_eq!(second, first);
 }
@@ -411,7 +444,7 @@ fn recovery_rejects_corrupt_marker_data_key_decode() {
         id: Ulid::from_u128(902),
     })
     .expect("entity serialization should succeed");
-    let marker = CommitMarker::new(vec![CommitRowOp::new(
+    let marker = CommitMarker::new(vec![row_op_for_path(
         RecoveryTestEntity::PATH,
         vec![0u8; DataKey::STORED_SIZE_USIZE.saturating_sub(1)],
         None,
@@ -421,8 +454,7 @@ fn recovery_rejects_corrupt_marker_data_key_decode() {
 
     begin_commit(marker).expect("begin_commit should persist marker");
 
-    let err =
-        ensure_recovered_for_write(&DB).expect_err("recovery should reject corrupt marker bytes");
+    let err = ensure_recovered(&DB).expect_err("recovery should reject corrupt marker bytes");
     assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Store);
     let marker_still_present = store::with_commit_store(|store| Ok(!store.is_empty()))
@@ -465,13 +497,13 @@ fn recovery_replay_rolls_back_applied_prefix_when_later_marker_op_fails_prepare(
     let second_row = serialize(&second).expect("second row serialization should succeed");
     let unsupported_path = "commit_tests::UnknownEntity";
     let marker = CommitMarker::new(vec![
-        CommitRowOp::new(
+        row_op_for_path(
             RecoveryIndexedEntity::PATH,
             first_key.as_bytes().to_vec(),
             None,
             Some(first_row),
         ),
-        CommitRowOp::new(
+        row_op_for_path(
             unsupported_path,
             second_key.as_bytes().to_vec(),
             None,
@@ -482,7 +514,7 @@ fn recovery_replay_rolls_back_applied_prefix_when_later_marker_op_fails_prepare(
 
     begin_commit(marker).expect("begin_commit should persist marker");
 
-    let err = ensure_recovered_for_write(&DB).expect_err(
+    let err = ensure_recovered(&DB).expect_err(
         "recovery should fail when a later marker op has an unsupported entity path during replay",
     );
     assert_eq!(err.class, ErrorClass::Unsupported);
@@ -522,7 +554,7 @@ fn recovery_rejects_unsupported_entity_path_without_fallback() {
     })
     .expect("entity serialization should succeed");
     let unsupported_path = "commit_tests::UnknownEntity";
-    let marker = CommitMarker::new(vec![CommitRowOp::new(
+    let marker = CommitMarker::new(vec![row_op_for_path(
         unsupported_path,
         raw_key.as_bytes().to_vec(),
         None,
@@ -532,8 +564,8 @@ fn recovery_rejects_unsupported_entity_path_without_fallback() {
 
     begin_commit(marker).expect("begin_commit should persist marker");
 
-    let err = ensure_recovered_for_write(&DB)
-        .expect_err("recovery should reject unsupported entity path markers");
+    let err =
+        ensure_recovered(&DB).expect_err("recovery should reject unsupported entity path markers");
     assert_eq!(err.class, ErrorClass::Unsupported);
     assert_eq!(err.origin, ErrorOrigin::Store);
     assert!(
@@ -574,7 +606,7 @@ fn recovery_rejects_miswired_hook_entity_path_mismatch_as_corruption() {
         .to_raw()
         .expect("data key should encode");
     let row_bytes = serialize(&entity).expect("entity serialization should succeed");
-    let marker = CommitMarker::new(vec![CommitRowOp::new(
+    let marker = CommitMarker::new(vec![row_op_for_path(
         RecoveryTestEntity::PATH,
         raw_key.as_bytes().to_vec(),
         None,
@@ -584,7 +616,7 @@ fn recovery_rejects_miswired_hook_entity_path_mismatch_as_corruption() {
 
     begin_commit(marker).expect("begin_commit should persist marker");
 
-    let err = ensure_recovered_for_write(&MISWIRED_DB)
+    let err = ensure_recovered(&MISWIRED_DB)
         .expect_err("miswired hook dispatch should fail with path mismatch corruption");
     assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Store);
@@ -639,7 +671,7 @@ fn runtime_hook_lookup_rejects_duplicate_entity_names() {
 
 #[test]
 fn prepare_row_commit_rejects_duplicate_entity_paths() {
-    let op = CommitRowOp::new(RecoveryTestEntity::PATH, vec![0xAA], None, None);
+    let op = row_op_for_path(RecoveryTestEntity::PATH, vec![0xAA], None, None);
     let Err(err) = DUPLICATE_PATH_DB.prepare_row_commit_op(&op) else {
         panic!("duplicate entity paths must fail prepare dispatch")
     };
@@ -669,19 +701,17 @@ fn recovery_replay_rejects_schema_fingerprint_mismatch() {
         .expect("data key should encode");
     let row = serialize(&entity).expect("entity serialization should succeed");
 
-    let marker = CommitMarker::new(vec![
-        CommitRowOp::new(
-            RecoveryTestEntity::PATH,
-            key.as_bytes().to_vec(),
-            None,
-            Some(row),
-        )
-        .with_schema_fingerprint(commit_schema_fingerprint_for_entity::<RecoveryIndexedEntity>()),
-    ])
+    let marker = CommitMarker::new(vec![row_op_for_path_with_schema(
+        RecoveryTestEntity::PATH,
+        key.as_bytes().to_vec(),
+        None,
+        Some(row),
+        commit_schema_fingerprint_for_entity::<RecoveryIndexedEntity>(),
+    )])
     .expect("commit marker creation should succeed");
     begin_commit(marker).expect("begin_commit should persist marker");
 
-    let err = ensure_recovered_for_write(&DB)
+    let err = ensure_recovered(&DB)
         .expect_err("recovery should reject mismatched commit schema fingerprint");
     assert_eq!(err.class, ErrorClass::Unsupported);
     assert_eq!(err.origin, ErrorOrigin::Store);
@@ -731,13 +761,13 @@ fn recovery_replay_merges_multi_row_shared_index_key() {
     let second_row = serialize(&second).expect("second entity serialization should succeed");
 
     let marker = CommitMarker::new(vec![
-        CommitRowOp::new(
+        row_op_for_path(
             RecoveryIndexedEntity::PATH,
             first_key.as_bytes().to_vec(),
             None,
             Some(first_row.clone()),
         ),
-        CommitRowOp::new(
+        row_op_for_path(
             RecoveryIndexedEntity::PATH,
             second_key.as_bytes().to_vec(),
             None,
@@ -747,7 +777,7 @@ fn recovery_replay_merges_multi_row_shared_index_key() {
     .expect("commit marker creation should succeed");
     begin_commit(marker).expect("begin_commit should persist marker");
 
-    ensure_recovered_for_write(&DB).expect("recovery replay should succeed");
+    ensure_recovered(&DB).expect("recovery replay should succeed");
 
     assert!(
         !commit_marker_present().expect("commit marker check should succeed"),
@@ -794,13 +824,13 @@ fn recovery_replays_interrupted_atomic_batch_marker_and_is_idempotent() {
 
     // Simulate an interrupted atomic batch by persisting the marker without apply.
     let marker = CommitMarker::new(vec![
-        CommitRowOp::new(
+        row_op_for_path(
             RecoveryIndexedEntity::PATH,
             first_key.as_bytes().to_vec(),
             None,
             Some(first_row.clone()),
         ),
-        CommitRowOp::new(
+        row_op_for_path(
             RecoveryIndexedEntity::PATH,
             second_key.as_bytes().to_vec(),
             None,
@@ -830,7 +860,7 @@ fn recovery_replays_interrupted_atomic_batch_marker_and_is_idempotent() {
     );
 
     // First replay applies marker row ops and clears the marker.
-    ensure_recovered_for_write(&DB).expect("first recovery replay should succeed");
+    ensure_recovered(&DB).expect("first recovery replay should succeed");
     assert!(
         !commit_marker_present().expect("commit marker check should succeed"),
         "commit marker should be cleared after first replay"
@@ -848,7 +878,7 @@ fn recovery_replays_interrupted_atomic_batch_marker_and_is_idempotent() {
     assert_eq!(indexed_after_second, expected_second);
 
     // Second replay is a no-op on already recovered state.
-    ensure_recovered_for_write(&DB).expect("second recovery replay should be a no-op");
+    ensure_recovered(&DB).expect("second recovery replay should be a no-op");
     assert_eq!(row_bytes_for(&first_key), first_after);
     assert_eq!(row_bytes_for(&second_key), second_after);
     let indexed_second_first =
@@ -897,13 +927,13 @@ fn recovery_replays_interrupted_atomic_update_batch_marker_and_is_idempotent() {
 
     // Phase 1: establish the pre-update durable state (group=10).
     let seed_marker = CommitMarker::new(vec![
-        CommitRowOp::new(
+        row_op_for_path(
             RecoveryIndexedEntity::PATH,
             first_key.as_bytes().to_vec(),
             None,
             Some(old_first_row.clone()),
         ),
-        CommitRowOp::new(
+        row_op_for_path(
             RecoveryIndexedEntity::PATH,
             second_key.as_bytes().to_vec(),
             None,
@@ -912,7 +942,7 @@ fn recovery_replays_interrupted_atomic_update_batch_marker_and_is_idempotent() {
     ])
     .expect("seed marker creation should succeed");
     begin_commit(seed_marker).expect("seed begin_commit should persist marker");
-    ensure_recovered_for_write(&DB).expect("seed replay should succeed");
+    ensure_recovered(&DB).expect("seed replay should succeed");
 
     let old_indexed_ids_first =
         indexed_ids_for(&old_first).expect("old first index entry should exist after seed replay");
@@ -931,13 +961,13 @@ fn recovery_replays_interrupted_atomic_update_batch_marker_and_is_idempotent() {
 
     // Phase 2: simulate an interrupted atomic update marker (group=10 -> group=11).
     let update_marker = CommitMarker::new(vec![
-        CommitRowOp::new(
+        row_op_for_path(
             RecoveryIndexedEntity::PATH,
             first_key.as_bytes().to_vec(),
             Some(old_first_row),
             Some(new_first_row.clone()),
         ),
-        CommitRowOp::new(
+        row_op_for_path(
             RecoveryIndexedEntity::PATH,
             second_key.as_bytes().to_vec(),
             Some(old_second_row),
@@ -979,7 +1009,7 @@ fn recovery_replays_interrupted_atomic_update_batch_marker_and_is_idempotent() {
     );
 
     // First replay applies update row ops and clears the marker.
-    ensure_recovered_for_write(&DB).expect("update replay should succeed");
+    ensure_recovered(&DB).expect("update replay should succeed");
     assert!(
         !commit_marker_present().expect("commit marker check should succeed"),
         "update marker should be cleared after replay"
@@ -1006,7 +1036,7 @@ fn recovery_replays_interrupted_atomic_update_batch_marker_and_is_idempotent() {
     );
 
     // Second replay is a no-op on already recovered state.
-    ensure_recovered_for_write(&DB).expect("second update replay should be a no-op");
+    ensure_recovered(&DB).expect("second update replay should be a no-op");
     assert_eq!(row_bytes_for(&first_key), first_after);
     assert_eq!(row_bytes_for(&second_key), second_after);
     assert!(
@@ -1053,13 +1083,13 @@ fn recovery_replay_mixed_save_save_delete_sequence_preserves_final_index_state()
 
     // Phase 1: replay two inserts sharing the same index key.
     let save_marker = CommitMarker::new(vec![
-        CommitRowOp::new(
+        row_op_for_path(
             RecoveryIndexedEntity::PATH,
             first_key.as_bytes().to_vec(),
             None,
             Some(first_row.clone()),
         ),
-        CommitRowOp::new(
+        row_op_for_path(
             RecoveryIndexedEntity::PATH,
             second_key.as_bytes().to_vec(),
             None,
@@ -1069,7 +1099,7 @@ fn recovery_replay_mixed_save_save_delete_sequence_preserves_final_index_state()
     .expect("commit marker creation should succeed");
     begin_commit(save_marker).expect("begin_commit should persist marker");
 
-    ensure_recovered_for_write(&DB).expect("recovery replay should succeed");
+    ensure_recovered(&DB).expect("recovery replay should succeed");
     assert_eq!(row_bytes_for(&first_key), Some(first_row.clone()));
     assert_eq!(row_bytes_for(&second_key), Some(second_row.clone()));
 
@@ -1087,7 +1117,7 @@ fn recovery_replay_mixed_save_save_delete_sequence_preserves_final_index_state()
     );
 
     // Phase 2: replay a delete that removes one of the inserted rows.
-    let delete_marker = CommitMarker::new(vec![CommitRowOp::new(
+    let delete_marker = CommitMarker::new(vec![row_op_for_path(
         RecoveryIndexedEntity::PATH,
         second_key.as_bytes().to_vec(),
         Some(second_row),
@@ -1096,7 +1126,7 @@ fn recovery_replay_mixed_save_save_delete_sequence_preserves_final_index_state()
     .expect("delete marker creation should succeed");
     begin_commit(delete_marker).expect("delete begin_commit should persist marker");
 
-    ensure_recovered_for_write(&DB).expect("delete recovery replay should succeed");
+    ensure_recovered(&DB).expect("delete recovery replay should succeed");
 
     assert!(
         !commit_marker_present().expect("commit marker check should succeed"),
@@ -1152,13 +1182,13 @@ fn recovery_replay_preserves_index_key_raw_bytes_across_reloads() {
     expected.sort();
 
     let marker = CommitMarker::new(vec![
-        CommitRowOp::new(
+        row_op_for_path(
             RecoveryIndexedEntity::PATH,
             first_key.as_bytes().to_vec(),
             None,
             Some(first_row),
         ),
-        CommitRowOp::new(
+        row_op_for_path(
             RecoveryIndexedEntity::PATH,
             second_key.as_bytes().to_vec(),
             None,
@@ -1168,14 +1198,14 @@ fn recovery_replay_preserves_index_key_raw_bytes_across_reloads() {
     .expect("commit marker creation should succeed");
     begin_commit(marker).expect("begin_commit should persist marker");
 
-    ensure_recovered_for_write(&DB).expect("first recovery replay should succeed");
+    ensure_recovered(&DB).expect("first recovery replay should succeed");
     let first_snapshot = index_key_bytes_snapshot();
     assert_eq!(
         first_snapshot, expected,
         "index key bytes after replay should match precomputed canonical bytes"
     );
 
-    ensure_recovered_for_write(&DB).expect("second recovery replay should be no-op");
+    ensure_recovered(&DB).expect("second recovery replay should be no-op");
     let second_snapshot = index_key_bytes_snapshot();
     assert_eq!(
         second_snapshot, expected,
@@ -1240,7 +1270,7 @@ fn recovery_startup_gate_rebuilds_secondary_indexes_from_authoritative_rows() {
 
     let marker = CommitMarker::new(Vec::new()).expect("marker creation should succeed");
     begin_commit(marker).expect("begin_commit should persist marker");
-    ensure_recovered_for_write(&DB).expect("recovery should rebuild indexes from data rows");
+    ensure_recovered(&DB).expect("recovery should rebuild indexes from data rows");
 
     assert!(
         !commit_marker_present().expect("commit marker check should succeed"),
@@ -1319,8 +1349,7 @@ fn recovery_startup_rebuild_fail_closed_restores_previous_index_state_on_corrupt
     let marker = CommitMarker::new(Vec::new()).expect("marker creation should succeed");
     begin_commit(marker).expect("begin_commit should persist marker");
 
-    let err = ensure_recovered_for_write(&DB)
-        .expect_err("startup rebuild should reject corrupted row bytes");
+    let err = ensure_recovered(&DB).expect_err("startup rebuild should reject corrupted row bytes");
     assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Serialize);
 

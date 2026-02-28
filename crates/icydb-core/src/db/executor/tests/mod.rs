@@ -14,8 +14,9 @@ use crate::{
     db::{
         Db, DbSession, EntityRuntimeHooks,
         commit::{
-            CommitMarker, begin_commit, commit_marker_present, ensure_recovered_for_write,
-            init_commit_store_for_tests, prepare_row_commit_for_entity,
+            CommitMarker, begin_commit, commit_marker_present,
+            commit_schema_fingerprint_for_entity, ensure_recovered, init_commit_store_for_tests,
+            prepare_row_commit_for_entity,
         },
         contracts::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         cursor::{ContinuationSignature, ContinuationToken, CursorBoundary, CursorBoundarySlot},
@@ -295,7 +296,7 @@ crate::test_entity_schema! {
 // Clear the test data store and any pending commit marker between runs.
 fn reset_store() {
     init_commit_store_for_tests().expect("commit store init should succeed");
-    ensure_recovered_for_write(&DB).expect("write-side recovery should succeed");
+    ensure_recovered(&DB).expect("write-side recovery should succeed");
     DATA_STORE.with(|store| store.borrow_mut().clear());
     INDEX_STORE.with(|store| store.borrow_mut().clear());
 }
@@ -350,30 +351,35 @@ static REL_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RelationTestCanister>] = &
     EntityRuntimeHooks::new(
         RelationTargetEntity::ENTITY_NAME,
         RelationTargetEntity::PATH,
+        commit_schema_fingerprint_for_entity::<RelationTargetEntity>,
         prepare_row_commit_for_entity::<RelationTargetEntity>,
         validate_delete_strong_relations_for_source::<RelationTargetEntity>,
     ),
     EntityRuntimeHooks::new(
         RelationSourceEntity::ENTITY_NAME,
         RelationSourceEntity::PATH,
+        commit_schema_fingerprint_for_entity::<RelationSourceEntity>,
         prepare_row_commit_for_entity::<RelationSourceEntity>,
         validate_delete_strong_relations_for_source::<RelationSourceEntity>,
     ),
     EntityRuntimeHooks::new(
         WeakSingleRelationSourceEntity::ENTITY_NAME,
         WeakSingleRelationSourceEntity::PATH,
+        commit_schema_fingerprint_for_entity::<WeakSingleRelationSourceEntity>,
         prepare_row_commit_for_entity::<WeakSingleRelationSourceEntity>,
         validate_delete_strong_relations_for_source::<WeakSingleRelationSourceEntity>,
     ),
     EntityRuntimeHooks::new(
         WeakOptionalRelationSourceEntity::ENTITY_NAME,
         WeakOptionalRelationSourceEntity::PATH,
+        commit_schema_fingerprint_for_entity::<WeakOptionalRelationSourceEntity>,
         prepare_row_commit_for_entity::<WeakOptionalRelationSourceEntity>,
         validate_delete_strong_relations_for_source::<WeakOptionalRelationSourceEntity>,
     ),
     EntityRuntimeHooks::new(
         WeakListRelationSourceEntity::ENTITY_NAME,
         WeakListRelationSourceEntity::PATH,
+        commit_schema_fingerprint_for_entity::<WeakListRelationSourceEntity>,
         prepare_row_commit_for_entity::<WeakListRelationSourceEntity>,
         validate_delete_strong_relations_for_source::<WeakListRelationSourceEntity>,
     ),
@@ -546,7 +552,7 @@ crate::test_entity_schema! {
 // Clear relation test stores and any pending commit marker between runs.
 fn reset_relation_stores() {
     init_commit_store_for_tests().expect("commit store init should succeed");
-    ensure_recovered_for_write(&REL_DB).expect("relation write-side recovery should succeed");
+    ensure_recovered(&REL_DB).expect("relation write-side recovery should succeed");
     REL_DB.with_store_registry(|reg| {
         reg.try_get_store(RelationSourceStore::PATH)
             .map(|store| {

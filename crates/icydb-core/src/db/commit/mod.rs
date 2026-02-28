@@ -1,4 +1,7 @@
-//! IcyDB commit protocol and atomicity guardrails.
+//! Module: commit
+//! Responsibility: durable commit-marker protocol and recovery authority boundaries.
+//! Does not own: query planning, index encoding semantics, or predicate semantics.
+//! Boundary: executor::mutation -> commit (one-way).
 //!
 //! Contract:
 //! - `begin_commit` persists a marker that fully describes durable mutations.
@@ -17,6 +20,8 @@ mod guard;
 mod marker;
 mod memory;
 mod prepare;
+mod prepared_op;
+mod rebuild;
 mod recovery;
 mod replay;
 mod rollback;
@@ -34,19 +39,22 @@ use std::fmt::Display;
 ///
 /// Re-exports
 ///
-pub(in crate::db) use apply::{PreparedIndexDeltaKind, PreparedIndexMutation, PreparedRowCommitOp};
 pub(in crate::db) use guard::{CommitApplyGuard, CommitGuard, begin_commit, finish_commit};
 pub(in crate::db) use marker::CommitRowOp;
 pub(in crate::db) use marker::{
-    CommitIndexOp, CommitMarker, MAX_COMMIT_BYTES, UNSET_COMMIT_SCHEMA_FINGERPRINT,
+    CommitIndexOp, CommitMarker, CommitSchemaFingerprint, MAX_COMMIT_BYTES,
     commit_schema_fingerprint_for_entity, decode_data_key, decode_index_entry, decode_index_key,
     validate_commit_marker_shape,
 };
 pub(in crate::db) use prepare::{
     prepare_row_commit_for_entity, prepare_row_commit_for_entity_with_readers,
 };
-pub(in crate::db) use recovery::{ensure_recovered, ensure_recovered_for_write};
-pub(in crate::db) use replay::{rebuild_secondary_indexes_from_rows, replay_commit_marker_row_ops};
+pub(in crate::db) use prepared_op::{
+    PreparedIndexDeltaKind, PreparedIndexMutation, PreparedRowCommitOp,
+};
+pub(in crate::db) use rebuild::rebuild_secondary_indexes_from_rows;
+pub(in crate::db) use recovery::ensure_recovered;
+pub(in crate::db) use replay::replay_commit_marker_row_ops;
 pub(in crate::db) use rollback::{
     rollback_prepared_row_ops_reverse, snapshot_row_only_rollback, snapshot_row_rollback,
 };

@@ -1,3 +1,8 @@
+//! Module: commit::marker
+//! Responsibility: define persisted commit-marker payloads and marker-shape validation.
+//! Does not own: marker storage backend, commit-window lifecycle, or recovery orchestration.
+//! Boundary: commit::{prepare,recovery,store} -> commit::marker (one-way).
+
 use crate::{
     db::{
         codec::MAX_ROW_BYTES,
@@ -15,10 +20,10 @@ use canic_utils::hash::Xxh3;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 
-// Stage-2 invariant:
-// - We persist a commit marker before any stable mutation.
-// - After marker creation, executor apply phases are infallible or trap.
-// - Recovery replays the stored row mutation plan.
+// Commit-marker durability invariant:
+// - Persist one marker before any stable mutation.
+// - After marker persistence, apply/recovery consume only marker payloads.
+// - Recovery replays marker row ops deterministically.
 // This makes partial mutations deterministic without a WAL.
 
 pub(crate) const COMMIT_LABEL: &str = "CommitMarker";
@@ -27,8 +32,6 @@ const COMMIT_SCHEMA_FINGERPRINT_BYTES: usize = 16;
 const COMMIT_SCHEMA_FINGERPRINT_VERSION: u8 = 1;
 
 pub(in crate::db) type CommitSchemaFingerprint = [u8; COMMIT_SCHEMA_FINGERPRINT_BYTES];
-pub(in crate::db) const UNSET_COMMIT_SCHEMA_FINGERPRINT: CommitSchemaFingerprint =
-    [0; COMMIT_SCHEMA_FINGERPRINT_BYTES];
 
 // Conservative upper bound to avoid rejecting valid commits when index entries
 // are large; still small enough to fit typical canister constraints.
@@ -48,7 +51,6 @@ pub(in crate::db) struct CommitRowOp {
     pub(crate) key: Vec<u8>,
     pub(crate) before: Option<Vec<u8>>,
     pub(crate) after: Option<Vec<u8>>,
-    #[serde(default = "unset_commit_schema_fingerprint")]
     pub(crate) schema_fingerprint: CommitSchemaFingerprint,
 }
 
@@ -60,24 +62,15 @@ impl CommitRowOp {
         key: Vec<u8>,
         before: Option<Vec<u8>>,
         after: Option<Vec<u8>>,
+        schema_fingerprint: CommitSchemaFingerprint,
     ) -> Self {
         Self {
             entity_path: entity_path.into(),
             key,
             before,
             after,
-            schema_fingerprint: unset_commit_schema_fingerprint(),
+            schema_fingerprint,
         }
-    }
-
-    /// Attach one commit schema fingerprint to this row operation.
-    #[must_use]
-    pub(crate) const fn with_schema_fingerprint(
-        mut self,
-        schema_fingerprint: CommitSchemaFingerprint,
-    ) -> Self {
-        self.schema_fingerprint = schema_fingerprint;
-        self
     }
 }
 
@@ -126,6 +119,7 @@ impl CommitMarker {
 
 /// Decode a raw index key and validate its structural invariants.
 pub(in crate::db) fn decode_index_key(bytes: &[u8]) -> Result<RawIndexKey, InternalError> {
+    // Phase 1: enforce raw-size contract for encoded index keys.
     let len = bytes.len();
     let min = IndexKey::MIN_STORED_SIZE_USIZE;
     let max = IndexKey::STORED_SIZE_USIZE;
@@ -136,6 +130,7 @@ pub(in crate::db) fn decode_index_key(bytes: &[u8]) -> Result<RawIndexKey, Inter
         ));
     }
 
+    // Phase 2: decode and enforce index-key semantic shape.
     let raw = <RawIndexKey as Storable>::from_bytes(Cow::Borrowed(bytes));
     IndexKey::try_from_raw(&raw).map_err(|err| commit_component_corruption("index key", err))?;
 
@@ -144,6 +139,7 @@ pub(in crate::db) fn decode_index_key(bytes: &[u8]) -> Result<RawIndexKey, Inter
 
 /// Decode a raw index entry and validate its structural invariants.
 pub(in crate::db) fn decode_index_entry(bytes: &[u8]) -> Result<RawIndexEntry, InternalError> {
+    // Phase 1: enforce entry-size upper bound.
     let len = bytes.len();
     let max = MAX_INDEX_ENTRY_BYTES as usize;
     if len > max {
@@ -153,6 +149,7 @@ pub(in crate::db) fn decode_index_entry(bytes: &[u8]) -> Result<RawIndexEntry, I
         ));
     }
 
+    // Phase 2: decode and validate entry envelope.
     let raw = <RawIndexEntry as Storable>::from_bytes(Cow::Borrowed(bytes));
     raw.validate()
         .map_err(|err| commit_component_corruption("index entry", err))?;
@@ -162,6 +159,7 @@ pub(in crate::db) fn decode_index_entry(bytes: &[u8]) -> Result<RawIndexEntry, I
 
 /// Decode a raw data key and validate its structural invariants.
 pub(in crate::db) fn decode_data_key(bytes: &[u8]) -> Result<(RawDataKey, DataKey), InternalError> {
+    // Phase 1: enforce fixed-size contract for data keys.
     let len = bytes.len();
     let expected = DataKey::STORED_SIZE_USIZE;
     if len != expected {
@@ -171,6 +169,7 @@ pub(in crate::db) fn decode_data_key(bytes: &[u8]) -> Result<(RawDataKey, DataKe
         ));
     }
 
+    // Phase 2: decode and validate key shape.
     let raw = <RawDataKey as Storable>::from_bytes(Cow::Borrowed(bytes));
     let data_key =
         DataKey::try_from_raw(&raw).map_err(|err| commit_component_corruption("data key", err))?;
@@ -194,11 +193,8 @@ pub(in crate::db) fn commit_schema_fingerprint_for_entity<E: EntityKind>() -> Co
     hasher.digest128().to_be_bytes()
 }
 
-const fn unset_commit_schema_fingerprint() -> CommitSchemaFingerprint {
-    UNSET_COMMIT_SCHEMA_FINGERPRINT
-}
-
 fn hash_entity_model_for_commit(hasher: &mut Xxh3, model: &EntityModel) {
+    // Phase 1: hash core entity identity and field-shape contract.
     hash_labeled_str(hasher, "model_path", model.path);
     hash_labeled_str(hasher, "entity_name", model.entity_name);
     hash_labeled_str(hasher, "primary_key", model.primary_key.name);
@@ -208,6 +204,7 @@ fn hash_entity_model_for_commit(hasher: &mut Xxh3, model: &EntityModel) {
         hash_labeled_str(hasher, "field_name", field.name);
     }
 
+    // Phase 2: hash index contract details (names, stores, uniqueness, fields).
     hash_labeled_len(hasher, "index_count", model.indexes.len());
     for index in model.indexes {
         hash_labeled_str(hasher, "index_name", index.name);
@@ -252,8 +249,8 @@ pub(crate) fn validate_commit_marker_shape(marker: &CommitMarker) -> Result<(), 
             )));
         }
 
-        // Guard row payload size at marker-decode boundary so recovery does not
-        // need to classify oversized persisted bytes during apply preparation.
+        // Phase 2: guard row payload size at marker-decode boundary so recovery
+        // does not classify oversized persisted bytes during apply preparation.
         for (label, payload) in [
             ("before", row_op.before.as_ref()),
             ("after", row_op.after.as_ref()),
@@ -270,6 +267,7 @@ pub(crate) fn validate_commit_marker_shape(marker: &CommitMarker) -> Result<(), 
             }
         }
 
+        // Phase 3: enforce data-key byte shape and semantic decode.
         if row_op.key.len() != DataKey::STORED_SIZE_USIZE {
             return Err(InternalError::store_corruption(commit_corruption_message(
                 format!(

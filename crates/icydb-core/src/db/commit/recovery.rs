@@ -1,4 +1,7 @@
-//! System-level commit recovery.
+//! Module: commit::recovery
+//! Responsibility: run system-level marker replay/rebuild recovery gates before operations.
+//! Does not own: marker storage encoding, mutation planning, or query semantics.
+//! Boundary: db entrypoints -> commit::recovery -> commit::{replay,rebuild,store} (one-way).
 //!
 //! This module implements a **system recovery step** that restores global
 //! database invariants by completing or rolling back a previously started
@@ -18,10 +21,7 @@ use crate::{
         Db,
         commit::{
             memory::configure_commit_memory_id,
-            store::{
-                clear_commit_marker_after_successful_rebuild, commit_marker_present_fast,
-                with_commit_store,
-            },
+            store::{commit_marker_present_fast, with_commit_store},
         },
     },
     error::InternalError,
@@ -59,21 +59,6 @@ pub(crate) fn ensure_recovered<C: CanisterKind>(db: &Db<C>) -> Result<(), Intern
     Ok(())
 }
 
-/// Ensure recovery has been performed before any write operation proceeds.
-///
-/// Hybrid model:
-/// - Startup recovery runs once.
-/// - Writes perform a fast marker check and replay if a marker is present.
-///
-/// Recovery must be idempotent and safe to run multiple times.
-/// All mutation entrypoints must call this before any commit boundary work.
-///
-/// DO NOT DELETE - This is not just a function call. This is a write-side gate.
-///
-pub(crate) fn ensure_recovered_for_write<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
-    ensure_recovered(db)
-}
-
 fn perform_recovery<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
     let marker = with_commit_store(|store| store.load())?;
     let had_marker = marker.is_some();
@@ -87,7 +72,10 @@ fn perform_recovery<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
 
     // Phase 3: clear marker only after replay + rebuild both succeed.
     if had_marker {
-        clear_commit_marker_after_successful_rebuild()?;
+        with_commit_store(|store| {
+            store.clear_infallible();
+            Ok(())
+        })?;
     }
 
     let _ = RECOVERED.set(());

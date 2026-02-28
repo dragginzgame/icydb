@@ -3,7 +3,7 @@ use crate::{
         Db,
         commit::{
             CommitApplyGuard, CommitGuard, CommitMarker, CommitRowOp, PreparedIndexDeltaKind,
-            PreparedRowCommitOp, begin_commit, commit_schema_fingerprint_for_entity, finish_commit,
+            PreparedRowCommitOp, begin_commit, finish_commit,
             prepare_row_commit_for_entity_with_readers, rollback_prepared_row_ops_reverse,
             snapshot_row_rollback,
         },
@@ -280,12 +280,6 @@ pub(in crate::db::executor) fn open_commit_window<E: EntityKind + EntityValue>(
     db: &Db<E::Canister>,
     row_ops: Vec<CommitRowOp>,
 ) -> Result<OpenCommitWindow, InternalError> {
-    let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
-    let row_ops = row_ops
-        .into_iter()
-        .map(|row_op| row_op.with_schema_fingerprint(schema_fingerprint))
-        .collect::<Vec<_>>();
-
     let prepared_row_ops = preflight_prepare_row_ops::<E>(db, &row_ops)?;
     let index_store_guards = snapshot_index_store_generations(&prepared_row_ops);
     let delta = summarize_prepared_row_ops(&prepared_row_ops);

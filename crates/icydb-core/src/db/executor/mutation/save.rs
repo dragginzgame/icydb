@@ -1,7 +1,7 @@
 use crate::{
     db::{
         Db,
-        commit::CommitRowOp,
+        commit::{CommitRowOp, commit_schema_fingerprint_for_entity},
         data::{DataKey, RawRow, decode_and_validate_entity_key},
         executor::{
             Context, ExecutorError,
@@ -275,6 +275,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         let data_key = DataKey::try_new::<E>(key)?;
         let raw_key = data_key.to_raw()?;
         let old_raw = Self::resolve_existing_row_for_rule(ctx, &data_key, save_rule)?;
+        let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
 
         // Phase 2: encode the after-image and build a marker row op.
         let bytes = serialize(entity)?;
@@ -284,6 +285,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             raw_key.as_bytes().to_vec(),
             old_raw.as_ref().map(|item| item.as_bytes().to_vec()),
             Some(row.as_bytes().to_vec()),
+            schema_fingerprint,
         );
 
         Ok((row_op, data_key))

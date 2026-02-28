@@ -1,7 +1,7 @@
 use crate::{
     db::{
         Db,
-        commit::{ensure_recovered_for_write, init_commit_store_for_tests},
+        commit::{ensure_recovered, init_commit_store_for_tests},
         data::{DataKey, DataStore, RawDataKey, RawRow, StorageKey},
         identity::{EntityName, IndexName},
         index::{IndexId, IndexKey, IndexKeyKind, IndexStore, RawIndexEntry, RawIndexKey},
@@ -71,7 +71,7 @@ fn with_index_store_mut<R>(path: &'static str, f: impl FnOnce(&mut IndexStore) -
 
 fn reset_stores() {
     init_commit_store_for_tests().expect("commit store init should succeed");
-    ensure_recovered_for_write(&DB).expect("write-side recovery should succeed");
+    ensure_recovered(&DB).expect("write-side recovery should succeed");
     DB.with_store_registry(|registry| {
         // Test cleanup only: this clear-all sweep has set semantics, so
         // `StoreRegistry` HashMap iteration order is intentionally irrelevant.

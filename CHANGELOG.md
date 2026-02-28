@@ -5,6 +5,17 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.34.0] - 2026-02-28 - Commit Consolidation and No-Shim Recovery Contracts
+
+- Consolidated `db::commit` into clearer ownership boundaries (`prepared_op`, `rebuild`, apply/replay/store/memory/rollback narration) as part of the `0.34` structure pass.
+- Removed internal compatibility/shim paths in commit recovery: write-side recovery now converges on one gate and commit replay no longer accepts legacy missing schema fingerprints.
+- Kept commit apply/replay behavior deterministic while tightening commit-marker schema-fingerprint enforcement and recovery boundary authority.
+
+See detailed breakdown:
+[docs/changelog/0.34.md](docs/changelog/0.34.md)
+
+---
+
 ## [0.33.x] - 2026-02-28 - Grouped Runtime Activation and Surface Consolidation
 
 - Activated grouped query runtime from planning through execution, including grouped cursor continuation/resume support, grouped route observability, stronger grouped continuation-signature safety across query-shape changes, and explicit cursor-variant handling in load paths (without scalar panic accessors).

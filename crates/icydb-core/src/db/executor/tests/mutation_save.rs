@@ -2,8 +2,8 @@ use crate::{
     db::{
         Db,
         commit::{
-            CommitRowOp, commit_marker_present, ensure_recovered_for_write,
-            init_commit_store_for_tests,
+            CommitRowOp, commit_marker_present, commit_schema_fingerprint_for_entity,
+            ensure_recovered, init_commit_store_for_tests,
         },
         contracts::MissingRowPolicy,
         data::{DataKey, DataStore, RawRow},
@@ -100,7 +100,7 @@ fn with_index_store<R>(path: &'static str, f: impl FnOnce(&IndexStore) -> R) -> 
 // Clear test stores and ensure recovery has completed before each test mutation.
 fn reset_store() {
     init_commit_store_for_tests().expect("commit store init should succeed");
-    ensure_recovered_for_write(&DB).expect("write-side recovery should succeed");
+    ensure_recovered(&DB).expect("write-side recovery should succeed");
     with_data_store_mut(SourceStore::PATH, DataStore::clear);
     with_data_store_mut(TargetStore::PATH, DataStore::clear);
     with_index_store_mut(UNIQUE_INDEX_STORE_PATH, IndexStore::clear);
@@ -651,6 +651,7 @@ fn commit_window_preflight_does_not_mutate_real_stores_before_apply() {
         data_key.as_bytes().to_vec(),
         None,
         Some(row.as_bytes().to_vec()),
+        commit_schema_fingerprint_for_entity::<UniqueEmailEntity>(),
     );
 
     let baseline_index_generation =
@@ -726,6 +727,7 @@ fn commit_window_rejects_apply_when_index_store_generation_changes() {
         data_key.as_bytes().to_vec(),
         None,
         Some(row.as_bytes().to_vec()),
+        commit_schema_fingerprint_for_entity::<UniqueEmailEntity>(),
     );
 
     let OpenCommitWindow {

@@ -1,4 +1,7 @@
-//! Commit store memory allocation helpers.
+//! Module: commit::memory
+//! Responsibility: resolve and validate the commit-marker stable-memory slot.
+//! Does not own: marker encoding, marker persistence, or recovery orchestration.
+//! Boundary: commit::{recovery,store} -> commit::memory (one-way).
 
 use crate::{db::commit::marker::COMMIT_LABEL, error::InternalError};
 use canic_memory::{
@@ -22,6 +25,7 @@ pub(super) fn commit_memory_id() -> Result<u8, InternalError> {
 pub(in crate::db::commit) fn configure_commit_memory_id(
     memory_id: u8,
 ) -> Result<u8, InternalError> {
+    // Phase 1: enforce one immutable runtime slot id per process.
     if let Some(cached_id) = COMMIT_STORE_ID.get() {
         if *cached_id != memory_id {
             return Err(InternalError::store_internal(format!(
@@ -32,16 +36,19 @@ pub(in crate::db::commit) fn configure_commit_memory_id(
         return Ok(*cached_id);
     }
 
+    // Phase 2: initialize registry runtime and validate slot ownership.
     MemoryRegistryRuntime::init(None).map_err(|err| {
         InternalError::store_internal(format!("memory registry init failed: {err}"))
     })?;
 
     validate_commit_slot_registration(memory_id)?;
 
+    // Phase 3: cache the validated slot id for all future accesses.
     let _ = COMMIT_STORE_ID.set(memory_id);
     Ok(memory_id)
 }
 
+/// Validate that exactly one canonical commit-marker slot exists.
 fn validate_commit_slot_registration(memory_id: u8) -> Result<(), InternalError> {
     let mut commit_ids = MemoryRegistryRuntime::snapshot_entries()
         .into_iter()
@@ -62,6 +69,7 @@ fn validate_commit_slot_registration(memory_id: u8) -> Result<(), InternalError>
     }
 }
 
+/// Register the configured commit-marker slot when no prior slot exists.
 fn register_commit_slot(memory_id: u8) -> Result<(), InternalError> {
     if let Some(entry) = MemoryRegistryRuntime::get(memory_id) {
         return Err(InternalError::store_unsupported(format!(
@@ -78,10 +86,12 @@ fn register_commit_slot(memory_id: u8) -> Result<(), InternalError> {
     Ok(())
 }
 
+/// Resolve the canonical owner label for one configured memory id.
 fn owner_for_memory_id(memory_id: u8) -> Result<String, InternalError> {
     owner_for_memory_id_in_ranges(memory_id, &MemoryRegistryRuntime::snapshot_range_entries())
 }
 
+/// Resolve owner label from registry range entries.
 fn owner_for_memory_id_in_ranges(
     memory_id: u8,
     ranges: &[MemoryRangeEntry],

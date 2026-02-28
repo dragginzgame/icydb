@@ -1721,6 +1721,7 @@ fn recovery_replays_reverse_relation_index_mutations() {
         raw_key.as_bytes().to_vec(),
         None,
         Some(row_bytes),
+        crate::db::commit::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
     )])
     .expect("commit marker creation should succeed");
 
@@ -1730,7 +1731,7 @@ fn recovery_replays_reverse_relation_index_mutations() {
         "commit marker should be present before recovery replay",
     );
 
-    ensure_recovered_for_write(&REL_DB).expect("recovery replay should succeed");
+    ensure_recovered(&REL_DB).expect("recovery replay should succeed");
     assert!(
         !commit_marker_present().expect("commit marker check should succeed"),
         "commit marker should be cleared after recovery replay",
@@ -1812,10 +1813,11 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
         source_a_key.as_bytes().to_vec(),
         None,
         Some(source_a_row.clone()),
+        crate::db::commit::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
     )])
     .expect("save A marker creation should succeed");
     begin_commit(save_a_marker).expect("begin_commit should persist marker");
-    ensure_recovered_for_write(&REL_DB).expect("save A recovery replay should succeed");
+    ensure_recovered(&REL_DB).expect("save A recovery replay should succeed");
 
     let reverse_rows_after_save_a = REL_DB
         .with_store_registry(|reg| {
@@ -1834,10 +1836,11 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
         source_b_key.as_bytes().to_vec(),
         None,
         Some(source_b_row),
+        crate::db::commit::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
     )])
     .expect("save B marker creation should succeed");
     begin_commit(save_b_marker).expect("begin_commit should persist marker");
-    ensure_recovered_for_write(&REL_DB).expect("save B recovery replay should succeed");
+    ensure_recovered(&REL_DB).expect("save B recovery replay should succeed");
 
     let reverse_rows_after_save_b = REL_DB
         .with_store_registry(|reg| {
@@ -1856,10 +1859,11 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
         source_a_key.as_bytes().to_vec(),
         Some(source_a_row),
         None,
+        crate::db::commit::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
     )])
     .expect("delete marker creation should succeed");
     begin_commit(delete_a_marker).expect("begin_commit should persist marker");
-    ensure_recovered_for_write(&REL_DB).expect("delete recovery replay should succeed");
+    ensure_recovered(&REL_DB).expect("delete recovery replay should succeed");
 
     let reverse_rows_after_delete_a = REL_DB
         .with_store_registry(|reg| {
@@ -1960,10 +1964,11 @@ fn recovery_replays_retarget_update_moves_reverse_index_membership() {
         source_key.as_bytes().to_vec(),
         Some(before),
         Some(after),
+        crate::db::commit::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
     )])
     .expect("commit marker creation should succeed");
     begin_commit(marker).expect("begin_commit should persist marker");
-    ensure_recovered_for_write(&REL_DB).expect("recovery replay should succeed");
+    ensure_recovered(&REL_DB).expect("recovery replay should succeed");
 
     let reverse_rows_after_retarget = REL_DB
         .with_store_registry(|reg| {
@@ -2057,19 +2062,21 @@ fn recovery_rollback_restores_reverse_index_state_on_prepare_error() {
             source_key.as_bytes().to_vec(),
             Some(update_before),
             Some(update_after),
+            crate::db::commit::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
         ),
         crate::db::commit::CommitRowOp::new(
             RelationSourceEntity::PATH,
             vec![7, 8, 9],
             None,
             Some(vec![1]),
+            crate::db::commit::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
         ),
     ])
     .expect("commit marker creation should succeed");
     begin_commit(marker).expect("begin_commit should persist marker");
 
-    let err = ensure_recovered_for_write(&REL_DB)
-        .expect_err("recovery should fail when a later row op is invalid");
+    let err =
+        ensure_recovered(&REL_DB).expect_err("recovery should fail when a later row op is invalid");
     assert_eq!(
         err.class,
         crate::error::ErrorClass::Corruption,
@@ -2241,12 +2248,14 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
             source_1_key.as_bytes().to_vec(),
             Some(source_1_before),
             Some(source_1_after),
+            crate::db::commit::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
         ),
         crate::db::commit::CommitRowOp::new(
             RelationSourceEntity::PATH,
             source_2_key.as_bytes().to_vec(),
             Some(source_2_same.clone()),
             Some(source_2_same),
+            crate::db::commit::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
         ),
     ])
     .expect("commit marker creation should succeed");
@@ -2257,7 +2266,7 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
     );
 
     // Phase 3: recovery replays row ops and reverse mutations from the marker.
-    ensure_recovered_for_write(&REL_DB).expect("recovery replay should succeed");
+    ensure_recovered(&REL_DB).expect("recovery replay should succeed");
     assert!(
         !commit_marker_present().expect("commit marker check should succeed"),
         "commit marker should be cleared after recovery replay",

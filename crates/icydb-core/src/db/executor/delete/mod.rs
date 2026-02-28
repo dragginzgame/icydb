@@ -1,7 +1,7 @@
 use crate::{
     db::{
         Db,
-        commit::CommitRowOp,
+        commit::{CommitRowOp, commit_schema_fingerprint_for_entity},
         data::{DataKey, DataRow, RawRow, decode_and_validate_entity_key},
         executor::{
             ExecutablePlan, ExecutionKernel, ExecutionPreparation, ExecutorError, PlanRow,
@@ -177,6 +177,7 @@ where
 
             // Preflight store access to ensure no fallible work remains post-commit.
             ctx.with_store(|_| ())?;
+            let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
             let row_ops = rows
                 .iter_mut()
                 .map(|row| {
@@ -191,6 +192,7 @@ where
                         raw_key.as_bytes().to_vec(),
                         Some(raw_row.as_bytes().to_vec()),
                         None,
+                        schema_fingerprint,
                     ))
                 })
                 .collect::<Result<Vec<_>, InternalError>>()?;

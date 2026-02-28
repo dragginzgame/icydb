@@ -48,7 +48,8 @@ pub use session::DbSession;
 use crate::{
     db::{
         commit::{
-            CommitRowOp, PreparedRowCommitOp, ensure_recovered, prepare_row_commit_for_entity,
+            CommitRowOp, CommitSchemaFingerprint, PreparedRowCommitOp,
+            commit_schema_fingerprint_for_entity, ensure_recovered, prepare_row_commit_for_entity,
             rebuild_secondary_indexes_from_rows, replay_commit_marker_row_ops,
         },
         data::RawDataKey,
@@ -452,6 +453,7 @@ impl<C: CanisterKind> Db<C> {
 pub struct EntityRuntimeHooks<C: CanisterKind> {
     pub(crate) entity_name: &'static str,
     pub(crate) entity_path: &'static str,
+    pub(in crate::db) commit_schema_fingerprint: fn() -> CommitSchemaFingerprint,
     pub(in crate::db) prepare_row_commit:
         fn(&Db<C>, &CommitRowOp) -> Result<PreparedRowCommitOp, InternalError>,
     pub(crate) validate_delete_strong_relations: StrongRelationDeleteValidateFn<C>,
@@ -462,12 +464,14 @@ impl<C: CanisterKind> EntityRuntimeHooks<C> {
     pub(in crate::db) const fn new(
         entity_name: &'static str,
         entity_path: &'static str,
+        commit_schema_fingerprint: fn() -> CommitSchemaFingerprint,
         prepare_row_commit: fn(&Db<C>, &CommitRowOp) -> Result<PreparedRowCommitOp, InternalError>,
         validate_delete_strong_relations: StrongRelationDeleteValidateFn<C>,
     ) -> Self {
         Self {
             entity_name,
             entity_path,
+            commit_schema_fingerprint,
             prepare_row_commit,
             validate_delete_strong_relations,
         }
@@ -483,10 +487,18 @@ impl<C: CanisterKind> EntityRuntimeHooks<C> {
         Self::new(
             <E as EntityIdentity>::ENTITY_NAME,
             E::PATH,
+            commit_schema_fingerprint_for_runtime_entity::<E>,
             prepare_row_commit_for_entity::<E>,
             validate_delete_strong_relations,
         )
     }
+}
+
+fn commit_schema_fingerprint_for_runtime_entity<E>() -> CommitSchemaFingerprint
+where
+    E: EntityKind,
+{
+    commit_schema_fingerprint_for_entity::<E>()
 }
 
 impl<C: CanisterKind> Db<C> {

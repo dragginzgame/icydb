@@ -1,11 +1,16 @@
+//! Module: commit::prepare
+//! Responsibility: decode commit-marker row ops into mechanical store mutations.
+//! Does not own: marker persistence, commit-window lifecycle, or recovery orchestration.
+//! Boundary: commit::marker -> commit::prepare -> commit::apply (one-way).
+
 use crate::{
     db::{
         Db,
         codec::deserialize_row,
         commit::{
             CommitRowOp, PreparedIndexDeltaKind, PreparedIndexMutation, PreparedRowCommitOp,
-            UNSET_COMMIT_SCHEMA_FINGERPRINT, commit_schema_fingerprint_for_entity, decode_data_key,
-            decode_index_entry, decode_index_key,
+            commit_schema_fingerprint_for_entity, decode_data_key, decode_index_entry,
+            decode_index_key,
         },
         data::{RawRow, decode_and_validate_entity_key},
         index::{IndexEntryReader, IndexKey, PrimaryRowReader, plan_index_mutation_for_entity},
@@ -45,6 +50,7 @@ fn prepare_row_commit_for_entity_impl<E: EntityKind + EntityValue>(
     row_reader: &impl PrimaryRowReader<E>,
     index_reader: &impl IndexEntryReader<E>,
 ) -> Result<PreparedRowCommitOp, InternalError> {
+    // Phase 1: validate that marker metadata matches runtime entity authority.
     if op.entity_path != E::PATH {
         return Err(InternalError::store_corruption(format!(
             "commit marker entity path mismatch: expected '{}', found '{}'",
@@ -52,10 +58,9 @@ fn prepare_row_commit_for_entity_impl<E: EntityKind + EntityValue>(
             op.entity_path
         )));
     }
+    // No legacy-fingerprint fallback is allowed: replay must match exactly.
     let expected_schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
-    if op.schema_fingerprint != UNSET_COMMIT_SCHEMA_FINGERPRINT
-        && op.schema_fingerprint != expected_schema_fingerprint
-    {
+    if op.schema_fingerprint != expected_schema_fingerprint {
         return Err(InternalError::store_unsupported(format!(
             "commit marker schema fingerprint mismatch for entity '{}': marker={:?}, runtime={:?}",
             E::PATH,
@@ -64,6 +69,7 @@ fn prepare_row_commit_for_entity_impl<E: EntityKind + EntityValue>(
         )));
     }
 
+    // Phase 2: decode and validate key + before/after row payloads.
     let (raw_key, data_key) = decode_data_key(&op.key)?;
     let expected_key = data_key.try_key::<E>()?;
 
@@ -106,6 +112,7 @@ fn prepare_row_commit_for_entity_impl<E: EntityKind + EntityValue>(
         ));
     }
 
+    // Phase 3: compute forward index mutation plan and classify delta kind per key.
     let index_plan = plan_index_mutation_for_entity::<E>(
         db,
         row_reader,
@@ -152,6 +159,7 @@ fn prepare_row_commit_for_entity_impl<E: EntityKind + EntityValue>(
         index_stores.insert(apply.index.store, apply.store);
     }
 
+    // Phase 4: materialize prepared index mutations with resolved store handles.
     let mut index_ops = Vec::with_capacity(index_plan.commit_ops.len());
     for index_op in index_plan.commit_ops {
         let store = index_stores
@@ -182,6 +190,8 @@ fn prepare_row_commit_for_entity_impl<E: EntityKind + EntityValue>(
             delta_kind,
         });
     }
+
+    // Phase 5: append reverse-relation index mutations and resolve row-store target.
     let reverse_index_ops = prepare_reverse_relation_index_mutations_for_source::<E>(
         db,
         index_reader,

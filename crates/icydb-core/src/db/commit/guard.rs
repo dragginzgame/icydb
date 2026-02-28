@@ -1,3 +1,8 @@
+//! Module: commit::guard
+//! Responsibility: enforce commit-window marker lifecycle and transitional rollback guards.
+//! Does not own: mutation planning, marker payload semantics, or recovery orchestration.
+//! Boundary: executor::mutation -> commit::guard -> commit::store (one-way).
+
 use crate::{
     db::commit::{
         marker::CommitMarker,
@@ -30,6 +35,7 @@ pub(crate) struct CommitApplyGuard {
 }
 
 impl CommitApplyGuard {
+    /// Create one apply-phase rollback guard for diagnostic context `phase`.
     pub(crate) const fn new(phase: &'static str) -> Self {
         Self {
             phase,
@@ -42,6 +48,7 @@ impl CommitApplyGuard {
         self.rollbacks.push(Box::new(rollback));
     }
 
+    /// Mark the guarded apply phase complete and drop rollback closures.
     pub(crate) fn finish(mut self) -> Result<(), InternalError> {
         if self.finished {
             return Err(InternalError::executor_invariant(format!(
@@ -91,7 +98,7 @@ pub(crate) struct CommitGuard {
 }
 
 impl CommitGuard {
-    // Clear the commit marker without surfacing errors.
+    /// Clear the commit marker without surfacing errors.
     fn clear(self) {
         let _ = self;
         with_commit_store_infallible(CommitStore::clear_infallible);
@@ -101,11 +108,14 @@ impl CommitGuard {
 /// Persist a commit marker and open the commit window.
 pub(crate) fn begin_commit(marker: CommitMarker) -> Result<CommitGuard, InternalError> {
     with_commit_store(|store| {
+        // Phase 1: enforce one in-flight marker at a time.
         if store.load()?.is_some() {
             return Err(InternalError::store_invariant(
                 "commit marker already present before begin",
             ));
         }
+
+        // Phase 2: persist marker authority before any commit-window mutation.
         store.set(&marker)?;
 
         Ok(CommitGuard { marker })
@@ -133,6 +143,7 @@ pub(crate) fn finish_commit(
     let result = apply(&mut guard);
     let commit_id = guard.marker.id;
     if result.is_ok() {
+        // Phase 1: successful apply must clear marker authority immediately.
         guard.clear();
         // Internal invariant: successful commit windows must clear the marker.
         assert!(
@@ -140,6 +151,7 @@ pub(crate) fn finish_commit(
             "commit marker must be cleared after successful finish_commit (commit_id={commit_id:?})"
         );
     } else {
+        // Phase 1 (error path): failed apply must preserve marker authority.
         // Internal invariant: failed commit windows must preserve marker authority.
         assert!(
             with_commit_store_infallible(|store| !store.is_empty()),

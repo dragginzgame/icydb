@@ -1,4 +1,7 @@
-//! Commit marker storage and access.
+//! Module: commit::store
+//! Responsibility: persist, load, and clear commit markers in stable memory.
+//! Does not own: marker shape semantics, recovery orchestration, or commit-window policy.
+//! Boundary: commit::{guard,recovery} -> commit::store (one-way).
 
 use crate::{
     db::{
@@ -21,7 +24,9 @@ use std::{borrow::Cow, cell::RefCell};
 
 ///
 /// RawCommitMarker
-/// Raw, bounded commit marker bytes stored in stable memory.
+///
+/// Raw, bounded commit-marker bytes stored in stable memory.
+/// This type owns only storage-level framing, not semantic validation logic.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -36,7 +41,7 @@ impl RawCommitMarker {
         self.0.is_empty()
     }
 
-    // Serialize and bound-check a commit marker payload.
+    /// Serialize and bound-check a commit marker payload.
     fn try_from_marker(marker: &CommitMarker) -> Result<Self, InternalError> {
         let bytes = serialize(marker)?;
         if bytes.len() > MAX_COMMIT_BYTES as usize {
@@ -48,11 +53,14 @@ impl RawCommitMarker {
         Ok(Self(bytes))
     }
 
-    // Deserialize the stored payload, treating failures as corruption.
+    /// Deserialize the stored payload, treating failures as corruption.
     fn try_decode(&self) -> Result<Option<CommitMarker>, InternalError> {
+        // Phase 1: fast empty-marker check.
         if self.is_empty() {
             return Ok(None);
         }
+
+        // Phase 2: enforce byte-size upper bound before decode.
         if self.0.len() > MAX_COMMIT_BYTES as usize {
             return Err(commit_corruption(format!(
                 "commit marker exceeds max size: {} bytes (limit {MAX_COMMIT_BYTES})",
@@ -60,6 +68,7 @@ impl RawCommitMarker {
             )));
         }
 
+        // Phase 3: decode + semantic shape validation.
         let marker = deserialize_persisted_payload::<CommitMarker>(
             &self.0,
             MAX_COMMIT_BYTES as usize,
@@ -93,7 +102,9 @@ impl Storable for RawCommitMarker {
 
 ///
 /// CommitStore
+///
 /// Stable-cell wrapper for commit marker storage.
+/// Invariant: an empty cell means "no in-flight marker persisted".
 ///
 
 pub(super) struct CommitStore {
@@ -101,25 +112,33 @@ pub(super) struct CommitStore {
 }
 
 impl CommitStore {
+    /// Initialize one stable-cell-backed commit marker store.
     fn init(memory: VirtualMemory<DefaultMemoryImpl>) -> Self {
         let cell = StableCell::init(memory, RawCommitMarker::empty());
         Self { cell }
     }
 
+    /// Load and decode the current commit marker (if any).
     pub(super) fn load(&self) -> Result<Option<CommitMarker>, InternalError> {
         self.cell.get().try_decode()
     }
 
+    /// Return whether the marker slot is empty without decoding.
     pub(super) fn is_empty(&self) -> bool {
         self.cell.get().is_empty()
     }
 
+    /// Persist one commit marker payload.
     pub(super) fn set(&mut self, marker: &CommitMarker) -> Result<(), InternalError> {
         let raw = RawCommitMarker::try_from_marker(marker)?;
         self.cell.set(raw);
         Ok(())
     }
 
+    /// Clear the marker slot.
+    ///
+    /// This write is infallible by storage contract and is only used after
+    /// successful commit-window completion or successful recovery completion.
     pub(super) fn clear_infallible(&mut self) {
         self.cell.set(RawCommitMarker::empty());
     }
@@ -134,38 +153,34 @@ pub(super) fn commit_marker_present() -> Result<bool, InternalError> {
     with_commit_store(|store| Ok(store.load()?.is_some()))
 }
 
-// Lazily initialize and access the commit marker store.
+/// Lazily initialize and access the commit marker store.
 pub(super) fn with_commit_store<R>(
     f: impl FnOnce(&mut CommitStore) -> Result<R, InternalError>,
 ) -> Result<R, InternalError> {
     COMMIT_STORE.with(|cell| {
+        // Phase 1: lazily initialize storage if this thread has not touched it.
         if cell.borrow().is_none() {
             // StableCell::init performs a benign stable write for the empty marker.
             let store = CommitStore::init(commit_memory()?);
             *cell.borrow_mut() = Some(store);
         }
+
+        // Phase 2: execute the caller closure against initialized store state.
         let mut guard = cell.borrow_mut();
         let store = guard.as_mut().expect("commit store missing after init");
         f(store)
     })
 }
 
-// Fast, observational check for marker presence without decoding.
+/// Fast, observational check for marker presence without decoding.
 pub(super) fn commit_marker_present_fast() -> Result<bool, InternalError> {
     with_commit_store(|store| Ok(!store.is_empty()))
 }
 
-/// Clear the persisted commit marker after successful replay and index rebuild.
+/// Access the commit store without fallible initialization.
 ///
-/// This semantic boundary keeps marker-clear intent explicit in recovery flow.
-pub(super) fn clear_commit_marker_after_successful_rebuild() -> Result<(), InternalError> {
-    with_commit_store(|store| {
-        store.clear_infallible();
-        Ok(())
-    })
-}
-
-// Access the commit store without fallible initialization.
+/// Invariant: caller must ensure `with_commit_store(...)` was called first
+/// on the current thread.
 pub(super) fn with_commit_store_infallible<R>(f: impl FnOnce(&mut CommitStore) -> R) -> R {
     COMMIT_STORE.with(|cell| {
         let mut guard = cell.borrow_mut();
@@ -174,7 +189,7 @@ pub(super) fn with_commit_store_infallible<R>(f: impl FnOnce(&mut CommitStore) -
     })
 }
 
-// Resolve the virtual memory backing the commit marker store.
+/// Resolve the virtual memory backing the commit marker store.
 fn commit_memory() -> Result<VirtualMemory<DefaultMemoryImpl>, InternalError> {
     let id = commit_memory_id()?;
     Ok(MEMORY_MANAGER.with_borrow_mut(|mgr| mgr.get(MemoryId::new(id))))
@@ -264,6 +279,7 @@ mod tests {
                 vec![1u8],
                 None,
                 Some(oversized_after),
+                [0u8; 16],
             )],
         };
 
@@ -282,7 +298,13 @@ mod tests {
     fn commit_marker_rejects_row_op_without_before_or_after() {
         let marker = CommitMarker {
             id: [1u8; 16],
-            row_ops: vec![CommitRowOp::new("test::Entity", vec![9u8], None, None)],
+            row_ops: vec![CommitRowOp::new(
+                "test::Entity",
+                vec![9u8],
+                None,
+                None,
+                [0u8; 16],
+            )],
         };
 
         let bytes = serialize(&marker).expect("serialize malformed marker");
@@ -303,7 +325,13 @@ mod tests {
     fn commit_marker_rejects_row_op_with_empty_entity_path() {
         let marker = CommitMarker {
             id: [3u8; 16],
-            row_ops: vec![CommitRowOp::new("", vec![9u8], Some(vec![1u8]), None)],
+            row_ops: vec![CommitRowOp::new(
+                "",
+                vec![9u8],
+                Some(vec![1u8]),
+                None,
+                [0u8; 16],
+            )],
         };
 
         let bytes = serialize(&marker).expect("serialize malformed marker");
@@ -328,6 +356,7 @@ mod tests {
                 vec![9u8],
                 Some(vec![1u8]),
                 None,
+                [0u8; 16],
             )],
         };
 
@@ -353,6 +382,7 @@ mod tests {
                 vec![0u8; DataKey::STORED_SIZE_USIZE],
                 Some(vec![1u8]),
                 None,
+                [0u8; 16],
             )],
         };
 
@@ -378,6 +408,7 @@ mod tests {
                 vec![9u8],
                 Some(vec![0u8; MAX_ROW_BYTES as usize + 1]),
                 None,
+                [0u8; 16],
             )],
         };
 
