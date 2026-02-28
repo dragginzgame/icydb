@@ -5,7 +5,7 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.34.0] - 2026-02-28 - Commit Consolidation and No-Shim Recovery Contracts
+## [0.34.0] - 2026-02-28 - Cleanup & Comment Pass
 
 - Consolidated `db::commit` into clearer ownership boundaries (`prepared_op`, `rebuild`, apply/replay/store/memory/rollback narration) as part of the `0.34` structure pass.
 - Removed internal compatibility/shim paths in commit recovery: write-side recovery now converges on one gate and commit replay no longer accepts legacy missing schema fingerprints.
