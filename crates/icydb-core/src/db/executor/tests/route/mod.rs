@@ -15,7 +15,7 @@ use crate::{
             },
         },
         query::{
-            grouped::{
+            group::{
                 FieldSlot, GroupAggregateKind, GroupAggregateSpec, GroupSpec,
                 GroupedExecutionConfig, grouped_executor_handoff,
             },

@@ -39,7 +39,7 @@ use crate::{
         },
         index::IndexCompilePolicy,
         policy,
-        query::grouped::GroupedExecutionConfig,
+        query::group::GroupedExecutionConfig,
         response::Response,
     },
     error::InternalError,

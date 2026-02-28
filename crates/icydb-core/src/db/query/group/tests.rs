@@ -3,7 +3,7 @@ use crate::{
         access::{AccessPath, AccessPlan},
         contracts::{ReadConsistency, SchemaInfo},
         query::{
-            grouped::{
+            group::{
                 FieldSlot, GroupAggregateKind, GroupAggregateSpec, GroupPlanError, GroupSpec,
                 GroupedExecutionConfig, grouped_executor_handoff, validate_group_query_semantics,
             },

@@ -19,7 +19,7 @@ pub(in crate::db) use key::{GroupKey, GroupKeySet, KeyCanonicalError};
 ///
 use crate::db::{
     executor::aggregate::{ExecutionConfig, ExecutionContext},
-    query::grouped::GroupedExecutionConfig,
+    query::group::GroupedExecutionConfig,
 };
 
 const GROUPED_DEFAULT_MAX_GROUPS: u64 = 10_000;

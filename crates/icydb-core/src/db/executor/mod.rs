@@ -10,7 +10,6 @@ mod physical_path;
 mod plan_metrics;
 mod plan_validate;
 mod preparation;
-mod query_plan;
 pub(super) mod route;
 mod stream;
 #[cfg(test)]

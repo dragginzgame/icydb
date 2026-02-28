@@ -18,11 +18,12 @@
 //! the canonical contract for evaluation, coercion, and normalization.
 
 pub(crate) mod builder;
+pub(crate) mod compile;
 pub(crate) mod explain;
 pub(crate) mod expr;
 pub(crate) mod fingerprint;
 pub(crate) mod fluent;
-pub(crate) mod grouped;
+pub(crate) mod group;
 pub(crate) mod intent;
 pub(crate) mod plan;
 pub(crate) mod predicate;

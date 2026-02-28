@@ -17,7 +17,7 @@ use crate::{
         cursor::CursorPlanError,
         policy::{self, PlanPolicyError},
         query::{
-            grouped::{GroupAggregateKind, GroupSpec},
+            group::{GroupAggregateKind, GroupSpec},
             plan::{AccessPlannedQuery, LogicalPlan, OrderSpec, ScalarPlan},
             predicate,
         },

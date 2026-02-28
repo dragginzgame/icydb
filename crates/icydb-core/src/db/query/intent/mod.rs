@@ -15,12 +15,12 @@ use crate::{
         query::{
             explain::ExplainPlan,
             expr::{FilterExpr, SortExpr, SortLowerError},
-            grouped::{GroupPlanError, validate_group_query_semantics},
-            plan::validate::validate_query_semantics,
+            group::{GroupPlanError, validate_group_query_semantics},
             plan::{
                 AccessPlannedQuery, DeleteLimitSpec, FieldSlot, GroupAggregateKind,
                 GroupAggregateSpec, GroupSpec, GroupedExecutionConfig, LogicalPlan, OrderDirection,
                 OrderSpec, PageSpec, PlanError, PlannerError, ScalarPlan, canonical, plan_access,
+                validate::validate_query_semantics,
             },
             predicate::{
                 lower_to_execution_model, normalize, normalize_enum_literals,
@@ -182,7 +182,7 @@ pub(crate) struct QueryModel<'m, K> {
     predicate: Option<Predicate>,
     key_access: Option<KeyAccessState<K>>,
     key_access_conflict: bool,
-    group: Option<crate::db::query::grouped::GroupSpec>,
+    group: Option<crate::db::query::group::GroupSpec>,
     order: Option<OrderSpec>,
     distinct: bool,
     consistency: ReadConsistency,

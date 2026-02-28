@@ -35,7 +35,7 @@ use crate::{
         index::IndexCompilePolicy,
         policy,
         query::{
-            grouped::grouped_executor_handoff,
+            group::grouped_executor_handoff,
             plan::{AccessPlannedQuery, LogicalPlan, OrderDirection},
         },
         response::Response,

@@ -10,7 +10,7 @@ use crate::{
             load::LoadExecutor,
         },
         query::{
-            grouped::{GroupAggregateKind as QueryGroupAggregateKind, GroupedExecutorHandoff},
+            group::{GroupAggregateKind as QueryGroupAggregateKind, GroupedExecutorHandoff},
             plan::AccessPlannedQuery,
         },
     },
