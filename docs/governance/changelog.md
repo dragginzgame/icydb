@@ -64,12 +64,38 @@ Each version entry must follow:
 
 Rules:
 
-1. Do not include file paths.
-2. Do not include test names.
-3. Do not include internal refactor noise.
-4. Do not exceed ~15 bullet points total.
-5. If a section exceeds ~4 lines of explanation,
-   move detail to docs/changelog/<version>.md.
+1. Keep the existing changelog structure and header format.
+2. Smaller entries may omit the title segment and use:
+   `## [<version>] - <YYYY-MM-DD>`.
+3. Changelog subsections are optional; include only sections relevant to that release.
+4. If an entry reaches 4 lines or more of changelog content, split it into subsection headers.
+5. For small cleanup releases, prefer no subsection headers; use a short plain-language summary with concise bullets.
+6. For structural cleanup/audit passes, use subsection headers and include an explicit `Audit` subsection with footprint stats.
+7. If a section like `Changed` becomes large, split into topic-based subheaders (for example `Changed - Aggregate Execution`, `Changed - Structure`).
+8. Do not include file paths.
+9. Do not include test names.
+10. Do not include internal refactor noise.
+11. Do not exceed ~15 bullets total in the root entry.
+12. If a section exceeds ~4 lines of explanation, move detail to `docs/changelog/<version>.md`.
+
+## 3.1 Section Header Emoji Mapping
+
+When emoji section headers are used, use this fixed mapping:
+
+- `Added=➕`
+- `Changed=🔧`
+- `Fixed=🩹`
+- `Removed=🗑️`
+- `Breaking=⚠️`
+- `Migration Notes=🧭`
+- `Summary=📝`
+- `Cleanup=🧹`
+- `Audit=📊`
+- `Testing=🧪`
+- `Governance=🥾`
+- `Documentation=📚`
+
+Keep emoji usage consistent across releases.
 
 ---
 
@@ -90,6 +116,8 @@ When preparing a release:
 5. Generate a concise summary entry in root CHANGELOG.md.
 6. Generate or update docs/changelog/<version>.md with full detail.
 7. Insert link from root file to detailed file.
+8. Use the version specified by the release request or the existing latest changelog entry.
+9. Do not create a new version header if the newest entry already exists for the target version.
 
 Agents must never:
 
@@ -141,10 +169,40 @@ Historical content must never be discarded.
 - PATCH: internal fixes without surface change.
 
 Agents must not bump version without checking semantic impact.
+When updating changelog entries, target the upcoming release version even if `Cargo.toml` still has the previous published version.
 
 ---
 
-# 8. Release Flow
+# 8. Writing Style, Verbosity, and Jargon
+
+Use plain, industry-friendly language.
+
+Required writing style:
+
+- Lead with outcome and user impact.
+- Keep wording concise and junior-friendly.
+- Avoid jargon unless the technical term materially improves clarity.
+- Keep entries intentionally brief and non-technical by default.
+- Include deep internal names only when required for migration or debugging.
+- Prefer a small number of consolidated bullets over long fragmented lists.
+- Explain why a change matters, not only what changed.
+
+Bullet and detail rules:
+
+- Prefer short bullets (1-2 sentences), with inline code formatting for API/type names when relevant.
+- Bullets do not need to be single-line if additional sentence context is needed.
+- Avoid deep implementation detail (module paths, helper names, routing internals) unless required for migration/debugging.
+- Include code examples only when they improve developer clarity.
+- Use fenced code blocks only when they materially improve clarity.
+
+Testing section rules:
+
+- Do not add a `Testing` section for routine validation runs (`make check`, `make test`, `cargo test`).
+- Add `Testing` only when the release adds or changes tests, coverage, or test tooling.
+
+---
+
+# 9. Release Flow
 
 For each release:
 
@@ -155,10 +213,11 @@ For each release:
 5. Tag release.
 
 Order must be preserved.
+Typical release flow is `make patch` followed by `cargo publish`.
 
 ---
 
-# 9. Ownership
+# 10. Ownership
 
 Changelog governance is architectural, not cosmetic.
 

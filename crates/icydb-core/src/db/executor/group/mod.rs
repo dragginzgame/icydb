@@ -32,7 +32,7 @@ const GROUPED_DEFAULT_MAX_GROUP_BYTES: u64 = 16 * 1024 * 1024;
 /// This snapshot shape is additive and scaffolds grouped metrics fields before
 /// grouped runtime enablement in `0.33`.
 ///
-#[allow(dead_code)]
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) struct GroupedBudgetObservability {
     groups: u64,
@@ -42,7 +42,6 @@ pub(in crate::db::executor) struct GroupedBudgetObservability {
     max_group_bytes: u64,
 }
 
-#[allow(dead_code)]
 impl GroupedBudgetObservability {
     #[must_use]
     pub(in crate::db::executor) const fn groups(self) -> u64 {
@@ -70,25 +69,21 @@ impl GroupedBudgetObservability {
     }
 }
 
-///
 /// default_grouped_execution_config
 ///
 /// Build one default grouped execution hard-limit policy.
 /// Grouped execution remains disabled in this release, so defaults are
 /// intentionally conservative and bounded until planner-owned policy tuning.
-///
 #[must_use]
 pub(in crate::db::executor) const fn default_grouped_execution_config() -> ExecutionConfig {
     ExecutionConfig::with_hard_limits(GROUPED_DEFAULT_MAX_GROUPS, GROUPED_DEFAULT_MAX_GROUP_BYTES)
 }
 
-///
 /// grouped_execution_config_from_planner_config
 ///
 /// Resolve one executor grouped hard-limit policy from optional planner config.
 /// Executor owns final policy resolution so defaults remain centralized even
 /// when planner does not provide explicit grouped limits.
-///
 #[must_use]
 pub(in crate::db::executor) const fn grouped_execution_config_from_planner_config(
     planner_config: Option<GroupedExecutionConfig>,
@@ -103,11 +98,9 @@ pub(in crate::db::executor) const fn grouped_execution_config_from_planner_confi
     )
 }
 
-///
 /// grouped_execution_context_from_planner_config
 ///
 /// Build one grouped execution context from optional planner-side limits.
-/// This keeps context creation routed through one executor-owned policy bridge.
 ///
 #[must_use]
 pub(in crate::db::executor) const fn grouped_execution_context_from_planner_config(
@@ -116,12 +109,9 @@ pub(in crate::db::executor) const fn grouped_execution_context_from_planner_conf
     ExecutionContext::new(grouped_execution_config_from_planner_config(planner_config))
 }
 
-///
 /// grouped_budget_observability
 ///
 /// Project grouped budget counters and hard limits for route/metrics scaffolding.
-///
-#[allow(dead_code)]
 #[must_use]
 pub(in crate::db::executor) const fn grouped_budget_observability(
     context: &ExecutionContext,

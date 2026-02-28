@@ -1,19 +1,17 @@
 use crate::{
     db::{
         contracts::{CoercionId, CompareOp},
-        executor::predicate_runtime::{
-            PredicateFieldSlots, ResolvedComparePredicate, ResolvedPredicate,
-        },
         index::{
             IndexCompareOp, IndexLiteral, IndexPredicateProgram,
             predicate::literal_index_component_bytes,
         },
+        query::predicate::runtime::{ResolvedComparePredicate, ResolvedPredicate},
     },
     value::Value,
 };
 
 ///
-/// IndexPredicateCompileMode
+/// IndexCompilePolicy
 ///
 /// Predicate compile policy for index-only prefilter programs.
 /// `ConservativeSubset` keeps load behavior by compiling safe AND-subsets.
@@ -21,27 +19,26 @@ use crate::{
 ///
 
 #[derive(Clone, Copy)]
-pub(crate) enum IndexPredicateCompileMode {
+pub(crate) enum IndexCompilePolicy {
     ConservativeSubset,
     StrictAllOrNone,
 }
 
-/// Compile one optional index-only predicate program from pre-resolved slots.
+/// Compile one optional index-only predicate program from one resolved predicate.
 /// This is the single compile-mode switch boundary for subset vs strict policy.
 #[must_use]
-pub(crate) fn compile_index_predicate_program_from_slots(
-    predicate_slots: &PredicateFieldSlots,
+pub(crate) fn compile_index_program(
+    predicate: &ResolvedPredicate,
     index_slots: &[usize],
-    mode: IndexPredicateCompileMode,
+    mode: IndexCompilePolicy,
 ) -> Option<IndexPredicateProgram> {
     match mode {
-        IndexPredicateCompileMode::ConservativeSubset => {
-            compile_index_program_from_resolved(predicate_slots.resolved_predicate(), index_slots)
+        IndexCompilePolicy::ConservativeSubset => {
+            compile_index_program_from_resolved(predicate, index_slots)
         }
-        IndexPredicateCompileMode::StrictAllOrNone => compile_index_program_from_resolved_full(
-            predicate_slots.resolved_predicate(),
-            index_slots,
-        ),
+        IndexCompilePolicy::StrictAllOrNone => {
+            compile_index_program_from_resolved_full(predicate, index_slots)
+        }
     }
 }
 
@@ -195,10 +192,3 @@ fn compile_compare_index_node(
         CompareOp::Contains | CompareOp::StartsWith | CompareOp::EndsWith => None,
     }
 }
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests;

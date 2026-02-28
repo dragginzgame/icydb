@@ -1,12 +1,8 @@
-#![allow(unused_imports)]
-
 #[cfg(test)]
 mod tests;
 
 use crate::db::query::plan::AccessPlannedQuery;
-pub(crate) use crate::db::query::plan::validate::{
-    GroupPlanError, validate_group_query_semantics, validate_group_spec,
-};
+pub(crate) use crate::db::query::plan::validate::{GroupPlanError, validate_group_query_semantics};
 use crate::error::InternalError;
 
 ///
@@ -66,7 +62,6 @@ impl<'a, K> GroupedExecutorHandoff<'a, K> {
 }
 
 /// Build one grouped executor handoff from one grouped logical plan.
-#[must_use]
 pub(in crate::db) fn grouped_executor_handoff<K>(
     plan: &AccessPlannedQuery<K>,
 ) -> Result<GroupedExecutorHandoff<'_, K>, InternalError> {

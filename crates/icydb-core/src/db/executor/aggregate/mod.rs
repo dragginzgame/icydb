@@ -31,13 +31,13 @@ use crate::{
         direction::Direction,
         executor::{
             AccessStreamBindings, ExecutablePlan, ExecutionKernel, ExecutionPreparation,
-            IndexPredicateCompileMode,
             group::grouped_execution_context_from_planner_config,
             load::{ExecutionInputs, LoadExecutor},
             plan_metrics::{record_plan_metrics, record_rows_scanned},
             route::ExecutionMode,
             validate_executor_plan,
         },
+        index::IndexCompilePolicy,
         policy,
         query::grouped::GroupedExecutionConfig,
         response::Response,
@@ -393,7 +393,7 @@ impl ExecutionKernel {
         let mut resolved = Self::resolve_execution_key_stream(
             &execution_inputs,
             &descriptor.route_plan,
-            IndexPredicateCompileMode::StrictAllOrNone,
+            IndexCompilePolicy::StrictAllOrNone,
         )?;
 
         // Fold through the canonical kernel reducer runner. Dispatch-level

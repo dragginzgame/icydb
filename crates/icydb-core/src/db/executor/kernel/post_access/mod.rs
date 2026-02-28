@@ -11,12 +11,10 @@ use crate::{
             next_cursor_for_materialized_rows as derive_next_materialized_cursor,
         },
         direction::Direction,
-        executor::{
-            ExecutionKernel, predicate_runtime::PredicateFieldSlots,
-            predicate_runtime::eval_with_slots as eval_predicate_with_slots,
-        },
+        executor::ExecutionKernel,
         policy,
         query::plan::AccessPlannedQuery,
+        query::predicate::runtime::PredicateProgram,
     },
     error::InternalError,
     traits::{EntityKind, EntitySchema, EntityValue},
@@ -118,7 +116,7 @@ impl ExecutionKernel {
     pub(crate) fn apply_post_access_with_compiled_predicate<E, R, K>(
         plan: &AccessPlannedQuery<K>,
         rows: &mut Vec<R>,
-        compiled_predicate: Option<&PredicateFieldSlots>,
+        compiled_predicate: Option<&PredicateProgram>,
     ) -> Result<PostAccessStats, InternalError>
     where
         E: EntityKind + EntityValue,
@@ -132,7 +130,7 @@ impl ExecutionKernel {
         plan: &AccessPlannedQuery<K>,
         rows: &mut Vec<R>,
         cursor: Option<&CursorBoundary>,
-        compiled_predicate: Option<&PredicateFieldSlots>,
+        compiled_predicate: Option<&PredicateProgram>,
     ) -> Result<PostAccessStats, InternalError>
     where
         E: EntityKind + EntityValue,
@@ -188,7 +186,7 @@ impl<K> PostAccessPlan<'_, K> {
     fn apply_post_access_with_compiled_predicate<E, R>(
         &self,
         rows: &mut Vec<R>,
-        compiled_predicate: Option<&PredicateFieldSlots>,
+        compiled_predicate: Option<&PredicateProgram>,
     ) -> Result<PostAccessStats, InternalError>
     where
         E: EntityKind + EntityValue,
@@ -206,7 +204,7 @@ impl<K> PostAccessPlan<'_, K> {
         &self,
         rows: &mut Vec<R>,
         cursor: Option<&CursorBoundary>,
-        compiled_predicate: Option<&PredicateFieldSlots>,
+        compiled_predicate: Option<&PredicateProgram>,
     ) -> Result<PostAccessStats, InternalError>
     where
         E: EntityKind + EntityValue,
@@ -289,7 +287,7 @@ impl<K> PostAccessPlan<'_, K> {
     fn apply_filter_phase<E, R>(
         &self,
         rows: &mut Vec<R>,
-        compiled_predicate: Option<&PredicateFieldSlots>,
+        compiled_predicate: Option<&PredicateProgram>,
     ) -> Result<(bool, usize), InternalError>
     where
         E: EntityKind + EntityValue,
@@ -302,7 +300,7 @@ impl<K> PostAccessPlan<'_, K> {
                 ));
             };
 
-            rows.retain(|row| eval_predicate_with_slots(row.entity(), compiled_predicate));
+            rows.retain(|row| compiled_predicate.eval(row.entity()));
             true
         } else {
             false

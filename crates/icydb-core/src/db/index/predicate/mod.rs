@@ -1,3 +1,7 @@
+pub(crate) mod compile;
+#[cfg(test)]
+mod tests;
+
 use crate::{
     db::index::{EncodedValue, IndexKey},
     error::InternalError,
@@ -5,12 +9,15 @@ use crate::{
 };
 use std::cell::Cell;
 
+pub(crate) use compile::{IndexCompilePolicy, compile_index_program};
+
 ///
 /// IndexPredicateProgram
 ///
 /// Index-only predicate program compiled against index component positions.
 /// This is a conservative subset used for raw-index-key predicate evaluation.
 ///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum IndexPredicateProgram {
     True,
@@ -30,6 +37,7 @@ pub(crate) enum IndexPredicateProgram {
 ///
 /// Operator subset that can be evaluated directly on canonical encoded index bytes.
 ///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum IndexCompareOp {
     Eq,
@@ -47,6 +55,7 @@ pub(crate) enum IndexCompareOp {
 ///
 /// Encoded literal payload used by one index-only compare operation.
 ///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum IndexLiteral {
     One(Vec<u8>),

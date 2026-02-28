@@ -15,10 +15,11 @@ use crate::{
         query::{
             explain::ExplainPlan,
             expr::{FilterExpr, SortExpr, SortLowerError},
-            grouped::validate_group_query_semantics,
+            grouped::{GroupPlanError, validate_group_query_semantics},
             plan::validate::validate_query_semantics,
             plan::{
-                AccessPlannedQuery, DeleteLimitSpec, GroupPlan, LogicalPlan, OrderDirection,
+                AccessPlannedQuery, DeleteLimitSpec, FieldSlot, GroupAggregateKind,
+                GroupAggregateSpec, GroupSpec, GroupedExecutionConfig, LogicalPlan, OrderDirection,
                 OrderSpec, PageSpec, PlanError, PlannerError, ScalarPlan, canonical, plan_access,
             },
             predicate::{
@@ -283,6 +284,62 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         self
     }
 
+    // Resolve one grouped field into one stable field slot and append it to the
+    // grouped spec in declaration order.
+    fn push_group_field(mut self, field: &str) -> Result<Self, QueryError> {
+        let Some(field_slot) = FieldSlot::resolve(self.model, field) else {
+            return Err(QueryError::from(PlanError::from(
+                GroupPlanError::UnknownGroupField {
+                    field: field.to_string(),
+                },
+            )));
+        };
+        let group = self.group.get_or_insert(GroupSpec {
+            group_fields: Vec::new(),
+            aggregates: Vec::new(),
+            execution: GroupedExecutionConfig::unbounded(),
+        });
+        if !group
+            .group_fields
+            .iter()
+            .any(|existing| existing.index() == field_slot.index())
+        {
+            group.group_fields.push(field_slot);
+        }
+
+        Ok(self)
+    }
+
+    // Append one grouped aggregate terminal to the grouped declarative spec.
+    fn push_group_aggregate(
+        mut self,
+        kind: GroupAggregateKind,
+        target_field: Option<String>,
+    ) -> Self {
+        let group = self.group.get_or_insert(GroupSpec {
+            group_fields: Vec::new(),
+            aggregates: Vec::new(),
+            execution: GroupedExecutionConfig::unbounded(),
+        });
+        group
+            .aggregates
+            .push(GroupAggregateSpec { kind, target_field });
+
+        self
+    }
+
+    // Override grouped hard limits for this grouped query.
+    fn grouped_limits(mut self, max_groups: u64, max_group_bytes: u64) -> Self {
+        let group = self.group.get_or_insert(GroupSpec {
+            group_fields: Vec::new(),
+            aggregates: Vec::new(),
+            execution: GroupedExecutionConfig::unbounded(),
+        });
+        group.execution = GroupedExecutionConfig::with_hard_limits(max_groups, max_group_bytes);
+
+        self
+    }
+
     /// Track key-only access paths and detect conflicting key intents.
     fn set_key_access(mut self, kind: KeyAccessKind, access: KeyAccess<K>) -> Self {
         if let Some(existing) = &self.key_access
@@ -402,13 +459,13 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
             },
             consistency: self.consistency,
         };
-        let logical = match self.group.clone() {
-            Some(group) => LogicalPlan::Grouped(GroupPlan { scalar, group }),
-            None => LogicalPlan::Scalar(scalar),
-        };
-        let plan = AccessPlannedQuery::from_parts(logical, access_plan_value);
+        let mut plan =
+            AccessPlannedQuery::from_parts(LogicalPlan::Scalar(scalar), access_plan_value);
+        if let Some(group) = self.group.clone() {
+            plan = plan.into_grouped(group);
+        }
 
-        if matches!(&plan.logical, LogicalPlan::Grouped(_)) {
+        if plan.grouped_plan().is_some() {
             validate_group_query_semantics(&schema_info, self.model, &plan)?;
         } else {
             validate_query_semantics(&schema_info, self.model, &plan)?;
@@ -562,6 +619,75 @@ impl<E: EntityKind> Query<E> {
     #[must_use]
     pub fn distinct(mut self) -> Self {
         self.intent = self.intent.distinct();
+        self
+    }
+
+    /// Add one GROUP BY field.
+    pub fn group_by(self, field: impl AsRef<str>) -> Result<Self, QueryError> {
+        let Self { intent, _marker } = self;
+        let intent = intent.push_group_field(field.as_ref())?;
+
+        Ok(Self { intent, _marker })
+    }
+
+    /// Add one grouped `count(*)` terminal.
+    #[must_use]
+    pub fn group_count(mut self) -> Self {
+        self.intent = self
+            .intent
+            .push_group_aggregate(GroupAggregateKind::Count, None);
+        self
+    }
+
+    /// Add one grouped `exists` terminal.
+    #[must_use]
+    pub fn group_exists(mut self) -> Self {
+        self.intent = self
+            .intent
+            .push_group_aggregate(GroupAggregateKind::Exists, None);
+        self
+    }
+
+    /// Add one grouped `first` terminal.
+    #[must_use]
+    pub fn group_first(mut self) -> Self {
+        self.intent = self
+            .intent
+            .push_group_aggregate(GroupAggregateKind::First, None);
+        self
+    }
+
+    /// Add one grouped `last` terminal.
+    #[must_use]
+    pub fn group_last(mut self) -> Self {
+        self.intent = self
+            .intent
+            .push_group_aggregate(GroupAggregateKind::Last, None);
+        self
+    }
+
+    /// Add one grouped `min(<field>)` terminal.
+    #[must_use]
+    pub fn group_min_by(mut self, field: impl AsRef<str>) -> Self {
+        self.intent = self
+            .intent
+            .push_group_aggregate(GroupAggregateKind::Min, Some(field.as_ref().to_string()));
+        self
+    }
+
+    /// Add one grouped `max(<field>)` terminal.
+    #[must_use]
+    pub fn group_max_by(mut self, field: impl AsRef<str>) -> Self {
+        self.intent = self
+            .intent
+            .push_group_aggregate(GroupAggregateKind::Max, Some(field.as_ref().to_string()));
+        self
+    }
+
+    /// Override grouped hard limits for grouped execution budget enforcement.
+    #[must_use]
+    pub fn grouped_limits(mut self, max_groups: u64, max_group_bytes: u64) -> Self {
+        self.intent = self.intent.grouped_limits(max_groups, max_group_bytes);
         self
     }
 

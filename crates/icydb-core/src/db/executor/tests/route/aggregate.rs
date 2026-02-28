@@ -1,6 +1,7 @@
 use super::*;
-use crate::db::executor::{
-    ExecutionPreparation, IndexPredicateCompileMode, compile_index_predicate_program_from_slots,
+use crate::db::{
+    executor::ExecutionPreparation,
+    index::{IndexCompilePolicy, compile_index_program},
 };
 
 #[test]
@@ -717,15 +718,15 @@ fn route_matrix_index_predicate_compile_mode_subset_vs_strict_boundary_is_explic
     let index_slots = execution_preparation
         .slot_map()
         .expect("index-range plan should expose one resolvable index slot");
-    let subset_program = compile_index_predicate_program_from_slots(
-        predicate_slots,
+    let subset_program = compile_index_program(
+        predicate_slots.resolved(),
         index_slots,
-        IndexPredicateCompileMode::ConservativeSubset,
+        IndexCompilePolicy::ConservativeSubset,
     );
-    let strict_program = compile_index_predicate_program_from_slots(
-        predicate_slots,
+    let strict_program = compile_index_program(
+        predicate_slots.resolved(),
         index_slots,
-        IndexPredicateCompileMode::StrictAllOrNone,
+        IndexCompilePolicy::StrictAllOrNone,
     );
 
     assert!(

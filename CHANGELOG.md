@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Maintainer note: changelog entries that reach 4 lines or more should be split into subsection headers.
 
+## [0.33.0] - 2026-02-27 - Grouped Plan Activation
+
+### Added
+- Added an explicit grouped logical-plan contract so grouped intent is represented as a first-class planner variant.
+- Added grouped planning design and status documentation for the 0.33 integration track.
+- Added domain-scoped audit governance scaffolding with dedicated recurring domains and oneoff readiness coverage.
+
+### Changed
+- Changed planner emission to construct grouped logical plans directly when grouped intent is present.
+- Changed executor dispatch to branch explicitly on scalar versus grouped plans and reject grouped execution through a dedicated unsupported path while runtime remains gated.
+- Changed grouped handoff and route wiring to use the canonical access-planned query carrier for grouped metadata.
+- Changed audit governance layout to keep recurring audits domain-owned and historical reports grouped by day.
+- Changed governance rules so changelog and audit reporting workflows enforce stricter structural discipline.
+
+### Removed
+- Removed the temporary grouped wrapper plan type from the planning contract surface.
+- Removed flat recurring-audit placement in favor of domain subtrees under the normalized audit hierarchy.
+
+See detailed breakdown:
+`docs/changelog/0.33.0.md`
+
+---
+
 ## [0.32.3] - 2026-02-27 - Grouped Readiness Scaffolding
 
 ### 📝 Summary

@@ -1,10 +1,8 @@
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},
-        executor::{
-            ExecutionPreparation, IndexPredicateCompileMode, aggregate::AggregateKind,
-            compile_index_predicate_program_from_slots, load::LoadExecutor,
-        },
+        executor::{ExecutionPreparation, aggregate::AggregateKind, load::LoadExecutor},
+        index::{IndexCompilePolicy, compile_index_program},
         query::plan::AccessPlannedQuery,
     },
     traits::{EntityKind, EntityValue},
@@ -73,10 +71,10 @@ where
         // Route strict-mode uncertainty must remain aligned with the shared
         // kernel predicate compiler boundary.
         execution_preparation.strict_mode().is_none()
-            && compile_index_predicate_program_from_slots(
-                compiled_predicate,
+            && compile_index_program(
+                compiled_predicate.resolved(),
                 slot_map,
-                IndexPredicateCompileMode::StrictAllOrNone,
+                IndexCompilePolicy::StrictAllOrNone,
             )
             .is_none()
     }

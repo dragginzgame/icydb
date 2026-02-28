@@ -16,20 +16,28 @@ use crate::{
     db::{
         Db,
         access::AccessPlan,
-        cursor::{ContinuationToken, CursorBoundary, PlannedCursor, decode_pk_cursor_boundary},
+        cursor::{
+            ContinuationToken, CursorBoundary, GroupedContinuationToken, PlannedCursor,
+            decode_pk_cursor_boundary, round_trip_grouped_cursor_token,
+        },
         direction::Direction,
         executor::{
             AccessStreamBindings, ExecutablePlan, ExecutionKernel, ExecutionPreparation,
-            IndexPredicateCompileMode, KeyOrderComparator, OrderedKeyStreamBox,
+            KeyOrderComparator, OrderedKeyStreamBox,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, resolve_any_aggregate_target_slot,
                 resolve_numeric_aggregate_target_slot, resolve_orderable_aggregate_target_slot,
             },
+            group::{grouped_budget_observability, grouped_execution_context_from_planner_config},
             plan_metrics::{record_plan_metrics, record_rows_scanned},
             range_token_anchor_key, range_token_from_cursor_anchor, validate_executor_plan,
         },
+        index::IndexCompilePolicy,
         policy,
-        query::plan::{AccessPlannedQuery, LogicalPlan, OrderDirection},
+        query::{
+            grouped::grouped_executor_handoff,
+            plan::{AccessPlannedQuery, LogicalPlan, OrderDirection},
+        },
         response::Response,
     },
     error::InternalError,
@@ -235,13 +243,8 @@ where
         plan: ExecutablePlan<E>,
         cursor: impl Into<PlannedCursor>,
     ) -> Result<(CursorPage<E>, Option<ExecutionTrace>), InternalError> {
-        match &plan.as_inner().logical {
-            LogicalPlan::Scalar(_) => {}
-            LogicalPlan::Grouped(_) => {
-                return Err(InternalError::executor_unsupported(
-                    "grouped query execution is not yet enabled in this release",
-                ));
-            }
+        if matches!(&plan.as_inner().logical, LogicalPlan::Grouped(_)) {
+            return Self::execute_grouped_path(plan, cursor.into());
         }
 
         let cursor: PlannedCursor = plan.revalidate_cursor(cursor.into())?;
@@ -310,7 +313,7 @@ where
                 &route_plan,
                 cursor_boundary.as_ref(),
                 continuation_signature,
-                IndexPredicateCompileMode::ConservativeSubset,
+                IndexCompilePolicy::ConservativeSubset,
             )?;
             let page = materialized.page;
             let rows_scanned = materialized.rows_scanned;
@@ -334,6 +337,80 @@ where
         })();
 
         result.map(|page| (page, execution_trace))
+    }
+
+    // Wire grouped plans through handoff, route, grouped budget, and grouped
+    // cursor token contracts until grouped response surfaces are activated.
+    fn execute_grouped_path(
+        plan: ExecutablePlan<E>,
+        cursor: PlannedCursor,
+    ) -> Result<(CursorPage<E>, Option<ExecutionTrace>), InternalError> {
+        validate_executor_plan::<E>(plan.as_inner())?;
+        let grouped_handoff = grouped_executor_handoff(plan.as_inner())?;
+        let grouped_execution = grouped_handoff.execution();
+        let grouped_route_plan =
+            Self::build_execution_route_plan_for_grouped_handoff(grouped_handoff);
+        let grouped_route_observability =
+            grouped_route_plan.grouped_observability().ok_or_else(|| {
+                InternalError::query_executor_invariant(
+                    "grouped route planning must emit grouped observability payload",
+                )
+            })?;
+        let grouped_execution_context =
+            grouped_execution_context_from_planner_config(Some(grouped_execution));
+        let grouped_budget = grouped_budget_observability(&grouped_execution_context);
+        let grouped_cursor_probe = GroupedContinuationToken::new_with_direction(
+            plan.continuation_signature(),
+            Vec::new(),
+            Direction::Asc,
+            cursor.initial_offset(),
+        );
+        let grouped_cursor_probe_round_trip =
+            round_trip_grouped_cursor_token(&grouped_cursor_probe).map_err(|err| {
+                InternalError::query_executor_invariant(format!(
+                    "grouped continuation token round-trip failed: {err}"
+                ))
+            })?;
+
+        debug_assert_eq!(
+            grouped_cursor_probe_round_trip.signature(),
+            grouped_cursor_probe.signature(),
+            "grouped continuation token signature must round-trip"
+        );
+        debug_assert_eq!(
+            grouped_cursor_probe_round_trip.last_group_key(),
+            grouped_cursor_probe.last_group_key(),
+            "grouped continuation token group anchor must round-trip"
+        );
+        debug_assert_eq!(
+            grouped_cursor_probe_round_trip.direction(),
+            grouped_cursor_probe.direction(),
+            "grouped continuation token direction must round-trip"
+        );
+        debug_assert_eq!(
+            grouped_cursor_probe_round_trip.initial_offset(),
+            grouped_cursor_probe.initial_offset(),
+            "grouped continuation token initial offset must round-trip"
+        );
+        debug_assert!(grouped_cursor_probe.last_group_key().is_empty());
+        debug_assert_eq!(grouped_cursor_probe.direction(), Direction::Asc);
+        debug_assert_eq!(
+            grouped_cursor_probe.initial_offset(),
+            cursor.initial_offset(),
+        );
+        debug_assert!(
+            grouped_budget.max_groups() >= grouped_budget.groups()
+                && grouped_budget.max_group_bytes() >= grouped_budget.estimated_bytes()
+                && grouped_budget.aggregate_states() >= grouped_budget.groups(),
+            "grouped budget observability invariants must hold at grouped route entry"
+        );
+
+        let _ = grouped_route_observability.outcome();
+        let _ = grouped_route_observability.rejection_reason();
+
+        Err(InternalError::executor_unsupported(
+            "grouped execution route is active, but grouped response execution is not yet enabled",
+        ))
     }
 
     // Record shared observability outcome for any execution path.

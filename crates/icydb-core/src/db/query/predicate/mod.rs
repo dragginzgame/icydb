@@ -1,6 +1,8 @@
-pub(crate) mod normalize;
 #[cfg(test)]
 mod tests;
+
+pub(crate) mod normalize;
+pub(crate) mod runtime;
 pub(crate) mod validate;
 
 use crate::db::contracts::{Predicate, PredicateExecutionModel};

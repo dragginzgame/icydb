@@ -1,7 +1,7 @@
 use crate::{
     db::{
         contracts::{ComparePredicate, Predicate},
-        executor::eval_compare_values as eval_runtime_compare_values,
+        query::predicate::runtime::eval_compare_values as eval_runtime_compare_values,
     },
     traits::EntityValue,
     value::{TextMode, Value},

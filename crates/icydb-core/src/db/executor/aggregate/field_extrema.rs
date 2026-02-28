@@ -5,7 +5,6 @@ use crate::{
         direction::Direction,
         executor::{
             AccessStreamBindings, ExecutablePlan, ExecutionKernel, ExecutionPreparation,
-            IndexPredicateCompileMode,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, apply_aggregate_direction,
                 compare_entities_by_orderable_field, compare_entities_for_field_extrema,
@@ -15,6 +14,7 @@ use crate::{
             load::{ExecutionInputs, LoadExecutor},
             plan_metrics::record_rows_scanned,
         },
+        index::IndexCompilePolicy,
         response::Response,
     },
     error::InternalError,
@@ -126,7 +126,7 @@ impl ExecutionKernel {
         let mut resolved = Self::resolve_execution_key_stream(
             &execution_inputs,
             route_plan,
-            IndexPredicateCompileMode::StrictAllOrNone,
+            IndexCompilePolicy::StrictAllOrNone,
         )?;
         let (aggregate_output, keys_scanned) = LoadExecutor::<E>::fold_streaming_field_extrema(
             &prepared.ctx,

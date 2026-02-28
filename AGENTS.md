@@ -380,36 +380,8 @@ Code is considered non-trivial if it:
 
 * Commits: imperative mood, concise scope (e.g., "Fix index serialization").
 * PRs: clear description, rationale, before/after notes; include tests and docs updates.
-* Changelog: update `CHANGELOG.md` for user-visible changes (follow the rules below).
+* Changelog: update `CHANGELOG.md` for user-visible changes (follow `docs/governance/changelog.md`).
 * Releases: use `make patch|minor|major`; never hand-edit tags.
-
----
-
-## Changelog Rules
-
-* Keep the existing changelog structure and header format (e.g., `## [x.y.z] - YYYY-MM-DD - Short Title`).
-* Smaller changelog entries may omit the title segment; use `## [x.y.z] - YYYY-MM-DD` when no title is needed.
-* Changelog subsections are optional; include only the sections relevant to that release.
-* If an entry reaches 4 lines or more of changelog content, split it into subsection headers.
-* For small cleanup releases, prefer no subsection headers; use a short plain-language summary with a few concise bullets.
-* Exception: for structural cleanup/audit passes, use subsection headers and include an explicit `Audit` subsection with footprint stats.
-* If a section like `Changed` gets large, it is acceptable to split it into topic-based headers (for example `### 🔧 Changed - Aggregate Execution`, `### 🔧 Changed - Structure`) to improve readability.
-* Use a fixed emoji mapping for section headers so icons stay consistent across releases: `Added=➕`, `Changed=🔧`, `Fixed=🩹`, `Removed=🗑️`, `Breaking=⚠️`, `Migration Notes=🧭`, `Summary=📝`, `Cleanup=🧹`, `Audit=📊`, `Testing=🧪`, `Governance=🥾`, `Documentation=📚`.
-* Release flow is usually `make patch` then `cargo publish`.
-* When updating the changelog, target the upcoming release version (for example `0.13.2` while `Cargo.toml` is still `0.13.1`); do not assume changelog version equals the current `Cargo.toml` version.
-* Use the version the user specifies or the existing latest entry; do not create a new version header if the newest entry already exists (e.g., if `0.6.5` is present while the current version is `0.6.4`, add to `0.6.5`).
-* Write in plain, industry-friendly language: lead with the outcome and user impact, use technical terms only when they improve clarity.
-* Keep changelog writing concise and junior-friendly: use simple wording, avoid jargon, and prefer readability over exhaustive detail.
-* Keep changelog entries intentionally brief and non-technical by default; only include deep internal names when they are necessary for migration or debugging context.
-* Prefer a small number of consolidated bullets over long lists; merge related internal cleanup into one clear user-facing point.
-* Avoid deep implementation detail by default (module paths, helper names, internal routing terms) unless needed for migration/debugging.
-* Bullets should be short (1–2 sentences), avoid deep implementation details, and use inline code for API/type names.
-* Code examples are good when they help clarify behavior; include them only when relevant and keep them short.
-* Changelog bullets do not need to be single-line only; use extra sentence space when needed to preserve important context.
-* Do not add a `### 🧪 Testing` section for routine validation runs (for example `make check`, `make test`, `cargo test`); include `Testing` only when the release adds or changes tests, test coverage, or test tooling.
-* Prefer explaining **why** a change matters over listing only **what** changed.
-* Include code examples only when they are relevant to a developer (for example usage, migration, or behavior that is hard to infer from bullets alone).
-* Use fenced code blocks only when they add clarity; do not force them into every changelog entry.
 
 ---
 

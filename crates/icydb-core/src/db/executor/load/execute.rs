@@ -7,14 +7,13 @@ use crate::{
         executor::plan_metrics::set_rows_from_len,
         executor::{
             AccessPlanStreamRequest, AccessStreamBindings, ExecutionPlan, ExecutionPreparation,
-            IndexPredicateCompileMode, OrderedKeyStreamBox,
-            compile_index_predicate_program_from_slots, range_token_from_lowered_anchor,
+            OrderedKeyStreamBox, range_token_from_lowered_anchor,
             route::{
                 ExecutionMode, FastPathOrder, RoutedKeyStreamRequest,
                 ensure_load_fast_path_spec_arity, try_first_verified_fast_path_hit,
             },
         },
-        index::predicate::IndexPredicateExecution,
+        index::{IndexCompilePolicy, compile_index_program, predicate::IndexPredicateExecution},
         query::plan::AccessPlannedQuery,
     },
     error::InternalError,
@@ -96,7 +95,7 @@ where
     pub(in crate::db::executor) fn resolve_execution_key_stream_without_distinct(
         inputs: &ExecutionInputs<'_, E>,
         route_plan: &ExecutionPlan,
-        predicate_compile_mode: IndexPredicateCompileMode,
+        predicate_compile_mode: IndexCompilePolicy,
     ) -> Result<ResolvedExecutionKeyStream, InternalError> {
         let index_predicate_program =
             inputs
@@ -105,8 +104,8 @@ where
                 .and_then(|compiled_predicate| {
                     let slot_map = inputs.execution_preparation.slot_map()?;
 
-                    compile_index_predicate_program_from_slots(
-                        compiled_predicate,
+                    compile_index_program(
+                        compiled_predicate.resolved(),
                         slot_map,
                         predicate_compile_mode,
                     )

@@ -136,6 +136,24 @@ pub(in crate::db) fn revalidate_grouped_cursor(
     Ok(cursor)
 }
 
+/// Encode/decode one grouped continuation token through the cursor protocol
+/// boundary and return the decoded token.
+pub(in crate::db) fn round_trip_grouped_cursor_token(
+    token: &GroupedContinuationToken,
+) -> Result<GroupedContinuationToken, CursorPlanError> {
+    let wire = token
+        .encode()
+        .map_err(|err| CursorPlanError::InvalidContinuationCursorPayload {
+            reason: err.to_string(),
+        })?;
+
+    GroupedContinuationToken::decode(wire.as_slice()).map_err(|err| {
+        CursorPlanError::InvalidContinuationCursorPayload {
+            reason: err.to_string(),
+        }
+    })
+}
+
 /// Decode a typed primary-key cursor boundary for PK-ordered executor paths.
 pub(in crate::db) fn decode_pk_cursor_boundary<E>(
     boundary: Option<&CursorBoundary>,

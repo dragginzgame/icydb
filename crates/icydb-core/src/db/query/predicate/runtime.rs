@@ -60,29 +60,35 @@ pub(crate) enum ResolvedPredicate {
 }
 
 ///
-/// PredicateFieldSlots
+/// PredicateProgram
 ///
 /// Slot-resolved predicate program for runtime row filtering.
 /// Field names are resolved once during setup; evaluation is slot-only.
 ///
 
 #[derive(Clone, Debug)]
-pub(crate) struct PredicateFieldSlots {
+pub(crate) struct PredicateProgram {
     resolved: ResolvedPredicate,
 }
 
-impl PredicateFieldSlots {
-    /// Resolve a predicate into a slot-based executable form.
+impl PredicateProgram {
+    /// Compile a predicate into a slot-based executable form.
     #[must_use]
-    pub(crate) fn resolve<E: EntityKind>(predicate: &PredicateExecutionModel) -> Self {
-        let resolved = resolve_predicate_slots::<E>(predicate);
+    pub(crate) fn compile<E: EntityKind>(predicate: &PredicateExecutionModel) -> Self {
+        let resolved = compile_predicate_program::<E>(predicate);
 
         Self { resolved }
     }
 
+    /// Evaluate one precompiled predicate program against one entity.
+    #[must_use]
+    pub(crate) fn eval<E: EntityValue>(&self, entity: &E) -> bool {
+        eval_with_resolved_slots(entity, &self.resolved)
+    }
+
     /// Borrow the resolved predicate tree used by runtime evaluators.
     #[must_use]
-    pub(in crate::db) const fn resolved_predicate(&self) -> &ResolvedPredicate {
+    pub(in crate::db) const fn resolved(&self) -> &ResolvedPredicate {
         &self.resolved
     }
 
@@ -90,12 +96,6 @@ impl PredicateFieldSlots {
     pub(crate) const fn from_resolved_for_test(resolved: ResolvedPredicate) -> Self {
         Self { resolved }
     }
-}
-
-/// Evaluate one predicate against one entity using pre-resolved field slots.
-#[must_use]
-pub(crate) fn eval_with_slots<E: EntityValue>(entity: &E, slots: &PredicateFieldSlots) -> bool {
-    eval_with_resolved_slots(entity, &slots.resolved)
 }
 
 ///
@@ -111,7 +111,7 @@ enum FieldPresence {
 }
 
 // Compile field-name predicates to stable field-slot predicates once per query.
-fn resolve_predicate_slots<E: EntityKind>(
+fn compile_predicate_program<E: EntityKind>(
     predicate: &PredicateExecutionModel,
 ) -> ResolvedPredicate {
     fn resolve_field<E: EntityKind>(field_name: &str) -> Option<usize> {
@@ -124,17 +124,17 @@ fn resolve_predicate_slots<E: EntityKind>(
         Predicate::And(children) => ResolvedPredicate::And(
             children
                 .iter()
-                .map(resolve_predicate_slots::<E>)
+                .map(compile_predicate_program::<E>)
                 .collect::<Vec<_>>(),
         ),
         Predicate::Or(children) => ResolvedPredicate::Or(
             children
                 .iter()
-                .map(resolve_predicate_slots::<E>)
+                .map(compile_predicate_program::<E>)
                 .collect::<Vec<_>>(),
         ),
         Predicate::Not(inner) => {
-            ResolvedPredicate::Not(Box::new(resolve_predicate_slots::<E>(inner)))
+            ResolvedPredicate::Not(Box::new(compile_predicate_program::<E>(inner)))
         }
         Predicate::Compare(ComparePredicate {
             field,

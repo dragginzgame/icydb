@@ -103,46 +103,6 @@ fn aggregate_fast_path_dispatch_requires_verified_gate_marker() {
 }
 
 #[test]
-fn strict_index_predicate_compile_policy_has_one_executor_source_of_truth() {
-    let planner_source = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/src/db/executor/tests/route/",
-        "../../route/planner.rs"
-    ));
-    let planner_fast_path_source = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/src/db/executor/tests/route/",
-        "../../route/fast_path.rs"
-    ));
-    let executor_compile_source = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/src/db/executor/tests/route/",
-        "../../index_predicate/mod.rs"
-    ));
-
-    assert!(
-        !planner_source.contains(".compile_index_program_strict("),
-        "route planner must not compile strict index predicates directly; use shared executor helper",
-    );
-    assert!(
-        !planner_fast_path_source.contains(".compile_index_program_strict("),
-        "route planner helper modules must not compile strict index predicates directly; use shared executor helper",
-    );
-    assert!(
-        planner_fast_path_source.contains("compile_index_predicate_program_from_slots("),
-        "route planner strict predicate policy must call the shared executor compile helper",
-    );
-    assert!(
-        executor_compile_source.contains("match mode"),
-        "executor predicate compile helper must own the compile-mode switch boundary",
-    );
-    assert!(
-        executor_compile_source.contains("IndexPredicateCompileMode::StrictAllOrNone"),
-        "executor predicate compile helper must include strict all-or-none compilation policy",
-    );
-}
-
-#[test]
 fn aggregate_fast_path_folding_uses_shared_stream_helpers() {
     let aggregate_fast_path_source = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),

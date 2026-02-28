@@ -1,11 +1,9 @@
 use crate::{
     db::{
-        executor::{
-            IndexPredicateCompileMode, compile_index_predicate_program_from_slots,
-            load::LoadExecutor, predicate_runtime::PredicateFieldSlots,
-        },
-        index::IndexPredicateProgram,
+        executor::load::LoadExecutor,
+        index::{IndexCompilePolicy, IndexPredicateProgram, compile_index_program},
         query::plan::AccessPlannedQuery,
+        query::predicate::runtime::PredicateProgram,
     },
     traits::{EntityKind, EntityValue},
 };
@@ -19,7 +17,7 @@ use crate::{
 
 #[derive(Clone)]
 pub(in crate::db::executor) struct ExecutionPreparation {
-    compiled_predicate: Option<PredicateFieldSlots>,
+    compiled_predicate: Option<PredicateProgram>,
     slot_map: Option<Vec<usize>>,
     strict_mode: Option<IndexPredicateProgram>,
 }
@@ -35,16 +33,14 @@ impl ExecutionPreparation {
             .scalar_plan()
             .predicate
             .as_ref()
-            .map(PredicateFieldSlots::resolve::<E>);
+            .map(PredicateProgram::compile::<E>);
         let slot_map = LoadExecutor::<E>::resolved_index_slots_for_access_path(&plan.access);
         let strict_mode = match (compiled_predicate.as_ref(), slot_map.as_deref()) {
-            (Some(compiled_predicate), Some(slot_map)) => {
-                compile_index_predicate_program_from_slots(
-                    compiled_predicate,
-                    slot_map,
-                    IndexPredicateCompileMode::StrictAllOrNone,
-                )
-            }
+            (Some(compiled_predicate), Some(slot_map)) => compile_index_program(
+                compiled_predicate.resolved(),
+                slot_map,
+                IndexCompilePolicy::StrictAllOrNone,
+            ),
             (Some(_) | None, None) | (None, Some(_)) => None,
         };
         Self {
@@ -55,7 +51,7 @@ impl ExecutionPreparation {
     }
 
     #[must_use]
-    pub(in crate::db::executor) const fn compiled_predicate(&self) -> Option<&PredicateFieldSlots> {
+    pub(in crate::db::executor) const fn compiled_predicate(&self) -> Option<&PredicateProgram> {
         self.compiled_predicate.as_ref()
     }
 

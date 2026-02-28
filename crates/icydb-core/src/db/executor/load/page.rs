@@ -4,11 +4,9 @@ use crate::{
         cursor::{ContinuationSignature, CursorBoundary},
         direction::Direction,
         executor::load::{CursorPage, LoadExecutor},
-        executor::{
-            BudgetedOrderedKeyStream, ExecutionKernel, OrderedKeyStream,
-            predicate_runtime::PredicateFieldSlots,
-        },
+        executor::{BudgetedOrderedKeyStream, ExecutionKernel, OrderedKeyStream},
         query::plan::AccessPlannedQuery,
+        query::predicate::runtime::PredicateProgram,
         response::Response,
     },
     error::InternalError,
@@ -25,7 +23,7 @@ where
     pub(in crate::db::executor) fn materialize_key_stream_into_page(
         ctx: &Context<'_, E>,
         plan: &AccessPlannedQuery<E::Key>,
-        predicate_slots: Option<&PredicateFieldSlots>,
+        predicate_slots: Option<&PredicateProgram>,
         key_stream: &mut dyn OrderedKeyStream,
         scan_budget_hint: Option<usize>,
         streaming_access_shape_safe: bool,
@@ -74,7 +72,7 @@ where
     // Apply canonical post-access phases to scanned rows and assemble the cursor page.
     fn finalize_rows_into_page(
         plan: &AccessPlannedQuery<E::Key>,
-        predicate_slots: Option<&PredicateFieldSlots>,
+        predicate_slots: Option<&PredicateProgram>,
         rows: &mut Vec<(Id<E>, E)>,
         cursor_boundary: Option<&CursorBoundary>,
         direction: Direction,

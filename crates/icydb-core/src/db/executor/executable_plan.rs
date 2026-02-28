@@ -1,7 +1,10 @@
 use crate::{
     db::{
         access::AccessPlan,
-        cursor::{ContinuationSignature, PlannedCursor},
+        cursor::{
+            ContinuationSignature, GroupedPlannedCursor, PlannedCursor, prepare_grouped_cursor,
+            revalidate_grouped_cursor,
+        },
         executor::{
             ExecutorPlanError, LOWERED_INDEX_PREFIX_SPEC_INVALID, LOWERED_INDEX_RANGE_SPEC_INVALID,
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec, lower_index_prefix_specs,
@@ -104,6 +107,19 @@ impl<E: EntityKind> ExecutablePlan<E> {
     where
         E::Key: FieldValue,
     {
+        if matches!(&self.plan.logical, LogicalPlan::Grouped(_)) {
+            let order = self.plan.scalar_plan().order.as_ref();
+            let _ = prepare_grouped_cursor(
+                E::PATH,
+                order,
+                self.continuation_signature(),
+                Self::initial_page_offset(&self.plan.logical),
+                cursor,
+            )?;
+
+            return Ok(PlannedCursor::none());
+        }
+
         let direction = derive_primary_scan_direction(self.plan.scalar_plan().order.as_ref());
         crate::db::cursor::prepare_cursor::<E>(
             &self.plan,
@@ -166,6 +182,16 @@ impl<E: EntityKind> ExecutablePlan<E> {
     where
         E::Key: FieldValue,
     {
+        if matches!(&self.plan.logical, LogicalPlan::Grouped(_)) {
+            let _ = revalidate_grouped_cursor(
+                Self::initial_page_offset(&self.plan.logical),
+                GroupedPlannedCursor::none(),
+            )
+            .map_err(|err| InternalError::from_cursor_plan_error(PlanError::from(err)))?;
+
+            return Ok(PlannedCursor::none());
+        }
+
         let direction = derive_primary_scan_direction(self.plan.scalar_plan().order.as_ref());
         crate::db::cursor::revalidate_cursor::<E>(
             &self.plan,

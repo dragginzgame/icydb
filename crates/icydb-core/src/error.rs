@@ -1,9 +1,7 @@
 use crate::{
     db::{
-        access::AccessPlanError,
-        cursor::CursorPlanError,
-        policy::PlanPolicyError,
-        query::plan::{PlanError, validate::GroupPlanError},
+        access::AccessPlanError, cursor::CursorPlanError, policy::PlanPolicyError,
+        query::plan::PlanError,
     },
     patch::MergePatchError,
 };
@@ -392,33 +390,15 @@ impl InternalError {
         Self::query_invariant(message)
     }
 
-    /// Map grouped plan-surface failures into query invalid-plan invariants.
+    /// Map grouped plan failures into query-boundary invariants.
+    #[cfg(test)]
     pub(crate) fn from_group_plan_error(err: PlanError) -> Self {
-        let reason = match &err {
-            PlanError::Group(inner) => match inner.as_ref() {
-                GroupPlanError::GroupedLogicalPlanRequired => {
-                    "group query validation requires grouped logical plan variant".to_string()
-                }
-                GroupPlanError::EmptyGroupFields => {
-                    "group specification must include at least one group field".to_string()
-                }
-                GroupPlanError::EmptyAggregates => {
-                    "group specification must include at least one aggregate terminal".to_string()
-                }
-                GroupPlanError::UnknownGroupField { field } => {
-                    format!("unknown group field '{field}'")
-                }
-                GroupPlanError::UnknownAggregateTargetField { index, field } => {
-                    format!("unknown grouped aggregate target field at index={index}: '{field}'")
-                }
-                GroupPlanError::FieldTargetRequiresExtrema { index, kind, field } => format!(
-                    "grouped aggregate at index={index} requires MIN/MAX when targeting field '{field}': found {kind}"
-                ),
-            },
+        let message = match &err {
+            PlanError::Group(inner) => format!("invalid logical plan: {inner}"),
             _ => err.to_string(),
         };
 
-        Self::query_invalid_logical_plan(reason)
+        Self::query_invariant(message)
     }
 
     /// Map shared access-validation failures into executor-boundary invariants.
@@ -566,6 +546,7 @@ impl fmt::Display for ErrorOrigin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::query::plan::validate::GroupPlanError;
 
     #[test]
     fn index_plan_index_corruption_uses_index_origin() {

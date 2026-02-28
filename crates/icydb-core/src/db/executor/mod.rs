@@ -3,14 +3,12 @@ mod context;
 mod delete;
 mod executable_plan;
 pub(in crate::db) mod group;
-mod index_predicate;
 mod kernel;
 pub(super) mod load;
 mod mutation;
 mod physical_path;
 mod plan_metrics;
 mod plan_validate;
-mod predicate_runtime;
 mod preparation;
 mod query_plan;
 pub(super) mod route;
@@ -34,16 +32,11 @@ use crate::db::{
 pub(super) use context::*;
 pub(super) use delete::DeleteExecutor;
 pub(in crate::db) use executable_plan::ExecutablePlan;
-pub(in crate::db::executor) use index_predicate::{
-    IndexPredicateCompileMode, compile_index_predicate_program_from_slots,
-};
 pub(in crate::db::executor) use kernel::{ExecutionKernel, PlanRow};
 pub(super) use load::LoadExecutor;
 pub use load::{ExecutionAccessPathVariant, ExecutionOptimization, ExecutionTrace};
 pub(super) use mutation::save::SaveExecutor;
 pub(in crate::db::executor) use plan_validate::validate_executor_plan;
-#[cfg(test)]
-pub(in crate::db) use predicate_runtime::eval_compare_values;
 pub(in crate::db::executor) use preparation::ExecutionPreparation;
 pub(super) use stream::{
     access::*,

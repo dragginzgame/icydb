@@ -2,7 +2,7 @@ mod distinct;
 mod post_access;
 mod reducer;
 
-pub(in crate::db::executor) use crate::db::executor::index_predicate::IndexPredicateCompileMode;
+pub(in crate::db::executor) use crate::db::index::IndexCompilePolicy;
 #[allow(unused_imports)]
 pub(in crate::db::executor) use post_access::{PlanRow, PostAccessStats};
 
@@ -37,7 +37,7 @@ impl ExecutionKernel {
     pub(in crate::db::executor) fn resolve_execution_key_stream<E>(
         inputs: &ExecutionInputs<'_, E>,
         route_plan: &ExecutionPlan,
-        predicate_compile_mode: IndexPredicateCompileMode,
+        predicate_compile_mode: IndexCompilePolicy,
     ) -> Result<ResolvedExecutionKeyStream, InternalError>
     where
         E: EntityKind + EntityValue,
@@ -71,7 +71,7 @@ impl ExecutionKernel {
         route_plan: &ExecutionPlan,
         cursor_boundary: Option<&CursorBoundary>,
         continuation_signature: ContinuationSignature,
-        predicate_compile_mode: IndexPredicateCompileMode,
+        predicate_compile_mode: IndexCompilePolicy,
     ) -> Result<MaterializedExecutionAttempt<E>, InternalError>
     where
         E: EntityKind + EntityValue,
