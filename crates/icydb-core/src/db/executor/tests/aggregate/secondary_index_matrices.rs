@@ -387,7 +387,7 @@ fn aggregate_exists_secondary_index_strict_missing_surfaces_corruption_error() {
         },
         MissingRowPolicy::Error,
     );
-    logical_plan.order = Some(crate::db::query::plan::OrderSpec {
+    logical_plan.scalar_plan_mut().order = Some(crate::db::query::plan::OrderSpec {
         fields: vec![
             (
                 "rank".to_string(),

@@ -5,6 +5,18 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.36.x] - 2026-03-01 - Ordered Group Strategy Foundations
+
+- Started the `0.36` grouped hardening line by formalizing explicit grouped strategy selection (`HashGroup` vs `OrderedGroup`) and landing a conservative grouped HAVING baseline.
+- Added deterministic grouped strategy/HAVING reporting across route observability, explain output, and grouped continuation-signature hashing.
+- Kept grouped behavior compatible by evaluating HAVING after per-group finalize (before emission) and by revalidating ordered hints at route time with hash fallback when ordered traversal guarantees are unavailable.
+- Removed test-only implicit plan deref coercions in favor of explicit grouped/scalar helper accessors to keep plan shape usage explicit in tests and tooling.
+
+See detailed breakdown:
+[docs/changelog/0.36.md](docs/changelog/0.36.md)
+
+---
+
 ## [0.35.x] - 2026-03-01 - GROUP BY
 
 - Added fluent `GROUP BY` builders and grouped execution entrypoints, including grouped `min/max` id terminals and grouped pagination without requiring explicit `ORDER BY`.

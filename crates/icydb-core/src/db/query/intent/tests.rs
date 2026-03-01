@@ -264,6 +264,44 @@ fn grouped_load_order_prefix_alignment_is_allowed() {
 }
 
 #[test]
+fn grouped_having_requires_group_by() {
+    let err = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .having_group("name", CompareOp::Eq, Value::Text("alpha".to_string()))
+        .expect_err("having should fail when group_by is missing");
+
+    assert!(matches!(
+        err,
+        QueryError::Intent(IntentError::HavingRequiresGroupBy)
+    ));
+}
+
+#[test]
+fn grouped_having_with_distinct_is_rejected() {
+    let err = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .group_by("name")
+        .expect("group field should resolve")
+        .group_count()
+        .having_aggregate(0, CompareOp::Gt, Value::Uint(0))
+        .expect("having aggregate clause should append on grouped query")
+        .distinct()
+        .plan()
+        .expect_err("grouped having with distinct should be rejected in this release");
+
+    assert!(matches!(
+        err,
+        QueryError::Plan(ref plan_err)
+            if matches!(
+                **plan_err,
+                crate::db::query::plan::PlanError::Group(ref inner)
+                    if matches!(
+                        inner.as_ref(),
+                        crate::db::query::plan::validate::GroupPlanError::DistinctHavingUnsupported
+                    )
+            )
+    ));
+}
+
+#[test]
 fn load_rejects_duplicate_non_primary_order_field() {
     let err = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .order_by("name")
@@ -348,6 +386,7 @@ fn ordered_plan_appends_primary_key_tie_break() {
         .expect("ordered plan should build")
         .into_inner();
     let order = plan
+        .scalar_plan()
         .order
         .as_ref()
         .expect("ordered query should carry order spec");
@@ -371,6 +410,7 @@ fn ordered_plan_moves_primary_key_to_terminal_position() {
         .expect("ordered plan should build")
         .into_inner();
     let order = plan
+        .scalar_plan()
         .order
         .as_ref()
         .expect("ordered query should carry order spec");
@@ -516,7 +556,7 @@ fn query_distinct_defaults_to_false() {
         .into_inner();
 
     assert!(
-        !plan.distinct,
+        !plan.scalar_plan().distinct,
         "distinct should default to false for new query intents"
     );
 }
@@ -530,7 +570,7 @@ fn query_distinct_sets_logical_plan_flag() {
         .into_inner();
 
     assert!(
-        plan.distinct,
+        plan.scalar_plan().distinct,
         "distinct should be true when query intent enables distinct"
     );
 }
@@ -581,7 +621,7 @@ fn filter_expr_resolves_loose_enum_stage_filters() {
         .expect("filter expr should lower");
     let plan = intent.build_plan_model().expect("plan should build");
 
-    let Some(Predicate::Compare(cmp)) = plan.predicate.as_ref() else {
+    let Some(Predicate::Compare(cmp)) = plan.scalar_plan().predicate.as_ref() else {
         panic!("expected compare predicate");
     };
     let Value::Enum(stage) = &cmp.value else {
@@ -624,7 +664,7 @@ fn direct_stage_filter_resolves_loose_enum_path() {
         .filter(predicate)
         .build_plan_model()
         .expect("direct filter should build");
-    let Some(Predicate::Compare(cmp)) = plan.predicate.as_ref() else {
+    let Some(Predicate::Compare(cmp)) = plan.scalar_plan().predicate.as_ref() else {
         panic!("expected compare predicate");
     };
     let Value::Enum(stage) = &cmp.value else {

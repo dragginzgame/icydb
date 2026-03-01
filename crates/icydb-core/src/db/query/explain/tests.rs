@@ -1,9 +1,13 @@
 use super::*;
 use crate::db::access::{AccessPath, AccessPlan};
-use crate::db::contracts::{MissingRowPolicy, Predicate};
+use crate::db::contracts::{CompareOp, MissingRowPolicy, Predicate};
 use crate::db::query::builder::field::FieldRef;
 use crate::db::query::intent::{KeyAccess, LoadSpec, QueryMode, access_plan_from_keys_value};
-use crate::db::query::plan::{AccessPlannedQuery, LogicalPlan, OrderDirection, OrderSpec};
+use crate::db::query::plan::{
+    AccessPlannedQuery, FieldSlot, GroupAggregateKind, GroupAggregateSpec, GroupHavingClause,
+    GroupHavingSpec, GroupHavingSymbol, GroupSpec, GroupedExecutionConfig, LogicalPlan,
+    OrderDirection, OrderSpec,
+};
 use crate::model::{field::FieldKind, index::IndexModel};
 use crate::traits::EntitySchema;
 use crate::types::Ulid;
@@ -36,7 +40,7 @@ fn explain_is_deterministic_for_same_query() {
     let predicate = FieldRef::new("id").eq(Ulid::default());
     let mut plan: AccessPlannedQuery<Value> =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
-    plan.predicate = Some(predicate);
+    plan.scalar_plan_mut().predicate = Some(predicate);
 
     assert_eq!(plan.explain(), plan.explain());
 }
@@ -56,11 +60,11 @@ fn explain_is_deterministic_for_equivalent_predicates() {
 
     let mut plan_a: AccessPlannedQuery<Value> =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
-    plan_a.predicate = Some(predicate_a);
+    plan_a.scalar_plan_mut().predicate = Some(predicate_a);
 
     let mut plan_b: AccessPlannedQuery<Value> =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
-    plan_b.predicate = Some(predicate_b);
+    plan_b.scalar_plan_mut().predicate = Some(predicate_b);
 
     assert_eq!(plan_a.explain(), plan_b.explain());
 }
@@ -138,6 +142,95 @@ fn explain_reports_deterministic_index_choice() {
 }
 
 #[test]
+fn explain_grouped_strategy_defaults_to_hash_group_for_full_scan_shapes() {
+    let grouped = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+        .into_grouped(GroupSpec {
+            group_fields: vec![
+                FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "rank")
+                    .expect("group field should resolve"),
+            ],
+            aggregates: vec![GroupAggregateSpec {
+                kind: GroupAggregateKind::Count,
+                target_field: None,
+            }],
+            execution: GroupedExecutionConfig::unbounded(),
+        });
+
+    let explain = grouped.explain();
+    assert!(matches!(
+        explain.grouping,
+        ExplainGrouping::Grouped {
+            strategy: ExplainGroupedStrategy::HashGroup,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn explain_grouped_strategy_reports_ordered_group_for_aligned_index_prefix_shapes() {
+    let grouped = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: PUSHDOWN_INDEX,
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    )
+    .into_grouped(GroupSpec {
+        group_fields: vec![
+            FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
+                .expect("group field should resolve"),
+        ],
+        aggregates: vec![GroupAggregateSpec {
+            kind: GroupAggregateKind::Count,
+            target_field: None,
+        }],
+        execution: GroupedExecutionConfig::unbounded(),
+    });
+
+    let explain = grouped.explain();
+    assert!(matches!(
+        explain.grouping,
+        ExplainGrouping::Grouped {
+            strategy: ExplainGroupedStrategy::OrderedGroup,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn explain_grouped_having_projection_is_reported() {
+    let grouped = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+        .into_grouped_with_having(
+            GroupSpec {
+                group_fields: vec![
+                    FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "rank")
+                        .expect("group field should resolve"),
+                ],
+                aggregates: vec![GroupAggregateSpec {
+                    kind: GroupAggregateKind::Count,
+                    target_field: None,
+                }],
+                execution: GroupedExecutionConfig::unbounded(),
+            },
+            Some(GroupHavingSpec {
+                clauses: vec![GroupHavingClause {
+                    symbol: GroupHavingSymbol::AggregateIndex(0),
+                    op: CompareOp::Gt,
+                    value: Value::Uint(1),
+                }],
+            }),
+        );
+
+    assert!(matches!(
+        grouped.explain().grouping,
+        ExplainGrouping::Grouped {
+            having: Some(_),
+            ..
+        }
+    ));
+}
+
+#[test]
 fn explain_differs_for_semantic_changes() {
     let plan_a: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
         AccessPath::ByKey(Value::Ulid(Ulid::from_u128(1))),
@@ -159,7 +252,7 @@ fn explain_with_model_does_not_evaluate_order_pushdown() {
         },
         MissingRowPolicy::Ignore,
     );
-    plan.order = Some(OrderSpec {
+    plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
 
@@ -179,7 +272,7 @@ fn explain_with_model_does_not_evaluate_descending_pushdown() {
         },
         MissingRowPolicy::Ignore,
     );
-    plan.order = Some(OrderSpec {
+    plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Desc)],
     });
 
@@ -230,7 +323,7 @@ fn explain_without_model_reports_missing_model_context() {
         },
         MissingRowPolicy::Ignore,
     );
-    plan.order = Some(OrderSpec {
+    plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
 

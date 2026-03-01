@@ -3,7 +3,10 @@
 //! Does not own: constructors, plan assembly, or semantic interpretation.
 //! Boundary: data-only types shared by plan builder/semantics/validation layers.
 
-use crate::db::predicate::{MissingRowPolicy, PredicateExecutionModel};
+use crate::{
+    db::predicate::{CompareOp, MissingRowPolicy, PredicateExecutionModel},
+    value::Value,
+};
 
 ///
 /// QueryMode
@@ -165,6 +168,48 @@ pub(crate) struct GroupSpec {
 }
 
 ///
+/// GroupHavingSymbol
+///
+/// Reference to one grouped HAVING input symbol.
+/// Group-field symbols reference resolved grouped key slots.
+/// Aggregate symbols reference grouped aggregate outputs by declaration index.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum GroupHavingSymbol {
+    GroupField(FieldSlot),
+    AggregateIndex(usize),
+}
+
+///
+/// GroupHavingClause
+///
+/// One conservative grouped HAVING clause.
+/// This clause model intentionally supports one symbol-to-literal comparison
+/// and excludes arbitrary expression trees in grouped v1.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct GroupHavingClause {
+    pub(crate) symbol: GroupHavingSymbol,
+    pub(crate) op: CompareOp,
+    pub(crate) value: Value,
+}
+
+///
+/// GroupHavingSpec
+///
+/// Declarative grouped HAVING specification evaluated after grouped
+/// aggregate finalization and before grouped pagination emission.
+/// Clauses are AND-composed in declaration order.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct GroupHavingSpec {
+    pub(crate) clauses: Vec<GroupHavingClause>,
+}
+
+///
 /// ScalarPlan
 ///
 /// Pure scalar logical query intent produced by the planner.
@@ -219,6 +264,7 @@ pub(crate) struct ScalarPlan {
 pub(crate) struct GroupPlan {
     pub(crate) scalar: ScalarPlan,
     pub(crate) group: GroupSpec,
+    pub(crate) having: Option<GroupHavingSpec>,
 }
 
 ///

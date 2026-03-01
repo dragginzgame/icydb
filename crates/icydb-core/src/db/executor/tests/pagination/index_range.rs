@@ -941,13 +941,13 @@ fn load_index_range_limit_pushdown_trace_reports_limited_access_rows_for_eligibl
         ),
         MissingRowPolicy::Ignore,
     );
-    logical.order = Some(OrderSpec {
+    logical.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
             ("tag".to_string(), OrderDirection::Asc),
             ("id".to_string(), OrderDirection::Asc),
         ],
     });
-    logical.page = Some(PageSpec {
+    logical.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(2),
         offset: 0,
     });
@@ -990,13 +990,13 @@ fn load_index_range_limit_pushdown_trace_reports_limited_access_rows_for_desc_el
         ),
         MissingRowPolicy::Ignore,
     );
-    logical.order = Some(OrderSpec {
+    logical.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
             ("tag".to_string(), OrderDirection::Desc),
             ("id".to_string(), OrderDirection::Desc),
         ],
     });
-    logical.page = Some(PageSpec {
+    logical.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(2),
         offset: 0,
     });
@@ -1036,13 +1036,13 @@ fn load_index_range_limit_zero_short_circuits_access_scan_for_eligible_plan() {
         ),
         MissingRowPolicy::Ignore,
     );
-    logical.order = Some(OrderSpec {
+    logical.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
             ("tag".to_string(), OrderDirection::Asc),
             ("id".to_string(), OrderDirection::Asc),
         ],
     });
-    logical.page = Some(PageSpec {
+    logical.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(0),
         offset: 0,
     });
@@ -1088,13 +1088,13 @@ fn load_index_range_limit_zero_with_offset_short_circuits_access_scan_for_eligib
         ),
         MissingRowPolicy::Ignore,
     );
-    logical.order = Some(OrderSpec {
+    logical.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
             ("tag".to_string(), OrderDirection::Asc),
             ("id".to_string(), OrderDirection::Asc),
         ],
     });
-    logical.page = Some(PageSpec {
+    logical.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(0),
         offset: 2,
     });
@@ -1146,14 +1146,14 @@ fn load_index_range_limit_pushdown_with_residual_predicate_reduces_access_rows()
         ),
         MissingRowPolicy::Ignore,
     );
-    fast_logical.predicate = Some(label_contains_keep.clone());
-    fast_logical.order = Some(OrderSpec {
+    fast_logical.scalar_plan_mut().predicate = Some(label_contains_keep.clone());
+    fast_logical.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
             ("tag".to_string(), OrderDirection::Asc),
             ("id".to_string(), OrderDirection::Asc),
         ],
     });
-    fast_logical.page = Some(PageSpec {
+    fast_logical.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(2),
         offset: 0,
     });
@@ -1161,18 +1161,18 @@ fn load_index_range_limit_pushdown_with_residual_predicate_reduces_access_rows()
 
     let mut fallback_logical =
         AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore);
-    fallback_logical.predicate = Some(Predicate::And(vec![
+    fallback_logical.scalar_plan_mut().predicate = Some(Predicate::And(vec![
         strict_compare_predicate("tag", CompareOp::Gte, Value::Uint(10)),
         strict_compare_predicate("tag", CompareOp::Lt, Value::Uint(21)),
         label_contains_keep,
     ]));
-    fallback_logical.order = Some(OrderSpec {
+    fallback_logical.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
             ("tag".to_string(), OrderDirection::Asc),
             ("id".to_string(), OrderDirection::Asc),
         ],
     });
-    fallback_logical.page = Some(PageSpec {
+    fallback_logical.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(2),
         offset: 0,
     });
@@ -1237,14 +1237,14 @@ fn load_index_range_limit_pushdown_residual_underfill_retries_without_pushdown()
         ),
         MissingRowPolicy::Ignore,
     );
-    fast_logical.predicate = Some(label_contains_keep.clone());
-    fast_logical.order = Some(OrderSpec {
+    fast_logical.scalar_plan_mut().predicate = Some(label_contains_keep.clone());
+    fast_logical.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
             ("tag".to_string(), OrderDirection::Asc),
             ("id".to_string(), OrderDirection::Asc),
         ],
     });
-    fast_logical.page = Some(PageSpec {
+    fast_logical.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(2),
         offset: 0,
     });
@@ -1252,18 +1252,18 @@ fn load_index_range_limit_pushdown_residual_underfill_retries_without_pushdown()
 
     let mut fallback_logical =
         AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore);
-    fallback_logical.predicate = Some(Predicate::And(vec![
+    fallback_logical.scalar_plan_mut().predicate = Some(Predicate::And(vec![
         strict_compare_predicate("tag", CompareOp::Gte, Value::Uint(10)),
         strict_compare_predicate("tag", CompareOp::Lt, Value::Uint(16)),
         label_contains_keep,
     ]));
-    fallback_logical.order = Some(OrderSpec {
+    fallback_logical.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
             ("tag".to_string(), OrderDirection::Asc),
             ("id".to_string(), OrderDirection::Asc),
         ],
     });
-    fallback_logical.page = Some(PageSpec {
+    fallback_logical.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(2),
         offset: 0,
     });
@@ -1338,14 +1338,14 @@ fn load_index_range_limit_pushdown_residual_predicate_parity_matches_canonical_f
             ),
             MissingRowPolicy::Ignore,
         );
-        fast_logical.predicate = Some(label_contains_keep.clone());
-        fast_logical.order = Some(OrderSpec {
+        fast_logical.scalar_plan_mut().predicate = Some(label_contains_keep.clone());
+        fast_logical.scalar_plan_mut().order = Some(OrderSpec {
             fields: vec![
                 ("tag".to_string(), OrderDirection::Asc),
                 ("id".to_string(), OrderDirection::Asc),
             ],
         });
-        fast_logical.page = Some(PageSpec {
+        fast_logical.scalar_plan_mut().page = Some(PageSpec {
             limit: Some(limit),
             offset,
         });
@@ -1353,18 +1353,18 @@ fn load_index_range_limit_pushdown_residual_predicate_parity_matches_canonical_f
 
         let mut fallback_logical =
             AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore);
-        fallback_logical.predicate = Some(Predicate::And(vec![
+        fallback_logical.scalar_plan_mut().predicate = Some(Predicate::And(vec![
             strict_compare_predicate("tag", CompareOp::Gte, Value::Uint(lower)),
             strict_compare_predicate("tag", CompareOp::Lt, Value::Uint(upper)),
             label_contains_keep,
         ]));
-        fallback_logical.order = Some(OrderSpec {
+        fallback_logical.scalar_plan_mut().order = Some(OrderSpec {
             fields: vec![
                 ("tag".to_string(), OrderDirection::Asc),
                 ("id".to_string(), OrderDirection::Asc),
             ],
         });
-        fallback_logical.page = Some(PageSpec {
+        fallback_logical.scalar_plan_mut().page = Some(PageSpec {
             limit: Some(limit),
             offset,
         });

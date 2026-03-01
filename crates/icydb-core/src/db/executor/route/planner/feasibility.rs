@@ -7,16 +7,17 @@ use crate::{
     db::{
         access::PushdownApplicability,
         cursor::CursorBoundary,
+        direction::Direction,
         executor::{
             RangeToken,
             aggregate::{AggregateKind, AggregateSpec},
             load::LoadExecutor,
             route::{
-                ContinuationMode, RouteWindowPlan, ScanHintPlan,
+                ContinuationMode, GroupedExecutionStrategy, RouteWindowPlan, ScanHintPlan,
                 planner::{RouteDerivationContext, RouteFeasibilityStage, RouteIntentStage},
             },
         },
-        query::plan::AccessPlannedQuery,
+        query::plan::{AccessPlannedQuery, GroupedPlanStrategyHint, grouped_plan_strategy_hint},
     },
     traits::{EntityKind, EntityValue},
 };
@@ -162,6 +163,15 @@ where
         } else {
             None
         };
+        let grouped_execution_strategy = if grouped {
+            Some(grouped_execution_strategy_for_plan_hint(
+                grouped_plan_strategy_hint(plan).unwrap_or(GroupedPlanStrategyHint::HashGroup),
+                direction,
+                capabilities.desc_physical_reverse_supported,
+            ))
+        } else {
+            None
+        };
 
         RouteDerivationContext {
             direction,
@@ -174,6 +184,25 @@ where
             count_pushdown_eligible,
             aggregate_physical_fetch_hint,
             aggregate_secondary_extrema_probe_fetch_hint,
+            grouped_execution_strategy,
+        }
+    }
+}
+
+// Resolve one route-level grouped strategy from planner hint + runtime direction capability.
+const fn grouped_execution_strategy_for_plan_hint(
+    plan_hint: GroupedPlanStrategyHint,
+    direction: Direction,
+    desc_physical_reverse_supported: bool,
+) -> GroupedExecutionStrategy {
+    match plan_hint {
+        GroupedPlanStrategyHint::OrderedGroup
+            if !matches!(direction, Direction::Desc) || desc_physical_reverse_supported =>
+        {
+            GroupedExecutionStrategy::OrderedGroup
+        }
+        GroupedPlanStrategyHint::OrderedGroup | GroupedPlanStrategyHint::HashGroup => {
+            GroupedExecutionStrategy::HashGroup
         }
     }
 }

@@ -17,7 +17,7 @@ use crate::{
     db::{
         access::{AccessPath, AccessPlan, AccessPlanError, canonical_by_keys_path},
         predicate::{
-            MissingRowPolicy, Predicate, SchemaInfo, ValidateError, normalize,
+            CompareOp, MissingRowPolicy, Predicate, SchemaInfo, ValidateError, normalize,
             normalize_enum_literals, reject_unsupported_query_features,
         },
         query::{
@@ -25,7 +25,8 @@ use crate::{
             expr::{FilterExpr, SortExpr, SortLowerError},
             plan::{
                 AccessPlannedQuery, CursorPagingPolicyError, DeleteLimitSpec,
-                FluentLoadPolicyViolation, GroupAggregateKind, GroupAggregateSpec, GroupSpec,
+                FluentLoadPolicyViolation, GroupAggregateKind, GroupAggregateSpec,
+                GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupSpec,
                 GroupedExecutionConfig, IntentKeyAccessKind as IntentValidationKeyAccessKind,
                 IntentKeyAccessPolicyViolation, IntentTerminalPolicyViolation, LogicalPlan,
                 OrderDirection, OrderSpec, PageSpec, PlanError, PlannerError, PolicyPlanError,
@@ -185,6 +186,7 @@ pub(crate) struct QueryModel<'m, K> {
     key_access: Option<KeyAccessState<K>>,
     key_access_conflict: bool,
     group: Option<crate::db::query::plan::GroupSpec>,
+    having: Option<GroupHavingSpec>,
     order: Option<OrderSpec>,
     distinct: bool,
     consistency: MissingRowPolicy,
@@ -200,6 +202,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
             key_access: None,
             key_access_conflict: false,
             group: None,
+            having: None,
             order: None,
             distinct: false,
             consistency,
@@ -341,6 +344,50 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         self
     }
 
+    // Append one grouped HAVING compare clause after GROUP BY terminal declaration.
+    fn push_having_clause(mut self, clause: GroupHavingClause) -> Result<Self, QueryError> {
+        if self.group.is_none() {
+            return Err(QueryError::Intent(IntentError::HavingRequiresGroupBy));
+        }
+
+        let having = self.having.get_or_insert(GroupHavingSpec {
+            clauses: Vec::new(),
+        });
+        having.clauses.push(clause);
+
+        Ok(self)
+    }
+
+    // Append one grouped HAVING clause that references one grouped key field.
+    fn push_having_group_clause(
+        self,
+        field: &str,
+        op: CompareOp,
+        value: Value,
+    ) -> Result<Self, QueryError> {
+        let field_slot = resolve_group_field_slot(self.model, field).map_err(QueryError::from)?;
+
+        self.push_having_clause(GroupHavingClause {
+            symbol: GroupHavingSymbol::GroupField(field_slot),
+            op,
+            value,
+        })
+    }
+
+    // Append one grouped HAVING clause that references one grouped aggregate output.
+    fn push_having_aggregate_clause(
+        self,
+        aggregate_index: usize,
+        op: CompareOp,
+        value: Value,
+    ) -> Result<Self, QueryError> {
+        self.push_having_clause(GroupHavingClause {
+            symbol: GroupHavingSymbol::AggregateIndex(aggregate_index),
+            op,
+            value,
+        })
+    }
+
     /// Track key-only access paths and detect conflicting key intents.
     fn set_key_access(mut self, kind: KeyAccessKind, access: KeyAccess<K>) -> Self {
         if let Some(existing) = &self.key_access
@@ -463,7 +510,10 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         let mut plan =
             AccessPlannedQuery::from_parts(LogicalPlan::Scalar(scalar), access_plan_value);
         if let Some(group) = self.group.clone() {
-            plan = plan.into_grouped(group);
+            plan = match self.having.clone() {
+                Some(having) => plan.into_grouped_with_having(group, Some(having)),
+                None => plan.into_grouped(group),
+            };
         }
 
         if plan.grouped_plan().is_some() {
@@ -490,6 +540,9 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
             self.predicate.is_some(),
         )
         .map_err(IntentError::from)?;
+        if self.having.is_some() && self.group.is_none() {
+            return Err(IntentError::HavingRequiresGroupBy);
+        }
 
         Ok(())
     }
@@ -727,6 +780,33 @@ impl<E: EntityKind> Query<E> {
         self
     }
 
+    /// Add one grouped HAVING compare clause over one grouped key field.
+    pub fn having_group(
+        self,
+        field: impl AsRef<str>,
+        op: CompareOp,
+        value: Value,
+    ) -> Result<Self, QueryError> {
+        let field = field.as_ref().to_owned();
+        let Self { intent, _marker } = self;
+        let intent = intent.push_having_group_clause(&field, op, value)?;
+
+        Ok(Self { intent, _marker })
+    }
+
+    /// Add one grouped HAVING compare clause over one grouped aggregate output.
+    pub fn having_aggregate(
+        self,
+        aggregate_index: usize,
+        op: CompareOp,
+        value: Value,
+    ) -> Result<Self, QueryError> {
+        let Self { intent, _marker } = self;
+        let intent = intent.push_having_aggregate_clause(aggregate_index, op, value)?;
+
+        Ok(Self { intent, _marker })
+    }
+
     /// Set the access path to a single primary key lookup.
     pub(crate) fn by_id(self, id: E::Key) -> Self {
         let Self { intent, _marker } = self;
@@ -896,6 +976,9 @@ pub enum IntentError {
 
     #[error("grouped field-target extrema are not supported in grouped v1")]
     GroupedFieldTargetExtremaUnsupported,
+
+    #[error("HAVING requires GROUP BY")]
+    HavingRequiresGroupBy,
 }
 
 impl From<CursorPagingPolicyError> for IntentError {

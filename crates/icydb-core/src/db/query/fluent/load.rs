@@ -6,7 +6,7 @@
 use crate::{
     db::{
         DbSession, PagedGroupedExecutionWithTrace, PagedLoadExecution, PagedLoadExecutionWithTrace,
-        predicate::Predicate,
+        predicate::{CompareOp, Predicate},
         query::{
             explain::ExplainPlan,
             expr::{FilterExpr, SortExpr},
@@ -183,6 +183,27 @@ where
     #[must_use]
     pub fn grouped_limits(self, max_groups: u64, max_group_bytes: u64) -> Self {
         self.map_query(|query| query.grouped_limits(max_groups, max_group_bytes))
+    }
+
+    /// Add one grouped HAVING compare clause over one grouped key field.
+    pub fn having_group(
+        self,
+        field: impl AsRef<str>,
+        op: CompareOp,
+        value: Value,
+    ) -> Result<Self, QueryError> {
+        let field = field.as_ref().to_owned();
+        self.try_map_query(|query| query.having_group(&field, op, value))
+    }
+
+    /// Add one grouped HAVING compare clause over one grouped aggregate output.
+    pub fn having_aggregate(
+        self,
+        aggregate_index: usize,
+        op: CompareOp,
+        value: Value,
+    ) -> Result<Self, QueryError> {
+        self.try_map_query(|query| query.having_aggregate(aggregate_index, op, value))
     }
 
     /// Bound the number of returned rows.

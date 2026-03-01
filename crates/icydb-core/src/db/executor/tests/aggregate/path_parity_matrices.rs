@@ -60,7 +60,7 @@ fn build_phase_composite_plan(
         MissingRowPolicy::Ignore,
     );
     logical_plan.access = access;
-    logical_plan.order = Some(crate::db::query::plan::OrderSpec {
+    logical_plan.scalar_plan_mut().order = Some(crate::db::query::plan::OrderSpec {
         fields: vec![(
             order_field.to_string(),
             crate::db::query::plan::OrderDirection::Asc,
@@ -423,13 +423,13 @@ fn aggregate_count_key_range_window_scans_offset_plus_limit() {
         },
         MissingRowPolicy::Ignore,
     );
-    logical_plan.order = Some(crate::db::query::plan::OrderSpec {
+    logical_plan.scalar_plan_mut().order = Some(crate::db::query::plan::OrderSpec {
         fields: vec![(
             "id".to_string(),
             crate::db::query::plan::OrderDirection::Asc,
         )],
     });
-    logical_plan.page = Some(crate::db::query::plan::PageSpec {
+    logical_plan.scalar_plan_mut().page = Some(crate::db::query::plan::PageSpec {
         limit: Some(2),
         offset: 1,
     });
@@ -468,7 +468,7 @@ fn aggregate_exists_index_range_window_scans_offset_plus_one() {
         ),
         MissingRowPolicy::Ignore,
     );
-    logical_plan.order = Some(crate::db::query::plan::OrderSpec {
+    logical_plan.scalar_plan_mut().order = Some(crate::db::query::plan::OrderSpec {
         fields: vec![
             (
                 "code".to_string(),
@@ -480,7 +480,7 @@ fn aggregate_exists_index_range_window_scans_offset_plus_one() {
             ),
         ],
     });
-    logical_plan.page = Some(crate::db::query::plan::PageSpec {
+    logical_plan.scalar_plan_mut().page = Some(crate::db::query::plan::PageSpec {
         limit: None,
         offset: 2,
     });

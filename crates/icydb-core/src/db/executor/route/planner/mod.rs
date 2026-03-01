@@ -26,9 +26,9 @@ use crate::{
 
 use crate::db::executor::route::{
     ContinuationMode, ExecutionMode, ExecutionModeRouteCase, ExecutionRoutePlan, FastPathOrder,
-    GroupedRouteDecisionOutcome, GroupedRouteObservability, GroupedRouteRejectionReason,
-    IndexRangeLimitSpec, MUTATION_FAST_PATH_ORDER, RouteCapabilities, RouteIntent, RouteWindowPlan,
-    ScanHintPlan,
+    GroupedExecutionStrategy, GroupedRouteDecisionOutcome, GroupedRouteObservability,
+    GroupedRouteRejectionReason, IndexRangeLimitSpec, MUTATION_FAST_PATH_ORDER, RouteCapabilities,
+    RouteIntent, RouteWindowPlan, ScanHintPlan,
 };
 
 ///
@@ -49,6 +49,8 @@ pub(in crate::db::executor::route::planner) struct RouteDerivationContext {
     pub(in crate::db::executor::route::planner) aggregate_physical_fetch_hint: Option<usize>,
     pub(in crate::db::executor::route::planner) aggregate_secondary_extrema_probe_fetch_hint:
         Option<usize>,
+    pub(in crate::db::executor::route::planner) grouped_execution_strategy:
+        Option<GroupedExecutionStrategy>,
 }
 
 ///
@@ -153,6 +155,7 @@ impl ExecutionRoutePlan {
                 load_scan_budget_hint: None,
             },
             aggregate_fold_mode: AggregateFoldMode::ExistingRows,
+            grouped_execution_strategy: None,
         }
     }
 
@@ -164,6 +167,10 @@ impl ExecutionRoutePlan {
     ) -> Option<GroupedRouteObservability> {
         match self.execution_mode_case {
             ExecutionModeRouteCase::AggregateGrouped => {
+                let grouped_execution_strategy = match self.grouped_execution_strategy {
+                    Some(strategy) => strategy,
+                    None => GroupedExecutionStrategy::HashGroup,
+                };
                 let eligible = self.fast_path_order.is_empty();
                 let (outcome, rejection_reason) = if !eligible {
                     (
@@ -181,6 +188,7 @@ impl ExecutionRoutePlan {
                     rejection_reason,
                     eligible,
                     execution_mode: self.execution_mode,
+                    grouped_execution_strategy,
                 })
             }
             _ => None,
@@ -363,6 +371,7 @@ where
                 .aggregate_secondary_extrema_probe_fetch_hint,
             scan_hints: derivation.scan_hints,
             aggregate_fold_mode: execution_stage.aggregate_fold_mode,
+            grouped_execution_strategy: derivation.grouped_execution_strategy,
         }
     }
 }

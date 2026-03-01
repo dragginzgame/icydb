@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn route_plan_mutation_is_materialized_with_no_fast_paths_or_hints() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
-    plan.mode = QueryMode::Delete(DeleteSpec::new());
+    plan.scalar_plan_mut().mode = QueryMode::Delete(DeleteSpec::new());
 
     let route_plan =
         LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_mutation(&plan)

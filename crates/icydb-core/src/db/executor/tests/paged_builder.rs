@@ -384,6 +384,75 @@ fn grouped_fluent_execute_supports_cursor_continuation() {
 }
 
 #[test]
+fn grouped_fluent_execute_having_filters_groups_without_extra_continuation() {
+    seed_grouped_phase_entities();
+    let session = DbSession::new(DB);
+
+    let page = session
+        .load::<PhaseEntity>()
+        .group_by("rank")
+        .expect("group field should resolve")
+        .group_count()
+        .having_aggregate(0, CompareOp::Gt, Value::Uint(1))
+        .expect("having clause should append on grouped query")
+        .limit(1)
+        .execute_grouped()
+        .expect("grouped having execution should succeed");
+
+    assert_eq!(
+        page.rows().len(),
+        1,
+        "having should keep only one grouped row"
+    );
+    assert_eq!(
+        page.rows()[0].group_key(),
+        &[Value::Uint(1)],
+        "having over count should keep rank=1 only"
+    );
+    assert_eq!(
+        page.rows()[0].aggregate_values(),
+        &[Value::Uint(2)],
+        "having-filtered group should preserve aggregate payload"
+    );
+    assert!(
+        page.continuation_cursor().is_none(),
+        "having-filtered grouped page should not emit continuation when no additional matching groups exist"
+    );
+}
+
+#[test]
+fn grouped_fluent_execute_having_supports_group_key_symbol_filtering() {
+    seed_grouped_phase_entities();
+    let session = DbSession::new(DB);
+
+    let page = session
+        .load::<PhaseEntity>()
+        .group_by("rank")
+        .expect("group field should resolve")
+        .group_count()
+        .having_group("rank", CompareOp::Eq, Value::Uint(2))
+        .expect("group-key having clause should append on grouped query")
+        .execute_grouped()
+        .expect("grouped having execution should succeed");
+
+    assert_eq!(
+        page.rows().len(),
+        1,
+        "group-key having should emit one matching group"
+    );
+    assert_eq!(
+        page.rows()[0].group_key(),
+        &[Value::Uint(2)],
+        "group-key having should keep only rank=2 group"
+    );
+    assert_eq!(
+        page.rows()[0].aggregate_values(),
+        &[Value::Uint(1)],
+        "group-key having should preserve grouped count payload"
+    );
+}
+
+#[test]
 fn grouped_fluent_execute_does_not_split_single_group_across_pages() {
     seed_single_group_phase_entities();
     let session = DbSession::new(DB);

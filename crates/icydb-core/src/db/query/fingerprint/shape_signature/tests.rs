@@ -9,7 +9,7 @@
 use crate::{
     db::{
         access::AccessPath,
-        contracts::{MissingRowPolicy, Predicate},
+        contracts::{CompareOp, MissingRowPolicy, Predicate},
         cursor::{
             ContinuationSignature, ContinuationToken, CursorBoundary, CursorBoundarySlot,
             IndexRangeCursorAnchor, TokenWireError,
@@ -20,7 +20,8 @@ use crate::{
             intent::{KeyAccess, LoadSpec, QueryMode, access_plan_from_keys_value},
             plan::OrderDirection,
             plan::{
-                AccessPlannedQuery, FieldSlot, GroupAggregateKind, GroupAggregateSpec, GroupSpec,
+                AccessPlannedQuery, FieldSlot, GroupAggregateKind, GroupAggregateSpec,
+                GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupSpec,
                 GroupedExecutionConfig, LogicalPlan, OrderSpec, PageSpec,
             },
         },
@@ -44,11 +45,11 @@ fn signature_is_deterministic_for_equivalent_predicates() {
 
     let mut plan_a: AccessPlannedQuery<Value> =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
-    plan_a.predicate = Some(predicate_a);
+    plan_a.scalar_plan_mut().predicate = Some(predicate_a);
 
     let mut plan_b: AccessPlannedQuery<Value> =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
-    plan_b.predicate = Some(predicate_b);
+    plan_b.scalar_plan_mut().predicate = Some(predicate_b);
 
     assert_eq!(
         plan_a.continuation_signature("tests::Entity"),
@@ -102,11 +103,11 @@ fn signature_excludes_pagination_window_state() {
     let mut plan_b: AccessPlannedQuery<Value> =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
 
-    plan_a.page = Some(PageSpec {
+    plan_a.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(10),
         offset: 0,
     });
-    plan_b.page = Some(PageSpec {
+    plan_b.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(10),
         offset: 999,
     });
@@ -124,10 +125,10 @@ fn signature_changes_when_order_changes() {
     let mut plan_b: AccessPlannedQuery<Value> =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
 
-    plan_a.order = Some(OrderSpec {
+    plan_a.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("name".to_string(), OrderDirection::Asc)],
     });
-    plan_b.order = Some(OrderSpec {
+    plan_b.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("name".to_string(), OrderDirection::Desc)],
     });
 
@@ -144,10 +145,10 @@ fn signature_changes_when_order_field_set_changes() {
     let mut plan_b: AccessPlannedQuery<Value> =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
 
-    plan_a.order = Some(OrderSpec {
+    plan_a.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("name".to_string(), OrderDirection::Asc)],
     });
-    plan_b.order = Some(OrderSpec {
+    plan_b.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("rank".to_string(), OrderDirection::Asc)],
     });
 
@@ -163,7 +164,7 @@ fn signature_changes_when_distinct_flag_changes() {
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     let mut plan_b: AccessPlannedQuery<Value> =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
-    plan_b.distinct = true;
+    plan_b.scalar_plan_mut().distinct = true;
 
     assert_ne!(
         plan_a.continuation_signature("tests::Entity"),
@@ -398,6 +399,53 @@ fn signature_changes_when_grouped_limits_change() {
     assert_ne!(
         grouped_a.continuation_signature("tests::Entity"),
         grouped_b.continuation_signature("tests::Entity")
+    );
+}
+
+#[test]
+fn signature_changes_when_grouped_having_changes() {
+    let grouped_having_gt: AccessPlannedQuery<Value> =
+        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+            .into_grouped_with_having(
+                GroupSpec {
+                    group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+                    aggregates: vec![GroupAggregateSpec {
+                        kind: GroupAggregateKind::Count,
+                        target_field: None,
+                    }],
+                    execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
+                },
+                Some(GroupHavingSpec {
+                    clauses: vec![GroupHavingClause {
+                        symbol: GroupHavingSymbol::AggregateIndex(0),
+                        op: CompareOp::Gt,
+                        value: Value::Uint(1),
+                    }],
+                }),
+            );
+    let grouped_having_gte: AccessPlannedQuery<Value> =
+        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+            .into_grouped_with_having(
+                GroupSpec {
+                    group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+                    aggregates: vec![GroupAggregateSpec {
+                        kind: GroupAggregateKind::Count,
+                        target_field: None,
+                    }],
+                    execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
+                },
+                Some(GroupHavingSpec {
+                    clauses: vec![GroupHavingClause {
+                        symbol: GroupHavingSymbol::AggregateIndex(0),
+                        op: CompareOp::Gte,
+                        value: Value::Uint(1),
+                    }],
+                }),
+            );
+
+    assert_ne!(
+        grouped_having_gt.continuation_signature("tests::Entity"),
+        grouped_having_gte.continuation_signature("tests::Entity")
     );
 }
 

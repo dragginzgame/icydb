@@ -7,7 +7,7 @@ use crate::db::{
 #[test]
 fn route_plan_aggregate_uses_route_owned_fast_path_order() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
-    plan.order = Some(OrderSpec {
+    plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
     let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
@@ -22,7 +22,7 @@ fn route_plan_aggregate_uses_route_owned_fast_path_order() {
 #[test]
 fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_paths() {
     let mut base = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
-    base.order = Some(OrderSpec {
+    base.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
     let grouped = base.into_grouped(GroupSpec {
@@ -63,12 +63,16 @@ fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_pat
         grouped_observability.execution_mode(),
         ExecutionMode::Materialized
     );
+    assert_eq!(
+        grouped_observability.grouped_execution_strategy(),
+        crate::db::executor::route::GroupedExecutionStrategy::HashGroup
+    );
 }
 
 #[test]
 fn route_plan_grouped_wrapper_keeps_blocking_shape_under_tight_budget_config() {
     let mut base = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
-    base.order = Some(OrderSpec {
+    base.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
     let grouped = base.into_grouped(GroupSpec {
@@ -108,6 +112,47 @@ fn route_plan_grouped_wrapper_keeps_blocking_shape_under_tight_budget_config() {
     assert_eq!(
         grouped_observability.execution_mode(),
         ExecutionMode::Materialized
+    );
+    assert_eq!(
+        grouped_observability.grouped_execution_strategy(),
+        crate::db::executor::route::GroupedExecutionStrategy::HashGroup
+    );
+}
+
+#[test]
+fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_index_prefix_shape() {
+    let grouped = AccessPlannedQuery::new(
+        AccessPath::<Ulid>::IndexPrefix {
+            index: ROUTE_MATRIX_INDEX_MODELS[0],
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    )
+    .into_grouped(GroupSpec {
+        group_fields: grouped_field_slots(&["rank"]),
+        aggregates: vec![GroupAggregateSpec {
+            kind: GroupAggregateKind::Count,
+            target_field: None,
+        }],
+        execution: GroupedExecutionConfig::unbounded(),
+    });
+
+    let route_plan =
+        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_grouped_handoff(
+            grouped_executor_handoff(&grouped)
+                .expect("grouped logical plans should build grouped handoff"),
+        );
+    let grouped_observability = route_plan
+        .grouped_observability()
+        .expect("grouped route should project grouped observability payload");
+
+    assert_eq!(
+        grouped_observability.grouped_execution_strategy(),
+        crate::db::executor::route::GroupedExecutionStrategy::OrderedGroup
+    );
+    assert_eq!(
+        grouped_observability.outcome(),
+        GroupedRouteDecisionOutcome::MaterializedFallback
     );
 }
 
@@ -233,12 +278,14 @@ fn route_plan_grouped_wrapper_observability_vector_is_frozen() {
         observability.rejection_reason(),
         observability.eligible(),
         observability.execution_mode(),
+        observability.grouped_execution_strategy(),
     );
     let expected = (
         GroupedRouteDecisionOutcome::MaterializedFallback,
         None,
         true,
         ExecutionMode::Materialized,
+        crate::db::executor::route::GroupedExecutionStrategy::HashGroup,
     );
 
     assert_eq!(actual, expected);
@@ -247,10 +294,10 @@ fn route_plan_grouped_wrapper_observability_vector_is_frozen() {
 #[test]
 fn route_matrix_aggregate_count_pk_order_is_streaming_keys_only() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
-    plan.order = Some(OrderSpec {
+    plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
-    plan.page = Some(PageSpec {
+    plan.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(4),
         offset: 2,
     });
@@ -270,7 +317,7 @@ fn route_matrix_aggregate_count_pk_order_is_streaming_keys_only() {
 #[test]
 fn route_matrix_aggregate_fold_mode_contract_maps_non_count_to_existing_rows() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
-    plan.order = Some(OrderSpec {
+    plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
     for kind in [
@@ -301,7 +348,7 @@ fn route_matrix_aggregate_count_secondary_shape_materializes() {
         },
         MissingRowPolicy::Ignore,
     );
-    plan.order = Some(OrderSpec {
+    plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
             ("rank".to_string(), OrderDirection::Asc),
             ("id".to_string(), OrderDirection::Asc),
@@ -322,11 +369,11 @@ fn route_matrix_aggregate_count_secondary_shape_materializes() {
 #[test]
 fn route_matrix_aggregate_distinct_offset_last_disables_probe_hint() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
-    plan.order = Some(OrderSpec {
+    plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Desc)],
     });
-    plan.distinct = true;
-    plan.page = Some(PageSpec {
+    plan.scalar_plan_mut().distinct = true;
+    plan.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(3),
         offset: 1,
     });
@@ -346,11 +393,11 @@ fn route_matrix_aggregate_distinct_offset_last_disables_probe_hint() {
 #[test]
 fn route_matrix_aggregate_distinct_offset_disables_bounded_probe_hints_for_terminals() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
-    plan.order = Some(OrderSpec {
+    plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
-    plan.distinct = true;
-    plan.page = Some(PageSpec {
+    plan.scalar_plan_mut().distinct = true;
+    plan.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(3),
         offset: 1,
     });
@@ -390,10 +437,10 @@ fn route_matrix_aggregate_by_keys_desc_disables_probe_hint_without_reverse_suppo
         ]),
         MissingRowPolicy::Ignore,
     );
-    plan.order = Some(OrderSpec {
+    plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Desc)],
     });
-    plan.page = Some(PageSpec {
+    plan.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(2),
         offset: 1,
     });
@@ -416,13 +463,13 @@ fn route_matrix_aggregate_secondary_extrema_probe_hints_lock_offset_plus_one() {
         },
         MissingRowPolicy::Ignore,
     );
-    plan.order = Some(OrderSpec {
+    plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
             ("rank".to_string(), OrderDirection::Asc),
             ("id".to_string(), OrderDirection::Asc),
         ],
     });
-    plan.page = Some(PageSpec {
+    plan.scalar_plan_mut().page = Some(PageSpec {
         limit: None,
         offset: 2,
     });
@@ -450,7 +497,7 @@ fn route_matrix_aggregate_secondary_extrema_probe_hints_lock_offset_plus_one() {
         "secondary extrema probe hints must stay route-owned and Min/Max-only"
     );
 
-    plan.order = Some(OrderSpec {
+    plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
             ("rank".to_string(), OrderDirection::Desc),
             ("id".to_string(), OrderDirection::Desc),
@@ -481,13 +528,13 @@ fn route_matrix_aggregate_index_range_desc_with_window_enables_pushdown_hint() {
         ),
         MissingRowPolicy::Ignore,
     );
-    plan.order = Some(OrderSpec {
+    plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
             ("rank".to_string(), OrderDirection::Desc),
             ("id".to_string(), OrderDirection::Desc),
         ],
     });
-    plan.page = Some(PageSpec {
+    plan.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(2),
         offset: 1,
     });
@@ -509,7 +556,7 @@ fn route_matrix_aggregate_index_range_desc_with_window_enables_pushdown_hint() {
 fn route_matrix_aggregate_count_pushdown_boundary_matrix() {
     let mut full_scan =
         AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
-    full_scan.order = Some(OrderSpec {
+    full_scan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
     let full_scan_route =
@@ -530,7 +577,7 @@ fn route_matrix_aggregate_count_pushdown_boundary_matrix() {
         },
         MissingRowPolicy::Ignore,
     );
-    key_range.order = Some(OrderSpec {
+    key_range.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
     let key_range_route =
@@ -551,7 +598,7 @@ fn route_matrix_aggregate_count_pushdown_boundary_matrix() {
         },
         MissingRowPolicy::Ignore,
     );
-    secondary.order = Some(OrderSpec {
+    secondary.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
             ("rank".to_string(), OrderDirection::Asc),
             ("id".to_string(), OrderDirection::Asc),
@@ -577,13 +624,13 @@ fn route_matrix_aggregate_count_pushdown_boundary_matrix() {
         ),
         MissingRowPolicy::Ignore,
     );
-    index_range.order = Some(OrderSpec {
+    index_range.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
             ("rank".to_string(), OrderDirection::Asc),
             ("id".to_string(), OrderDirection::Asc),
         ],
     });
-    index_range.page = Some(PageSpec {
+    index_range.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(2),
         offset: 1,
     });
@@ -612,13 +659,13 @@ fn route_matrix_secondary_extrema_probe_eligibility_is_min_max_only() {
         },
         MissingRowPolicy::Ignore,
     );
-    plan.order = Some(OrderSpec {
+    plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
             ("rank".to_string(), OrderDirection::Asc),
             ("id".to_string(), OrderDirection::Asc),
         ],
     });
-    plan.page = Some(PageSpec {
+    plan.scalar_plan_mut().page = Some(PageSpec {
         limit: None,
         offset: 2,
     });
@@ -649,7 +696,7 @@ fn route_matrix_secondary_extrema_probe_eligibility_is_min_max_only() {
     assert_eq!(exists_asc.secondary_extrema_probe_fetch_hint(), None);
     assert_eq!(last_asc.secondary_extrema_probe_fetch_hint(), None);
 
-    plan.order = Some(OrderSpec {
+    plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
             ("rank".to_string(), OrderDirection::Desc),
             ("id".to_string(), OrderDirection::Desc),
@@ -678,20 +725,20 @@ fn route_matrix_index_predicate_compile_mode_subset_vs_strict_boundary_is_explic
         ),
         MissingRowPolicy::Ignore,
     );
-    plan.predicate = Some(Predicate::And(vec![
+    plan.scalar_plan_mut().predicate = Some(Predicate::And(vec![
         Predicate::eq("rank".to_string(), Value::Uint(12)),
         Predicate::TextContains {
             field: "label".to_string(),
             value: Value::Text("keep".to_string()),
         },
     ]));
-    plan.order = Some(OrderSpec {
+    plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
             ("rank".to_string(), OrderDirection::Asc),
             ("id".to_string(), OrderDirection::Asc),
         ],
     });
-    plan.page = Some(PageSpec {
+    plan.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(2),
         offset: 0,
     });
@@ -735,14 +782,15 @@ fn route_matrix_aggregate_strict_compile_uncertainty_forces_materialized_executi
         ),
         MissingRowPolicy::Ignore,
     );
-    strict_compatible.predicate = Some(Predicate::eq("rank".to_string(), Value::Uint(12)));
-    strict_compatible.order = Some(OrderSpec {
+    strict_compatible.scalar_plan_mut().predicate =
+        Some(Predicate::eq("rank".to_string(), Value::Uint(12)));
+    strict_compatible.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
             ("rank".to_string(), OrderDirection::Asc),
             ("id".to_string(), OrderDirection::Asc),
         ],
     });
-    strict_compatible.page = Some(PageSpec {
+    strict_compatible.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(2),
         offset: 0,
     });
@@ -758,7 +806,7 @@ fn route_matrix_aggregate_strict_compile_uncertainty_forces_materialized_executi
     );
 
     let mut strict_uncertain = strict_compatible.clone();
-    strict_uncertain.predicate = Some(Predicate::And(vec![
+    strict_uncertain.scalar_plan_mut().predicate = Some(Predicate::And(vec![
         Predicate::eq("rank".to_string(), Value::Uint(12)),
         Predicate::TextContains {
             field: "label".to_string(),
@@ -801,14 +849,15 @@ fn route_matrix_strict_vs_subset_decision_logs_are_stable() {
         ),
         MissingRowPolicy::Ignore,
     );
-    strict_compatible.predicate = Some(Predicate::eq("rank".to_string(), Value::Uint(12)));
-    strict_compatible.order = Some(OrderSpec {
+    strict_compatible.scalar_plan_mut().predicate =
+        Some(Predicate::eq("rank".to_string(), Value::Uint(12)));
+    strict_compatible.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
             ("rank".to_string(), OrderDirection::Asc),
             ("id".to_string(), OrderDirection::Asc),
         ],
     });
-    strict_compatible.page = Some(PageSpec {
+    strict_compatible.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(2),
         offset: 0,
     });
@@ -819,7 +868,7 @@ fn route_matrix_strict_vs_subset_decision_logs_are_stable() {
             AggregateKind::Exists,
         );
     let mut strict_uncertain = strict_compatible.clone();
-    strict_uncertain.predicate = Some(Predicate::And(vec![
+    strict_uncertain.scalar_plan_mut().predicate = Some(Predicate::And(vec![
         Predicate::eq("rank".to_string(), Value::Uint(12)),
         Predicate::TextContains {
             field: "label".to_string(),

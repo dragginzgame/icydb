@@ -49,8 +49,11 @@ use crate::{
             validate_executor_plan,
         },
         index::IndexCompilePolicy,
-        predicate::MissingRowPolicy,
-        query::plan::{AccessPlannedQuery, LogicalPlan, OrderDirection, grouped_executor_handoff},
+        predicate::{CoercionSpec, CompareOp, MissingRowPolicy, compare_eq, compare_order},
+        query::plan::{
+            AccessPlannedQuery, GroupHavingSpec, GroupHavingSymbol, LogicalPlan, OrderDirection,
+            grouped_executor_handoff,
+        },
         response::Response,
     },
     error::InternalError,
@@ -434,6 +437,7 @@ where
         let grouped_handoff = grouped_executor_handoff(plan.as_inner())?;
         let grouped_execution = grouped_handoff.execution();
         let group_fields = grouped_handoff.group_fields().to_vec();
+        let grouped_having = grouped_handoff.having().cloned();
         let grouped_route_plan =
             Self::build_execution_route_plan_for_grouped_handoff(grouped_handoff);
         let grouped_route_observability =
@@ -466,14 +470,15 @@ where
         let grouped_route_rejection_reason = grouped_route_observability.rejection_reason();
         let grouped_route_eligible = grouped_route_observability.eligible();
         let grouped_route_execution_mode = grouped_route_observability.execution_mode();
-        let grouped_plan_metrics_strategy = if matches!(
-            grouped_route_execution_mode,
-            crate::db::executor::route::ExecutionMode::Streaming
-        ) {
-            GroupedPlanMetricsStrategy::OrderedStreaming
-        } else {
-            GroupedPlanMetricsStrategy::HashMaterialized
-        };
+        let grouped_plan_metrics_strategy =
+            match grouped_route_observability.grouped_execution_strategy() {
+                crate::db::executor::route::GroupedExecutionStrategy::HashGroup => {
+                    GroupedPlanMetricsStrategy::HashMaterialized
+                }
+                crate::db::executor::route::GroupedExecutionStrategy::OrderedGroup => {
+                    GroupedPlanMetricsStrategy::OrderedStreaming
+                }
+            };
         debug_assert!(
             grouped_route_eligible == grouped_route_rejection_reason.is_none(),
             "grouped route eligibility and rejection reason must stay aligned",
@@ -664,6 +669,16 @@ where
                     aggregate_count,
                     "grouped aggregate value alignment must preserve declared aggregate count",
                 );
+                if let Some(grouped_having) = grouped_having.as_ref()
+                    && !Self::group_matches_having(
+                        grouped_having,
+                        group_fields.as_slice(),
+                        &group_key_value,
+                        aggregate_values.as_slice(),
+                    )?
+                {
+                    continue;
+                }
 
                 if let Some(resume_boundary) = resume_boundary.as_ref()
                     && canonical_value_compare(&group_key_value, resume_boundary)
@@ -802,6 +817,86 @@ where
             | AggregateOutput::First(value)
             | AggregateOutput::Last(value) => value.map_or(Value::Null, Value::from),
         }
+    }
+
+    // Evaluate grouped HAVING clauses on one finalized grouped output row.
+    fn group_matches_having(
+        having: &GroupHavingSpec,
+        group_fields: &[crate::db::query::plan::FieldSlot],
+        group_key_value: &Value,
+        aggregate_values: &[Value],
+    ) -> Result<bool, InternalError> {
+        for (index, clause) in having.clauses().iter().enumerate() {
+            let actual = match clause.symbol() {
+                GroupHavingSymbol::GroupField(field_slot) => {
+                    let group_key_list = match group_key_value {
+                        Value::List(values) => values,
+                        value => {
+                            return Err(InternalError::query_executor_invariant(format!(
+                                "grouped HAVING requires list-shaped grouped keys, found {value:?}"
+                            )));
+                        }
+                    };
+                    let Some(group_field_offset) = group_fields
+                        .iter()
+                        .position(|group_field| group_field.index() == field_slot.index())
+                    else {
+                        return Err(InternalError::query_executor_invariant(format!(
+                            "grouped HAVING field is not in grouped key projection: field='{}'",
+                            field_slot.field()
+                        )));
+                    };
+                    group_key_list.get(group_field_offset).ok_or_else(|| {
+                        InternalError::query_executor_invariant(format!(
+                            "grouped HAVING group key offset out of bounds: clause_index={index}, offset={group_field_offset}, key_len={}",
+                            group_key_list.len()
+                        ))
+                    })?
+                }
+                GroupHavingSymbol::AggregateIndex(aggregate_index) => {
+                    aggregate_values.get(*aggregate_index).ok_or_else(|| {
+                        InternalError::query_executor_invariant(format!(
+                            "grouped HAVING aggregate index out of bounds: clause_index={index}, aggregate_index={aggregate_index}, aggregate_count={}",
+                            aggregate_values.len()
+                        ))
+                    })?
+                }
+            };
+
+            if !Self::having_compare_values(actual, clause.op(), clause.value())? {
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
+    }
+
+    // Evaluate one grouped HAVING compare operator using strict value semantics.
+    fn having_compare_values(
+        actual: &Value,
+        op: CompareOp,
+        expected: &Value,
+    ) -> Result<bool, InternalError> {
+        let strict = CoercionSpec::default();
+        let matches = match op {
+            CompareOp::Eq => compare_eq(actual, expected, &strict).unwrap_or(false),
+            CompareOp::Ne => compare_eq(actual, expected, &strict).is_some_and(|equal| !equal),
+            CompareOp::Lt => compare_order(actual, expected, &strict).is_some_and(Ordering::is_lt),
+            CompareOp::Lte => compare_order(actual, expected, &strict).is_some_and(Ordering::is_le),
+            CompareOp::Gt => compare_order(actual, expected, &strict).is_some_and(Ordering::is_gt),
+            CompareOp::Gte => compare_order(actual, expected, &strict).is_some_and(Ordering::is_ge),
+            CompareOp::In
+            | CompareOp::NotIn
+            | CompareOp::Contains
+            | CompareOp::StartsWith
+            | CompareOp::EndsWith => {
+                return Err(InternalError::query_executor_invariant(format!(
+                    "unsupported grouped HAVING operator reached executor: {op:?}"
+                )));
+            }
+        };
+
+        Ok(matches)
     }
 
     // Record shared observability outcome for any execution path.

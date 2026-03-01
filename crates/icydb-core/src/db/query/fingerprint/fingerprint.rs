@@ -102,11 +102,11 @@ mod tests {
 
         let mut plan_a: AccessPlannedQuery<Value> =
             AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
-        plan_a.predicate = Some(predicate_a);
+        plan_a.scalar_plan_mut().predicate = Some(predicate_a);
 
         let mut plan_b: AccessPlannedQuery<Value> =
             AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
-        plan_b.predicate = Some(predicate_b);
+        plan_b.scalar_plan_mut().predicate = Some(predicate_b);
 
         assert_eq!(plan_a.fingerprint(), plan_b.fingerprint());
     }
@@ -187,11 +187,11 @@ mod tests {
             AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
         let mut plan_b: AccessPlannedQuery<Value> =
             AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
-        plan_a.page = Some(PageSpec {
+        plan_a.scalar_plan_mut().page = Some(PageSpec {
             limit: Some(10),
             offset: 0,
         });
-        plan_b.page = Some(PageSpec {
+        plan_b.scalar_plan_mut().page = Some(PageSpec {
             limit: Some(10),
             offset: 1,
         });
@@ -205,10 +205,10 @@ mod tests {
             AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
         let mut plan_b: AccessPlannedQuery<Value> =
             AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
-        plan_a.mode = QueryMode::Delete(DeleteSpec::new());
-        plan_b.mode = QueryMode::Delete(DeleteSpec::new());
-        plan_a.delete_limit = Some(DeleteLimitSpec { max_rows: 2 });
-        plan_b.delete_limit = Some(DeleteLimitSpec { max_rows: 3 });
+        plan_a.scalar_plan_mut().mode = QueryMode::Delete(DeleteSpec::new());
+        plan_b.scalar_plan_mut().mode = QueryMode::Delete(DeleteSpec::new());
+        plan_a.scalar_plan_mut().delete_limit = Some(DeleteLimitSpec { max_rows: 2 });
+        plan_b.scalar_plan_mut().delete_limit = Some(DeleteLimitSpec { max_rows: 3 });
 
         assert_ne!(plan_a.fingerprint(), plan_b.fingerprint());
     }
@@ -219,7 +219,7 @@ mod tests {
             AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
         let mut plan_b: AccessPlannedQuery<Value> =
             AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
-        plan_b.distinct = true;
+        plan_b.scalar_plan_mut().distinct = true;
 
         assert_ne!(plan_a.fingerprint(), plan_b.fingerprint());
     }

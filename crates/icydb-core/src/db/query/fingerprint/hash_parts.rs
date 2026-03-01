@@ -9,8 +9,9 @@ use crate::{
         predicate::{MissingRowPolicy, Predicate, hash_predicate as hash_model_predicate},
         query::{
             explain::{
-                ExplainAccessPath, ExplainDeleteLimit, ExplainGroupAggregate, ExplainGrouping,
-                ExplainOrderBy, ExplainPagination, ExplainPlan,
+                ExplainAccessPath, ExplainDeleteLimit, ExplainGroupAggregate, ExplainGroupHaving,
+                ExplainGroupHavingClause, ExplainGroupHavingSymbol, ExplainGroupedStrategy,
+                ExplainGrouping, ExplainOrderBy, ExplainPagination, ExplainPlan,
             },
             intent::QueryMode,
             plan::{AccessPlanProjection, OrderDirection, project_explain_access_path},
@@ -420,14 +421,17 @@ fn hash_projection_default(hasher: &mut Sha256, grouping: &ExplainGrouping) {
     match grouping {
         ExplainGrouping::None => write_tag(hasher, 0x70),
         ExplainGrouping::Grouped {
+            strategy,
             group_fields,
             aggregates,
+            having,
             max_groups,
             max_group_bytes,
         } => {
             // Preserve scalar v1 projection marker while extending grouped signatures
             // with grouped shape and grouped budget policy.
             write_tag(hasher, 0x71);
+            hash_grouped_strategy(hasher, *strategy);
             write_u32(hasher, group_fields.len() as u32);
             for field in group_fields {
                 // Hash declared group field order using stable slot identity first,
@@ -440,10 +444,18 @@ fn hash_projection_default(hasher: &mut Sha256, grouping: &ExplainGrouping) {
             for aggregate in aggregates {
                 hash_group_aggregate_structural_fingerprint_v1(hasher, aggregate);
             }
+            hash_group_having(hasher, having.as_ref());
 
             write_u64(hasher, *max_groups);
             write_u64(hasher, *max_group_bytes);
         }
+    }
+}
+
+fn hash_grouped_strategy(hasher: &mut Sha256, strategy: ExplainGroupedStrategy) {
+    match strategy {
+        ExplainGroupedStrategy::HashGroup => write_tag(hasher, 0x72),
+        ExplainGroupedStrategy::OrderedGroup => write_tag(hasher, 0x73),
     }
 }
 
@@ -468,6 +480,35 @@ fn hash_group_aggregate_structural_fingerprint_v1(
         }
         None => write_tag(hasher, 0x00),
     }
+}
+
+fn hash_group_having(hasher: &mut Sha256, having: Option<&ExplainGroupHaving>) {
+    let Some(having) = having else {
+        write_tag(hasher, 0x74);
+        return;
+    };
+
+    write_tag(hasher, 0x75);
+    write_u32(hasher, having.clauses.len() as u32);
+    for clause in &having.clauses {
+        hash_group_having_clause(hasher, clause);
+    }
+}
+
+fn hash_group_having_clause(hasher: &mut Sha256, clause: &ExplainGroupHavingClause) {
+    match &clause.symbol {
+        ExplainGroupHavingSymbol::GroupField { slot_index, field } => {
+            write_tag(hasher, 0x76);
+            write_u32(hasher, *slot_index as u32);
+            write_str(hasher, field);
+        }
+        ExplainGroupHavingSymbol::AggregateIndex { index } => {
+            write_tag(hasher, 0x77);
+            write_u32(hasher, *index as u32);
+        }
+    }
+    write_tag(hasher, clause.op.tag());
+    write_value(hasher, &clause.value);
 }
 
 fn write_u64(hasher: &mut Sha256, value: u64) {

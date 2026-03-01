@@ -866,10 +866,10 @@ fn load_cursor_pagination_pk_order_key_range_respects_bounds() {
         },
         MissingRowPolicy::Ignore,
     );
-    page1_logical.order = Some(OrderSpec {
+    page1_logical.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
-    page1_logical.page = Some(PageSpec {
+    page1_logical.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(2),
         offset: 0,
     });
@@ -896,10 +896,10 @@ fn load_cursor_pagination_pk_order_key_range_respects_bounds() {
         },
         MissingRowPolicy::Ignore,
     );
-    page2_logical.order = Some(OrderSpec {
+    page2_logical.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
-    page2_logical.page = Some(PageSpec {
+    page2_logical.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(2),
         offset: 0,
     });
@@ -942,10 +942,10 @@ fn load_cursor_pagination_pk_order_key_range_cursor_past_end_returns_empty_page(
         },
         MissingRowPolicy::Ignore,
     );
-    logical.order = Some(OrderSpec {
+    logical.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
-    logical.page = Some(PageSpec {
+    logical.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(2),
         offset: 0,
     });
@@ -989,10 +989,10 @@ fn load_cursor_pagination_pk_order_inverted_key_range_returns_empty_without_scan
             },
             MissingRowPolicy::Ignore,
         );
-        logical.order = Some(OrderSpec {
+        logical.scalar_plan_mut().order = Some(OrderSpec {
             fields: vec![("id".to_string(), direction)],
         });
-        logical.page = Some(PageSpec {
+        logical.scalar_plan_mut().page = Some(PageSpec {
             limit: Some(2),
             offset: 0,
         });

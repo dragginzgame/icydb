@@ -26,6 +26,17 @@ pub(in crate::db::executor) enum ExecutionMode {
 }
 
 ///
+/// GroupedExecutionStrategy
+///
+/// Canonical grouped execution strategy classification selected by route planning.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) enum GroupedExecutionStrategy {
+    HashGroup,
+    OrderedGroup,
+}
+
+///
 /// ScanHintPlan
 ///
 /// Canonical scan-hint payload produced by route planning.
@@ -121,6 +132,7 @@ pub(in crate::db::executor) struct ExecutionRoutePlan {
     pub(in crate::db::executor) aggregate_secondary_extrema_probe_fetch_hint: Option<usize>,
     pub(in crate::db::executor) scan_hints: ScanHintPlan,
     pub(in crate::db::executor) aggregate_fold_mode: AggregateFoldMode,
+    pub(in crate::db::executor) grouped_execution_strategy: Option<GroupedExecutionStrategy>,
 }
 
 impl ExecutionRoutePlan {
@@ -373,6 +385,7 @@ pub(in crate::db::executor) struct GroupedRouteObservability {
     pub(in crate::db::executor::route) rejection_reason: Option<GroupedRouteRejectionReason>,
     pub(in crate::db::executor::route) eligible: bool,
     pub(in crate::db::executor::route) execution_mode: ExecutionMode,
+    pub(in crate::db::executor::route) grouped_execution_strategy: GroupedExecutionStrategy,
 }
 
 impl GroupedRouteObservability {
@@ -396,6 +409,13 @@ impl GroupedRouteObservability {
     #[must_use]
     pub(in crate::db::executor) const fn execution_mode(self) -> ExecutionMode {
         self.execution_mode
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn grouped_execution_strategy(
+        self,
+    ) -> GroupedExecutionStrategy {
+        self.grouped_execution_strategy
     }
 }
 

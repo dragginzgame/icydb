@@ -113,17 +113,17 @@ fn field_extrema_index_range_plan(
         ),
         MissingRowPolicy::Ignore,
     );
-    plan.order = Some(OrderSpec {
+    plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
             ("rank".to_string(), direction),
             ("id".to_string(), direction),
         ],
     });
-    plan.page = Some(PageSpec {
+    plan.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(4),
         offset,
     });
-    plan.distinct = distinct;
+    plan.scalar_plan_mut().distinct = distinct;
 
     plan
 }

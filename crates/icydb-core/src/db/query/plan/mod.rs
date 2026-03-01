@@ -18,12 +18,14 @@ pub(in crate::db) use group::{GroupedExecutorHandoff, grouped_executor_handoff};
 pub use model::OrderDirection;
 pub(crate) use model::{AggregateKind, DeleteSpec, LoadSpec, QueryMode};
 pub(crate) use model::{
-    DeleteLimitSpec, FieldSlot, GroupAggregateKind, GroupAggregateSpec, GroupPlan, GroupSpec,
-    GroupedExecutionConfig, LogicalPlan, OrderSpec, PageSpec, ScalarPlan,
+    DeleteLimitSpec, FieldSlot, GroupAggregateKind, GroupAggregateSpec, GroupHavingClause,
+    GroupHavingSpec, GroupHavingSymbol, GroupPlan, GroupSpec, GroupedExecutionConfig, LogicalPlan,
+    OrderSpec, PageSpec, ScalarPlan,
 };
 pub(crate) use planner::{PlannerError, plan_access};
 pub(crate) use semantics::{
-    AccessPlanProjection, project_access_plan, project_explain_access_path,
+    AccessPlanProjection, GroupedPlanStrategyHint, grouped_plan_strategy_hint, project_access_plan,
+    project_explain_access_path,
 };
 #[cfg(test)]
 pub(crate) use validate::GroupPlanError;

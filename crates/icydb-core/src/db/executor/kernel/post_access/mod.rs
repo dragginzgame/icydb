@@ -462,7 +462,7 @@ mod tests {
     fn bounded_order_keep_count_includes_offset_for_non_cursor_page() {
         let mut plan =
             AccessPlannedQuery::new(AccessPath::<u64>::FullScan, MissingRowPolicy::Ignore);
-        plan.page = Some(PageSpec {
+        plan.scalar_plan_mut().page = Some(PageSpec {
             limit: Some(5),
             offset: 3,
         });
@@ -478,7 +478,7 @@ mod tests {
     fn bounded_order_keep_count_disabled_when_cursor_present() {
         let mut plan =
             AccessPlannedQuery::new(AccessPath::<u64>::FullScan, MissingRowPolicy::Ignore);
-        plan.page = Some(PageSpec {
+        plan.scalar_plan_mut().page = Some(PageSpec {
             limit: Some(5),
             offset: 0,
         });
@@ -495,7 +495,7 @@ mod tests {
     fn budget_safety_metadata_marks_pk_order_plan_as_access_order_satisfied() {
         let mut plan =
             AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
-        plan.order = Some(OrderSpec {
+        plan.scalar_plan_mut().order = Some(OrderSpec {
             fields: vec![("id".to_string(), OrderDirection::Asc)],
         });
 
@@ -521,10 +521,10 @@ mod tests {
     fn budget_safety_metadata_marks_residual_filter_plan_as_unsafe() {
         let mut plan =
             AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
-        plan.order = Some(OrderSpec {
+        plan.scalar_plan_mut().order = Some(OrderSpec {
             fields: vec![("id".to_string(), OrderDirection::Asc)],
         });
-        plan.predicate = Some(Predicate::True);
+        plan.scalar_plan_mut().predicate = Some(Predicate::True);
 
         let metadata = crate::db::executor::ExecutionKernel::budget_safety_metadata::<
             BudgetMetadataEntity,

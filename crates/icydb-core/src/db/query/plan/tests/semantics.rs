@@ -236,6 +236,27 @@ fn delete_limit_requires_order() {
 }
 
 #[test]
+fn scalar_shorthand_helpers_remain_explicit_without_deref() {
+    let mut plan: AccessPlannedQuery<Value> =
+        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+
+    assert!(
+        matches!(plan.logical.scalar().mode, QueryMode::Load(_)),
+        "logical scalar helper should expose the scalar mode view",
+    );
+    assert!(
+        !plan.scalar().distinct,
+        "access-planned scalar helper should expose scalar semantics explicitly",
+    );
+
+    plan.scalar_mut().distinct = true;
+    assert!(plan.scalar().distinct);
+
+    plan.logical.scalar_mut().distinct = false;
+    assert!(!plan.scalar().distinct);
+}
+
+#[test]
 fn delete_plan_rejects_pagination() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");

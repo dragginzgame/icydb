@@ -850,13 +850,13 @@ fn secondary_group_rank_order_plan(
         },
         consistency,
     );
-    logical_plan.order = Some(crate::db::query::plan::OrderSpec {
+    logical_plan.scalar_plan_mut().order = Some(crate::db::query::plan::OrderSpec {
         fields: vec![
             ("rank".to_string(), direction),
             ("id".to_string(), direction),
         ],
     });
-    logical_plan.page = Some(crate::db::query::plan::PageSpec {
+    logical_plan.scalar_plan_mut().page = Some(crate::db::query::plan::PageSpec {
         limit: None,
         offset,
     });

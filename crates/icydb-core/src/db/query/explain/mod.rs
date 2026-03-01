@@ -16,7 +16,9 @@ use crate::{
             intent::QueryMode,
             plan::{
                 AccessPlanProjection, AccessPlannedQuery, AggregateKind, DeleteLimitSpec,
-                LogicalPlan, OrderDirection, OrderSpec, PageSpec, ScalarPlan, project_access_plan,
+                GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupedPlanStrategyHint,
+                LogicalPlan, OrderDirection, OrderSpec, PageSpec, ScalarPlan,
+                grouped_plan_strategy_hint, project_access_plan,
             },
         },
     },
@@ -80,11 +82,33 @@ impl ExplainPlan {
 pub enum ExplainGrouping {
     None,
     Grouped {
+        strategy: ExplainGroupedStrategy,
         group_fields: Vec<ExplainGroupField>,
         aggregates: Vec<ExplainGroupAggregate>,
+        having: Option<ExplainGroupHaving>,
         max_groups: u64,
         max_group_bytes: u64,
     },
+}
+
+///
+/// ExplainGroupedStrategy
+///
+/// Deterministic explain projection of grouped strategy selection.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExplainGroupedStrategy {
+    HashGroup,
+    OrderedGroup,
+}
+
+impl From<GroupedPlanStrategyHint> for ExplainGroupedStrategy {
+    fn from(value: GroupedPlanStrategyHint) -> Self {
+        match value {
+            GroupedPlanStrategyHint::HashGroup => Self::HashGroup,
+            GroupedPlanStrategyHint::OrderedGroup => Self::OrderedGroup,
+        }
+    }
 }
 
 ///
@@ -109,6 +133,42 @@ pub struct ExplainGroupField {
 pub struct ExplainGroupAggregate {
     pub kind: AggregateKind,
     pub target_field: Option<String>,
+}
+
+///
+/// ExplainGroupHaving
+///
+/// Deterministic explain projection of grouped HAVING clauses.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExplainGroupHaving {
+    pub clauses: Vec<ExplainGroupHavingClause>,
+}
+
+///
+/// ExplainGroupHavingClause
+///
+/// Stable explain-surface projection for one grouped HAVING clause.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExplainGroupHavingClause {
+    pub symbol: ExplainGroupHavingSymbol,
+    pub op: CompareOp,
+    pub value: Value,
+}
+
+///
+/// ExplainGroupHavingSymbol
+///
+/// Stable explain-surface identity for grouped HAVING symbols.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ExplainGroupHavingSymbol {
+    GroupField { slot_index: usize, field: String },
+    AggregateIndex { index: usize },
 }
 
 ///
@@ -277,6 +337,8 @@ where
             LogicalPlan::Grouped(logical) => (
                 &logical.scalar,
                 ExplainGrouping::Grouped {
+                    strategy: grouped_plan_strategy_hint(self)
+                        .map_or(ExplainGroupedStrategy::HashGroup, Into::into),
                     group_fields: logical
                         .group
                         .group_fields
@@ -295,6 +357,7 @@ where
                             target_field: aggregate.target_field.clone(),
                         })
                         .collect(),
+                    having: explain_group_having(logical.having.as_ref()),
                     max_groups: logical.group.execution.max_groups(),
                     max_group_bytes: logical.group.execution.max_group_bytes(),
                 },
@@ -303,6 +366,38 @@ where
 
         // Phase 2: project scalar plan + access path into deterministic explain surface.
         explain_scalar_inner(logical, grouping, model, &self.access)
+    }
+}
+
+fn explain_group_having(having: Option<&GroupHavingSpec>) -> Option<ExplainGroupHaving> {
+    let having = having?;
+
+    Some(ExplainGroupHaving {
+        clauses: having
+            .clauses()
+            .iter()
+            .map(explain_group_having_clause)
+            .collect(),
+    })
+}
+
+fn explain_group_having_clause(clause: &GroupHavingClause) -> ExplainGroupHavingClause {
+    ExplainGroupHavingClause {
+        symbol: explain_group_having_symbol(clause.symbol()),
+        op: clause.op(),
+        value: clause.value().clone(),
+    }
+}
+
+fn explain_group_having_symbol(symbol: &GroupHavingSymbol) -> ExplainGroupHavingSymbol {
+    match symbol {
+        GroupHavingSymbol::GroupField(field_slot) => ExplainGroupHavingSymbol::GroupField {
+            slot_index: field_slot.index(),
+            field: field_slot.field().to_string(),
+        },
+        GroupHavingSymbol::AggregateIndex(index) => {
+            ExplainGroupHavingSymbol::AggregateIndex { index: *index }
+        }
     }
 }
 

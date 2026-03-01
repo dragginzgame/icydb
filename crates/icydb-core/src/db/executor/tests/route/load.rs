@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn route_plan_load_uses_route_owned_fast_path_order() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
-    plan.order = Some(OrderSpec {
+    plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
     let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
@@ -19,10 +19,10 @@ fn route_plan_load_uses_route_owned_fast_path_order() {
 #[test]
 fn route_matrix_load_pk_desc_with_page_uses_streaming_budget_and_reverse() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
-    plan.order = Some(OrderSpec {
+    plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Desc)],
     });
-    plan.page = Some(PageSpec {
+    plan.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(3),
         offset: 2,
     });
@@ -52,13 +52,13 @@ fn route_matrix_load_index_range_cursor_without_anchor_disables_pushdown() {
         ),
         MissingRowPolicy::Ignore,
     );
-    plan.order = Some(OrderSpec {
+    plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
             ("rank".to_string(), OrderDirection::Desc),
             ("id".to_string(), OrderDirection::Desc),
         ],
     });
-    plan.page = Some(PageSpec {
+    plan.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(2),
         offset: 0,
     });
@@ -93,17 +93,17 @@ fn route_matrix_load_index_range_residual_predicate_allows_small_window_pushdown
         ),
         MissingRowPolicy::Ignore,
     );
-    plan.predicate = Some(Predicate::eq(
+    plan.scalar_plan_mut().predicate = Some(Predicate::eq(
         "label".to_string(),
         Value::Text("keep".to_string()),
     ));
-    plan.order = Some(OrderSpec {
+    plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
             ("rank".to_string(), OrderDirection::Asc),
             ("id".to_string(), OrderDirection::Asc),
         ],
     });
-    plan.page = Some(PageSpec {
+    plan.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(2),
         offset: 0,
     });
@@ -135,17 +135,17 @@ fn route_matrix_load_index_range_residual_predicate_large_window_disables_pushdo
         ),
         MissingRowPolicy::Ignore,
     );
-    plan.predicate = Some(Predicate::eq(
+    plan.scalar_plan_mut().predicate = Some(Predicate::eq(
         "label".to_string(),
         Value::Text("keep".to_string()),
     ));
-    plan.order = Some(OrderSpec {
+    plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
             ("rank".to_string(), OrderDirection::Asc),
             ("id".to_string(), OrderDirection::Asc),
         ],
     });
-    plan.page = Some(PageSpec {
+    plan.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(limit),
         offset: 0,
     });
@@ -164,10 +164,10 @@ fn route_matrix_load_index_range_residual_predicate_large_window_disables_pushdo
 #[test]
 fn route_matrix_load_non_pk_order_disables_scan_budget_hint() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
-    plan.order = Some(OrderSpec {
+    plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("rank".to_string(), OrderDirection::Desc)],
     });
-    plan.page = Some(PageSpec {
+    plan.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(3),
         offset: 2,
     });
@@ -190,7 +190,7 @@ fn route_matrix_load_by_keys_desc_disables_fallback_fetch_hint_without_reverse_s
         ]),
         MissingRowPolicy::Ignore,
     );
-    plan.order = Some(OrderSpec {
+    plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Desc)],
     });
     let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
@@ -216,7 +216,7 @@ fn route_matrix_load_by_keys_desc_disables_fallback_fetch_hint_without_reverse_s
 fn route_matrix_load_desc_reverse_support_gate_allows_and_blocks_fetch_hint() {
     let mut reverse_capable =
         AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
-    reverse_capable.order = Some(OrderSpec {
+    reverse_capable.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Desc)],
     });
     let reverse_capable_route =
@@ -245,7 +245,7 @@ fn route_matrix_load_desc_reverse_support_gate_allows_and_blocks_fetch_hint() {
         ]),
         MissingRowPolicy::Ignore,
     );
-    reverse_blocked.order = Some(OrderSpec {
+    reverse_blocked.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Desc)],
     });
     let reverse_blocked_route =

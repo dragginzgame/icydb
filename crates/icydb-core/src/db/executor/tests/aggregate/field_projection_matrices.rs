@@ -156,17 +156,17 @@ fn aggregate_field_target_count_distinct_residual_retry_parity_and_scan_budget_m
             ),
             MissingRowPolicy::Ignore,
         );
-        logical.predicate = Some(Predicate::TextContainsCi {
+        logical.scalar_plan_mut().predicate = Some(Predicate::TextContainsCi {
             field: "label".to_string(),
             value: Value::Text("keep".to_string()),
         });
-        logical.order = Some(OrderSpec {
+        logical.scalar_plan_mut().order = Some(OrderSpec {
             fields: vec![
                 ("tag".to_string(), OrderDirection::Asc),
                 ("id".to_string(), OrderDirection::Asc),
             ],
         });
-        logical.page = Some(PageSpec {
+        logical.scalar_plan_mut().page = Some(PageSpec {
             limit: Some(2),
             offset: 0,
         });

@@ -9,8 +9,9 @@ use crate::{
         query::{
             explain::ExplainAccessPath,
             plan::{
-                AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec, GroupPlan,
-                LogicalPlan, QueryMode, ScalarPlan,
+                AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec,
+                GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupPlan, LogicalPlan,
+                OrderSpec, QueryMode, ScalarPlan,
             },
         },
     },
@@ -18,8 +19,6 @@ use crate::{
     value::Value,
 };
 use std::ops::Bound;
-#[cfg(test)]
-use std::ops::{Deref, DerefMut};
 
 impl QueryMode {
     /// True if this mode represents a load intent.
@@ -100,6 +99,34 @@ impl GroupAggregateSpec {
     }
 }
 
+impl GroupHavingSpec {
+    /// Borrow grouped HAVING clauses in declaration order.
+    #[must_use]
+    pub(crate) const fn clauses(&self) -> &[GroupHavingClause] {
+        self.clauses.as_slice()
+    }
+}
+
+impl GroupHavingClause {
+    /// Borrow grouped HAVING symbol reference.
+    #[must_use]
+    pub(crate) const fn symbol(&self) -> &GroupHavingSymbol {
+        &self.symbol
+    }
+
+    /// Borrow grouped HAVING compare operator.
+    #[must_use]
+    pub(crate) const fn op(&self) -> crate::db::predicate::CompareOp {
+        self.op
+    }
+
+    /// Borrow grouped HAVING comparison value.
+    #[must_use]
+    pub(crate) const fn value(&self) -> &Value {
+        &self.value
+    }
+}
+
 impl FieldSlot {
     /// Resolve one field name into its canonical model slot.
     #[must_use]
@@ -148,20 +175,18 @@ impl LogicalPlan {
             Self::Grouped(plan) => &mut plan.scalar,
         }
     }
-}
 
-#[cfg(test)]
-impl Deref for LogicalPlan {
-    type Target = ScalarPlan;
-
-    fn deref(&self) -> &Self::Target {
+    /// Test-only shorthand for explicit scalar semantic borrowing.
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) const fn scalar(&self) -> &ScalarPlan {
         self.scalar_semantics()
     }
-}
 
-#[cfg(test)]
-impl DerefMut for LogicalPlan {
-    fn deref_mut(&mut self) -> &mut Self::Target {
+    /// Test-only shorthand for explicit mutable scalar semantic borrowing.
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) const fn scalar_mut(&mut self) -> &mut ScalarPlan {
         self.scalar_semantics_mut()
     }
 }
@@ -188,21 +213,98 @@ impl<K> AccessPlannedQuery<K> {
     pub(in crate::db) const fn scalar_plan_mut(&mut self) -> &mut ScalarPlan {
         self.logical.scalar_semantics_mut()
     }
-}
 
-#[cfg(test)]
-impl<K> Deref for AccessPlannedQuery<K> {
-    type Target = ScalarPlan;
-
-    fn deref(&self) -> &Self::Target {
+    /// Test-only shorthand for explicit scalar plan borrowing.
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) const fn scalar(&self) -> &ScalarPlan {
         self.scalar_plan()
+    }
+
+    /// Test-only shorthand for explicit mutable scalar plan borrowing.
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) const fn scalar_mut(&mut self) -> &mut ScalarPlan {
+        self.scalar_plan_mut()
     }
 }
 
-#[cfg(test)]
-impl<K> DerefMut for AccessPlannedQuery<K> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.scalar_plan_mut()
+///
+/// GroupedPlanStrategyHint
+///
+/// Planner-side grouped execution strategy hint projected from logical + access shape.
+/// Executor routing may revalidate this hint against runtime capability constraints.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum GroupedPlanStrategyHint {
+    HashGroup,
+    OrderedGroup,
+}
+
+/// Project one grouped execution strategy hint from one access-planned query.
+#[must_use]
+pub(crate) fn grouped_plan_strategy_hint<K>(
+    plan: &AccessPlannedQuery<K>,
+) -> Option<GroupedPlanStrategyHint> {
+    let grouped = plan.grouped_plan()?;
+    if grouped.scalar.distinct {
+        return Some(GroupedPlanStrategyHint::HashGroup);
+    }
+    if !grouped_order_prefix_matches_group_fields(
+        grouped.scalar.order.as_ref(),
+        grouped.group.group_fields.as_slice(),
+    ) {
+        return Some(GroupedPlanStrategyHint::HashGroup);
+    }
+    if grouped_access_path_proves_group_order(grouped.group.group_fields.as_slice(), &plan.access) {
+        return Some(GroupedPlanStrategyHint::OrderedGroup);
+    }
+
+    Some(GroupedPlanStrategyHint::HashGroup)
+}
+
+fn grouped_order_prefix_matches_group_fields(
+    order: Option<&OrderSpec>,
+    group_fields: &[FieldSlot],
+) -> bool {
+    let Some(order) = order else {
+        return true;
+    };
+    if order.fields.len() < group_fields.len() {
+        return false;
+    }
+
+    group_fields
+        .iter()
+        .zip(order.fields.iter())
+        .all(|(group_field, (order_field, _))| order_field == group_field.field())
+}
+
+fn grouped_access_path_proves_group_order<K>(
+    group_fields: &[FieldSlot],
+    access: &AccessPlan<K>,
+) -> bool {
+    match access {
+        AccessPlan::Path(path) => match path.as_ref() {
+            AccessPath::IndexPrefix { index, values } => {
+                let prefix_len = values.len();
+                let required_end = prefix_len.saturating_add(group_fields.len());
+                if required_end > index.fields.len() {
+                    return false;
+                }
+
+                group_fields
+                    .iter()
+                    .zip(index.fields[prefix_len..required_end].iter())
+                    .all(|(group_field, index_field)| group_field.field() == *index_field)
+            }
+            AccessPath::ByKey(_)
+            | AccessPath::ByKeys(_)
+            | AccessPath::KeyRange { .. }
+            | AccessPath::IndexRange { .. }
+            | AccessPath::FullScan => false,
+        },
+        AccessPlan::Union(_) | AccessPlan::Intersection(_) => false,
     }
 }
 

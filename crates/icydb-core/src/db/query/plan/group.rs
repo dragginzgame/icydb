@@ -4,7 +4,9 @@
 //! Boundary: explicit grouped query-to-executor transfer surface.
 
 use crate::{
-    db::query::plan::{AccessPlannedQuery, FieldSlot, GroupAggregateSpec, GroupedExecutionConfig},
+    db::query::plan::{
+        AccessPlannedQuery, FieldSlot, GroupAggregateSpec, GroupHavingSpec, GroupedExecutionConfig,
+    },
     error::InternalError,
 };
 
@@ -21,6 +23,7 @@ pub(in crate::db) struct GroupedExecutorHandoff<'a, K> {
     base: &'a AccessPlannedQuery<K>,
     group_fields: &'a [FieldSlot],
     aggregates: &'a [GroupAggregateSpec],
+    having: Option<&'a GroupHavingSpec>,
     execution: GroupedExecutionConfig,
 }
 
@@ -41,6 +44,12 @@ impl<'a, K> GroupedExecutorHandoff<'a, K> {
     #[must_use]
     pub(in crate::db) const fn aggregates(&self) -> &'a [GroupAggregateSpec] {
         self.aggregates
+    }
+
+    /// Borrow grouped HAVING clause specification when present.
+    #[must_use]
+    pub(in crate::db) const fn having(&self) -> Option<&'a GroupHavingSpec> {
+        self.having
     }
 
     /// Borrow grouped execution hard-limit policy selected by planning.
@@ -65,6 +74,7 @@ pub(in crate::db) fn grouped_executor_handoff<K>(
         base: plan,
         group_fields: grouped.group.group_fields.as_slice(),
         aggregates: grouped.group.aggregates.as_slice(),
+        having: grouped.having.as_ref(),
         execution: grouped.group.execution,
     })
 }

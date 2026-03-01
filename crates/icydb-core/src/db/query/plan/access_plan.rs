@@ -11,7 +11,7 @@ use crate::db::{
 };
 use crate::db::{
     access::AccessPlan,
-    query::plan::{GroupPlan, GroupSpec, LogicalPlan},
+    query::plan::{GroupHavingSpec, GroupPlan, GroupSpec, LogicalPlan},
 };
 
 ///
@@ -43,6 +43,16 @@ impl<K> AccessPlannedQuery<K> {
     /// Convert this plan into grouped logical form with one explicit group spec.
     #[must_use]
     pub(in crate::db) fn into_grouped(self, group: GroupSpec) -> Self {
+        self.into_grouped_with_having(group, None)
+    }
+
+    /// Convert this plan into grouped logical form with explicit HAVING shape.
+    #[must_use]
+    pub(in crate::db) fn into_grouped_with_having(
+        self,
+        group: GroupSpec,
+        having: Option<GroupHavingSpec>,
+    ) -> Self {
         let Self { logical, access } = self;
         let scalar = match logical {
             LogicalPlan::Scalar(plan) => plan,
@@ -50,7 +60,11 @@ impl<K> AccessPlannedQuery<K> {
         };
 
         Self {
-            logical: LogicalPlan::Grouped(GroupPlan { scalar, group }),
+            logical: LogicalPlan::Grouped(GroupPlan {
+                scalar,
+                group,
+                having,
+            }),
             access,
         }
     }

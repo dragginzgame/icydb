@@ -14,10 +14,10 @@ use crate::{
             validate_access_structure_model as validate_access_structure_model_shared,
         },
         cursor::CursorPlanError,
-        predicate::{SchemaInfo, ValidateError, validate},
+        predicate::{CompareOp, SchemaInfo, ValidateError, validate},
         query::plan::{
-            AccessPlannedQuery, FieldSlot, GroupSpec, LoadSpec, LogicalPlan, OrderSpec, QueryMode,
-            ScalarPlan,
+            AccessPlannedQuery, FieldSlot, GroupHavingSpec, GroupHavingSymbol, GroupSpec, LoadSpec,
+            LogicalPlan, OrderSpec, QueryMode, ScalarPlan,
         },
     },
     model::entity::EntityModel,
@@ -134,6 +134,10 @@ pub enum CursorPagingPolicyError {
 
 #[derive(Clone, Debug, Eq, PartialEq, ThisError)]
 pub enum GroupPlanError {
+    /// HAVING requires GROUP BY grouped plan shape.
+    #[error("HAVING is only supported for GROUP BY queries in this release")]
+    HavingRequiresGroupBy,
+
     /// Grouped validation entrypoint received a scalar logical plan.
     #[error("group query validation requires grouped logical plan variant")]
     GroupedLogicalPlanRequired,
@@ -163,6 +167,28 @@ pub enum GroupPlanError {
     /// GROUP BY ORDER BY shape must start with grouped-key prefix.
     #[error("grouped ORDER BY must start with GROUP BY key prefix in this release")]
     OrderPrefixNotAlignedWithGroupKeys,
+
+    /// HAVING with DISTINCT is deferred until grouped DISTINCT support expands.
+    #[error("grouped HAVING with DISTINCT is not supported in this release")]
+    DistinctHavingUnsupported,
+
+    /// HAVING currently supports compare operators only.
+    #[error("grouped HAVING clause at index={index} uses unsupported operator: {op}")]
+    HavingUnsupportedCompareOp { index: usize, op: String },
+
+    /// HAVING group-field symbols must reference declared grouped keys.
+    #[error("grouped HAVING clause at index={index} references non-group field '{field}'")]
+    HavingNonGroupFieldReference { index: usize, field: String },
+
+    /// HAVING aggregate references must resolve to declared grouped terminals.
+    #[error(
+        "grouped HAVING clause at index={index} references aggregate index {aggregate_index} but aggregate_count={aggregate_count}"
+    )]
+    HavingAggregateIndexOutOfBounds {
+        index: usize,
+        aggregate_index: usize,
+        aggregate_count: usize,
+    },
 
     /// Aggregate target fields must resolve in the model schema.
     #[error("unknown grouped aggregate target field at index={index}: '{field}'")]
@@ -313,9 +339,8 @@ pub(crate) fn validate_group_query_semantics(
     model: &EntityModel,
     plan: &AccessPlannedQuery<Value>,
 ) -> Result<(), PlanError> {
-    let logical = plan.scalar_plan();
-    let group = match &plan.logical {
-        LogicalPlan::Grouped(grouped) => &grouped.group,
+    let (logical, group, having) = match &plan.logical {
+        LogicalPlan::Grouped(grouped) => (&grouped.scalar, &grouped.group, grouped.having.as_ref()),
         LogicalPlan::Scalar(_) => {
             return Err(PlanError::from(GroupPlanError::GroupedLogicalPlanRequired));
         }
@@ -332,8 +357,9 @@ pub(crate) fn validate_group_query_semantics(
                 .map_err(PlanError::from)
         },
     )?;
-    validate_grouped_distinct_and_order_policy(logical, group)?;
+    validate_grouped_distinct_and_order_policy(logical, group, having.is_some())?;
     validate_group_spec(schema, model, group)?;
+    validate_grouped_having_policy(group, having)?;
 
     Ok(())
 }
@@ -342,7 +368,11 @@ pub(crate) fn validate_group_query_semantics(
 fn validate_grouped_distinct_and_order_policy(
     logical: &ScalarPlan,
     group: &GroupSpec,
+    has_having: bool,
 ) -> Result<(), PlanError> {
+    if logical.distinct && has_having {
+        return Err(PlanError::from(GroupPlanError::DistinctHavingUnsupported));
+    }
     if logical.distinct {
         return Err(PlanError::from(
             GroupPlanError::DistinctAdjacencyEligibilityRequired,
@@ -359,6 +389,69 @@ fn validate_grouped_distinct_and_order_policy(
     Err(PlanError::from(
         GroupPlanError::OrderPrefixNotAlignedWithGroupKeys,
     ))
+}
+
+// Validate grouped HAVING policy gates and grouped-symbol references.
+fn validate_grouped_having_policy(
+    group: &GroupSpec,
+    having: Option<&GroupHavingSpec>,
+) -> Result<(), PlanError> {
+    let Some(having) = having else {
+        return Ok(());
+    };
+
+    for (index, clause) in having.clauses().iter().enumerate() {
+        if !having_compare_op_supported(clause.op()) {
+            return Err(PlanError::from(
+                GroupPlanError::HavingUnsupportedCompareOp {
+                    index,
+                    op: format!("{:?}", clause.op()),
+                },
+            ));
+        }
+
+        match clause.symbol() {
+            GroupHavingSymbol::GroupField(field_slot) => {
+                if !group
+                    .group_fields
+                    .iter()
+                    .any(|group_field| group_field.index() == field_slot.index())
+                {
+                    return Err(PlanError::from(
+                        GroupPlanError::HavingNonGroupFieldReference {
+                            index,
+                            field: field_slot.field().to_string(),
+                        },
+                    ));
+                }
+            }
+            GroupHavingSymbol::AggregateIndex(aggregate_index) => {
+                if *aggregate_index >= group.aggregates.len() {
+                    return Err(PlanError::from(
+                        GroupPlanError::HavingAggregateIndexOutOfBounds {
+                            index,
+                            aggregate_index: *aggregate_index,
+                            aggregate_count: group.aggregates.len(),
+                        },
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+const fn having_compare_op_supported(op: CompareOp) -> bool {
+    matches!(
+        op,
+        CompareOp::Eq
+            | CompareOp::Ne
+            | CompareOp::Lt
+            | CompareOp::Lte
+            | CompareOp::Gt
+            | CompareOp::Gte
+    )
 }
 
 // Return true when ORDER BY starts with GROUP BY key fields in declaration order.
