@@ -102,10 +102,9 @@ pub(in crate::db) fn validate_cursor_direction(
     actual_direction: Direction,
 ) -> Result<(), CursorPlanError> {
     if actual_direction != expected_direction {
-        return Err(CursorPlanError::InvalidContinuationCursorPayload {
-            reason: "continuation cursor direction does not match executable plan direction"
-                .to_string(),
-        });
+        return Err(CursorPlanError::invalid_continuation_cursor_payload(
+            "continuation cursor direction does not match executable plan direction",
+        ));
     }
 
     Ok(())
@@ -117,10 +116,10 @@ pub(in crate::db) const fn validate_cursor_window_offset(
     actual_initial_offset: u32,
 ) -> Result<(), CursorPlanError> {
     if actual_initial_offset != expected_initial_offset {
-        return Err(CursorPlanError::ContinuationCursorWindowMismatch {
-            expected_offset: expected_initial_offset,
-            actual_offset: actual_initial_offset,
-        });
+        return Err(CursorPlanError::continuation_cursor_window_mismatch(
+            expected_initial_offset,
+            actual_initial_offset,
+        ));
     }
 
     Ok(())
@@ -132,10 +131,12 @@ pub(in crate::db) const fn validate_cursor_boundary_arity(
     expected_arity: usize,
 ) -> Result<(), CursorPlanError> {
     if boundary.slots.len() != expected_arity {
-        return Err(CursorPlanError::ContinuationCursorBoundaryArityMismatch {
-            expected: expected_arity,
-            found: boundary.slots.len(),
-        });
+        return Err(
+            CursorPlanError::continuation_cursor_boundary_arity_mismatch(
+                expected_arity,
+                boundary.slots.len(),
+            ),
+        );
     }
 
     Ok(())
@@ -159,52 +160,55 @@ pub(in crate::db) fn validate_cursor_boundary_types(
     order: &OrderSpec,
     boundary: &CursorBoundary,
 ) -> Result<(), CursorPlanError> {
-    let schema = SchemaInfo::from_entity_model(model).map_err(|err| {
-        CursorPlanError::InvalidContinuationCursorPayload {
-            reason: err.to_string(),
-        }
-    })?;
+    let schema = SchemaInfo::from_entity_model(model)
+        .map_err(|err| CursorPlanError::invalid_continuation_cursor_payload(err.to_string()))?;
 
     for ((field, _), slot) in order.fields.iter().zip(boundary.slots.iter()) {
         let field_type = schema.field(field).ok_or_else(|| {
-            CursorPlanError::InvalidContinuationCursorPayload {
-                reason: format!("unknown order field '{field}'"),
-            }
+            CursorPlanError::invalid_continuation_cursor_payload(format!(
+                "unknown order field '{field}'"
+            ))
         })?;
 
         match slot {
             CursorBoundarySlot::Missing => {
                 if field == model.primary_key.name {
-                    return Err(CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
-                        field: field.clone(),
-                        expected: field_type.to_string(),
-                        value: None,
-                    });
+                    return Err(
+                        CursorPlanError::continuation_cursor_primary_key_type_mismatch(
+                            field.clone(),
+                            field_type.to_string(),
+                            None,
+                        ),
+                    );
                 }
             }
             CursorBoundarySlot::Present(value) => {
                 if !literal_matches_type(value, field_type) {
                     if field == model.primary_key.name {
-                        return Err(CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
-                            field: field.clone(),
-                            expected: field_type.to_string(),
-                            value: Some(value.clone()),
-                        });
+                        return Err(
+                            CursorPlanError::continuation_cursor_primary_key_type_mismatch(
+                                field.clone(),
+                                field_type.to_string(),
+                                Some(value.clone()),
+                            ),
+                        );
                     }
 
-                    return Err(CursorPlanError::ContinuationCursorBoundaryTypeMismatch {
-                        field: field.clone(),
-                        expected: field_type.to_string(),
-                        value: value.clone(),
-                    });
+                    return Err(CursorPlanError::continuation_cursor_boundary_type_mismatch(
+                        field.clone(),
+                        field_type.to_string(),
+                        value.clone(),
+                    ));
                 }
 
                 if field == model.primary_key.name && Value::as_storage_key(value).is_none() {
-                    return Err(CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
-                        field: field.clone(),
-                        expected: field_type.to_string(),
-                        value: Some(value.clone()),
-                    });
+                    return Err(
+                        CursorPlanError::continuation_cursor_primary_key_type_mismatch(
+                            field.clone(),
+                            field_type.to_string(),
+                            Some(value.clone()),
+                        ),
+                    );
                 }
             }
         }
@@ -224,39 +228,38 @@ pub(in crate::db) fn decode_typed_primary_key_cursor_slot<K: FieldValue>(
         .fields
         .iter()
         .position(|(field, _)| field == pk_field)
-        .ok_or_else(|| CursorPlanError::InvalidContinuationCursorPayload {
-            reason: format!(
+        .ok_or_else(|| {
+            CursorPlanError::invalid_continuation_cursor_payload(format!(
                 "order specification must end with primary key '{pk_field}' as deterministic tie-break"
-            ),
+            ))
         })?;
 
-    let schema = SchemaInfo::from_entity_model(model).map_err(|err| {
-        CursorPlanError::InvalidContinuationCursorPayload {
-            reason: err.to_string(),
-        }
-    })?;
+    let schema = SchemaInfo::from_entity_model(model)
+        .map_err(|err| CursorPlanError::invalid_continuation_cursor_payload(err.to_string()))?;
     let expected = schema
         .field(pk_field)
-        .ok_or_else(|| CursorPlanError::InvalidContinuationCursorPayload {
-            reason: format!("unknown order field '{pk_field}'"),
+        .ok_or_else(|| {
+            CursorPlanError::invalid_continuation_cursor_payload(format!(
+                "unknown order field '{pk_field}'"
+            ))
         })?
         .to_string();
     let pk_slot = &boundary.slots[pk_index];
 
     match pk_slot {
-        CursorBoundarySlot::Missing => {
-            Err(CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
-                field: pk_field.to_string(),
+        CursorBoundarySlot::Missing => Err(
+            CursorPlanError::continuation_cursor_primary_key_type_mismatch(
+                pk_field.to_string(),
                 expected,
-                value: None,
-            })
-        }
+                None,
+            ),
+        ),
         CursorBoundarySlot::Present(value) => K::from_value(value).ok_or_else(|| {
-            CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
-                field: pk_field.to_string(),
+            CursorPlanError::continuation_cursor_primary_key_type_mismatch(
+                pk_field.to_string(),
                 expected,
-                value: Some(value.clone()),
-            }
+                Some(value.clone()),
+            )
         }),
     }
 }

@@ -1,3 +1,8 @@
+//! Module: executor::route::fast_path
+//! Responsibility: route-owned fast-path verification/dispatch scaffolding.
+//! Does not own: route capability derivation or stream materialization behavior.
+//! Boundary: precedence runner and fast-path eligibility helpers for route planning.
+
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},
@@ -42,10 +47,12 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
+    /// Return whether count pushdown path shape is supported for one access path.
     pub(super) const fn count_pushdown_path_shape_supported(path: &AccessPath<E::Key>) -> bool {
         matches!(path, AccessPath::FullScan | AccessPath::KeyRange { .. })
     }
 
+    /// Return whether count pushdown is supported for one access plan.
     pub(super) fn count_pushdown_access_shape_supported(access: &AccessPlan<E::Key>) -> bool {
         match access {
             AccessPlan::Path(path) => Self::count_pushdown_path_shape_supported(path),
@@ -86,6 +93,7 @@ where
             && capabilities.count_pushdown_access_shape_supported
     }
 
+    /// Return whether aggregate routing must force materialized mode due to predicate uncertainty.
     pub(super) fn aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
         execution_preparation: &ExecutionPreparation,
     ) -> bool {

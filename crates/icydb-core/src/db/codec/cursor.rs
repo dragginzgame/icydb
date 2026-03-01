@@ -1,9 +1,8 @@
-///
-/// Cursor codec helpers.
-///
-/// This module owns the opaque wire-token format used for continuation cursors.
-/// It intentionally contains only token encoding/decoding logic and no query semantics.
-///
+//! Module: codec::cursor
+//! Responsibility: cursor token formatting/hex codec helpers.
+//! Does not own: cursor validation or planner/runtime continuation semantics.
+//! Boundary: pure wire formatting and bounded decode for cursor token strings.
+
 use crate::db::cursor::ContinuationSignature;
 
 // Defensive decode bound for untrusted cursor token input.
@@ -57,6 +56,7 @@ impl std::fmt::Display for ContinuationSignature {
 ///
 /// The token may include surrounding whitespace, which is trimmed.
 pub fn decode_cursor(token: &str) -> Result<Vec<u8>, CursorDecodeError> {
+    // Phase 1: normalize input and enforce envelope-level bounds.
     let token = token.trim();
 
     if token.is_empty() {
@@ -74,6 +74,7 @@ pub fn decode_cursor(token: &str) -> Result<Vec<u8>, CursorDecodeError> {
         return Err(CursorDecodeError::OddLength);
     }
 
+    // Phase 2: decode validated hex pairs into raw cursor bytes.
     let mut out = Vec::with_capacity(token.len() / 2);
     let bytes = token.as_bytes();
 

@@ -1,3 +1,8 @@
+//! Module: executor::aggregate::numeric
+//! Responsibility: numeric field-target aggregate terminals (`sum`/`avg`).
+//! Does not own: numeric coercion policy beyond field helper contracts.
+//! Boundary: materialized numeric aggregate helpers for load executor terminals.
+
 use crate::{
     db::{
         executor::{
@@ -28,6 +33,7 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
+    /// Execute `sum(field)` over the effective response window.
     pub(in crate::db) fn aggregate_sum_by(
         &self,
         plan: ExecutablePlan<E>,
@@ -40,6 +46,7 @@ where
         )
     }
 
+    /// Execute `avg(field)` over the effective response window.
     pub(in crate::db) fn aggregate_avg_by(
         &self,
         plan: ExecutablePlan<E>,

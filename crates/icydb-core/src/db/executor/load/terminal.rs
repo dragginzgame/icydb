@@ -1,3 +1,8 @@
+//! Module: executor::load::terminal
+//! Responsibility: load terminal adapters (`take`, top-k/bottom-k row/value projections).
+//! Does not own: core load execution routing or predicate/index planning semantics.
+//! Boundary: terminal-level post-processing over canonical materialized load responses.
+
 use crate::{
     db::{
         executor::{
@@ -39,6 +44,7 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
+    /// Execute one `take(k)` terminal over the canonical load response.
     pub(in crate::db) fn take(
         &self,
         plan: ExecutablePlan<E>,
@@ -47,6 +53,7 @@ where
         self.execute_take_terminal(plan, take_count)
     }
 
+    /// Execute one `top_k_by(field, k)` terminal over materialized load rows.
     pub(in crate::db) fn top_k_by(
         &self,
         plan: ExecutablePlan<E>,
@@ -58,6 +65,7 @@ where
         self.execute_top_k_field_terminal(plan, target_field.as_str(), take_count)
     }
 
+    /// Execute one `bottom_k_by(field, k)` terminal over materialized load rows.
     pub(in crate::db) fn bottom_k_by(
         &self,
         plan: ExecutablePlan<E>,
@@ -69,6 +77,7 @@ where
         self.execute_bottom_k_field_terminal(plan, target_field.as_str(), take_count)
     }
 
+    /// Execute one `top_k_by_values(field, k)` terminal and return ranked values.
     pub(in crate::db) fn top_k_by_values(
         &self,
         plan: ExecutablePlan<E>,
@@ -80,6 +89,7 @@ where
         self.execute_top_k_field_values_terminal(plan, target_field.as_str(), take_count)
     }
 
+    /// Execute one `bottom_k_by_values(field, k)` terminal and return ranked values.
     pub(in crate::db) fn bottom_k_by_values(
         &self,
         plan: ExecutablePlan<E>,
@@ -91,6 +101,7 @@ where
         self.execute_bottom_k_field_values_terminal(plan, target_field.as_str(), take_count)
     }
 
+    /// Execute one `top_k_by_with_ids(field, k)` terminal and return `(id, value)` rows.
     pub(in crate::db) fn top_k_by_with_ids(
         &self,
         plan: ExecutablePlan<E>,
@@ -102,6 +113,7 @@ where
         self.execute_top_k_field_values_with_ids_terminal(plan, target_field.as_str(), take_count)
     }
 
+    /// Execute one `bottom_k_by_with_ids(field, k)` terminal and return `(id, value)` rows.
     pub(in crate::db) fn bottom_k_by_with_ids(
         &self,
         plan: ExecutablePlan<E>,

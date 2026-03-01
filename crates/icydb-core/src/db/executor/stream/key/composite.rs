@@ -1,3 +1,8 @@
+//! Module: executor::stream::key::composite
+//! Responsibility: merge/intersection combinators over ordered key streams.
+//! Does not own: physical key production or access-path traversal.
+//! Boundary: comparator-driven stream composition with monotonicity guards.
+
 #[cfg(test)]
 use crate::db::direction::Direction;
 use crate::{
@@ -22,8 +27,6 @@ fn witness_matches_key(witness: &DataKeyWitness, key: &DataKey) -> bool {
 ///
 /// StreamSideState
 ///
-/// StreamSideState
-///
 /// Per-side lookahead state for one ordered child stream.
 /// Tracks pending key, exhaustion status, and monotonicity witness.
 ///
@@ -38,6 +41,7 @@ struct StreamSideState {
 }
 
 impl StreamSideState {
+    /// Construct one stream-side lookahead state.
     const fn new(name: &'static str, comparator: KeyOrderComparator) -> Self {
         Self {
             item: None,
@@ -153,6 +157,7 @@ struct OrderedPairState {
 }
 
 impl OrderedPairState {
+    /// Construct one ordered-pair lookahead envelope.
     const fn new(comparator: KeyOrderComparator) -> Self {
         Self {
             left: StreamSideState::new("left", comparator),
@@ -182,11 +187,13 @@ where
     B: OrderedKeyStream,
 {
     #[cfg(test)]
+    /// Construct one merge stream using traversal direction.
     #[must_use]
     pub(crate) const fn new(left: A, right: B, direction: Direction) -> Self {
         Self::new_with_comparator(left, right, KeyOrderComparator::from_direction(direction))
     }
 
+    /// Construct one merge stream using explicit key comparator policy.
     #[must_use]
     pub(crate) const fn new_with_comparator(
         left: A,
@@ -290,11 +297,13 @@ where
     B: OrderedKeyStream,
 {
     #[cfg(test)]
+    /// Construct one intersection stream using traversal direction.
     #[must_use]
     pub(crate) const fn new(left: A, right: B, direction: Direction) -> Self {
         Self::new_with_comparator(left, right, KeyOrderComparator::from_direction(direction))
     }
 
+    /// Construct one intersection stream using explicit key comparator policy.
     #[must_use]
     pub(crate) const fn new_with_comparator(
         left: A,

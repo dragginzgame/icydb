@@ -1,13 +1,13 @@
-//! Shared execution-level semantic helpers for `db` subsystems.
-//!
-//! Predicate ownership now lives under `db::predicate`.
-//! This module intentionally retains only non-predicate cross-cutting helpers,
-//! plus test-only compatibility re-exports for legacy test imports.
+//! Module: contracts
+//! Responsibility: shared db-level semantic contracts used across subsystems.
+//! Does not own: predicate runtime/validation semantics (moved to `db::predicate`).
+//! Boundary: retains only non-predicate helpers plus test-only compatibility bridges.
 
 mod semantics;
 #[cfg(test)]
 mod tests;
 
+// Test-only compatibility re-exports for legacy contracts test imports.
 #[cfg(test)]
 #[allow(unused_imports)]
 pub(crate) use crate::db::predicate::MissingRowPolicy;

@@ -1,3 +1,8 @@
+//! Module: executor::group::hash
+//! Responsibility: stable hash derivation for canonical grouped/distinct keys.
+//! Does not own: key canonicalization policy or grouping equality checks.
+//! Boundary: hash utilities consumed by grouped key materialization.
+
 use crate::{
     error::InternalError,
     value::{Value, hash_value},

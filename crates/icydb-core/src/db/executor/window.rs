@@ -1,3 +1,8 @@
+//! Module: executor::window
+//! Responsibility: canonical page-window and cursor-window progression helpers.
+//! Does not own: access-path routing or row decoding semantics.
+//! Boundary: shared pagination/cursor window calculations for executor/kernel paths.
+
 use crate::{
     db::{
         cursor::{CursorBoundary, apply_cursor_boundary},
@@ -78,12 +83,14 @@ impl WindowCursorContract {
         }
     }
 
+    /// Return whether the effective limit window is exhausted.
     pub(in crate::db::executor) const fn exhausted(&self) -> bool {
         matches!(self.limit_remaining, Some(0))
     }
 
     // Advance window state by one existing row and return whether the row is
     // in the effective output window.
+    /// Advance window state by one row and return whether the row is in-window.
     pub(in crate::db::executor) const fn accept_existing_row(&mut self) -> bool {
         if self.offset_remaining > 0 {
             self.offset_remaining = self.offset_remaining.saturating_sub(1);
@@ -103,8 +110,7 @@ impl WindowCursorContract {
 }
 
 impl ExecutionKernel {
-    // Build one kernel-owned window/cursor progression contract for stream
-    // reducer execution.
+    /// Build one kernel-owned window/cursor progression contract for stream reducers.
     pub(in crate::db::executor) fn window_cursor_contract<K>(
         plan: &AccessPlannedQuery<K>,
         cursor_boundary: Option<&CursorBoundary>,
@@ -112,8 +118,7 @@ impl ExecutionKernel {
         WindowCursorContract::from_plan(plan, cursor_boundary)
     }
 
-    // Compute one kernel-owned effective keep-count from plan + cursor offset
-    // semantics for pagination/retry boundaries.
+    /// Compute effective keep-count from plan + cursor-offset semantics.
     pub(in crate::db::executor) fn effective_keep_count_for_limit<K>(
         plan: &AccessPlannedQuery<K>,
         cursor_boundary: Option<&CursorBoundary>,
@@ -157,7 +162,7 @@ impl ExecutionKernel {
         Some(compute_page_window(page.offset, limit, true).fetch_count)
     }
 
-    // Continuation phase (strictly after ordering, before pagination).
+    /// Apply continuation-boundary phase after ordering and before pagination.
     pub(in crate::db::executor) fn apply_cursor_boundary_phase<K, E, R>(
         plan: &AccessPlannedQuery<K>,
         rows: &mut Vec<R>,

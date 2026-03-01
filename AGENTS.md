@@ -254,6 +254,7 @@ Commenting quality is a merge gate: code that is correct but under-documented is
 * For every non-trivial `struct` or `trait`, the `<TypeName>` line MUST exactly repeat the declared type name.
 * After the doc comment block for a `struct` or `trait`, there MUST be a blank line before the type definition.
 * Every non-trivial private function or type MUST have at least a brief explanatory comment.
+* For any function/struct/enum/trait/type with lint/control attributes (`#[expect]`, `#[allow]`, `#[cfg_attr]`, etc.), comments/doc comments for that item MUST come first, then attributes, then the item.
 * Inherent `impl <TypeName>` blocks SHOULD appear immediately after the type definition (after derives/attrs and doc block) and before unrelated items whenever feasible.
 * Functions with multiple logical phases MUST include inline comments separating those phases.
 * Non-trivial functions longer than ~30 lines MUST include phase-level header comments that label each major step.

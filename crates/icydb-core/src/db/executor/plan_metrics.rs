@@ -1,3 +1,8 @@
+//! Module: executor::plan_metrics
+//! Responsibility: lightweight execution observability event helpers.
+//! Does not own: execution behavior or route-selection logic.
+//! Boundary: metric projection utilities for executor call sites.
+
 use crate::{
     db::access::{AccessPath, AccessPlan},
     obs::sink::{MetricsEvent, PlanKind, Span, record},

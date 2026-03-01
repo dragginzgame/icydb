@@ -1,3 +1,8 @@
+//! Module: executor::aggregate::projection
+//! Responsibility: field-value projection terminals over materialized responses.
+//! Does not own: grouped key canonicalization internals or route planning logic.
+//! Boundary: projection terminal helpers (`values`, `distinct_values`, `first/last value`).
+
 use crate::{
     db::{
         data::DataKey,
@@ -20,6 +25,7 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
+    /// Execute `values_by(field)` over the effective response window.
     pub(in crate::db) fn values_by(
         &self,
         plan: ExecutablePlan<E>,
@@ -30,6 +36,7 @@ where
         self.execute_values_field_projection(plan, target_field.as_str())
     }
 
+    /// Execute `distinct_values_by(field)` over the effective response window.
     pub(in crate::db) fn distinct_values_by(
         &self,
         plan: ExecutablePlan<E>,
@@ -40,6 +47,7 @@ where
         self.execute_distinct_values_field_projection(plan, target_field.as_str())
     }
 
+    /// Execute `values_by_with_ids(field)` over the effective response window.
     pub(in crate::db) fn values_by_with_ids(
         &self,
         plan: ExecutablePlan<E>,
@@ -50,6 +58,7 @@ where
         self.execute_values_with_ids_field_projection(plan, target_field.as_str())
     }
 
+    /// Execute `first_value_by(field)` using canonical FIRST terminal semantics.
     pub(in crate::db) fn first_value_by(
         &self,
         plan: ExecutablePlan<E>,
@@ -64,6 +73,7 @@ where
         )
     }
 
+    /// Execute `last_value_by(field)` using canonical LAST terminal semantics.
     pub(in crate::db) fn last_value_by(
         &self,
         plan: ExecutablePlan<E>,

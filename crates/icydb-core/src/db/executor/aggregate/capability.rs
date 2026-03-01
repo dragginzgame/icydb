@@ -1,3 +1,8 @@
+//! Module: executor::aggregate::capability
+//! Responsibility: aggregate field-kind capability predicates.
+//! Does not own: route planning policy or aggregate execution dispatch.
+//! Boundary: reusable field capability checks for aggregate/route modules.
+
 use crate::{model::field::FieldKind, traits::EntityKind};
 
 /// Return true when the field kind is eligible for deterministic aggregate ordering.
@@ -71,6 +76,7 @@ pub(in crate::db::executor) const fn field_kind_supports_numeric_aggregation(
 }
 
 #[must_use]
+/// Return whether the named field supports deterministic aggregate ordering.
 pub(in crate::db::executor) fn field_is_orderable<E: EntityKind>(field: &str) -> bool {
     let Some(field_model) = E::MODEL
         .fields

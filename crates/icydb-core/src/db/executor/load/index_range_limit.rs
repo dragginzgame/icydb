@@ -1,3 +1,8 @@
+//! Module: executor::load::index_range_limit
+//! Responsibility: bounded index-range fast-path stream execution.
+//! Does not own: index-range eligibility planning or cursor decode semantics.
+//! Boundary: executes pre-lowered index-range specs when route gates allow pushdown.
+
 use crate::{
     db::{
         Context,
@@ -18,7 +23,7 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
-    // Limited IndexRange pushdown for semantically safe plan shapes.
+    /// Try one bounded index-range fast-path stream for semantically safe plan shapes.
     pub(in crate::db::executor) fn try_execute_index_range_limit_pushdown_stream(
         ctx: &Context<'_, E>,
         plan: &AccessPlannedQuery<E::Key>,
@@ -28,6 +33,7 @@ where
         effective_fetch: usize,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
+        // Phase 1: verify access-path and executable spec materialization invariants.
         let Some((index, _, _, _)) = plan.access.as_index_range_path() else {
             return Ok(None);
         };
@@ -41,6 +47,8 @@ where
             index,
             "index-range fast-path spec/index alignment must be validated by resolver",
         );
+
+        // Phase 2: bind range/anchor inputs and execute through shared fast-stream helper.
         let stream_request = AccessPlanStreamRequest::from_bindings(
             &plan.access,
             AccessStreamBindings::with_index_range(

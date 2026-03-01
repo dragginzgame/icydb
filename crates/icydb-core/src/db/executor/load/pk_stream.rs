@@ -1,3 +1,8 @@
+//! Module: executor::load::pk_stream
+//! Responsibility: primary-key order fast-path stream execution helpers.
+//! Does not own: planner route precedence or post-access materialization semantics.
+//! Boundary: validates PK-stream-compatible access shapes then emits ordered key streams.
+
 use crate::{
     db::{
         Context,
@@ -18,8 +23,7 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
-    // Fast path for canonical primary-key ordering over full scans.
-    // Produces ordered keys only; shared row materialization happens in load/mod.rs.
+    /// Try one primary-key order fast path and return ordered keys when eligible.
     pub(super) fn try_execute_pk_order_stream(
         ctx: &Context<'_, E>,
         plan: &AccessPlannedQuery<E::Key>,

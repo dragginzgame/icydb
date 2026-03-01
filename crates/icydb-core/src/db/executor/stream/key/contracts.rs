@@ -1,3 +1,8 @@
+//! Module: executor::stream::key::contracts
+//! Responsibility: ordered key-stream trait contracts and simple adapters.
+//! Does not own: physical stream resolution or planner semantics.
+//! Boundary: foundational key-stream interfaces used by executor stream modules.
+
 use crate::{db::data::DataKey, error::InternalError};
 
 ///
@@ -8,6 +13,7 @@ use crate::{db::data::DataKey, error::InternalError};
 ///
 
 pub(crate) trait OrderedKeyStream {
+    /// Pull the next key from the stream, or `None` when exhausted.
     fn next_key(&mut self) -> Result<Option<DataKey>, InternalError>;
 
     // Return the exact total number of keys this stream can emit.
@@ -59,6 +65,7 @@ pub(crate) struct VecOrderedKeyStream {
 }
 
 impl VecOrderedKeyStream {
+    /// Construct a stream adapter over one materialized key vector.
     #[must_use]
     pub(crate) fn new(keys: Vec<DataKey>) -> Self {
         let total_len = keys.len();
@@ -97,6 +104,7 @@ impl<S> BudgetedOrderedKeyStream<S>
 where
     S: OrderedKeyStream,
 {
+    /// Construct a budgeted adapter that emits at most `remaining` keys.
     #[must_use]
     pub(crate) fn new(inner: S, remaining: usize) -> Self {
         let total_count_hint = inner

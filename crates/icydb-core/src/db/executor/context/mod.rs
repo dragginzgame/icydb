@@ -1,3 +1,8 @@
+//! Module: executor::context
+//! Responsibility: executor-scoped store/index read context and row decoding helpers.
+//! Does not own: routing policy, plan lowering, or mutation commit semantics.
+//! Boundary: read-only data/index access surface consumed by executor submodules.
+
 use crate::{
     db::{
         Db,
@@ -41,6 +46,7 @@ where
     // Context setup
     // ------------------------------------------------------------------
 
+    /// Construct one executor context bound to a database handle.
     #[must_use]
     pub(crate) const fn new(db: &'a Db<E::Canister>) -> Self {
         Self {
@@ -53,6 +59,7 @@ where
     // Store access
     // ------------------------------------------------------------------
 
+    /// Execute one closure against the entity's data store handle.
     pub(crate) fn with_store<R>(
         &self,
         f: impl FnOnce(&DataStore) -> R,
@@ -67,6 +74,7 @@ where
     // Row reads
     // ------------------------------------------------------------------
 
+    /// Read one raw row by key, returning not-found as an error.
     pub(crate) fn read(&self, key: &DataKey) -> Result<RawRow, InternalError> {
         self.with_store(|s| {
             let raw = key.to_raw()?;
@@ -75,6 +83,7 @@ where
         })?
     }
 
+    /// Read one raw row by key, classifying missing rows as store corruption.
     pub(crate) fn read_strict(&self, key: &DataKey) -> Result<RawRow, InternalError> {
         self.with_store(|s| {
             let raw = key.to_raw()?;
@@ -85,6 +94,7 @@ where
     }
 
     // Load rows for an ordered key stream by preserving the stream order.
+    /// Materialize rows for an ordered key stream while preserving stream order.
     pub(crate) fn rows_from_ordered_key_stream(
         &self,
         key_stream: &mut dyn OrderedKeyStream,
@@ -99,6 +109,7 @@ where
     // Helpers
     // ------------------------------------------------------------------
 
+    /// Build one `DataKey` from entity key type.
     pub(super) fn data_key_from_key(key: E::Key) -> Result<DataKey, InternalError>
     where
         E: EntityKind,
@@ -106,6 +117,7 @@ where
         DataKey::try_new::<E>(key)
     }
 
+    /// Deduplicate entity keys using canonical key ordering.
     pub(super) fn dedup_keys(keys: Vec<E::Key>) -> Vec<E::Key> {
         let mut set = BTreeSet::new();
         set.extend(keys);
@@ -147,14 +159,17 @@ where
         Ok(out)
     }
 
+    /// Decode one raw data key and map decode failures to executor corruption errors.
     pub(super) fn decode_data_key(raw: &RawDataKey) -> Result<DataKey, InternalError> {
         DataKey::try_from_raw(raw).map_err(|err| ExecutorError::store_corruption_from(err).into())
     }
 
+    /// Deserialize data rows into `(Id, Entity)` tuples with key/entity consistency checks.
     pub(crate) fn deserialize_rows(rows: Vec<DataRow>) -> Result<Vec<(Id<E>, E)>, InternalError>
     where
         E: EntityKind + EntityValue,
     {
+        // Phase 1: decode each row payload and enforce key/entity alignment invariants.
         rows.into_iter()
             .map(|(key, row)| {
                 let expected_key = key.try_key::<E>()?;

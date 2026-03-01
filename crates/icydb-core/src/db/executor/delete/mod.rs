@@ -1,3 +1,8 @@
+//! Module: executor::delete
+//! Responsibility: delete-plan execution and commit-window handoff.
+//! Does not own: logical planning, relation semantics, or cursor protocol details.
+//! Boundary: delete-specific preflight/decode/apply flow over executable plans.
+
 use crate::{
     db::{
         Db,
@@ -96,6 +101,7 @@ impl<E> DeleteExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
+    /// Construct one delete executor bound to a database handle.
     #[must_use]
     pub(crate) const fn new(db: Db<E::Canister>, _debug: bool) -> Self {
         Self {
@@ -108,6 +114,7 @@ where
     // Plan-based delete
     // ─────────────────────────────────────────────
 
+    /// Execute one delete plan and return deleted entities in response order.
     pub(crate) fn execute(self, plan: ExecutablePlan<E>) -> Result<Response<E>, InternalError> {
         match &plan.as_inner().logical {
             LogicalPlan::Scalar(_) => {}
@@ -128,6 +135,7 @@ where
             "delete executor received a plan shape that bypassed planning validation",
         );
         (|| {
+            // Phase 1: preflight plan + context setup before any commit-window work.
             let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
             let index_range_specs = plan.index_range_specs()?.to_vec();
             let plan = plan.into_inner();

@@ -1,3 +1,8 @@
+//! Module: executor::mutation::save
+//! Responsibility: save-mode execution (`insert`/`update`/`replace`) and batch lanes.
+//! Does not own: relation-domain validation semantics or commit marker protocol internals.
+//! Boundary: save preflight + commit-window handoff for one entity type.
+
 use crate::{
     db::{
         Db,
@@ -74,6 +79,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
     // Construction & configuration
     // ======================================================================
 
+    /// Construct one save executor bound to a database handle.
     #[must_use]
     pub(crate) const fn new(db: Db<E::Canister>, _debug: bool) -> Self {
         Self {
@@ -170,6 +176,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         entities: impl IntoIterator<Item = E>,
     ) -> Result<Vec<E>, InternalError> {
         (|| {
+            // Phase 1: validate + stage all row ops before opening the commit window.
             let mut span = Span::<E>::new(ExecKind::Save);
             let ctx = mutation_write_context::<E>(&self.db)?;
             let save_rule = SaveRule::from_mode(mode);
@@ -198,6 +205,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                 return Ok(out);
             }
 
+            // Phase 2: enter commit window and apply staged row ops atomically.
             Self::commit_atomic_batch(&self.db, marker_row_ops, &mut span)?;
 
             Ok(out)

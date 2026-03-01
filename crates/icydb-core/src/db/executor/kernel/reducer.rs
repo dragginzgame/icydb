@@ -1,3 +1,8 @@
+//! Module: executor::kernel::reducer
+//! Responsibility: kernel reducer contracts and reducer-runner orchestration helpers.
+//! Does not own: access-path resolution or planning-time aggregate eligibility.
+//! Boundary: shared fold/collect runners over ordered key streams.
+
 use crate::{
     db::{
         Context,
@@ -70,7 +75,9 @@ pub(in crate::db::executor) trait KernelReducer<E: EntityKind + EntityValue> {
     type Output;
     const INPUT_MODE: StreamInputMode;
 
+    /// Consume one stream item and return reducer control state.
     fn on_item(&mut self, item: StreamItem<'_, E>) -> Result<ReducerControl, InternalError>;
+    /// Finalize reducer output after stream consumption completes.
     fn finish(self) -> Result<Self::Output, InternalError>;
 }
 
@@ -229,6 +236,7 @@ impl ExecutionKernel {
         E: EntityKind + EntityValue,
         R: KernelReducer<E>,
     {
+        // Phase 1: enforce reducer input-mode contract and initialize window counters.
         if !matches!(R::INPUT_MODE, StreamInputMode::KeyOnly) {
             return Err(InternalError::query_executor_invariant(
                 "key-stream reducer runner currently supports key-only reducers",
@@ -239,6 +247,7 @@ impl ExecutionKernel {
         let mut keys_scanned = 0usize;
         let consistency = plan.scalar_plan().consistency;
 
+        // Phase 2: scan keys, apply fold eligibility/window gates, and feed reducer.
         while !window.exhausted() {
             let Some(key) = key_stream.next_key()? else {
                 break;
@@ -275,6 +284,7 @@ impl ExecutionKernel {
         E: EntityKind + EntityValue,
         R: KernelReducer<E>,
     {
+        // Phase 1: enforce reducer input-mode contract and initialize row staging.
         if !matches!(R::INPUT_MODE, StreamInputMode::RowOnly) {
             return Err(InternalError::query_executor_invariant(
                 "row-stream reducer runner requires row-only reducer input mode",
@@ -285,6 +295,7 @@ impl ExecutionKernel {
         let mut keys_scanned = 0usize;
         let consistency = plan.scalar_plan().consistency;
 
+        // Phase 2: materialize rows from keys and feed ephemeral row borrows to reducer.
         while let Some(data_key) = key_stream.next_key()? {
             let Some(entity) =
                 LoadExecutor::<E>::read_entity_for_field_extrema(ctx, consistency, &data_key)?

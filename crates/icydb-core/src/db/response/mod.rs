@@ -1,10 +1,7 @@
-//! Response subsystem (Tier-2 boundary within `db`).
-//!
-//! Defines the materialized query result surface returned by
-//! session execution. Types in this module form part of the
-//! stable `db` public contract.
-//!
-//! Internal response payload helpers live in `paged`.
+//! Module: response
+//! Responsibility: materialized query/write response payload contracts.
+//! Does not own: execution routing, planning policy, or cursor token protocol.
+//! Boundary: Tier-2 db API DTO surface returned by session execution.
 mod paged;
 
 use crate::{
@@ -65,12 +62,14 @@ impl<E: EntityKind> Response<E> {
     // Introspection
     // ------------------------------------------------------------------
 
+    /// Return the number of rows as a u32 API contract count.
     #[must_use]
     #[expect(clippy::cast_possible_truncation)]
     pub const fn count(&self) -> u32 {
         self.0.len() as u32
     }
 
+    /// Return whether this response has no rows.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.0.is_empty()
@@ -80,6 +79,7 @@ impl<E: EntityKind> Response<E> {
     // Cardinality enforcement
     // ------------------------------------------------------------------
 
+    /// Require exactly one row in this response.
     pub const fn require_one(&self) -> Result<(), ResponseError> {
         match self.count() {
             1 => Ok(()),
@@ -88,6 +88,7 @@ impl<E: EntityKind> Response<E> {
         }
     }
 
+    /// Require at least one row in this response.
     pub const fn require_some(&self) -> Result<(), ResponseError> {
         if self.is_empty() {
             Err(ResponseError::not_found::<E>())
@@ -100,6 +101,7 @@ impl<E: EntityKind> Response<E> {
     // Rows
     // ------------------------------------------------------------------
 
+    /// Consume and return `None` for empty, `Some(row)` for one row, or error for many rows.
     #[expect(clippy::cast_possible_truncation)]
     pub fn try_row(self) -> Result<Option<Row<E>>, ResponseError> {
         match self.0.len() {
@@ -109,10 +111,12 @@ impl<E: EntityKind> Response<E> {
         }
     }
 
+    /// Consume and return the single row, or fail on zero/many rows.
     pub fn row(self) -> Result<Row<E>, ResponseError> {
         self.try_row()?.ok_or_else(ResponseError::not_found::<E>)
     }
 
+    /// Consume and return all rows in response order.
     #[must_use]
     pub fn rows(self) -> Vec<Row<E>> {
         self.0
@@ -122,14 +126,17 @@ impl<E: EntityKind> Response<E> {
     // Entities
     // ------------------------------------------------------------------
 
+    /// Consume and return the single entity or `None`, failing on many rows.
     pub fn try_entity(self) -> Result<Option<E>, ResponseError> {
         Ok(self.try_row()?.map(|(_, e)| e))
     }
 
+    /// Consume and return the single entity, failing on zero/many rows.
     pub fn entity(self) -> Result<E, ResponseError> {
         self.row().map(|(_, e)| e)
     }
 
+    /// Consume and return all entities in response order.
     #[must_use]
     pub fn entities(self) -> Vec<E> {
         self.0.into_iter().map(|(_, e)| e).collect()
@@ -167,11 +174,13 @@ impl<E: EntityKind> Response<E> {
     // Views
     // ------------------------------------------------------------------
 
+    /// Return the single-row view, failing on zero/many rows.
     pub fn view(&self) -> Result<<E as AsView>::ViewType, ResponseError> {
         self.require_one()?;
         Ok(self.0[0].1.as_view())
     }
 
+    /// Return an optional single-row view, failing on many rows.
     pub fn view_opt(&self) -> Result<Option<<E as AsView>::ViewType>, ResponseError> {
         match self.count() {
             0 => Ok(None),
@@ -180,6 +189,7 @@ impl<E: EntityKind> Response<E> {
         }
     }
 
+    /// Return all row views in response order.
     #[must_use]
     pub fn views(&self) -> Vec<<E as AsView>::ViewType> {
         self.0.iter().map(|(_, e)| e.as_view()).collect()
@@ -316,6 +326,7 @@ impl<E> IntoIterator for WriteBatchResponse<E> {
 }
 
 impl<E> WriteBatchResponse<E> {
+    /// Borrow an iterator over write entries in stable batch order.
     pub fn iter(&self) -> std::slice::Iter<'_, WriteResponse<E>> {
         self.entries.iter()
     }

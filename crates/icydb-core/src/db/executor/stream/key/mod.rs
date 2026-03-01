@@ -1,3 +1,8 @@
+//! Module: executor::stream::key
+//! Responsibility: ordered key-stream contracts, combinators, and comparators.
+//! Does not own: physical store traversal or planner-level route selection.
+//! Boundary: key-stream abstractions consumed by access/load execution.
+
 mod composite;
 mod contracts;
 mod distinct;

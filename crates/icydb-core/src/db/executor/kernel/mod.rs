@@ -1,12 +1,11 @@
+//! Module: executor::kernel
+//! Responsibility: unified read-execution kernel orchestration boundaries.
+//! Does not own: logical planning or physical access path lowering policies.
+//! Boundary: key-stream decoration, materialization, and residual retry behavior.
+
 mod distinct;
 mod post_access;
 mod reducer;
-
-use crate::db::index::IndexCompilePolicy;
-
-// Keep post-access contract ownership explicit at the kernel boundary.
-// use post_access::{PlanRow, PostAccessStats};
-pub(in crate::db::executor) use post_access::PlanRow;
 
 use crate::{
     db::{
@@ -19,11 +18,16 @@ use crate::{
                 ResolvedExecutionKeyStream,
             },
         },
+        index::IndexCompilePolicy,
         query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
 };
+
+// Keep post-access contract ownership explicit at the kernel boundary.
+// use post_access::{PlanRow, PostAccessStats};
+pub(in crate::db::executor) use post_access::PlanRow;
 
 ///
 /// ExecutionKernel
@@ -35,7 +39,7 @@ use crate::{
 pub(in crate::db::executor) struct ExecutionKernel;
 
 impl ExecutionKernel {
-    // Resolve one execution key stream under kernel-owned DISTINCT decoration.
+    /// Resolve one execution key stream under kernel-owned DISTINCT decoration.
     pub(in crate::db::executor) fn resolve_execution_key_stream<E>(
         inputs: &ExecutionInputs<'_, E>,
         route_plan: &ExecutionPlan,
@@ -57,7 +61,7 @@ impl ExecutionKernel {
         ))
     }
 
-    // Apply canonical kernel DISTINCT decoration to one ordered key stream.
+    /// Apply canonical kernel DISTINCT decoration to one ordered key stream.
     pub(in crate::db::executor) fn decorate_key_stream_for_plan<K>(
         ordered_key_stream: OrderedKeyStreamBox,
         plan: &AccessPlannedQuery<K>,
@@ -66,8 +70,7 @@ impl ExecutionKernel {
         distinct::decorate_key_stream_for_plan(ordered_key_stream, plan, direction)
     }
 
-    // Materialize one load execution attempt with optional residual retry
-    // through the canonical kernel boundary.
+    /// Materialize one load execution attempt with optional residual retry.
     pub(in crate::db::executor) fn materialize_with_optional_residual_retry<E>(
         inputs: &ExecutionInputs<'_, E>,
         route_plan: &ExecutionPlan,
@@ -78,6 +81,7 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
+        // Phase 1: resolve and materialize the routed key stream once.
         let mut resolved =
             Self::resolve_execution_key_stream(inputs, route_plan, predicate_compile_mode)?;
         let (mut page, keys_scanned, mut post_access_rows) =
@@ -97,6 +101,7 @@ impl ExecutionKernel {
             .as_ref()
             .map_or(0, |counter| counter.get());
 
+        // Phase 2: retry via unbounded index-range path when bounded residual pass under-fills.
         if Self::index_range_limited_residual_retry_required(
             inputs.plan,
             cursor_boundary,

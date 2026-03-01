@@ -1,3 +1,8 @@
+//! Module: executor::kernel::distinct
+//! Responsibility: kernel-level DISTINCT stream decoration helpers.
+//! Does not own: DISTINCT eligibility planning or row materialization policy.
+//! Boundary: decorates ordered key streams with DISTINCT semantics when requested.
+
 use crate::db::{
     direction::Direction,
     executor::{
@@ -37,6 +42,7 @@ fn wrap_distinct_ordered_key_stream(
     )
 }
 
+/// Decorate one resolved execution key stream with DISTINCT behavior when requested.
 pub(super) fn decorate_resolved_execution_key_stream<K>(
     mut resolved: ResolvedExecutionKeyStream,
     plan: &AccessPlannedQuery<K>,
@@ -57,6 +63,7 @@ pub(super) fn decorate_resolved_execution_key_stream<K>(
     resolved
 }
 
+/// Decorate one ordered key stream with DISTINCT behavior using plan distinct flag.
 pub(in crate::db::executor) fn decorate_key_stream_for_plan<K>(
     ordered_key_stream: OrderedKeyStreamBox,
     plan: &AccessPlannedQuery<K>,

@@ -1,3 +1,8 @@
+//! Module: executor::group::key
+//! Responsibility: canonical grouped/distinct key materialization and set semantics.
+//! Does not own: aggregation fold logic or planner-level grouped query validation.
+//! Boundary: canonical equality/hash substrate for grouped execution.
+
 use crate::{
     db::executor::group::{StableHash, stable_hash_value},
     error::InternalError,
@@ -108,6 +113,7 @@ impl GroupKey {
 ///
 
 pub(in crate::db) trait CanonicalKey {
+    /// Materialize one canonical grouped key from this value.
     fn canonical_key(&self) -> Result<GroupKey, KeyCanonicalError>;
 }
 
@@ -137,6 +143,7 @@ pub(in crate::db) struct GroupKeySet {
 }
 
 impl GroupKeySet {
+    /// Construct one empty canonical grouped-key set.
     #[must_use]
     pub(in crate::db) const fn new() -> Self {
         Self {
@@ -181,6 +188,7 @@ impl Default for GroupKeySet {
     }
 }
 
+// Canonicalize one runtime value into grouped-key equality form.
 fn canonicalize_value(value: &Value) -> Result<Value, KeyCanonicalError> {
     match value {
         Value::Decimal(decimal) => Ok(Value::Decimal(decimal.normalize())),
@@ -194,6 +202,7 @@ fn canonicalize_value(value: &Value) -> Result<Value, KeyCanonicalError> {
     }
 }
 
+// Canonicalize map entries recursively and normalize key ordering.
 fn canonicalize_map_entries(entries: &[(Value, Value)]) -> Result<Value, KeyCanonicalError> {
     let mut canonical_entries = Vec::with_capacity(entries.len());
     for (key, value) in entries {

@@ -11,7 +11,6 @@ pub(in crate::db) mod group;
 mod kernel;
 pub(super) mod load;
 mod mutation;
-mod physical_path;
 mod plan_metrics;
 mod plan_validate;
 mod preparation;

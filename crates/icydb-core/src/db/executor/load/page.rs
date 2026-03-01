@@ -1,3 +1,8 @@
+//! Module: executor::load::page
+//! Responsibility: materialize ordered key streams into cursor-paged load rows.
+//! Does not own: access-path selection, route precedence, or query planning.
+//! Boundary: shared row materialization helper used by load execution paths.
+
 use crate::{
     db::{
         Context,
@@ -18,7 +23,7 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
-    // Run the shared load phases for an already-produced ordered key stream.
+    /// Run shared load phases for an already-produced ordered key stream.
     #[expect(clippy::too_many_arguments)]
     pub(in crate::db::executor) fn materialize_key_stream_into_page(
         ctx: &Context<'_, E>,
@@ -31,8 +36,9 @@ where
         direction: Direction,
         continuation_signature: ContinuationSignature,
     ) -> Result<(CursorPage<E>, usize, usize), InternalError> {
-        // Defensive boundary: bounded load scan hints are only valid for
-        // non-continuation streaming-safe shapes where access order is final.
+        // Phase 1: validate scan-budget hint preconditions.
+        // Bounded load scan hints are valid only for non-continuation,
+        // streaming-safe access shapes where access order is final.
         if scan_budget_hint.is_some() {
             if cursor_boundary.is_some() {
                 return Err(InternalError::query_executor_invariant(
@@ -46,8 +52,7 @@ where
             }
         }
 
-        // Apply guarded scan budgeting only when the access stream already
-        // represents final canonical ordering and no residual narrowing exists.
+        // Phase 2: read rows from the ordered key stream, with optional budget guard.
         let data_rows = if let Some(scan_budget) = scan_budget_hint {
             let mut budgeted = BudgetedOrderedKeyStream::new(key_stream, scan_budget);
             ctx.rows_from_ordered_key_stream(&mut budgeted, plan.scalar_plan().consistency)?
@@ -56,6 +61,8 @@ where
         };
         let rows_scanned = data_rows.len();
         let mut rows = Context::deserialize_rows(data_rows)?;
+
+        // Phase 3: apply post-access pipeline and emit one cursor page.
         let page = Self::finalize_rows_into_page(
             plan,
             predicate_slots,

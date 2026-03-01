@@ -1,3 +1,8 @@
+//! Module: executor::aggregate::fast_path
+//! Responsibility: aggregate fast-path verification and branch execution.
+//! Does not own: fast-path precedence policy (route-owned) or logical planning.
+//! Boundary: aggregate fast-path branch helpers invoked by aggregate orchestration.
+
 use crate::{
     db::{
         Context,
@@ -37,8 +42,7 @@ struct VerifiedAggregateFastPathRoute {
 }
 
 impl ExecutionKernel {
-    // Resolve one routed key stream request, then fold one aggregate terminal
-    // over the resolved stream using canonical aggregate fold behavior.
+    /// Resolve one routed stream request and fold one aggregate terminal from it.
     pub(in crate::db::executor) fn fold_aggregate_from_routed_stream_request<E>(
         ctx: &Context<'_, E>,
         plan: &AccessPlannedQuery<E::Key>,
@@ -62,8 +66,7 @@ impl ExecutionKernel {
         )
     }
 
-    // Resolve one secondary index order stream attempt and fold one aggregate
-    // terminal from it, preserving rows-scanned accounting from the fast path.
+    /// Try one secondary-index aggregate fold attempt and preserve fast-path scan accounting.
     #[expect(clippy::too_many_arguments)]
     pub(in crate::db::executor) fn try_fold_secondary_index_aggregate<E>(
         ctx: &Context<'_, E>,
@@ -196,8 +199,7 @@ impl ExecutionKernel {
         }
     }
 
-    // Attempt aggregate fast-path execution strictly through route-owned
-    // fast-path order. Returns `Some` when one branch fully resolves the terminal.
+    /// Attempt aggregate fast-path execution through route-owned fast-path order.
     pub(in crate::db::executor) fn try_fast_path_aggregate<E>(
         inputs: &AggregateFastPathInputs<'_, '_, E>,
     ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError>

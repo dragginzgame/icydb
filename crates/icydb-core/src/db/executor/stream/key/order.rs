@@ -1,3 +1,8 @@
+//! Module: executor::stream::key::order
+//! Responsibility: comparator policy for ordered key streams.
+//! Does not own: stream traversal mechanics or access-path resolution.
+//! Boundary: centralizes ASC/DESC comparison behavior for stream combinators.
+
 use crate::db::{
     data::{DataKey, StorageKey},
     direction::Direction,
@@ -18,11 +23,13 @@ pub(crate) struct KeyOrderComparator {
 }
 
 impl KeyOrderComparator {
+    /// Construct comparator policy from traversal direction.
     #[must_use]
     pub(crate) const fn from_direction(direction: Direction) -> Self {
         Self { direction }
     }
 
+    /// Compare two data keys under this comparator direction policy.
     pub(in crate::db::executor) fn compare_data_keys(
         self,
         left: &DataKey,
@@ -34,6 +41,7 @@ impl KeyOrderComparator {
         }
     }
 
+    /// Compare two storage keys under this comparator direction policy.
     pub(in crate::db::executor) fn compare_storage_keys(
         self,
         left: &StorageKey,
@@ -45,10 +53,12 @@ impl KeyOrderComparator {
         }
     }
 
+    // Return whether `current` violates stream monotonicity after `previous`.
     pub(super) fn violates_monotonicity(self, previous: &StorageKey, current: &StorageKey) -> bool {
         self.compare_storage_keys(previous, current).is_gt()
     }
 
+    // Human-readable direction label for invariant diagnostics.
     pub(super) const fn order_label(self) -> &'static str {
         match self.direction {
             Direction::Asc => "ASC",

@@ -1,3 +1,8 @@
+//! Module: executor::stream::access::physical
+//! Responsibility: lower logical access paths into physical key-stream candidates.
+//! Does not own: planner eligibility decisions or post-access semantics.
+//! Boundary: physical key resolution through primary/index scan adapters.
+
 use crate::{
     db::{
         access::AccessPath,

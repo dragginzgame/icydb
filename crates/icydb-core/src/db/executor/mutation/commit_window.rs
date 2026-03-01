@@ -1,3 +1,8 @@
+//! Module: executor::mutation::commit_window
+//! Responsibility: commit-window open/apply orchestration for prepared row ops.
+//! Does not own: save/delete logical planning or relation policy decisions.
+//! Boundary: shared commit marker and prepared-op apply pipeline for mutations.
+
 use crate::{
     db::{
         Db,
@@ -77,6 +82,7 @@ impl<'a, E> PreflightStoreOverlay<'a, E>
 where
     E: EntityKind + EntityValue,
 {
+    /// Construct one empty preflight overlay for staged mutation simulation.
     const fn new(db: &'a Db<E::Canister>) -> Self {
         Self {
             db,
@@ -85,6 +91,7 @@ where
         }
     }
 
+    // Stage one prepared row-op into overlay data/index maps.
     fn stage_prepared_row_op(&mut self, row_op: &PreparedRowCommitOp) {
         for index_op in &row_op.index_ops {
             let store_id = index_store_id(index_op.store);

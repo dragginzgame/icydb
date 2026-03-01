@@ -1,3 +1,8 @@
+//! Module: executor::aggregate::field_extrema
+//! Responsibility: field-target extrema aggregate execution helpers.
+//! Does not own: field capability derivation or planner aggregate semantics.
+//! Boundary: materialized and streaming extrema execution for aggregate kernels.
+
 use crate::{
     db::{
         Context,

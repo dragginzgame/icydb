@@ -1,3 +1,8 @@
+//! Module: executor::aggregate::distinct
+//! Responsibility: DISTINCT aggregate terminal helpers over materialized responses.
+//! Does not own: grouped key canonicalization internals or route planning policy.
+//! Boundary: value-DISTINCT aggregate adapters for load executor terminals.
+
 use crate::{
     db::{
         executor::{
@@ -16,6 +21,7 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
+    /// Execute `count_distinct(field)` over the effective response window.
     pub(in crate::db) fn aggregate_count_distinct_by(
         &self,
         plan: ExecutablePlan<E>,

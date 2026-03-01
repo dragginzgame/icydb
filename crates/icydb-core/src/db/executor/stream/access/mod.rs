@@ -1,3 +1,14 @@
+//! Module: executor::stream::access
+//! Responsibility: physical access-plan traversal into ordered key streams.
+//! Does not own: logical planning decisions or post-access row semantics.
+//! Boundary: exclusive executor path for store/index iteration.
+
+#[cfg(test)]
+mod tests;
+
+mod physical;
+mod scan;
+
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},
@@ -16,8 +27,6 @@ use crate::{
     error::InternalError,
     traits::{EntityKind, EntityValue},
 };
-
-mod scan;
 
 pub(in crate::db::executor) use scan::{IndexScan, PrimaryScan};
 
@@ -51,6 +60,7 @@ impl<'a, E> AccessStreamInputs<'_, 'a, E>
 where
     E: EntityKind + EntityValue,
 {
+    /// Clone this envelope with one overridden physical fetch hint.
     #[must_use]
     pub(in crate::db::executor) const fn with_physical_fetch_hint(
         &self,
@@ -68,6 +78,7 @@ where
         }
     }
 
+    // Build one mutable spec-consumption cursor over prefix/range slices.
     #[must_use]
     fn spec_cursor(&self) -> AccessSpecCursor<'a> {
         AccessSpecCursor {
@@ -90,18 +101,21 @@ pub(in crate::db::executor) struct AccessSpecCursor<'a> {
 }
 
 impl<'a> AccessSpecCursor<'a> {
+    /// Consume the next lowered index-prefix spec in traversal order.
     pub(in crate::db::executor) fn next_index_prefix_spec(
         &mut self,
     ) -> Option<&'a LoweredIndexPrefixSpec> {
         self.index_prefix_specs.next()
     }
 
+    /// Consume the next lowered index-range spec in traversal order.
     pub(in crate::db::executor) fn next_index_range_spec(
         &mut self,
     ) -> Option<&'a LoweredIndexRangeSpec> {
         self.index_range_specs.next()
     }
 
+    /// Enforce that all lowered specs were consumed during access-plan traversal.
     pub(in crate::db::executor) fn validate_consumed(&mut self) -> Result<(), InternalError> {
         if self.index_prefix_specs.next().is_some() {
             return Err(InternalError::query_executor_invariant(
@@ -487,6 +501,7 @@ impl AccessPlanStreamResolver {
     }
 
     // Build an ordered key stream for this access plan.
+    /// Produce one ordered key stream for an access plan while consuming lowered specs.
     pub(super) fn produce_key_stream<'a, E, K>(
         access: &AccessPlan<K>,
         inputs: &AccessStreamInputs<'_, 'a, E>,
@@ -564,77 +579,5 @@ impl AccessPlanStreamResolver {
                 key_comparator,
             ))
         }))
-    }
-}
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests {
-    use std::{
-        fs,
-        path::{Path, PathBuf},
-    };
-
-    // Detect direct store-registry traversal hooks in source text.
-    fn source_uses_direct_store_or_registry_access(source: &str) -> bool {
-        source.contains(".with_store(") || source.contains(".with_store_registry(")
-    }
-
-    // Walk one source tree and collect every Rust source path deterministically.
-    fn collect_rust_sources(root: &Path, out: &mut Vec<PathBuf>) {
-        let entries = fs::read_dir(root).unwrap_or_else(|err| {
-            panic!("failed to read source directory {}: {err}", root.display())
-        });
-
-        for entry in entries {
-            let entry = entry.unwrap_or_else(|err| {
-                panic!(
-                    "failed to read source directory entry under {}: {err}",
-                    root.display()
-                )
-            });
-            let path = entry.path();
-            if path.is_dir() {
-                collect_rust_sources(path.as_path(), out);
-                continue;
-            }
-            if path.extension().is_some_and(|ext| ext == "rs") {
-                out.push(path);
-            }
-        }
-    }
-
-    #[test]
-    fn load_module_has_no_direct_store_traversal() {
-        let load_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/load");
-        let mut sources = Vec::new();
-        collect_rust_sources(load_root.as_path(), &mut sources);
-        sources.sort();
-
-        for source_path in sources {
-            let source = fs::read_to_string(&source_path)
-                .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
-            assert!(
-                !source_uses_direct_store_or_registry_access(source.as_str()),
-                "load module file {} must not directly traverse store/registry; route through resolver",
-                source_path.display(),
-            );
-        }
-    }
-
-    #[test]
-    fn physical_path_module_has_no_direct_store_traversal() {
-        let source_path =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/physical_path.rs");
-        let source = fs::read_to_string(&source_path)
-            .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
-
-        assert!(
-            !source_uses_direct_store_or_registry_access(source.as_str()),
-            "physical_path must request access via PrimaryScan/IndexScan adapters, not direct store handles",
-        );
     }
 }

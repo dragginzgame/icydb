@@ -1,3 +1,8 @@
+//! Module: executor::aggregate::field
+//! Responsibility: aggregate field-slot resolution and field-value extraction/comparison helpers.
+//! Does not own: aggregate route planning decisions.
+//! Boundary: field-target aggregate helper surface used by aggregate executors.
+
 use crate::{
     db::{
         direction::Direction,

@@ -49,7 +49,7 @@ use std::cell::RefCell;
 trait ScalarPageCursorExt {
     fn boundary(&self) -> &CursorBoundary;
     fn signature(&self) -> ContinuationSignature;
-    fn encode(&self) -> Result<Vec<u8>, crate::db::cursor::ContinuationTokenError>;
+    fn encode(&self) -> Result<Vec<u8>, crate::db::cursor::TokenWireError>;
 }
 
 impl ScalarPageCursorExt for PageCursor {
@@ -67,7 +67,7 @@ impl ScalarPageCursorExt for PageCursor {
         token.signature()
     }
 
-    fn encode(&self) -> Result<Vec<u8>, crate::db::cursor::ContinuationTokenError> {
+    fn encode(&self) -> Result<Vec<u8>, crate::db::cursor::TokenWireError> {
         let Some(token) = self.as_scalar() else {
             panic!("scalar pagination tests must not receive grouped continuation cursors");
         };

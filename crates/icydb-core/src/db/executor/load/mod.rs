@@ -1,3 +1,8 @@
+//! Module: executor::load
+//! Responsibility: load-path execution orchestration, pagination, and trace contracts.
+//! Does not own: logical planning semantics or relation/commit mutation policy.
+//! Boundary: consumes executable load plans and delegates post-access semantics to kernel.
+
 mod execute;
 mod fast_stream;
 mod index_range_limit;
@@ -67,6 +72,7 @@ pub(in crate::db) enum PageCursor {
 }
 
 impl PageCursor {
+    /// Borrow scalar continuation token when this cursor is scalar-shaped.
     #[must_use]
     pub(in crate::db) const fn as_scalar(&self) -> Option<&ContinuationToken> {
         match self {
@@ -75,6 +81,7 @@ impl PageCursor {
         }
     }
 
+    /// Borrow grouped continuation token when this cursor is grouped-shaped.
     #[must_use]
     pub(in crate::db) const fn as_grouped(&self) -> Option<&GroupedContinuationToken> {
         match self {
@@ -205,6 +212,7 @@ impl ExecutionTrace {
     }
 }
 
+/// Resolve key-stream comparator contract from runtime direction.
 pub(in crate::db::executor) const fn key_stream_comparator_from_direction(
     direction: Direction,
 ) -> KeyOrderComparator {
@@ -242,6 +250,7 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
+    /// Construct one load executor bound to a database handle and debug mode.
     #[must_use]
     pub(crate) const fn new(db: Db<E::Canister>, debug: bool) -> Self {
         Self {
@@ -251,7 +260,7 @@ where
         }
     }
 
-    // Recover canonical read context for kernel-owned execution setup.
+    /// Recover one canonical read context for kernel-owned execution setup.
     pub(in crate::db::executor) fn recovered_context(
         &self,
     ) -> Result<crate::db::Context<'_, E>, InternalError> {

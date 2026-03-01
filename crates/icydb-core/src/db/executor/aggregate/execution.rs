@@ -1,3 +1,8 @@
+//! Module: executor::aggregate::execution
+//! Responsibility: aggregate execution descriptor/input payload contracts.
+//! Does not own: aggregate execution branching logic.
+//! Boundary: shared immutable payloads between aggregate orchestration helpers.
+
 use crate::{
     db::{
         Context,
@@ -11,8 +16,6 @@ use crate::{
     traits::{EntityKind, EntityValue},
 };
 
-///
-/// AggregateFastPathInputs
 ///
 /// AggregateFastPathInputs
 ///
@@ -37,8 +40,6 @@ pub(in crate::db::executor) struct AggregateFastPathInputs<'exec, 'ctx, E: Entit
 ///
 /// AggregateExecutionDescriptor
 ///
-/// AggregateExecutionDescriptor
-///
 /// Canonical aggregate execution descriptor constructed once from a terminal
 /// aggregate spec and validated plan shape before execution branching.
 ///
@@ -50,8 +51,6 @@ pub(in crate::db::executor) struct AggregateExecutionDescriptor {
     pub(in crate::db::executor) execution_preparation: ExecutionPreparation,
 }
 
-///
-/// PreparedAggregateStreamingInputs
 ///
 /// PreparedAggregateStreamingInputs
 ///

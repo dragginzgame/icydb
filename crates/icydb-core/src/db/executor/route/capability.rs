@@ -1,3 +1,8 @@
+//! Module: executor::route::capability
+//! Responsibility: derive route capability snapshots from executable plans.
+//! Does not own: fast-path execution dispatch or post-access kernel behavior.
+//! Boundary: capability and eligibility helpers for route planning.
+
 use crate::{
     db::{
         access::{AccessPath, AccessPlan, PushdownApplicability},
@@ -60,7 +65,7 @@ where
         derive_secondary_pushdown_applicability_validated(E::MODEL, plan)
     }
 
-    // Derive a canonical route capability snapshot for one plan + direction.
+    /// Derive one canonical route capability snapshot for a plan + direction.
     pub(in crate::db::executor::route) fn derive_route_capabilities(
         plan: &AccessPlannedQuery<E::Key>,
         direction: Direction,
@@ -252,6 +257,7 @@ where
         }
     }
 
+    /// Return whether DESC physical reverse traversal is supported for this access shape.
     pub(super) fn is_desc_physical_reverse_traversal_supported(
         access: &AccessPlan<E::Key>,
         direction: Direction,

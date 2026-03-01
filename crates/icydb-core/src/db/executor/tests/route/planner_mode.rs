@@ -74,7 +74,12 @@ fn route_planner_remains_decomposed_into_dedicated_submodules() {
     let planner_source = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/src/db/executor/tests/route/",
-        "../../route/planner.rs"
+        "../../route/planner/mod.rs"
+    ));
+    let planner_execution_source = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/db/executor/tests/route/",
+        "../../route/planner/execution.rs"
     ));
 
     assert!(
@@ -89,8 +94,14 @@ fn route_planner_remains_decomposed_into_dedicated_submodules() {
         "route planner root should delegate capability derivation to the capability module boundary",
     );
     assert!(
-        planner_source.contains("Self::load_streaming_allowed("),
-        "route planner root should delegate execution-mode branch predicates to the mode module boundary",
+        planner_execution_source.contains("Self::load_streaming_allowed("),
+        "route planner execution stage should delegate execution-mode branch predicates to the mode module boundary",
+    );
+    assert!(
+        planner_source.contains("mod intent;")
+            && planner_source.contains("mod feasibility;")
+            && planner_source.contains("mod execution;"),
+        "route planner root must stage intent/feasibility/execution in dedicated submodules",
     );
 }
 
@@ -153,7 +164,7 @@ fn aggregate_execution_mode_selection_is_route_owned_and_explicit() {
     let aggregate_contracts_source = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/src/db/executor/tests/route/",
-        "../../aggregate/contracts.rs"
+        "../../aggregate/contracts/mod.rs"
     ));
 
     assert!(
@@ -237,7 +248,7 @@ fn aggregate_generic_streaming_fold_is_kernel_reducer_owned() {
     let aggregate_contracts_source = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/src/db/executor/tests/route/",
-        "../../aggregate/contracts.rs"
+        "../../aggregate/contracts/mod.rs"
     ));
 
     assert!(
@@ -293,7 +304,7 @@ fn aggregate_streaming_paths_share_one_preparation_boundary() {
     let aggregate_contracts_source = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/src/db/executor/tests/route/",
-        "../../aggregate/contracts.rs"
+        "../../aggregate/contracts/mod.rs"
     ));
 
     assert!(

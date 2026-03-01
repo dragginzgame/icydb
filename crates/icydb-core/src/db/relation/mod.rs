@@ -1,3 +1,13 @@
+//! Module: relation
+//! Responsibility: relation-domain validation and reverse-index mutation helpers.
+//! Does not own: query planning, executor routing, or storage codec policy.
+//! Boundary: executor/commit paths delegate relation semantics to this module.
+
+mod metadata;
+mod reverse_index;
+mod save_validate;
+mod validate;
+
 use crate::{
     db::{
         Db,
@@ -9,11 +19,6 @@ use crate::{
     value::Value,
 };
 use std::{collections::BTreeSet, fmt::Display};
-
-mod metadata;
-mod reverse_index;
-mod save_validate;
-mod validate;
 
 use metadata::StrongRelationInfo;
 

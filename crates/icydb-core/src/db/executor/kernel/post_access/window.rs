@@ -1,3 +1,8 @@
+//! Module: executor::kernel::post_access::window
+//! Responsibility: in-memory pagination/delete window application helpers.
+//! Does not own: query planning or access-path execution behavior.
+//! Boundary: post-access vector windowing utilities for kernel pipelines.
+
 use crate::db::executor::compute_page_window;
 
 /// Apply offset/limit pagination to an in-memory vector, in-place.
@@ -28,7 +33,7 @@ pub(super) fn apply_pagination<T>(rows: &mut Vec<T>, offset: u32, limit: Option<
     rows.truncate(end_usize.saturating_sub(start_usize));
 }
 
-// Apply a delete limit to an in-memory vector, in-place.
+/// Apply an in-memory delete row cap in-place.
 pub(super) fn apply_delete_limit<T>(rows: &mut Vec<T>, max_rows: u32) {
     let limit = usize::min(rows.len(), max_rows as usize);
     rows.truncate(limit);

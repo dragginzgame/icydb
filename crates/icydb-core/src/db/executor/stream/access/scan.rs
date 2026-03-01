@@ -1,3 +1,8 @@
+//! Module: executor::stream::access::scan
+//! Responsibility: low-level primary/index scan adapters over store/index handles.
+//! Does not own: access routing decisions or planner spec construction.
+//! Boundary: direct scan primitives used by access-stream resolver.
+
 use crate::{
     db::{
         data::DataKey,
@@ -16,7 +21,7 @@ use std::ops::Bound;
 /// PrimaryScan
 ///
 /// Executor-owned adapter for primary data-store iteration.
-/// `physical_path` must request scans through this boundary instead of
+/// The physical stream resolver must request scans through this boundary instead of
 /// traversing store handles directly.
 ///
 
@@ -116,7 +121,7 @@ impl PrimaryScan {
 /// IndexScan
 ///
 /// Executor-owned adapter for secondary-index iteration.
-/// `physical_path` must request index traversal via this adapter so routing
+/// The physical stream resolver must request index traversal via this adapter so routing
 /// stays decoupled from store-registry/index-handle internals.
 ///
 

@@ -1,9 +1,8 @@
 use crate::{
     db::{
         access::AccessPath,
-        codec::cursor::CursorDecodeError,
         cursor::{
-            ContinuationSignature, ContinuationToken, ContinuationTokenError, CursorBoundary,
+            ContinuationSignature, ContinuationToken, CursorBoundary, CursorPlanError,
             IndexRangeCursorAnchor, PlannedCursor,
             anchor::{
                 validate_index_range_anchor, validate_index_range_boundary_anchor_consistency,
@@ -16,73 +15,7 @@ use crate::{
     },
     model::entity::EntityModel,
     traits::{EntityKind, FieldValue},
-    value::Value,
 };
-use thiserror::Error as ThisError;
-
-///
-/// CursorPlanError
-///
-/// Cursor token and continuation boundary validation failures.
-///
-
-#[derive(Debug, ThisError)]
-pub enum CursorPlanError {
-    /// Cursor token could not be decoded.
-    #[error("invalid continuation cursor: {reason}")]
-    InvalidContinuationCursor { reason: CursorDecodeError },
-
-    /// Cursor token payload/semantics are invalid after token decode.
-    #[error("invalid continuation cursor: {reason}")]
-    InvalidContinuationCursorPayload { reason: String },
-
-    /// Cursor token version is unsupported.
-    #[error("unsupported continuation cursor version: {version}")]
-    ContinuationCursorVersionMismatch { version: u8 },
-
-    /// Cursor token does not belong to this canonical query shape.
-    #[error(
-        "continuation cursor does not match query plan signature for '{entity_path}': expected={expected}, actual={actual}"
-    )]
-    ContinuationCursorSignatureMismatch {
-        entity_path: &'static str,
-        expected: String,
-        actual: String,
-    },
-
-    /// Cursor boundary width does not match canonical order width.
-    #[error("continuation cursor boundary arity mismatch: expected {expected}, found {found}")]
-    ContinuationCursorBoundaryArityMismatch { expected: usize, found: usize },
-
-    /// Cursor window offset does not match the current query window shape.
-    #[error(
-        "continuation cursor offset mismatch: expected {expected_offset}, found {actual_offset}"
-    )]
-    ContinuationCursorWindowMismatch {
-        expected_offset: u32,
-        actual_offset: u32,
-    },
-
-    /// Cursor boundary value type mismatch for a non-primary-key ordered field.
-    #[error(
-        "continuation cursor boundary type mismatch for field '{field}': expected {expected}, found {value:?}"
-    )]
-    ContinuationCursorBoundaryTypeMismatch {
-        field: String,
-        expected: String,
-        value: Value,
-    },
-
-    /// Cursor primary-key boundary does not match the entity key type.
-    #[error(
-        "continuation cursor primary key type mismatch for '{field}': expected {expected}, found {value:?}"
-    )]
-    ContinuationCursorPrimaryKeyTypeMismatch {
-        field: String,
-        expected: String,
-        value: Option<Value>,
-    },
-}
 
 ///
 /// CursorPlanSurface
@@ -201,7 +134,9 @@ where
         initial_offset: expected_initial_offset,
     };
     let boundary = cursor.boundary().cloned().ok_or_else(|| {
-        invalid_continuation_cursor_payload("continuation cursor boundary is missing")
+        CursorPlanError::invalid_continuation_cursor_payload(
+            "continuation cursor boundary is missing",
+        )
     })?;
     let index_range_anchor = cursor.index_range_anchor().cloned();
 
@@ -215,20 +150,14 @@ where
     )
 }
 
-// Build the standard invalid-continuation payload error variant.
-fn invalid_continuation_cursor_payload(reason: impl Into<String>) -> CursorPlanError {
-    CursorPlanError::InvalidContinuationCursorPayload {
-        reason: reason.into(),
-    }
-}
-
 // Decode and validate one continuation cursor against a canonical plan surface.
 fn decode_validated_cursor(
     cursor: &[u8],
     entity_path: &'static str,
     expected_signature: ContinuationSignature,
 ) -> Result<ContinuationToken, CursorPlanError> {
-    let token = ContinuationToken::decode(cursor).map_err(map_token_decode_error)?;
+    let token =
+        ContinuationToken::decode(cursor).map_err(CursorPlanError::from_token_wire_error)?;
 
     // Signature is validated at token-decode boundary. Direction/window and
     // boundary/anchor invariants are validated together in one shared gate.
@@ -236,19 +165,6 @@ fn decode_validated_cursor(
 
     Ok(token)
 }
-
-// Map cursor token decode failures into canonical plan-surface cursor errors.
-fn map_token_decode_error(err: ContinuationTokenError) -> CursorPlanError {
-    match err {
-        ContinuationTokenError::Encode(message) | ContinuationTokenError::Decode(message) => {
-            invalid_continuation_cursor_payload(message)
-        }
-        ContinuationTokenError::UnsupportedVersion { version } => {
-            CursorPlanError::ContinuationCursorVersionMismatch { version }
-        }
-    }
-}
-
 // Validate continuation token signature against the executable signature.
 fn validate_cursor_signature(
     entity_path: &'static str,
@@ -256,11 +172,11 @@ fn validate_cursor_signature(
     actual_signature: &ContinuationSignature,
 ) -> Result<(), CursorPlanError> {
     if actual_signature != expected_signature {
-        return Err(CursorPlanError::ContinuationCursorSignatureMismatch {
+        return Err(CursorPlanError::continuation_cursor_signature_mismatch(
             entity_path,
-            expected: expected_signature.to_string(),
-            actual: actual_signature.to_string(),
-        });
+            expected_signature,
+            actual_signature,
+        ));
     }
 
     Ok(())

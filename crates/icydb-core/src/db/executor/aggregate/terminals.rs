@@ -1,3 +1,8 @@
+//! Module: executor::aggregate::terminals
+//! Responsibility: aggregate terminal API adapters over kernel aggregate execution.
+//! Does not own: aggregate dispatch internals or fast-path eligibility derivation.
+//! Boundary: user-facing aggregate terminal helpers on `LoadExecutor`.
+
 use crate::{
     db::executor::{
         ExecutablePlan, ExecutionKernel,
@@ -13,6 +18,7 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
+    /// Execute `count()` over the effective aggregate window.
     pub(in crate::db) fn aggregate_count(
         &self,
         plan: ExecutablePlan<E>,
@@ -29,6 +35,7 @@ where
         }
     }
 
+    /// Execute `exists()` over the effective aggregate window.
     pub(in crate::db) fn aggregate_exists(
         &self,
         plan: ExecutablePlan<E>,
@@ -45,6 +52,7 @@ where
         }
     }
 
+    /// Execute `min()` over the effective aggregate window.
     pub(in crate::db) fn aggregate_min(
         &self,
         plan: ExecutablePlan<E>,
@@ -61,6 +69,7 @@ where
         }
     }
 
+    /// Execute `max()` over the effective aggregate window.
     pub(in crate::db) fn aggregate_max(
         &self,
         plan: ExecutablePlan<E>,
@@ -77,6 +86,7 @@ where
         }
     }
 
+    /// Execute `min(field)` over the effective aggregate window.
     pub(in crate::db) fn aggregate_min_by(
         &self,
         plan: ExecutablePlan<E>,
@@ -95,6 +105,7 @@ where
         }
     }
 
+    /// Execute `max(field)` over the effective aggregate window.
     pub(in crate::db) fn aggregate_max_by(
         &self,
         plan: ExecutablePlan<E>,
@@ -113,6 +124,7 @@ where
         }
     }
 
+    /// Execute `nth(field, n)` over the effective aggregate window.
     pub(in crate::db) fn aggregate_nth_by(
         &self,
         plan: ExecutablePlan<E>,
@@ -124,6 +136,7 @@ where
         self.execute_nth_field_aggregate(plan, target_field.as_str(), nth)
     }
 
+    /// Execute `median(field)` over the effective aggregate window.
     pub(in crate::db) fn aggregate_median_by(
         &self,
         plan: ExecutablePlan<E>,
@@ -135,6 +148,7 @@ where
     }
 
     #[expect(clippy::type_complexity)]
+    /// Execute paired extrema `min_max(field)` over the effective aggregate window.
     pub(in crate::db) fn aggregate_min_max_by(
         &self,
         plan: ExecutablePlan<E>,
@@ -145,6 +159,7 @@ where
         self.execute_min_max_field_aggregate(plan, target_field.as_str())
     }
 
+    /// Execute `first()` over the effective aggregate window.
     pub(in crate::db) fn aggregate_first(
         &self,
         plan: ExecutablePlan<E>,
@@ -161,6 +176,7 @@ where
         }
     }
 
+    /// Execute `last()` over the effective aggregate window.
     pub(in crate::db) fn aggregate_last(
         &self,
         plan: ExecutablePlan<E>,

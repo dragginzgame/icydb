@@ -1,3 +1,8 @@
+//! Module: executor::load::fast_stream
+//! Responsibility: execute verified fast-path stream requests without restream adapters.
+//! Does not own: fast-path eligibility policy or access-path lowering rules.
+//! Boundary: stream execution helper used after routing/eligibility gates.
+
 use crate::{
     db::{
         Context,
@@ -12,17 +17,21 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
-    // Resolve one fast-path access stream without materialize/restream adapters.
-    // Fast-path streams are expected to expose an exact key-count hint.
+    /// Resolve one fast-path access stream without materialize/restream adapters.
+    ///
+    /// Fast-path streams must expose an exact key-count hint for observability parity.
     pub(super) fn execute_fast_stream_request(
         ctx: &Context<'_, E>,
         stream_request: AccessPlanStreamRequest<'_, E::Key>,
         optimization: ExecutionOptimization,
     ) -> Result<FastPathKeyResult, InternalError> {
+        // Phase 1: resolve the ordered key stream through the routed access boundary.
         let key_stream = Self::resolve_routed_key_stream(
             ctx,
             RoutedKeyStreamRequest::AccessPlan(stream_request),
         )?;
+
+        // Phase 2: enforce exact row-scan count hint required by fast-path observability.
         let rows_scanned = key_stream.exact_key_count_hint().ok_or_else(|| {
             InternalError::query_executor_invariant(
                 "fast-path stream must expose an exact key-count hint",

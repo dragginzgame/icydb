@@ -1,3 +1,8 @@
+//! Module: executor::aggregate
+//! Responsibility: aggregate execution orchestration, reducers, and aggregate contracts.
+//! Does not own: logical aggregate planning or access-path lowering semantics.
+//! Boundary: executor-owned aggregate runtime behavior over executable plans.
+
 pub(in crate::db::executor) mod capability;
 mod contracts;
 mod distinct;

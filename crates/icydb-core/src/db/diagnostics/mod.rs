@@ -1,3 +1,8 @@
+//! Module: diagnostics
+//! Responsibility: read-only storage footprint and integrity snapshots.
+//! Does not own: recovery, write-path mutation, or query planning semantics.
+//! Boundary: consumes `Db`/store read APIs and returns DTO snapshots.
+
 #[cfg(test)]
 mod tests;
 
@@ -95,6 +100,7 @@ struct EntityStats {
 }
 
 impl EntityStats {
+    // Accumulate per-entity counters and keep min/max over entity-local storage keys.
     fn update(&mut self, dk: &DataKey, value_len: u64) {
         self.entries = self.entries.saturating_add(1);
         self.memory_bytes = self
@@ -117,7 +123,10 @@ impl EntityStats {
     }
 }
 
-/// Build storage snapshot and per-entity breakdown; enrich path names using name→path map
+/// Build one deterministic storage snapshot with per-entity rollups.
+///
+/// This path is read-only and fail-closed on decode/validation errors by counting
+/// corrupted keys/entries instead of panicking.
 pub(crate) fn storage_report<C: CanisterKind>(
     db: &Db<C>,
     name_to_path: &[(&'static str, &'static str)],
@@ -211,8 +220,8 @@ pub(crate) fn storage_report<C: CanisterKind>(
         }
     });
 
-    // Keep entity snapshot emission deterministic as an explicit contract,
-    // independent of outer store traversal implementation details.
+    // Phase 3: enforce deterministic entity snapshot emission order.
+    // This remains stable even if outer store traversal internals change.
     entity_storage.sort_by(|left, right| {
         (left.store.as_str(), left.path.as_str()).cmp(&(right.store.as_str(), right.path.as_str()))
     });

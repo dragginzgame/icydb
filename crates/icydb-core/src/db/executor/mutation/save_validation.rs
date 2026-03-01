@@ -1,3 +1,8 @@
+//! Module: executor::mutation::save_validation
+//! Responsibility: save preflight invariant enforcement for entity values.
+//! Does not own: commit-window apply mechanics or relation metadata ownership.
+//! Boundary: validation-only helpers invoked before save commit planning.
+
 use crate::{
     db::{
         executor::mutation::save::SaveExecutor,

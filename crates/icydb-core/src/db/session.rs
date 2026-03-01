@@ -1,4 +1,8 @@
-// 3️⃣ Internal imports (implementation wiring)
+//! Module: session
+//! Responsibility: user-facing query/write execution facade over db executors.
+//! Does not own: planning semantics, cursor validation rules, or storage mutation protocol.
+//! Boundary: converts fluent/query intent calls into executor operations and response DTOs.
+
 #[cfg(test)]
 use crate::db::{DataStore, IndexStore};
 use crate::{
@@ -34,6 +38,7 @@ pub struct DbSession<C: CanisterKind> {
 }
 
 impl<C: CanisterKind> DbSession<C> {
+    /// Construct one session facade for a database handle.
     #[must_use]
     pub const fn new(db: Db<C>) -> Self {
         Self {
@@ -43,12 +48,14 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
+    /// Enable debug execution behavior where supported by executors.
     #[must_use]
     pub const fn debug(mut self) -> Self {
         self.debug = true;
         self
     }
 
+    /// Attach one metrics sink for all session-executed operations.
     #[must_use]
     pub const fn metrics_sink(mut self, sink: &'static dyn MetricsSink) -> Self {
         self.metrics = Some(sink);
@@ -112,6 +119,7 @@ impl<C: CanisterKind> DbSession<C> {
     // Query entry points (public, fluent)
     // ---------------------------------------------------------------------
 
+    /// Start a fluent load query with default missing-row policy (`Ignore`).
     #[must_use]
     pub const fn load<E>(&self) -> FluentLoadQuery<'_, E>
     where
@@ -120,6 +128,7 @@ impl<C: CanisterKind> DbSession<C> {
         FluentLoadQuery::new(self, Query::new(MissingRowPolicy::Ignore))
     }
 
+    /// Start a fluent load query with explicit missing-row policy.
     #[must_use]
     pub const fn load_with_consistency<E>(
         &self,
@@ -131,6 +140,7 @@ impl<C: CanisterKind> DbSession<C> {
         FluentLoadQuery::new(self, Query::new(consistency))
     }
 
+    /// Start a fluent delete query with default missing-row policy (`Ignore`).
     #[must_use]
     pub fn delete<E>(&self) -> FluentDeleteQuery<'_, E>
     where
@@ -139,6 +149,7 @@ impl<C: CanisterKind> DbSession<C> {
         FluentDeleteQuery::new(self, Query::new(MissingRowPolicy::Ignore).delete())
     }
 
+    /// Start a fluent delete query with explicit missing-row policy.
     #[must_use]
     pub fn delete_with_consistency<E>(
         &self,
@@ -182,6 +193,7 @@ impl<C: CanisterKind> DbSession<C> {
     // Query diagnostics / execution (internal routing)
     // ---------------------------------------------------------------------
 
+    /// Execute one scalar load/delete query and return materialized response rows.
     pub fn execute_query<E>(&self, query: &Query<E>) -> Result<Response<E>, QueryError>
     where
         E: EntityKind<Canister = C> + EntityValue,
@@ -212,6 +224,7 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(QueryError::Execute)
     }
 
+    /// Execute one scalar paged load query and return optional continuation cursor plus trace.
     pub(crate) fn execute_load_query_paged_with_trace<E>(
         &self,
         query: &Query<E>,
@@ -220,6 +233,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
+        // Phase 1: build/validate executable plan and reject grouped plans.
         let plan = query.plan()?.into_executable();
         if plan.as_inner().grouped_plan().is_some() {
             return Err(QueryError::Execute(
@@ -228,10 +242,12 @@ impl<C: CanisterKind> DbSession<C> {
                 ),
             ));
         }
+
+        // Phase 2: decode external cursor token and validate it against plan surface.
         let cursor_bytes = match cursor_token {
             Some(token) => Some(decode_cursor(token).map_err(|reason| {
                 QueryError::from(PlanError::from(
-                    CursorPlanError::InvalidContinuationCursor { reason },
+                    CursorPlanError::invalid_continuation_cursor(reason),
                 ))
             })?),
             None => None,
@@ -240,6 +256,7 @@ impl<C: CanisterKind> DbSession<C> {
             .prepare_cursor(cursor_bytes.as_deref())
             .map_err(map_executor_plan_error)?;
 
+        // Phase 3: execute one traced page and encode outbound continuation token.
         let (page, trace) = self
             .with_metrics(|| {
                 self.load_executor::<E>()
@@ -284,6 +301,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
+        // Phase 1: build/validate executable plan and require grouped shape.
         let plan = query.plan()?.into_executable();
         if plan.as_inner().grouped_plan().is_none() {
             return Err(QueryError::Execute(
@@ -292,10 +310,12 @@ impl<C: CanisterKind> DbSession<C> {
                 ),
             ));
         }
+
+        // Phase 2: decode external grouped cursor token and validate against plan.
         let cursor_bytes = match cursor_token {
             Some(token) => Some(decode_cursor(token).map_err(|reason| {
                 QueryError::from(PlanError::from(
-                    CursorPlanError::InvalidContinuationCursor { reason },
+                    CursorPlanError::invalid_continuation_cursor(reason),
                 ))
             })?),
             None => None,
@@ -304,6 +324,7 @@ impl<C: CanisterKind> DbSession<C> {
             .prepare_grouped_cursor(cursor_bytes.as_deref())
             .map_err(map_executor_plan_error)?;
 
+        // Phase 3: execute grouped page and encode outbound grouped continuation token.
         let (page, trace) = self
             .with_metrics(|| {
                 self.load_executor::<E>()
@@ -340,6 +361,7 @@ impl<C: CanisterKind> DbSession<C> {
     // High-level write API (public, intent-level)
     // ---------------------------------------------------------------------
 
+    /// Insert one entity row.
     pub fn insert<E>(&self, entity: E) -> Result<WriteResponse<E>, InternalError>
     where
         E: EntityKind<Canister = C> + EntityValue,
@@ -375,6 +397,7 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_save_batch(|save| save.insert_many_non_atomic(entities))
     }
 
+    /// Replace one existing entity row.
     pub fn replace<E>(&self, entity: E) -> Result<WriteResponse<E>, InternalError>
     where
         E: EntityKind<Canister = C> + EntityValue,
@@ -410,6 +433,7 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_save_batch(|save| save.replace_many_non_atomic(entities))
     }
 
+    /// Update one existing entity row.
     pub fn update<E>(&self, entity: E) -> Result<WriteResponse<E>, InternalError>
     where
         E: EntityKind<Canister = C> + EntityValue,
@@ -445,6 +469,7 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_save_batch(|save| save.update_many_non_atomic(entities))
     }
 
+    /// Insert one view value and return the stored view.
     pub fn insert_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, InternalError>
     where
         E: EntityKind<Canister = C> + EntityValue,
@@ -452,6 +477,7 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_save_view::<E>(|save| save.insert_view(view))
     }
 
+    /// Replace one view value and return the stored view.
     pub fn replace_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, InternalError>
     where
         E: EntityKind<Canister = C> + EntityValue,
@@ -459,6 +485,7 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_save_view::<E>(|save| save.replace_view(view))
     }
 
+    /// Update one view value and return the stored view.
     pub fn update_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, InternalError>
     where
         E: EntityKind<Canister = C> + EntityValue,

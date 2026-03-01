@@ -1,3 +1,8 @@
+//! Module: contracts::semantics
+//! Responsibility: canonical cross-subsystem value ordering contracts.
+//! Does not own: predicate truth semantics or query planning policy.
+//! Boundary: provides ordering-only helpers for sort/range/cursor surfaces.
+
 use crate::value::Value;
 use std::cmp::Ordering;
 
@@ -9,6 +14,7 @@ use std::cmp::Ordering;
 ///
 
 pub(in crate::db) trait OrderingSemantics<T: ?Sized> {
+    /// Compare two values under this semantics contract.
     fn compare(left: &T, right: &T) -> Ordering;
 }
 

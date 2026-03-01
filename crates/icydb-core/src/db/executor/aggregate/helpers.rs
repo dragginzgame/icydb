@@ -1,3 +1,8 @@
+//! Module: executor::aggregate::helpers
+//! Responsibility: helper terminals for ranked and projected field aggregates.
+//! Does not own: core aggregate route planning or key-stream folding contracts.
+//! Boundary: materialized helper projections used by aggregate terminal APIs.
+
 use crate::{
     db::{
         Context,

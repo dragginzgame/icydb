@@ -1,3 +1,11 @@
+//! Module: executor::group
+//! Responsibility: grouped key canonicalization, hashing, and grouped budget policies.
+//! Does not own: aggregate fold algorithms or logical planner validation.
+//! Boundary: grouped execution substrate shared by grouped load/aggregate paths.
+
+#[cfg(test)]
+mod tests;
+
 mod hash;
 mod key;
 
@@ -37,26 +45,31 @@ pub(in crate::db::executor) struct GroupedBudgetObservability {
 }
 
 impl GroupedBudgetObservability {
+    /// Return observed group-count usage.
     #[must_use]
     pub(in crate::db::executor) const fn groups(self) -> u64 {
         self.groups
     }
 
+    /// Return observed aggregate-state counter.
     #[must_use]
     pub(in crate::db::executor) const fn aggregate_states(self) -> u64 {
         self.aggregate_states
     }
 
+    /// Return observed grouped-budget byte estimate.
     #[must_use]
     pub(in crate::db::executor) const fn estimated_bytes(self) -> u64 {
         self.estimated_bytes
     }
 
+    /// Return configured max group count.
     #[must_use]
     pub(in crate::db::executor) const fn max_groups(self) -> u64 {
         self.max_groups
     }
 
+    /// Return configured max grouped-budget bytes.
     #[must_use]
     pub(in crate::db::executor) const fn max_group_bytes(self) -> u64 {
         self.max_group_bytes
@@ -115,79 +128,5 @@ pub(in crate::db::executor) const fn grouped_budget_observability(
         estimated_bytes: context.budget().estimated_bytes(),
         max_groups: context.config().max_groups(),
         max_group_bytes: context.config().max_group_bytes(),
-    }
-}
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests {
-    use super::{
-        GroupedExecutionConfig, grouped_budget_observability,
-        grouped_execution_config_from_planner_config,
-        grouped_execution_context_from_planner_config,
-    };
-
-    #[test]
-    fn grouped_execution_config_from_planner_config_prefers_planner_limits() {
-        let config = grouped_execution_config_from_planner_config(Some(
-            GroupedExecutionConfig::with_hard_limits(11, 2048),
-        ));
-
-        assert_eq!(config.max_groups(), 11);
-        assert_eq!(config.max_group_bytes(), 2048);
-    }
-
-    #[test]
-    fn grouped_execution_context_from_planner_config_defaults_when_absent() {
-        let context = grouped_execution_context_from_planner_config(None);
-
-        assert_eq!(context.config().max_groups(), 10_000);
-        assert_eq!(context.config().max_group_bytes(), 16 * 1024 * 1024);
-        assert_eq!(context.budget().groups(), 0);
-        assert_eq!(context.budget().aggregate_states(), 0);
-        assert_eq!(context.budget().estimated_bytes(), 0);
-    }
-
-    #[test]
-    fn grouped_budget_observability_projects_budget_and_limits() {
-        let context = grouped_execution_context_from_planner_config(Some(
-            GroupedExecutionConfig::with_hard_limits(11, 2048),
-        ));
-        let budget = grouped_budget_observability(&context);
-
-        assert_eq!(budget.groups(), 0);
-        assert_eq!(budget.aggregate_states(), 0);
-        assert_eq!(budget.estimated_bytes(), 0);
-        assert_eq!(budget.max_groups(), 11);
-        assert_eq!(budget.max_group_bytes(), 2048);
-    }
-
-    #[test]
-    fn grouped_budget_observability_contract_vectors_are_frozen() {
-        let default_context = grouped_execution_context_from_planner_config(None);
-        let constrained_context = grouped_execution_context_from_planner_config(Some(
-            GroupedExecutionConfig::with_hard_limits(11, 2048),
-        ));
-        let actual_vectors = vec![
-            grouped_budget_observability(&default_context),
-            grouped_budget_observability(&constrained_context),
-        ]
-        .into_iter()
-        .map(|budget| {
-            (
-                budget.groups(),
-                budget.aggregate_states(),
-                budget.estimated_bytes(),
-                budget.max_groups(),
-                budget.max_group_bytes(),
-            )
-        })
-        .collect::<Vec<_>>();
-        let expected_vectors = vec![(0, 0, 0, 10_000, 16 * 1024 * 1024), (0, 0, 0, 11, 2048)];
-
-        assert_eq!(actual_vectors, expected_vectors);
     }
 }

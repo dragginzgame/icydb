@@ -108,11 +108,11 @@ impl<E: EntityKind> ExecutablePlan<E> {
         // Grouped plans require grouped cursor contracts and must not enter scalar path.
         if matches!(&self.plan.logical, LogicalPlan::Grouped(_)) {
             return Err(ExecutorPlanError::from(
-                CursorPlanError::InvalidContinuationCursorPayload {
-                    reason: InternalError::executor_invariant_message(
+                CursorPlanError::invalid_continuation_cursor_payload(
+                    InternalError::executor_invariant_message(
                         "grouped plans require grouped cursor preparation",
                     ),
-                },
+                ),
             ));
         }
 
@@ -206,11 +206,11 @@ impl<E: EntityKind> ExecutablePlan<E> {
     ) -> Result<GroupedPlannedCursor, ExecutorPlanError> {
         if !matches!(&self.plan.logical, LogicalPlan::Grouped(_)) {
             return Err(ExecutorPlanError::from(
-                CursorPlanError::InvalidContinuationCursorPayload {
-                    reason: InternalError::executor_invariant_message(
+                CursorPlanError::invalid_continuation_cursor_payload(
+                    InternalError::executor_invariant_message(
                         "grouped cursor preparation requires grouped logical plans",
                     ),
-                },
+                ),
             ));
         }
 

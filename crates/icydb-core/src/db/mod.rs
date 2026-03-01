@@ -1,4 +1,9 @@
-// 1️⃣ Module declarations
+//! Module: db
+//!
+//! Responsibility: root subsystem wiring, façade re-exports, and runtime hook contracts.
+//! Does not own: feature semantics delegated to child modules (`query`, `executor`, etc.).
+//! Boundary: top-level db API and internal orchestration entrypoints.
+
 pub(crate) mod access;
 pub(crate) mod contracts;
 pub(crate) mod cursor;
@@ -18,7 +23,23 @@ pub(in crate::db) mod executor;
 pub(in crate::db) mod index;
 pub(in crate::db) mod relation;
 
-// 2️⃣ Public re-exports (Tier-2 API surface)
+use crate::{
+    db::{
+        commit::{
+            CommitRowOp, CommitSchemaFingerprint, PreparedRowCommitOp,
+            commit_schema_fingerprint_for_entity, ensure_recovered, prepare_row_commit_for_entity,
+            rebuild_secondary_indexes_from_rows, replay_commit_marker_row_ops,
+        },
+        data::RawDataKey,
+        executor::Context,
+        relation::StrongRelationDeleteValidateFn,
+    },
+    error::InternalError,
+    traits::{CanisterKind, EntityIdentity, EntityKind, EntityValue},
+    value::Value,
+};
+use std::{collections::BTreeSet, marker::PhantomData, thread::LocalKey};
+
 pub use codec::cursor::{decode_cursor, encode_cursor};
 pub use data::DataStore;
 pub(crate) use data::StorageKey;
@@ -46,24 +67,6 @@ pub use response::{
     WriteBatchResponse, WriteResponse,
 };
 pub use session::DbSession;
-
-// 3️⃣ Internal imports (implementation wiring)
-use crate::{
-    db::{
-        commit::{
-            CommitRowOp, CommitSchemaFingerprint, PreparedRowCommitOp,
-            commit_schema_fingerprint_for_entity, ensure_recovered, prepare_row_commit_for_entity,
-            rebuild_secondary_indexes_from_rows, replay_commit_marker_row_ops,
-        },
-        data::RawDataKey,
-        executor::Context,
-        relation::StrongRelationDeleteValidateFn,
-    },
-    error::InternalError,
-    traits::{CanisterKind, EntityIdentity, EntityKind, EntityValue},
-    value::Value,
-};
-use std::{collections::BTreeSet, marker::PhantomData, thread::LocalKey};
 
 ///
 /// GroupedRow
@@ -216,11 +219,13 @@ pub struct Db<C: CanisterKind> {
 }
 
 impl<C: CanisterKind> Db<C> {
+    /// Construct a db handle without per-entity runtime hooks.
     #[must_use]
     pub const fn new(store: &'static LocalKey<StoreRegistry>) -> Self {
         Self::new_with_hooks(store, &[])
     }
 
+    /// Construct a db handle with explicit per-entity runtime hook wiring.
     #[must_use]
     pub const fn new_with_hooks(
         store: &'static LocalKey<StoreRegistry>,
@@ -259,10 +264,12 @@ impl<C: CanisterKind> Db<C> {
         ensure_recovered(self)
     }
 
+    /// Execute one closure against the registered store set.
     pub(crate) fn with_store_registry<R>(&self, f: impl FnOnce(&StoreRegistry) -> R) -> R {
         self.store.with(|reg| f(reg))
     }
 
+    /// Build one storage diagnostics report for registered stores/entities.
     pub fn storage_report(
         &self,
         name_to_path: &[(&'static str, &'static str)],
@@ -296,10 +303,12 @@ impl<C: CanisterKind> Db<C> {
         target_path: &str,
         deleted_target_keys: &BTreeSet<RawDataKey>,
     ) -> Result<(), InternalError> {
+        // Skip hook traversal when no target keys were deleted.
         if deleted_target_keys.is_empty() {
             return Ok(());
         }
 
+        // Delegate delete-side relation validation to each entity runtime hook.
         for hooks in self.entity_runtime_hooks {
             (hooks.validate_delete_strong_relations)(self, target_path, deleted_target_keys)?;
         }
@@ -326,6 +335,7 @@ pub struct EntityRuntimeHooks<C: CanisterKind> {
 
 impl<C: CanisterKind> EntityRuntimeHooks<C> {
     #[must_use]
+    /// Build one runtime hook contract for a concrete runtime entity.
     pub(in crate::db) const fn new(
         entity_name: &'static str,
         entity_path: &'static str,
@@ -343,6 +353,7 @@ impl<C: CanisterKind> EntityRuntimeHooks<C> {
     }
 
     #[must_use]
+    /// Build runtime hooks from one entity type and delete-validation callback.
     pub const fn for_entity<E>(
         validate_delete_strong_relations: StrongRelationDeleteValidateFn<C>,
     ) -> Self
@@ -368,6 +379,7 @@ where
 
 impl<C: CanisterKind> Db<C> {
     #[must_use]
+    /// Return whether this db has any registered runtime hook callbacks.
     pub(crate) const fn has_runtime_hooks(&self) -> bool {
         !self.entity_runtime_hooks.is_empty()
     }

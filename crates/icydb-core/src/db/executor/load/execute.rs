@@ -1,3 +1,8 @@
+//! Module: executor::load::execute
+//! Responsibility: key-stream resolution and fast-path/fallback execution dispatch.
+//! Does not own: cursor decoding policy or logical-plan construction.
+//! Boundary: execution-attempt internals used by `executor::load`.
+
 use crate::{
     db::{
         Context,
@@ -96,13 +101,15 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
-    // Resolve one canonical execution key stream in fast-path precedence order.
-    // This is the single shared load key-stream resolver boundary.
+    /// Resolve one canonical execution key stream in fast-path precedence order.
+    ///
+    /// This is the single shared load key-stream resolver boundary.
     pub(in crate::db::executor) fn resolve_execution_key_stream_without_distinct(
         inputs: &ExecutionInputs<'_, E>,
         route_plan: &ExecutionPlan,
         predicate_compile_mode: IndexCompilePolicy,
     ) -> Result<ResolvedExecutionKeyStream, InternalError> {
+        // Phase 0: compile optional index predicate execution program.
         let index_predicate_program =
             inputs
                 .execution_preparation
@@ -171,6 +178,7 @@ where
         Ok(resolved)
     }
 
+    /// Evaluate fast-path routes in canonical precedence and return one decision.
     // Evaluate fast-path routes in canonical precedence and return one decision.
     fn evaluate_fast_path(
         inputs: &ExecutionInputs<'_, E>,
@@ -206,6 +214,7 @@ where
         Ok(FastPathDecision::None)
     }
 
+    // Verify one fast-path route against planner-provided eligibility bits.
     fn verify_load_fast_path_eligibility(
         route_plan: &ExecutionPlan,
         route: FastPathOrder,
@@ -228,6 +237,7 @@ where
         verified.map(|route| VerifiedLoadFastPathRoute { route })
     }
 
+    // Execute one verified fast-path route and return keys if the route produces them.
     fn try_execute_verified_load_fast_path(
         inputs: &ExecutionInputs<'_, E>,
         route_plan: &ExecutionPlan,
@@ -271,6 +281,7 @@ where
     }
 
     // Apply shared path finalization hooks after page materialization.
+    /// Finalize one execution attempt by recording path/row observability outputs.
     #[expect(clippy::too_many_arguments)]
     pub(super) fn finalize_execution(
         page: CursorPage<E>,

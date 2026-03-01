@@ -1,3 +1,8 @@
+//! Module: executor::stream::key::distinct
+//! Responsibility: DISTINCT-adapter over ordered key streams.
+//! Does not own: upstream key generation or route eligibility policy.
+//! Boundary: enforces monotonicity and suppresses adjacent duplicate keys.
+
 use crate::{
     db::{
         data::DataKey,
@@ -22,6 +27,7 @@ pub(in crate::db::executor) struct DistinctOrderedKeyStream<S> {
 }
 
 impl<S> DistinctOrderedKeyStream<S> {
+    /// Construct one distinct stream adapter.
     #[must_use]
     pub(in crate::db::executor) const fn new(inner: S, comparator: KeyOrderComparator) -> Self {
         Self {
@@ -32,6 +38,7 @@ impl<S> DistinctOrderedKeyStream<S> {
         }
     }
 
+    /// Construct one distinct stream adapter with external dedup observability counter.
     #[must_use]
     pub(in crate::db::executor) const fn new_with_dedup_counter(
         inner: S,
