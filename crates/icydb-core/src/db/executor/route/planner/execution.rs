@@ -77,8 +77,10 @@ where
             ExecutionModeRouteCase::AggregateGrouped => ExecutionMode::Materialized,
         };
         let index_range_limit_spec = if (kind.is_some() || intent_stage.grouped)
-            && matches!(execution_mode, ExecutionMode::Materialized)
-        {
+            && match execution_mode {
+                ExecutionMode::Streaming => false,
+                ExecutionMode::Materialized => true,
+            } {
             None
         } else {
             feasibility_stage.index_range_limit_spec
@@ -87,7 +89,10 @@ where
         debug_assert!(
             (kind.is_none() && !intent_stage.grouped)
                 || index_range_limit_spec.is_none()
-                || matches!(execution_mode, ExecutionMode::Streaming),
+                || match execution_mode {
+                    ExecutionMode::Streaming => true,
+                    ExecutionMode::Materialized => false,
+                },
             "route invariant: aggregate index-range limit pushdown must execute in streaming mode",
         );
         debug_assert!(

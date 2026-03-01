@@ -1,3 +1,6 @@
+use crate::db::executor::route::ExecutionMode;
+use std::{fs, path::PathBuf};
+
 fn kernel_aggregate_mod_source() -> &'static str {
     include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -28,6 +31,56 @@ fn trace_contract_source() -> &'static str {
         "/src/db/executor/tests/route/",
         "../../trace/mod.rs"
     ))
+}
+
+fn executor_source_files() -> Vec<PathBuf> {
+    fn walk(dir: PathBuf, out: &mut Vec<PathBuf>) {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            panic!(
+                "failed to read executor source directory: {}",
+                dir.display()
+            );
+        };
+        for entry in entries {
+            let entry = entry.expect("executor source directory entry should be readable");
+            let path = entry.path();
+            let file_type = entry
+                .file_type()
+                .expect("executor source entry type should be readable");
+            if file_type.is_dir() {
+                walk(path, out);
+                continue;
+            }
+            if path.extension().is_some_and(|extension| extension == "rs") {
+                out.push(path);
+            }
+        }
+    }
+
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("db")
+        .join("executor");
+    let mut files = Vec::new();
+    walk(root, &mut files);
+    files.sort();
+    files
+}
+
+#[test]
+fn execution_mode_exhaustiveness_is_sealed() {
+    fn execution_mode_label(mode: ExecutionMode) -> &'static str {
+        match mode {
+            ExecutionMode::Streaming => "streaming",
+            ExecutionMode::Materialized => "materialized",
+        }
+    }
+
+    assert_eq!(execution_mode_label(ExecutionMode::Streaming), "streaming");
+    assert_eq!(
+        execution_mode_label(ExecutionMode::Materialized),
+        "materialized",
+    );
 }
 
 #[test]
@@ -67,6 +120,20 @@ fn load_trace_outcome_mapping_is_single_owner_boundary() {
     assert!(
         trace_source.contains("execution trace keys_scanned must match rows_scanned metrics input"),
         "execution trace key-scan alignment invariant must live in the trace contract module",
+    );
+}
+
+#[test]
+fn grouped_execution_mode_invariant_is_explicitly_materialized_only() {
+    let load_mod_source = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/db/executor/tests/route/",
+        "../../load/mod.rs"
+    ));
+
+    assert!(
+        load_mod_source.contains("grouped execution must remain materialized"),
+        "grouped route materialization invariant must remain explicit at the grouped route boundary",
     );
 }
 
@@ -579,5 +646,55 @@ fn grouped_path_avoids_kernel_row_buffer_materialization_fallback() {
         load_mod_source
             .contains("let resolved = Self::resolve_execution_key_stream_without_distinct("),
         "grouped execution should resolve one ordered key stream directly at grouped entry",
+    );
+}
+
+#[test]
+fn access_path_variant_matching_is_dispatcher_owned_boundary() {
+    let mut violations = Vec::new();
+    let access_dispatcher = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("db")
+        .join("executor")
+        .join("access_dispatcher.rs");
+
+    for path in executor_source_files() {
+        if path == access_dispatcher || path.to_string_lossy().contains("/tests/") {
+            continue;
+        }
+
+        let source = fs::read_to_string(&path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
+        // Ignore inline test modules in production files.
+        let source = source
+            .split("\n#[cfg(test)]")
+            .next()
+            .unwrap_or(source.as_str());
+        let lines = source.lines().collect::<Vec<_>>();
+
+        for (line_index, line) in lines.iter().enumerate() {
+            if !line.contains("AccessPath::") {
+                continue;
+            }
+            if line.trim_start().starts_with("//") {
+                continue;
+            }
+
+            let context_start = line_index.saturating_sub(5);
+            let context = lines[context_start..=line_index].join("\n");
+            let direct_match = context.contains("match ")
+                || context.contains("if let ")
+                || context.contains("matches!(")
+                || context.contains("let AccessPath::");
+            if direct_match {
+                violations.push(format!("{}:{}", path.display(), line_index + 1));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "AccessPath variant matching must remain dispatcher-owned (violations: {})",
+        violations.join(", "),
     );
 }

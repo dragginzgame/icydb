@@ -1,7 +1,14 @@
 use super::*;
 use crate::db::{
-    executor::ExecutionPreparation,
+    executor::{
+        ExecutionPreparation, load::LoadExecutor, plan_metrics::GroupedPlanMetricsStrategy,
+        route::GroupedExecutionStrategy,
+    },
     index::{IndexCompilePolicy, compile_index_program},
+    query::explain::{
+        ExplainGroupAggregate, ExplainGroupField, ExplainGroupHaving, ExplainGroupHavingClause,
+        ExplainGroupHavingSymbol, ExplainGroupedStrategy, ExplainGrouping,
+    },
 };
 
 #[test]
@@ -374,6 +381,111 @@ fn route_plan_grouped_wrapper_observability_vector_is_frozen() {
     );
 
     assert_eq!(actual, expected);
+}
+
+#[test]
+fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
+    let group_field = grouped_field_slot("rank");
+    let grouped = AccessPlannedQuery::new(
+        AccessPath::<Ulid>::IndexPrefix {
+            index: ROUTE_MATRIX_INDEX_MODELS[0],
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    )
+    .into_grouped_with_having(
+        GroupSpec {
+            group_fields: vec![group_field.clone()],
+            aggregates: vec![GroupAggregateSpec {
+                kind: GroupAggregateKind::Count,
+                target_field: None,
+                distinct: false,
+            }],
+            execution: GroupedExecutionConfig::with_hard_limits(17, 8192),
+        },
+        Some(GroupHavingSpec {
+            clauses: vec![GroupHavingClause {
+                symbol: GroupHavingSymbol::AggregateIndex(0),
+                op: CompareOp::Gt,
+                value: Value::Uint(1),
+            }],
+        }),
+    );
+
+    // Phase 1: freeze explain-surface grouped projection shape.
+    assert_eq!(
+        grouped.explain().grouping,
+        ExplainGrouping::Grouped {
+            strategy: ExplainGroupedStrategy::OrderedGroup,
+            group_fields: vec![ExplainGroupField {
+                slot_index: group_field.index(),
+                field: group_field.field().to_string(),
+            }],
+            aggregates: vec![ExplainGroupAggregate {
+                kind: GroupAggregateKind::Count,
+                target_field: None,
+                distinct: false,
+            }],
+            having: Some(ExplainGroupHaving {
+                clauses: vec![ExplainGroupHavingClause {
+                    symbol: ExplainGroupHavingSymbol::AggregateIndex { index: 0 },
+                    op: CompareOp::Gt,
+                    value: Value::Uint(1),
+                }],
+            }),
+            max_groups: 17,
+            max_group_bytes: 8192,
+        },
+        "grouped explain projection must preserve strategy, fields, aggregates, having, and hard limits",
+    );
+
+    // Phase 2: freeze grouped route execution-mode and grouped-strategy selection.
+    let grouped_handoff =
+        grouped_executor_handoff(&grouped).expect("grouped logical plans should build handoff");
+    assert_eq!(grouped_handoff.execution().max_groups(), 17);
+    assert_eq!(grouped_handoff.execution().max_group_bytes(), 8192);
+    let route_plan =
+        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_grouped_handoff(
+            grouped_handoff,
+        );
+    assert_eq!(
+        route_plan.execution_mode_case(),
+        ExecutionModeRouteCase::AggregateGrouped
+    );
+    assert_eq!(route_plan.execution_mode, ExecutionMode::Materialized);
+    let grouped_observability = route_plan
+        .grouped_observability()
+        .expect("grouped route should always project grouped observability");
+    assert_eq!(
+        grouped_observability.execution_mode(),
+        ExecutionMode::Materialized
+    );
+    assert_eq!(
+        grouped_observability.grouped_execution_strategy(),
+        GroupedExecutionStrategy::OrderedMaterialized
+    );
+}
+
+#[test]
+fn grouped_route_strategy_to_metrics_strategy_mapping_is_stable() {
+    for (route_strategy, expected_metrics_strategy) in [
+        (
+            GroupedExecutionStrategy::HashMaterialized,
+            GroupedPlanMetricsStrategy::HashMaterialized,
+        ),
+        (
+            GroupedExecutionStrategy::OrderedMaterialized,
+            GroupedPlanMetricsStrategy::OrderedMaterialized,
+        ),
+    ] {
+        assert_eq!(
+            LoadExecutor::<RouteMatrixEntity>::grouped_plan_metrics_strategy_for_execution_strategy(
+                route_strategy
+            ),
+            expected_metrics_strategy,
+            "grouped route strategy must map to stable grouped metrics strategy labels",
+        );
+    }
 }
 
 #[test]

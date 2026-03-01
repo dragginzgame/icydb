@@ -423,6 +423,7 @@ mod tests {
     use crate::{
         db::{MissingRowPolicy, query::plan::AccessPlannedQuery},
         model::index::IndexModel,
+        types::Ulid,
     };
 
     const TEST_INDEX_FIELDS: [&str; 2] = ["group", "rank"];
@@ -538,5 +539,32 @@ mod tests {
         let plan_b: AccessPlannedQuery<Value> =
             AccessPlannedQuery::new(path_b, MissingRowPolicy::Ignore);
         assert_ne!(plan_a.fingerprint(), plan_b.fingerprint());
+    }
+
+    #[test]
+    fn normalize_by_keys_singleton_collapses_to_by_key() {
+        let key = Value::Ulid(Ulid::from_u128(7));
+        let normalized =
+            normalize_access_plan_value(AccessPlan::path(AccessPath::ByKeys(vec![key.clone()])));
+
+        assert_eq!(normalized, AccessPlan::path(AccessPath::ByKey(key)));
+    }
+
+    #[test]
+    fn normalize_access_plan_value_is_idempotent() {
+        let k1 = Value::Ulid(Ulid::from_u128(1));
+        let k2 = Value::Ulid(Ulid::from_u128(2));
+        let raw = AccessPlan::intersection(vec![
+            AccessPlan::union(vec![
+                AccessPlan::path(AccessPath::ByKeys(vec![k2.clone(), k1.clone(), k1.clone()])),
+                AccessPlan::path(AccessPath::ByKeys(vec![k1.clone()])),
+            ]),
+            AccessPlan::full_scan(),
+        ]);
+
+        let once = normalize_access_plan_value(raw);
+        let twice = normalize_access_plan_value(once.clone());
+
+        assert_eq!(once, twice, "access canonicalization must be idempotent");
     }
 }

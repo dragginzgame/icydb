@@ -177,10 +177,13 @@ impl ExecutionRoutePlan {
                         GroupedRouteDecisionOutcome::Rejected,
                         Some(GroupedRouteRejectionReason::CapabilityMismatch),
                     )
-                } else if matches!(self.execution_mode, ExecutionMode::Materialized) {
-                    (GroupedRouteDecisionOutcome::MaterializedFallback, None)
                 } else {
-                    (GroupedRouteDecisionOutcome::Selected, None)
+                    match self.execution_mode {
+                        ExecutionMode::Materialized => {
+                            (GroupedRouteDecisionOutcome::MaterializedFallback, None)
+                        }
+                        ExecutionMode::Streaming => (GroupedRouteDecisionOutcome::Selected, None),
+                    }
                 };
 
                 Some(GroupedRouteObservability {

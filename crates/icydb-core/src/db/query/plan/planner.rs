@@ -409,7 +409,25 @@ impl IndexModel {
 #[cfg(test)]
 mod planner_tests {
     use super::*;
-    use crate::types::Ulid;
+    use crate::{
+        db::query::intent::{KeyAccess, access_plan_from_keys_value},
+        model::field::{FieldKind, FieldModel},
+        testing::entity_model_from_static,
+        types::Ulid,
+    };
+
+    static PLANNER_CANONICAL_FIELDS: [FieldModel; 1] = [FieldModel {
+        name: "id",
+        kind: FieldKind::Ulid,
+    }];
+    static PLANNER_CANONICAL_INDEXES: [&IndexModel; 0] = [];
+    static PLANNER_CANONICAL_MODEL: EntityModel = entity_model_from_static(
+        "planner::canonical_test_entity",
+        "PlannerCanonicalTestEntity",
+        &PLANNER_CANONICAL_FIELDS[0],
+        &PLANNER_CANONICAL_FIELDS,
+        &PLANNER_CANONICAL_INDEXES,
+    );
 
     #[test]
     fn normalize_union_dedups_identical_paths() {
@@ -459,6 +477,33 @@ mod planner_tests {
         assert_eq!(
             normalized,
             AccessPlan::path(AccessPath::ByKey(Value::Ulid(Ulid::from_u128(7))))
+        );
+    }
+
+    #[test]
+    fn planner_and_intent_access_canonicalization_match_for_single_key_set() {
+        let key = Ulid::from_u128(42);
+        let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+            "id",
+            CompareOp::In,
+            Value::List(vec![Value::Ulid(key)]),
+            CoercionId::Strict,
+        ));
+        let schema = SchemaInfo::from_entity_model(&PLANNER_CANONICAL_MODEL)
+            .expect("planner canonicalization test model should produce schema info");
+
+        let planner_shape = plan_access(&PLANNER_CANONICAL_MODEL, &schema, Some(&predicate))
+            .expect("planner access shape should build for strict single-key IN predicate");
+        let intent_shape = access_plan_from_keys_value(&KeyAccess::Many(vec![key]));
+
+        assert_eq!(
+            planner_shape, intent_shape,
+            "planner and intent canonical access shape should agree for one-key sets",
+        );
+        assert_eq!(
+            planner_shape,
+            AccessPlan::path(AccessPath::ByKey(Value::Ulid(key))),
+            "one-key set canonicalization should collapse to ByKey",
         );
     }
 }

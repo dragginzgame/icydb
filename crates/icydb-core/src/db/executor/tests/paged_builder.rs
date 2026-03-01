@@ -406,6 +406,88 @@ fn grouped_fluent_execute_supports_cursor_continuation() {
 }
 
 #[test]
+fn grouped_fluent_execute_initial_to_continuation_matrix_covers_offset_and_limit() {
+    seed_grouped_phase_entities_with_filtered_middle_group();
+    let session = DbSession::new(DB);
+
+    for (case_name, offset, expected_page_1_rank, expected_page_2_rank) in [
+        ("offset0_limit1", 0_u32, 1_u64, 2_u64),
+        ("offset1_limit1", 1_u32, 2_u64, 3_u64),
+    ] {
+        // Phase 1: execute initial grouped page for the case-specific offset window.
+        let page_1 = session
+            .load::<PhaseEntity>()
+            .group_by("rank")
+            .expect("group field should resolve")
+            .aggregate(crate::db::count())
+            .offset(offset)
+            .limit(1)
+            .execute_grouped()
+            .expect("first grouped matrix page should execute");
+        assert_eq!(
+            page_1.rows().len(),
+            1,
+            "first grouped matrix page should emit one row for case={case_name}",
+        );
+        assert_eq!(
+            page_1.rows()[0].group_key(),
+            &[Value::Uint(expected_page_1_rank)],
+            "first grouped matrix page should preserve canonical grouped key for case={case_name}",
+        );
+
+        // Phase 2: resume using continuation and verify strict suffix progression.
+        let continuation = page_1
+            .continuation_cursor()
+            .map(crate::db::encode_cursor)
+            .expect("non-terminal grouped matrix first page should emit continuation cursor");
+        let page_2 = session
+            .load::<PhaseEntity>()
+            .group_by("rank")
+            .expect("group field should resolve")
+            .aggregate(crate::db::count())
+            .offset(offset)
+            .limit(1)
+            .cursor(continuation)
+            .execute_grouped()
+            .expect("second grouped matrix page should execute from continuation");
+        assert_eq!(
+            page_2.rows().len(),
+            1,
+            "second grouped matrix page should emit one row for case={case_name}",
+        );
+        assert_eq!(
+            page_2.rows()[0].group_key(),
+            &[Value::Uint(expected_page_2_rank)],
+            "grouped continuation should resume at the next canonical group key for case={case_name}",
+        );
+    }
+}
+
+#[test]
+fn grouped_fluent_execute_continuation_payload_bytes_are_stable() {
+    seed_grouped_phase_entities();
+    let session = DbSession::new(DB);
+
+    let page_1 = session
+        .load::<PhaseEntity>()
+        .group_by("rank")
+        .expect("group field should resolve")
+        .aggregate(crate::db::count())
+        .limit(1)
+        .execute_grouped()
+        .expect("first grouped page should execute");
+    let continuation = page_1
+        .continuation_cursor()
+        .expect("first grouped page should emit continuation cursor");
+    let actual_hex = crate::db::encode_cursor(continuation);
+    assert_eq!(
+        actual_hex,
+        "a56776657273696f6e01697369676e61747572659820187e185318440918d318fa0a18971855184a183f186b1848188918a7184218f118fc184d1877183918ba1840183518491857187318e9181a1836186518a56e6c6173745f67726f75705f6b657981a16455696e740169646972656374696f6e634173636e696e697469616c5f6f666673657400",
+        "grouped execution continuation cursor wire encoding must remain stable",
+    );
+}
+
+#[test]
 fn grouped_fluent_execute_having_filters_groups_without_extra_continuation() {
     seed_grouped_phase_entities();
     let session = DbSession::new(DB);

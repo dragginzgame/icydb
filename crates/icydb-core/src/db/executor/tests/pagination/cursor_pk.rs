@@ -233,6 +233,109 @@ fn load_cursor_with_offset_applies_offset_once_across_pages() {
 }
 
 #[test]
+fn load_cursor_initial_to_continuation_matrix_covers_direction_and_window_semantics() {
+    setup_pagination_test();
+
+    let save = SaveExecutor::<SimpleEntity>::new(DB, false);
+    for id in [6_u128, 1_u128, 5_u128, 2_u128, 4_u128, 3_u128, 7_u128] {
+        save.insert(SimpleEntity {
+            id: Ulid::from_u128(id),
+        })
+        .expect("save should succeed");
+    }
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    for (case_name, descending, offset, limit) in [
+        ("asc_offset0_limit2", false, 0_u32, 2_u32),
+        ("asc_offset1_limit2", false, 1_u32, 2_u32),
+        ("desc_offset0_limit2", true, 0_u32, 2_u32),
+        ("desc_offset1_limit2", true, 1_u32, 2_u32),
+    ] {
+        let build_query = || {
+            let query = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+                .offset(offset)
+                .limit(limit);
+            if descending {
+                query.order_by_desc("id")
+            } else {
+                query.order_by("id")
+            }
+        };
+
+        // Phase 1: execute the initial page from an empty cursor boundary.
+        let page_1_plan = build_query()
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("page-1 plan should build");
+        let page_1_cursor = page_1_plan
+            .prepare_cursor(None)
+            .expect("page-1 cursor should plan");
+        let page_1 = load
+            .execute_paged_with_cursor(page_1_plan, page_1_cursor)
+            .expect("page-1 execution should succeed");
+
+        // Phase 2: derive expected canonical window and assert first-page output.
+        let mut expected_ids = (1_u128..=7).map(Ulid::from_u128).collect::<Vec<_>>();
+        if descending {
+            expected_ids.reverse();
+        }
+        let expected_ids = expected_ids
+            .into_iter()
+            .skip(offset as usize)
+            .collect::<Vec<_>>();
+        let expected_page_1 = expected_ids
+            .iter()
+            .copied()
+            .take(limit as usize)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            ids_from_items(&page_1.items.0),
+            expected_page_1,
+            "first-page rows must match canonical cursor window for case={case_name}",
+        );
+
+        // Phase 3: resume from continuation and assert strict suffix progression.
+        let expected_page_2 = expected_ids
+            .iter()
+            .copied()
+            .skip(limit as usize)
+            .take(limit as usize)
+            .collect::<Vec<_>>();
+        if expected_page_2.is_empty() {
+            assert!(
+                page_1.next_cursor.is_none(),
+                "terminal first page should not emit continuation for case={case_name}",
+            );
+            continue;
+        }
+
+        let cursor = page_1
+            .next_cursor
+            .expect("non-terminal first page should emit continuation cursor");
+        let page_2_plan = build_query()
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("page-2 plan should build");
+        let page_2_cursor = page_2_plan
+            .prepare_cursor(Some(
+                cursor
+                    .encode()
+                    .expect("continuation cursor should serialize")
+                    .as_slice(),
+            ))
+            .expect("page-2 cursor should plan");
+        let page_2 = load
+            .execute_paged_with_cursor(page_2_plan, page_2_cursor)
+            .expect("page-2 execution should succeed");
+        assert_eq!(
+            ids_from_items(&page_2.items.0),
+            expected_page_2,
+            "resumed rows must continue canonical window without offset replay for case={case_name}",
+        );
+    }
+}
+
+#[test]
 fn load_cursor_with_offset_desc_secondary_pushdown_resume_matrix_is_boundary_complete() {
     setup_pagination_test();
 

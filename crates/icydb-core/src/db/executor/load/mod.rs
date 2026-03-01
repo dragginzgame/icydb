@@ -417,6 +417,20 @@ where
         Ok(Self::finalize_grouped_output(route, folded))
     }
 
+    // Map route-owned grouped strategy labels into grouped plan-metrics labels.
+    pub(in crate::db::executor) const fn grouped_plan_metrics_strategy_for_execution_strategy(
+        grouped_execution_strategy: crate::db::executor::route::GroupedExecutionStrategy,
+    ) -> GroupedPlanMetricsStrategy {
+        match grouped_execution_strategy {
+            crate::db::executor::route::GroupedExecutionStrategy::HashMaterialized => {
+                GroupedPlanMetricsStrategy::HashMaterialized
+            }
+            crate::db::executor::route::GroupedExecutionStrategy::OrderedMaterialized => {
+                GroupedPlanMetricsStrategy::OrderedMaterialized
+            }
+        }
+    }
+
     // Resolve grouped handoff/route metadata into one grouped route-stage payload.
     fn resolve_grouped_route(
         plan: ExecutablePlan<E>,
@@ -440,14 +454,9 @@ where
         let grouped_route_eligible = grouped_route_observability.eligible();
         let grouped_route_execution_mode = grouped_route_observability.execution_mode();
         let grouped_plan_metrics_strategy =
-            match grouped_route_observability.grouped_execution_strategy() {
-                crate::db::executor::route::GroupedExecutionStrategy::HashMaterialized => {
-                    GroupedPlanMetricsStrategy::HashMaterialized
-                }
-                crate::db::executor::route::GroupedExecutionStrategy::OrderedMaterialized => {
-                    GroupedPlanMetricsStrategy::OrderedMaterialized
-                }
-            };
+            Self::grouped_plan_metrics_strategy_for_execution_strategy(
+                grouped_route_observability.grouped_execution_strategy(),
+            );
         debug_assert!(
             grouped_route_eligible == grouped_route_rejection_reason.is_none(),
             "grouped route eligibility and rejection reason must stay aligned",
@@ -463,7 +472,7 @@ where
                 grouped_route_execution_mode,
                 crate::db::executor::route::ExecutionMode::Materialized
             ),
-            "grouped execution route must remain blocking/materialized",
+            "grouped execution must remain materialized",
         );
 
         let direction = grouped_route_plan.direction();

@@ -241,6 +241,35 @@ fn grouped_plan_rejects_global_distinct_mixed_aggregate_shape() {
 }
 
 #[test]
+fn grouped_plan_rejects_global_distinct_shape_with_having_clause() {
+    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::from_entity_model(model).expect("valid model");
+    let grouped = grouped_plan_with_having(
+        load_plan(AccessPlan::path(AccessPath::FullScan)),
+        Vec::new(),
+        vec![GroupAggregateSpec {
+            kind: GroupAggregateKind::Count,
+            target_field: Some("rank".to_string()),
+            distinct: true,
+        }],
+        Some(GroupHavingSpec {
+            clauses: vec![GroupHavingClause {
+                symbol: GroupHavingSymbol::AggregateIndex(0),
+                op: CompareOp::Gt,
+                value: Value::Uint(1),
+            }],
+        }),
+    );
+
+    let err = validate_group_query_semantics(&schema, model, &grouped)
+        .expect_err("global DISTINCT grouped aggregate shape must reject HAVING");
+    assert!(matches!(err, PlanError::Group(inner) if matches!(
+        inner.as_ref(),
+        GroupPlanError::GlobalDistinctAggregateShapeUnsupported
+    )));
+}
+
+#[test]
 fn grouped_plan_rejects_unknown_group_field() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");

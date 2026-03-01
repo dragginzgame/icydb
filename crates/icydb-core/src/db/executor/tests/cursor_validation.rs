@@ -131,6 +131,46 @@ fn load_cursor_rejects_primary_key_type_mismatch_at_plan_time() {
 }
 
 #[test]
+fn load_cursor_rejects_boundary_arity_mismatch_at_plan_time() {
+    let plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
+        .order_by("rank")
+        .limit(1)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("boundary-arity plan should build");
+    let boundary = CursorBoundary {
+        // The plan order is `(rank ASC, id ASC)`, so one slot is arity-invalid.
+        slots: vec![CursorBoundarySlot::Present(Value::Uint(10))],
+    };
+    let cursor = ContinuationToken::new_with_direction(
+        plan.continuation_signature(),
+        boundary,
+        Direction::Asc,
+        0,
+    )
+    .encode()
+    .expect("boundary-arity cursor should encode");
+
+    let err = plan
+        .prepare_cursor(Some(cursor.as_slice()))
+        .expect_err("boundary arity mismatch should be rejected during planning");
+    assert!(
+        matches!(
+            err,
+            crate::db::executor::ExecutorPlanError::Cursor(inner)
+                if matches!(
+                    inner.as_ref(),
+                    CursorPlanError::ContinuationCursorBoundaryArityMismatch {
+                        expected: 2,
+                        found: 1
+                    }
+                )
+        ),
+        "planning should reject continuation cursor boundary arity mismatches"
+    );
+}
+
+#[test]
 fn load_cursor_rejects_wrong_entity_path_at_plan_time() {
     let foreign_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .order_by("id")

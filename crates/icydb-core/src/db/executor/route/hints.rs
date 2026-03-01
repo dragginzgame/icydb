@@ -71,9 +71,12 @@ where
         route_window: RouteWindowPlan,
         capabilities: RouteCapabilities,
     ) -> Option<usize> {
-        if !matches!(continuation_mode, ContinuationMode::Initial) {
-            return None;
-        }
+        match continuation_mode {
+            ContinuationMode::Initial => {}
+            ContinuationMode::CursorBoundary | ContinuationMode::IndexRangeAnchor => {
+                return None;
+            }
+        };
         if !capabilities.streaming_access_shape_safe {
             return None;
         }
