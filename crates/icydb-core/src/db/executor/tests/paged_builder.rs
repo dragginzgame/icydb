@@ -57,6 +57,28 @@ fn seed_single_group_phase_entities() {
     }
 }
 
+fn seed_grouped_phase_entities_with_filtered_middle_group() {
+    reset_store();
+
+    let save = SaveExecutor::<PhaseEntity>::new(DB, false);
+    for (rank, label) in [
+        (1_u32, "alpha"),
+        (1_u32, "beta"),
+        (2_u32, "gamma"),
+        (3_u32, "delta"),
+        (3_u32, "epsilon"),
+    ] {
+        save.insert(PhaseEntity {
+            id: Ulid::generate(),
+            opt_rank: Some(rank),
+            rank,
+            tags: vec![rank],
+            label: label.to_string(),
+        })
+        .expect("grouped seed insert should succeed");
+    }
+}
+
 #[test]
 fn paged_query_builder_requires_explicit_limit() {
     let session = DbSession::new(DB);
@@ -449,6 +471,148 @@ fn grouped_fluent_execute_having_supports_group_key_symbol_filtering() {
         page.rows()[0].aggregate_values(),
         &[Value::Uint(1)],
         "group-key having should preserve grouped count payload"
+    );
+}
+
+#[test]
+fn grouped_fluent_execute_count_distinct_matches_group_count_for_id_terminals() {
+    seed_grouped_phase_entities();
+    let session = DbSession::new(DB);
+
+    let grouped_count = session
+        .load::<PhaseEntity>()
+        .group_by("rank")
+        .expect("group field should resolve")
+        .group_count()
+        .execute_grouped()
+        .expect("grouped count should execute");
+    let grouped_count_distinct = session
+        .load::<PhaseEntity>()
+        .group_by("rank")
+        .expect("group field should resolve")
+        .group_count_distinct()
+        .execute_grouped()
+        .expect("grouped count distinct should execute");
+
+    assert_eq!(
+        grouped_count_distinct.rows().len(),
+        grouped_count.rows().len(),
+        "grouped distinct count should emit one row per canonical group",
+    );
+    for (count_row, distinct_row) in grouped_count
+        .rows()
+        .iter()
+        .zip(grouped_count_distinct.rows().iter())
+    {
+        assert_eq!(
+            distinct_row.group_key(),
+            count_row.group_key(),
+            "grouped distinct count should preserve canonical group ordering",
+        );
+        assert_eq!(
+            distinct_row.aggregate_values(),
+            count_row.aggregate_values(),
+            "grouped distinct count should match grouped count for id-target terminals",
+        );
+    }
+}
+
+#[test]
+fn grouped_fluent_execute_count_distinct_pagination_does_not_split_single_group() {
+    seed_single_group_phase_entities();
+    let session = DbSession::new(DB);
+
+    let page = session
+        .load::<PhaseEntity>()
+        .group_by("rank")
+        .expect("group field should resolve")
+        .group_count_distinct()
+        .limit(1)
+        .execute_grouped()
+        .expect("single-group grouped distinct page should execute");
+
+    assert_eq!(
+        page.rows().len(),
+        1,
+        "single-group distinct page should emit one group",
+    );
+    assert_eq!(
+        page.rows()[0].group_key(),
+        &[Value::Uint(1)],
+        "single-group distinct page should preserve canonical grouped key",
+    );
+    assert_eq!(
+        page.rows()[0].aggregate_values(),
+        &[Value::Uint(3)],
+        "single group distinct count should reflect all unique id rows for that group",
+    );
+    assert!(
+        page.continuation_cursor().is_none(),
+        "single grouped distinct result must not emit continuation cursor that could split one group",
+    );
+}
+
+#[test]
+fn grouped_fluent_execute_having_pagination_skips_filtered_middle_group() {
+    seed_grouped_phase_entities_with_filtered_middle_group();
+    let session = DbSession::new(DB);
+
+    let page_1 = session
+        .load::<PhaseEntity>()
+        .group_by("rank")
+        .expect("group field should resolve")
+        .group_count()
+        .having_aggregate(0, CompareOp::Gt, Value::Uint(1))
+        .expect("having aggregate clause should append on grouped query")
+        .limit(1)
+        .execute_grouped()
+        .expect("first grouped having page should execute");
+
+    assert_eq!(
+        page_1.rows().len(),
+        1,
+        "first grouped having page should emit one group",
+    );
+    assert_eq!(
+        page_1.rows()[0].group_key(),
+        &[Value::Uint(1)],
+        "first grouped having page should emit the first matching group",
+    );
+    let continuation = page_1
+        .continuation_cursor()
+        .map(crate::db::encode_cursor)
+        .expect("first grouped having page should emit continuation cursor");
+
+    let page_2 = session
+        .load::<PhaseEntity>()
+        .group_by("rank")
+        .expect("group field should resolve")
+        .group_count()
+        .having_aggregate(0, CompareOp::Gt, Value::Uint(1))
+        .expect("having aggregate clause should append on grouped query")
+        .limit(1)
+        .cursor(continuation)
+        .execute_grouped()
+        .expect("second grouped having page should execute from continuation");
+
+    assert_eq!(
+        page_2.rows().len(),
+        1,
+        "second grouped having page should emit one remaining matching group",
+    );
+    assert_eq!(
+        page_2.rows()[0].group_key(),
+        &[Value::Uint(3)],
+        "continuation should skip filtered middle group and resume at next matching group",
+    );
+    assert_eq!(
+        page_2.rows()[0].aggregate_values(),
+        &[Value::Uint(2)],
+        "second matching group should preserve grouped aggregate payload",
+    );
+    assert!(
+        page_2.continuation_cursor().is_none(),
+        "terminal grouped having page should not emit continuation cursor",
     );
 }
 

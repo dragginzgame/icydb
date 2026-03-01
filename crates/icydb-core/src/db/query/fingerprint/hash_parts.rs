@@ -468,6 +468,7 @@ fn hash_group_aggregate_structural_fingerprint_v1(
     // v1 grouped aggregate fingerprint includes exactly:
     // - aggregate kind discriminant
     // - optional target field
+    // - distinct modifier flag
     //
     // Future aggregate features (distinct/filter/window/precision/mode) must
     // extend this helper explicitly to preserve continuation-signature safety.
@@ -480,6 +481,7 @@ fn hash_group_aggregate_structural_fingerprint_v1(
         }
         None => write_tag(hasher, 0x00),
     }
+    write_tag(hasher, if aggregate.distinct { 0x02 } else { 0x03 });
 }
 
 fn hash_group_having(hasher: &mut Sha256, having: Option<&ExplainGroupHaving>) {

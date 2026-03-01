@@ -454,3 +454,136 @@ fn grouped_cursor_rejects_cross_shape_resume_token_and_encoded_bytes_differ() {
         "grouped resume must fail fast on continuation signature mismatch"
     );
 }
+
+#[test]
+fn grouped_cursor_rejects_unsupported_version_at_plan_time() {
+    let grouped_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .group_by("group")
+        .expect("grouped query should build")
+        .group_count()
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("grouped plan should build");
+    let token = GroupedContinuationToken::new_with_direction(
+        grouped_plan.continuation_signature(),
+        vec![Value::Uint(7)],
+        Direction::Asc,
+        0,
+    );
+    let cursor = token
+        .encode_with_version_for_test(9)
+        .expect("unsupported-version grouped cursor should encode");
+
+    let err = grouped_plan
+        .prepare_grouped_cursor(Some(cursor.as_slice()))
+        .expect_err("unsupported grouped cursor version must be rejected");
+    assert!(
+        matches!(
+            err,
+            crate::db::executor::ExecutorPlanError::Cursor(inner)
+                if matches!(
+                    inner.as_ref(),
+                    CursorPlanError::ContinuationCursorVersionMismatch { version } if *version == 9
+                )
+        ),
+        "grouped planning should reject unsupported grouped cursor versions"
+    );
+}
+
+#[test]
+fn grouped_cursor_rejects_cross_shape_resume_token_when_having_changes() {
+    let grouped_having_gt = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .group_by("group")
+        .expect("grouped having source query should build")
+        .group_count()
+        .having_aggregate(0, CompareOp::Gt, Value::Uint(1))
+        .expect("grouped having source clause should build")
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("grouped having source plan should build");
+    let grouped_having_gte = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .group_by("group")
+        .expect("grouped having target query should build")
+        .group_count()
+        .having_aggregate(0, CompareOp::Gte, Value::Uint(1))
+        .expect("grouped having target clause should build")
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("grouped having target plan should build");
+
+    assert_ne!(
+        grouped_having_gt.continuation_signature(),
+        grouped_having_gte.continuation_signature(),
+        "grouped continuation signatures must change when HAVING shape changes"
+    );
+
+    let cursor = GroupedContinuationToken::new_with_direction(
+        grouped_having_gt.continuation_signature(),
+        vec![Value::Uint(7)],
+        Direction::Asc,
+        0,
+    )
+    .encode()
+    .expect("grouped having source cursor should encode");
+    let err = grouped_having_gte
+        .prepare_grouped_cursor(Some(cursor.as_slice()))
+        .expect_err("grouped cursor must fail when HAVING shape changes");
+    assert!(
+        matches!(
+            err,
+            crate::db::executor::ExecutorPlanError::Cursor(inner)
+                if matches!(
+                    inner.as_ref(),
+                    CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+                )
+        ),
+        "grouped resume must fail when HAVING shape differs"
+    );
+}
+
+#[test]
+fn grouped_cursor_rejects_cross_shape_resume_token_when_distinct_aggregate_changes() {
+    let grouped_count = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .group_by("group")
+        .expect("grouped count source query should build")
+        .group_count()
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("grouped count source plan should build");
+    let grouped_count_distinct = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .group_by("group")
+        .expect("grouped count distinct target query should build")
+        .group_count_distinct()
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("grouped count distinct target plan should build");
+
+    assert_ne!(
+        grouped_count.continuation_signature(),
+        grouped_count_distinct.continuation_signature(),
+        "grouped continuation signatures must change when aggregate DISTINCT changes"
+    );
+
+    let cursor = GroupedContinuationToken::new_with_direction(
+        grouped_count.continuation_signature(),
+        vec![Value::Uint(7)],
+        Direction::Asc,
+        0,
+    )
+    .encode()
+    .expect("grouped count source cursor should encode");
+    let err = grouped_count_distinct
+        .prepare_grouped_cursor(Some(cursor.as_slice()))
+        .expect_err("grouped cursor must fail when aggregate distinct shape changes");
+    assert!(
+        matches!(
+            err,
+            crate::db::executor::ExecutorPlanError::Cursor(inner)
+                if matches!(
+                    inner.as_ref(),
+                    CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+                )
+        ),
+        "grouped resume must fail when aggregate DISTINCT shape differs"
+    );
+}

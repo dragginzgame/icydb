@@ -100,7 +100,7 @@ where
     // Build one reducer adapter for any scalar aggregate terminal.
     const fn new(kind: AggregateKind, direction: Direction) -> Self {
         Self {
-            state: AggregateStateFactory::create_terminal(kind, direction),
+            state: AggregateStateFactory::create_terminal(kind, direction, false, u64::MAX),
         }
     }
 }

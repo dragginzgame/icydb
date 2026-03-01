@@ -4,13 +4,21 @@
 //! Boundary: state/fold mechanics used by aggregate execution kernels.
 
 use crate::{
-    db::{data::DataKey, direction::Direction},
+    db::{
+        data::DataKey,
+        direction::Direction,
+        executor::group::{CanonicalKey, GroupKeySet, KeyCanonicalError},
+    },
     error::InternalError,
     traits::EntityKind,
     types::Id,
 };
 
-use crate::db::executor::aggregate::contracts::spec::{AggregateKind, AggregateOutput};
+use crate::db::executor::aggregate::contracts::{
+    error::GroupError,
+    grouped::ExecutionContext,
+    spec::{AggregateKind, AggregateOutput},
+};
 
 ///
 /// FoldControl
@@ -187,11 +195,18 @@ pub(in crate::db::executor) trait AggregateState<E: EntityKind> {
 pub(in crate::db::executor) struct TerminalAggregateState<E: EntityKind> {
     kind: AggregateKind,
     direction: Direction,
+    distinct: bool,
+    max_distinct_values_per_group: u64,
+    distinct_keys: Option<GroupKeySet>,
     reducer: AggregateReducerState<E>,
 }
 
 impl<E: EntityKind> AggregateState<E> for TerminalAggregateState<E> {
     fn apply(&mut self, key: &DataKey) -> Result<FoldControl, InternalError> {
+        if self.distinct && !self.record_distinct_key(key)? {
+            return Ok(FoldControl::Continue);
+        }
+
         self.reducer
             .update_from_data_key(self.kind, self.direction, key)
     }
@@ -217,12 +232,90 @@ impl AggregateStateFactory {
     pub(in crate::db::executor) const fn create_terminal<E: EntityKind>(
         kind: AggregateKind,
         direction: Direction,
+        distinct: bool,
+        max_distinct_values_per_group: u64,
     ) -> TerminalAggregateState<E> {
         TerminalAggregateState {
             kind,
             direction,
+            distinct,
+            max_distinct_values_per_group,
+            distinct_keys: if distinct {
+                Some(GroupKeySet::new())
+            } else {
+                None
+            },
             reducer: AggregateReducerState::for_kind(kind),
         }
+    }
+}
+
+impl<E: EntityKind> TerminalAggregateState<E> {
+    /// Apply one grouped candidate data key with grouped DISTINCT budget enforcement.
+    pub(in crate::db::executor) fn apply_grouped(
+        &mut self,
+        key: &DataKey,
+        execution_context: &mut ExecutionContext,
+    ) -> Result<FoldControl, GroupError> {
+        if self.distinct && !self.record_distinct_key_grouped(key, execution_context)? {
+            return Ok(FoldControl::Continue);
+        }
+
+        self.reducer
+            .update_from_data_key(self.kind, self.direction, key)
+            .map_err(GroupError::from)
+    }
+
+    // Record one distinct data-key marker for this aggregate state.
+    //
+    // DISTINCT v1 for grouped id terminals deduplicates by canonical primary-key value
+    // before reducer update so fold output is deterministic under duplicate-key inputs.
+    fn record_distinct_key(&mut self, key: &DataKey) -> Result<bool, InternalError> {
+        let Some(distinct_keys) = self.distinct_keys.as_mut() else {
+            return Ok(true);
+        };
+        let key_value = key.storage_key().as_value();
+        let canonical_key = key_value
+            .canonical_key()
+            .map_err(KeyCanonicalError::into_internal_error)?;
+
+        Ok(distinct_keys.insert_key(canonical_key))
+    }
+
+    // Record one grouped distinct data-key marker and enforce grouped distinct budgets.
+    fn record_distinct_key_grouped(
+        &mut self,
+        key: &DataKey,
+        execution_context: &mut ExecutionContext,
+    ) -> Result<bool, GroupError> {
+        let Some(distinct_keys) = self.distinct_keys.as_mut() else {
+            return Ok(true);
+        };
+        let key_value = key.storage_key().as_value();
+        let canonical_key = key_value
+            .canonical_key()
+            .map_err(KeyCanonicalError::into_internal_error)
+            .map_err(GroupError::from)?;
+        if distinct_keys.contains_key(&canonical_key) {
+            return Ok(false);
+        }
+
+        let attempted_per_group = u64::try_from(distinct_keys.len())
+            .unwrap_or(u64::MAX)
+            .saturating_add(1);
+        if attempted_per_group > self.max_distinct_values_per_group {
+            return Err(GroupError::DistinctBudgetExceeded {
+                resource: "distinct_values_per_group",
+                attempted: attempted_per_group,
+                limit: self.max_distinct_values_per_group,
+            });
+        }
+
+        let inserted = distinct_keys.insert_key(canonical_key);
+        debug_assert!(inserted, "new distinct key must insert exactly once");
+        execution_context.record_distinct_value()?;
+
+        Ok(true)
     }
 }
 

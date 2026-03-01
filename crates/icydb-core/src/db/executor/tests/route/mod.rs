@@ -1,7 +1,7 @@
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},
-        contracts::{MissingRowPolicy, Predicate},
+        contracts::{CompareOp, MissingRowPolicy, Predicate},
         cursor::CursorBoundary,
         direction::Direction,
         executor::{
@@ -17,7 +17,8 @@ use crate::{
         query::{
             intent::{DeleteSpec, QueryMode},
             plan::{
-                AccessPlannedQuery, FieldSlot, GroupAggregateKind, GroupAggregateSpec, GroupSpec,
+                AccessPlannedQuery, FieldSlot, GroupAggregateKind, GroupAggregateSpec,
+                GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupSpec,
                 GroupedExecutionConfig, OrderDirection, OrderSpec, PageSpec,
                 grouped_executor_handoff,
             },

@@ -137,6 +137,12 @@ where
         self.map_query(Query::group_count)
     }
 
+    /// Add one grouped `count(distinct id)` terminal.
+    #[must_use]
+    pub fn group_count_distinct(self) -> Self {
+        self.map_query(Query::group_count_distinct)
+    }
+
     /// Add one grouped `exists` terminal.
     #[must_use]
     pub fn group_exists(self) -> Self {
@@ -161,10 +167,22 @@ where
         self.map_query(Query::group_min)
     }
 
+    /// Add one grouped `min(distinct id)` terminal.
+    #[must_use]
+    pub fn group_min_distinct(self) -> Self {
+        self.map_query(Query::group_min_distinct)
+    }
+
     /// Add one grouped `max` terminal (id extrema).
     #[must_use]
     pub fn group_max(self) -> Self {
         self.map_query(Query::group_max)
+    }
+
+    /// Add one grouped `max(distinct id)` terminal.
+    #[must_use]
+    pub fn group_max_distinct(self) -> Self {
+        self.map_query(Query::group_max_distinct)
     }
 
     /// Add one grouped `min(field)` terminal.

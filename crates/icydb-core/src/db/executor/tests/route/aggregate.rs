@@ -30,6 +30,7 @@ fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_pat
         aggregates: vec![GroupAggregateSpec {
             kind: GroupAggregateKind::Count,
             target_field: None,
+            distinct: false,
         }],
         execution: GroupedExecutionConfig::unbounded(),
     });
@@ -80,6 +81,7 @@ fn route_plan_grouped_wrapper_keeps_blocking_shape_under_tight_budget_config() {
         aggregates: vec![GroupAggregateSpec {
             kind: GroupAggregateKind::Count,
             target_field: None,
+            distinct: false,
         }],
         execution: GroupedExecutionConfig::with_hard_limits(1, 1),
     });
@@ -133,6 +135,7 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_index_prefix_sh
         aggregates: vec![GroupAggregateSpec {
             kind: GroupAggregateKind::Count,
             target_field: None,
+            distinct: false,
         }],
         execution: GroupedExecutionConfig::unbounded(),
     });
@@ -157,6 +160,84 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_index_prefix_sh
 }
 
 #[test]
+fn route_plan_grouped_wrapper_downgrades_ordered_strategy_when_residual_predicate_exists() {
+    let mut grouped = AccessPlannedQuery::new(
+        AccessPath::<Ulid>::IndexPrefix {
+            index: ROUTE_MATRIX_INDEX_MODELS[0],
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    )
+    .into_grouped(GroupSpec {
+        group_fields: grouped_field_slots(&["rank"]),
+        aggregates: vec![GroupAggregateSpec {
+            kind: GroupAggregateKind::Count,
+            target_field: None,
+            distinct: false,
+        }],
+        execution: GroupedExecutionConfig::unbounded(),
+    });
+    grouped.scalar_plan_mut().predicate = Some(Predicate::eq("rank".to_string(), Value::Uint(7)));
+
+    let route_plan =
+        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_grouped_handoff(
+            grouped_executor_handoff(&grouped)
+                .expect("grouped logical plans should build grouped handoff"),
+        );
+    let grouped_observability = route_plan
+        .grouped_observability()
+        .expect("grouped route should project grouped observability payload");
+
+    assert_eq!(
+        grouped_observability.grouped_execution_strategy(),
+        crate::db::executor::route::GroupedExecutionStrategy::HashGroup
+    );
+}
+
+#[test]
+fn route_plan_grouped_wrapper_downgrades_ordered_strategy_for_unsupported_having_operator() {
+    let grouped = AccessPlannedQuery::new(
+        AccessPath::<Ulid>::IndexPrefix {
+            index: ROUTE_MATRIX_INDEX_MODELS[0],
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    )
+    .into_grouped_with_having(
+        GroupSpec {
+            group_fields: grouped_field_slots(&["rank"]),
+            aggregates: vec![GroupAggregateSpec {
+                kind: GroupAggregateKind::Count,
+                target_field: None,
+                distinct: false,
+            }],
+            execution: GroupedExecutionConfig::unbounded(),
+        },
+        Some(GroupHavingSpec {
+            clauses: vec![GroupHavingClause {
+                symbol: GroupHavingSymbol::AggregateIndex(0),
+                op: CompareOp::In,
+                value: Value::List(vec![Value::Uint(1)]),
+            }],
+        }),
+    );
+
+    let route_plan =
+        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_grouped_handoff(
+            grouped_executor_handoff(&grouped)
+                .expect("grouped logical plans should build grouped handoff"),
+        );
+    let grouped_observability = route_plan
+        .grouped_observability()
+        .expect("grouped route should project grouped observability payload");
+
+    assert_eq!(
+        grouped_observability.grouped_execution_strategy(),
+        crate::db::executor::route::GroupedExecutionStrategy::HashGroup
+    );
+}
+
+#[test]
 fn route_plan_grouped_wrapper_preserves_kind_matrix_in_query_handoff() {
     let kind_cases = [
         GroupAggregateKind::Count,
@@ -174,6 +255,7 @@ fn route_plan_grouped_wrapper_preserves_kind_matrix_in_query_handoff() {
                 .map(|kind| GroupAggregateSpec {
                     kind: *kind,
                     target_field: None,
+                    distinct: false,
                 })
                 .collect(),
             execution: GroupedExecutionConfig::unbounded(),
@@ -199,6 +281,7 @@ fn route_plan_grouped_wrapper_preserves_target_field_in_query_handoff() {
             aggregates: vec![GroupAggregateSpec {
                 kind: GroupAggregateKind::Max,
                 target_field: Some("rank".to_string()),
+                distinct: false,
             }],
             execution: GroupedExecutionConfig::unbounded(),
         });
@@ -234,6 +317,7 @@ fn route_plan_grouped_wrapper_preserves_supported_target_field_matrix_in_query_h
                 .map(|(kind, target_field)| GroupAggregateSpec {
                     kind: *kind,
                     target_field: target_field.map(str::to_string),
+                    distinct: false,
                 })
                 .collect(),
             execution: GroupedExecutionConfig::unbounded(),
@@ -261,6 +345,7 @@ fn route_plan_grouped_wrapper_observability_vector_is_frozen() {
             aggregates: vec![GroupAggregateSpec {
                 kind: GroupAggregateKind::Count,
                 target_field: None,
+                distinct: false,
             }],
             execution: GroupedExecutionConfig::with_hard_limits(11, 2048),
         });

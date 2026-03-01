@@ -122,6 +122,7 @@ pub(crate) type GroupAggregateKind = AggregateKind;
 pub(crate) struct GroupAggregateSpec {
     pub(crate) kind: AggregateKind,
     pub(crate) target_field: Option<String>,
+    pub(crate) distinct: bool,
 }
 
 ///

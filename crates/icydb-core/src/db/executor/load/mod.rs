@@ -461,6 +461,10 @@ where
         debug_assert!(
             grouped_budget.max_groups() >= grouped_budget.groups()
                 && grouped_budget.max_group_bytes() >= grouped_budget.estimated_bytes()
+                && grouped_execution_context
+                    .config()
+                    .max_distinct_values_total()
+                    >= grouped_budget.distinct_values()
                 && grouped_budget.aggregate_states() >= grouped_budget.groups(),
             "grouped budget observability invariants must hold at grouped route entry"
         );
@@ -510,6 +514,7 @@ where
                 Ok(grouped_execution_context.create_grouped_engine::<E>(
                     aggregate.kind(),
                     aggregate_materialized_fold_direction(aggregate.kind()),
+                    aggregate.distinct(),
                 ))
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -800,7 +805,7 @@ where
     // Map grouped reducer errors into executor-owned error classes.
     fn map_group_error(err: GroupError) -> InternalError {
         match err {
-            GroupError::MemoryLimitExceeded { .. } => {
+            GroupError::MemoryLimitExceeded { .. } | GroupError::DistinctBudgetExceeded { .. } => {
                 InternalError::executor_internal(err.to_string())
             }
             GroupError::Internal(inner) => inner,

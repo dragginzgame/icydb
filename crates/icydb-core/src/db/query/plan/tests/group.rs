@@ -103,6 +103,7 @@ fn grouped_plan_rejects_empty_group_fields() {
         vec![GroupAggregateSpec {
             kind: GroupAggregateKind::Count,
             target_field: None,
+            distinct: false,
         }],
     );
 
@@ -124,6 +125,7 @@ fn grouped_plan_rejects_unknown_group_field() {
         vec![GroupAggregateSpec {
             kind: GroupAggregateKind::Count,
             target_field: None,
+            distinct: false,
         }],
     );
 
@@ -145,6 +147,7 @@ fn grouped_plan_rejects_duplicate_group_field() {
         vec![GroupAggregateSpec {
             kind: GroupAggregateKind::Count,
             target_field: None,
+            distinct: false,
         }],
     );
 
@@ -166,6 +169,7 @@ fn grouped_plan_rejects_distinct_without_adjacency_proof() {
         vec![GroupAggregateSpec {
             kind: GroupAggregateKind::Count,
             target_field: None,
+            distinct: false,
         }],
     );
 
@@ -196,6 +200,7 @@ fn grouped_plan_rejects_order_prefix_not_aligned_with_group_keys() {
         vec![GroupAggregateSpec {
             kind: GroupAggregateKind::Count,
             target_field: None,
+            distinct: false,
         }],
     );
 
@@ -226,6 +231,7 @@ fn grouped_plan_accepts_order_prefix_aligned_with_group_keys() {
         vec![GroupAggregateSpec {
             kind: GroupAggregateKind::Count,
             target_field: None,
+            distinct: false,
         }],
     );
 
@@ -261,6 +267,7 @@ fn grouped_plan_rejects_unknown_aggregate_target_field() {
         vec![GroupAggregateSpec {
             kind: GroupAggregateKind::Min,
             target_field: Some("missing_target".to_string()),
+            distinct: false,
         }],
     );
 
@@ -283,6 +290,7 @@ fn grouped_plan_rejects_field_target_aggregates_in_grouped_v1() {
         vec![GroupAggregateSpec {
             kind: GroupAggregateKind::Min,
             target_field: Some("rank".to_string()),
+            distinct: false,
         }],
     );
 
@@ -296,6 +304,70 @@ fn grouped_plan_rejects_field_target_aggregates_in_grouped_v1() {
 }
 
 #[test]
+fn grouped_plan_accepts_distinct_count_aggregate_terminal() {
+    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::from_entity_model(model).expect("valid model");
+    let grouped = grouped_plan(
+        load_plan(AccessPlan::path(AccessPath::FullScan)),
+        vec!["rank"],
+        vec![GroupAggregateSpec {
+            kind: GroupAggregateKind::Count,
+            target_field: None,
+            distinct: true,
+        }],
+    );
+
+    validate_group_query_semantics(&schema, model, &grouped)
+        .expect("grouped distinct count should be accepted in grouped v1");
+}
+
+#[test]
+fn grouped_plan_rejects_distinct_exists_aggregate_terminal() {
+    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::from_entity_model(model).expect("valid model");
+    let grouped = grouped_plan(
+        load_plan(AccessPlan::path(AccessPath::FullScan)),
+        vec!["rank"],
+        vec![GroupAggregateSpec {
+            kind: GroupAggregateKind::Exists,
+            target_field: None,
+            distinct: true,
+        }],
+    );
+
+    let err = validate_group_query_semantics(&schema, model, &grouped)
+        .expect_err("distinct exists should be rejected until grouped distinct support expands");
+    assert!(matches!(err, PlanError::Group(inner) if matches!(
+        inner.as_ref(),
+        GroupPlanError::DistinctAggregateKindUnsupported { index, kind }
+            if *index == 0 && kind == "Exists"
+    )));
+}
+
+#[test]
+fn grouped_plan_rejects_distinct_field_target_aggregate_terminal() {
+    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::from_entity_model(model).expect("valid model");
+    let grouped = grouped_plan(
+        load_plan(AccessPlan::path(AccessPath::FullScan)),
+        vec!["rank"],
+        vec![GroupAggregateSpec {
+            kind: GroupAggregateKind::Max,
+            target_field: Some("rank".to_string()),
+            distinct: true,
+        }],
+    );
+
+    let err = validate_group_query_semantics(&schema, model, &grouped)
+        .expect_err("distinct field-target grouped terminals should remain rejected in grouped v1");
+    assert!(matches!(err, PlanError::Group(inner) if matches!(
+        inner.as_ref(),
+        GroupPlanError::DistinctAggregateFieldTargetUnsupported { index, kind, field }
+            if *index == 0 && kind == "Max" && field == "rank"
+    )));
+}
+
+#[test]
 fn grouped_plan_rejects_having_with_distinct() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
@@ -305,6 +377,7 @@ fn grouped_plan_rejects_having_with_distinct() {
         vec![GroupAggregateSpec {
             kind: GroupAggregateKind::Count,
             target_field: None,
+            distinct: false,
         }],
         Some(GroupHavingSpec {
             clauses: vec![GroupHavingClause {
@@ -333,6 +406,7 @@ fn grouped_plan_rejects_having_group_field_outside_group_keys() {
         vec![GroupAggregateSpec {
             kind: GroupAggregateKind::Count,
             target_field: None,
+            distinct: false,
         }],
         Some(GroupHavingSpec {
             clauses: vec![GroupHavingClause {
@@ -364,6 +438,7 @@ fn grouped_plan_rejects_having_aggregate_index_out_of_bounds() {
         vec![GroupAggregateSpec {
             kind: GroupAggregateKind::Count,
             target_field: None,
+            distinct: false,
         }],
         Some(GroupHavingSpec {
             clauses: vec![GroupHavingClause {
@@ -393,6 +468,7 @@ fn grouped_plan_accepts_having_over_group_and_aggregate_symbols() {
         vec![GroupAggregateSpec {
             kind: GroupAggregateKind::Count,
             target_field: None,
+            distinct: false,
         }],
         Some(GroupHavingSpec {
             clauses: vec![
@@ -431,10 +507,12 @@ fn grouped_executor_handoff_preserves_group_fields_aggregates_and_execution_conf
             GroupAggregateSpec {
                 kind: GroupAggregateKind::Count,
                 target_field: None,
+                distinct: false,
             },
             GroupAggregateSpec {
                 kind: GroupAggregateKind::Max,
                 target_field: Some("rank".to_string()),
+                distinct: false,
             },
         ],
         execution: GroupedExecutionConfig::with_hard_limits(11, 2048),
@@ -476,6 +554,7 @@ fn grouped_executor_handoff_preserves_having_clause_contract() {
         vec![GroupAggregateSpec {
             kind: GroupAggregateKind::Count,
             target_field: None,
+            distinct: false,
         }],
         Some(GroupHavingSpec {
             clauses: vec![GroupHavingClause {
@@ -512,6 +591,7 @@ fn grouped_executor_handoff_contract_matrix_vectors_are_frozen() {
             aggregates: vec![GroupAggregateSpec {
                 kind: GroupAggregateKind::Count,
                 target_field: None,
+                distinct: false,
             }],
             execution: GroupedExecutionConfig::unbounded(),
         },
@@ -526,10 +606,12 @@ fn grouped_executor_handoff_contract_matrix_vectors_are_frozen() {
                 GroupAggregateSpec {
                     kind: GroupAggregateKind::Max,
                     target_field: Some("rank".to_string()),
+                    distinct: false,
                 },
                 GroupAggregateSpec {
                     kind: GroupAggregateKind::Min,
                     target_field: None,
+                    distinct: false,
                 },
             ],
             execution: GroupedExecutionConfig::with_hard_limits(11, 2048),
@@ -598,6 +680,7 @@ fn grouped_invalid_spec_does_not_change_scalar_plan_validation_outcome() {
         vec![GroupAggregateSpec {
             kind: GroupAggregateKind::Count,
             target_field: None,
+            distinct: false,
         }],
     );
 
@@ -626,6 +709,7 @@ fn grouped_validation_preserves_scalar_policy_errors_on_base_plan() {
         vec![GroupAggregateSpec {
             kind: GroupAggregateKind::Count,
             target_field: None,
+            distinct: false,
         }],
     );
 

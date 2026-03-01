@@ -133,6 +133,7 @@ pub struct ExplainGroupField {
 pub struct ExplainGroupAggregate {
     pub kind: AggregateKind,
     pub target_field: Option<String>,
+    pub distinct: bool,
 }
 
 ///
@@ -355,6 +356,7 @@ where
                         .map(|aggregate| ExplainGroupAggregate {
                             kind: aggregate.kind,
                             target_field: aggregate.target_field.clone(),
+                            distinct: aggregate.distinct,
                         })
                         .collect(),
                     having: explain_group_having(logical.having.as_ref()),

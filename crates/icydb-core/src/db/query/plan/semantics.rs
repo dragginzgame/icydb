@@ -71,6 +71,12 @@ impl AggregateKind {
         !matches!(self, Self::Count | Self::Exists)
     }
 
+    /// Return whether grouped aggregate DISTINCT is supported for this kind.
+    #[must_use]
+    pub(in crate::db) const fn supports_grouped_distinct_v1(self) -> bool {
+        matches!(self, Self::Count | Self::Min | Self::Max)
+    }
+
     /// Return the canonical grouped aggregate fingerprint tag (v1).
     #[must_use]
     pub(in crate::db) const fn fingerprint_tag_v1(self) -> u8 {
@@ -96,6 +102,12 @@ impl GroupAggregateSpec {
     #[must_use]
     pub(crate) fn target_field(&self) -> Option<&str> {
         self.target_field.as_deref()
+    }
+
+    /// Return whether this grouped aggregate terminal uses DISTINCT semantics.
+    #[must_use]
+    pub(crate) const fn distinct(&self) -> bool {
+        self.distinct
     }
 }
 
@@ -250,6 +262,15 @@ pub(crate) fn grouped_plan_strategy_hint<K>(
     if grouped.scalar.distinct {
         return Some(GroupedPlanStrategyHint::HashGroup);
     }
+    if grouped.scalar.predicate.is_some() {
+        return Some(GroupedPlanStrategyHint::HashGroup);
+    }
+    if !grouped_aggregates_streaming_compatible(grouped.group.aggregates.as_slice()) {
+        return Some(GroupedPlanStrategyHint::HashGroup);
+    }
+    if !grouped_having_streaming_compatible(grouped.having.as_ref()) {
+        return Some(GroupedPlanStrategyHint::HashGroup);
+    }
     if !grouped_order_prefix_matches_group_fields(
         grouped.scalar.order.as_ref(),
         grouped.group.group_fields.as_slice(),
@@ -261,6 +282,29 @@ pub(crate) fn grouped_plan_strategy_hint<K>(
     }
 
     Some(GroupedPlanStrategyHint::HashGroup)
+}
+
+fn grouped_aggregates_streaming_compatible(aggregates: &[GroupAggregateSpec]) -> bool {
+    aggregates.iter().all(|aggregate| {
+        aggregate.target_field().is_none()
+            && (!aggregate.distinct() || aggregate.kind().supports_grouped_distinct_v1())
+    })
+}
+
+fn grouped_having_streaming_compatible(having: Option<&GroupHavingSpec>) -> bool {
+    having.is_none_or(|having| {
+        having.clauses().iter().all(|clause| {
+            matches!(
+                clause.op(),
+                crate::db::predicate::CompareOp::Eq
+                    | crate::db::predicate::CompareOp::Ne
+                    | crate::db::predicate::CompareOp::Lt
+                    | crate::db::predicate::CompareOp::Lte
+                    | crate::db::predicate::CompareOp::Gt
+                    | crate::db::predicate::CompareOp::Gte
+            )
+        })
+    })
 }
 
 fn grouped_order_prefix_matches_group_fields(

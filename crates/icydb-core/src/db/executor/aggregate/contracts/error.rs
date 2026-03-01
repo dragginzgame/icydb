@@ -25,6 +25,13 @@ pub(in crate::db::executor) enum GroupError {
         limit: u64,
     },
 
+    #[error("grouped DISTINCT budget exceeded ({resource}): attempted={attempted}, limit={limit}")]
+    DistinctBudgetExceeded {
+        resource: &'static str,
+        attempted: u64,
+        limit: u64,
+    },
+
     #[error("{0}")]
     Internal(#[from] InternalError),
 }

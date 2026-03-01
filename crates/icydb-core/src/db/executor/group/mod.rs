@@ -40,6 +40,7 @@ pub(in crate::db::executor) struct GroupedBudgetObservability {
     groups: u64,
     aggregate_states: u64,
     estimated_bytes: u64,
+    distinct_values: u64,
     max_groups: u64,
     max_group_bytes: u64,
 }
@@ -61,6 +62,12 @@ impl GroupedBudgetObservability {
     #[must_use]
     pub(in crate::db::executor) const fn estimated_bytes(self) -> u64 {
         self.estimated_bytes
+    }
+
+    /// Return observed grouped distinct-value counter.
+    #[must_use]
+    pub(in crate::db::executor) const fn distinct_values(self) -> u64 {
+        self.distinct_values
     }
 
     /// Return configured max group count.
@@ -126,6 +133,7 @@ pub(in crate::db::executor) const fn grouped_budget_observability(
         groups: context.budget().groups(),
         aggregate_states: context.budget().aggregate_states(),
         estimated_bytes: context.budget().estimated_bytes(),
+        distinct_values: context.budget().distinct_values(),
         max_groups: context.config().max_groups(),
         max_group_bytes: context.config().max_group_bytes(),
     }

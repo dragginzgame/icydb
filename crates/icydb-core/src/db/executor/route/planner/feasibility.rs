@@ -17,6 +17,7 @@ use crate::{
                 planner::{RouteDerivationContext, RouteFeasibilityStage, RouteIntentStage},
             },
         },
+        predicate::CompareOp,
         query::plan::{AccessPlannedQuery, GroupedPlanStrategyHint, grouped_plan_strategy_hint},
     },
     traits::{EntityKind, EntityValue},
@@ -164,10 +165,16 @@ where
             None
         };
         let grouped_execution_strategy = if grouped {
+            let grouped_ordered_streaming_eligibility =
+                derive_grouped_ordered_streaming_eligibility(
+                    plan,
+                    grouped_plan_strategy_hint(plan).unwrap_or(GroupedPlanStrategyHint::HashGroup),
+                    direction,
+                    capabilities.desc_physical_reverse_supported,
+                    capabilities.streaming_access_shape_safe,
+                );
             Some(grouped_execution_strategy_for_plan_hint(
-                grouped_plan_strategy_hint(plan).unwrap_or(GroupedPlanStrategyHint::HashGroup),
-                direction,
-                capabilities.desc_physical_reverse_supported,
+                grouped_ordered_streaming_eligibility,
             ))
         } else {
             None
@@ -189,20 +196,86 @@ where
     }
 }
 
-// Resolve one route-level grouped strategy from planner hint + runtime direction capability.
-const fn grouped_execution_strategy_for_plan_hint(
+///
+/// GroupedOrderedStreamingEligibility
+///
+/// Executor-owned grouped ordered-streaming eligibility matrix.
+/// This matrix revalidates planner ordered-group hints against runtime capability
+/// and grouped semantic guardrails before strategy projection.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[expect(clippy::struct_excessive_bools)]
+struct GroupedOrderedStreamingEligibility {
+    ordered_hint: bool,
+    direction_compatible: bool,
+    streaming_access_shape_safe: bool,
+    aggregates_streaming_compatible: bool,
+    having_streaming_compatible: bool,
+    distinct_streaming_compatible: bool,
+}
+
+impl GroupedOrderedStreamingEligibility {
+    const fn is_eligible(self) -> bool {
+        self.ordered_hint
+            && self.direction_compatible
+            && self.streaming_access_shape_safe
+            && self.aggregates_streaming_compatible
+            && self.having_streaming_compatible
+            && self.distinct_streaming_compatible
+    }
+}
+
+// Derive one grouped ordered-streaming eligibility matrix snapshot.
+fn derive_grouped_ordered_streaming_eligibility<K>(
+    plan: &AccessPlannedQuery<K>,
     plan_hint: GroupedPlanStrategyHint,
     direction: Direction,
     desc_physical_reverse_supported: bool,
+    streaming_access_shape_safe: bool,
+) -> GroupedOrderedStreamingEligibility {
+    let grouped = plan.grouped_plan();
+    let aggregates_streaming_compatible = grouped.is_some_and(|grouped| {
+        grouped.group.aggregates.iter().all(|aggregate| {
+            aggregate.target_field().is_none()
+                && (!aggregate.distinct() || aggregate.kind().supports_grouped_distinct_v1())
+        })
+    });
+    let having_streaming_compatible = grouped.is_none_or(|grouped| {
+        grouped.having.as_ref().is_none_or(|having| {
+            having.clauses().iter().all(|clause| {
+                matches!(
+                    clause.op(),
+                    CompareOp::Eq
+                        | CompareOp::Ne
+                        | CompareOp::Lt
+                        | CompareOp::Lte
+                        | CompareOp::Gt
+                        | CompareOp::Gte
+                )
+            })
+        })
+    });
+
+    GroupedOrderedStreamingEligibility {
+        ordered_hint: matches!(plan_hint, GroupedPlanStrategyHint::OrderedGroup),
+        direction_compatible: !matches!(direction, Direction::Desc)
+            || desc_physical_reverse_supported,
+        streaming_access_shape_safe,
+        aggregates_streaming_compatible,
+        having_streaming_compatible,
+        // Query-level DISTINCT remains incompatible with grouped ordered streaming in this line.
+        distinct_streaming_compatible: !plan.scalar_plan().distinct,
+    }
+}
+
+// Resolve one route-level grouped strategy from one revalidated eligibility matrix.
+const fn grouped_execution_strategy_for_plan_hint(
+    grouped_ordered_streaming_eligibility: GroupedOrderedStreamingEligibility,
 ) -> GroupedExecutionStrategy {
-    match plan_hint {
-        GroupedPlanStrategyHint::OrderedGroup
-            if !matches!(direction, Direction::Desc) || desc_physical_reverse_supported =>
-        {
-            GroupedExecutionStrategy::OrderedGroup
-        }
-        GroupedPlanStrategyHint::OrderedGroup | GroupedPlanStrategyHint::HashGroup => {
-            GroupedExecutionStrategy::HashGroup
-        }
+    if grouped_ordered_streaming_eligibility.is_eligible() {
+        GroupedExecutionStrategy::OrderedGroup
+    } else {
+        GroupedExecutionStrategy::HashGroup
     }
 }

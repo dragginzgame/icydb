@@ -6,6 +6,7 @@ Current guarantees, invariants, and limits for shipped behavior are defined in:
 
 - `docs/contracts/ATOMICITY.md`
 - `docs/contracts/REF_INTEGRITY.md`
+- `docs/contracts/RESOURCE_MODEL.md`
 - `docs/contracts/TRANSACTION_SEMANTICS.md`
 
 This roadmap is directional and planning-oriented, not a release contract.
@@ -27,6 +28,8 @@ Active execution/planning references:
 - `docs/status/0.35-group-by-status.md`
 - `docs/status/0.35.1-hardening-status.md`
 - `docs/status/0.36-grouped-hardening-status.md`
+- `docs/changelog/0.36.md`
+- `CHANGELOG.md`
 
 ---
 
@@ -50,21 +53,16 @@ Core save/delete semantics remain explicit:
 
 ## Short-Term Goals
 
-Focus: finish current execution hardening and reduce drift risk before larger architectural work.
+Focus: build on shipped `0.36` grouped contracts while planning `0.37` expansion.
 
-- Complete aggregate execution hardening (`count`, `exists`, `min`, `max`) with parity-first behavior guarantees.
-- Land `count` pushdown safely, constrained by the shared streaming eligibility gate.
-- Prioritize reverse streaming hardening in the short term (DESC traversal parity and early-stop behavior).
-- Extend streaming aggregate capability in safe, gated steps:
-  - streaming `DISTINCT` on order-safe access paths
-  - constrained streaming `GROUP BY` for ordered index-prefix shapes
-  - streaming scalar folds (`sum`, `avg`) where semantics stay deterministic
-  - broader early-termination wins (`exists`, `min`/`max`, and limit-aware streaming)
-- Keep load and aggregate safety decisions centralized to avoid rule divergence.
-- Complete `0.32.3` grouped-readiness scaffolding so `0.33` focuses on enablement rather than contract discovery.
-- Continue cleanup passes that reduce cross-cutting complexity (error mapping, boundary handling, and test-surface maintainability).
-- Keep changelog/status docs aligned as features move from design to shipped.
-- Keep milestone tracking current in `docs/status/` as each feature closes.
+- Preserve `0.36` grouped invariants (strategy revalidation, HAVING stage semantics, DISTINCT budget guardrails, continuation shape safety) as hard regression gates.
+- Expand grouped capability only through bounded, explicit contracts (no implicit buffering, no hidden cardinality state).
+- Keep planner/executor authority boundaries strict:
+  - planner proposes eligibility
+  - executor revalidates and may downgrade, never upgrade
+- Continue cursor and continuation hardening for any new grouped/query shape.
+- Keep the resource contract (`docs/contracts/RESOURCE_MODEL.md`) synchronized with shipped executor behavior.
+- Keep milestone tracking and release docs synchronized across `docs/status/`, `docs/changelog/`, and `CHANGELOG.md`.
 
 ---
 

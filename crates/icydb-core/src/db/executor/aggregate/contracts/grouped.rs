@@ -34,6 +34,7 @@ pub(in crate::db::executor) struct ExecutionBudget {
     groups: u64,
     aggregate_states: u64,
     estimated_bytes: u64,
+    distinct_values: u64,
 }
 
 impl ExecutionBudget {
@@ -44,6 +45,7 @@ impl ExecutionBudget {
             groups: 0,
             aggregate_states: 0,
             estimated_bytes: 0,
+            distinct_values: 0,
         }
     }
 
@@ -60,6 +62,11 @@ impl ExecutionBudget {
     #[must_use]
     pub(in crate::db::executor) const fn estimated_bytes(&self) -> u64 {
         self.estimated_bytes
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn distinct_values(&self) -> u64 {
+        self.distinct_values
     }
 
     fn record_new_group_state<E: EntityKind>(
@@ -100,6 +107,21 @@ impl ExecutionBudget {
 
         Ok(())
     }
+
+    const fn record_distinct_value(&mut self, config: &ExecutionConfig) -> Result<(), GroupError> {
+        let attempted = self.distinct_values.saturating_add(1);
+        if attempted > config.max_distinct_values_total() {
+            return Err(GroupError::DistinctBudgetExceeded {
+                resource: "distinct_values_total",
+                attempted,
+                limit: config.max_distinct_values_total(),
+            });
+        }
+
+        self.distinct_values = attempted;
+
+        Ok(())
+    }
 }
 
 impl Default for ExecutionBudget {
@@ -117,9 +139,12 @@ impl Default for ExecutionBudget {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[expect(clippy::struct_field_names)]
 pub(in crate::db::executor) struct ExecutionConfig {
     max_groups: u64,
     max_group_bytes: u64,
+    max_distinct_values_per_group: u64,
+    max_distinct_values_total: u64,
 }
 
 ///
@@ -144,9 +169,31 @@ impl ExecutionConfig {
         max_groups: u64,
         max_group_bytes: u64,
     ) -> Self {
+        let max_distinct_values_per_group = derived_max_distinct_values_per_group(max_group_bytes);
+        let max_distinct_values_total = max_distinct_values_per_group.saturating_mul(max_groups);
+
         Self {
             max_groups,
             max_group_bytes,
+            max_distinct_values_per_group,
+            max_distinct_values_total,
+        }
+    }
+
+    /// Build one grouped hard-limit configuration with explicit DISTINCT limits.
+    #[cfg(test)]
+    #[must_use]
+    pub(in crate::db::executor) const fn with_hard_limits_and_distinct(
+        max_groups: u64,
+        max_group_bytes: u64,
+        max_distinct_values_per_group: u64,
+        max_distinct_values_total: u64,
+    ) -> Self {
+        Self {
+            max_groups,
+            max_group_bytes,
+            max_distinct_values_per_group,
+            max_distinct_values_total,
         }
     }
 
@@ -165,6 +212,16 @@ impl ExecutionConfig {
     #[must_use]
     pub(in crate::db::executor) const fn max_group_bytes(&self) -> u64 {
         self.max_group_bytes
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn max_distinct_values_per_group(&self) -> u64 {
+        self.max_distinct_values_per_group
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn max_distinct_values_total(&self) -> u64 {
+        self.max_distinct_values_total
     }
 }
 
@@ -198,12 +255,18 @@ impl ExecutionContext {
         &self,
         kind: AggregateKind,
         direction: Direction,
+        distinct: bool,
     ) -> GroupedAggregateState<E> {
         debug_assert!(
             self.config.max_groups() > 0 || self.config.max_group_bytes() > 0,
             "grouped execution config must expose at least one positive hard limit"
         );
-        GroupedAggregateState::new(kind, direction)
+        GroupedAggregateState::new(
+            kind,
+            direction,
+            distinct,
+            self.config.max_distinct_values_per_group(),
+        )
     }
 
     /// Build one grouped aggregate engine through the execution-context boundary.
@@ -216,8 +279,9 @@ impl ExecutionContext {
         &self,
         kind: AggregateKind,
         direction: Direction,
+        distinct: bool,
     ) -> AggregateEngine<E> {
-        AggregateEngine::from_grouped_state(self.create_grouped_state(kind, direction))
+        AggregateEngine::from_grouped_state(self.create_grouped_state(kind, direction, distinct))
     }
 
     fn record_new_group<E: EntityKind>(
@@ -247,6 +311,12 @@ impl ExecutionContext {
 
         Ok(())
     }
+
+    pub(in crate::db::executor) const fn record_distinct_value(
+        &mut self,
+    ) -> Result<(), GroupError> {
+        self.budget.record_distinct_value(&self.config)
+    }
 }
 
 fn estimated_new_group_bytes<E: EntityKind>(
@@ -271,6 +341,11 @@ fn estimated_new_group_bytes<E: EntityKind>(
     };
 
     saturating_u64_from_usize(map_entry_size.saturating_add(slot_growth))
+}
+
+const fn derived_max_distinct_values_per_group(max_group_bytes: u64) -> u64 {
+    let derived = max_group_bytes / 64;
+    if derived == 0 { 1 } else { derived }
 }
 
 const fn projected_vec_capacity_after_push(current_capacity: usize) -> usize {
@@ -342,16 +417,25 @@ impl<E: EntityKind> GroupedAggregateStateSlot<E> {
 pub(in crate::db::executor) struct GroupedAggregateState<E: EntityKind> {
     kind: AggregateKind,
     direction: Direction,
+    distinct: bool,
+    max_distinct_values_per_group: u64,
     groups: BTreeMap<StableHash, Vec<GroupedAggregateStateSlot<E>>>,
 }
 
 impl<E: EntityKind> GroupedAggregateState<E> {
     /// Build one empty grouped aggregate state container.
     #[must_use]
-    const fn new(kind: AggregateKind, direction: Direction) -> Self {
+    const fn new(
+        kind: AggregateKind,
+        direction: Direction,
+        distinct: bool,
+        max_distinct_values_per_group: u64,
+    ) -> Self {
         Self {
             kind,
             direction,
+            distinct,
+            max_distinct_values_per_group,
             groups: BTreeMap::new(),
         }
     }
@@ -370,12 +454,17 @@ impl<E: EntityKind> GroupedAggregateState<E> {
                 .iter_mut()
                 .find(|slot| canonical_group_key_equals(slot.group_key(), &group_key))
             {
-                return slot.state.apply(data_key).map_err(GroupError::from);
+                return slot.state.apply_grouped(data_key, execution_context);
             }
 
             // New group in an existing bucket.
-            let mut state = AggregateStateFactory::create_terminal(self.kind, self.direction);
-            let fold_control = state.apply(data_key).map_err(GroupError::from)?;
+            let mut state = AggregateStateFactory::create_terminal(
+                self.kind,
+                self.direction,
+                self.distinct,
+                self.max_distinct_values_per_group,
+            );
+            let fold_control = state.apply_grouped(data_key, execution_context)?;
             execution_context.record_new_group::<E>(
                 &group_key,
                 false,
@@ -388,8 +477,13 @@ impl<E: EntityKind> GroupedAggregateState<E> {
         }
 
         // Phase 2: create a new bucket + group when hash was unseen.
-        let mut state = AggregateStateFactory::create_terminal(self.kind, self.direction);
-        let fold_control = state.apply(data_key).map_err(GroupError::from)?;
+        let mut state = AggregateStateFactory::create_terminal(
+            self.kind,
+            self.direction,
+            self.distinct,
+            self.max_distinct_values_per_group,
+        );
+        let fold_control = state.apply_grouped(data_key, execution_context)?;
         execution_context.record_new_group::<E>(&group_key, true, 0, 0)?;
         self.groups
             .insert(hash, vec![GroupedAggregateStateSlot { group_key, state }]);
@@ -453,7 +547,12 @@ impl<E: EntityKind> AggregateEngine<E> {
         kind: AggregateKind,
         direction: Direction,
     ) -> Self {
-        Self::Scalar(AggregateStateFactory::create_terminal(kind, direction))
+        Self::Scalar(AggregateStateFactory::create_terminal(
+            kind,
+            direction,
+            false,
+            u64::MAX,
+        ))
     }
 
     /// Wrap one grouped aggregate state into the shared aggregate engine.

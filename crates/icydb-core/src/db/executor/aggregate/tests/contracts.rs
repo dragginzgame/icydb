@@ -75,8 +75,11 @@ fn grouped_count_rows_for_order(order: &[usize]) -> Vec<(Value, u32)> {
         ("beta", 5_u64),
     ];
     let mut execution_context = ExecutionContext::new(ExecutionConfig::unbounded());
-    let mut grouped = execution_context
-        .create_grouped_state::<GroupedStateTestEntity>(AggregateKind::Count, Direction::Asc);
+    let mut grouped = execution_context.create_grouped_state::<GroupedStateTestEntity>(
+        AggregateKind::Count,
+        Direction::Asc,
+        false,
+    );
 
     for fixture_index in order {
         let (group, id) = fixtures[*fixture_index];
@@ -107,8 +110,11 @@ fn aggregate_spec_builders_preserve_kind_and_target_field() {
 #[test]
 fn grouped_aggregate_state_reuses_per_group_state_and_counts_rows() {
     let mut execution_context = ExecutionContext::new(ExecutionConfig::unbounded());
-    let mut grouped = execution_context
-        .create_grouped_state::<GroupedStateTestEntity>(AggregateKind::Count, Direction::Asc);
+    let mut grouped = execution_context.create_grouped_state::<GroupedStateTestEntity>(
+        AggregateKind::Count,
+        Direction::Asc,
+        false,
+    );
 
     grouped
         .apply(
@@ -157,11 +163,130 @@ fn grouped_aggregate_state_reuses_per_group_state_and_counts_rows() {
 }
 
 #[test]
+fn grouped_aggregate_state_distinct_deduplicates_repeated_data_keys() {
+    let mut execution_context = ExecutionContext::new(ExecutionConfig::unbounded());
+    let mut grouped_distinct = execution_context.create_grouped_state::<GroupedStateTestEntity>(
+        AggregateKind::Count,
+        Direction::Asc,
+        true,
+    );
+    let mut grouped_plain = execution_context.create_grouped_state::<GroupedStateTestEntity>(
+        AggregateKind::Count,
+        Direction::Asc,
+        false,
+    );
+
+    let group = group_key(Value::Text("alpha".to_string()));
+    let duplicate_key = data_key(42);
+    grouped_distinct
+        .apply(group.clone(), &duplicate_key, &mut execution_context)
+        .expect("distinct grouped row should apply");
+    grouped_distinct
+        .apply(group.clone(), &duplicate_key, &mut execution_context)
+        .expect("duplicate distinct grouped row should apply as no-op");
+
+    grouped_plain
+        .apply(group.clone(), &duplicate_key, &mut execution_context)
+        .expect("plain grouped row should apply");
+    grouped_plain
+        .apply(group, &duplicate_key, &mut execution_context)
+        .expect("plain grouped duplicate row should increment count");
+
+    let distinct_rows = grouped_distinct.finalize();
+    let plain_rows = grouped_plain.finalize();
+    assert_eq!(
+        count_rows(distinct_rows.as_slice()),
+        vec![(Value::Text("alpha".to_string()), 1)],
+        "distinct grouped count should deduplicate repeated data keys",
+    );
+    assert_eq!(
+        count_rows(plain_rows.as_slice()),
+        vec![(Value::Text("alpha".to_string()), 2)],
+        "non-distinct grouped count should keep repeated data-key contributions",
+    );
+}
+
+#[test]
+fn grouped_aggregate_state_enforces_distinct_values_per_group_limit() {
+    let mut execution_context = ExecutionContext::new(
+        ExecutionConfig::with_hard_limits_and_distinct(u64::MAX, u64::MAX, 1, u64::MAX),
+    );
+    let mut grouped = execution_context.create_grouped_state::<GroupedStateTestEntity>(
+        AggregateKind::Count,
+        Direction::Asc,
+        true,
+    );
+
+    grouped
+        .apply(
+            group_key(Value::Text("alpha".to_string())),
+            &data_key(1),
+            &mut execution_context,
+        )
+        .expect("first grouped distinct value should fit per-group budget");
+    let err = grouped
+        .apply(
+            group_key(Value::Text("alpha".to_string())),
+            &data_key(2),
+            &mut execution_context,
+        )
+        .expect_err("second unique grouped distinct value should exceed per-group budget");
+
+    assert!(matches!(
+        err,
+        GroupError::DistinctBudgetExceeded {
+            resource: "distinct_values_per_group",
+            attempted: 2,
+            limit: 1,
+        }
+    ));
+}
+
+#[test]
+fn grouped_aggregate_state_enforces_distinct_values_total_limit() {
+    let mut execution_context = ExecutionContext::new(
+        ExecutionConfig::with_hard_limits_and_distinct(u64::MAX, u64::MAX, u64::MAX, 1),
+    );
+    let mut grouped = execution_context.create_grouped_state::<GroupedStateTestEntity>(
+        AggregateKind::Count,
+        Direction::Asc,
+        true,
+    );
+
+    grouped
+        .apply(
+            group_key(Value::Text("alpha".to_string())),
+            &data_key(1),
+            &mut execution_context,
+        )
+        .expect("first grouped distinct value should fit total budget");
+    let err = grouped
+        .apply(
+            group_key(Value::Text("beta".to_string())),
+            &data_key(2),
+            &mut execution_context,
+        )
+        .expect_err("second grouped distinct value should exceed total distinct budget");
+
+    assert!(matches!(
+        err,
+        GroupError::DistinctBudgetExceeded {
+            resource: "distinct_values_total",
+            attempted: 2,
+            limit: 1,
+        }
+    ));
+}
+
+#[test]
 fn grouped_aggregate_state_finalization_is_deterministic_under_hash_collisions() {
     with_test_hash_override([0xCD; 16], || {
         let mut execution_context = ExecutionContext::new(ExecutionConfig::unbounded());
-        let mut grouped = execution_context
-            .create_grouped_state::<GroupedStateTestEntity>(AggregateKind::Count, Direction::Asc);
+        let mut grouped = execution_context.create_grouped_state::<GroupedStateTestEntity>(
+            AggregateKind::Count,
+            Direction::Asc,
+            false,
+        );
 
         // Intentionally insert in reverse lexical order under one forced
         // hash bucket; finalize must still emit canonical key order.
@@ -248,8 +373,11 @@ fn grouped_aggregate_state_finalization_is_stable_across_collision_order_matrix(
 fn grouped_aggregate_state_enforces_max_groups_hard_limit() {
     let mut execution_context =
         ExecutionContext::new(ExecutionConfig::with_hard_limits(2, u64::MAX));
-    let mut grouped = execution_context
-        .create_grouped_state::<GroupedStateTestEntity>(AggregateKind::Count, Direction::Asc);
+    let mut grouped = execution_context.create_grouped_state::<GroupedStateTestEntity>(
+        AggregateKind::Count,
+        Direction::Asc,
+        false,
+    );
 
     grouped
         .apply(
@@ -287,8 +415,11 @@ fn grouped_aggregate_state_enforces_max_groups_hard_limit() {
 fn grouped_aggregate_state_enforces_max_estimated_bytes_hard_limit() {
     let mut execution_context =
         ExecutionContext::new(ExecutionConfig::with_hard_limits(u64::MAX, 1));
-    let mut grouped = execution_context
-        .create_grouped_state::<GroupedStateTestEntity>(AggregateKind::Count, Direction::Asc);
+    let mut grouped = execution_context.create_grouped_state::<GroupedStateTestEntity>(
+        AggregateKind::Count,
+        Direction::Asc,
+        false,
+    );
 
     let err = grouped
         .apply(
@@ -311,10 +442,16 @@ fn grouped_aggregate_state_enforces_max_estimated_bytes_hard_limit() {
 #[test]
 fn grouped_aggregate_state_counts_max_groups_once_per_canonical_group_across_states() {
     let mut execution_context = ExecutionContext::new(ExecutionConfig::with_hard_limits(1, 2048));
-    let mut grouped_count = execution_context
-        .create_grouped_state::<GroupedStateTestEntity>(AggregateKind::Count, Direction::Asc);
-    let mut grouped_exists = execution_context
-        .create_grouped_state::<GroupedStateTestEntity>(AggregateKind::Exists, Direction::Asc);
+    let mut grouped_count = execution_context.create_grouped_state::<GroupedStateTestEntity>(
+        AggregateKind::Count,
+        Direction::Asc,
+        false,
+    );
+    let mut grouped_exists = execution_context.create_grouped_state::<GroupedStateTestEntity>(
+        AggregateKind::Exists,
+        Direction::Asc,
+        false,
+    );
 
     grouped_count
         .apply(
@@ -364,8 +501,11 @@ fn grouped_aggregate_state_counts_max_groups_once_per_canonical_group_across_sta
 fn grouped_aggregate_state_budget_violation_keeps_existing_finalization_intact() {
     let mut execution_context =
         ExecutionContext::new(ExecutionConfig::with_hard_limits(1, u64::MAX));
-    let mut grouped = execution_context
-        .create_grouped_state::<GroupedStateTestEntity>(AggregateKind::Count, Direction::Asc);
+    let mut grouped = execution_context.create_grouped_state::<GroupedStateTestEntity>(
+        AggregateKind::Count,
+        Direction::Asc,
+        false,
+    );
 
     grouped
         .apply(

@@ -72,6 +72,27 @@ fn prepare_grouped_cursor_rejects_signature_mismatch() {
 }
 
 #[test]
+fn prepare_grouped_cursor_rejects_unsupported_version() {
+    let token = grouped_token_fixture(Direction::Asc);
+    let encoded = token
+        .encode_with_version_for_test(9)
+        .expect("grouped continuation token should encode for test version");
+    let err = prepare_grouped_cursor(
+        "grouped::test_entity",
+        None::<&OrderSpec>,
+        token.signature(),
+        token.initial_offset(),
+        Some(encoded.as_slice()),
+    )
+    .expect_err("unsupported grouped cursor version must fail");
+
+    assert!(matches!(
+        err,
+        CursorPlanError::ContinuationCursorVersionMismatch { version } if version == 9
+    ));
+}
+
+#[test]
 fn prepare_grouped_cursor_rejects_offset_mismatch() {
     let token = grouped_token_fixture(Direction::Asc);
     let encoded = token

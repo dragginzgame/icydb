@@ -43,8 +43,7 @@ pub(in crate::db) fn revalidate_grouped_cursor_state(
 
 // Decode one grouped continuation token through the grouped token codec boundary.
 fn decode_grouped_cursor_token(cursor: &[u8]) -> Result<GroupedContinuationToken, CursorPlanError> {
-    GroupedContinuationToken::decode(cursor)
-        .map_err(|err| CursorPlanError::invalid_continuation_cursor_payload(err.to_string()))
+    GroupedContinuationToken::decode(cursor).map_err(CursorPlanError::from_token_wire_error)
 }
 
 // Validate grouped continuation signature against the executable grouped shape.

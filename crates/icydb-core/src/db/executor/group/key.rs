@@ -161,6 +161,14 @@ impl GroupKeySet {
         })
     }
 
+    /// Return the total number of canonical keys tracked by this set.
+    #[must_use]
+    pub(in crate::db) fn len(&self) -> usize {
+        self.buckets
+            .values()
+            .fold(0usize, |count, bucket| count.saturating_add(bucket.len()))
+    }
+
     /// Insert one canonical key and return true if it was newly observed.
     pub(in crate::db) fn insert_key(&mut self, key: GroupKey) -> bool {
         let bucket = self.buckets.entry(key.hash()).or_default();

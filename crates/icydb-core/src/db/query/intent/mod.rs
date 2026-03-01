@@ -319,15 +319,18 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         mut self,
         kind: GroupAggregateKind,
         target_field: Option<String>,
+        distinct: bool,
     ) -> Self {
         let group = self.group.get_or_insert(GroupSpec {
             group_fields: Vec::new(),
             aggregates: Vec::new(),
             execution: GroupedExecutionConfig::unbounded(),
         });
-        group
-            .aggregates
-            .push(GroupAggregateSpec { kind, target_field });
+        group.aggregates.push(GroupAggregateSpec {
+            kind,
+            target_field,
+            distinct,
+        });
 
         self
     }
@@ -711,7 +714,12 @@ impl<E: EntityKind> Query<E> {
     }
 
     fn push_group_terminal(mut self, kind: GroupAggregateKind) -> Self {
-        self.intent = self.intent.push_group_aggregate(kind, None);
+        self.intent = self.intent.push_group_aggregate(kind, None, false);
+        self
+    }
+
+    fn push_group_terminal_distinct(mut self, kind: GroupAggregateKind) -> Self {
+        self.intent = self.intent.push_group_aggregate(kind, None, true);
         self
     }
 
@@ -719,6 +727,12 @@ impl<E: EntityKind> Query<E> {
     #[must_use]
     pub fn group_count(self) -> Self {
         self.push_group_terminal(GroupAggregateKind::Count)
+    }
+
+    /// Add one grouped `count(distinct id)` terminal.
+    #[must_use]
+    pub fn group_count_distinct(self) -> Self {
+        self.push_group_terminal_distinct(GroupAggregateKind::Count)
     }
 
     /// Add one grouped `exists` terminal.
@@ -745,10 +759,22 @@ impl<E: EntityKind> Query<E> {
         self.push_group_terminal(GroupAggregateKind::Min)
     }
 
+    /// Add one grouped `min(distinct id)` terminal.
+    #[must_use]
+    pub fn group_min_distinct(self) -> Self {
+        self.push_group_terminal_distinct(GroupAggregateKind::Min)
+    }
+
     /// Add one grouped `max` terminal (id extrema).
     #[must_use]
     pub fn group_max(self) -> Self {
         self.push_group_terminal(GroupAggregateKind::Max)
+    }
+
+    /// Add one grouped `max(distinct id)` terminal.
+    #[must_use]
+    pub fn group_max_distinct(self) -> Self {
+        self.push_group_terminal_distinct(GroupAggregateKind::Max)
     }
 
     /// Add one grouped `min(field)` terminal.

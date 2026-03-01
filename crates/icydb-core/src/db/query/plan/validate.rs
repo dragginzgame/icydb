@@ -190,6 +190,22 @@ pub enum GroupPlanError {
         aggregate_count: usize,
     },
 
+    /// DISTINCT grouped terminal kinds are intentionally conservative in v1.
+    #[error(
+        "grouped DISTINCT aggregate at index={index} uses unsupported kind '{kind}' in this release"
+    )]
+    DistinctAggregateKindUnsupported { index: usize, kind: String },
+
+    /// DISTINCT over grouped field-target terminals is deferred with field-target support.
+    #[error(
+        "grouped DISTINCT aggregate at index={index} cannot target field '{field}' in this release: found {kind}"
+    )]
+    DistinctAggregateFieldTargetUnsupported {
+        index: usize,
+        kind: String,
+        field: String,
+    },
+
     /// Aggregate target fields must resolve in the model schema.
     #[error("unknown grouped aggregate target field at index={index}: '{field}'")]
     UnknownAggregateTargetField { index: usize, field: String },
@@ -494,9 +510,27 @@ pub(crate) fn validate_group_spec(
     }
 
     for (index, aggregate) in group.aggregates.iter().enumerate() {
+        if aggregate.distinct() && !aggregate.kind().supports_grouped_distinct_v1() {
+            return Err(PlanError::from(
+                GroupPlanError::DistinctAggregateKindUnsupported {
+                    index,
+                    kind: format!("{:?}", aggregate.kind()),
+                },
+            ));
+        }
+
         let Some(target_field) = aggregate.target_field.as_ref() else {
             continue;
         };
+        if aggregate.distinct() {
+            return Err(PlanError::from(
+                GroupPlanError::DistinctAggregateFieldTargetUnsupported {
+                    index,
+                    kind: format!("{:?}", aggregate.kind()),
+                    field: target_field.clone(),
+                },
+            ));
+        }
         if schema.field(target_field).is_none() {
             return Err(PlanError::from(
                 GroupPlanError::UnknownAggregateTargetField {
@@ -508,7 +542,7 @@ pub(crate) fn validate_group_spec(
         return Err(PlanError::from(
             GroupPlanError::FieldTargetAggregatesUnsupported {
                 index,
-                kind: format!("{:?}", aggregate.kind),
+                kind: format!("{:?}", aggregate.kind()),
                 field: target_field.clone(),
             },
         ));

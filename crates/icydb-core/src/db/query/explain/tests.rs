@@ -152,6 +152,7 @@ fn explain_grouped_strategy_defaults_to_hash_group_for_full_scan_shapes() {
             aggregates: vec![GroupAggregateSpec {
                 kind: GroupAggregateKind::Count,
                 target_field: None,
+                distinct: false,
             }],
             execution: GroupedExecutionConfig::unbounded(),
         });
@@ -183,9 +184,128 @@ fn explain_grouped_strategy_reports_ordered_group_for_aligned_index_prefix_shape
         aggregates: vec![GroupAggregateSpec {
             kind: GroupAggregateKind::Count,
             target_field: None,
+            distinct: false,
         }],
         execution: GroupedExecutionConfig::unbounded(),
     });
+
+    let explain = grouped.explain();
+    assert!(matches!(
+        explain.grouping,
+        ExplainGrouping::Grouped {
+            strategy: ExplainGroupedStrategy::OrderedGroup,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn explain_grouped_strategy_downgrades_to_hash_for_residual_predicate_shapes() {
+    let mut grouped = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: PUSHDOWN_INDEX,
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    )
+    .into_grouped(GroupSpec {
+        group_fields: vec![
+            FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
+                .expect("group field should resolve"),
+        ],
+        aggregates: vec![GroupAggregateSpec {
+            kind: GroupAggregateKind::Count,
+            target_field: None,
+            distinct: false,
+        }],
+        execution: GroupedExecutionConfig::unbounded(),
+    });
+    grouped.scalar_plan_mut().predicate = Some(Predicate::eq(
+        "tag".to_string(),
+        Value::Text("alpha".to_string()),
+    ));
+
+    let explain = grouped.explain();
+    assert!(matches!(
+        explain.grouping,
+        ExplainGrouping::Grouped {
+            strategy: ExplainGroupedStrategy::HashGroup,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn explain_grouped_strategy_downgrades_to_hash_for_unsupported_having_operator() {
+    let grouped = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: PUSHDOWN_INDEX,
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    )
+    .into_grouped_with_having(
+        GroupSpec {
+            group_fields: vec![
+                FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
+                    .expect("group field should resolve"),
+            ],
+            aggregates: vec![GroupAggregateSpec {
+                kind: GroupAggregateKind::Count,
+                target_field: None,
+                distinct: false,
+            }],
+            execution: GroupedExecutionConfig::unbounded(),
+        },
+        Some(GroupHavingSpec {
+            clauses: vec![GroupHavingClause {
+                symbol: GroupHavingSymbol::AggregateIndex(0),
+                op: CompareOp::In,
+                value: Value::List(vec![Value::Uint(1)]),
+            }],
+        }),
+    );
+
+    let explain = grouped.explain();
+    assert!(matches!(
+        explain.grouping,
+        ExplainGrouping::Grouped {
+            strategy: ExplainGroupedStrategy::HashGroup,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn explain_grouped_strategy_keeps_ordered_group_for_supported_having_operator() {
+    let grouped = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: PUSHDOWN_INDEX,
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    )
+    .into_grouped_with_having(
+        GroupSpec {
+            group_fields: vec![
+                FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
+                    .expect("group field should resolve"),
+            ],
+            aggregates: vec![GroupAggregateSpec {
+                kind: GroupAggregateKind::Count,
+                target_field: None,
+                distinct: false,
+            }],
+            execution: GroupedExecutionConfig::unbounded(),
+        },
+        Some(GroupHavingSpec {
+            clauses: vec![GroupHavingClause {
+                symbol: GroupHavingSymbol::AggregateIndex(0),
+                op: CompareOp::Gt,
+                value: Value::Uint(1),
+            }],
+        }),
+    );
 
     let explain = grouped.explain();
     assert!(matches!(
@@ -209,6 +329,7 @@ fn explain_grouped_having_projection_is_reported() {
                 aggregates: vec![GroupAggregateSpec {
                     kind: GroupAggregateKind::Count,
                     target_field: None,
+                    distinct: false,
                 }],
                 execution: GroupedExecutionConfig::unbounded(),
             },
@@ -228,6 +349,34 @@ fn explain_grouped_having_projection_is_reported() {
             ..
         }
     ));
+}
+
+#[test]
+fn explain_grouped_distinct_aggregate_projection_is_reported() {
+    let grouped = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+        .into_grouped(GroupSpec {
+            group_fields: vec![
+                FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "rank")
+                    .expect("group field should resolve"),
+            ],
+            aggregates: vec![GroupAggregateSpec {
+                kind: GroupAggregateKind::Count,
+                target_field: None,
+                distinct: true,
+            }],
+            execution: GroupedExecutionConfig::unbounded(),
+        });
+
+    match grouped.explain().grouping {
+        ExplainGrouping::Grouped { aggregates, .. } => {
+            assert_eq!(aggregates.len(), 1, "one grouped aggregate should project");
+            assert!(
+                aggregates[0].distinct,
+                "grouped explain projection should include aggregate distinct modifier"
+            );
+        }
+        ExplainGrouping::None => panic!("grouped explain must project grouped payload"),
+    }
 }
 
 #[test]

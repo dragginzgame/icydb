@@ -264,6 +264,16 @@ fn grouped_load_order_prefix_alignment_is_allowed() {
 }
 
 #[test]
+fn grouped_load_distinct_count_terminal_is_allowed() {
+    Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .group_by("name")
+        .expect("group field should resolve")
+        .group_count_distinct()
+        .plan()
+        .expect("grouped distinct count terminal should plan in grouped v1");
+}
+
+#[test]
 fn grouped_having_requires_group_by() {
     let err = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .having_group("name", CompareOp::Eq, Value::Text("alpha".to_string()))
@@ -286,6 +296,35 @@ fn grouped_having_with_distinct_is_rejected() {
         .distinct()
         .plan()
         .expect_err("grouped having with distinct should be rejected in this release");
+
+    assert!(matches!(
+        err,
+        QueryError::Plan(ref plan_err)
+            if matches!(
+                **plan_err,
+                crate::db::query::plan::PlanError::Group(ref inner)
+                    if matches!(
+                        inner.as_ref(),
+                        crate::db::query::plan::validate::GroupPlanError::DistinctHavingUnsupported
+                    )
+            )
+    ));
+}
+
+#[test]
+fn grouped_having_with_distinct_is_rejected_for_ordered_eligible_shape() {
+    let err = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .order_by("name")
+        .group_by("name")
+        .expect("group field should resolve")
+        .group_count()
+        .having_aggregate(0, CompareOp::Gt, Value::Uint(0))
+        .expect("having aggregate clause should append on grouped query")
+        .distinct()
+        .plan()
+        .expect_err(
+            "grouped having with distinct should be rejected even when grouped order prefix is aligned",
+        );
 
     assert!(matches!(
         err,
