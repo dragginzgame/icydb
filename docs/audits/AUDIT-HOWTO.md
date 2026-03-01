@@ -55,6 +55,12 @@ For each audit run:
 4. Save output as a new report file under `docs/audits/reports/YYYY-MM-DD/`.
 5. Never overwrite prior run artifacts.
 
+For crosscutting structure/velocity runs, include the required Hub Import Pressure metric:
+- top imports for each hub module
+- unique sibling subsystem import count
+- cross-layer dependency count
+- delta vs previous report
+
 ## 5. History Preservation Rule
 
 Audit history is append-only.

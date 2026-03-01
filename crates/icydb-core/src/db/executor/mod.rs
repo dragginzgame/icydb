@@ -85,15 +85,7 @@ impl<E: EntityKind> CompiledQuery<E> {
 //   indicate executor/planner contract breaches.
 
 use crate::{
-    db::{
-        cursor::CursorPlanError,
-        data::DataKey,
-        predicate::ValidateError,
-        query::{
-            intent::CompiledQuery,
-            plan::validate::{OrderPlanError, PlanError},
-        },
-    },
+    db::{cursor::CursorPlanError, data::DataKey, query::intent::CompiledQuery},
     error::{ErrorClass, ErrorOrigin, InternalError},
     traits::EntityKind,
 };
@@ -103,43 +95,13 @@ use thiserror::Error as ThisError;
 /// ExecutorPlanError
 ///
 /// Executor-owned plan-surface failures produced during runtime cursor validation.
-/// Mapped to `PlanError` only at query/session boundaries.
+/// Mapped to query-owned plan errors only at query/session boundaries.
 ///
 
 #[derive(Debug, ThisError)]
 pub(crate) enum ExecutorPlanError {
     #[error("{0}")]
-    Predicate(Box<ValidateError>),
-
-    #[error("{0}")]
-    Order(Box<OrderPlanError>),
-
-    #[error("{0}")]
     Cursor(Box<CursorPlanError>),
-}
-
-impl ExecutorPlanError {
-    /// Convert an executor-owned plan failure to query-owned `PlanError`.
-    #[must_use]
-    pub(crate) fn into_plan_error(self) -> PlanError {
-        match self {
-            Self::Predicate(err) => PlanError::from(*err),
-            Self::Order(err) => PlanError::from(*err),
-            Self::Cursor(err) => PlanError::from(*err),
-        }
-    }
-}
-
-impl From<ValidateError> for ExecutorPlanError {
-    fn from(err: ValidateError) -> Self {
-        Self::Predicate(Box::new(err))
-    }
-}
-
-impl From<OrderPlanError> for ExecutorPlanError {
-    fn from(err: OrderPlanError) -> Self {
-        Self::Order(Box::new(err))
-    }
 }
 
 impl From<CursorPlanError> for ExecutorPlanError {

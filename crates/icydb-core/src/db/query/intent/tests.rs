@@ -167,7 +167,7 @@ fn intent_rejects_delete_limit_without_order() {
     assert!(matches!(
         intent.validate_intent(),
         Err(IntentError::PlanShape(
-            crate::db::query::policy::PlanPolicyError::DeleteLimitRequiresOrder
+            crate::db::query::plan::validate::PolicyPlanError::DeleteLimitRequiresOrder
         ))
     ));
 }
@@ -335,7 +335,7 @@ fn intent_rejects_empty_order_spec() {
     assert!(matches!(
         intent.validate_intent(),
         Err(IntentError::PlanShape(
-            crate::db::query::policy::PlanPolicyError::EmptyOrderSpec
+            crate::db::query::plan::validate::PolicyPlanError::EmptyOrderSpec
         ))
     ));
 }

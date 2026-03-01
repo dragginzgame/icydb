@@ -3,16 +3,13 @@ use crate::{
         data::DataKey,
         direction::Direction,
         executor::aggregate::contracts::{
-            AggregateKind, AggregateOutput, AggregateSpec, AggregateSpecSupportError,
-            ExecutionConfig, ExecutionContext, GroupAggregateSpecSupportError, GroupError,
-            GroupedAggregateOutput, ensure_grouped_spec_supported_for_execution,
+            AggregateKind, AggregateOutput, AggregateSpec, ExecutionConfig, ExecutionContext,
+            GroupError, GroupedAggregateOutput,
         },
         executor::group::CanonicalKey,
-        query::plan::{FieldSlot, GroupAggregateSpec},
     },
     model::field::FieldKind,
     testing,
-    traits::EntitySchema,
     value::{Value, with_test_hash_override},
 };
 use icydb_derive::FieldProjection;
@@ -56,11 +53,6 @@ fn data_key(id: u64) -> DataKey {
     DataKey::try_new::<GroupedStateTestEntity>(id).expect("test data key should build")
 }
 
-fn grouped_field_slot(field: &str) -> FieldSlot {
-    FieldSlot::resolve(<GroupedStateTestEntity as EntitySchema>::MODEL, field)
-        .expect("grouped field slot should resolve in grouped state test model")
-}
-
 fn count_rows(rows: &[GroupedAggregateOutput<GroupedStateTestEntity>]) -> Vec<(Value, u32)> {
     rows.iter()
         .map(|row| {
@@ -102,132 +94,14 @@ fn grouped_count_rows_for_order(order: &[usize]) -> Vec<(Value, u32)> {
 }
 
 #[test]
-fn aggregate_spec_support_accepts_terminal_specs_without_field_targets() {
-    let spec = AggregateSpec::for_terminal(AggregateKind::Count);
+fn aggregate_spec_builders_preserve_kind_and_target_field() {
+    let terminal = AggregateSpec::for_terminal(AggregateKind::Count);
+    assert_eq!(terminal.kind(), AggregateKind::Count);
+    assert_eq!(terminal.target_field(), None);
 
-    assert!(spec.ensure_supported_for_execution().is_ok());
-}
-
-#[test]
-fn aggregate_spec_support_rejects_field_target_non_extrema() {
-    let spec = AggregateSpec::for_target_field(AggregateKind::Count, "rank");
-    let err = spec
-        .ensure_supported_for_execution()
-        .expect_err("field-target COUNT should be rejected by support taxonomy");
-
-    assert!(matches!(
-        err,
-        AggregateSpecSupportError::FieldTargetRequiresExtrema { .. }
-    ));
-}
-
-#[test]
-fn aggregate_spec_support_accepts_field_target_extrema() {
-    let spec = AggregateSpec::for_target_field(AggregateKind::Min, "rank");
-    assert!(spec.ensure_supported_for_execution().is_ok());
-}
-
-#[test]
-fn group_aggregate_spec_support_accepts_group_keys_and_supported_specs() {
-    let group_fields = vec![grouped_field_slot("id")];
-    let grouped_aggregates = vec![
-        GroupAggregateSpec {
-            kind: AggregateKind::Count,
-            target_field: None,
-        },
-        GroupAggregateSpec {
-            kind: AggregateKind::Max,
-            target_field: Some("score".to_string()),
-        },
-    ];
-
-    assert!(
-        ensure_grouped_spec_supported_for_execution(
-            group_fields.as_slice(),
-            grouped_aggregates.as_slice(),
-        )
-        .is_ok()
-    );
-}
-
-#[test]
-fn group_aggregate_spec_support_rejects_empty_terminal_list() {
-    let group_fields = vec![grouped_field_slot("id")];
-    let grouped_aggregates = Vec::<GroupAggregateSpec>::new();
-    let err = ensure_grouped_spec_supported_for_execution(
-        group_fields.as_slice(),
-        grouped_aggregates.as_slice(),
-    )
-    .expect_err("grouped aggregate contract must reject empty aggregate terminal list");
-
-    assert_eq!(err, GroupAggregateSpecSupportError::MissingAggregateSpecs);
-}
-
-#[test]
-fn group_aggregate_spec_support_rejects_duplicate_group_key() {
-    let duplicate_field = grouped_field_slot("id");
-    let group_fields = vec![duplicate_field.clone(), duplicate_field];
-    let grouped_aggregates = vec![GroupAggregateSpec {
-        kind: AggregateKind::Count,
-        target_field: None,
-    }];
-    let err = ensure_grouped_spec_supported_for_execution(
-        group_fields.as_slice(),
-        grouped_aggregates.as_slice(),
-    )
-    .expect_err("grouped aggregate contract must reject duplicate group keys");
-
-    assert_eq!(
-        err,
-        GroupAggregateSpecSupportError::DuplicateGroupKey {
-            field: "id".to_string(),
-        }
-    );
-}
-
-#[test]
-fn group_aggregate_spec_support_rejects_unsupported_nested_terminal() {
-    let group_fields = vec![grouped_field_slot("id")];
-    let grouped_aggregates = vec![
-        GroupAggregateSpec {
-            kind: AggregateKind::Count,
-            target_field: None,
-        },
-        GroupAggregateSpec {
-            kind: AggregateKind::Exists,
-            target_field: Some("rank".to_string()),
-        },
-    ];
-    let err = ensure_grouped_spec_supported_for_execution(
-        group_fields.as_slice(),
-        grouped_aggregates.as_slice(),
-    )
-    .expect_err("grouped aggregate contract must reject unsupported nested terminals");
-
-    assert!(matches!(
-        err,
-        GroupAggregateSpecSupportError::AggregateSpecUnsupported {
-            index: 1,
-            source: AggregateSpecSupportError::FieldTargetRequiresExtrema { .. },
-        }
-    ));
-}
-
-#[test]
-fn group_aggregate_spec_support_accepts_empty_group_fields_with_one_terminal_spec() {
-    let group_fields = Vec::<FieldSlot>::new();
-    let grouped_aggregates = vec![GroupAggregateSpec {
-        kind: AggregateKind::Count,
-        target_field: None,
-    }];
-
-    assert!(
-        ensure_grouped_spec_supported_for_execution(
-            group_fields.as_slice(),
-            grouped_aggregates.as_slice(),
-        )
-        .is_ok()
-    );
+    let field_target = AggregateSpec::for_target_field(AggregateKind::Min, "rank");
+    assert_eq!(field_target.kind(), AggregateKind::Min);
+    assert_eq!(field_target.target_field(), Some("rank"));
 }
 
 #[test]

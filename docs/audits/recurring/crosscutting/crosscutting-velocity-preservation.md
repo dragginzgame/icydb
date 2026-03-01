@@ -135,6 +135,24 @@ Flag gravity wells:
 * Increasing branch density
 * Frequent modification history
 
+## 3A. Hub Import Pressure (Required Metric)
+
+For each gravity-well candidate, add one import-pressure readout:
+
+* Top imported sibling subsystems (top 5)
+* Unique sibling subsystem imports
+* Cross-layer dependency count
+* Delta vs previous audit
+
+Produce:
+
+| Module | Top Imports | Unique Sibling Imports | Cross-Layer Dependency Count | Delta vs Previous | Velocity Risk |
+
+Velocity interpretation:
+
+* Refactors intended to reduce coupling should reduce or hold this count.
+* Rising cross-layer dependency count is architectural debt interest and must be called out explicitly.
+
 ---
 
 # STEP 4 — Change Multiplier Analysis

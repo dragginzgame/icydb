@@ -1,9 +1,7 @@
+#[cfg(test)]
+use crate::db::query::plan::{PlanError, PolicyPlanError};
 use crate::{
-    db::{
-        access::AccessPlanError,
-        cursor::CursorPlanError,
-        query::{plan::PlanError, policy::PlanPolicyError},
-    },
+    db::{access::AccessPlanError, cursor::CursorPlanError},
     patch::MergePatchError,
 };
 use std::fmt;
@@ -368,23 +366,19 @@ impl InternalError {
     }
 
     /// Map plan-surface cursor failures into executor-boundary invariants.
-    pub(crate) fn from_cursor_plan_error(err: PlanError) -> Self {
+    pub(crate) fn from_cursor_plan_error(err: CursorPlanError) -> Self {
         let message = match &err {
-            PlanError::Cursor(inner) => match inner.as_ref() {
-                CursorPlanError::ContinuationCursorBoundaryArityMismatch { expected: 1, found } => {
-                    Self::executor_invariant_message(format!(
-                        "pk-ordered continuation boundary must contain exactly 1 slot, found {found}"
-                    ))
-                }
-                CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
-                    value: None, ..
-                } => Self::executor_invariant_message("pk cursor slot must be present"),
-                CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
-                    value: Some(_),
-                    ..
-                } => Self::executor_invariant_message("pk cursor slot type mismatch"),
-                _ => err.to_string(),
-            },
+            CursorPlanError::ContinuationCursorBoundaryArityMismatch { expected: 1, found } => {
+                Self::executor_invariant_message(format!(
+                    "pk-ordered continuation boundary must contain exactly 1 slot, found {found}"
+                ))
+            }
+            CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch { value: None, .. } => {
+                Self::executor_invariant_message("pk cursor slot must be present")
+            }
+            CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
+                value: Some(_), ..
+            } => Self::executor_invariant_message("pk cursor slot type mismatch"),
             _ => err.to_string(),
         };
 
@@ -409,15 +403,16 @@ impl InternalError {
 
     /// Map plan-shape policy variants into executor-boundary invariants without
     /// string-based conversion paths.
-    pub(crate) fn plan_invariant_violation(err: PlanPolicyError) -> Self {
+    #[cfg(test)]
+    pub(crate) fn plan_invariant_violation(err: PolicyPlanError) -> Self {
         let reason = match err {
-            PlanPolicyError::EmptyOrderSpec => {
+            PolicyPlanError::EmptyOrderSpec => {
                 "order specification must include at least one field"
             }
-            PlanPolicyError::DeletePlanWithPagination => "delete plans must not include pagination",
-            PlanPolicyError::LoadPlanWithDeleteLimit => "load plans must not carry delete limits",
-            PlanPolicyError::DeleteLimitRequiresOrder => "delete limit requires explicit ordering",
-            PlanPolicyError::UnorderedPagination => "pagination requires explicit ordering",
+            PolicyPlanError::DeletePlanWithPagination => "delete plans must not include pagination",
+            PolicyPlanError::LoadPlanWithDeleteLimit => "load plans must not carry delete limits",
+            PolicyPlanError::DeleteLimitRequiresOrder => "delete limit requires explicit ordering",
+            PolicyPlanError::UnorderedPagination => "pagination requires explicit ordering",
         };
 
         Self::query_executor_invariant(reason)
@@ -596,7 +591,7 @@ mod tests {
     #[test]
     fn plan_policy_error_mapping_uses_executor_invariant_prefix() {
         let err =
-            InternalError::plan_invariant_violation(PlanPolicyError::DeleteLimitRequiresOrder);
+            InternalError::plan_invariant_violation(PolicyPlanError::DeleteLimitRequiresOrder);
         assert_eq!(err.class, ErrorClass::InvariantViolation);
         assert_eq!(err.origin, ErrorOrigin::Query);
         assert_eq!(

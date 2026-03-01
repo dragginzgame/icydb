@@ -259,6 +259,35 @@ Produce:
 
 | Area | Pressure Type | Drift Sensitivity | Risk |
 
+## 5A. Hub Import Pressure (Required Metric)
+
+For each high-coordination hub module (for example `db/mod.rs`, `executor/load/mod.rs`, `executor/route/mod.rs`, `query/plan/mod.rs`):
+
+1. List top imported sibling subsystems (top 5 by imported symbol count).
+2. Count unique sibling subsystems imported.
+3. Count cross-layer dependencies imported by the hub.
+4. Compare counts to the previous audit report.
+
+Produce:
+
+| Hub Module | Top Imported Subsystems | Unique Sibling Subsystems Imported | Cross-Layer Dependency Count | Delta vs Previous Report | Risk |
+
+Rules:
+
+* Cross-layer dependency count means imported subsystem roots outside the hub's own layer responsibility.
+* If refactors claim boundary cleanup, this count should decrease or stay flat.
+* Any increase must include a one-sentence justification and expected follow-up.
+
+Hub Import Pressure Index (architectural debt interest rate):
+
+`HIP = cross_layer_dependency_count / max(1, total_unique_imported_subsystems)`
+
+Interpretation:
+
+* `< 0.30`: low pressure
+* `0.30 - 0.60`: moderate pressure
+* `> 0.60`: high pressure
+
 ---
 
 # STEP 6 — Encapsulation Risk Index

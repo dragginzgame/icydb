@@ -35,22 +35,18 @@ use crate::{
                 AggregateFieldValueError, FieldSlot, resolve_any_aggregate_target_slot,
                 resolve_numeric_aggregate_target_slot, resolve_orderable_aggregate_target_slot,
             },
-            aggregate::{
-                AggregateOutput, FoldControl, GroupError,
-                ensure_grouped_spec_supported_for_execution,
-            },
+            aggregate::{AggregateOutput, FoldControl, GroupError},
             group::{
                 CanonicalKey, grouped_budget_observability,
                 grouped_execution_context_from_planner_config,
             },
             plan_metrics::{record_plan_metrics, record_rows_scanned},
-            range_token_anchor_key, range_token_from_cursor_anchor, validate_executor_plan,
+            range_token_anchor_key, range_token_from_cursor_anchor,
+            route::aggregate_materialized_fold_direction,
+            validate_executor_plan,
         },
         index::IndexCompilePolicy,
-        query::{
-            plan::{AccessPlannedQuery, LogicalPlan, OrderDirection, grouped_executor_handoff},
-            policy,
-        },
+        query::plan::{AccessPlannedQuery, LogicalPlan, OrderDirection, grouped_executor_handoff},
         response::Response,
     },
     error::InternalError,
@@ -330,10 +326,6 @@ where
                 "load executor requires load plans",
             ));
         }
-        debug_assert!(
-            policy::validate_plan_shape(&plan.as_inner().logical).is_ok(),
-            "load executor received a plan shape that bypassed planning validation",
-        );
 
         let continuation_signature = plan.continuation_signature();
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
@@ -455,12 +447,6 @@ where
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
 
-        ensure_grouped_spec_supported_for_execution(
-            grouped_handoff.group_fields(),
-            grouped_handoff.aggregates(),
-        )
-        .map_err(|err| InternalError::executor_unsupported(err.to_string()))?;
-
         let mut grouped_execution_context =
             grouped_execution_context_from_planner_config(Some(grouped_execution));
         let grouped_budget = grouped_budget_observability(&grouped_execution_context);
@@ -506,7 +492,7 @@ where
 
                 Ok(grouped_execution_context.create_grouped_engine::<E>(
                     aggregate.kind(),
-                    aggregate.kind().materialized_fold_direction(),
+                    aggregate_materialized_fold_direction(aggregate.kind()),
                 ))
             })
             .collect::<Result<Vec<_>, _>>()?;

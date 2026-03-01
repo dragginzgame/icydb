@@ -9,7 +9,7 @@ pub(crate) mod path;
 pub(crate) mod plan;
 pub(crate) mod validate;
 
-pub(crate) use canonical::{canonicalize_access_plans_value, canonicalize_key_values};
+pub(crate) use canonical::{canonical_by_keys_path, normalize_access_plan_value};
 pub(in crate::db) use lowering::{
     LOWERED_INDEX_PREFIX_SPEC_INVALID, LOWERED_INDEX_RANGE_SPEC_INVALID, LoweredIndexPrefixSpec,
     LoweredIndexRangeSpec, LoweredKey, lower_cursor_anchor_index_range_bounds,

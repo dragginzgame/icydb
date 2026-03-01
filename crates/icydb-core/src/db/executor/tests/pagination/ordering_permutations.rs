@@ -173,11 +173,9 @@ fn load_mixed_direction_fallback_matches_uniform_fast_path_when_rank_is_unique()
     assert!(
         matches!(
             mixed_explain.order_pushdown,
-            ExplainOrderPushdown::Rejected(
-                SecondaryOrderPushdownRejection::MixedDirectionNotEligible { .. }
-            )
+            ExplainOrderPushdown::MissingModelContext
         ),
-        "mixed-direction secondary ordering should remain ineligible for pushdown",
+        "query-layer explain should not evaluate secondary pushdown eligibility",
     );
 
     // Phase 2: equivalent uniform-direction shape should be pushdown-eligible.
@@ -190,9 +188,9 @@ fn load_mixed_direction_fallback_matches_uniform_fast_path_when_rank_is_unique()
     assert!(
         matches!(
             uniform_explain.order_pushdown,
-            ExplainOrderPushdown::EligibleSecondaryIndex { .. }
+            ExplainOrderPushdown::MissingModelContext
         ),
-        "uniform secondary ordering should remain pushdown-eligible",
+        "query-layer explain should not evaluate secondary pushdown eligibility",
     );
 
     let build_mixed_plan = || {

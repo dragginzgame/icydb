@@ -16,12 +16,9 @@ fn load_index_pushdown_eligible_order_matches_index_scan_order() {
     assert!(
         matches!(
             explain.order_pushdown,
-            ExplainOrderPushdown::EligibleSecondaryIndex {
-                index,
-                prefix_len
-            } if index == PUSHDOWN_PARITY_INDEX_MODELS[0].name && prefix_len == 1
+            ExplainOrderPushdown::MissingModelContext
         ),
-        "query shape should be pushdown-eligible for group+rank index traversal"
+        "query-layer explain should not evaluate secondary pushdown eligibility"
     );
 
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
@@ -127,12 +124,9 @@ fn load_index_pushdown_desc_with_explicit_pk_desc_is_eligible_and_ordered() {
     assert!(
         matches!(
             explain.order_pushdown,
-            ExplainOrderPushdown::EligibleSecondaryIndex {
-                index,
-                prefix_len
-            } if index == PUSHDOWN_PARITY_INDEX_MODELS[0].name && prefix_len == 1
+            ExplainOrderPushdown::MissingModelContext
         ),
-        "descending uniform order should be pushdown-eligible for group+rank index traversal"
+        "query-layer explain should not evaluate secondary pushdown eligibility"
     );
 
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
@@ -365,11 +359,9 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
     assert!(
         matches!(
             explain.order_pushdown,
-            ExplainOrderPushdown::Rejected(
-                SecondaryOrderPushdownRejection::MixedDirectionNotEligible { field }
-            ) if field == "rank"
+            ExplainOrderPushdown::MissingModelContext
         ),
-        "descending rank order should be ineligible and use fallback execution"
+        "query-layer explain should not evaluate secondary pushdown eligibility"
     );
 
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);

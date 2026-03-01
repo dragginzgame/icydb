@@ -10,16 +10,10 @@ mod state;
 
 pub(in crate::db::executor) use error::GroupError;
 pub(in crate::db::executor) use grouped::{AggregateEngine, ExecutionConfig, ExecutionContext};
-pub(in crate::db::executor) use spec::{
-    AggregateKind, AggregateOutput, AggregateSpec, ensure_grouped_spec_supported_for_execution,
-};
+pub(in crate::db::executor) use spec::{AggregateKind, AggregateOutput, AggregateSpec};
 pub(in crate::db::executor) use state::{
     AggregateFoldMode, AggregateState, AggregateStateFactory, FoldControl, TerminalAggregateState,
 };
 
-#[cfg(test)]
-pub(in crate::db::executor) use error::{
-    AggregateSpecSupportError, GroupAggregateSpecSupportError,
-};
 #[cfg(test)]
 pub(in crate::db::executor) use grouped::GroupedAggregateOutput;

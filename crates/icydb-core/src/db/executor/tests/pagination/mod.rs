@@ -2,7 +2,7 @@
 use super::*;
 use crate::{
     db::{
-        access::{AccessPath, AccessPlan, SecondaryOrderPushdownRejection},
+        access::{AccessPath, AccessPlan},
         cursor::ContinuationToken,
         direction::Direction,
         executor::ExecutablePlan,

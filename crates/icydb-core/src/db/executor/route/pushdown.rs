@@ -1,7 +1,7 @@
-//! Module: query::plan::pushdown
-//! Responsibility: secondary-index ORDER BY pushdown eligibility matrix.
-//! Does not own: logical-plan contracts or executor routing policy.
-//! Boundary: planner/explain/executor consume this semantic eligibility surface.
+//! Module: db::executor::route::pushdown
+//! Responsibility: secondary-index ORDER BY pushdown feasibility routing.
+//! Does not own: logical ORDER BY validation semantics.
+//! Boundary: route-owned capability assessment over validated logical+access plans.
 
 use crate::{
     db::{
@@ -10,6 +10,7 @@ use crate::{
             SecondaryOrderPushdownRejection,
         },
         direction::Direction,
+        executor::route::direction_from_order,
         query::plan::{AccessPlannedQuery, OrderDirection, ScalarPlan},
     },
     model::entity::EntityModel,
@@ -20,7 +21,7 @@ fn order_fields_as_direction_refs(
 ) -> Vec<(&str, Direction)> {
     order_fields
         .iter()
-        .map(|(field, direction)| (field.as_str(), direction.as_direction()))
+        .map(|(field, direction)| (field.as_str(), direction_from_order(*direction)))
         .collect()
 }
 
@@ -124,13 +125,17 @@ fn assess_secondary_order_pushdown_for_applicable_shape(
     match_secondary_order_pushdown_core(model, order_fields, index_name, index_fields, prefix_len)
 }
 
-// Evaluate secondary ORDER BY pushdown over one access-planned query.
-fn assess_secondary_order_pushdown_for_plan<K>(
+/// Evaluate the secondary-index ORDER BY pushdown matrix from logical+access parts.
+pub(in crate::db) fn assess_secondary_order_pushdown_from_parts<K>(
     model: &EntityModel,
-    order_fields: Option<&[(&str, Direction)]>,
+    logical: &ScalarPlan,
     access_plan: &AccessPlan<K>,
 ) -> SecondaryOrderPushdownEligibility {
-    let Some(order_fields) = order_fields else {
+    let order_fields = logical
+        .order
+        .as_ref()
+        .map(|order| order_fields_as_direction_refs(&order.fields));
+    let Some(order_fields) = order_fields.as_deref() else {
         return SecondaryOrderPushdownEligibility::Rejected(
             SecondaryOrderPushdownRejection::NoOrderBy,
         );
@@ -188,21 +193,7 @@ fn assess_secondary_order_pushdown_for_plan<K>(
 }
 
 /// Evaluate the secondary-index ORDER BY pushdown matrix for one plan.
-pub(crate) fn assess_secondary_order_pushdown_from_parts<K>(
-    model: &EntityModel,
-    logical: &ScalarPlan,
-    access: &AccessPlan<K>,
-) -> SecondaryOrderPushdownEligibility {
-    let order_fields = logical
-        .order
-        .as_ref()
-        .map(|order| order_fields_as_direction_refs(&order.fields));
-
-    assess_secondary_order_pushdown_for_plan(model, order_fields.as_deref(), access)
-}
-
-/// Evaluate the secondary-index ORDER BY pushdown matrix for one plan.
-pub(crate) fn assess_secondary_order_pushdown<K>(
+pub(in crate::db) fn assess_secondary_order_pushdown<K>(
     model: &EntityModel,
     plan: &AccessPlannedQuery<K>,
 ) -> SecondaryOrderPushdownEligibility {
@@ -225,17 +216,17 @@ pub(in crate::db) fn derive_secondary_pushdown_applicability_validated<K>(
 
 #[cfg(test)]
 /// Evaluate pushdown eligibility only when secondary-index ORDER BY is applicable.
-pub(crate) fn assess_secondary_order_pushdown_if_applicable<K>(
+pub(in crate::db) fn assess_secondary_order_pushdown_if_applicable<K>(
     model: &EntityModel,
     plan: &AccessPlannedQuery<K>,
 ) -> PushdownApplicability {
     derive_secondary_pushdown_applicability_validated(model, plan)
 }
 
+#[cfg(test)]
 /// Evaluate pushdown applicability for plans that have already passed full
 /// logical/executor validation.
-#[cfg(test)]
-pub(crate) fn assess_secondary_order_pushdown_if_applicable_validated<K>(
+pub(in crate::db) fn assess_secondary_order_pushdown_if_applicable_validated<K>(
     model: &EntityModel,
     plan: &AccessPlannedQuery<K>,
 ) -> PushdownApplicability {

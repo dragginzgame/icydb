@@ -15,9 +15,8 @@ use crate::{
         },
         cursor::CursorPlanError,
         predicate::{SchemaInfo, ValidateError, validate},
-        query::{
-            plan::{AccessPlannedQuery, GroupSpec, LogicalPlan, OrderSpec, ScalarPlan},
-            policy::{self, PlanPolicyError},
+        query::plan::{
+            AccessPlannedQuery, GroupSpec, LogicalPlan, OrderSpec, QueryMode, ScalarPlan,
         },
     },
     model::entity::EntityModel,
@@ -87,7 +86,7 @@ pub enum OrderPlanError {
 /// Plan-shape policy failures.
 ///
 
-#[derive(Clone, Debug, Eq, PartialEq, ThisError)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ThisError)]
 pub enum PolicyPlanError {
     /// ORDER BY must specify at least one field.
     #[error("order specification must include at least one field")]
@@ -136,6 +135,10 @@ pub enum GroupPlanError {
     #[error("unknown group field '{field}'")]
     UnknownGroupField { field: String },
 
+    /// GROUP BY must not repeat the same resolved group slot.
+    #[error("group specification has duplicate group key: '{field}'")]
+    DuplicateGroupField { field: String },
+
     /// Aggregate target fields must resolve in the model schema.
     #[error("unknown grouped aggregate target field at index={index}: '{field}'")]
     UnknownAggregateTargetField { index: usize, field: String },
@@ -149,18 +152,6 @@ pub enum GroupPlanError {
         kind: String,
         field: String,
     },
-}
-
-impl From<PlanPolicyError> for PolicyPlanError {
-    fn from(err: PlanPolicyError) -> Self {
-        match err {
-            PlanPolicyError::EmptyOrderSpec => Self::EmptyOrderSpec,
-            PlanPolicyError::DeletePlanWithPagination => Self::DeletePlanWithPagination,
-            PlanPolicyError::LoadPlanWithDeleteLimit => Self::LoadPlanWithDeleteLimit,
-            PlanPolicyError::DeleteLimitRequiresOrder => Self::DeleteLimitRequiresOrder,
-            PlanPolicyError::UnorderedPagination => Self::UnorderedPagination,
-        }
-    }
 }
 
 impl From<ValidateError> for PlanError {
@@ -196,12 +187,6 @@ impl From<CursorPlanError> for PlanError {
 impl From<GroupPlanError> for PlanError {
     fn from(err: GroupPlanError) -> Self {
         Self::Group(Box::new(err))
-    }
-}
-
-impl From<PlanPolicyError> for PlanError {
-    fn from(err: PlanPolicyError) -> Self {
-        Self::from(PolicyPlanError::from(err))
     }
 }
 
@@ -282,9 +267,15 @@ pub(crate) fn validate_group_spec(
         return Err(PlanError::from(GroupPlanError::EmptyAggregates));
     }
 
+    let mut seen_group_slots = BTreeSet::<usize>::new();
     for field_slot in &group.group_fields {
         if model.fields.get(field_slot.index()).is_none() {
             return Err(PlanError::from(GroupPlanError::UnknownGroupField {
+                field: field_slot.field().to_string(),
+            }));
+        }
+        if !seen_group_slots.insert(field_slot.index()) {
+            return Err(PlanError::from(GroupPlanError::DuplicateGroupField {
                 field: field_slot.field().to_string(),
             }));
         }
@@ -338,7 +329,7 @@ where
     }
 
     validate_access_fn(schema, model, plan)?;
-    policy::validate_plan_shape(&plan.logical)?;
+    validate_plan_shape(&plan.logical)?;
 
     Ok(())
 }
@@ -346,9 +337,80 @@ where
 // - This module owns ORDER semantic validation (field existence/orderability/tie-break).
 // - ORDER canonicalization (primary-key tie-break insertion) is performed at the
 //   intent boundary via `canonicalize_order_spec` before plan validation.
-// - Shape-policy checks (for example empty ORDER, pagination/order coupling) are owned by
-//   `query::policy`.
+// - Shape-policy checks (for example empty ORDER, pagination/order coupling) are owned here.
 // - Executor/runtime layers may defend execution preconditions only.
+
+/// Return true when an ORDER BY exists and contains at least one field.
+#[must_use]
+pub(crate) fn has_explicit_order(order: Option<&OrderSpec>) -> bool {
+    order.is_some_and(|order| !order.fields.is_empty())
+}
+
+/// Return true when an ORDER BY exists but is empty.
+#[must_use]
+pub(crate) fn has_empty_order(order: Option<&OrderSpec>) -> bool {
+    order.is_some_and(|order| order.fields.is_empty())
+}
+
+/// Validate order-shape rules shared across intent and logical plan boundaries.
+pub(crate) fn validate_order_shape(order: Option<&OrderSpec>) -> Result<(), PolicyPlanError> {
+    if has_empty_order(order) {
+        return Err(PolicyPlanError::EmptyOrderSpec);
+    }
+
+    Ok(())
+}
+
+/// Validate intent-level plan-shape rules derived from query mode + order.
+pub(crate) fn validate_intent_plan_shape(
+    mode: QueryMode,
+    order: Option<&OrderSpec>,
+) -> Result<(), PolicyPlanError> {
+    validate_order_shape(order)?;
+
+    let has_order = has_explicit_order(order);
+    if matches!(mode, QueryMode::Delete(spec) if spec.limit.is_some()) && !has_order {
+        return Err(PolicyPlanError::DeleteLimitRequiresOrder);
+    }
+
+    Ok(())
+}
+
+/// Validate mode/order/pagination invariants for one logical plan.
+pub(crate) fn validate_plan_shape(plan: &LogicalPlan) -> Result<(), PolicyPlanError> {
+    let grouped = matches!(plan, LogicalPlan::Grouped(_));
+    let plan = match plan {
+        LogicalPlan::Scalar(plan) => plan,
+        LogicalPlan::Grouped(plan) => &plan.scalar,
+    };
+    validate_order_shape(plan.order.as_ref())?;
+
+    let has_order = has_explicit_order(plan.order.as_ref());
+    if plan.delete_limit.is_some() && !has_order {
+        return Err(PolicyPlanError::DeleteLimitRequiresOrder);
+    }
+
+    match plan.mode {
+        QueryMode::Delete(_) => {
+            if plan.page.is_some() {
+                return Err(PolicyPlanError::DeletePlanWithPagination);
+            }
+        }
+        QueryMode::Load(_) => {
+            if plan.delete_limit.is_some() {
+                return Err(PolicyPlanError::LoadPlanWithDeleteLimit);
+            }
+            // GROUP BY v1 uses canonical grouped key ordering when ORDER BY is
+            // omitted, so grouped pagination remains deterministic without an
+            // explicit sort clause.
+            if plan.page.is_some() && !has_order && !grouped {
+                return Err(PolicyPlanError::UnorderedPagination);
+            }
+        }
+    }
+
+    Ok(())
+}
 
 /// Validate ORDER BY fields against the schema.
 pub(crate) fn validate_order(schema: &SchemaInfo, order: &OrderSpec) -> Result<(), PlanError> {

@@ -5,13 +5,13 @@ use crate::{
             SecondaryOrderPushdownRejection,
         },
         contracts::MissingRowPolicy,
+        executor::route::{
+            assess_secondary_order_pushdown, assess_secondary_order_pushdown_if_applicable,
+            assess_secondary_order_pushdown_if_applicable_validated,
+        },
         query::{
             intent::{LoadSpec, QueryMode},
-            plan::{
-                AccessPlannedQuery, LogicalPlan, OrderDirection, OrderSpec,
-                assess_secondary_order_pushdown, assess_secondary_order_pushdown_if_applicable,
-                assess_secondary_order_pushdown_if_applicable_validated,
-            },
+            plan::{AccessPlannedQuery, LogicalPlan, OrderDirection, OrderSpec},
         },
     },
     model::{entity::EntityModel, field::FieldKind, index::IndexModel},

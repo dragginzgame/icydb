@@ -127,18 +127,8 @@ where
 
     /// Add one grouped key field.
     pub fn group_by(self, field: impl AsRef<str>) -> Result<Self, QueryError> {
-        let Self {
-            session,
-            query,
-            cursor_token,
-        } = self;
-        let query = query.group_by(field)?;
-
-        Ok(Self {
-            session,
-            query,
-            cursor_token,
-        })
+        let field = field.as_ref().to_owned();
+        self.try_map_query(|query| query.group_by(&field))
     }
 
     /// Add one grouped `count(*)` terminal.
@@ -179,34 +169,14 @@ where
 
     /// Add one grouped `min(field)` terminal.
     pub fn group_min_by(self, field: impl AsRef<str>) -> Result<Self, QueryError> {
-        let Self {
-            session,
-            query,
-            cursor_token,
-        } = self;
-        let query = query.group_min_by(field)?;
-
-        Ok(Self {
-            session,
-            query,
-            cursor_token,
-        })
+        let field = field.as_ref().to_owned();
+        self.try_map_query(|query| query.group_min_by(&field))
     }
 
     /// Add one grouped `max(field)` terminal.
     pub fn group_max_by(self, field: impl AsRef<str>) -> Result<Self, QueryError> {
-        let Self {
-            session,
-            query,
-            cursor_token,
-        } = self;
-        let query = query.group_max_by(field)?;
-
-        Ok(Self {
-            session,
-            query,
-            cursor_token,
-        })
+        let field = field.as_ref().to_owned();
+        self.try_map_query(|query| query.group_max_by(&field))
     }
 
     /// Override grouped hard limits for grouped execution budget enforcement.

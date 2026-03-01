@@ -853,11 +853,9 @@ fn load_distinct_mixed_direction_secondary_shape_rejects_pushdown_and_matches_fa
     assert!(
         matches!(
             explain.order_pushdown,
-            ExplainOrderPushdown::Rejected(
-                SecondaryOrderPushdownRejection::MixedDirectionNotEligible { .. }
-            )
+            ExplainOrderPushdown::MissingModelContext
         ),
-        "distinct mixed-direction ordering should remain ineligible for secondary pushdown"
+        "query-layer explain should not evaluate secondary pushdown eligibility"
     );
 
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);

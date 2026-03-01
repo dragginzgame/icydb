@@ -15,7 +15,7 @@ pub type QueryMode = crate::db::query::plan::QueryMode;
 
 use crate::{
     db::{
-        access::{AccessPath, AccessPlan, AccessPlanError, canonicalize_key_values},
+        access::{AccessPath, AccessPlan, AccessPlanError, canonical_by_keys_path},
         predicate::{
             MissingRowPolicy, Predicate, SchemaInfo, ValidateError, normalize,
             normalize_enum_literals, reject_unsupported_query_features,
@@ -26,8 +26,9 @@ use crate::{
             plan::{
                 AccessPlannedQuery, DeleteLimitSpec, FieldSlot, GroupAggregateKind,
                 GroupAggregateSpec, GroupPlanError, GroupSpec, GroupedExecutionConfig, LogicalPlan,
-                OrderDirection, OrderSpec, PageSpec, PlanError, PlannerError, ScalarPlan,
-                plan_access, validate::validate_query_semantics, validate_group_query_semantics,
+                OrderDirection, OrderSpec, PageSpec, PlanError, PlannerError, PolicyPlanError,
+                ScalarPlan, has_explicit_order, plan_access, validate_group_query_semantics,
+                validate_intent_plan_shape, validate_order_shape, validate_query_semantics,
             },
             policy,
         },
@@ -84,15 +85,8 @@ where
     match access {
         KeyAccess::Single(key) => AccessPlan::path(AccessPath::ByKey(key.to_value())),
         KeyAccess::Many(keys) => {
-            let mut values: Vec<Value> = keys.iter().map(FieldValue::to_value).collect();
-            canonicalize_key_values(&mut values);
-            if let Some(first) = values.first()
-                && values.len() == 1
-            {
-                return AccessPlan::path(AccessPath::ByKey(first.clone()));
-            }
-
-            AccessPlan::path(AccessPath::ByKeys(values))
+            let values = keys.iter().map(FieldValue::to_value).collect();
+            AccessPlan::path(canonical_by_keys_path(values))
         }
     }
 }
@@ -217,7 +211,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
 
     #[must_use]
     fn has_explicit_order(&self) -> bool {
-        policy::has_explicit_order(self.order.as_ref())
+        has_explicit_order(self.order.as_ref())
     }
 
     #[must_use]
@@ -260,7 +254,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
             Err(SortLowerError::Plan(err)) => return Err(QueryError::from(*err)),
         };
 
-        policy::validate_order_shape(Some(&order))
+        validate_order_shape(Some(&order))
             .map_err(IntentError::from)
             .map_err(QueryError::from)?;
 
@@ -490,8 +484,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
             return Err(IntentError::KeyAccessConflict);
         }
 
-        policy::validate_intent_plan_shape(self.mode, self.order.as_ref())
-            .map_err(IntentError::from)?;
+        validate_intent_plan_shape(self.mode, self.order.as_ref()).map_err(IntentError::from)?;
 
         if let Some(state) = &self.key_access {
             match state.kind {
@@ -673,58 +666,45 @@ impl<E: EntityKind> Query<E> {
         Ok(Self { intent, _marker })
     }
 
+    fn push_group_terminal(mut self, kind: GroupAggregateKind) -> Self {
+        self.intent = self.intent.push_group_aggregate(kind, None);
+        self
+    }
+
     /// Add one grouped `count(*)` terminal.
     #[must_use]
-    pub fn group_count(mut self) -> Self {
-        self.intent = self
-            .intent
-            .push_group_aggregate(GroupAggregateKind::Count, None);
-        self
+    pub fn group_count(self) -> Self {
+        self.push_group_terminal(GroupAggregateKind::Count)
     }
 
     /// Add one grouped `exists` terminal.
     #[must_use]
-    pub fn group_exists(mut self) -> Self {
-        self.intent = self
-            .intent
-            .push_group_aggregate(GroupAggregateKind::Exists, None);
-        self
+    pub fn group_exists(self) -> Self {
+        self.push_group_terminal(GroupAggregateKind::Exists)
     }
 
     /// Add one grouped `first` terminal.
     #[must_use]
-    pub fn group_first(mut self) -> Self {
-        self.intent = self
-            .intent
-            .push_group_aggregate(GroupAggregateKind::First, None);
-        self
+    pub fn group_first(self) -> Self {
+        self.push_group_terminal(GroupAggregateKind::First)
     }
 
     /// Add one grouped `last` terminal.
     #[must_use]
-    pub fn group_last(mut self) -> Self {
-        self.intent = self
-            .intent
-            .push_group_aggregate(GroupAggregateKind::Last, None);
-        self
+    pub fn group_last(self) -> Self {
+        self.push_group_terminal(GroupAggregateKind::Last)
     }
 
     /// Add one grouped `min` terminal (id extrema).
     #[must_use]
-    pub fn group_min(mut self) -> Self {
-        self.intent = self
-            .intent
-            .push_group_aggregate(GroupAggregateKind::Min, None);
-        self
+    pub fn group_min(self) -> Self {
+        self.push_group_terminal(GroupAggregateKind::Min)
     }
 
     /// Add one grouped `max` terminal (id extrema).
     #[must_use]
-    pub fn group_max(mut self) -> Self {
-        self.intent = self
-            .intent
-            .push_group_aggregate(GroupAggregateKind::Max, None);
-        self
+    pub fn group_max(self) -> Self {
+        self.push_group_terminal(GroupAggregateKind::Max)
     }
 
     /// Add one grouped `min(field)` terminal.
@@ -896,7 +876,7 @@ impl From<PlanError> for QueryError {
 #[derive(Clone, Copy, Debug, ThisError)]
 pub enum IntentError {
     #[error("{0}")]
-    PlanShape(#[from] policy::PlanPolicyError),
+    PlanShape(#[from] PolicyPlanError),
 
     #[error("by_ids() cannot be combined with predicates")]
     ByIdsWithPredicate,

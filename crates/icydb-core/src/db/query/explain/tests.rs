@@ -150,7 +150,7 @@ fn explain_differs_for_semantic_changes() {
 }
 
 #[test]
-fn explain_with_model_reports_eligible_order_pushdown() {
+fn explain_with_model_does_not_evaluate_order_pushdown() {
     let model = <ExplainPushdownEntity as EntitySchema>::MODEL;
     let mut plan: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
@@ -165,15 +165,12 @@ fn explain_with_model_reports_eligible_order_pushdown() {
 
     assert_eq!(
         plan.explain_with_model(model).order_pushdown,
-        ExplainOrderPushdown::EligibleSecondaryIndex {
-            index: PUSHDOWN_INDEX.name,
-            prefix_len: 1,
-        }
+        ExplainOrderPushdown::MissingModelContext
     );
 }
 
 #[test]
-fn explain_with_model_reports_descending_pushdown_eligibility() {
+fn explain_with_model_does_not_evaluate_descending_pushdown() {
     let model = <ExplainPushdownEntity as EntitySchema>::MODEL;
     let mut plan: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
         AccessPath::IndexPrefix {
@@ -188,15 +185,12 @@ fn explain_with_model_reports_descending_pushdown_eligibility() {
 
     assert_eq!(
         plan.explain_with_model(model).order_pushdown,
-        ExplainOrderPushdown::EligibleSecondaryIndex {
-            index: PUSHDOWN_INDEX.name,
-            prefix_len: 1,
-        }
+        ExplainOrderPushdown::MissingModelContext
     );
 }
 
 #[test]
-fn explain_with_model_reports_composite_index_range_pushdown_rejection_reason() {
+fn explain_with_model_does_not_evaluate_composite_pushdown_rejections() {
     let model = <ExplainPushdownEntity as EntitySchema>::MODEL;
     let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
@@ -223,12 +217,7 @@ fn explain_with_model_reports_composite_index_range_pushdown_rejection_reason() 
 
     assert_eq!(
         plan.explain_with_model(model).order_pushdown,
-        ExplainOrderPushdown::Rejected(
-            SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                index: PUSHDOWN_INDEX.name,
-                prefix_len: 0,
-            }
-        )
+        ExplainOrderPushdown::MissingModelContext
     );
 }
 

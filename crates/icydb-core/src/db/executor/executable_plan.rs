@@ -15,7 +15,7 @@ use crate::{
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec, lower_index_prefix_specs,
             lower_index_range_specs, traversal::derive_primary_scan_direction,
         },
-        query::plan::{AccessPlannedQuery, LogicalPlan, QueryMode, validate::PlanError},
+        query::plan::{AccessPlannedQuery, LogicalPlan, QueryMode},
     },
     error::InternalError,
     traits::{EntityKind, FieldValue},
@@ -196,7 +196,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
             Self::initial_page_offset(&self.plan.logical),
             cursor,
         )
-        .map_err(|err| InternalError::from_cursor_plan_error(PlanError::from(err)))
+        .map_err(InternalError::from_cursor_plan_error)
     }
 
     /// Validate and decode grouped continuation cursor state for grouped plans.
@@ -237,6 +237,6 @@ impl<E: EntityKind> ExecutablePlan<E> {
         }
 
         revalidate_grouped_cursor(Self::initial_page_offset(&self.plan.logical), cursor)
-            .map_err(|err| InternalError::from_cursor_plan_error(PlanError::from(err)))
+            .map_err(InternalError::from_cursor_plan_error)
     }
 }

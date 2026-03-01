@@ -6,6 +6,7 @@
 
 use crate::db::{
     direction::Direction,
+    executor::route::direction_from_order,
     query::plan::{AccessPlannedQuery, OrderSpec},
 };
 
@@ -32,7 +33,9 @@ pub(in crate::db) fn derive_scan_direction(
         OrderSlotPolicy::Last => order.fields.last(),
     });
 
-    selected.map_or(Direction::Asc, |(_, direction)| direction.as_direction())
+    selected.map_or(Direction::Asc, |(_, direction)| {
+        direction_from_order(*direction)
+    })
 }
 
 /// Derive canonical direction for primary-order execution surfaces.

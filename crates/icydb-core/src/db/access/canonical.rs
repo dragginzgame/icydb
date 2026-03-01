@@ -22,6 +22,25 @@ pub(crate) fn canonicalize_key_values(keys: &mut Vec<Value>) {
     keys.dedup();
 }
 
+/// Build one canonical primary-key access path from possibly duplicated keys.
+#[must_use]
+pub(crate) fn canonical_by_keys_path(mut keys: Vec<Value>) -> AccessPath<Value> {
+    canonicalize_key_values(&mut keys);
+    if let Some(first) = keys.first()
+        && keys.len() == 1
+    {
+        return AccessPath::ByKey(first.clone());
+    }
+
+    AccessPath::ByKeys(keys)
+}
+
+/// Normalize one value-keyed access plan into deterministic canonical shape.
+#[must_use]
+pub(crate) fn normalize_access_plan_value(plan: AccessPlan<Value>) -> AccessPlan<Value> {
+    plan.normalize_for_access()
+}
+
 fn canonical_cmp_access_plan_value(
     left: &AccessPlan<Value>,
     right: &AccessPlan<Value>,
@@ -76,6 +95,80 @@ impl AccessPlan<Value> {
             Self::Union(_) => 2,
         }
     }
+
+    // Normalize this access plan into a canonical deterministic form.
+    fn normalize_for_access(self) -> Self {
+        match self {
+            Self::Path(path) => Self::path(path.normalize_for_access()),
+            Self::Union(children) => Self::normalize_union(children),
+            Self::Intersection(children) => Self::normalize_intersection(children),
+        }
+    }
+
+    fn normalize_union(children: Vec<Self>) -> Self {
+        let mut out = Vec::new();
+
+        for child in children {
+            let child = child.normalize_for_access();
+            if child.is_single_full_scan() {
+                return Self::full_scan();
+            }
+
+            Self::append_union_child(&mut out, child);
+        }
+
+        Self::collapse_normalized_composite(out, true)
+    }
+
+    fn normalize_intersection(children: Vec<Self>) -> Self {
+        let mut out = Vec::new();
+
+        for child in children {
+            let child = child.normalize_for_access();
+            if child.is_single_full_scan() {
+                continue;
+            }
+
+            Self::append_intersection_child(&mut out, child);
+        }
+
+        Self::collapse_normalized_composite(out, false)
+    }
+
+    fn collapse_normalized_composite(mut out: Vec<Self>, is_union: bool) -> Self {
+        if out.is_empty() {
+            return Self::full_scan();
+        }
+        if out.len() == 1 {
+            return out.pop().expect("single composite child");
+        }
+
+        canonicalize_access_plans_value(&mut out);
+        out.dedup();
+        if out.len() == 1 {
+            return out.pop().expect("single composite child");
+        }
+
+        if is_union {
+            Self::Union(out)
+        } else {
+            Self::Intersection(out)
+        }
+    }
+
+    fn append_union_child(out: &mut Vec<Self>, child: Self) {
+        match child {
+            Self::Union(children) => out.extend(children),
+            other => out.push(other),
+        }
+    }
+
+    fn append_intersection_child(out: &mut Vec<Self>, child: Self) {
+        match child {
+            Self::Intersection(children) => out.extend(children),
+            other => out.push(other),
+        }
+    }
 }
 
 ///
@@ -109,6 +202,17 @@ impl Ord for CanonicalAccessShape<'_> {
 }
 
 impl AccessPath<Value> {
+    // Normalize one concrete access path for deterministic planning.
+    fn normalize_for_access(self) -> Self {
+        match self {
+            Self::ByKeys(mut keys) => {
+                canonicalize_key_values(&mut keys);
+                Self::ByKeys(keys)
+            }
+            other => other,
+        }
+    }
+
     // Compare access paths with a total deterministic ordering.
     #[expect(clippy::too_many_lines)]
     fn canonical_cmp(&self, right: &Self) -> Ordering {

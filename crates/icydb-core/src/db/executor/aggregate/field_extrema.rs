@@ -17,6 +17,7 @@ use crate::{
             aggregate::{AggregateKind, AggregateOutput},
             load::{ExecutionInputs, LoadExecutor},
             plan_metrics::record_rows_scanned,
+            route::aggregate_extrema_direction,
         },
         index::IndexCompilePolicy,
         predicate::MissingRowPolicy,
@@ -45,7 +46,7 @@ impl ExecutionKernel {
                 "materialized field-extrema reduction requires MIN/MAX terminal",
             ));
         }
-        let compare_direction = kind.extrema_direction().ok_or_else(|| {
+        let compare_direction = aggregate_extrema_direction(kind).ok_or_else(|| {
             InternalError::query_executor_invariant(
                 "materialized field-extrema reduction reached non-extrema terminal",
             )

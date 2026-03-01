@@ -16,8 +16,7 @@ use crate::{
             intent::QueryMode,
             plan::{
                 AccessPlanProjection, AccessPlannedQuery, AggregateKind, DeleteLimitSpec,
-                LogicalPlan, OrderDirection, OrderSpec, PageSpec, ScalarPlan,
-                assess_secondary_order_pushdown_from_parts, project_access_plan,
+                LogicalPlan, OrderDirection, OrderSpec, PageSpec, ScalarPlan, project_access_plan,
             },
         },
     },
@@ -262,7 +261,10 @@ where
     }
 
     /// Produce a stable, deterministic explanation of this logical plan
-    /// with model-aware pushdown eligibility diagnostics.
+    /// with optional model context for query-layer projections.
+    ///
+    /// Query explain intentionally does not evaluate executor route pushdown
+    /// feasibility to keep query-layer dependencies executor-agnostic.
     #[must_use]
     pub(crate) fn explain_with_model(&self, model: &EntityModel) -> ExplainPlan {
         self.explain_inner(Some(model))
@@ -322,7 +324,7 @@ where
 
     // Phase 2: project scalar-plan fields into explain-specific enums.
     let order_by = explain_order(logical.order.as_ref());
-    let order_pushdown = explain_order_pushdown(model, logical, access);
+    let order_pushdown = explain_order_pushdown(model);
     let page = explain_page(logical.page.as_ref());
     let delete_limit = explain_delete_limit(logical.delete_limit.as_ref());
 
@@ -342,15 +344,11 @@ where
     }
 }
 
-fn explain_order_pushdown<K>(
-    model: Option<&EntityModel>,
-    logical: &ScalarPlan,
-    access: &AccessPlan<K>,
-) -> ExplainOrderPushdown {
-    let Some(model) = model else {
-        return ExplainOrderPushdown::MissingModelContext;
-    };
-    assess_secondary_order_pushdown_from_parts(model, logical, access).into()
+const fn explain_order_pushdown(model: Option<&EntityModel>) -> ExplainOrderPushdown {
+    let _ = model;
+
+    // Query explain does not own physical pushdown feasibility routing.
+    ExplainOrderPushdown::MissingModelContext
 }
 
 impl From<SecondaryOrderPushdownEligibility> for ExplainOrderPushdown {

@@ -15,6 +15,7 @@ use crate::{
                 extract_orderable_field_value,
             },
             load::LoadExecutor,
+            route::aggregate_extrema_direction,
         },
         predicate::MissingRowPolicy,
         response::Response,
@@ -255,7 +256,7 @@ where
     pub(in crate::db::executor) fn field_extrema_aggregate_direction(
         kind: AggregateKind,
     ) -> Result<Direction, InternalError> {
-        kind.extrema_direction().ok_or_else(|| {
+        aggregate_extrema_direction(kind).ok_or_else(|| {
             InternalError::query_executor_invariant(
                 "field-target aggregate direction requires MIN/MAX terminal",
             )

@@ -16,6 +16,31 @@ fn seed_grouped_phase_entities() {
     }
 }
 
+fn seed_grouped_phase_entities_with_fixed_ids() -> (Ulid, Ulid, Ulid) {
+    reset_store();
+
+    let save = SaveExecutor::<PhaseEntity>::new(DB, false);
+    let id_a = Ulid::generate();
+    let id_b = Ulid::generate();
+    let id_c = Ulid::generate();
+    for (id, rank, label) in [
+        (id_a, 1_u32, "alpha"),
+        (id_b, 1_u32, "beta"),
+        (id_c, 2_u32, "gamma"),
+    ] {
+        save.insert(PhaseEntity {
+            id,
+            opt_rank: Some(rank),
+            rank,
+            tags: vec![rank],
+            label: label.to_string(),
+        })
+        .expect("grouped seed insert should succeed");
+    }
+
+    (id_a, id_b, id_c)
+}
+
 #[test]
 fn paged_query_builder_requires_explicit_limit() {
     let session = DbSession::new(DB);
@@ -344,27 +369,7 @@ fn grouped_fluent_execute_supports_cursor_continuation() {
 
 #[test]
 fn grouped_fluent_execute_supports_min_max_id_terminals() {
-    reset_store();
-
-    let save = SaveExecutor::<PhaseEntity>::new(DB, false);
-    let id_a = Ulid::generate();
-    let id_b = Ulid::generate();
-    let id_c = Ulid::generate();
-    for (id, rank, label) in [
-        (id_a, 1_u32, "alpha"),
-        (id_b, 1_u32, "beta"),
-        (id_c, 2_u32, "gamma"),
-    ] {
-        save.insert(PhaseEntity {
-            id,
-            opt_rank: Some(rank),
-            rank,
-            tags: vec![rank],
-            label: label.to_string(),
-        })
-        .expect("grouped seed insert should succeed");
-    }
-
+    let (id_a, id_b, id_c) = seed_grouped_phase_entities_with_fixed_ids();
     let (rank_1_min, rank_1_max) = if id_a <= id_b {
         (id_a, id_b)
     } else {
@@ -404,6 +409,72 @@ fn grouped_fluent_execute_supports_min_max_id_terminals() {
         execution.rows()[1].aggregate_values(),
         &[Value::Ulid(id_c), Value::Ulid(id_c)],
         "single-row groups should return same id for grouped min/max terminals",
+    );
+}
+
+#[test]
+fn grouped_fluent_execute_supports_exists_first_last_terminals() {
+    let (id_a, id_b, id_c) = seed_grouped_phase_entities_with_fixed_ids();
+    let session = DbSession::new(DB);
+    let execution = session
+        .load::<PhaseEntity>()
+        .group_by("rank")
+        .expect("group field should resolve")
+        .group_exists()
+        .group_first()
+        .group_last()
+        .execute_grouped()
+        .expect("grouped exists/first/last terminals should execute");
+
+    assert_eq!(
+        execution.rows().len(),
+        2,
+        "grouped exists/first/last should emit one row per canonical group"
+    );
+
+    let rank_1_row = &execution.rows()[0];
+    assert_eq!(
+        rank_1_row.group_key(),
+        &[Value::Uint(1)],
+        "rank=1 group should be first in canonical grouped-key order"
+    );
+    let rank_1_values = rank_1_row.aggregate_values();
+    let [rank_1_exists, rank_1_first, rank_1_last] = rank_1_values else {
+        panic!("rank=1 grouped exists/first/last should produce exactly three aggregate values")
+    };
+    assert_eq!(
+        rank_1_exists,
+        &Value::Bool(true),
+        "grouped exists terminal should report true for non-empty groups"
+    );
+    let rank_1_first = match rank_1_first {
+        Value::Ulid(id) => id,
+        other => panic!("grouped first terminal should return Ulid, found {other:?}"),
+    };
+    let rank_1_last = match rank_1_last {
+        Value::Ulid(id) => id,
+        other => panic!("grouped last terminal should return Ulid, found {other:?}"),
+    };
+    assert!(
+        (rank_1_first == &id_a || rank_1_first == &id_b)
+            && (rank_1_last == &id_a || rank_1_last == &id_b),
+        "grouped first/last ids should come from the rank=1 group"
+    );
+    assert_ne!(
+        rank_1_first, rank_1_last,
+        "grouped first/last should differ for the two-row rank=1 group"
+    );
+
+    let rank_2_row = &execution.rows()[1];
+    assert_eq!(
+        rank_2_row.group_key(),
+        &[Value::Uint(2)],
+        "rank=2 group should follow rank=1"
+    );
+    assert_eq!(
+        rank_2_row.aggregate_values(),
+        &[Value::Bool(true), Value::Ulid(id_c), Value::Ulid(id_c)],
+        "single-row groups should return the same id for grouped first/last with exists=true"
     );
 }
 

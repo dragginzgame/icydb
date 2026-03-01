@@ -22,7 +22,9 @@ use crate::{
 
 // Map executor-owned plan-surface failures into query-owned plan errors.
 fn map_executor_plan_error(err: ExecutorPlanError) -> QueryError {
-    QueryError::from(err.into_plan_error())
+    match err {
+        ExecutorPlanError::Cursor(err) => QueryError::from(PlanError::from(*err)),
+    }
 }
 
 ///

@@ -20,7 +20,7 @@ mod tests;
 pub(in crate::db::executor) use contracts::{
     AggregateEngine, AggregateFoldMode, AggregateKind, AggregateOutput, AggregateSpec,
     AggregateState, AggregateStateFactory, ExecutionConfig, ExecutionContext, FoldControl,
-    GroupError, TerminalAggregateState, ensure_grouped_spec_supported_for_execution,
+    GroupError, TerminalAggregateState,
 };
 pub(in crate::db::executor) use execution::{
     AggregateExecutionDescriptor, AggregateFastPathInputs, PreparedAggregateStreamingInputs,
@@ -37,11 +37,10 @@ use crate::{
             AccessStreamBindings, ExecutablePlan, ExecutionKernel, ExecutionPreparation,
             load::{ExecutionInputs, LoadExecutor},
             plan_metrics::{record_plan_metrics, record_rows_scanned},
-            route::ExecutionMode,
+            route::{ExecutionMode, aggregate_materialized_fold_direction},
             validate_executor_plan,
         },
         index::IndexCompilePolicy,
-        query::policy,
         response::Response,
     },
     error::InternalError,
@@ -141,6 +140,19 @@ impl<'a> AggregateReducerDispatch<'a> {
 }
 
 impl ExecutionKernel {
+    // Validate aggregate spec compatibility at the executor boundary so
+    // unsupported user shapes fail before route/scan work.
+    fn validate_scalar_aggregate_spec_supported(spec: &AggregateSpec) -> Result<(), InternalError> {
+        if spec.target_field().is_some() && !spec.kind().supports_field_targets() {
+            return Err(InternalError::executor_unsupported(format!(
+                "field-target aggregate is only supported for min/max terminals: found {:?}",
+                spec.kind()
+            )));
+        }
+
+        Ok(())
+    }
+
     // Build one canonical aggregate descriptor so kernel dispatch works from a
     // validated shape with route-owned mode/direction/fold decisions.
     fn build_aggregate_execution_descriptor<E>(
@@ -150,14 +162,6 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
-        debug_assert!(
-            policy::validate_plan_shape(&plan.as_inner().logical).is_ok(),
-            "aggregate executor received a plan shape that bypassed planning validation",
-        );
-
-        spec.ensure_supported_for_execution()
-            .map_err(|err| InternalError::executor_unsupported(err.to_string()))?;
-
         // Route derivation interprets plan shape only. Re-validate first so
         // capability snapshots are always built from a validated logical plan.
         validate_executor_plan::<E>(plan.as_inner())?;
@@ -255,7 +259,7 @@ impl ExecutionKernel {
         // Materialized fallback can observe response order that is unrelated to
         // primary-key order. Use non-short-circuit directions for extrema so
         // MIN/MAX remain globally correct over the full response window.
-        let direction = kind.materialized_fold_direction();
+        let direction = aggregate_materialized_fold_direction(kind);
         let mut engine = AggregateEngine::new_scalar(kind, direction);
         for (id, _) in response {
             let data_key = DataKey::try_new::<E>(id.key())?;
@@ -367,6 +371,8 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
+        Self::validate_scalar_aggregate_spec_supported(&spec)?;
+
         // Scalar terminal execution boundary.
         Self::execute_scalar_terminal_stage(executor, plan, spec)
     }

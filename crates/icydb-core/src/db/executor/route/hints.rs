@@ -15,6 +15,7 @@ use crate::{
 
 use crate::db::executor::route::{
     ContinuationMode, IndexRangeLimitSpec, RouteCapabilities, RouteWindowPlan,
+    aggregate_bounded_probe_fetch_hint, aggregate_supports_bounded_probe_hint,
     direction_allows_physical_fetch_hint,
 };
 
@@ -124,7 +125,7 @@ where
             return None;
         }
         let kind = spec.kind();
-        if !kind.supports_bounded_probe_hint() {
+        if !aggregate_supports_bounded_probe_hint(kind) {
             return None;
         }
         if route_window.limit() == Some(0) {
@@ -145,6 +146,6 @@ where
             .limit()
             .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
 
-        kind.bounded_probe_fetch_hint(direction, offset, page_limit)
+        aggregate_bounded_probe_fetch_hint(kind, direction, offset, page_limit)
     }
 }

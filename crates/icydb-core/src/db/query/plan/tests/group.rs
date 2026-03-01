@@ -115,6 +115,27 @@ fn grouped_plan_rejects_unknown_group_field() {
 }
 
 #[test]
+fn grouped_plan_rejects_duplicate_group_field() {
+    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::from_entity_model(model).expect("valid model");
+    let grouped = grouped_plan(
+        load_plan(AccessPlan::path(AccessPath::FullScan)),
+        vec!["rank", "rank"],
+        vec![GroupAggregateSpec {
+            kind: GroupAggregateKind::Count,
+            target_field: None,
+        }],
+    );
+
+    let err = validate_group_query_semantics(&schema, model, &grouped)
+        .expect_err("duplicate group field must fail");
+    assert!(matches!(err, PlanError::Group(inner) if matches!(
+        inner.as_ref(),
+        GroupPlanError::DuplicateGroupField { field } if field == "rank"
+    )));
+}
+
+#[test]
 fn grouped_plan_rejects_empty_aggregate_spec_list() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");

@@ -16,7 +16,9 @@ use crate::{
     traits::{EntityKind, EntityValue},
 };
 
-use crate::db::executor::route::{ContinuationMode, RouteCapabilities, RouteWindowPlan};
+use crate::db::executor::route::{
+    ContinuationMode, RouteCapabilities, RouteWindowPlan, aggregate_extrema_direction,
+};
 
 impl<E> LoadExecutor<E>
 where
@@ -34,9 +36,7 @@ where
         // Field-target extrema derive from `AggregateKind::extrema_direction`;
         // all other cases inherit canonical load ordering direction.
         if spec.target_field().is_some() {
-            return spec
-                .kind()
-                .extrema_direction()
+            return aggregate_extrema_direction(spec.kind())
                 .unwrap_or_else(|| Self::derive_load_route_direction(plan));
         }
 
@@ -76,7 +76,7 @@ where
         if let Some(spec) = aggregate_spec
             && spec.target_field().is_some()
         {
-            return match spec.kind().extrema_direction() {
+            return match aggregate_extrema_direction(spec.kind()) {
                 Some(Direction::Asc) => capabilities.field_min_fast_path_eligible,
                 Some(Direction::Desc) => capabilities.field_max_fast_path_eligible,
                 None => false,

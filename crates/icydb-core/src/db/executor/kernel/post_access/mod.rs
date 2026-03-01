@@ -13,7 +13,7 @@ use crate::{
         direction::Direction,
         executor::ExecutionKernel,
         predicate::PredicateProgram,
-        query::{plan::AccessPlannedQuery, policy},
+        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntitySchema, EntityValue},
@@ -211,7 +211,6 @@ impl<K> PostAccessPlan<'_, K> {
         E: EntityKind + EntityValue,
         R: PlanRow<E>,
     {
-        self.validate_post_access_invariants()?;
         self.validate_cursor_mode(cursor)?;
 
         // Phase 1: predicate filtering.
@@ -264,13 +263,6 @@ impl<K> PostAccessPlan<'_, K> {
             #[cfg(test)]
             rows_after_delete_limit,
         })
-    }
-
-    // Guard post-access execution with internal plan-shape invariants.
-    // Planner owns user-facing validation; this only catches internal misuse.
-    fn validate_post_access_invariants(&self) -> Result<(), InternalError> {
-        policy::validate_plan_shape(&self.plan.logical)
-            .map_err(InternalError::plan_invariant_violation)
     }
 
     // Enforce load/delete cursor compatibility before execution phases.

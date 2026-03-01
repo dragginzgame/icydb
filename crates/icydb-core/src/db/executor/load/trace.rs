@@ -7,6 +7,7 @@ use crate::db::{
     access::{AccessPath, AccessPlan},
     direction::Direction,
     executor::load::ExecutionAccessPathVariant,
+    executor::route::order_direction_from_direction,
     query::plan::OrderDirection,
 };
 
@@ -28,5 +29,5 @@ pub(super) fn access_path_variant<K>(access: &AccessPlan<K>) -> ExecutionAccessP
 
 /// Project runtime direction into trace-level order direction.
 pub(super) const fn execution_order_direction(direction: Direction) -> OrderDirection {
-    OrderDirection::from_direction(direction)
+    order_direction_from_direction(direction)
 }

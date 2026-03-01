@@ -15,7 +15,7 @@ use crate::{
             },
             plan_metrics::{record_plan_metrics, record_rows_scanned, set_rows_from_len},
         },
-        query::{plan::LogicalPlan, policy},
+        query::plan::LogicalPlan,
         response::Response,
     },
     error::InternalError,
@@ -130,10 +130,6 @@ where
                 "delete executor requires delete plans",
             ));
         }
-        debug_assert!(
-            policy::validate_plan_shape(&plan.as_inner().logical).is_ok(),
-            "delete executor received a plan shape that bypassed planning validation",
-        );
         (|| {
             // Phase 1: preflight plan + context setup before any commit-window work.
             let index_prefix_specs = plan.index_prefix_specs()?.to_vec();

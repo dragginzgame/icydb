@@ -1,6 +1,6 @@
 //! Module: executor::aggregate::contracts::spec
-//! Responsibility: aggregate spec/output contract types and grouped-spec validation.
-//! Does not own: aggregate reducer state machines.
+//! Responsibility: aggregate spec/output contract types.
+//! Does not own: grouped logical-spec validation or aggregate reducer state machines.
 //! Boundary: declarative aggregate contracts consumed by state/grouped modules.
 
 // -----------------------------------------------------------------------------
@@ -9,16 +9,7 @@
 // This module must remain execution-agnostic.
 // No imports from executor load/kernel/route are allowed.
 
-use crate::{
-    db::query::plan::{FieldSlot, GroupAggregateSpec as QueryGroupAggregateSpec},
-    traits::EntityKind,
-    types::Id,
-};
-use std::collections::BTreeSet;
-
-use crate::db::executor::aggregate::contracts::error::{
-    AggregateSpecSupportError, GroupAggregateSpecSupportError,
-};
+use crate::{traits::EntityKind, types::Id};
 
 pub(in crate::db::executor) use crate::db::query::plan::AggregateKind;
 
@@ -123,66 +114,4 @@ impl AggregateSpec {
     pub(in crate::db::executor) fn target_field(&self) -> Option<&str> {
         self.target_field.as_deref()
     }
-
-    /// Validate support boundaries for this aggregate spec in the current release line.
-    pub(in crate::db::executor) fn ensure_supported_for_execution(
-        &self,
-    ) -> Result<(), AggregateSpecSupportError> {
-        let Some(target_field) = self.target_field() else {
-            return Ok(());
-        };
-        if !self.kind.supports_field_targets() {
-            return Err(AggregateSpecSupportError::FieldTargetRequiresExtrema {
-                kind: self.kind,
-                target_field: target_field.to_string(),
-            });
-        }
-
-        Ok(())
-    }
-}
-
-/// Validate support boundaries for grouped aggregate contracts using canonical
-/// query-owned grouped specs.
-pub(in crate::db::executor) fn ensure_grouped_spec_supported_for_execution(
-    group_fields: &[FieldSlot],
-    aggregate_specs: &[QueryGroupAggregateSpec],
-) -> Result<(), GroupAggregateSpecSupportError> {
-    if aggregate_specs.is_empty() {
-        return Err(GroupAggregateSpecSupportError::MissingAggregateSpecs);
-    }
-
-    let mut seen_group_slots = BTreeSet::<usize>::new();
-    for field in group_fields {
-        if !seen_group_slots.insert(field.index()) {
-            return Err(GroupAggregateSpecSupportError::DuplicateGroupKey {
-                field: field.field().to_string(),
-            });
-        }
-    }
-
-    for (index, spec) in aggregate_specs.iter().enumerate() {
-        ensure_query_group_aggregate_supported(spec).map_err(|source| {
-            GroupAggregateSpecSupportError::AggregateSpecUnsupported { index, source }
-        })?;
-    }
-
-    Ok(())
-}
-
-fn ensure_query_group_aggregate_supported(
-    spec: &QueryGroupAggregateSpec,
-) -> Result<(), AggregateSpecSupportError> {
-    let Some(target_field) = spec.target_field() else {
-        return Ok(());
-    };
-
-    if !spec.kind().supports_field_targets() {
-        return Err(AggregateSpecSupportError::FieldTargetRequiresExtrema {
-            kind: spec.kind(),
-            target_field: target_field.to_string(),
-        });
-    }
-
-    Ok(())
 }
