@@ -8,8 +8,11 @@ use crate::{
         access::{AccessPath, AccessPlan, PushdownApplicability},
         direction::Direction,
         executor::{
+            AccessPathRuntimeStrategy, access_plan_is_pk_ordered_stream,
+            access_plan_supports_reverse_traversal,
             aggregate::capability::field_is_orderable,
             aggregate::{AggregateKind, AggregateSpec},
+            dispatch_access_path, is_composite_access_plan,
             load::LoadExecutor,
             route::derive_secondary_pushdown_applicability_validated,
             traversal::effective_page_offset_for_window,
@@ -26,25 +29,25 @@ use crate::db::executor::route::{
 
 /// Return true when this access path is eligible for PK stream fast-path execution.
 #[must_use]
-pub(in crate::db::executor) const fn supports_pk_stream_access_path<K>(
-    path: &AccessPath<K>,
-) -> bool {
-    matches!(path, AccessPath::FullScan | AccessPath::KeyRange { .. })
+pub(in crate::db::executor) fn supports_pk_stream_access_path<K>(path: &AccessPath<K>) -> bool {
+    let dispatched = dispatch_access_path(path);
+    let strategy: &dyn AccessPathRuntimeStrategy<K> = &dispatched;
+
+    strategy.supports_pk_stream_access()
 }
 
 /// Return bounded primary-scan fetch hints only for path shapes that preserve
 /// physical key-order equivalence under bounded scans.
-pub(in crate::db::executor) const fn primary_scan_fetch_hint_for_access_path<K>(
+pub(in crate::db::executor) fn primary_scan_fetch_hint_for_access_path<K>(
     path: &AccessPath<K>,
     physical_fetch_hint: Option<usize>,
 ) -> Option<usize> {
-    match path {
-        AccessPath::ByKey(_) | AccessPath::KeyRange { .. } | AccessPath::FullScan => {
-            physical_fetch_hint
-        }
-        AccessPath::ByKeys(_) | AccessPath::IndexPrefix { .. } | AccessPath::IndexRange { .. } => {
-            None
-        }
+    let dispatched = dispatch_access_path(path);
+    let strategy: &dyn AccessPathRuntimeStrategy<K> = &dispatched;
+    if strategy.supports_primary_scan_fetch_hint() {
+        physical_fetch_hint
+    } else {
+        None
     }
 }
 
@@ -112,24 +115,7 @@ where
 }
 
 fn access_stream_is_pk_ordered<K>(access: &AccessPlan<K>) -> bool {
-    match access {
-        AccessPlan::Path(path) => access_path_is_pk_ordered(path),
-        AccessPlan::Union(children) | AccessPlan::Intersection(children) => {
-            children.iter().all(access_stream_is_pk_ordered)
-        }
-    }
-}
-
-const fn access_path_is_pk_ordered<K>(path: &AccessPath<K>) -> bool {
-    matches!(
-        path,
-        AccessPath::ByKey(_)
-            | AccessPath::ByKeys(_)
-            | AccessPath::KeyRange { .. }
-            | AccessPath::IndexPrefix { .. }
-            | AccessPath::IndexRange { .. }
-            | AccessPath::FullScan
-    )
+    access_plan_is_pk_ordered_stream(access)
 }
 
 /// Return true when bounded physical fetch hints are valid for this direction.
@@ -335,25 +321,20 @@ where
         let Some(path) = plan.access.as_path() else {
             return false;
         };
+        let dispatched = dispatch_access_path(path);
+        let strategy: &dyn AccessPathRuntimeStrategy<E::Key> = &dispatched;
         if target_field == E::MODEL.primary_key.name {
-            return matches!(path, AccessPath::FullScan | AccessPath::KeyRange { .. });
+            return strategy.supports_pk_stream_access();
         }
-
-        match path {
-            AccessPath::IndexPrefix { index, .. } => index
-                .fields
-                .first()
-                .is_some_and(|field| *field == target_field),
-            AccessPath::IndexRange { spec } => spec
-                .index()
-                .fields
-                .first()
-                .is_some_and(|field| *field == target_field),
-            AccessPath::ByKey(_)
-            | AccessPath::ByKeys(_)
-            | AccessPath::KeyRange { .. }
-            | AccessPath::FullScan => false,
-        }
+        strategy
+            .index_prefix_model()
+            .or_else(|| strategy.index_range_model())
+            .is_some_and(|index| {
+                index
+                    .fields
+                    .first()
+                    .is_some_and(|field| *field == target_field)
+            })
     }
 
     /// Return whether DESC physical reverse traversal is supported for this access shape.
@@ -369,12 +350,7 @@ where
     }
 
     fn access_supports_reverse_traversal(access: &AccessPlan<E::Key>) -> bool {
-        match access {
-            AccessPlan::Path(path) => Self::path_supports_reverse_traversal(path),
-            AccessPlan::Union(children) | AccessPlan::Intersection(children) => {
-                children.iter().all(Self::access_supports_reverse_traversal)
-            }
-        }
+        access_plan_supports_reverse_traversal(access)
     }
 
     // Composite aggregate fast-path eligibility must stay explicit:
@@ -400,30 +376,23 @@ where
         true
     }
 
-    pub(super) const fn path_supports_reverse_traversal(path: &AccessPath<E::Key>) -> bool {
-        matches!(
-            path,
-            AccessPath::ByKey(_)
-                | AccessPath::KeyRange { .. }
-                | AccessPath::IndexPrefix { .. }
-                | AccessPath::IndexRange { .. }
-                | AccessPath::FullScan
-        )
-    }
-
-    pub(super) const fn is_composite_access_shape(access: &AccessPlan<E::Key>) -> bool {
-        matches!(access, AccessPlan::Union(_) | AccessPlan::Intersection(_))
+    pub(super) fn is_composite_access_shape(access: &AccessPlan<E::Key>) -> bool {
+        is_composite_access_plan(access)
     }
 
     // Route-owned shape gate for index-range limited pushdown eligibility.
     pub(super) fn is_index_range_limit_pushdown_shape_eligible(
         plan: &AccessPlannedQuery<E::Key>,
     ) -> bool {
-        let Some((index, prefix, _, _)) = plan.access.as_index_range_path() else {
+        let Some(path) = plan.access.as_path() else {
+            return false;
+        };
+        let dispatched = dispatch_access_path(path);
+        let strategy: &dyn AccessPathRuntimeStrategy<E::Key> = &dispatched;
+        let Some((index, prefix_len)) = strategy.index_range_details() else {
             return false;
         };
         let index_fields = index.fields;
-        let prefix_len = prefix.len();
 
         if let Some(order) = plan.scalar_plan().order.as_ref()
             && !order.fields.is_empty()

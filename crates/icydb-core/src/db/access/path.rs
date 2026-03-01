@@ -192,13 +192,4 @@ impl<K> AccessPath<K> {
             _ => None,
         }
     }
-
-    /// Return index-range identity details when this path is `IndexRange`.
-    #[must_use]
-    pub(crate) const fn index_range_details(&self) -> Option<(&IndexModel, usize)> {
-        match self {
-            Self::IndexRange { spec } => Some((spec.index(), spec.prefix_values().len())),
-            _ => None,
-        }
-    }
 }

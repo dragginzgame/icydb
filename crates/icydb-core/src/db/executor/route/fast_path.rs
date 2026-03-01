@@ -5,7 +5,8 @@
 
 use crate::{
     db::{
-        access::{AccessPath, AccessPlan},
+        access::AccessPlan,
+        executor::{AccessPathRuntimeStrategy, dispatch_access_path},
         executor::{ExecutionPreparation, aggregate::AggregateKind, load::LoadExecutor},
         index::{IndexCompilePolicy, compile_index_program},
         query::plan::AccessPlannedQuery,
@@ -48,8 +49,13 @@ where
     E: EntityKind + EntityValue,
 {
     /// Return whether count pushdown path shape is supported for one access path.
-    pub(super) const fn count_pushdown_path_shape_supported(path: &AccessPath<E::Key>) -> bool {
-        matches!(path, AccessPath::FullScan | AccessPath::KeyRange { .. })
+    pub(super) fn count_pushdown_path_shape_supported(
+        path: &crate::db::access::AccessPath<E::Key>,
+    ) -> bool {
+        let dispatched = dispatch_access_path(path);
+        let strategy: &dyn AccessPathRuntimeStrategy<E::Key> = &dispatched;
+
+        strategy.supports_count_pushdown_shape()
     }
 
     /// Return whether count pushdown is supported for one access plan.
@@ -87,13 +93,15 @@ where
     /// Validate routed access-path shape for PK stream fast-path execution.
     pub(in crate::db::executor) fn verify_pk_stream_fast_path_access(
         plan: &AccessPlannedQuery<E::Key>,
-    ) -> Result<&AccessPath<E::Key>, InternalError> {
+    ) -> Result<&crate::db::access::AccessPath<E::Key>, InternalError> {
         let access = plan.access.as_path().ok_or_else(|| {
             InternalError::query_executor_invariant(
                 "pk stream fast-path requires direct access-path execution",
             )
         })?;
-        if !supports_pk_stream_access_path(access) {
+        let dispatched = dispatch_access_path(access);
+        let strategy: &dyn AccessPathRuntimeStrategy<E::Key> = &dispatched;
+        if !strategy.supports_pk_stream_access() {
             return Err(InternalError::query_executor_invariant(
                 "pk stream fast-path requires full-scan/key-range access path",
             ));

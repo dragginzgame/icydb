@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `0.37.0` removes grouped combinatorial helper terminals (`group_count*`, `group_sum_distinct_by`, `group_exists`, `group_first`, `group_last`, `group_min*`, `group_max*`) as an intentional pre-`1.0` hard cut in favor of builder-only `.aggregate(...)` composition.
 - `0.37.1` closes builder hardening for this cut with compile-fail guards for removed terminals, typed builder-validation parity coverage, and migration guidance for replacing `group_*` calls with `.aggregate(...)`.
 - `0.37.2` closes deferred resource follow-ups by making grouped route strategy labels explicitly materialized and consolidating non-grouped materialized DISTINCT helper ownership under one executor boundary.
+- `0.37.3` closes the cross-cutting audit pass by decomposing grouped execution into a staged spine, centralizing `AccessPath` routing under one executor dispatcher, splitting grouped validation into structure/policy/cursor gates, and routing continuation filtering through a single cursor spine entrypoint.
 
 ```rust
 let page = session

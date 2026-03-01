@@ -4,7 +4,7 @@
 //! Boundary: metric projection utilities for executor call sites.
 
 use crate::{
-    db::access::{AccessPath, AccessPlan},
+    db::{access::AccessPlan, executor::access_plan_metrics_kind},
     obs::sink::{GroupedPlanStrategy, MetricsEvent, PlanKind, Span, record},
     traits::EntityKind,
 };
@@ -58,15 +58,7 @@ pub(super) fn record_grouped_plan_metrics<K>(
 
 // This metric is intentionally coarse and only reflects the top-level access shape.
 fn access_plan_kind<K>(access: &AccessPlan<K>) -> PlanKind {
-    match access {
-        AccessPlan::Path(path) => match path.as_ref() {
-            AccessPath::ByKey(_) | AccessPath::ByKeys(_) => PlanKind::Keys,
-            AccessPath::KeyRange { .. } => PlanKind::Range,
-            AccessPath::IndexPrefix { .. } | AccessPath::IndexRange { .. } => PlanKind::Index,
-            AccessPath::FullScan => PlanKind::FullScan,
-        },
-        AccessPlan::Union(_) | AccessPlan::Intersection(_) => PlanKind::FullScan,
-    }
+    access_plan_metrics_kind(access)
 }
 
 /// Convenience: set span rows from a usize length.

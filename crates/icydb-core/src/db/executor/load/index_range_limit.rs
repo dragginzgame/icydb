@@ -9,8 +9,8 @@ use crate::{
         direction::Direction,
         executor::load::{ExecutionOptimization, FastPathKeyResult, LoadExecutor},
         executor::{
-            AccessPlanStreamRequest, AccessStreamBindings, LoweredIndexRangeSpec, RangeToken,
-            range_token_anchor_key,
+            AccessPathRuntimeStrategy, AccessPlanStreamRequest, AccessStreamBindings,
+            LoweredIndexRangeSpec, RangeToken, dispatch_access_path, range_token_anchor_key,
         },
         index::predicate::IndexPredicateExecution,
         query::plan::AccessPlannedQuery,
@@ -34,7 +34,12 @@ where
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
         // Phase 1: verify access-path and executable spec materialization invariants.
-        let Some((index, _, _, _)) = plan.access.as_index_range_path() else {
+        let Some(path) = plan.access.as_path() else {
+            return Ok(None);
+        };
+        let dispatched = dispatch_access_path(path);
+        let strategy: &dyn AccessPathRuntimeStrategy<E::Key> = &dispatched;
+        let Some(index) = strategy.index_range_model() else {
             return Ok(None);
         };
         let Some(index_range_spec) = index_range_spec else {
@@ -44,7 +49,7 @@ where
         };
         debug_assert_eq!(
             index_range_spec.index(),
-            index,
+            &index,
             "index-range fast-path spec/index alignment must be validated by resolver",
         );
 

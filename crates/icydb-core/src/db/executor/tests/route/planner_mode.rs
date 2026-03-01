@@ -571,7 +571,7 @@ fn grouped_path_avoids_kernel_row_buffer_materialization_fallback() {
     );
     assert!(
         load_mod_source
-            .contains("let mut resolved = Self::resolve_execution_key_stream_without_distinct("),
+            .contains("let resolved = Self::resolve_execution_key_stream_without_distinct("),
         "grouped execution should resolve one ordered key stream directly at grouped entry",
     );
 }

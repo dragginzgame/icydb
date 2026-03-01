@@ -93,17 +93,6 @@ impl<K> AccessPlan<K> {
         self.as_path().and_then(AccessPath::as_index_range)
     }
 
-    /// Walk the tree and return the first encountered IndexRange details.
-    #[must_use]
-    pub(crate) fn first_index_range_details(&self) -> Option<(&IndexModel, usize)> {
-        match self {
-            Self::Path(path) => path.index_range_details(),
-            Self::Union(children) | Self::Intersection(children) => {
-                children.iter().find_map(Self::first_index_range_details)
-            }
-        }
-    }
-
     // Collapse an already-flattened composite node into canonical arity form.
     fn collapse_canonical_composite(mut children: Vec<Self>, is_union: bool) -> Self {
         if children.is_empty() {

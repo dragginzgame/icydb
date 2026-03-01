@@ -6,14 +6,14 @@
 use crate::{
     db::{
         Context,
-        access::AccessPath,
         direction::Direction,
         executor::{
-            AccessPlanStreamRequest, AccessStreamBindings, ExecutionKernel, IndexStreamConstraints,
-            LoweredIndexPrefixSpec, StreamExecutionHints,
+            AccessPathRuntimeStrategy, AccessPlanStreamRequest, AccessStreamBindings,
+            ExecutionKernel, IndexStreamConstraints, LoweredIndexPrefixSpec, StreamExecutionHints,
             aggregate::{
                 AggregateFastPathInputs, AggregateFoldMode, AggregateKind, AggregateOutput,
             },
+            dispatch_access_path,
             load::{FastPathKeyResult, LoadExecutor},
             route::{
                 FastPathOrder, RoutedKeyStreamRequest,
@@ -268,10 +268,13 @@ impl ExecutionKernel {
         let Some(path) = plan.access.as_path() else {
             return Ok(None);
         };
-        match path {
-            AccessPath::ByKeys(keys) if keys.is_empty() => return Ok(None),
-            AccessPath::ByKey(_) | AccessPath::ByKeys(_) => {}
-            _ => return Ok(None),
+        let dispatched = dispatch_access_path(path);
+        let strategy: &dyn AccessPathRuntimeStrategy<E::Key> = &dispatched;
+        if strategy.is_by_keys_empty() {
+            return Ok(None);
+        }
+        if !strategy.is_key_direct_access() {
+            return Ok(None);
         }
         if plan.scalar_plan().predicate.is_some() {
             return Ok(None);
@@ -380,7 +383,9 @@ impl ExecutionKernel {
         let Some(path) = plan.access.as_path() else {
             return Ok(None);
         };
-        if !matches!(path, AccessPath::FullScan | AccessPath::KeyRange { .. }) {
+        let dispatched = dispatch_access_path(path);
+        let strategy: &dyn AccessPathRuntimeStrategy<E::Key> = &dispatched;
+        if !strategy.supports_count_pushdown_shape() {
             return Ok(None);
         }
 

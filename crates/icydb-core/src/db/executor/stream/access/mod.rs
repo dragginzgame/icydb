@@ -15,7 +15,8 @@ use crate::{
         direction::Direction,
         executor::LoweredKey,
         executor::{
-            Context, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
+            AccessPathRuntimeStrategy, Context, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
+            dispatch_access_path,
             stream::key::{
                 IntersectOrderedKeyStream, KeyOrderComparator, MergeOrderedKeyStream,
                 OrderedKeyStreamBox, VecOrderedKeyStream,
@@ -413,8 +414,10 @@ impl AccessPlanStreamResolver {
         path: &AccessPath<K>,
         index_prefix_spec: Option<&LoweredIndexPrefixSpec>,
     ) -> Result<(), InternalError> {
-        if let (Some(spec), AccessPath::IndexPrefix { index, .. }) = (index_prefix_spec, path)
-            && spec.index() != index
+        let dispatched = dispatch_access_path(path);
+        let strategy: &dyn AccessPathRuntimeStrategy<K> = &dispatched;
+        if let (Some(spec), Some(index)) = (index_prefix_spec, strategy.index_prefix_model())
+            && spec.index() != &index
         {
             return Err(InternalError::query_executor_invariant(
                 "index-prefix spec does not match access path index",
@@ -429,13 +432,10 @@ impl AccessPlanStreamResolver {
         path: &AccessPath<K>,
         index_range_spec: Option<&LoweredIndexRangeSpec>,
     ) -> Result<(), InternalError> {
-        if let (
-            Some(spec),
-            AccessPath::IndexRange {
-                spec: semantic_spec,
-            },
-        ) = (index_range_spec, path)
-            && spec.index() != semantic_spec.index()
+        let dispatched = dispatch_access_path(path);
+        let strategy: &dyn AccessPathRuntimeStrategy<K> = &dispatched;
+        if let (Some(spec), Some(index)) = (index_range_spec, strategy.index_range_model())
+            && spec.index() != &index
         {
             return Err(InternalError::query_executor_invariant(
                 "index-range spec does not match access path index",
@@ -513,12 +513,14 @@ impl AccessPlanStreamResolver {
     {
         match access {
             AccessPlan::Path(path) => {
-                let index_prefix_spec = if matches!(path.as_ref(), AccessPath::IndexPrefix { .. }) {
+                let dispatched = dispatch_access_path(path.as_ref());
+                let strategy: &dyn AccessPathRuntimeStrategy<K> = &dispatched;
+                let index_prefix_spec = if strategy.consumes_index_prefix_spec() {
                     spec_cursor.next_index_prefix_spec()
                 } else {
                     None
                 };
-                let index_range_spec = if matches!(path.as_ref(), AccessPath::IndexRange { .. }) {
+                let index_range_spec = if strategy.consumes_index_range_spec() {
                     spec_cursor.next_index_range_spec()
                 } else {
                     None

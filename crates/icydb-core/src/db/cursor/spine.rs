@@ -7,6 +7,7 @@ use crate::{
             anchor::{
                 validate_index_range_anchor, validate_index_range_boundary_anchor_consistency,
             },
+            order::apply_cursor_boundary as apply_continuation_boundary,
             validate_cursor_boundary_for_order, validate_cursor_direction,
             validate_cursor_window_offset,
         },
@@ -14,7 +15,7 @@ use crate::{
         query::plan::OrderSpec,
     },
     model::entity::EntityModel,
-    traits::{EntityKind, FieldValue},
+    traits::{EntityKind, EntityValue, FieldValue},
 };
 
 ///
@@ -24,6 +25,7 @@ use crate::{
 /// This keeps structured cursor checks coupled to one semantic owner instead
 /// of threading many independent plan parameters through validation helpers.
 ///
+
 trait CursorPlanSurface<K: FieldValue> {
     fn entity_model(&self) -> &EntityModel;
 
@@ -41,6 +43,7 @@ trait CursorPlanSurface<K: FieldValue> {
 ///
 /// Concrete adapter that exposes the canonical cursor validation surface.
 ///
+
 struct StructuredCursorPlanSurface<'a, K> {
     access: Option<&'a AccessPath<K>>,
     model: &'a EntityModel,
@@ -69,6 +72,22 @@ impl<K: FieldValue> CursorPlanSurface<K> for StructuredCursorPlanSurface<'_, K> 
     fn initial_offset(&self) -> u32 {
         self.initial_offset
     }
+}
+
+/// Apply one strict continuation boundary through the cursor spine.
+///
+/// This is the single continuation-application boundary for post-access row
+/// filtering. Callers pass ordered rows and canonical order/boundary contracts.
+pub(in crate::db) fn apply_continuation<E, R, F>(
+    rows: &mut Vec<R>,
+    order: &OrderSpec,
+    boundary: &CursorBoundary,
+    entity_of: F,
+) where
+    E: EntityKind + EntityValue,
+    F: Fn(&R) -> &E + Copy,
+{
+    apply_continuation_boundary::<E, R, F>(rows, order, boundary, entity_of);
 }
 
 /// Validate and materialize an executable cursor through the canonical spine.

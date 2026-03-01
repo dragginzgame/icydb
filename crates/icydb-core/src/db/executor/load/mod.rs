@@ -24,8 +24,8 @@ use crate::{
         access::AccessPlan,
         contracts::canonical_value_compare,
         cursor::{
-            ContinuationToken, CursorBoundary, GroupedContinuationToken, GroupedPlannedCursor,
-            PlannedCursor, decode_pk_cursor_boundary,
+            ContinuationSignature, ContinuationToken, CursorBoundary, GroupedContinuationToken,
+            GroupedPlannedCursor, PlannedCursor, decode_pk_cursor_boundary,
         },
         data::DataKey,
         direction::Direction,
@@ -252,6 +252,64 @@ pub(crate) struct LoadExecutor<E: EntityKind> {
     _marker: PhantomData<E>,
 }
 
+///
+/// GroupedRouteStage
+///
+/// Route-planning stage payload for grouped execution.
+/// Owns grouped handoff extraction, grouped route contracts, and grouped
+/// execution metadata before runtime stream resolution starts.
+///
+
+struct GroupedRouteStage<E: EntityKind + EntityValue> {
+    plan: AccessPlannedQuery<E::Key>,
+    cursor: GroupedPlannedCursor,
+    direction: Direction,
+    continuation_signature: ContinuationSignature,
+    index_prefix_specs: Vec<crate::db::access::LoweredIndexPrefixSpec>,
+    index_range_specs: Vec<crate::db::access::LoweredIndexRangeSpec>,
+    grouped_execution: crate::db::query::plan::GroupedExecutionConfig,
+    group_fields: Vec<crate::db::query::plan::FieldSlot>,
+    grouped_aggregates: Vec<GroupAggregateSpec>,
+    grouped_having: Option<GroupHavingSpec>,
+    grouped_route_plan: crate::db::executor::ExecutionPlan,
+    grouped_plan_metrics_strategy: GroupedPlanMetricsStrategy,
+    global_distinct_field_aggregate: Option<(AggregateKind, String)>,
+    execution_trace: Option<ExecutionTrace>,
+}
+
+///
+/// GroupedStreamStage
+///
+/// Stream-construction stage payload for grouped execution.
+/// Owns recovered context, execution preparation, and resolved grouped key
+/// stream for fold-phase consumption.
+///
+
+struct GroupedStreamStage<'a, E: EntityKind + EntityValue> {
+    ctx: Context<'a, E>,
+    execution_preparation: ExecutionPreparation,
+    resolved: ResolvedExecutionKeyStream,
+}
+
+///
+/// GroupedFoldStage
+///
+/// Fold-phase output payload for grouped execution.
+/// Owns grouped page materialization plus observability counters consumed by
+/// the final output stage.
+///
+
+struct GroupedFoldStage {
+    page: GroupedCursorPage,
+    filtered_rows: usize,
+    check_filtered_rows_upper_bound: bool,
+    rows_scanned: usize,
+    optimization: Option<ExecutionOptimization>,
+    index_predicate_applied: bool,
+    index_predicate_keys_rejected: u64,
+    distinct_keys_deduped: u64,
+}
+
 impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
@@ -429,13 +487,29 @@ where
         self.execute_grouped_path(plan, cursor)
     }
 
-    // Execute grouped blocking reduction and produce grouped page rows + grouped cursor.
-    #[expect(clippy::too_many_lines)]
+    // Grouped execution spine:
+    // 1) resolve grouped route/metadata
+    // 2) build grouped key stream
+    // 3) execute grouped fold
+    // 4) finalize grouped output + observability
     fn execute_grouped_path(
         &self,
         plan: ExecutablePlan<E>,
         cursor: GroupedPlannedCursor,
     ) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), InternalError> {
+        let route = Self::resolve_grouped_route(plan, cursor, self.debug)?;
+        let stream = self.build_grouped_stream(&route)?;
+        let folded = Self::execute_group_fold(&route, stream)?;
+
+        Ok(Self::finalize_grouped_output(route, folded))
+    }
+
+    // Resolve grouped handoff/route metadata into one grouped route-stage payload.
+    fn resolve_grouped_route(
+        plan: ExecutablePlan<E>,
+        cursor: GroupedPlannedCursor,
+        debug: bool,
+    ) -> Result<GroupedRouteStage<E>, InternalError> {
         validate_executor_plan::<E>(plan.as_inner())?;
         let grouped_handoff = grouped_executor_handoff(plan.as_inner())?;
         let grouped_execution = grouped_handoff.execution();
@@ -450,32 +524,6 @@ where
                     "grouped route planning must emit grouped observability payload",
                 )
             })?;
-        let direction = grouped_route_plan.direction();
-        let continuation_applied = !cursor.is_empty();
-        let mut execution_trace = self
-            .debug
-            .then(|| ExecutionTrace::new(plan.access(), direction, continuation_applied));
-        let continuation_signature = plan.continuation_signature();
-        let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
-        let index_range_specs = plan.index_range_specs()?.to_vec();
-
-        let mut grouped_execution_context =
-            grouped_execution_context_from_planner_config(Some(grouped_execution));
-        let max_groups_bound =
-            usize::try_from(grouped_execution_context.config().max_groups()).unwrap_or(usize::MAX);
-        let grouped_budget = grouped_budget_observability(&grouped_execution_context);
-        debug_assert!(
-            grouped_budget.max_groups() >= grouped_budget.groups()
-                && grouped_budget.max_group_bytes() >= grouped_budget.estimated_bytes()
-                && grouped_execution_context
-                    .config()
-                    .max_distinct_values_total()
-                    >= grouped_budget.distinct_values()
-                && grouped_budget.aggregate_states() >= grouped_budget.groups(),
-            "grouped budget observability invariants must hold at grouped route entry"
-        );
-
-        // Observe grouped route outcome/rejection once at grouped runtime entry.
         let grouped_route_outcome = grouped_route_observability.outcome();
         let grouped_route_rejection_reason = grouped_route_observability.rejection_reason();
         let grouped_route_eligible = grouped_route_observability.eligible();
@@ -506,14 +554,97 @@ where
             ),
             "grouped execution route must remain blocking/materialized",
         );
+
+        let direction = grouped_route_plan.direction();
+        let continuation_applied = !cursor.is_empty();
+        let execution_trace =
+            debug.then(|| ExecutionTrace::new(plan.access(), direction, continuation_applied));
+        let continuation_signature = plan.continuation_signature();
+        let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
+        let index_range_specs = plan.index_range_specs()?.to_vec();
         let global_distinct_field_aggregate = Self::global_distinct_field_aggregate_spec(
             group_fields.as_slice(),
             grouped_aggregates.as_slice(),
             grouped_having.as_ref(),
         )?;
+        let plan = plan.into_inner();
+
+        Ok(GroupedRouteStage {
+            plan,
+            cursor,
+            direction,
+            continuation_signature,
+            index_prefix_specs,
+            index_range_specs,
+            grouped_execution,
+            group_fields,
+            grouped_aggregates,
+            grouped_having,
+            grouped_route_plan,
+            grouped_plan_metrics_strategy,
+            global_distinct_field_aggregate,
+            execution_trace,
+        })
+    }
+
+    // Build one grouped key stream from route-owned grouped execution metadata.
+    fn build_grouped_stream<'a>(
+        &'a self,
+        route: &'a GroupedRouteStage<E>,
+    ) -> Result<GroupedStreamStage<'a, E>, InternalError> {
+        let execution_preparation = ExecutionPreparation::for_plan::<E>(&route.plan);
+        let ctx = self.db.recovered_context::<E>()?;
+        let execution_inputs = ExecutionInputs {
+            ctx: &ctx,
+            plan: &route.plan,
+            stream_bindings: AccessStreamBindings {
+                index_prefix_specs: route.index_prefix_specs.as_slice(),
+                index_range_specs: route.index_range_specs.as_slice(),
+                index_range_anchor: None,
+                direction: route.direction,
+            },
+            execution_preparation: &execution_preparation,
+        };
+        record_grouped_plan_metrics(&route.plan.access, route.grouped_plan_metrics_strategy);
+        let resolved = Self::resolve_execution_key_stream_without_distinct(
+            &execution_inputs,
+            &route.grouped_route_plan,
+            IndexCompilePolicy::ConservativeSubset,
+        )?;
+
+        Ok(GroupedStreamStage {
+            ctx,
+            execution_preparation,
+            resolved,
+        })
+    }
+
+    // Execute grouped folding over one resolved grouped key stream.
+    #[expect(clippy::too_many_lines)]
+    fn execute_group_fold(
+        route: &GroupedRouteStage<E>,
+        mut stream: GroupedStreamStage<'_, E>,
+    ) -> Result<GroupedFoldStage, InternalError> {
+        let mut grouped_execution_context =
+            grouped_execution_context_from_planner_config(Some(route.grouped_execution));
+        let max_groups_bound =
+            usize::try_from(grouped_execution_context.config().max_groups()).unwrap_or(usize::MAX);
+        let grouped_budget = grouped_budget_observability(&grouped_execution_context);
+        debug_assert!(
+            grouped_budget.max_groups() >= grouped_budget.groups()
+                && grouped_budget.max_group_bytes() >= grouped_budget.estimated_bytes()
+                && grouped_execution_context
+                    .config()
+                    .max_distinct_values_total()
+                    >= grouped_budget.distinct_values()
+                && grouped_budget.aggregate_states() >= grouped_budget.groups(),
+            "grouped budget observability invariants must hold at grouped route entry",
+        );
+
         let (mut grouped_engines, mut short_circuit_keys) =
-            if global_distinct_field_aggregate.is_none() {
-                let grouped_engines = grouped_aggregates
+            if route.global_distinct_field_aggregate.is_none() {
+                let grouped_engines = route
+                .grouped_aggregates
                 .iter()
                 .map(|aggregate| {
                     if aggregate.target_field().is_some() {
@@ -536,34 +667,13 @@ where
             } else {
                 (Vec::new(), Vec::new())
             };
-        let plan = plan.into_inner();
-        let execution_preparation = ExecutionPreparation::for_plan::<E>(&plan);
-
-        let mut span = Span::<E>::new(ExecKind::Load);
-        let ctx = self.db.recovered_context::<E>()?;
-        let execution_inputs = ExecutionInputs {
-            ctx: &ctx,
-            plan: &plan,
-            stream_bindings: AccessStreamBindings {
-                index_prefix_specs: index_prefix_specs.as_slice(),
-                index_range_specs: index_range_specs.as_slice(),
-                index_range_anchor: None,
-                direction,
-            },
-            execution_preparation: &execution_preparation,
-        };
-        record_grouped_plan_metrics(&plan.access, grouped_plan_metrics_strategy);
-        let mut resolved = Self::resolve_execution_key_stream_without_distinct(
-            &execution_inputs,
-            &grouped_route_plan,
-            IndexCompilePolicy::ConservativeSubset,
-        )?;
         let mut scanned_rows = 0usize;
         let mut filtered_rows = 0usize;
-        let compiled_predicate = execution_preparation.compiled_predicate();
+        let compiled_predicate = stream.execution_preparation.compiled_predicate();
 
-        if let Some((aggregate_kind, target_field)) = global_distinct_field_aggregate {
-            if !cursor.is_empty() {
+        if let Some((aggregate_kind, target_field)) = route.global_distinct_field_aggregate.as_ref()
+        {
+            if !route.cursor.is_empty() {
                 return Err(InternalError::from_cursor_plan_error(
                     crate::db::cursor::CursorPlanError::invalid_continuation_cursor_payload(
                         "global DISTINCT grouped aggregates do not support continuation cursors",
@@ -572,53 +682,51 @@ where
             }
 
             let global_row = Self::execute_global_distinct_field_aggregate(
-                &plan,
-                &ctx,
-                &mut resolved,
+                &route.plan,
+                &stream.ctx,
+                &mut stream.resolved,
                 compiled_predicate,
                 &mut grouped_execution_context,
-                (aggregate_kind, target_field.as_str()),
+                (*aggregate_kind, target_field.as_str()),
                 (&mut scanned_rows, &mut filtered_rows),
             )?;
             let page_rows = Self::page_global_distinct_grouped_row(
                 global_row,
-                plan.scalar_plan().page.as_ref(),
+                route.plan.scalar_plan().page.as_ref(),
             );
-            let rows_scanned = resolved.rows_scanned_override.unwrap_or(scanned_rows);
-            let optimization = resolved.optimization;
-            let index_predicate_applied = resolved.index_predicate_applied;
-            let index_predicate_keys_rejected = resolved.index_predicate_keys_rejected;
-            let distinct_keys_deduped = resolved
+            let rows_scanned = stream
+                .resolved
+                .rows_scanned_override
+                .unwrap_or(scanned_rows);
+            let optimization = stream.resolved.optimization;
+            let index_predicate_applied = stream.resolved.index_predicate_applied;
+            let index_predicate_keys_rejected = stream.resolved.index_predicate_keys_rejected;
+            let distinct_keys_deduped = stream
+                .resolved
                 .distinct_keys_deduped_counter
                 .as_ref()
                 .map_or(0, |counter| counter.get());
-            let rows_returned = page_rows.len();
 
-            Self::finalize_path_outcome(
-                &mut execution_trace,
-                optimization,
-                rows_scanned,
-                rows_returned,
-                index_predicate_applied,
-                index_predicate_keys_rejected,
-                distinct_keys_deduped,
-            );
-            span.set_rows(u64::try_from(rows_returned).unwrap_or(u64::MAX));
-
-            return Ok((
-                GroupedCursorPage {
+            return Ok(GroupedFoldStage {
+                page: GroupedCursorPage {
                     rows: page_rows,
                     next_cursor: None,
                 },
-                execution_trace,
-            ));
+                filtered_rows,
+                check_filtered_rows_upper_bound: false,
+                rows_scanned,
+                optimization,
+                index_predicate_applied,
+                index_predicate_keys_rejected,
+                distinct_keys_deduped,
+            });
         }
 
         // Phase 1: stream key->row reads, decode, predicate filtering, and grouped folding.
-        while let Some(key) = resolved.key_stream.next_key()? {
-            let row = match plan.scalar_plan().consistency {
-                MissingRowPolicy::Error => ctx.read_strict(&key),
-                MissingRowPolicy::Ignore => ctx.read(&key),
+        while let Some(key) = stream.resolved.key_stream.next_key()? {
+            let row = match route.plan.scalar_plan().consistency {
+                MissingRowPolicy::Error => stream.ctx.read_strict(&key),
+                MissingRowPolicy::Ignore => stream.ctx.read(&key),
             };
             let row = match row {
                 Ok(row) => row,
@@ -634,7 +742,8 @@ where
             }
             filtered_rows = filtered_rows.saturating_add(1);
 
-            let group_values = group_fields
+            let group_values = route
+                .group_fields
                 .iter()
                 .map(|field| {
                     entity.get_value_by_index(field.index()).ok_or_else(|| {
@@ -690,21 +799,24 @@ where
         })?;
 
         // Phase 3: apply grouped resume/offset/limit while finalizing grouped outputs.
-        let initial_offset = plan
+        let initial_offset = route
+            .plan
             .scalar_plan()
             .page
             .as_ref()
             .map_or(0, |page| page.offset);
-        let resume_initial_offset = if cursor.is_empty() {
+        let resume_initial_offset = if route.cursor.is_empty() {
             initial_offset
         } else {
-            cursor.initial_offset()
+            route.cursor.initial_offset()
         };
-        let resume_boundary = cursor
+        let resume_boundary = route
+            .cursor
             .last_group_key()
             .map(|last_group_key| Value::List(last_group_key.to_vec()));
-        let apply_initial_offset = cursor.is_empty();
-        let limit = plan
+        let apply_initial_offset = route.cursor.is_empty();
+        let limit = route
+            .plan
             .scalar_plan()
             .page
             .as_ref()
@@ -747,10 +859,10 @@ where
                     aggregate_count,
                     "grouped aggregate value alignment must preserve declared aggregate count",
                 );
-                if let Some(grouped_having) = grouped_having.as_ref()
+                if let Some(grouped_having) = route.grouped_having.as_ref()
                     && !Self::group_matches_having(
                         grouped_having,
-                        group_fields.as_slice(),
+                        route.group_fields.as_slice(),
                         &group_key_value,
                         aggregate_values.as_slice(),
                     )?
@@ -855,7 +967,7 @@ where
         let next_cursor = if has_more {
             last_emitted_group_key.map(|last_group_key| {
                 PageCursor::Grouped(GroupedContinuationToken::new_with_direction(
-                    continuation_signature,
+                    route.continuation_signature,
                     last_group_key,
                     Direction::Asc,
                     resume_initial_offset,
@@ -864,38 +976,60 @@ where
         } else {
             None
         };
-        let rows_scanned = resolved.rows_scanned_override.unwrap_or(scanned_rows);
-        let optimization = resolved.optimization;
-        let index_predicate_applied = resolved.index_predicate_applied;
-        let index_predicate_keys_rejected = resolved.index_predicate_keys_rejected;
-        let distinct_keys_deduped = resolved
+        let rows_scanned = stream
+            .resolved
+            .rows_scanned_override
+            .unwrap_or(scanned_rows);
+        let optimization = stream.resolved.optimization;
+        let index_predicate_applied = stream.resolved.index_predicate_applied;
+        let index_predicate_keys_rejected = stream.resolved.index_predicate_keys_rejected;
+        let distinct_keys_deduped = stream
+            .resolved
             .distinct_keys_deduped_counter
             .as_ref()
             .map_or(0, |counter| counter.get());
-        let rows_returned = page_rows.len();
 
-        Self::finalize_path_outcome(
-            &mut execution_trace,
-            optimization,
-            rows_scanned,
-            rows_returned,
-            index_predicate_applied,
-            index_predicate_keys_rejected,
-            distinct_keys_deduped,
-        );
-        span.set_rows(u64::try_from(rows_returned).unwrap_or(u64::MAX));
-        debug_assert!(
-            filtered_rows >= rows_returned,
-            "grouped pagination must return at most filtered row cardinality",
-        );
-
-        Ok((
-            GroupedCursorPage {
+        Ok(GroupedFoldStage {
+            page: GroupedCursorPage {
                 rows: page_rows,
                 next_cursor,
             },
-            execution_trace,
-        ))
+            filtered_rows,
+            check_filtered_rows_upper_bound: true,
+            rows_scanned,
+            optimization,
+            index_predicate_applied,
+            index_predicate_keys_rejected,
+            distinct_keys_deduped,
+        })
+    }
+
+    // Finalize grouped output payloads and observability after grouped fold execution.
+    fn finalize_grouped_output(
+        mut route: GroupedRouteStage<E>,
+        folded: GroupedFoldStage,
+    ) -> (GroupedCursorPage, Option<ExecutionTrace>) {
+        let rows_returned = folded.page.rows.len();
+        Self::finalize_path_outcome(
+            &mut route.execution_trace,
+            folded.optimization,
+            folded.rows_scanned,
+            rows_returned,
+            folded.index_predicate_applied,
+            folded.index_predicate_keys_rejected,
+            folded.distinct_keys_deduped,
+        );
+
+        let mut span = Span::<E>::new(ExecKind::Load);
+        span.set_rows(u64::try_from(rows_returned).unwrap_or(u64::MAX));
+        if folded.check_filtered_rows_upper_bound {
+            debug_assert!(
+                folded.filtered_rows >= rows_returned,
+                "grouped pagination must return at most filtered row cardinality",
+            );
+        }
+
+        (folded.page, route.execution_trace)
     }
 
     // Map grouped reducer errors into executor-owned error classes.

@@ -379,33 +379,53 @@ pub(crate) fn validate_group_query_semantics(
                 .map_err(PlanError::from)
         },
     )?;
+    validate_group_structure(schema, model, group, having)?;
+    validate_group_policy(schema, logical, group, having)?;
+    validate_group_cursor_constraints(logical, group)?;
+
+    Ok(())
+}
+
+// Validate grouped structural invariants before policy/cursor gates.
+fn validate_group_structure(
+    schema: &SchemaInfo,
+    model: &EntityModel,
+    group: &GroupSpec,
+    having: Option<&GroupHavingSpec>,
+) -> Result<(), PlanError> {
     if group.group_fields.is_empty() && having.is_some() {
         return Err(PlanError::from(
             GroupPlanError::GlobalDistinctAggregateShapeUnsupported,
         ));
     }
-    validate_grouped_distinct_and_order_policy(logical, group, having.is_some())?;
-    validate_group_spec(schema, model, group)?;
-    validate_grouped_having_policy(group, having)?;
+
+    validate_group_spec_structure(schema, model, group)?;
+    validate_grouped_having_structure(group, having)?;
 
     Ok(())
 }
 
-// Validate grouped DISTINCT + ORDER BY policy gates for grouped v1 hardening.
-fn validate_grouped_distinct_and_order_policy(
+// Validate grouped policy gates independent from structural shape checks.
+fn validate_group_policy(
+    schema: &SchemaInfo,
     logical: &ScalarPlan,
     group: &GroupSpec,
-    has_having: bool,
+    having: Option<&GroupHavingSpec>,
 ) -> Result<(), PlanError> {
-    if logical.distinct && has_having {
-        return Err(PlanError::from(GroupPlanError::DistinctHavingUnsupported));
-    }
-    if logical.distinct {
-        return Err(PlanError::from(
-            GroupPlanError::DistinctAdjacencyEligibilityRequired,
-        ));
-    }
+    validate_grouped_distinct_policy(logical, having.is_some())?;
+    validate_grouped_having_policy(having)?;
+    validate_group_spec_policy(schema, group)?;
 
+    Ok(())
+}
+
+// Validate grouped cursor-order constraints in one dedicated gate.
+fn validate_group_cursor_constraints(
+    logical: &ScalarPlan,
+    group: &GroupSpec,
+) -> Result<(), PlanError> {
+    // Grouped pagination/order constraints are cursor-domain policy:
+    // grouped ORDER BY requires LIMIT and must align with grouped-key prefix.
     let Some(order) = logical.order.as_ref() else {
         return Ok(());
     };
@@ -421,8 +441,25 @@ fn validate_grouped_distinct_and_order_policy(
     ))
 }
 
-// Validate grouped HAVING policy gates and grouped-symbol references.
-fn validate_grouped_having_policy(
+// Validate grouped DISTINCT policy gates for grouped v1 hardening.
+fn validate_grouped_distinct_policy(
+    logical: &ScalarPlan,
+    has_having: bool,
+) -> Result<(), PlanError> {
+    if logical.distinct && has_having {
+        return Err(PlanError::from(GroupPlanError::DistinctHavingUnsupported));
+    }
+    if logical.distinct {
+        return Err(PlanError::from(
+            GroupPlanError::DistinctAdjacencyEligibilityRequired,
+        ));
+    }
+
+    Ok(())
+}
+
+// Validate grouped HAVING structural symbol/reference compatibility.
+fn validate_grouped_having_structure(
     group: &GroupSpec,
     having: Option<&GroupHavingSpec>,
 ) -> Result<(), PlanError> {
@@ -431,15 +468,6 @@ fn validate_grouped_having_policy(
     };
 
     for (index, clause) in having.clauses().iter().enumerate() {
-        if !having_compare_op_supported(clause.op()) {
-            return Err(PlanError::from(
-                GroupPlanError::HavingUnsupportedCompareOp {
-                    index,
-                    op: format!("{:?}", clause.op()),
-                },
-            ));
-        }
-
         match clause.symbol() {
             GroupHavingSymbol::GroupField(field_slot) => {
                 if !group
@@ -472,6 +500,26 @@ fn validate_grouped_having_policy(
     Ok(())
 }
 
+// Validate grouped HAVING policy gates and operator support.
+fn validate_grouped_having_policy(having: Option<&GroupHavingSpec>) -> Result<(), PlanError> {
+    let Some(having) = having else {
+        return Ok(());
+    };
+
+    for (index, clause) in having.clauses().iter().enumerate() {
+        if !having_compare_op_supported(clause.op()) {
+            return Err(PlanError::from(
+                GroupPlanError::HavingUnsupportedCompareOp {
+                    index,
+                    op: format!("{:?}", clause.op()),
+                },
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 const fn having_compare_op_supported(op: CompareOp) -> bool {
     matches!(
         op,
@@ -496,15 +544,14 @@ fn order_prefix_aligned_with_group_fields(order: &OrderSpec, group_fields: &[Fie
         .all(|(group_field, (order_field, _))| order_field == group_field.field())
 }
 
-/// Validate one grouped declarative spec against schema-level field surface.
-pub(crate) fn validate_group_spec(
+// Validate grouped structural declarations against model/schema shape.
+fn validate_group_spec_structure(
     schema: &SchemaInfo,
     model: &EntityModel,
     group: &GroupSpec,
 ) -> Result<(), PlanError> {
     if group.group_fields.is_empty() {
         if group.aggregates.iter().any(GroupAggregateSpec::distinct) {
-            validate_global_distinct_aggregate_without_group_keys(schema, group)?;
             return Ok(());
         }
 
@@ -529,6 +576,30 @@ pub(crate) fn validate_group_spec(
     }
 
     for (index, aggregate) in group.aggregates.iter().enumerate() {
+        let Some(target_field) = aggregate.target_field.as_ref() else {
+            continue;
+        };
+        if schema.field(target_field).is_none() {
+            return Err(PlanError::from(
+                GroupPlanError::UnknownAggregateTargetField {
+                    index,
+                    field: target_field.clone(),
+                },
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+// Validate grouped execution policy over a structurally valid grouped spec.
+fn validate_group_spec_policy(schema: &SchemaInfo, group: &GroupSpec) -> Result<(), PlanError> {
+    if group.group_fields.is_empty() {
+        validate_global_distinct_aggregate_without_group_keys(schema, group)?;
+        return Ok(());
+    }
+
+    for (index, aggregate) in group.aggregates.iter().enumerate() {
         if aggregate.distinct() && !aggregate.kind().supports_grouped_distinct_v1() {
             return Err(PlanError::from(
                 GroupPlanError::DistinctAggregateKindUnsupported {
@@ -546,14 +617,6 @@ pub(crate) fn validate_group_spec(
                 GroupPlanError::DistinctAggregateFieldTargetUnsupported {
                     index,
                     kind: format!("{:?}", aggregate.kind()),
-                    field: target_field.clone(),
-                },
-            ));
-        }
-        if schema.field(target_field).is_none() {
-            return Err(PlanError::from(
-                GroupPlanError::UnknownAggregateTargetField {
-                    index,
                     field: target_field.clone(),
                 },
             ));

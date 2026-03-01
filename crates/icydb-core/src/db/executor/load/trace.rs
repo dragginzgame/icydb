@@ -4,26 +4,28 @@
 //! Boundary: pure projection helpers used by `ExecutionTrace`.
 
 use crate::db::{
-    access::{AccessPath, AccessPlan},
+    access::AccessPlan,
     direction::Direction,
-    executor::load::ExecutionAccessPathVariant,
     executor::route::order_direction_from_direction,
+    executor::{
+        AccessPathKind, AccessPlanKind, dispatch_access_plan_kind, load::ExecutionAccessPathVariant,
+    },
     query::plan::OrderDirection,
 };
 
 /// Project access-plan shape into trace-level access-path variant.
 pub(super) fn access_path_variant<K>(access: &AccessPlan<K>) -> ExecutionAccessPathVariant {
-    match access {
-        AccessPlan::Path(path) => match path.as_ref() {
-            AccessPath::ByKey(_) => ExecutionAccessPathVariant::ByKey,
-            AccessPath::ByKeys(_) => ExecutionAccessPathVariant::ByKeys,
-            AccessPath::KeyRange { .. } => ExecutionAccessPathVariant::KeyRange,
-            AccessPath::IndexPrefix { .. } => ExecutionAccessPathVariant::IndexPrefix,
-            AccessPath::IndexRange { .. } => ExecutionAccessPathVariant::IndexRange,
-            AccessPath::FullScan => ExecutionAccessPathVariant::FullScan,
+    match dispatch_access_plan_kind(access) {
+        AccessPlanKind::Path(kind) => match kind {
+            AccessPathKind::ByKey => ExecutionAccessPathVariant::ByKey,
+            AccessPathKind::ByKeys => ExecutionAccessPathVariant::ByKeys,
+            AccessPathKind::KeyRange => ExecutionAccessPathVariant::KeyRange,
+            AccessPathKind::IndexPrefix => ExecutionAccessPathVariant::IndexPrefix,
+            AccessPathKind::IndexRange => ExecutionAccessPathVariant::IndexRange,
+            AccessPathKind::FullScan => ExecutionAccessPathVariant::FullScan,
         },
-        AccessPlan::Union(_) => ExecutionAccessPathVariant::Union,
-        AccessPlan::Intersection(_) => ExecutionAccessPathVariant::Intersection,
+        AccessPlanKind::Union => ExecutionAccessPathVariant::Union,
+        AccessPlanKind::Intersection => ExecutionAccessPathVariant::Intersection,
     }
 }
 

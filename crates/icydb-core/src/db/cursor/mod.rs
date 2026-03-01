@@ -15,7 +15,7 @@ mod order;
 mod planned;
 mod range_token;
 mod signature;
-mod spine;
+pub(in crate::db) mod spine;
 
 pub(crate) mod token;
 
@@ -36,7 +36,7 @@ pub(in crate::db) use boundary::{
 };
 pub(in crate::db) use continuation::next_cursor_for_materialized_rows;
 pub(crate) use error::CursorPlanError;
-pub(in crate::db) use order::{apply_cursor_boundary, apply_order_spec, apply_order_spec_bounded};
+pub(in crate::db) use order::{apply_order_spec, apply_order_spec_bounded};
 pub(in crate::db) use planned::{GroupedPlannedCursor, PlannedCursor};
 pub(in crate::db) use range_token::{
     RangeToken, cursor_anchor_from_index_key, range_token_anchor_key,

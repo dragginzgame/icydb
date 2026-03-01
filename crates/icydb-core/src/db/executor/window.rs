@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        cursor::{CursorBoundary, apply_cursor_boundary},
+        cursor::{CursorBoundary, spine::apply_continuation},
         executor::{
             ExecutionKernel,
             kernel::PlanRow,
@@ -190,7 +190,7 @@ impl ExecutionKernel {
                 ));
             }
 
-            apply_cursor_boundary::<E, R, _>(rows, order, boundary, |row| row.entity());
+            apply_continuation::<E, R, _>(rows, order, boundary, |row| row.entity());
             return Ok((true, rows.len()));
         }
 
