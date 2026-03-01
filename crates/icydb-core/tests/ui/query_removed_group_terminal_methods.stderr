@@ -1,0 +1,5 @@
+error[E0599]: no method named `group_count` found for struct `icydb_core::db::Query<E>` in the current scope
+ --> tests/ui/query_removed_group_terminal_methods.rs:7:55
+  |
+7 |     let _ = Query::<E>::new(MissingRowPolicy::Ignore).group_count();
+  |                                                       ^^^^^^^^^^^ method not found in `icydb_core::db::Query<E>`

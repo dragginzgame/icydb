@@ -9,8 +9,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 - `0.37.0` starts aggregate fluent API consolidation with composable aggregate builders (`AggregateExpr`, `count`, `count_by`, `sum`, `exists`, `first`, `last`, `min`, `max`, `min_by`, `max_by`, `distinct`) and new `.aggregate(...)` query/fluent entrypoints.
 - `0.37.0` removes grouped combinatorial helper terminals (`group_count*`, `group_sum_distinct_by`, `group_exists`, `group_first`, `group_last`, `group_min*`, `group_max*`) as an intentional pre-`1.0` hard cut in favor of builder-only `.aggregate(...)` composition.
-- Aggregate semantic authority is now centralized behind `AggregateExpr` helpers, so distinct capability checks, grouped streaming compatibility, route extrema/fold derivation, and grouped fingerprint kind tags no longer drift across layers.
-- Added contract-freeze regression locks for grouped explain projection shape and grouped continuation-token direction-sensitive wire encoding to prevent drift while API surface work proceeds.
+- `0.37.1` closes hardening for this cut with compile-fail guards for removed terminals, typed builder-validation parity coverage, and migration guidance for replacing `group_*` calls with `.aggregate(...)`.
+
+```rust
+let page = session
+    .load::<Order>()
+    .group_by("user_id")?
+    .aggregate(count())
+    .aggregate(sum("rank").distinct())
+    .execute_grouped()?;
+```
 
 See detailed breakdown:
 [docs/changelog/0.37.md](docs/changelog/0.37.md)

@@ -6,7 +6,7 @@ use crate::{
         cursor::GroupedContinuationToken,
         direction::Direction,
         query::{
-            builder::{FieldRef, count, count_by, exists, first, last, max, min, sum},
+            builder::{FieldRef, count, count_by, exists, first, last, max, max_by, min, sum},
             expr::FilterExpr,
             plan::{AccessPlannedQuery, LogicalPlan, ScalarPlan},
         },
@@ -683,6 +683,76 @@ fn grouped_global_distinct_mixed_terminal_shape_without_group_by_is_rejected() {
                     if matches!(
                         inner.as_ref(),
                         crate::db::query::plan::validate::GroupPlanError::GlobalDistinctAggregateShapeUnsupported
+                    )
+            )
+    ));
+}
+
+#[test]
+fn grouped_aggregate_builder_rejects_distinct_for_unsupported_kind() {
+    let err = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .group_by("name")
+        .expect("group field should resolve")
+        .aggregate(exists().distinct())
+        .plan()
+        .expect_err("grouped distinct exists should remain rejected");
+
+    assert!(matches!(
+        err,
+        QueryError::Plan(ref plan_err)
+            if matches!(
+                **plan_err,
+                crate::db::query::plan::PlanError::Group(ref inner)
+                    if matches!(
+                        inner.as_ref(),
+                        crate::db::query::plan::validate::GroupPlanError::DistinctAggregateKindUnsupported { index, kind }
+                            if *index == 0 && kind == "Exists"
+                    )
+            )
+    ));
+}
+
+#[test]
+fn grouped_aggregate_builder_rejects_field_target_terminal_in_grouped_v1() {
+    let err = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .group_by("name")
+        .expect("group field should resolve")
+        .aggregate(max_by("name"))
+        .plan()
+        .expect_err("grouped max(field) should remain unsupported in grouped v1");
+
+    assert!(matches!(
+        err,
+        QueryError::Plan(ref plan_err)
+            if matches!(
+                **plan_err,
+                crate::db::query::plan::PlanError::Group(ref inner)
+                    if matches!(
+                        inner.as_ref(),
+                        crate::db::query::plan::validate::GroupPlanError::FieldTargetAggregatesUnsupported { index, kind, field }
+                            if *index == 0 && kind == "Max" && field == "name"
+                    )
+            )
+    ));
+}
+
+#[test]
+fn grouped_aggregate_builder_rejects_global_distinct_sum_on_non_numeric_target() {
+    let err = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .aggregate(sum("name").distinct())
+        .plan()
+        .expect_err("global sum(distinct non-numeric field) should fail");
+
+    assert!(matches!(
+        err,
+        QueryError::Plan(ref plan_err)
+            if matches!(
+                **plan_err,
+                crate::db::query::plan::PlanError::Group(ref inner)
+                    if matches!(
+                        inner.as_ref(),
+                        crate::db::query::plan::validate::GroupPlanError::GlobalDistinctSumTargetNotNumeric { index, field }
+                            if *index == 0 && field == "name"
                     )
             )
     ));
