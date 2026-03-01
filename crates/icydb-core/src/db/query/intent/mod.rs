@@ -735,6 +735,28 @@ impl<E: EntityKind> Query<E> {
         self.push_group_terminal_distinct(GroupAggregateKind::Count)
     }
 
+    /// Add one grouped global `count(distinct field)` terminal.
+    #[must_use]
+    pub fn group_count_distinct_by(mut self, field: impl AsRef<str>) -> Self {
+        self.intent = self.intent.push_group_aggregate(
+            GroupAggregateKind::Count,
+            Some(field.as_ref().to_string()),
+            true,
+        );
+        self
+    }
+
+    /// Add one grouped global `sum(distinct field)` terminal.
+    #[must_use]
+    pub fn group_sum_distinct_by(mut self, field: impl AsRef<str>) -> Self {
+        self.intent = self.intent.push_group_aggregate(
+            GroupAggregateKind::Sum,
+            Some(field.as_ref().to_string()),
+            true,
+        );
+        self
+    }
+
     /// Add one grouped `exists` terminal.
     #[must_use]
     pub fn group_exists(self) -> Self {

@@ -9,7 +9,10 @@
 // This module must remain execution-agnostic.
 // No imports from executor load/kernel/route are allowed.
 
-use crate::{traits::EntityKind, types::Id};
+use crate::{
+    traits::EntityKind,
+    types::{Decimal, Id},
+};
 
 pub(in crate::db::executor) use crate::db::query::plan::AggregateKind;
 
@@ -21,6 +24,7 @@ pub(in crate::db::executor) use crate::db::query::plan::AggregateKind;
 
 pub(in crate::db::executor) enum AggregateOutput<E: EntityKind> {
     Count(u32),
+    Sum(Option<Decimal>),
     Exists(bool),
     Min(Option<Id<E>>),
     Max(Option<Id<E>>),
@@ -34,6 +38,7 @@ impl AggregateKind {
     pub(in crate::db::executor) const fn zero_output<E: EntityKind>(self) -> AggregateOutput<E> {
         match self {
             Self::Count => AggregateOutput::Count(0),
+            Self::Sum => AggregateOutput::Sum(None),
             Self::Exists => AggregateOutput::Exists(false),
             Self::Min => AggregateOutput::Min(None),
             Self::Max => AggregateOutput::Max(None),
@@ -51,7 +56,7 @@ impl AggregateKind {
         match self {
             Self::Min => Some(AggregateOutput::Min(id)),
             Self::Max => Some(AggregateOutput::Max(id)),
-            Self::Count | Self::Exists | Self::First | Self::Last => None,
+            Self::Count | Self::Sum | Self::Exists | Self::First | Self::Last => None,
         }
     }
 

@@ -46,6 +46,28 @@ where
         )
     }
 
+    /// Execute global `sum(distinct field)` through grouped zero-key execution.
+    pub(in crate::db) fn aggregate_sum_distinct_by(
+        &self,
+        plan: ExecutablePlan<E>,
+        target_field: impl Into<String>,
+    ) -> Result<Option<Decimal>, InternalError> {
+        let target_field = target_field.into();
+        let value = self.execute_global_distinct_field_grouped_aggregate(
+            plan,
+            crate::db::query::plan::AggregateKind::Sum,
+            target_field.as_str(),
+        )?;
+
+        match value {
+            Some(crate::value::Value::Decimal(value)) => Ok(Some(value)),
+            Some(crate::value::Value::Null) | None => Ok(None),
+            Some(value) => Err(InternalError::query_executor_invariant(format!(
+                "global SUM(DISTINCT field) grouped output type mismatch: {value:?}",
+            ))),
+        }
+    }
+
     /// Execute `avg(field)` over the effective response window.
     pub(in crate::db) fn aggregate_avg_by(
         &self,

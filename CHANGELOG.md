@@ -7,15 +7,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.36.x] - 2026-03-01 - Ordered Group Strategy Foundations
 
-- Started the `0.36` grouped hardening line by formalizing explicit grouped strategy selection (`HashGroup` vs `OrderedGroup`) and landing a conservative grouped HAVING baseline.
-- Added deterministic grouped strategy/HAVING reporting across route observability, explain output, and grouped continuation-signature hashing.
-- Kept grouped behavior compatible by evaluating HAVING after per-group finalize (before emission) and by revalidating ordered hints at route time with hash fallback when ordered traversal guarantees are unavailable.
-- Added grouped DISTINCT aggregate contracts in `0.36.1`, including explicit grouped aggregate DISTINCT modifiers, conservative kind/shape validation gates, deterministic grouped fold dedup semantics, and typed distinct-budget guardrails.
-- Added explicit grouped ordered-streaming eligibility matrix revalidation so ordered strategy hints downgrade deterministically when residual predicates, unsupported HAVING operators, or traversal capability constraints break ordered-group safety.
-- Hardened grouped continuation contracts by mapping unsupported grouped token versions to typed version-mismatch errors and by expanding cross-shape grouped resume rejection coverage for HAVING/DISTINCT signature drift.
-- Added authoritative resource-model documentation at `docs/contracts/RESOURCE_MODEL.md`, aligned to current grouped budget contracts, scan-budget scope, streaming eligibility rules, and continuation invariants.
-- Declared a formal `0.36.x` contract freeze for grouped projection/explain/fingerprint/continuation/error/downgrade surfaces; post-tag semantic shape changes now defer to `0.37+`.
-- Removed test-only implicit plan deref coercions in favor of explicit grouped/scalar helper accessors to keep plan shape usage explicit in tests and tooling.
+- `0.36.0` established explicit grouped strategy routing (`HashGroup` vs `OrderedGroup`) plus conservative grouped `HAVING`, with deterministic downgrade and explain/fingerprint coverage.
+- `0.36.1` added grouped DISTINCT contracts, including zero-key global `COUNT(DISTINCT field)` and `SUM(DISTINCT field)` with continuation rejection and typed distinct-budget failures.
+- `0.36.2` hardens zero-key global DISTINCT execution so singleton-group admission and distinct inserts flow through grouped budget accounting without changing the public grouped shape.
+
+```rust
+let page = session
+    .load::<Order>()
+    .group_sum_distinct_by("rank")
+    .execute_grouped()?;
+```
 
 See detailed breakdown:
 [docs/changelog/0.36.md](docs/changelog/0.36.md)

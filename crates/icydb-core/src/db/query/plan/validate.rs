@@ -16,8 +16,8 @@ use crate::{
         cursor::CursorPlanError,
         predicate::{CompareOp, SchemaInfo, ValidateError, validate},
         query::plan::{
-            AccessPlannedQuery, FieldSlot, GroupHavingSpec, GroupHavingSymbol, GroupSpec, LoadSpec,
-            LogicalPlan, OrderSpec, QueryMode, ScalarPlan,
+            AccessPlannedQuery, FieldSlot, GroupAggregateSpec, GroupHavingSpec, GroupHavingSymbol,
+            GroupSpec, LoadSpec, LogicalPlan, OrderSpec, QueryMode, ScalarPlan,
         },
     },
     model::entity::EntityModel,
@@ -146,6 +146,12 @@ pub enum GroupPlanError {
     #[error("group specification must include at least one group field")]
     EmptyGroupFields,
 
+    /// Global DISTINCT aggregate shapes without GROUP BY are restricted.
+    #[error(
+        "global DISTINCT aggregate without GROUP BY must declare exactly one DISTINCT field-target aggregate in this release"
+    )]
+    GlobalDistinctAggregateShapeUnsupported,
+
     /// GROUP BY requires at least one aggregate terminal.
     #[error("group specification must include at least one aggregate terminal")]
     EmptyAggregates,
@@ -167,6 +173,10 @@ pub enum GroupPlanError {
     /// GROUP BY ORDER BY shape must start with grouped-key prefix.
     #[error("grouped ORDER BY must start with GROUP BY key prefix in this release")]
     OrderPrefixNotAlignedWithGroupKeys,
+
+    /// GROUP BY ORDER BY requires an explicit LIMIT in grouped v1.
+    #[error("grouped ORDER BY requires LIMIT in this release")]
+    OrderRequiresLimit,
 
     /// HAVING with DISTINCT is deferred until grouped DISTINCT support expands.
     #[error("grouped HAVING with DISTINCT is not supported in this release")]
@@ -209,6 +219,12 @@ pub enum GroupPlanError {
     /// Aggregate target fields must resolve in the model schema.
     #[error("unknown grouped aggregate target field at index={index}: '{field}'")]
     UnknownAggregateTargetField { index: usize, field: String },
+
+    /// Global DISTINCT SUM requires a numeric field target.
+    #[error(
+        "global DISTINCT SUM aggregate target field at index={index} is not numeric: '{field}'"
+    )]
+    GlobalDistinctSumTargetNotNumeric { index: usize, field: String },
 
     /// Field-target grouped terminals are not enabled in grouped execution v1.
     #[error(
@@ -373,6 +389,11 @@ pub(crate) fn validate_group_query_semantics(
                 .map_err(PlanError::from)
         },
     )?;
+    if group.group_fields.is_empty() && having.is_some() {
+        return Err(PlanError::from(
+            GroupPlanError::GlobalDistinctAggregateShapeUnsupported,
+        ));
+    }
     validate_grouped_distinct_and_order_policy(logical, group, having.is_some())?;
     validate_group_spec(schema, model, group)?;
     validate_grouped_having_policy(group, having)?;
@@ -398,6 +419,9 @@ fn validate_grouped_distinct_and_order_policy(
     let Some(order) = logical.order.as_ref() else {
         return Ok(());
     };
+    if logical.page.as_ref().and_then(|page| page.limit).is_none() {
+        return Err(PlanError::from(GroupPlanError::OrderRequiresLimit));
+    }
     if order_prefix_aligned_with_group_fields(order, group.group_fields.as_slice()) {
         return Ok(());
     }
@@ -489,6 +513,11 @@ pub(crate) fn validate_group_spec(
     group: &GroupSpec,
 ) -> Result<(), PlanError> {
     if group.group_fields.is_empty() {
+        if group.aggregates.iter().any(GroupAggregateSpec::distinct) {
+            validate_global_distinct_aggregate_without_group_keys(schema, group)?;
+            return Ok(());
+        }
+
         return Err(PlanError::from(GroupPlanError::EmptyGroupFields));
     }
     if group.aggregates.is_empty() {
@@ -544,6 +573,59 @@ pub(crate) fn validate_group_spec(
                 index,
                 kind: format!("{:?}", aggregate.kind()),
                 field: target_field.clone(),
+            },
+        ));
+    }
+
+    Ok(())
+}
+
+// Validate the restricted global DISTINCT aggregate shape (`GROUP BY` omitted).
+fn validate_global_distinct_aggregate_without_group_keys(
+    schema: &SchemaInfo,
+    group: &GroupSpec,
+) -> Result<(), PlanError> {
+    if group.aggregates.len() != 1 {
+        return Err(PlanError::from(
+            GroupPlanError::GlobalDistinctAggregateShapeUnsupported,
+        ));
+    }
+    let aggregate = &group.aggregates[0];
+    if !aggregate.distinct() {
+        return Err(PlanError::from(
+            GroupPlanError::GlobalDistinctAggregateShapeUnsupported,
+        ));
+    }
+    if !aggregate
+        .kind()
+        .supports_global_distinct_without_group_keys()
+    {
+        return Err(PlanError::from(
+            GroupPlanError::DistinctAggregateKindUnsupported {
+                index: 0,
+                kind: format!("{:?}", aggregate.kind()),
+            },
+        ));
+    }
+
+    let Some(target_field) = aggregate.target_field() else {
+        return Err(PlanError::from(
+            GroupPlanError::GlobalDistinctAggregateShapeUnsupported,
+        ));
+    };
+    let Some(field_type) = schema.field(target_field) else {
+        return Err(PlanError::from(
+            GroupPlanError::UnknownAggregateTargetField {
+                index: 0,
+                field: target_field.to_string(),
+            },
+        ));
+    };
+    if aggregate.kind().is_sum() && !field_type.supports_numeric_coercion() {
+        return Err(PlanError::from(
+            GroupPlanError::GlobalDistinctSumTargetNotNumeric {
+                index: 0,
+                field: target_field.to_string(),
             },
         ));
     }

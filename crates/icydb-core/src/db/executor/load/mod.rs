@@ -32,12 +32,13 @@ use crate::{
             AccessStreamBindings, ExecutablePlan, ExecutionKernel, ExecutionPreparation,
             KeyOrderComparator, OrderedKeyStreamBox,
             aggregate::field::{
-                AggregateFieldValueError, FieldSlot, resolve_any_aggregate_target_slot,
+                AggregateFieldValueError, FieldSlot, extract_numeric_field_decimal,
+                extract_orderable_field_value, resolve_any_aggregate_target_slot,
                 resolve_numeric_aggregate_target_slot, resolve_orderable_aggregate_target_slot,
             },
-            aggregate::{AggregateOutput, FoldControl, GroupError},
+            aggregate::{AggregateKind, AggregateOutput, FoldControl, GroupError},
             group::{
-                CanonicalKey, grouped_budget_observability,
+                CanonicalKey, GroupKeySet, KeyCanonicalError, grouped_budget_observability,
                 grouped_execution_context_from_planner_config,
             },
             plan_metrics::{
@@ -51,14 +52,15 @@ use crate::{
         index::IndexCompilePolicy,
         predicate::{CoercionSpec, CompareOp, MissingRowPolicy, compare_eq, compare_order},
         query::plan::{
-            AccessPlannedQuery, GroupHavingSpec, GroupHavingSymbol, LogicalPlan, OrderDirection,
-            grouped_executor_handoff,
+            AccessPlannedQuery, GroupAggregateSpec, GroupHavingSpec, GroupHavingSymbol,
+            LogicalPlan, OrderDirection, grouped_executor_handoff,
         },
         response::Response,
     },
     error::InternalError,
     obs::sink::{ExecKind, Span},
     traits::{EntityKind, EntityValue},
+    types::Decimal,
     value::Value,
 };
 use std::{cmp::Ordering, marker::PhantomData};
@@ -437,6 +439,7 @@ where
         let grouped_handoff = grouped_executor_handoff(plan.as_inner())?;
         let grouped_execution = grouped_handoff.execution();
         let group_fields = grouped_handoff.group_fields().to_vec();
+        let grouped_aggregates = grouped_handoff.aggregates().to_vec();
         let grouped_having = grouped_handoff.having().cloned();
         let grouped_route_plan =
             Self::build_execution_route_plan_for_grouped_handoff(grouped_handoff);
@@ -500,25 +503,36 @@ where
             ),
             "grouped execution route must remain blocking/materialized",
         );
-        let mut grouped_engines = grouped_handoff
-            .aggregates()
-            .iter()
-            .map(|aggregate| {
-                if aggregate.target_field().is_some() {
-                    return Err(InternalError::query_executor_invariant(format!(
-                        "grouped field-target aggregate reached executor after planning: {:?}",
-                        aggregate.kind()
-                    )));
-                }
+        let global_distinct_field_aggregate = Self::global_distinct_field_aggregate_spec(
+            group_fields.as_slice(),
+            grouped_aggregates.as_slice(),
+            grouped_having.as_ref(),
+        )?;
+        let (mut grouped_engines, mut short_circuit_keys) =
+            if global_distinct_field_aggregate.is_none() {
+                let grouped_engines = grouped_aggregates
+                .iter()
+                .map(|aggregate| {
+                    if aggregate.target_field().is_some() {
+                        return Err(InternalError::query_executor_invariant(format!(
+                            "grouped field-target aggregate reached executor after planning: {:?}",
+                            aggregate.kind()
+                        )));
+                    }
 
-                Ok(grouped_execution_context.create_grouped_engine::<E>(
-                    aggregate.kind(),
-                    aggregate_materialized_fold_direction(aggregate.kind()),
-                    aggregate.distinct(),
-                ))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let mut short_circuit_keys = vec![Vec::<Value>::new(); grouped_engines.len()];
+                    Ok(grouped_execution_context.create_grouped_engine::<E>(
+                        aggregate.kind(),
+                        aggregate_materialized_fold_direction(aggregate.kind()),
+                        aggregate.distinct(),
+                    ))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+                let short_circuit_keys = vec![Vec::<Value>::new(); grouped_engines.len()];
+
+                (grouped_engines, short_circuit_keys)
+            } else {
+                (Vec::new(), Vec::new())
+            };
         let plan = plan.into_inner();
         let execution_preparation = ExecutionPreparation::for_plan::<E>(&plan);
 
@@ -544,6 +558,58 @@ where
         let mut scanned_rows = 0usize;
         let mut filtered_rows = 0usize;
         let compiled_predicate = execution_preparation.compiled_predicate();
+
+        if let Some((aggregate_kind, target_field)) = global_distinct_field_aggregate {
+            if !cursor.is_empty() {
+                return Err(InternalError::from_cursor_plan_error(
+                    crate::db::cursor::CursorPlanError::invalid_continuation_cursor_payload(
+                        "global DISTINCT grouped aggregates do not support continuation cursors",
+                    ),
+                ));
+            }
+
+            let global_row = Self::execute_global_distinct_field_aggregate(
+                &plan,
+                &ctx,
+                &mut resolved,
+                compiled_predicate,
+                &mut grouped_execution_context,
+                (aggregate_kind, target_field.as_str()),
+                (&mut scanned_rows, &mut filtered_rows),
+            )?;
+            let page_rows = Self::page_global_distinct_grouped_row(
+                global_row,
+                plan.scalar_plan().page.as_ref(),
+            );
+            let rows_scanned = resolved.rows_scanned_override.unwrap_or(scanned_rows);
+            let optimization = resolved.optimization;
+            let index_predicate_applied = resolved.index_predicate_applied;
+            let index_predicate_keys_rejected = resolved.index_predicate_keys_rejected;
+            let distinct_keys_deduped = resolved
+                .distinct_keys_deduped_counter
+                .as_ref()
+                .map_or(0, |counter| counter.get());
+            let rows_returned = page_rows.len();
+
+            Self::finalize_path_outcome(
+                &mut execution_trace,
+                optimization,
+                rows_scanned,
+                rows_returned,
+                index_predicate_applied,
+                index_predicate_keys_rejected,
+                distinct_keys_deduped,
+            );
+            span.set_rows(u64::try_from(rows_returned).unwrap_or(u64::MAX));
+
+            return Ok((
+                GroupedCursorPage {
+                    rows: page_rows,
+                    next_cursor: None,
+                },
+                execution_trace,
+            ));
+        }
 
         // Phase 1: stream key->row reads, decode, predicate filtering, and grouped folding.
         while let Some(key) = resolved.key_stream.next_key()? {
@@ -812,10 +878,197 @@ where
         }
     }
 
+    // Resolve whether this grouped shape is the supported global DISTINCT
+    // field-target aggregate contract (`COUNT` or `SUM` with zero group keys).
+    fn global_distinct_field_aggregate_spec(
+        group_fields: &[crate::db::query::plan::FieldSlot],
+        aggregates: &[GroupAggregateSpec],
+        having: Option<&GroupHavingSpec>,
+    ) -> Result<Option<(AggregateKind, String)>, InternalError> {
+        if !group_fields.is_empty() {
+            return Ok(None);
+        }
+        if aggregates.is_empty() {
+            return Ok(None);
+        }
+        if aggregates
+            .iter()
+            .all(|aggregate| aggregate.target_field().is_none())
+        {
+            return Ok(None);
+        }
+        if having.is_some() {
+            return Err(InternalError::query_executor_invariant(
+                "global DISTINCT grouped aggregate shape does not support HAVING",
+            ));
+        }
+        if aggregates.len() != 1 {
+            return Err(InternalError::query_executor_invariant(
+                "global DISTINCT grouped aggregate shape requires exactly one aggregate terminal",
+            ));
+        }
+
+        let aggregate = &aggregates[0];
+        let Some(target_field) = aggregate.target_field() else {
+            return Err(InternalError::query_executor_invariant(
+                "global DISTINCT grouped aggregate shape requires field-target aggregate",
+            ));
+        };
+        if !aggregate.distinct() {
+            return Err(InternalError::query_executor_invariant(
+                "global DISTINCT grouped aggregate shape requires DISTINCT aggregate terminal",
+            ));
+        }
+        if !matches!(aggregate.kind(), AggregateKind::Count | AggregateKind::Sum) {
+            return Err(InternalError::query_executor_invariant(format!(
+                "unsupported global DISTINCT grouped aggregate kind: {:?}",
+                aggregate.kind()
+            )));
+        }
+
+        Ok(Some((aggregate.kind(), target_field.to_string())))
+    }
+
+    // Execute one global DISTINCT field-target grouped aggregate with grouped
+    // distinct budget accounting and deterministic reducer behavior.
+    fn execute_global_distinct_field_aggregate(
+        plan: &AccessPlannedQuery<E::Key>,
+        ctx: &Context<'_, E>,
+        resolved: &mut ResolvedExecutionKeyStream,
+        compiled_predicate: Option<&crate::db::predicate::PredicateProgram>,
+        grouped_execution_context: &mut crate::db::executor::aggregate::ExecutionContext,
+        aggregate_spec: (AggregateKind, &str),
+        row_counters: (&mut usize, &mut usize),
+    ) -> Result<GroupedRow, InternalError> {
+        let (aggregate_kind, target_field) = aggregate_spec;
+        let (scanned_rows, filtered_rows) = row_counters;
+        let field_slot = if aggregate_kind.is_sum() {
+            Self::resolve_numeric_field_slot(target_field)?
+        } else {
+            Self::resolve_any_field_slot(target_field)?
+        };
+        let mut distinct_values = GroupKeySet::new();
+        let mut count = 0u32;
+        let mut sum = Decimal::ZERO;
+        let mut saw_sum_value = false;
+
+        grouped_execution_context
+            .record_implicit_single_group::<E>()
+            .map_err(Self::map_group_error)?;
+
+        while let Some(key) = resolved.key_stream.next_key()? {
+            let row = match plan.scalar_plan().consistency {
+                MissingRowPolicy::Error => ctx.read_strict(&key),
+                MissingRowPolicy::Ignore => ctx.read(&key),
+            };
+            let row = match row {
+                Ok(row) => row,
+                Err(err) if err.is_not_found() => continue,
+                Err(err) => return Err(err),
+            };
+            *scanned_rows = scanned_rows.saturating_add(1);
+            let (_, entity) = Context::<E>::deserialize_row((key, row))?;
+            if let Some(compiled_predicate) = compiled_predicate
+                && !compiled_predicate.eval(&entity)
+            {
+                continue;
+            }
+            *filtered_rows = filtered_rows.saturating_add(1);
+
+            let distinct_value = extract_orderable_field_value(&entity, target_field, field_slot)
+                .map_err(AggregateFieldValueError::into_internal_error)?;
+            let distinct_key = distinct_value
+                .canonical_key()
+                .map_err(KeyCanonicalError::into_internal_error)?;
+            if distinct_values.contains_key(&distinct_key) {
+                continue;
+            }
+
+            let attempted_total = grouped_execution_context
+                .budget()
+                .distinct_values()
+                .saturating_add(1);
+            if attempted_total
+                > grouped_execution_context
+                    .config()
+                    .max_distinct_values_total()
+            {
+                return Err(Self::map_group_error(GroupError::DistinctBudgetExceeded {
+                    resource: "distinct_values_total",
+                    attempted: attempted_total,
+                    limit: grouped_execution_context
+                        .config()
+                        .max_distinct_values_total(),
+                }));
+            }
+
+            let attempted_per_group = u64::try_from(distinct_values.len())
+                .unwrap_or(u64::MAX)
+                .saturating_add(1);
+            if attempted_per_group
+                > grouped_execution_context
+                    .config()
+                    .max_distinct_values_per_group()
+            {
+                return Err(Self::map_group_error(GroupError::DistinctBudgetExceeded {
+                    resource: "distinct_values_per_group",
+                    attempted: attempted_per_group,
+                    limit: grouped_execution_context
+                        .config()
+                        .max_distinct_values_per_group(),
+                }));
+            }
+
+            let inserted = distinct_values.insert_key(distinct_key);
+            debug_assert!(inserted, "new global distinct key must insert exactly once");
+            grouped_execution_context
+                .record_distinct_value()
+                .map_err(Self::map_group_error)?;
+
+            if aggregate_kind.is_sum() {
+                let numeric_value =
+                    extract_numeric_field_decimal(&entity, target_field, field_slot)
+                        .map_err(AggregateFieldValueError::into_internal_error)?;
+                sum += numeric_value;
+                saw_sum_value = true;
+            } else {
+                count = count.saturating_add(1);
+            }
+        }
+
+        let aggregate_value = if aggregate_kind.is_sum() {
+            if saw_sum_value {
+                Value::Decimal(sum)
+            } else {
+                Value::Null
+            }
+        } else {
+            Value::Uint(u64::from(count))
+        };
+
+        Ok(GroupedRow::new(Vec::new(), vec![aggregate_value]))
+    }
+
+    // Apply grouped pagination semantics to the singleton global grouped row.
+    fn page_global_distinct_grouped_row(
+        row: GroupedRow,
+        page: Option<&crate::db::query::plan::PageSpec>,
+    ) -> Vec<GroupedRow> {
+        let Some(page) = page else {
+            return vec![row];
+        };
+        if page.offset > 0 || page.limit == Some(0) {
+            return Vec::new();
+        }
+
+        vec![row]
+    }
+
     // Convert one aggregate output payload into grouped response value payload.
     fn aggregate_output_to_value(output: &AggregateOutput<E>) -> Value {
         match output {
             AggregateOutput::Count(value) => Value::Uint(u64::from(*value)),
+            AggregateOutput::Sum(value) => value.map_or(Value::Null, Value::Decimal),
             AggregateOutput::Exists(value) => Value::Bool(*value),
             AggregateOutput::Min(value)
             | AggregateOutput::Max(value)

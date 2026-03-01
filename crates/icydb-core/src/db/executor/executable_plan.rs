@@ -213,6 +213,16 @@ impl<E: EntityKind> ExecutablePlan<E> {
                 ),
             ));
         }
+        if self.plan.grouped_plan().is_some_and(
+            crate::db::query::plan::GroupPlan::is_global_distinct_aggregate_without_group_keys,
+        ) && cursor.is_some()
+        {
+            return Err(ExecutorPlanError::from(
+                CursorPlanError::invalid_continuation_cursor_payload(
+                    "global DISTINCT grouped aggregates do not support continuation cursors",
+                ),
+            ));
+        }
 
         let order = self.plan.scalar_plan().order.as_ref();
         prepare_grouped_cursor(
@@ -233,6 +243,16 @@ impl<E: EntityKind> ExecutablePlan<E> {
         if !matches!(&self.plan.logical, LogicalPlan::Grouped(_)) {
             return Err(InternalError::query_executor_invariant(
                 "grouped cursor revalidation requires grouped logical plans",
+            ));
+        }
+        if self.plan.grouped_plan().is_some_and(
+            crate::db::query::plan::GroupPlan::is_global_distinct_aggregate_without_group_keys,
+        ) && !cursor.is_empty()
+        {
+            return Err(InternalError::from_cursor_plan_error(
+                CursorPlanError::invalid_continuation_cursor_payload(
+                    "global DISTINCT grouped aggregates do not support continuation cursors",
+                ),
             ));
         }
 

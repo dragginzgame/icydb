@@ -380,6 +380,37 @@ fn explain_grouped_distinct_aggregate_projection_is_reported() {
 }
 
 #[test]
+fn explain_global_distinct_sum_projection_is_reported() {
+    let grouped = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+        .into_grouped(GroupSpec {
+            group_fields: Vec::new(),
+            aggregates: vec![GroupAggregateSpec {
+                kind: GroupAggregateKind::Sum,
+                target_field: Some("rank".to_string()),
+                distinct: true,
+            }],
+            execution: GroupedExecutionConfig::with_hard_limits(1, 1024),
+        });
+
+    assert_eq!(
+        grouped.explain().grouping,
+        ExplainGrouping::Grouped {
+            strategy: crate::db::query::explain::ExplainGroupedStrategy::HashGroup,
+            group_fields: Vec::new(),
+            aggregates: vec![crate::db::query::explain::ExplainGroupAggregate {
+                kind: GroupAggregateKind::Sum,
+                target_field: Some("rank".to_string()),
+                distinct: true,
+            }],
+            having: None,
+            max_groups: 1,
+            max_group_bytes: 1024,
+        },
+        "global DISTINCT SUM should project explicit grouped explain payload with zero group keys",
+    );
+}
+
+#[test]
 fn explain_differs_for_semantic_changes() {
     let plan_a: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
         AccessPath::ByKey(Value::Ulid(Ulid::from_u128(1))),

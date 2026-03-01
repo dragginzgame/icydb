@@ -553,6 +553,130 @@ fn grouped_fluent_execute_count_distinct_pagination_does_not_split_single_group(
 }
 
 #[test]
+fn grouped_fluent_execute_global_count_distinct_field_emits_single_row() {
+    seed_grouped_phase_entities();
+    let session = DbSession::new(DB);
+
+    let page = session
+        .load::<PhaseEntity>()
+        .group_count_distinct_by("rank")
+        .execute_grouped()
+        .expect("global grouped count(distinct rank) should execute");
+
+    assert_eq!(
+        page.rows().len(),
+        1,
+        "global grouped distinct should emit one row"
+    );
+    assert_eq!(
+        page.rows()[0].group_key(),
+        &[] as &[Value],
+        "global grouped distinct should use empty grouped key",
+    );
+    assert_eq!(
+        page.rows()[0].aggregate_values(),
+        &[Value::Uint(2)],
+        "global grouped count(distinct rank) should count unique rank values",
+    );
+    assert!(
+        page.continuation_cursor().is_none(),
+        "global grouped distinct aggregates must not emit continuation cursors",
+    );
+}
+
+#[test]
+fn grouped_fluent_execute_global_sum_distinct_field_emits_single_row() {
+    seed_grouped_phase_entities();
+    let session = DbSession::new(DB);
+
+    let page = session
+        .load::<PhaseEntity>()
+        .group_sum_distinct_by("rank")
+        .execute_grouped()
+        .expect("global grouped sum(distinct rank) should execute");
+
+    assert_eq!(
+        page.rows().len(),
+        1,
+        "global grouped distinct should emit one row"
+    );
+    assert_eq!(
+        page.rows()[0].group_key(),
+        &[] as &[Value],
+        "global grouped distinct should use empty grouped key",
+    );
+    assert_eq!(
+        page.rows()[0].aggregate_values(),
+        &[Value::Decimal(
+            crate::types::Decimal::from_num(3_u64).expect("sum(distinct rank) decimal conversion")
+        )],
+        "global grouped sum(distinct rank) should sum unique rank values",
+    );
+    assert!(
+        page.continuation_cursor().is_none(),
+        "global grouped distinct aggregates must not emit continuation cursors",
+    );
+}
+
+#[test]
+fn grouped_fluent_execute_global_distinct_sum_rejects_continuation_cursor() {
+    seed_grouped_phase_entities();
+    let signature = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
+        .group_sum_distinct_by("rank")
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("global grouped sum(distinct rank) plan should build")
+        .continuation_signature();
+    let cursor = crate::db::cursor::GroupedContinuationToken::new_with_direction(
+        signature,
+        Vec::new(),
+        crate::db::direction::Direction::Asc,
+        0,
+    )
+    .encode()
+    .expect("global grouped cursor should encode");
+    let session = DbSession::new(DB);
+
+    let err = session
+        .load::<PhaseEntity>()
+        .group_sum_distinct_by("rank")
+        .cursor(crate::db::encode_cursor(cursor.as_slice()))
+        .execute_grouped()
+        .expect_err("global grouped distinct aggregates must reject continuation cursors");
+
+    let QueryError::Plan(plan_err) = err else {
+        panic!("global grouped continuation rejection should surface as plan-layer cursor error");
+    };
+    assert!(
+        plan_err
+            .to_string()
+            .contains("do not support continuation cursors"),
+        "global grouped continuation rejection reason should mention cursor incompatibility",
+    );
+}
+
+#[test]
+fn grouped_fluent_execute_global_distinct_count_enforces_total_distinct_cap() {
+    seed_grouped_phase_entities_with_filtered_middle_group();
+    let session = DbSession::new(DB);
+
+    let err = session
+        .load::<PhaseEntity>()
+        .group_count_distinct_by("label")
+        .grouped_limits(1, 256)
+        .execute_grouped()
+        .expect_err("global grouped distinct should fail when total distinct cap is exceeded");
+
+    let QueryError::Execute(err) = err else {
+        panic!("global grouped distinct cap failure should surface as execution error");
+    };
+    assert!(
+        err.message.contains("distinct_values_total"),
+        "global grouped distinct cap failure should report total distinct budget resource",
+    );
+}
+
+#[test]
 fn grouped_fluent_execute_having_pagination_skips_filtered_middle_group() {
     seed_grouped_phase_entities_with_filtered_middle_group();
     let session = DbSession::new(DB);

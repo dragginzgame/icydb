@@ -143,6 +143,20 @@ where
         self.map_query(Query::group_count_distinct)
     }
 
+    /// Add one grouped global `count(distinct field)` terminal.
+    #[must_use]
+    pub fn group_count_distinct_by(self, field: impl AsRef<str>) -> Self {
+        let field = field.as_ref().to_owned();
+        self.map_query(|query| query.group_count_distinct_by(&field))
+    }
+
+    /// Add one grouped global `sum(distinct field)` terminal.
+    #[must_use]
+    pub fn group_sum_distinct_by(self, field: impl AsRef<str>) -> Self {
+        let field = field.as_ref().to_owned();
+        self.map_query(|query| query.group_sum_distinct_by(&field))
+    }
+
     /// Add one grouped `exists` terminal.
     #[must_use]
     pub fn group_exists(self) -> Self {
@@ -441,6 +455,19 @@ where
         self.session
             .execute_load_query_with(self.query(), |load, plan| {
                 load.aggregate_sum_by(plan, field.as_ref())
+            })
+    }
+
+    /// Execute and return the sum of distinct `field` values.
+    pub fn sum_distinct_by(&self, field: impl AsRef<str>) -> Result<Option<Decimal>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        self.session
+            .execute_load_query_with(self.query(), |load, plan| {
+                load.aggregate_sum_distinct_by(plan, field.as_ref())
             })
     }
 

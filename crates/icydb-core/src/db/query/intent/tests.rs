@@ -235,6 +235,7 @@ fn grouped_load_order_prefix_mismatch_is_rejected() {
         .group_by("name")
         .expect("group field should resolve")
         .group_count()
+        .limit(1)
         .plan()
         .expect_err("grouped order should be rejected when group keys are not the order prefix");
 
@@ -259,8 +260,33 @@ fn grouped_load_order_prefix_alignment_is_allowed() {
         .group_by("name")
         .expect("group field should resolve")
         .group_count()
+        .limit(1)
         .plan()
-        .expect("grouped order should be accepted when grouped keys lead ORDER BY");
+        .expect("grouped order should be accepted when grouped keys lead ORDER BY and LIMIT is explicit");
+}
+
+#[test]
+fn grouped_load_order_without_limit_is_rejected() {
+    let err = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .order_by("name")
+        .group_by("name")
+        .expect("group field should resolve")
+        .group_count()
+        .plan()
+        .expect_err("grouped order should reject missing LIMIT");
+
+    assert!(matches!(
+        err,
+        QueryError::Plan(ref plan_err)
+            if matches!(
+                **plan_err,
+                crate::db::query::plan::PlanError::Group(ref inner)
+                    if matches!(
+                        inner.as_ref(),
+                        crate::db::query::plan::validate::GroupPlanError::OrderRequiresLimit
+                    )
+            )
+    ));
 }
 
 #[test]
@@ -271,6 +297,60 @@ fn grouped_load_distinct_count_terminal_is_allowed() {
         .group_count_distinct()
         .plan()
         .expect("grouped distinct count terminal should plan in grouped v1");
+}
+
+#[test]
+fn grouped_global_distinct_count_field_without_group_by_is_allowed() {
+    let plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .group_count_distinct_by("name")
+        .plan()
+        .expect("global grouped count(distinct field) should plan");
+
+    let Some(grouped) = plan.into_inner().grouped_plan().cloned() else {
+        panic!("global grouped distinct field aggregate must compile to grouped logical plan");
+    };
+    assert!(
+        grouped.group.group_fields.is_empty(),
+        "global grouped distinct aggregate should use zero group keys"
+    );
+    assert_eq!(
+        grouped.group.aggregates.len(),
+        1,
+        "global grouped distinct aggregate should declare exactly one terminal"
+    );
+    assert_eq!(
+        grouped.group.aggregates[0].target_field(),
+        Some("name"),
+        "global grouped distinct count should preserve target field"
+    );
+    assert!(
+        grouped.group.aggregates[0].distinct(),
+        "global grouped distinct count should preserve DISTINCT modifier"
+    );
+}
+
+#[test]
+fn grouped_global_distinct_mixed_terminal_shape_without_group_by_is_rejected() {
+    let err = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .group_count_distinct_by("name")
+        .group_count()
+        .plan()
+        .expect_err(
+            "global grouped distinct without group keys should reject mixed aggregate shape",
+        );
+
+    assert!(matches!(
+        err,
+        QueryError::Plan(ref plan_err)
+            if matches!(
+                **plan_err,
+                crate::db::query::plan::PlanError::Group(ref inner)
+                    if matches!(
+                        inner.as_ref(),
+                        crate::db::query::plan::validate::GroupPlanError::GlobalDistinctAggregateShapeUnsupported
+                    )
+            )
+    ));
 }
 
 #[test]

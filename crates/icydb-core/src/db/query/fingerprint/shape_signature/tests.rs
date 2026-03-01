@@ -314,6 +314,37 @@ fn signature_changes_when_group_aggregate_distinct_changes() {
 }
 
 #[test]
+fn signature_changes_between_sum_and_sum_distinct_grouped_shapes() {
+    let grouped_sum: AccessPlannedQuery<Value> =
+        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+            .into_grouped(GroupSpec {
+                group_fields: Vec::new(),
+                aggregates: vec![GroupAggregateSpec {
+                    kind: GroupAggregateKind::Sum,
+                    target_field: Some("rank".to_string()),
+                    distinct: false,
+                }],
+                execution: GroupedExecutionConfig::with_hard_limits(1, 1024),
+            });
+    let grouped_sum_distinct: AccessPlannedQuery<Value> =
+        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+            .into_grouped(GroupSpec {
+                group_fields: Vec::new(),
+                aggregates: vec![GroupAggregateSpec {
+                    kind: GroupAggregateKind::Sum,
+                    target_field: Some("rank".to_string()),
+                    distinct: true,
+                }],
+                execution: GroupedExecutionConfig::with_hard_limits(1, 1024),
+            });
+
+    assert_ne!(
+        grouped_sum.continuation_signature("tests::Entity"),
+        grouped_sum_distinct.continuation_signature("tests::Entity")
+    );
+}
+
+#[test]
 fn signature_changes_when_group_field_order_changes() {
     let grouped_ab: AccessPlannedQuery<Value> =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)

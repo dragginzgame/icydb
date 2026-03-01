@@ -11,7 +11,7 @@ use crate::{
     },
     error::InternalError,
     traits::EntityKind,
-    types::Id,
+    types::{Decimal, Id},
 };
 
 use crate::db::executor::aggregate::contracts::{
@@ -39,6 +39,7 @@ pub(in crate::db::executor) enum FoldControl {
 
 pub(in crate::db::executor) enum AggregateReducerState<E: EntityKind> {
     Count(u32),
+    Sum(Option<Decimal>),
     Exists(bool),
     Min(Option<Id<E>>),
     Max(Option<Id<E>>),
@@ -52,6 +53,7 @@ impl<E: EntityKind> AggregateReducerState<E> {
     pub(in crate::db::executor) const fn for_kind(kind: AggregateKind) -> Self {
         match kind {
             AggregateKind::Count => Self::Count(0),
+            AggregateKind::Sum => Self::Sum(None),
             AggregateKind::Exists => Self::Exists(false),
             AggregateKind::Min => Self::Min(None),
             AggregateKind::Max => Self::Max(None),
@@ -88,6 +90,9 @@ impl<E: EntityKind> AggregateReducerState<E> {
                 *count = count.saturating_add(1);
                 Ok(FoldControl::Continue)
             }
+            (AggregateKind::Sum, Self::Sum(_)) => Err(InternalError::query_executor_invariant(
+                "aggregate reducer SUM requires field-target execution path",
+            )),
             (AggregateKind::Exists, Self::Exists(exists)) => {
                 *exists = true;
                 Ok(FoldControl::Break)
@@ -159,6 +164,7 @@ impl<E: EntityKind> AggregateReducerState<E> {
     pub(in crate::db::executor) const fn into_output(self) -> AggregateOutput<E> {
         match self {
             Self::Count(value) => AggregateOutput::Count(value),
+            Self::Sum(value) => AggregateOutput::Sum(value),
             Self::Exists(value) => AggregateOutput::Exists(value),
             Self::Min(value) => AggregateOutput::Min(value),
             Self::Max(value) => AggregateOutput::Max(value),

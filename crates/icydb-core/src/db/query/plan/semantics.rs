@@ -47,6 +47,12 @@ impl AggregateKind {
         matches!(self, Self::Count)
     }
 
+    /// Return whether this terminal kind is `SUM`.
+    #[must_use]
+    pub(in crate::db) const fn is_sum(self) -> bool {
+        matches!(self, Self::Sum)
+    }
+
     /// Return whether this terminal kind supports explicit field targets.
     #[must_use]
     pub(in crate::db) const fn supports_field_targets(self) -> bool {
@@ -68,13 +74,19 @@ impl AggregateKind {
     /// Return whether reducer updates for this kind require a decoded id payload.
     #[must_use]
     pub(in crate::db) const fn requires_decoded_id(self) -> bool {
-        !matches!(self, Self::Count | Self::Exists)
+        !matches!(self, Self::Count | Self::Sum | Self::Exists)
     }
 
     /// Return whether grouped aggregate DISTINCT is supported for this kind.
     #[must_use]
     pub(in crate::db) const fn supports_grouped_distinct_v1(self) -> bool {
-        matches!(self, Self::Count | Self::Min | Self::Max)
+        matches!(self, Self::Count | Self::Min | Self::Max | Self::Sum)
+    }
+
+    /// Return whether global DISTINCT aggregate shape is supported without GROUP BY keys.
+    #[must_use]
+    pub(in crate::db) const fn supports_global_distinct_without_group_keys(self) -> bool {
+        matches!(self, Self::Count | Self::Sum)
     }
 
     /// Return the canonical grouped aggregate fingerprint tag (v1).
@@ -82,11 +94,12 @@ impl AggregateKind {
     pub(in crate::db) const fn fingerprint_tag_v1(self) -> u8 {
         match self {
             Self::Count => 0x01,
-            Self::Exists => 0x02,
-            Self::Min => 0x03,
-            Self::Max => 0x04,
-            Self::First => 0x05,
-            Self::Last => 0x06,
+            Self::Sum => 0x02,
+            Self::Exists => 0x03,
+            Self::Min => 0x04,
+            Self::Max => 0x05,
+            Self::First => 0x06,
+            Self::Last => 0x07,
         }
     }
 }
@@ -238,6 +251,21 @@ impl<K> AccessPlannedQuery<K> {
     #[cfg(test)]
     pub(in crate::db) const fn scalar_mut(&mut self) -> &mut ScalarPlan {
         self.scalar_plan_mut()
+    }
+}
+
+impl GroupPlan {
+    /// Return true when this grouped plan is the global DISTINCT aggregate shape.
+    #[must_use]
+    pub(in crate::db) fn is_global_distinct_aggregate_without_group_keys(&self) -> bool {
+        self.group.group_fields.is_empty()
+            && self.having.is_none()
+            && self.group.aggregates.len() == 1
+            && self.group.aggregates[0].distinct()
+            && self.group.aggregates[0].target_field().is_some()
+            && self.group.aggregates[0]
+                .kind()
+                .supports_global_distinct_without_group_keys()
     }
 }
 

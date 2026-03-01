@@ -21,6 +21,7 @@ Active execution/planning references:
 - `docs/design/0.35.1-hardening.md`
 - `docs/design/0.36-ordered-group-execution.md`
 - `docs/design/0.36-having.md`
+- `docs/design/0.37-aggregate-fluent-api-consolidation.md`
 - `docs/status/0.30-execution-kernel-status.md`
 - `docs/status/0.31-deterministic-keys-status.md`
 - `docs/status/0.32-aggregate-execution-stability-status.md`
@@ -28,6 +29,8 @@ Active execution/planning references:
 - `docs/status/0.35-group-by-status.md`
 - `docs/status/0.35.1-hardening-status.md`
 - `docs/status/0.36-grouped-hardening-status.md`
+- `docs/status/0.37-aggregate-fluent-api-status.md`
+- `docs/audits/reports/2026-03-01/resource-model-compliance.md`
 - `docs/changelog/0.36.md`
 - `CHANGELOG.md`
 

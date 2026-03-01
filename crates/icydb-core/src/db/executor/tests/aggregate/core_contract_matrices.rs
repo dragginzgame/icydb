@@ -985,6 +985,33 @@ fn aggregate_numeric_field_sum_and_avg_use_decimal_projection() {
 }
 
 #[test]
+fn aggregate_numeric_field_sum_distinct_uses_grouped_global_distinct_path() {
+    seed_pushdown_entities(&[
+        (8_0991, 7, 10),
+        (8_0992, 7, 20),
+        (8_0993, 7, 20),
+        (8_0994, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(u32_eq_predicate("group", 7))
+        .order_by("rank")
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("sum_distinct_by(rank) plan should build");
+
+    let sum_distinct = load
+        .aggregate_sum_distinct_by(plan, "rank")
+        .expect("sum_distinct_by(rank) should succeed");
+
+    assert_eq!(
+        sum_distinct,
+        Decimal::from_num(30_u64),
+        "sum_distinct_by(rank) should sum unique rank values only",
+    );
+}
+
+#[test]
 fn aggregate_numeric_field_unknown_target_fails_without_scan() {
     seed_pushdown_entities(&[(8_101, 7, 10), (8_102, 7, 20)]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);

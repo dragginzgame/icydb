@@ -8,10 +8,13 @@ use crate::{
         contracts::canonical_value_compare,
         data::DataKey,
         direction::Direction,
-        executor::group::{GroupKey, GroupKeySet, StableHash, canonical_group_key_equals},
+        executor::group::{
+            CanonicalKey, GroupKey, GroupKeySet, StableHash, canonical_group_key_equals,
+        },
     },
     error::InternalError,
     traits::EntityKind,
+    value::Value,
 };
 use std::{collections::BTreeMap, mem::size_of};
 
@@ -316,6 +319,19 @@ impl ExecutionContext {
         &mut self,
     ) -> Result<(), GroupError> {
         self.budget.record_distinct_value(&self.config)
+    }
+
+    /// Record one implicit singleton group for grouped shapes that are modeled
+    /// without explicit group-key boundary transitions (for example zero-key
+    /// global grouped aggregates).
+    pub(in crate::db::executor) fn record_implicit_single_group<E: EntityKind>(
+        &mut self,
+    ) -> Result<(), GroupError> {
+        let implicit_group_key = Value::List(Vec::new())
+            .canonical_key()
+            .map_err(|err| GroupError::Internal(err.into_internal_error()))?;
+
+        self.record_new_group::<E>(&implicit_group_key, true, 0, 0)
     }
 }
 

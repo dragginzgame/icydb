@@ -37,6 +37,7 @@ pub(in crate::db::executor) const fn aggregate_extrema_direction(
         AggregateKind::Min => Some(Direction::Asc),
         AggregateKind::Max => Some(Direction::Desc),
         AggregateKind::Count
+        | AggregateKind::Sum
         | AggregateKind::Exists
         | AggregateKind::First
         | AggregateKind::Last => None,
@@ -51,6 +52,7 @@ pub(in crate::db::executor) const fn aggregate_materialized_fold_direction(
     match kind {
         AggregateKind::Min => Direction::Desc,
         AggregateKind::Count
+        | AggregateKind::Sum
         | AggregateKind::Exists
         | AggregateKind::Max
         | AggregateKind::First
@@ -63,7 +65,7 @@ pub(in crate::db::executor) const fn aggregate_materialized_fold_direction(
 pub(in crate::db::executor) const fn aggregate_supports_bounded_probe_hint(
     kind: AggregateKind,
 ) -> bool {
-    !kind.is_count()
+    !kind.is_count() && !kind.is_sum()
 }
 
 /// Derive a bounded aggregate probe fetch hint for this kind.
@@ -79,6 +81,6 @@ pub(in crate::db::executor) fn aggregate_bounded_probe_fetch_hint(
         AggregateKind::Min if direction == Direction::Asc => Some(offset.saturating_add(1)),
         AggregateKind::Max if direction == Direction::Desc => Some(offset.saturating_add(1)),
         AggregateKind::Last => page_limit.map(|limit| offset.saturating_add(limit)),
-        AggregateKind::Count | AggregateKind::Min | AggregateKind::Max => None,
+        AggregateKind::Count | AggregateKind::Sum | AggregateKind::Min | AggregateKind::Max => None,
     }
 }

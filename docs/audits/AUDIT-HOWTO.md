@@ -66,7 +66,7 @@ For crosscutting structure/velocity runs, include the required Hub Import Pressu
 Audit history is append-only.
 
 Required:
-- No audit definition or report may be deleted.
+- No audit definition or report artifact may be deleted.
 - Existing historical reports must remain accessible.
 - If a relocation or rename collides with an existing filename, preserve the older artifact as `*_legacy.md`.
 

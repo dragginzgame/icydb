@@ -100,6 +100,7 @@ pub(crate) struct PageSpec {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AggregateKind {
     Count,
+    Sum,
     Exists,
     Min,
     Max,

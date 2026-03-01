@@ -75,6 +75,19 @@ Persistent memory growth during execution.
 
 Stable memory growth must remain explicit and bounded by operation semantics.
 
+### 2.4 Boundedness Authorities
+
+Boundedness is enforced by two distinct authorities:
+
+- Planner proof (shape admission): the planner must prove a query shape is bounded
+  before admitting it into execution.
+- Runtime caps (enforcement backstops): runtime counters and hard limits enforce
+  boundedness during execution and fail deterministically when exceeded.
+
+Runtime caps are necessary but are not a substitute for planner proof. A shape
+without planner-bounded admission must not be classified as Class A only because
+runtime caps exist.
+
 ## 3. Operator Classification
 
 ### 3.1 Class A: Structurally Bounded Operators
@@ -92,6 +105,14 @@ Examples:
 
 These require no extra cardinality growth structures beyond fixed operator
 state.
+
+Class A allocations must be structurally bounded or window-bounded by an
+explicit plan-admission bound.
+
+Local `Vec`/set allocations are Class A only when their maximum size is proven by
+plan shape (for example fixed operator structure) or by explicit admitted window
+bounds (for example planner-admitted `LIMIT`/fetch window). Otherwise they are
+Class B or Class C depending on enforced bounds.
 
 Ordered streaming grouped execution must maintain:
 
@@ -111,6 +132,7 @@ Examples:
 
 - Hash grouped execution
 - Grouped DISTINCT aggregates
+- Global DISTINCT field aggregates (`COUNT(DISTINCT field)`, `SUM(DISTINCT field)`)
 - DISTINCT sets within grouped aggregation
 
 Required guardrails:
@@ -152,6 +174,8 @@ For grouped queries, resource admission and execution must enforce:
 
 Distinct insertions must pass through grouped budget accounting.
 Budget enforcement over these counters is authoritative.
+This includes global DISTINCT field aggregates modeled as grouped execution with
+zero group keys.
 
 All cardinality-sensitive state must be reachable exclusively through
 budget-accounted structures.

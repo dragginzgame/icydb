@@ -213,7 +213,8 @@ impl ExecutionKernel {
             (kind, mode),
             (AggregateKind::Count, AggregateFoldMode::KeysOnly)
                 | (
-                    AggregateKind::Exists
+                    AggregateKind::Sum
+                        | AggregateKind::Exists
                         | AggregateKind::Min
                         | AggregateKind::Max
                         | AggregateKind::First
