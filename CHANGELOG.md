@@ -5,6 +5,18 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.37.x] - 2026-03-01 - Aggregate Fluent API Consolidation
+
+- `0.37.0` starts aggregate fluent API consolidation with composable aggregate builders (`AggregateExpr`, `count`, `count_by`, `sum`, `exists`, `first`, `last`, `min`, `max`, `min_by`, `max_by`, `distinct`) and new `.aggregate(...)` query/fluent entrypoints.
+- `0.37.0` removes grouped combinatorial helper terminals (`group_count*`, `group_sum_distinct_by`, `group_exists`, `group_first`, `group_last`, `group_min*`, `group_max*`) as an intentional pre-`1.0` hard cut in favor of builder-only `.aggregate(...)` composition.
+- Aggregate semantic authority is now centralized behind `AggregateExpr` helpers, so distinct capability checks, grouped streaming compatibility, route extrema/fold derivation, and grouped fingerprint kind tags no longer drift across layers.
+- Added contract-freeze regression locks for grouped explain projection shape and grouped continuation-token direction-sensitive wire encoding to prevent drift while API surface work proceeds.
+
+See detailed breakdown:
+[docs/changelog/0.37.md](docs/changelog/0.37.md)
+
+---
+
 ## [0.36.x] - 2026-03-01 - Ordered Group Strategy Foundations
 
 - `0.36.0` established grouped strategy routing (`HashGroup` vs `OrderedGroup`) and conservative grouped `HAVING`, with deterministic downgrade and explain/fingerprint coverage.

@@ -348,7 +348,7 @@ fn grouped_fluent_execute_supports_cursor_continuation() {
         .load::<PhaseEntity>()
         .group_by("rank")
         .expect("group field should resolve")
-        .group_count()
+        .aggregate(crate::db::count())
         .limit(1)
         .execute_grouped()
         .expect("first grouped page should execute");
@@ -378,7 +378,7 @@ fn grouped_fluent_execute_supports_cursor_continuation() {
         .load::<PhaseEntity>()
         .group_by("rank")
         .expect("group field should resolve")
-        .group_count()
+        .aggregate(crate::db::count())
         .limit(1)
         .cursor(continuation)
         .execute_grouped()
@@ -414,7 +414,7 @@ fn grouped_fluent_execute_having_filters_groups_without_extra_continuation() {
         .load::<PhaseEntity>()
         .group_by("rank")
         .expect("group field should resolve")
-        .group_count()
+        .aggregate(crate::db::count())
         .having_aggregate(0, CompareOp::Gt, Value::Uint(1))
         .expect("having clause should append on grouped query")
         .limit(1)
@@ -451,7 +451,7 @@ fn grouped_fluent_execute_having_supports_group_key_symbol_filtering() {
         .load::<PhaseEntity>()
         .group_by("rank")
         .expect("group field should resolve")
-        .group_count()
+        .aggregate(crate::db::count())
         .having_group("rank", CompareOp::Eq, Value::Uint(2))
         .expect("group-key having clause should append on grouped query")
         .execute_grouped()
@@ -483,14 +483,14 @@ fn grouped_fluent_execute_count_distinct_matches_group_count_for_id_terminals() 
         .load::<PhaseEntity>()
         .group_by("rank")
         .expect("group field should resolve")
-        .group_count()
+        .aggregate(crate::db::count())
         .execute_grouped()
         .expect("grouped count should execute");
     let grouped_count_distinct = session
         .load::<PhaseEntity>()
         .group_by("rank")
         .expect("group field should resolve")
-        .group_count_distinct()
+        .aggregate(crate::db::count().distinct())
         .execute_grouped()
         .expect("grouped count distinct should execute");
 
@@ -526,7 +526,7 @@ fn grouped_fluent_execute_count_distinct_pagination_does_not_split_single_group(
         .load::<PhaseEntity>()
         .group_by("rank")
         .expect("group field should resolve")
-        .group_count_distinct()
+        .aggregate(crate::db::count().distinct())
         .limit(1)
         .execute_grouped()
         .expect("single-group grouped distinct page should execute");
@@ -559,7 +559,7 @@ fn grouped_fluent_execute_global_count_distinct_field_emits_single_row() {
 
     let page = session
         .load::<PhaseEntity>()
-        .group_count_distinct_by("rank")
+        .aggregate(crate::db::count_by("rank").distinct())
         .execute_grouped()
         .expect("global grouped count(distinct rank) should execute");
 
@@ -591,7 +591,7 @@ fn grouped_fluent_execute_global_sum_distinct_field_emits_single_row() {
 
     let page = session
         .load::<PhaseEntity>()
-        .group_sum_distinct_by("rank")
+        .aggregate(crate::db::sum("rank").distinct())
         .execute_grouped()
         .expect("global grouped sum(distinct rank) should execute");
 
@@ -622,7 +622,7 @@ fn grouped_fluent_execute_global_sum_distinct_field_emits_single_row() {
 fn grouped_fluent_execute_global_distinct_sum_rejects_continuation_cursor() {
     seed_grouped_phase_entities();
     let signature = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
-        .group_sum_distinct_by("rank")
+        .aggregate(crate::db::sum("rank").distinct())
         .limit(1)
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
@@ -640,7 +640,7 @@ fn grouped_fluent_execute_global_distinct_sum_rejects_continuation_cursor() {
 
     let err = session
         .load::<PhaseEntity>()
-        .group_sum_distinct_by("rank")
+        .aggregate(crate::db::sum("rank").distinct())
         .limit(1)
         .cursor(crate::db::encode_cursor(cursor.as_slice()))
         .execute_grouped()
@@ -661,7 +661,7 @@ fn grouped_fluent_execute_global_distinct_sum_rejects_continuation_cursor() {
 fn grouped_fluent_execute_global_distinct_count_rejects_continuation_cursor() {
     seed_grouped_phase_entities();
     let signature = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
-        .group_count_distinct_by("rank")
+        .aggregate(crate::db::count_by("rank").distinct())
         .limit(1)
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
@@ -679,7 +679,7 @@ fn grouped_fluent_execute_global_distinct_count_rejects_continuation_cursor() {
 
     let err = session
         .load::<PhaseEntity>()
-        .group_count_distinct_by("rank")
+        .aggregate(crate::db::count_by("rank").distinct())
         .limit(1)
         .cursor(crate::db::encode_cursor(cursor.as_slice()))
         .execute_grouped()
@@ -702,7 +702,7 @@ fn grouped_fluent_execute_rejects_cursor_without_explicit_limit() {
     let signature = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .group_by("rank")
         .expect("grouped cursor-without-limit query should build")
-        .group_count()
+        .aggregate(crate::db::count())
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("grouped cursor-without-limit plan should build")
@@ -721,7 +721,7 @@ fn grouped_fluent_execute_rejects_cursor_without_explicit_limit() {
         .load::<PhaseEntity>()
         .group_by("rank")
         .expect("group field should resolve")
-        .group_count()
+        .aggregate(crate::db::count())
         .cursor(crate::db::encode_cursor(cursor.as_slice()))
         .execute_grouped()
         .expect_err("grouped continuation cursor should require explicit LIMIT");
@@ -742,7 +742,7 @@ fn grouped_fluent_execute_global_distinct_count_enforces_total_distinct_cap() {
 
     let err = session
         .load::<PhaseEntity>()
-        .group_count_distinct_by("label")
+        .aggregate(crate::db::count_by("label").distinct())
         .grouped_limits(1, 256)
         .execute_grouped()
         .expect_err("global grouped distinct should fail when total distinct cap is exceeded");
@@ -765,7 +765,7 @@ fn grouped_fluent_execute_rejects_cross_shape_cursor_when_only_distinct_changes(
         .load::<PhaseEntity>()
         .group_by("rank")
         .expect("group field should resolve")
-        .group_count()
+        .aggregate(crate::db::count())
         .limit(1)
         .execute_grouped()
         .expect("seed grouped page should execute");
@@ -778,7 +778,7 @@ fn grouped_fluent_execute_rejects_cross_shape_cursor_when_only_distinct_changes(
         .load::<PhaseEntity>()
         .group_by("rank")
         .expect("group field should resolve")
-        .group_count_distinct()
+        .aggregate(crate::db::count().distinct())
         .limit(1)
         .cursor(continuation)
         .execute_grouped()
@@ -804,7 +804,7 @@ fn grouped_fluent_execute_having_pagination_skips_filtered_middle_group() {
         .load::<PhaseEntity>()
         .group_by("rank")
         .expect("group field should resolve")
-        .group_count()
+        .aggregate(crate::db::count())
         .having_aggregate(0, CompareOp::Gt, Value::Uint(1))
         .expect("having aggregate clause should append on grouped query")
         .limit(1)
@@ -830,7 +830,7 @@ fn grouped_fluent_execute_having_pagination_skips_filtered_middle_group() {
         .load::<PhaseEntity>()
         .group_by("rank")
         .expect("group field should resolve")
-        .group_count()
+        .aggregate(crate::db::count())
         .having_aggregate(0, CompareOp::Gt, Value::Uint(1))
         .expect("having aggregate clause should append on grouped query")
         .limit(1)
@@ -868,7 +868,7 @@ fn grouped_fluent_execute_does_not_split_single_group_across_pages() {
         .load::<PhaseEntity>()
         .group_by("rank")
         .expect("group field should resolve")
-        .group_count()
+        .aggregate(crate::db::count())
         .limit(1)
         .execute_grouped()
         .expect("single-group grouped page should execute");
@@ -907,8 +907,8 @@ fn grouped_fluent_execute_supports_min_max_id_terminals() {
         .load::<PhaseEntity>()
         .group_by("rank")
         .expect("group field should resolve")
-        .group_min()
-        .group_max()
+        .aggregate(crate::db::min())
+        .aggregate(crate::db::max())
         .execute_grouped()
         .expect("grouped min/max terminals should execute");
 
@@ -947,9 +947,9 @@ fn grouped_fluent_execute_supports_exists_first_last_terminals() {
         .load::<PhaseEntity>()
         .group_by("rank")
         .expect("group field should resolve")
-        .group_exists()
-        .group_first()
-        .group_last()
+        .aggregate(crate::db::exists())
+        .aggregate(crate::db::first())
+        .aggregate(crate::db::last())
         .execute_grouped()
         .expect("grouped exists/first/last terminals should execute");
 
@@ -1013,7 +1013,7 @@ fn grouped_query_page_builder_rejects_grouped_shape() {
         .load::<PhaseEntity>()
         .group_by("rank")
         .expect("group field should resolve")
-        .group_count()
+        .aggregate(crate::db::count())
         .limit(1)
         .page()
     else {
@@ -1037,7 +1037,7 @@ fn grouped_query_scalar_execute_rejects_grouped_shape() {
         .load::<PhaseEntity>()
         .group_by("rank")
         .expect("group field should resolve")
-        .group_count()
+        .aggregate(crate::db::count())
         .execute()
         .expect_err("grouped query should not execute through scalar load path");
 
@@ -1054,21 +1054,28 @@ fn grouped_query_scalar_execute_rejects_grouped_shape() {
 fn grouped_field_target_min_by_is_rejected_in_grouped_v1() {
     let session = DbSession::new(DB);
 
-    let Err(err) = session
+    let err = session
         .load::<PhaseEntity>()
         .group_by("rank")
         .expect("group field should resolve")
-        .group_min_by("rank")
-    else {
-        panic!("grouped field-target min should be deferred in grouped v1");
-    };
+        .aggregate(crate::db::min_by("rank"))
+        .execute_grouped()
+        .expect_err("grouped field-target min should be deferred in grouped v1");
 
     assert!(
         matches!(
             err,
-            QueryError::Intent(IntentError::GroupedFieldTargetExtremaUnsupported)
+            QueryError::Plan(plan_err)
+                if matches!(
+                    plan_err.as_ref(),
+                    crate::db::query::plan::PlanError::Group(group_err)
+                        if matches!(
+                            group_err.as_ref(),
+                            crate::db::query::plan::GroupPlanError::FieldTargetAggregatesUnsupported { .. }
+                        )
+                )
         ),
-        "grouped field-target min should fail fast at intent boundary"
+        "grouped field-target min should fail with grouped field-target policy error"
     );
 }
 
@@ -1076,21 +1083,28 @@ fn grouped_field_target_min_by_is_rejected_in_grouped_v1() {
 fn grouped_field_target_max_by_is_rejected_in_grouped_v1() {
     let session = DbSession::new(DB);
 
-    let Err(err) = session
+    let err = session
         .load::<PhaseEntity>()
         .group_by("rank")
         .expect("group field should resolve")
-        .group_max_by("rank")
-    else {
-        panic!("grouped field-target max should be deferred in grouped v1");
-    };
+        .aggregate(crate::db::max_by("rank"))
+        .execute_grouped()
+        .expect_err("grouped field-target max should be deferred in grouped v1");
 
     assert!(
         matches!(
             err,
-            QueryError::Intent(IntentError::GroupedFieldTargetExtremaUnsupported)
+            QueryError::Plan(plan_err)
+                if matches!(
+                    plan_err.as_ref(),
+                    crate::db::query::plan::PlanError::Group(group_err)
+                        if matches!(
+                            group_err.as_ref(),
+                            crate::db::query::plan::GroupPlanError::FieldTargetAggregatesUnsupported { .. }
+                        )
+                )
         ),
-        "grouped field-target max should fail fast at intent boundary"
+        "grouped field-target max should fail with grouped field-target policy error"
     );
 }
 

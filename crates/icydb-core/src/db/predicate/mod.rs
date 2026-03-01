@@ -26,7 +26,6 @@ pub(in crate::db) use normalize::{normalize, normalize_enum_literals};
 pub(crate) use schema::FieldType;
 #[cfg(test)]
 pub(crate) use schema::ScalarType;
-#[allow(unused_imports)]
 pub(crate) use schema::{
     SchemaInfo, literal_matches_type, reject_unsupported_query_features, validate,
 };

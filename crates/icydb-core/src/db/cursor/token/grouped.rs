@@ -161,6 +161,21 @@ mod tests {
     }
 
     #[test]
+    fn grouped_continuation_token_v1_desc_wire_vector_is_frozen() {
+        let token = grouped_token_fixture(Direction::Desc);
+
+        let encoded = token
+            .encode()
+            .expect("grouped continuation token should encode");
+        let actual_hex = encode_cursor(encoded.as_slice());
+        assert_eq!(
+            actual_hex,
+            "a56776657273696f6e01697369676e61747572659820184218421842184218421842184218421842184218421842184218421842184218421842184218421842184218421842184218421842184218421842184218426e6c6173745f67726f75705f6b657983a164546578746874656e616e742d61a16455696e7407a164426f6f6cf569646972656374696f6e64446573636e696e697469616c5f6f666673657404",
+            "grouped continuation token v1 DESC wire encoding must remain stable",
+        );
+    }
+
+    #[test]
     fn grouped_continuation_token_decode_rejects_unsupported_version() {
         let token = grouped_token_fixture(Direction::Asc);
         let encoded = token

@@ -21,6 +21,7 @@ use crate::{
             normalize_enum_literals, reject_unsupported_query_features,
         },
         query::{
+            builder::aggregate::AggregateExpr,
             explain::ExplainPlan,
             expr::{FilterExpr, SortExpr, SortLowerError},
             plan::{
@@ -28,10 +29,9 @@ use crate::{
                 FluentLoadPolicyViolation, GroupAggregateKind, GroupAggregateSpec,
                 GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupSpec,
                 GroupedExecutionConfig, IntentKeyAccessKind as IntentValidationKeyAccessKind,
-                IntentKeyAccessPolicyViolation, IntentTerminalPolicyViolation, LogicalPlan,
-                OrderDirection, OrderSpec, PageSpec, PlanError, PlannerError, PolicyPlanError,
-                ScalarPlan, has_explicit_order, plan_access, resolve_group_field_slot,
-                validate_group_query_semantics, validate_grouped_field_target_extrema_policy,
+                IntentKeyAccessPolicyViolation, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
+                PlanError, PlannerError, PolicyPlanError, ScalarPlan, has_explicit_order,
+                plan_access, resolve_group_field_slot, validate_group_query_semantics,
                 validate_intent_key_access_policy, validate_intent_plan_shape,
                 validate_order_shape, validate_query_semantics,
             },
@@ -713,112 +713,15 @@ impl<E: EntityKind> Query<E> {
         Ok(Self { intent, _marker })
     }
 
-    fn push_group_terminal(mut self, kind: GroupAggregateKind) -> Self {
-        self.intent = self.intent.push_group_aggregate(kind, None, false);
-        self
-    }
-
-    fn push_group_terminal_distinct(mut self, kind: GroupAggregateKind) -> Self {
-        self.intent = self.intent.push_group_aggregate(kind, None, true);
-        self
-    }
-
-    /// Add one grouped `count(*)` terminal.
+    /// Add one aggregate terminal via composable aggregate expression.
     #[must_use]
-    pub fn group_count(self) -> Self {
-        self.push_group_terminal(GroupAggregateKind::Count)
-    }
-
-    /// Add one grouped `count(distinct id)` terminal.
-    #[must_use]
-    pub fn group_count_distinct(self) -> Self {
-        self.push_group_terminal_distinct(GroupAggregateKind::Count)
-    }
-
-    /// Add one grouped global `count(distinct field)` terminal.
-    #[must_use]
-    pub fn group_count_distinct_by(mut self, field: impl AsRef<str>) -> Self {
+    pub fn aggregate(mut self, aggregate: AggregateExpr) -> Self {
         self.intent = self.intent.push_group_aggregate(
-            GroupAggregateKind::Count,
-            Some(field.as_ref().to_string()),
-            true,
+            aggregate.kind(),
+            aggregate.target_field().map(str::to_string),
+            aggregate.is_distinct(),
         );
         self
-    }
-
-    /// Add one grouped global `sum(distinct field)` terminal.
-    #[must_use]
-    pub fn group_sum_distinct_by(mut self, field: impl AsRef<str>) -> Self {
-        self.intent = self.intent.push_group_aggregate(
-            GroupAggregateKind::Sum,
-            Some(field.as_ref().to_string()),
-            true,
-        );
-        self
-    }
-
-    /// Add one grouped `exists` terminal.
-    #[must_use]
-    pub fn group_exists(self) -> Self {
-        self.push_group_terminal(GroupAggregateKind::Exists)
-    }
-
-    /// Add one grouped `first` terminal.
-    #[must_use]
-    pub fn group_first(self) -> Self {
-        self.push_group_terminal(GroupAggregateKind::First)
-    }
-
-    /// Add one grouped `last` terminal.
-    #[must_use]
-    pub fn group_last(self) -> Self {
-        self.push_group_terminal(GroupAggregateKind::Last)
-    }
-
-    /// Add one grouped `min` terminal (id extrema).
-    #[must_use]
-    pub fn group_min(self) -> Self {
-        self.push_group_terminal(GroupAggregateKind::Min)
-    }
-
-    /// Add one grouped `min(distinct id)` terminal.
-    #[must_use]
-    pub fn group_min_distinct(self) -> Self {
-        self.push_group_terminal_distinct(GroupAggregateKind::Min)
-    }
-
-    /// Add one grouped `max` terminal (id extrema).
-    #[must_use]
-    pub fn group_max(self) -> Self {
-        self.push_group_terminal(GroupAggregateKind::Max)
-    }
-
-    /// Add one grouped `max(distinct id)` terminal.
-    #[must_use]
-    pub fn group_max_distinct(self) -> Self {
-        self.push_group_terminal_distinct(GroupAggregateKind::Max)
-    }
-
-    /// Add one grouped `min(field)` terminal.
-    ///
-    /// Grouped field-target extrema are deferred in grouped v1.
-    pub fn group_min_by(self, _field: impl AsRef<str>) -> Result<Self, QueryError> {
-        validate_grouped_field_target_extrema_policy()
-            .map_err(IntentError::from)
-            .map_err(QueryError::Intent)?;
-
-        Ok(self)
-    }
-
-    /// Add one grouped `max(field)` terminal.
-    ///
-    /// Grouped field-target extrema are deferred in grouped v1.
-    pub fn group_max_by(self, _field: impl AsRef<str>) -> Result<Self, QueryError> {
-        validate_grouped_field_target_extrema_policy()
-            .map_err(IntentError::from)
-            .map_err(QueryError::Intent)?;
-
-        Ok(self)
     }
 
     /// Override grouped hard limits for grouped execution budget enforcement.
@@ -1022,9 +925,6 @@ pub enum IntentError {
     #[error("grouped queries require execute_grouped(...)")]
     GroupedRequiresExecuteGrouped,
 
-    #[error("grouped field-target extrema are not supported in grouped v1")]
-    GroupedFieldTargetExtremaUnsupported,
-
     #[error("HAVING requires GROUP BY")]
     HavingRequiresGroupBy,
 }
@@ -1044,16 +944,6 @@ impl From<IntentKeyAccessPolicyViolation> for IntentError {
             IntentKeyAccessPolicyViolation::KeyAccessConflict => Self::KeyAccessConflict,
             IntentKeyAccessPolicyViolation::ByIdsWithPredicate => Self::ByIdsWithPredicate,
             IntentKeyAccessPolicyViolation::OnlyWithPredicate => Self::OnlyWithPredicate,
-        }
-    }
-}
-
-impl From<IntentTerminalPolicyViolation> for IntentError {
-    fn from(err: IntentTerminalPolicyViolation) -> Self {
-        match err {
-            IntentTerminalPolicyViolation::GroupedFieldTargetExtremaUnsupported => {
-                Self::GroupedFieldTargetExtremaUnsupported
-            }
         }
     }
 }

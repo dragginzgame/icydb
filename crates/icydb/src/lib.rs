@@ -155,7 +155,13 @@ pub mod prelude {
         db,
         db::{
             query,
-            query::{FilterExpr, SortExpr, builder::FieldRef, predicate::Predicate},
+            query::{
+                FilterExpr, SortExpr,
+                builder::{
+                    FieldRef, count, count_by, exists, first, last, max, max_by, min, min_by, sum,
+                },
+                predicate::Predicate,
+            },
         },
         traits::{
             AsView, Collection as _, Create, CreateView as _, EntityKind as _, EntityValue,
@@ -180,7 +186,9 @@ pub mod design {
 
         pub use crate::{
             base, db,
-            db::query::builder::FieldRef,
+            db::query::builder::{
+                FieldRef, count, count_by, exists, first, last, max, max_by, min, min_by, sum,
+            },
             macros::*,
             traits::{
                 AsView, Collection as _, Create, CreateView, EntityKind, EntityValue as _,

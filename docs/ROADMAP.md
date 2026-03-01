@@ -1,98 +1,193 @@
 # IcyDB Roadmap
 
-This document describes the long-term direction of IcyDB.
+This document defines the long-term direction and architectural identity of IcyDB.
 
-Current guarantees, invariants, and limits for shipped behavior are defined in:
+This roadmap is directional and planning-oriented.
+Behavioral guarantees are defined exclusively in:
 
 - `docs/contracts/ATOMICITY.md`
 - `docs/contracts/REF_INTEGRITY.md`
 - `docs/contracts/RESOURCE_MODEL.md`
 - `docs/contracts/TRANSACTION_SEMANTICS.md`
 
-This roadmap is directional and planning-oriented, not a release contract.
-
-Active execution/planning references:
-
-- `docs/design/0.30-execution-kernel.md`
-- `docs/design/0.31-deterministic-keys.md`
-- `docs/design/0.32-aggregate-execution-stability.md`
-- `docs/design/0.33-planner-group-by-integration.md`
-- `docs/design/0.35-group-by.md`
-- `docs/design/0.35.1-hardening.md`
-- `docs/design/0.36-ordered-group-execution.md`
-- `docs/design/0.36-having.md`
-- `docs/design/0.37-aggregate-fluent-api-consolidation.md`
-- `docs/status/0.30-execution-kernel-status.md`
-- `docs/status/0.31-deterministic-keys-status.md`
-- `docs/status/0.32-aggregate-execution-stability-status.md`
-- `docs/status/0.33-planner-group-by-status.md`
-- `docs/status/0.35-group-by-status.md`
-- `docs/status/0.35.1-hardening-status.md`
-- `docs/status/0.36-grouped-hardening-status.md`
-- `docs/status/0.37-aggregate-fluent-api-status.md`
-- `docs/audits/reports/2026-03-01/resource-model-compliance.md`
-- `docs/audits/reports/2026-03-01/resource-model-compliance-0.36.3.md`
-- `docs/changelog/0.36.md`
-- `CHANGELOG.md`
+This document defines *what IcyDB is*, *what it will become*, and *what it will not become*.
 
 ---
 
-## Current Baseline
+# 1. System Identity
 
-Today, the system is built around:
+IcyDB is a **deterministic, single-entity analytical execution engine**.
+
+It provides:
 
 - Typed-entity-first APIs
-- Deterministic planning and execution
-- Explicit, enforced invariants
-- Clear boundaries between public API and engine internals
+- Rule-based deterministic planning
+- Streaming-first execution
+- Explicit transactional semantics
+- Stable continuation and cursor guarantees
+- Strict separation between planner and executor authority
 
-Core save/delete semantics remain explicit:
-
-- single-entity save/delete operations are atomic
-- non-atomic batch helpers are fail-fast and non-atomic
-- atomic batch helpers are atomic per single entity type per call
-- multi-entity transaction guarantees are not part of the current contract
+IcyDB intentionally operates within a **bounded relational algebra model**.
 
 ---
 
-## Short-Term Goals
+# 2. Algebra Boundary (Intentional Scope)
 
-Focus: build on shipped `0.36` grouped contracts while planning `0.37` expansion.
+IcyDB supports:
 
-- Preserve `0.36` grouped invariants (strategy revalidation, HAVING stage semantics, DISTINCT budget guardrails, continuation shape safety) as hard regression gates.
-- Expand grouped capability only through bounded, explicit contracts (no implicit buffering, no hidden cardinality state).
-- Keep planner/executor authority boundaries strict:
-  - planner proposes eligibility
-  - executor revalidates and may downgrade, never upgrade
-- Continue cursor and continuation hardening for any new grouped/query shape.
-- Keep the resource contract (`docs/contracts/RESOURCE_MODEL.md`) synchronized with shipped executor behavior.
-- Keep milestone tracking and release docs synchronized across `docs/status/`, `docs/changelog/`, and `CHANGELOG.md`.
+- `SELECT`
+- `WHERE`
+- `GROUP BY`
+- `HAVING`
+- `ORDER BY`
+- `LIMIT` / continuation-based pagination
+- Deterministic aggregates
+- Typed field projection
 
----
+All queries operate over a **single logical entity root**.
 
-## Medium-Term Goals
+The system is equivalent to:
 
-Focus: simplify the numeric core while preserving deterministic query semantics.
+> Relational algebra (projection + selection)
+> Extended with aggregation
+> Without relational joins
 
-- Execute `0.23` as numeric consolidation around an internal decimal primitive.
-- Replace `E8s`/`E18s` split paths with a single owned decimal path and schema-level scale enforcement.
-- Remove external decimal dependency as part of the `0.23` consolidation.
-- Add aggregate-aware fast paths where behavior is provably equivalent.
-- Ship `0.24` composite aggregate direct-path routing with parity-first safeguards and canonical fallback guarantees.
-- Continue cursor and continuation hardening, including stronger envelope/signature boundaries.
-- Advance data-integrity hardening for replay safety, migration safety, and corruption detection tooling.
+This boundary is intentional and stabilizing.
 
 ---
 
-## Long-Term Goals
+# 3. Planner Philosophy
 
-Focus: expand capability while preserving explicit semantics.
+IcyDB uses a **capability-driven, rule-based planner**.
 
-- Multi-entity transactions with a formal semantics spec, explicit APIs, and replay/recovery test coverage.
-- First-class operational CLI over a stable engine command surface.
-- Structural identity projection to remove drift between normalization and plan fingerprinting.
+The planner:
 
-Conceptual CLI surface (illustrative):
+- Proposes eligibility for index usage
+- Proposes grouping and ordering strategies
+- Does not perform probabilistic cost modeling
+- Does not enumerate join trees
+- Does not rely on cardinality estimation
+
+The executor:
+
+- Revalidates planner decisions
+- May downgrade strategy
+- Never upgrades planner assumptions
+- Preserves deterministic behavior
+
+IcyDB does **not** implement a cost-based optimizer.
+
+---
+
+# 4. Execution Model
+
+The execution model is:
+
+- Streaming-first when structurally possible
+- Explicit when materialization is required
+- Memory-bounded by contract
+- Explicit about downgrade paths
+- Explicit about DISTINCT and grouping budget enforcement
+
+No hidden buffering.
+No silent execution-mode shifts.
+
+Continuation envelopes are stable and versioned.
+
+---
+
+# 5. Transaction Model
+
+Current guarantees:
+
+- Single-entity save/delete operations are atomic.
+- Non-atomic batch helpers are fail-fast and non-atomic.
+- Atomic batch helpers are atomic per single entity type per call.
+- Multi-entity transaction semantics are not part of the current contract.
+
+Future transactional expansion will:
+
+- Be explicit
+- Have formal semantics
+- Include replay/recovery test coverage
+- Never be implicit or inferred
+
+---
+
+# 6. Engine Completion Goals (1.0 Target)
+
+The system is considered architecturally complete when:
+
+- Algebra boundary is frozen (no joins, no windows).
+- Planner/executor authority boundaries are strictly enforced.
+- Continuation and cursor semantics are fully hardened.
+- Numeric core is consolidated under a single decimal model.
+- Aggregate execution paths are strategy-stable and downgrade-safe.
+- Storage invariants are formally documented and test-backed.
+- Structural identity is unified between normalization and fingerprinting.
+- Observability surface is stable.
+
+At that point, growth becomes incremental refinement, not architectural expansion.
+
+---
+
+# 7. Near-Term Focus
+
+## Stability & Consolidation
+
+- Preserve grouped invariants and HAVING semantics.
+- Harden continuation envelope boundaries.
+- Complete numeric consolidation under unified decimal.
+- Remove legacy numeric split paths.
+- Maintain strict resource-model compliance.
+- Eliminate semantic duplication across layers.
+
+## Execution Optimization (Within Scope)
+
+- Aggregate-aware fast paths (provably equivalent only).
+- Composite aggregate direct-path routing.
+- Covering-index detection improvements.
+- Strategy selection clarity (without cost-based planning).
+- Deterministic downgrade pathways.
+
+---
+
+# 8. Medium-Term Expansion (Bounded)
+
+Expansion remains within single-entity algebra.
+
+Potential additions:
+
+- Richer aggregate library (SUM, AVG, statistical aggregates).
+- COUNT DISTINCT variants (bounded memory only).
+- Expression support for projection and grouping.
+- Extended predicate operators.
+- Storage and cardinality metrics exposure.
+- Operational CLI over stable engine surface.
+
+All expansion must preserve:
+
+- Determinism
+- Explicit semantics
+- Streaming preference
+- Resource-model clarity
+
+---
+
+# 9. Long-Term Direction
+
+## Multi-Entity Transactions
+
+If implemented:
+
+- Must have formal semantics specification.
+- Must preserve deterministic replay guarantees.
+- Must not introduce implicit cross-entity commit coupling.
+- Must not relax current atomicity contracts.
+
+## Operational Surface
+
+A first-class CLI may provide:
 
 ```bash
 icydb schema create
@@ -106,27 +201,58 @@ icydb export
 icydb import
 ```
 
----
-
-## Non-Goals (Near Term)
-
-The following are explicitly out of near-term scope:
-
-- implicit or inferred transactional behavior
-- hidden retries that mask failure semantics
-- relaxing existing atomicity guarantees
-- relational query semantics beyond the documented model
-
-Correctness remains explicit, bounded, and testable.
+This surface remains an operational wrapper over a stable engine core.
 
 ---
 
-## Summary
+# 10. Explicit Non-Goals
+
+The following are intentionally out of scope:
+
+* Relational joins
+* Cost-based optimization
+* Window functions
+* Recursive queries
+* Implicit transactional inference
+* Hidden execution buffering
+* Silent downgrade/upgrade semantics
+* Heuristic plan instability
+
+IcyDB does not aim to be a general-purpose relational database.
+
+It aims to be:
+
+> A deterministic, bounded, single-entity analytical engine with explicit semantics and strong correctness guarantees.
+
+---
+
+# 11. Evolution Philosophy
 
 IcyDB evolves deliberately:
 
-- strict current guarantees
-- explicit future semantics
-- no silent behavioral upgrades
+* No silent behavioral changes.
+* No implicit semantic upgrades.
+* No scope creep beyond declared algebra boundary.
+* No probabilistic planner behavior.
+* No relaxation of documented guarantees.
 
-Roadmap items move by readiness and safety, not by fixed future version numbering.
+Readiness and safety drive versioning — not feature pressure.
+
+---
+
+# Summary
+
+IcyDB has transitioned from exploratory architecture to a defined system class.
+
+Its future growth is:
+
+* Refinement over expansion
+* Determinism over heuristics
+* Explicit contracts over inference
+* Stability over surface-area inflation
+
+The algebra boundary is intentional.
+The planner model is intentional.
+The execution determinism is intentional.
+
+That constraint is the foundation of long-term sustainability.

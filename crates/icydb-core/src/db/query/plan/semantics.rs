@@ -7,6 +7,7 @@ use crate::{
     db::{
         access::{AccessPath, AccessPlan},
         query::{
+            builder::AggregateExpr,
             explain::ExplainAccessPath,
             plan::{
                 AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec,
@@ -44,63 +45,49 @@ impl AggregateKind {
     /// Return whether this terminal kind is `COUNT`.
     #[must_use]
     pub(in crate::db) const fn is_count(self) -> bool {
-        matches!(self, Self::Count)
+        AggregateExpr::is_count_kind(self)
     }
 
     /// Return whether this terminal kind is `SUM`.
     #[must_use]
     pub(in crate::db) const fn is_sum(self) -> bool {
-        matches!(self, Self::Sum)
+        AggregateExpr::is_sum_kind(self)
     }
 
     /// Return whether this terminal kind supports explicit field targets.
     #[must_use]
     pub(in crate::db) const fn supports_field_targets(self) -> bool {
-        matches!(self, Self::Min | Self::Max)
+        AggregateExpr::supports_field_targets_kind(self)
     }
 
     /// Return whether this terminal kind belongs to the extrema family.
     #[must_use]
     pub(in crate::db) const fn is_extrema(self) -> bool {
-        self.supports_field_targets()
+        AggregateExpr::is_extrema_kind(self)
     }
 
     /// Return whether this terminal kind supports first/last value projection.
     #[must_use]
     pub(in crate::db) const fn supports_terminal_value_projection(self) -> bool {
-        matches!(self, Self::First | Self::Last)
+        AggregateExpr::supports_terminal_value_projection_kind(self)
     }
 
     /// Return whether reducer updates for this kind require a decoded id payload.
     #[must_use]
     pub(in crate::db) const fn requires_decoded_id(self) -> bool {
-        !matches!(self, Self::Count | Self::Sum | Self::Exists)
+        AggregateExpr::requires_decoded_id_kind(self)
     }
 
     /// Return whether grouped aggregate DISTINCT is supported for this kind.
     #[must_use]
     pub(in crate::db) const fn supports_grouped_distinct_v1(self) -> bool {
-        matches!(self, Self::Count | Self::Min | Self::Max | Self::Sum)
+        AggregateExpr::supports_grouped_distinct_kind_v1(self)
     }
 
     /// Return whether global DISTINCT aggregate shape is supported without GROUP BY keys.
     #[must_use]
     pub(in crate::db) const fn supports_global_distinct_without_group_keys(self) -> bool {
-        matches!(self, Self::Count | Self::Sum)
-    }
-
-    /// Return the canonical grouped aggregate fingerprint tag (v1).
-    #[must_use]
-    pub(in crate::db) const fn fingerprint_tag_v1(self) -> u8 {
-        match self {
-            Self::Count => 0x01,
-            Self::Sum => 0x02,
-            Self::Exists => 0x03,
-            Self::Min => 0x04,
-            Self::Max => 0x05,
-            Self::First => 0x06,
-            Self::Last => 0x07,
-        }
+        AggregateExpr::supports_global_distinct_without_group_keys_kind(self)
     }
 }
 
@@ -121,6 +108,13 @@ impl GroupAggregateSpec {
     #[must_use]
     pub(crate) const fn distinct(&self) -> bool {
         self.distinct
+    }
+
+    /// Return true when this aggregate is eligible for grouped ordered streaming.
+    #[must_use]
+    pub(in crate::db) const fn streaming_compatible_v1(&self) -> bool {
+        self.target_field.is_none()
+            && (!self.distinct || AggregateExpr::supports_grouped_distinct_kind_v1(self.kind))
     }
 }
 
@@ -313,10 +307,9 @@ pub(crate) fn grouped_plan_strategy_hint<K>(
 }
 
 fn grouped_aggregates_streaming_compatible(aggregates: &[GroupAggregateSpec]) -> bool {
-    aggregates.iter().all(|aggregate| {
-        aggregate.target_field().is_none()
-            && (!aggregate.distinct() || aggregate.kind().supports_grouped_distinct_v1())
-    })
+    aggregates
+        .iter()
+        .all(GroupAggregateSpec::streaming_compatible_v1)
 }
 
 fn grouped_having_streaming_compatible(having: Option<&GroupHavingSpec>) -> bool {

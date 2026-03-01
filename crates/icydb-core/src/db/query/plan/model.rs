@@ -96,7 +96,6 @@ pub(crate) struct PageSpec {
 /// Executor must derive traversal and fold direction exclusively from this enum.
 ///
 
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AggregateKind {
     Count,

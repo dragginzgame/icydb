@@ -235,10 +235,11 @@ fn derive_grouped_ordered_eligibility<K>(
 ) -> GroupedOrderedEligibility {
     let grouped = plan.grouped_plan();
     let aggregates_streaming_compatible = grouped.is_some_and(|grouped| {
-        grouped.group.aggregates.iter().all(|aggregate| {
-            aggregate.target_field().is_none()
-                && (!aggregate.distinct() || aggregate.kind().supports_grouped_distinct_v1())
-        })
+        grouped
+            .group
+            .aggregates
+            .iter()
+            .all(crate::db::query::plan::GroupAggregateSpec::streaming_compatible_v1)
     });
     let having_streaming_compatible = grouped.is_none_or(|grouped| {
         grouped.having.as_ref().is_none_or(|having| {

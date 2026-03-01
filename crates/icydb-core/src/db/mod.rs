@@ -51,7 +51,10 @@ pub use predicate::MissingRowPolicy;
 pub use predicate::ValidateError;
 pub use predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature};
 pub use query::{
-    builder::field::FieldRef,
+    builder::{
+        AggregateExpr, FieldRef, count, count_by, exists, first, last, max, max_by, min, min_by,
+        sum,
+    },
     expr::{FilterExpr, SortExpr},
     fluent::{
         delete::FluentDeleteQuery,

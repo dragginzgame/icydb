@@ -8,6 +8,7 @@ use crate::{
     db::{
         predicate::{MissingRowPolicy, Predicate, hash_predicate as hash_model_predicate},
         query::{
+            builder::AggregateExpr,
             explain::{
                 ExplainAccessPath, ExplainDeleteLimit, ExplainGroupAggregate, ExplainGroupHaving,
                 ExplainGroupHavingClause, ExplainGroupHavingSymbol, ExplainGroupedStrategy,
@@ -473,7 +474,10 @@ fn hash_group_aggregate_structural_fingerprint_v1(
     // Future aggregate features (distinct/filter/window/precision/mode) must
     // extend this helper explicitly to preserve continuation-signature safety.
     write_tag(hasher, GROUP_AGGREGATE_STRUCTURAL_FINGERPRINT_V1);
-    write_tag(hasher, aggregate.kind.fingerprint_tag_v1());
+    write_tag(
+        hasher,
+        AggregateExpr::fingerprint_tag_for_kind_v1(aggregate.kind),
+    );
     match &aggregate.target_field {
         Some(field) => {
             write_tag(hasher, 0x01);

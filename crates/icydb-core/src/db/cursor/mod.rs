@@ -42,7 +42,7 @@ pub(in crate::db) use range_token::{
     RangeToken, cursor_anchor_from_index_key, range_token_anchor_key,
     range_token_from_cursor_anchor, range_token_from_lowered_anchor,
 };
-#[allow(unreachable_pub)]
+#[expect(unreachable_pub)]
 pub use signature::ContinuationSignature;
 pub(crate) use token::{ContinuationToken, TokenWireError};
 pub(in crate::db) use token::{GroupedContinuationToken, IndexRangeCursorAnchor};

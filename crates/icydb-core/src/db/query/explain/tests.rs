@@ -380,6 +380,99 @@ fn explain_grouped_distinct_aggregate_projection_is_reported() {
 }
 
 #[test]
+fn explain_grouped_ordered_having_projection_shape_is_frozen() {
+    let group_field = FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
+        .expect("group field should resolve");
+    let grouped = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: PUSHDOWN_INDEX,
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    )
+    .into_grouped_with_having(
+        GroupSpec {
+            group_fields: vec![group_field.clone()],
+            aggregates: vec![GroupAggregateSpec {
+                kind: GroupAggregateKind::Count,
+                target_field: None,
+                distinct: false,
+            }],
+            execution: GroupedExecutionConfig::with_hard_limits(12, 4096),
+        },
+        Some(GroupHavingSpec {
+            clauses: vec![GroupHavingClause {
+                symbol: GroupHavingSymbol::AggregateIndex(0),
+                op: CompareOp::Gt,
+                value: Value::Uint(1),
+            }],
+        }),
+    );
+
+    assert_eq!(
+        grouped.explain().grouping,
+        ExplainGrouping::Grouped {
+            strategy: ExplainGroupedStrategy::OrderedGroup,
+            group_fields: vec![ExplainGroupField {
+                slot_index: group_field.index(),
+                field: group_field.field().to_string(),
+            }],
+            aggregates: vec![ExplainGroupAggregate {
+                kind: GroupAggregateKind::Count,
+                target_field: None,
+                distinct: false,
+            }],
+            having: Some(ExplainGroupHaving {
+                clauses: vec![ExplainGroupHavingClause {
+                    symbol: ExplainGroupHavingSymbol::AggregateIndex { index: 0 },
+                    op: CompareOp::Gt,
+                    value: Value::Uint(1),
+                }],
+            }),
+            max_groups: 12,
+            max_group_bytes: 4096,
+        },
+        "ordered grouped HAVING explain projection must remain stable",
+    );
+}
+
+#[test]
+fn explain_grouped_hash_distinct_projection_shape_is_frozen() {
+    let group_field = FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "rank")
+        .expect("group field should resolve");
+    let grouped = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+        .into_grouped(GroupSpec {
+            group_fields: vec![group_field.clone()],
+            aggregates: vec![GroupAggregateSpec {
+                kind: GroupAggregateKind::Count,
+                target_field: None,
+                distinct: true,
+            }],
+            execution: GroupedExecutionConfig::with_hard_limits(25, 16_384),
+        });
+
+    assert_eq!(
+        grouped.explain().grouping,
+        ExplainGrouping::Grouped {
+            strategy: ExplainGroupedStrategy::HashGroup,
+            group_fields: vec![ExplainGroupField {
+                slot_index: group_field.index(),
+                field: group_field.field().to_string(),
+            }],
+            aggregates: vec![ExplainGroupAggregate {
+                kind: GroupAggregateKind::Count,
+                target_field: None,
+                distinct: true,
+            }],
+            having: None,
+            max_groups: 25,
+            max_group_bytes: 16_384,
+        },
+        "hash grouped DISTINCT explain projection must remain stable",
+    );
+}
+
+#[test]
 fn explain_global_distinct_sum_projection_is_reported() {
     let grouped = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
         .into_grouped(GroupSpec {

@@ -1,7 +1,7 @@
 use crate::{
     db::{
         Row,
-        query::{FilterExpr, Predicate, Query, SortExpr},
+        query::{AggregateExpr, FilterExpr, Predicate, Query, SortExpr},
         response::{PagedGroupedResponse, PagedResponse, Response},
         session::macros::{impl_session_materialization_methods, impl_session_query_shape_methods},
     },
@@ -66,58 +66,11 @@ impl<'a, E: EntityKind> FluentLoadQuery<'a, E> {
         Ok(self)
     }
 
-    /// Add one grouped `count(*)` terminal.
+    /// Add one grouped aggregate terminal.
     #[must_use]
-    pub fn group_count(mut self) -> Self {
-        self.inner = self.inner.group_count();
+    pub fn aggregate(mut self, aggregate: AggregateExpr) -> Self {
+        self.inner = self.inner.aggregate(aggregate);
         self
-    }
-
-    /// Add one grouped `exists` terminal.
-    #[must_use]
-    pub fn group_exists(mut self) -> Self {
-        self.inner = self.inner.group_exists();
-        self
-    }
-
-    /// Add one grouped `first` terminal.
-    #[must_use]
-    pub fn group_first(mut self) -> Self {
-        self.inner = self.inner.group_first();
-        self
-    }
-
-    /// Add one grouped `last` terminal.
-    #[must_use]
-    pub fn group_last(mut self) -> Self {
-        self.inner = self.inner.group_last();
-        self
-    }
-
-    /// Add one grouped `min` terminal (id extrema).
-    #[must_use]
-    pub fn group_min(mut self) -> Self {
-        self.inner = self.inner.group_min();
-        self
-    }
-
-    /// Add one grouped `max` terminal (id extrema).
-    #[must_use]
-    pub fn group_max(mut self) -> Self {
-        self.inner = self.inner.group_max();
-        self
-    }
-
-    /// Add one grouped `min(field)` terminal.
-    pub fn group_min_by(mut self, field: impl AsRef<str>) -> Result<Self, Error> {
-        self.inner = self.inner.group_min_by(field)?;
-        Ok(self)
-    }
-
-    /// Add one grouped `max(field)` terminal.
-    pub fn group_max_by(mut self, field: impl AsRef<str>) -> Result<Self, Error> {
-        self.inner = self.inner.group_max_by(field)?;
-        Ok(self)
     }
 
     /// Override grouped hard limits for grouped execution budget enforcement.

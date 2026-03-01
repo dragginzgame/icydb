@@ -5,7 +5,10 @@
 
 use crate::db::{
     direction::Direction,
-    query::plan::{AggregateKind, OrderDirection},
+    query::{
+        builder::AggregateExpr,
+        plan::{AggregateKind, OrderDirection},
+    },
 };
 
 /// Convert canonical order direction into execution scan direction.
@@ -33,15 +36,7 @@ pub(in crate::db::executor) const fn order_direction_from_direction(
 pub(in crate::db::executor) const fn aggregate_extrema_direction(
     kind: AggregateKind,
 ) -> Option<Direction> {
-    match kind {
-        AggregateKind::Min => Some(Direction::Asc),
-        AggregateKind::Max => Some(Direction::Desc),
-        AggregateKind::Count
-        | AggregateKind::Sum
-        | AggregateKind::Exists
-        | AggregateKind::First
-        | AggregateKind::Last => None,
-    }
+    AggregateExpr::extrema_direction_for_kind(kind)
 }
 
 /// Return the canonical non-short-circuit materialized reduction direction.
@@ -49,15 +44,7 @@ pub(in crate::db::executor) const fn aggregate_extrema_direction(
 pub(in crate::db::executor) const fn aggregate_materialized_fold_direction(
     kind: AggregateKind,
 ) -> Direction {
-    match kind {
-        AggregateKind::Min => Direction::Desc,
-        AggregateKind::Count
-        | AggregateKind::Sum
-        | AggregateKind::Exists
-        | AggregateKind::Max
-        | AggregateKind::First
-        | AggregateKind::Last => Direction::Asc,
-    }
+    AggregateExpr::materialized_fold_direction_for_kind(kind)
 }
 
 /// Return true when this kind can use bounded aggregate probe hints.
@@ -65,7 +52,7 @@ pub(in crate::db::executor) const fn aggregate_materialized_fold_direction(
 pub(in crate::db::executor) const fn aggregate_supports_bounded_probe_hint(
     kind: AggregateKind,
 ) -> bool {
-    !kind.is_count() && !kind.is_sum()
+    AggregateExpr::supports_bounded_probe_hint_for_kind(kind)
 }
 
 /// Derive a bounded aggregate probe fetch hint for this kind.
@@ -76,11 +63,5 @@ pub(in crate::db::executor) fn aggregate_bounded_probe_fetch_hint(
     offset: usize,
     page_limit: Option<usize>,
 ) -> Option<usize> {
-    match kind {
-        AggregateKind::Exists | AggregateKind::First => Some(offset.saturating_add(1)),
-        AggregateKind::Min if direction == Direction::Asc => Some(offset.saturating_add(1)),
-        AggregateKind::Max if direction == Direction::Desc => Some(offset.saturating_add(1)),
-        AggregateKind::Last => page_limit.map(|limit| offset.saturating_add(limit)),
-        AggregateKind::Count | AggregateKind::Sum | AggregateKind::Min | AggregateKind::Max => None,
-    }
+    AggregateExpr::bounded_probe_fetch_hint_for_kind(kind, direction, offset, page_limit)
 }

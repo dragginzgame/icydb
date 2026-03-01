@@ -273,16 +273,6 @@ pub(crate) enum IntentKeyAccessPolicyViolation {
 }
 
 ///
-/// IntentTerminalPolicyViolation
-///
-/// Intent-level terminal compatibility violations.
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum IntentTerminalPolicyViolation {
-    GroupedFieldTargetExtremaUnsupported,
-}
-
-///
 /// FluentLoadPolicyViolation
 ///
 /// Fluent load-entry policy violations.
@@ -773,12 +763,6 @@ pub(crate) const fn validate_intent_key_access_policy(
         )
         | None => Ok(()),
     }
-}
-
-/// Validate grouped field-target terminal compatibility at intent boundaries.
-pub(crate) const fn validate_grouped_field_target_extrema_policy()
--> Result<(), IntentTerminalPolicyViolation> {
-    Err(IntentTerminalPolicyViolation::GroupedFieldTargetExtremaUnsupported)
 }
 
 /// Validate fluent non-paged load entry policy.

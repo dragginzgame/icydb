@@ -2,7 +2,6 @@
 //! Responsibility: deterministic plan fingerprint derivation from explain models.
 //! Does not own: explain projection assembly or execution-plan compilation.
 //! Boundary: stable plan identity hash surface for diagnostics/caching.
-#![allow(clippy::cast_possible_truncation)]
 
 use crate::{
     db::{

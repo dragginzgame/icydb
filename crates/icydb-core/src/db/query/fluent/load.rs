@@ -8,6 +8,7 @@ use crate::{
         DbSession, PagedGroupedExecutionWithTrace, PagedLoadExecution, PagedLoadExecutionWithTrace,
         predicate::{CompareOp, Predicate},
         query::{
+            builder::aggregate::AggregateExpr,
             explain::ExplainPlan,
             expr::{FilterExpr, SortExpr},
             intent::{CompiledQuery, IntentError, PlannedQuery, Query, QueryError},
@@ -131,84 +132,10 @@ where
         self.try_map_query(|query| query.group_by(&field))
     }
 
-    /// Add one grouped `count(*)` terminal.
+    /// Add one aggregate terminal via composable aggregate expression.
     #[must_use]
-    pub fn group_count(self) -> Self {
-        self.map_query(Query::group_count)
-    }
-
-    /// Add one grouped `count(distinct id)` terminal.
-    #[must_use]
-    pub fn group_count_distinct(self) -> Self {
-        self.map_query(Query::group_count_distinct)
-    }
-
-    /// Add one grouped global `count(distinct field)` terminal.
-    #[must_use]
-    pub fn group_count_distinct_by(self, field: impl AsRef<str>) -> Self {
-        let field = field.as_ref().to_owned();
-        self.map_query(|query| query.group_count_distinct_by(&field))
-    }
-
-    /// Add one grouped global `sum(distinct field)` terminal.
-    #[must_use]
-    pub fn group_sum_distinct_by(self, field: impl AsRef<str>) -> Self {
-        let field = field.as_ref().to_owned();
-        self.map_query(|query| query.group_sum_distinct_by(&field))
-    }
-
-    /// Add one grouped `exists` terminal.
-    #[must_use]
-    pub fn group_exists(self) -> Self {
-        self.map_query(Query::group_exists)
-    }
-
-    /// Add one grouped `first` terminal.
-    #[must_use]
-    pub fn group_first(self) -> Self {
-        self.map_query(Query::group_first)
-    }
-
-    /// Add one grouped `last` terminal.
-    #[must_use]
-    pub fn group_last(self) -> Self {
-        self.map_query(Query::group_last)
-    }
-
-    /// Add one grouped `min` terminal (id extrema).
-    #[must_use]
-    pub fn group_min(self) -> Self {
-        self.map_query(Query::group_min)
-    }
-
-    /// Add one grouped `min(distinct id)` terminal.
-    #[must_use]
-    pub fn group_min_distinct(self) -> Self {
-        self.map_query(Query::group_min_distinct)
-    }
-
-    /// Add one grouped `max` terminal (id extrema).
-    #[must_use]
-    pub fn group_max(self) -> Self {
-        self.map_query(Query::group_max)
-    }
-
-    /// Add one grouped `max(distinct id)` terminal.
-    #[must_use]
-    pub fn group_max_distinct(self) -> Self {
-        self.map_query(Query::group_max_distinct)
-    }
-
-    /// Add one grouped `min(field)` terminal.
-    pub fn group_min_by(self, field: impl AsRef<str>) -> Result<Self, QueryError> {
-        let field = field.as_ref().to_owned();
-        self.try_map_query(|query| query.group_min_by(&field))
-    }
-
-    /// Add one grouped `max(field)` terminal.
-    pub fn group_max_by(self, field: impl AsRef<str>) -> Result<Self, QueryError> {
-        let field = field.as_ref().to_owned();
-        self.try_map_query(|query| query.group_max_by(&field))
+    pub fn aggregate(self, aggregate: AggregateExpr) -> Self {
+        self.map_query(|query| query.aggregate(aggregate))
     }
 
     /// Override grouped hard limits for grouped execution budget enforcement.

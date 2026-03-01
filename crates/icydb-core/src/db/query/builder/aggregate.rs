@@ -1,0 +1,252 @@
+//! Module: query::builder::aggregate
+//! Responsibility: composable grouped/global aggregate expression builders.
+//! Does not own: aggregate validation policy or executor fold semantics.
+//! Boundary: fluent aggregate intent construction lowered into grouped specs.
+
+use crate::db::{direction::Direction, query::plan::GroupAggregateKind};
+
+///
+/// AggregateExpr
+///
+/// Composable aggregate expression used by query/fluent aggregate entrypoints.
+/// This builder only carries declarative shape (`kind`, `target_field`,
+/// `distinct`) and does not perform semantic validation.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AggregateExpr {
+    kind: GroupAggregateKind,
+    target_field: Option<String>,
+    distinct: bool,
+}
+
+impl AggregateExpr {
+    // Construct one aggregate expression from explicit shape components.
+    const fn new(kind: GroupAggregateKind, target_field: Option<String>) -> Self {
+        Self {
+            kind,
+            target_field,
+            distinct: false,
+        }
+    }
+
+    /// Enable DISTINCT modifier for this aggregate expression.
+    #[must_use]
+    pub const fn distinct(mut self) -> Self {
+        self.distinct = true;
+        self
+    }
+
+    /// Borrow aggregate kind.
+    #[must_use]
+    pub(crate) const fn kind(&self) -> GroupAggregateKind {
+        self.kind
+    }
+
+    /// Borrow optional target field.
+    #[must_use]
+    pub(crate) fn target_field(&self) -> Option<&str> {
+        self.target_field.as_deref()
+    }
+
+    /// Return true when DISTINCT is enabled.
+    #[must_use]
+    pub(crate) const fn is_distinct(&self) -> bool {
+        self.distinct
+    }
+
+    /// Return whether this expression kind is `COUNT`.
+    #[must_use]
+    pub(crate) const fn is_count_kind(kind: GroupAggregateKind) -> bool {
+        matches!(kind, GroupAggregateKind::Count)
+    }
+
+    /// Return whether this expression kind is `SUM`.
+    #[must_use]
+    pub(crate) const fn is_sum_kind(kind: GroupAggregateKind) -> bool {
+        matches!(kind, GroupAggregateKind::Sum)
+    }
+
+    /// Return whether this expression kind supports explicit field targets.
+    #[must_use]
+    pub(crate) const fn supports_field_targets_kind(kind: GroupAggregateKind) -> bool {
+        matches!(kind, GroupAggregateKind::Min | GroupAggregateKind::Max)
+    }
+
+    /// Return whether this expression kind belongs to the extrema family.
+    #[must_use]
+    pub(crate) const fn is_extrema_kind(kind: GroupAggregateKind) -> bool {
+        Self::supports_field_targets_kind(kind)
+    }
+
+    /// Return whether this expression kind supports first/last value projection.
+    #[must_use]
+    pub(crate) const fn supports_terminal_value_projection_kind(kind: GroupAggregateKind) -> bool {
+        matches!(kind, GroupAggregateKind::First | GroupAggregateKind::Last)
+    }
+
+    /// Return whether reducer updates for this kind require a decoded id payload.
+    #[must_use]
+    pub(crate) const fn requires_decoded_id_kind(kind: GroupAggregateKind) -> bool {
+        !matches!(
+            kind,
+            GroupAggregateKind::Count | GroupAggregateKind::Sum | GroupAggregateKind::Exists
+        )
+    }
+
+    /// Return whether grouped aggregate DISTINCT is supported for this kind.
+    #[must_use]
+    pub(crate) const fn supports_grouped_distinct_kind_v1(kind: GroupAggregateKind) -> bool {
+        matches!(
+            kind,
+            GroupAggregateKind::Count
+                | GroupAggregateKind::Min
+                | GroupAggregateKind::Max
+                | GroupAggregateKind::Sum
+        )
+    }
+
+    /// Return whether global DISTINCT without GROUP BY keys is supported for this kind.
+    #[must_use]
+    pub(crate) const fn supports_global_distinct_without_group_keys_kind(
+        kind: GroupAggregateKind,
+    ) -> bool {
+        matches!(kind, GroupAggregateKind::Count | GroupAggregateKind::Sum)
+    }
+
+    /// Return the canonical grouped aggregate fingerprint tag (v1).
+    #[must_use]
+    pub(crate) const fn fingerprint_tag_for_kind_v1(kind: GroupAggregateKind) -> u8 {
+        match kind {
+            GroupAggregateKind::Count => 0x01,
+            GroupAggregateKind::Sum => 0x02,
+            GroupAggregateKind::Exists => 0x03,
+            GroupAggregateKind::Min => 0x04,
+            GroupAggregateKind::Max => 0x05,
+            GroupAggregateKind::First => 0x06,
+            GroupAggregateKind::Last => 0x07,
+        }
+    }
+
+    /// Return the canonical extrema traversal direction for this kind.
+    #[must_use]
+    pub(crate) const fn extrema_direction_for_kind(kind: GroupAggregateKind) -> Option<Direction> {
+        match kind {
+            GroupAggregateKind::Min => Some(Direction::Asc),
+            GroupAggregateKind::Max => Some(Direction::Desc),
+            GroupAggregateKind::Count
+            | GroupAggregateKind::Sum
+            | GroupAggregateKind::Exists
+            | GroupAggregateKind::First
+            | GroupAggregateKind::Last => None,
+        }
+    }
+
+    /// Return the canonical materialized fold direction for this kind.
+    #[must_use]
+    pub(crate) const fn materialized_fold_direction_for_kind(
+        kind: GroupAggregateKind,
+    ) -> Direction {
+        match kind {
+            GroupAggregateKind::Min => Direction::Desc,
+            GroupAggregateKind::Count
+            | GroupAggregateKind::Sum
+            | GroupAggregateKind::Exists
+            | GroupAggregateKind::Max
+            | GroupAggregateKind::First
+            | GroupAggregateKind::Last => Direction::Asc,
+        }
+    }
+
+    /// Return true when this kind can use bounded aggregate probe hints.
+    #[must_use]
+    pub(crate) const fn supports_bounded_probe_hint_for_kind(kind: GroupAggregateKind) -> bool {
+        !Self::is_count_kind(kind) && !Self::is_sum_kind(kind)
+    }
+
+    /// Derive a bounded aggregate probe fetch hint for this kind.
+    #[must_use]
+    pub(crate) fn bounded_probe_fetch_hint_for_kind(
+        kind: GroupAggregateKind,
+        direction: Direction,
+        offset: usize,
+        page_limit: Option<usize>,
+    ) -> Option<usize> {
+        match kind {
+            GroupAggregateKind::Exists | GroupAggregateKind::First => {
+                Some(offset.saturating_add(1))
+            }
+            GroupAggregateKind::Min if direction == Direction::Asc => {
+                Some(offset.saturating_add(1))
+            }
+            GroupAggregateKind::Max if direction == Direction::Desc => {
+                Some(offset.saturating_add(1))
+            }
+            GroupAggregateKind::Last => page_limit.map(|limit| offset.saturating_add(limit)),
+            GroupAggregateKind::Count
+            | GroupAggregateKind::Sum
+            | GroupAggregateKind::Min
+            | GroupAggregateKind::Max => None,
+        }
+    }
+}
+
+/// Build `count(*)`.
+#[must_use]
+pub const fn count() -> AggregateExpr {
+    AggregateExpr::new(GroupAggregateKind::Count, None)
+}
+
+/// Build `count(field)`.
+#[must_use]
+pub fn count_by(field: impl AsRef<str>) -> AggregateExpr {
+    AggregateExpr::new(GroupAggregateKind::Count, Some(field.as_ref().to_string()))
+}
+
+/// Build `sum(field)`.
+#[must_use]
+pub fn sum(field: impl AsRef<str>) -> AggregateExpr {
+    AggregateExpr::new(GroupAggregateKind::Sum, Some(field.as_ref().to_string()))
+}
+
+/// Build `exists`.
+#[must_use]
+pub const fn exists() -> AggregateExpr {
+    AggregateExpr::new(GroupAggregateKind::Exists, None)
+}
+
+/// Build `first`.
+#[must_use]
+pub const fn first() -> AggregateExpr {
+    AggregateExpr::new(GroupAggregateKind::First, None)
+}
+
+/// Build `last`.
+#[must_use]
+pub const fn last() -> AggregateExpr {
+    AggregateExpr::new(GroupAggregateKind::Last, None)
+}
+
+/// Build `min`.
+#[must_use]
+pub const fn min() -> AggregateExpr {
+    AggregateExpr::new(GroupAggregateKind::Min, None)
+}
+
+/// Build `min(field)`.
+#[must_use]
+pub fn min_by(field: impl AsRef<str>) -> AggregateExpr {
+    AggregateExpr::new(GroupAggregateKind::Min, Some(field.as_ref().to_string()))
+}
+
+/// Build `max`.
+#[must_use]
+pub const fn max() -> AggregateExpr {
+    AggregateExpr::new(GroupAggregateKind::Max, None)
+}
+
+/// Build `max(field)`.
+#[must_use]
+pub fn max_by(field: impl AsRef<str>) -> AggregateExpr {
+    AggregateExpr::new(GroupAggregateKind::Max, Some(field.as_ref().to_string()))
+}

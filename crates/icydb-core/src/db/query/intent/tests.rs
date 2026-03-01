@@ -3,8 +3,10 @@ use crate::{
     db::{
         access::{AccessPath, AccessPlan},
         contracts::{CompareOp, ComparePredicate},
+        cursor::GroupedContinuationToken,
+        direction::Direction,
         query::{
-            builder::field::FieldRef,
+            builder::{FieldRef, count, count_by, exists, first, last, max, min, sum},
             expr::FilterExpr,
             plan::{AccessPlannedQuery, LogicalPlan, ScalarPlan},
         },
@@ -81,6 +83,12 @@ struct PlanSingleton {
     id: Unit,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+struct PlanNumericEntity {
+    id: Ulid,
+    rank: i32,
+}
+
 impl FieldProjection for PlanSingleton {
     fn get_value_by_index(&self, index: usize) -> Option<Value> {
         match index {
@@ -125,6 +133,21 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Unit),
+    ],
+    indexes = [],
+    store = PlanDataStore,
+    canister = PlanCanister,
+}
+
+crate::test_entity_schema! {
+    ident = PlanNumericEntity,
+    id = Ulid,
+    entity_name = "PlanNumericEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("rank", FieldKind::Int),
     ],
     indexes = [],
     store = PlanDataStore,
@@ -198,7 +221,7 @@ fn grouped_load_limit_without_order_is_allowed() {
     Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .group_by("name")
         .expect("group field should resolve")
-        .group_count()
+        .aggregate(crate::db::count())
         .limit(1)
         .plan()
         .expect("grouped pagination should use canonical grouped-key order");
@@ -209,7 +232,7 @@ fn grouped_load_distinct_is_rejected_without_adjacency_eligibility() {
     let err = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .group_by("name")
         .expect("group field should resolve")
-        .group_count()
+        .aggregate(crate::db::count())
         .distinct()
         .plan()
         .expect_err("grouped distinct should be rejected until adjacency eligibility exists");
@@ -234,7 +257,7 @@ fn grouped_load_order_prefix_mismatch_is_rejected() {
         .order_by("id")
         .group_by("name")
         .expect("group field should resolve")
-        .group_count()
+        .aggregate(crate::db::count())
         .limit(1)
         .plan()
         .expect_err("grouped order should be rejected when group keys are not the order prefix");
@@ -259,7 +282,7 @@ fn grouped_load_order_prefix_alignment_is_allowed() {
         .order_by("name")
         .group_by("name")
         .expect("group field should resolve")
-        .group_count()
+        .aggregate(crate::db::count())
         .limit(1)
         .plan()
         .expect("grouped order should be accepted when grouped keys lead ORDER BY and LIMIT is explicit");
@@ -271,7 +294,7 @@ fn grouped_load_order_without_limit_is_rejected() {
         .order_by("name")
         .group_by("name")
         .expect("group field should resolve")
-        .group_count()
+        .aggregate(crate::db::count())
         .plan()
         .expect_err("grouped order should reject missing LIMIT");
 
@@ -294,15 +317,40 @@ fn grouped_load_distinct_count_terminal_is_allowed() {
     Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .group_by("name")
         .expect("group field should resolve")
-        .group_count_distinct()
+        .aggregate(crate::db::count().distinct())
         .plan()
         .expect("grouped distinct count terminal should plan in grouped v1");
 }
 
 #[test]
+fn grouped_aggregate_builder_count_shape_matches_helper_terminal() {
+    let helper_explain = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .group_by("name")
+        .expect("group field should resolve")
+        .aggregate(crate::db::count())
+        .plan()
+        .expect("helper grouped count should plan")
+        .into_inner()
+        .explain();
+    let builder_explain = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .group_by("name")
+        .expect("group field should resolve")
+        .aggregate(count())
+        .plan()
+        .expect("builder grouped count should plan")
+        .into_inner()
+        .explain();
+
+    assert_eq!(
+        helper_explain, builder_explain,
+        "aggregate(count()) should preserve grouped count logical shape",
+    );
+}
+
+#[test]
 fn grouped_global_distinct_count_field_without_group_by_is_allowed() {
     let plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
-        .group_count_distinct_by("name")
+        .aggregate(crate::db::count_by("name").distinct())
         .plan()
         .expect("global grouped count(distinct field) should plan");
 
@@ -330,10 +378,297 @@ fn grouped_global_distinct_count_field_without_group_by_is_allowed() {
 }
 
 #[test]
+fn grouped_aggregate_builder_global_distinct_count_shape_matches_helper_terminal() {
+    let helper_explain = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .aggregate(crate::db::count_by("name").distinct())
+        .plan()
+        .expect("helper global count(distinct field) should plan")
+        .into_inner()
+        .explain();
+    let builder_explain = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .aggregate(count_by("name").distinct())
+        .plan()
+        .expect("builder global count(distinct field) should plan")
+        .into_inner()
+        .explain();
+
+    assert_eq!(
+        helper_explain, builder_explain,
+        "aggregate(count_by(field).distinct()) should preserve global distinct-count logical shape",
+    );
+}
+
+#[test]
+fn grouped_aggregate_builder_global_distinct_sum_shape_matches_helper_terminal() {
+    let helper_explain = Query::<PlanNumericEntity>::new(MissingRowPolicy::Ignore)
+        .aggregate(crate::db::sum("rank").distinct())
+        .plan()
+        .expect("helper global sum(distinct field) should plan")
+        .into_inner()
+        .explain();
+    let builder_explain = Query::<PlanNumericEntity>::new(MissingRowPolicy::Ignore)
+        .aggregate(sum("rank").distinct())
+        .plan()
+        .expect("builder global sum(distinct field) should plan")
+        .into_inner()
+        .explain();
+
+    assert_eq!(
+        helper_explain, builder_explain,
+        "aggregate(sum(field).distinct()) should preserve global distinct-sum logical shape",
+    );
+}
+
+#[test]
+fn grouped_aggregate_builder_fingerprint_parity_preserves_grouping_and_order_shape() {
+    let helper_plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .order_by("name")
+        .group_by("name")
+        .expect("group field should resolve")
+        .aggregate(crate::db::count())
+        .limit(1)
+        .plan()
+        .expect("helper grouped count plan should build")
+        .into_inner();
+    let builder_plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .order_by("name")
+        .group_by("name")
+        .expect("group field should resolve")
+        .aggregate(count())
+        .limit(1)
+        .plan()
+        .expect("builder grouped count plan should build")
+        .into_inner();
+
+    assert_eq!(
+        helper_plan.fingerprint(),
+        builder_plan.fingerprint(),
+        "helper and builder grouped count plans must have identical fingerprints",
+    );
+    assert_eq!(
+        helper_plan.continuation_signature("intent::tests::PlanEntity"),
+        builder_plan.continuation_signature("intent::tests::PlanEntity"),
+        "helper and builder grouped count plans must have identical continuation signatures",
+    );
+}
+
+#[test]
+fn grouped_aggregate_builder_terminal_matrix_matches_helper_fingerprints() {
+    for terminal in ["exists", "first", "last", "min", "max"] {
+        let helper_plan = match terminal {
+            "exists" => Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+                .group_by("name")
+                .expect("group field should resolve")
+                .aggregate(crate::db::exists())
+                .limit(1)
+                .plan()
+                .expect("helper grouped exists plan should build")
+                .into_inner(),
+            "first" => Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+                .group_by("name")
+                .expect("group field should resolve")
+                .aggregate(crate::db::first())
+                .limit(1)
+                .plan()
+                .expect("helper grouped first plan should build")
+                .into_inner(),
+            "last" => Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+                .group_by("name")
+                .expect("group field should resolve")
+                .aggregate(crate::db::last())
+                .limit(1)
+                .plan()
+                .expect("helper grouped last plan should build")
+                .into_inner(),
+            "min" => Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+                .group_by("name")
+                .expect("group field should resolve")
+                .aggregate(crate::db::min())
+                .limit(1)
+                .plan()
+                .expect("helper grouped min plan should build")
+                .into_inner(),
+            "max" => Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+                .group_by("name")
+                .expect("group field should resolve")
+                .aggregate(crate::db::max())
+                .limit(1)
+                .plan()
+                .expect("helper grouped max plan should build")
+                .into_inner(),
+            _ => unreachable!("terminal matrix is fixed"),
+        };
+        let builder_plan = match terminal {
+            "exists" => Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+                .group_by("name")
+                .expect("group field should resolve")
+                .aggregate(exists())
+                .limit(1)
+                .plan()
+                .expect("builder grouped exists plan should build")
+                .into_inner(),
+            "first" => Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+                .group_by("name")
+                .expect("group field should resolve")
+                .aggregate(first())
+                .limit(1)
+                .plan()
+                .expect("builder grouped first plan should build")
+                .into_inner(),
+            "last" => Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+                .group_by("name")
+                .expect("group field should resolve")
+                .aggregate(last())
+                .limit(1)
+                .plan()
+                .expect("builder grouped last plan should build")
+                .into_inner(),
+            "min" => Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+                .group_by("name")
+                .expect("group field should resolve")
+                .aggregate(min())
+                .limit(1)
+                .plan()
+                .expect("builder grouped min plan should build")
+                .into_inner(),
+            "max" => Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+                .group_by("name")
+                .expect("group field should resolve")
+                .aggregate(max())
+                .limit(1)
+                .plan()
+                .expect("builder grouped max plan should build")
+                .into_inner(),
+            _ => unreachable!("terminal matrix is fixed"),
+        };
+
+        assert_eq!(
+            helper_plan.fingerprint(),
+            builder_plan.fingerprint(),
+            "terminal `{terminal}` helper/builder fingerprints must match",
+        );
+        assert_eq!(
+            helper_plan.continuation_signature("intent::tests::PlanEntity"),
+            builder_plan.continuation_signature("intent::tests::PlanEntity"),
+            "terminal `{terminal}` helper/builder continuation signatures must match",
+        );
+    }
+}
+
+#[test]
+fn grouped_aggregate_builder_fingerprint_parity_preserves_distinct_flag_shape() {
+    let helper_plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .aggregate(crate::db::count_by("name").distinct())
+        .limit(1)
+        .plan()
+        .expect("helper grouped global distinct count plan should build")
+        .into_inner();
+    let builder_plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .aggregate(count_by("name").distinct())
+        .limit(1)
+        .plan()
+        .expect("builder grouped global distinct count plan should build")
+        .into_inner();
+
+    assert_eq!(
+        helper_plan.fingerprint(),
+        builder_plan.fingerprint(),
+        "helper and builder global distinct-count plans must have identical fingerprints",
+    );
+    assert_eq!(
+        helper_plan.continuation_signature("intent::tests::PlanEntity"),
+        builder_plan.continuation_signature("intent::tests::PlanEntity"),
+        "helper and builder global distinct-count plans must have identical continuation signatures",
+    );
+}
+
+#[test]
+fn grouped_aggregate_builder_fingerprint_parity_preserves_projection_order_shape() {
+    let helper_plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .group_by("name")
+        .expect("group field should resolve")
+        .aggregate(crate::db::count())
+        .aggregate(crate::db::max())
+        .limit(1)
+        .plan()
+        .expect("helper grouped multi-aggregate plan should build")
+        .into_inner();
+    let builder_plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .group_by("name")
+        .expect("group field should resolve")
+        .aggregate(count())
+        .aggregate(max())
+        .limit(1)
+        .plan()
+        .expect("builder grouped multi-aggregate plan should build")
+        .into_inner();
+
+    assert_eq!(
+        helper_plan.explain().grouping,
+        builder_plan.explain().grouping,
+        "helper and builder grouped multi-aggregate projection shapes must match",
+    );
+    assert_eq!(
+        helper_plan.fingerprint(),
+        builder_plan.fingerprint(),
+        "helper and builder grouped multi-aggregate plans must have identical fingerprints",
+    );
+}
+
+#[test]
+fn grouped_aggregate_builder_continuation_token_bytes_match_helper_shape() {
+    let helper_plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .order_by("name")
+        .group_by("name")
+        .expect("group field should resolve")
+        .aggregate(crate::db::count())
+        .limit(1)
+        .plan()
+        .expect("helper grouped continuation plan should build")
+        .into_inner();
+    let builder_plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .order_by("name")
+        .group_by("name")
+        .expect("group field should resolve")
+        .aggregate(count())
+        .limit(1)
+        .plan()
+        .expect("builder grouped continuation plan should build")
+        .into_inner();
+    let helper_signature = helper_plan.continuation_signature("intent::tests::PlanEntity");
+    let builder_signature = builder_plan.continuation_signature("intent::tests::PlanEntity");
+    assert_eq!(
+        helper_signature, builder_signature,
+        "helper and builder grouped continuation signatures must match",
+    );
+
+    let helper_token = GroupedContinuationToken::new_with_direction(
+        helper_signature,
+        vec![Value::Text("alpha".to_string())],
+        Direction::Asc,
+        0,
+    )
+    .encode()
+    .expect("helper grouped continuation token should encode");
+    let builder_token = GroupedContinuationToken::new_with_direction(
+        builder_signature,
+        vec![Value::Text("alpha".to_string())],
+        Direction::Asc,
+        0,
+    )
+    .encode()
+    .expect("builder grouped continuation token should encode");
+    assert_eq!(
+        helper_token, builder_token,
+        "helper and builder grouped continuation token bytes must match for equivalent shapes",
+    );
+}
+
+#[test]
 fn grouped_global_distinct_mixed_terminal_shape_without_group_by_is_rejected() {
     let err = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
-        .group_count_distinct_by("name")
-        .group_count()
+        .aggregate(crate::db::count_by("name").distinct())
+        .aggregate(crate::db::count())
         .plan()
         .expect_err(
             "global grouped distinct without group keys should reject mixed aggregate shape",
@@ -370,7 +705,7 @@ fn grouped_having_with_distinct_is_rejected() {
     let err = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .group_by("name")
         .expect("group field should resolve")
-        .group_count()
+        .aggregate(crate::db::count())
         .having_aggregate(0, CompareOp::Gt, Value::Uint(0))
         .expect("having aggregate clause should append on grouped query")
         .distinct()
@@ -397,7 +732,7 @@ fn grouped_having_with_distinct_is_rejected_for_ordered_eligible_shape() {
         .order_by("name")
         .group_by("name")
         .expect("group field should resolve")
-        .group_count()
+        .aggregate(crate::db::count())
         .having_aggregate(0, CompareOp::Gt, Value::Uint(0))
         .expect("having aggregate clause should append on grouped query")
         .distinct()
