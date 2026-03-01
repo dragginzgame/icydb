@@ -5,24 +5,11 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.34.1] - 2026-02-28 - Query/Cursor Checkpoint
+## [0.34.x] - 2026-03-01 - Boundary Cleanup and Readiness Track
 
-- Split secondary `ORDER BY` pushdown matrix logic into a dedicated planning submodule to keep core plan contracts lighter and easier to navigate.
-- Clarified aggregate semantic authority so executor traversal and fold direction remain derived from one canonical aggregate-kind contract.
-- Tightened cursor invariant validation wording/shape so direction and window checks are explicit at the cursor spine boundary.
-- Continued consolidation by extracting route contracts into `executor::route::contracts`, moving index slot-map preparation ownership out of route capability code, collapsing `response::write` into `response::mod`, folding `executor::compile_bridge` into `executor::mod`, and moving cursor-signature formatting ownership to the codec boundary.
-- Hardened route contract authority by keeping `executor::route::contracts` data/contracts-only and relocating route algorithms to ownership modules (`supports_pk_stream_access_path` / direction hint gating in `route::capability`, verified fast-path iteration in `route::fast_path`, and `RouteWindowPlan::new`/grouped observability/mutation route construction in `route::planner`).
-
-See detailed breakdown:
-[docs/changelog/0.34.md](docs/changelog/0.34.md)
-
----
-
-## [0.34.0] - 2026-02-28 - Cleanup & Comment Pass
-
-- Consolidated `db::commit` into clearer ownership boundaries (`prepared_op`, `rebuild`, apply/replay/store/memory/rollback narration) as part of the `0.34` structure pass.
-- Removed internal compatibility/shim paths in commit recovery: write-side recovery now converges on one gate and commit replay no longer accepts legacy missing schema fingerprints.
-- Kept commit apply/replay behavior deterministic while tightening commit-marker schema-fingerprint enforcement and recovery boundary authority.
+- Consolidated major executor/query/cursor boundaries across the line, including route contract cleanup, staged planner ownership, and stream-access physical resolution ownership.
+- Tightened cursor and continuation authority through explicit spine/window/signature invariants and clearer token/error construction boundaries.
+- Continued structural decomposition work ahead of `0.35`, including aggregate contract modularization and no-shim cleanup in commit/recovery paths.
 
 See detailed breakdown:
 [docs/changelog/0.34.md](docs/changelog/0.34.md)
