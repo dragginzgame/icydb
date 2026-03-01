@@ -43,17 +43,29 @@ pub trait Path {
     const PATH: &'static str;
 }
 
+///
+/// Kind
 /// Marker for all schema/runtime nodes.
+///
+
 pub trait Kind: Path + 'static {}
 impl<T> Kind for T where T: Path + 'static {}
 
-/// Marker for canister namespaces.
+///
+/// CanisterKind
+/// Marker for canister namespaces
+///
+
 pub trait CanisterKind: Kind {
     /// Stable memory slot used for commit marker storage.
     const COMMIT_MEMORY_ID: u8;
 }
 
-/// Marker for data stores bound to a canister.
+///
+/// StoreKind
+/// Marker for data stores bound to a canister
+///
+
 pub trait StoreKind: Kind {
     type Canister: CanisterKind;
 }

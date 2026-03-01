@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        DbSession, PagedLoadExecution, PagedLoadExecutionWithTrace,
+        DbSession, PagedGroupedExecutionWithTrace, PagedLoadExecution, PagedLoadExecutionWithTrace,
         predicate::Predicate,
         query::{
             explain::ExplainPlan,
@@ -37,20 +37,6 @@ where
     session: &'a DbSession<E::Canister>,
     query: Query<E>,
     cursor_token: Option<String>,
-}
-
-///
-/// PagedLoadQuery
-///
-/// Session-bound cursor pagination wrapper.
-/// This wrapper only exposes cursor continuation and paged execution.
-///
-
-pub struct PagedLoadQuery<'a, E>
-where
-    E: EntityKind,
-{
-    inner: FluentLoadQuery<'a, E>,
 }
 
 impl<'a, E> FluentLoadQuery<'a, E>
@@ -139,10 +125,101 @@ where
         self.map_query(|query| query.order_by_desc(field))
     }
 
+    /// Add one grouped key field.
+    pub fn group_by(self, field: impl AsRef<str>) -> Result<Self, QueryError> {
+        let Self {
+            session,
+            query,
+            cursor_token,
+        } = self;
+        let query = query.group_by(field)?;
+
+        Ok(Self {
+            session,
+            query,
+            cursor_token,
+        })
+    }
+
+    /// Add one grouped `count(*)` terminal.
+    #[must_use]
+    pub fn group_count(self) -> Self {
+        self.map_query(Query::group_count)
+    }
+
+    /// Add one grouped `exists` terminal.
+    #[must_use]
+    pub fn group_exists(self) -> Self {
+        self.map_query(Query::group_exists)
+    }
+
+    /// Add one grouped `first` terminal.
+    #[must_use]
+    pub fn group_first(self) -> Self {
+        self.map_query(Query::group_first)
+    }
+
+    /// Add one grouped `last` terminal.
+    #[must_use]
+    pub fn group_last(self) -> Self {
+        self.map_query(Query::group_last)
+    }
+
+    /// Add one grouped `min` terminal (id extrema).
+    #[must_use]
+    pub fn group_min(self) -> Self {
+        self.map_query(Query::group_min)
+    }
+
+    /// Add one grouped `max` terminal (id extrema).
+    #[must_use]
+    pub fn group_max(self) -> Self {
+        self.map_query(Query::group_max)
+    }
+
+    /// Add one grouped `min(field)` terminal.
+    pub fn group_min_by(self, field: impl AsRef<str>) -> Result<Self, QueryError> {
+        let Self {
+            session,
+            query,
+            cursor_token,
+        } = self;
+        let query = query.group_min_by(field)?;
+
+        Ok(Self {
+            session,
+            query,
+            cursor_token,
+        })
+    }
+
+    /// Add one grouped `max(field)` terminal.
+    pub fn group_max_by(self, field: impl AsRef<str>) -> Result<Self, QueryError> {
+        let Self {
+            session,
+            query,
+            cursor_token,
+        } = self;
+        let query = query.group_max_by(field)?;
+
+        Ok(Self {
+            session,
+            query,
+            cursor_token,
+        })
+    }
+
+    /// Override grouped hard limits for grouped execution budget enforcement.
+    #[must_use]
+    pub fn grouped_limits(self, max_groups: u64, max_group_bytes: u64) -> Self {
+        self.map_query(|query| query.grouped_limits(max_groups, max_group_bytes))
+    }
+
     /// Bound the number of returned rows.
     ///
-    /// Pagination is only valid with explicit ordering; combine `limit` and/or
-    /// `offset` with `order_by(...)` or planning fails.
+    /// Scalar pagination requires explicit ordering; combine `limit` and/or
+    /// `offset` with `order_by(...)` or planning fails for scalar loads.
+    /// GROUP BY pagination uses canonical grouped-key order by default.
     #[must_use]
     pub fn limit(self, limit: u32) -> Self {
         self.map_query(|query| query.limit(limit))
@@ -150,8 +227,9 @@ where
 
     /// Skip a number of rows in the ordered result stream.
     ///
-    /// Pagination is only valid with explicit ordering; combine `offset` and/or
-    /// `limit` with `order_by(...)` or planning fails.
+    /// Scalar pagination requires explicit ordering; combine `offset` and/or
+    /// `limit` with `order_by(...)` or planning fails for scalar loads.
+    /// GROUP BY pagination uses canonical grouped-key order by default.
     #[must_use]
     pub fn offset(self, offset: u32) -> Self {
         self.map_query(|query| query.offset(offset))
@@ -230,6 +308,18 @@ where
         E: EntityValue,
     {
         self.page()?.execute()
+    }
+
+    /// Execute one grouped query page with optional grouped continuation cursor.
+    ///
+    /// This grouped entrypoint is intentionally separate from scalar load
+    /// execution to keep grouped response shape explicit.
+    pub fn execute_grouped(self) -> Result<PagedGroupedExecutionWithTrace, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.session
+            .execute_grouped(self.query(), self.cursor_token.as_deref())
     }
 
     // ------------------------------------------------------------------
@@ -669,10 +759,15 @@ impl<E> FluentLoadQuery<'_, E>
 where
     E: EntityKind,
 {
-    fn non_paged_intent_error(&self) -> Option<IntentError> {
-        self.cursor_token
-            .as_ref()
-            .map(|_| IntentError::CursorRequiresPagedExecution)
+    const fn non_paged_intent_error(&self) -> Option<IntentError> {
+        if self.cursor_token.is_some() {
+            return Some(IntentError::CursorRequiresPagedExecution);
+        }
+        if self.query.has_grouping() {
+            return Some(IntentError::GroupedRequiresExecuteGrouped);
+        }
+
+        None
     }
 
     fn cursor_intent_error(&self) -> Option<IntentError> {
@@ -682,6 +777,10 @@ where
     }
 
     fn paged_intent_error(&self) -> Option<IntentError> {
+        if self.query.has_grouping() {
+            return Some(IntentError::GroupedRequiresExecuteGrouped);
+        }
+
         let spec = self.query.load_spec()?;
 
         policy::validate_cursor_paging_requirements(self.query.has_explicit_order(), spec)
@@ -697,7 +796,7 @@ where
         Ok(())
     }
 
-    fn ensure_non_paged_mode_ready(&self) -> Result<(), QueryError> {
+    const fn ensure_non_paged_mode_ready(&self) -> Result<(), QueryError> {
         if let Some(err) = self.non_paged_intent_error() {
             return Err(QueryError::Intent(err));
         }
@@ -715,6 +814,20 @@ where
     pub fn only(self) -> Self {
         self.map_query(Query::only)
     }
+}
+
+///
+/// PagedLoadQuery
+///
+/// Session-bound cursor pagination wrapper.
+/// This wrapper only exposes cursor continuation and paged execution.
+///
+
+pub struct PagedLoadQuery<'a, E>
+where
+    E: EntityKind,
+{
+    inner: FluentLoadQuery<'a, E>,
 }
 
 impl<E> PagedLoadQuery<'_, E>

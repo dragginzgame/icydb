@@ -104,6 +104,7 @@ pub(crate) fn validate_intent_plan_shape(
 
 /// Validate mode/order/pagination invariants for a logical plan.
 pub(crate) fn validate_plan_shape(plan: &LogicalPlan) -> Result<(), PlanPolicyError> {
+    let grouped = matches!(plan, LogicalPlan::Grouped(_));
     let plan = match plan {
         LogicalPlan::Scalar(plan) => plan,
         LogicalPlan::Grouped(plan) => &plan.scalar,
@@ -125,7 +126,10 @@ pub(crate) fn validate_plan_shape(plan: &LogicalPlan) -> Result<(), PlanPolicyEr
             if plan.delete_limit.is_some() {
                 return Err(PlanPolicyError::LoadPlanWithDeleteLimit);
             }
-            if plan.page.is_some() && !has_order {
+            // GROUP BY v1 uses canonical grouped key ordering when ORDER BY is
+            // omitted, so grouped pagination remains deterministic without an
+            // explicit sort clause.
+            if plan.page.is_some() && !has_order && !grouped {
                 return Err(PlanPolicyError::UnorderedPagination);
             }
         }

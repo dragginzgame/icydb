@@ -221,6 +221,11 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
     }
 
     #[must_use]
+    const fn has_grouping(&self) -> bool {
+        self.group.is_some()
+    }
+
+    #[must_use]
     const fn load_spec(&self) -> Option<LoadSpec> {
         match self.mode {
             QueryMode::Load(spec) => Some(spec),
@@ -607,6 +612,11 @@ impl<E: EntityKind> Query<E> {
     }
 
     #[must_use]
+    pub(crate) const fn has_grouping(&self) -> bool {
+        self.intent.has_grouping()
+    }
+
+    #[must_use]
     pub(crate) const fn load_spec(&self) -> Option<LoadSpec> {
         self.intent.load_spec()
     }
@@ -699,6 +709,42 @@ impl<E: EntityKind> Query<E> {
         self
     }
 
+    /// Add one grouped `min` terminal (id extrema).
+    #[must_use]
+    pub fn group_min(mut self) -> Self {
+        self.intent = self
+            .intent
+            .push_group_aggregate(GroupAggregateKind::Min, None);
+        self
+    }
+
+    /// Add one grouped `max` terminal (id extrema).
+    #[must_use]
+    pub fn group_max(mut self) -> Self {
+        self.intent = self
+            .intent
+            .push_group_aggregate(GroupAggregateKind::Max, None);
+        self
+    }
+
+    /// Add one grouped `min(field)` terminal.
+    ///
+    /// Grouped field-target extrema are deferred in grouped v1.
+    pub fn group_min_by(self, _field: impl AsRef<str>) -> Result<Self, QueryError> {
+        Err(QueryError::Intent(
+            IntentError::GroupedFieldTargetExtremaUnsupported,
+        ))
+    }
+
+    /// Add one grouped `max(field)` terminal.
+    ///
+    /// Grouped field-target extrema are deferred in grouped v1.
+    pub fn group_max_by(self, _field: impl AsRef<str>) -> Result<Self, QueryError> {
+        Err(QueryError::Intent(
+            IntentError::GroupedFieldTargetExtremaUnsupported,
+        ))
+    }
+
     /// Override grouped hard limits for grouped execution budget enforcement.
     #[must_use]
     pub fn grouped_limits(mut self, max_groups: u64, max_group_bytes: u64) -> Self {
@@ -737,8 +783,9 @@ impl<E: EntityKind> Query<E> {
     /// Apply a limit to the current mode.
     ///
     /// Load limits bound result size; delete limits bound mutation size.
-    /// For load queries, any use of `limit` or `offset` requires an explicit
-    /// `order_by(...)` so pagination is deterministic.
+    /// For scalar load queries, any use of `limit` or `offset` requires an
+    /// explicit `order_by(...)` so pagination is deterministic.
+    /// GROUP BY queries use canonical grouped-key order by default.
     #[must_use]
     pub fn limit(mut self, limit: u32) -> Self {
         self.intent = self.intent.limit(limit);
@@ -747,7 +794,8 @@ impl<E: EntityKind> Query<E> {
 
     /// Apply an offset to a load intent.
     ///
-    /// Any use of `offset` or `limit` requires an explicit `order_by(...)`.
+    /// Scalar pagination requires an explicit `order_by(...)`.
+    /// GROUP BY queries use canonical grouped-key order by default.
     #[must_use]
     pub fn offset(mut self, offset: u32) -> Self {
         self.intent = self.intent.offset(offset);
@@ -867,6 +915,12 @@ pub enum IntentError {
 
     #[error("cursor tokens can only be used with .page().execute()")]
     CursorRequiresPagedExecution,
+
+    #[error("grouped queries require execute_grouped(...)")]
+    GroupedRequiresExecuteGrouped,
+
+    #[error("grouped field-target extrema are not supported in grouped v1")]
+    GroupedFieldTargetExtremaUnsupported,
 }
 
 impl From<policy::CursorPagingPolicyError> for IntentError {

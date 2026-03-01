@@ -1,0 +1,25 @@
+error[E0599]: no method named `group_count` found for enum `Result<T, E>` in the current scope
+  --> tests/ui/session_load_group_min_by_result_handling.rs:16:10
+   |
+11 |       let _ = session
+   |  _____________-
+12 | |         .load::<E>()
+   | |          ----------- method `group_count` is available on `FluentLoadQuery<'_, E>`
+13 | |         .group_by("rank")
+14 | |         .unwrap()
+   | |          -------- method `group_count` is available on `FluentLoadQuery<'_, E>`
+15 | |         .group_min_by("rank")
+16 | |         .group_count();
+   | |         -^^^^^^^^^^^ method not found in `Result<FluentLoadQuery<'_, E>, QueryError>`
+   | |_________|
+   |
+   |
+note: the method `group_count` exists on the type `FluentLoadQuery<'_, E>`
+  --> src/db/query/fluent/load.rs
+   |
+   |     pub fn group_count(self) -> Self {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: consider using `Result::expect` to unwrap the `FluentLoadQuery<'_, E>` value, panicking if the value is a `Result::Err`
+   |
+15 |         .group_min_by("rank").expect("REASON")
+   |                              +++++++++++++++++

@@ -16,10 +16,12 @@ Active execution/planning references:
 - `docs/design/0.31-deterministic-keys.md`
 - `docs/design/0.32-aggregate-execution-stability.md`
 - `docs/design/0.33-planner-group-by-integration.md`
+- `docs/design/0.35-group-by.md`
 - `docs/status/0.30-execution-kernel-status.md`
 - `docs/status/0.31-deterministic-keys-status.md`
 - `docs/status/0.32-aggregate-execution-stability-status.md`
 - `docs/status/0.33-planner-group-by-status.md`
+- `docs/status/0.35-group-by-status.md`
 
 ---
 

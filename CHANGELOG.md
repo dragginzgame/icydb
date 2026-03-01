@@ -5,6 +5,18 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.35.x] - 2026-03-01 - GROUP BY
+
+- Started the `0.35` minor line as an active work-in-progress track.
+- Added fluent `GROUP BY` query-shape builders and grouped execution entrypoints so grouped pagination can be driven directly from the load-query fluent surface, including grouped `min/max` id extrema terminals, canonical grouped-key pagination when `ORDER BY` is omitted, explicit grouped-vs-scalar execution boundary errors in fluent APIs, and explicit deferral of grouped field-target extrema in grouped v1.
+- This section will capture `0.35` architectural and behavioral changes as they land.
+- `0.34.x` remains the latest released minor line (`v0.34.3` on 2026-03-01).
+
+See detailed breakdown:
+[docs/changelog/0.35.md](docs/changelog/0.35.md)
+
+---
+
 ## [0.34.x] - 2026-03-01 - Boundary Cleanup and Readiness Track
 
 - Consolidated major executor/query/cursor boundaries across the line, including route contract cleanup, staged planner ownership, and stream-access physical resolution ownership.

@@ -194,6 +194,17 @@ fn load_limit_without_order_rejects_unordered_pagination() {
 }
 
 #[test]
+fn grouped_load_limit_without_order_is_allowed() {
+    Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .group_by("name")
+        .expect("group field should resolve")
+        .group_count()
+        .limit(1)
+        .plan()
+        .expect("grouped pagination should use canonical grouped-key order");
+}
+
+#[test]
 fn load_rejects_duplicate_non_primary_order_field() {
     let err = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .order_by("name")

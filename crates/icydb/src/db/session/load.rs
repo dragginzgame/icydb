@@ -2,7 +2,7 @@ use crate::{
     db::{
         Row,
         query::{FilterExpr, Predicate, Query, SortExpr},
-        response::{PagedResponse, Response},
+        response::{PagedGroupedResponse, PagedResponse, Response},
         session::macros::{impl_session_materialization_methods, impl_session_query_shape_methods},
     },
     error::Error,
@@ -44,8 +44,9 @@ impl<'a, E: EntityKind> FluentLoadQuery<'a, E> {
 
     /// Skip a number of rows in the ordered result stream.
     ///
-    /// Pagination is only valid with explicit ordering; combine `offset` and/or
-    /// `limit` with `order_by(...)` or planning fails.
+    /// Scalar pagination requires explicit ordering; combine `offset` and/or
+    /// `limit` with `order_by(...)` or planning fails for scalar loads.
+    /// GROUP BY pagination uses canonical grouped-key order by default.
     #[must_use]
     pub fn offset(mut self, offset: u32) -> Self {
         self.inner = self.inner.offset(offset);
@@ -56,6 +57,73 @@ impl<'a, E: EntityKind> FluentLoadQuery<'a, E> {
     #[must_use]
     pub fn cursor(mut self, token: impl Into<String>) -> Self {
         self.inner = self.inner.cursor(token);
+        self
+    }
+
+    /// Add one grouped key field.
+    pub fn group_by(mut self, field: impl AsRef<str>) -> Result<Self, Error> {
+        self.inner = self.inner.group_by(field)?;
+        Ok(self)
+    }
+
+    /// Add one grouped `count(*)` terminal.
+    #[must_use]
+    pub fn group_count(mut self) -> Self {
+        self.inner = self.inner.group_count();
+        self
+    }
+
+    /// Add one grouped `exists` terminal.
+    #[must_use]
+    pub fn group_exists(mut self) -> Self {
+        self.inner = self.inner.group_exists();
+        self
+    }
+
+    /// Add one grouped `first` terminal.
+    #[must_use]
+    pub fn group_first(mut self) -> Self {
+        self.inner = self.inner.group_first();
+        self
+    }
+
+    /// Add one grouped `last` terminal.
+    #[must_use]
+    pub fn group_last(mut self) -> Self {
+        self.inner = self.inner.group_last();
+        self
+    }
+
+    /// Add one grouped `min` terminal (id extrema).
+    #[must_use]
+    pub fn group_min(mut self) -> Self {
+        self.inner = self.inner.group_min();
+        self
+    }
+
+    /// Add one grouped `max` terminal (id extrema).
+    #[must_use]
+    pub fn group_max(mut self) -> Self {
+        self.inner = self.inner.group_max();
+        self
+    }
+
+    /// Add one grouped `min(field)` terminal.
+    pub fn group_min_by(mut self, field: impl AsRef<str>) -> Result<Self, Error> {
+        self.inner = self.inner.group_min_by(field)?;
+        Ok(self)
+    }
+
+    /// Add one grouped `max(field)` terminal.
+    pub fn group_max_by(mut self, field: impl AsRef<str>) -> Result<Self, Error> {
+        self.inner = self.inner.group_max_by(field)?;
+        Ok(self)
+    }
+
+    /// Override grouped hard limits for grouped execution budget enforcement.
+    #[must_use]
+    pub fn grouped_limits(mut self, max_groups: u64, max_group_bytes: u64) -> Self {
+        self.inner = self.inner.grouped_limits(max_groups, max_group_bytes);
         self
     }
 
@@ -82,6 +150,24 @@ impl<'a, E: EntityKind> FluentLoadQuery<'a, E> {
         E: EntityValue,
     {
         self.page()?.execute()
+    }
+
+    /// Execute one grouped query page with optional continuation cursor.
+    ///
+    /// Grouped rows are returned as grouped key/value vectors to preserve
+    /// grouped response fidelity.
+    pub fn execute_grouped(self) -> Result<PagedGroupedResponse, Error>
+    where
+        E: EntityValue,
+    {
+        let execution = self.inner.execute_grouped()?;
+        let next_cursor = execution.continuation_cursor().map(core::db::encode_cursor);
+
+        Ok(PagedGroupedResponse {
+            items: execution.rows().to_vec(),
+            next_cursor,
+            execution_trace: execution.execution_trace().copied(),
+        })
     }
 
     // ------------------------------------------------------------------

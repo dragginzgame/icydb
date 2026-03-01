@@ -1,5 +1,21 @@
 use super::*;
 
+fn seed_grouped_phase_entities() {
+    reset_store();
+
+    let save = SaveExecutor::<PhaseEntity>::new(DB, false);
+    for (rank, label) in [(1_u32, "alpha"), (1_u32, "beta"), (2_u32, "gamma")] {
+        save.insert(PhaseEntity {
+            id: Ulid::generate(),
+            opt_rank: Some(rank),
+            rank,
+            tags: vec![rank],
+            label: label.to_string(),
+        })
+        .expect("grouped seed insert should succeed");
+    }
+}
+
 #[test]
 fn paged_query_builder_requires_explicit_limit() {
     let session = DbSession::new(DB);
@@ -235,6 +251,248 @@ fn paged_query_execute_with_trace_is_present_in_debug_mode() {
     assert!(
         execution.execution_trace().is_some(),
         "execution trace should be present when session debug mode is enabled"
+    );
+}
+
+#[test]
+fn grouped_fluent_execute_rejects_scalar_query_shape() {
+    let session = DbSession::new(DB);
+
+    let err = session
+        .load::<PhaseEntity>()
+        .execute_grouped()
+        .expect_err("grouped execution should reject non-grouped query plans");
+
+    assert!(
+        matches!(
+            err,
+            QueryError::Execute(crate::error::InternalError {
+                class: crate::error::ErrorClass::InvariantViolation,
+                origin: crate::error::ErrorOrigin::Query,
+                ..
+            })
+        ),
+        "non-grouped execute_grouped should preserve query invariant classification"
+    );
+}
+
+#[test]
+fn grouped_fluent_execute_supports_cursor_continuation() {
+    seed_grouped_phase_entities();
+    let session = DbSession::new(DB);
+
+    let page_1 = session
+        .load::<PhaseEntity>()
+        .group_by("rank")
+        .expect("group field should resolve")
+        .group_count()
+        .limit(1)
+        .execute_grouped()
+        .expect("first grouped page should execute");
+
+    assert_eq!(
+        page_1.rows().len(),
+        1,
+        "first grouped page should be limited"
+    );
+    assert_eq!(
+        page_1.rows()[0].group_key(),
+        &[Value::Uint(1)],
+        "grouped rows should preserve canonical key ordering"
+    );
+    assert_eq!(
+        page_1.rows()[0].aggregate_values(),
+        &[Value::Uint(2)],
+        "grouped count terminal should return grouped cardinality for rank=1"
+    );
+
+    let continuation = page_1
+        .continuation_cursor()
+        .map(crate::db::encode_cursor)
+        .expect("first grouped page should emit continuation cursor");
+
+    let page_2 = session
+        .load::<PhaseEntity>()
+        .group_by("rank")
+        .expect("group field should resolve")
+        .group_count()
+        .limit(1)
+        .cursor(continuation)
+        .execute_grouped()
+        .expect("second grouped page should execute from continuation");
+
+    assert_eq!(
+        page_2.rows().len(),
+        1,
+        "second grouped page should contain remaining group"
+    );
+    assert_eq!(
+        page_2.rows()[0].group_key(),
+        &[Value::Uint(2)],
+        "grouped continuation should resume at next canonical group key"
+    );
+    assert_eq!(
+        page_2.rows()[0].aggregate_values(),
+        &[Value::Uint(1)],
+        "grouped count terminal should return grouped cardinality for rank=2"
+    );
+    assert!(
+        page_2.continuation_cursor().is_none(),
+        "terminal grouped page should not emit continuation cursor"
+    );
+}
+
+#[test]
+fn grouped_fluent_execute_supports_min_max_id_terminals() {
+    reset_store();
+
+    let save = SaveExecutor::<PhaseEntity>::new(DB, false);
+    let id_a = Ulid::generate();
+    let id_b = Ulid::generate();
+    let id_c = Ulid::generate();
+    for (id, rank, label) in [
+        (id_a, 1_u32, "alpha"),
+        (id_b, 1_u32, "beta"),
+        (id_c, 2_u32, "gamma"),
+    ] {
+        save.insert(PhaseEntity {
+            id,
+            opt_rank: Some(rank),
+            rank,
+            tags: vec![rank],
+            label: label.to_string(),
+        })
+        .expect("grouped seed insert should succeed");
+    }
+
+    let (rank_1_min, rank_1_max) = if id_a <= id_b {
+        (id_a, id_b)
+    } else {
+        (id_b, id_a)
+    };
+    let session = DbSession::new(DB);
+    let execution = session
+        .load::<PhaseEntity>()
+        .group_by("rank")
+        .expect("group field should resolve")
+        .group_min()
+        .group_max()
+        .execute_grouped()
+        .expect("grouped min/max terminals should execute");
+
+    assert_eq!(
+        execution.rows().len(),
+        2,
+        "grouped min/max should emit one row per canonical group"
+    );
+    assert_eq!(
+        execution.rows()[0].group_key(),
+        &[Value::Uint(1)],
+        "rank=1 group should be first in canonical grouped-key order"
+    );
+    assert_eq!(
+        execution.rows()[0].aggregate_values(),
+        &[Value::Ulid(rank_1_min), Value::Ulid(rank_1_max)],
+        "grouped min/max terminal outputs should preserve declaration order for rank=1",
+    );
+    assert_eq!(
+        execution.rows()[1].group_key(),
+        &[Value::Uint(2)],
+        "rank=2 group should follow rank=1"
+    );
+    assert_eq!(
+        execution.rows()[1].aggregate_values(),
+        &[Value::Ulid(id_c), Value::Ulid(id_c)],
+        "single-row groups should return same id for grouped min/max terminals",
+    );
+}
+
+#[test]
+fn grouped_query_page_builder_rejects_grouped_shape() {
+    let session = DbSession::new(DB);
+
+    let Err(err) = session
+        .load::<PhaseEntity>()
+        .group_by("rank")
+        .expect("group field should resolve")
+        .group_count()
+        .limit(1)
+        .page()
+    else {
+        panic!("grouped query should not use scalar page builder");
+    };
+
+    assert!(
+        matches!(
+            err,
+            QueryError::Intent(IntentError::GroupedRequiresExecuteGrouped)
+        ),
+        "grouped page builder misuse should fail as intent error"
+    );
+}
+
+#[test]
+fn grouped_query_scalar_execute_rejects_grouped_shape() {
+    let session = DbSession::new(DB);
+
+    let err = session
+        .load::<PhaseEntity>()
+        .group_by("rank")
+        .expect("group field should resolve")
+        .group_count()
+        .execute()
+        .expect_err("grouped query should not execute through scalar load path");
+
+    assert!(
+        matches!(
+            err,
+            QueryError::Intent(IntentError::GroupedRequiresExecuteGrouped)
+        ),
+        "grouped scalar execute misuse should fail as intent error"
+    );
+}
+
+#[test]
+fn grouped_field_target_min_by_is_rejected_in_grouped_v1() {
+    let session = DbSession::new(DB);
+
+    let Err(err) = session
+        .load::<PhaseEntity>()
+        .group_by("rank")
+        .expect("group field should resolve")
+        .group_min_by("rank")
+    else {
+        panic!("grouped field-target min should be deferred in grouped v1");
+    };
+
+    assert!(
+        matches!(
+            err,
+            QueryError::Intent(IntentError::GroupedFieldTargetExtremaUnsupported)
+        ),
+        "grouped field-target min should fail fast at intent boundary"
+    );
+}
+
+#[test]
+fn grouped_field_target_max_by_is_rejected_in_grouped_v1() {
+    let session = DbSession::new(DB);
+
+    let Err(err) = session
+        .load::<PhaseEntity>()
+        .group_by("rank")
+        .expect("group field should resolve")
+        .group_max_by("rank")
+    else {
+        panic!("grouped field-target max should be deferred in grouped v1");
+    };
+
+    assert!(
+        matches!(
+            err,
+            QueryError::Intent(IntentError::GroupedFieldTargetExtremaUnsupported)
+        ),
+        "grouped field-target max should fail fast at intent boundary"
     );
 }
 
