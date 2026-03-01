@@ -222,6 +222,19 @@ impl ExecutionRoutePlan {
         self.fast_path_order
     }
 
+    // Route-owned load fast-path gate for one candidate route.
+    pub(in crate::db::executor) const fn load_fast_path_route_eligible(
+        &self,
+        route: FastPathOrder,
+    ) -> bool {
+        match route {
+            FastPathOrder::PrimaryKey => self.pk_order_fast_path_eligible(),
+            FastPathOrder::SecondaryPrefix => self.secondary_fast_path_eligible(),
+            FastPathOrder::IndexRange => self.index_range_limit_fast_path_enabled(),
+            FastPathOrder::PrimaryScan | FastPathOrder::Composite => false,
+        }
+    }
+
     // Route-owned bounded probe hint for secondary Min/Max single-step probing.
     // This prevents executor-local hint math from drifting outside routing.
     pub(in crate::db::executor) const fn secondary_extrema_probe_fetch_hint(

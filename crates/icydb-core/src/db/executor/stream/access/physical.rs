@@ -11,7 +11,7 @@ use crate::{
         executor::LoweredKey,
         executor::{
             Context, IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, OrderedKeyStreamBox,
-            PrimaryScan, VecOrderedKeyStream,
+            PrimaryScan, VecOrderedKeyStream, route::primary_scan_fetch_hint_for_access_path,
         },
         index::predicate::IndexPredicateExecution,
     },
@@ -54,7 +54,8 @@ impl<K> AccessPath<K> {
     {
         // Only apply bounded physical scans where key-stream semantics remain
         // equivalent without requiring full-set normalization.
-        let primary_scan_fetch_hint = self.primary_scan_fetch_hint(physical_fetch_hint);
+        let primary_scan_fetch_hint =
+            primary_scan_fetch_hint_for_access_path(self, physical_fetch_hint);
 
         // Resolve candidate keys and track explicit ordering state.
         let (mut candidates, key_order_state) = match self {
@@ -109,14 +110,6 @@ impl<K> AccessPath<K> {
                     keys.reverse();
                 }
             }
-        }
-    }
-
-    // Only primary-data scans support safe bounded physical probing.
-    const fn primary_scan_fetch_hint(&self, physical_fetch_hint: Option<usize>) -> Option<usize> {
-        match self {
-            Self::ByKey(_) | Self::KeyRange { .. } | Self::FullScan => physical_fetch_hint,
-            Self::ByKeys(_) | Self::IndexPrefix { .. } | Self::IndexRange { .. } => None,
         }
     }
 

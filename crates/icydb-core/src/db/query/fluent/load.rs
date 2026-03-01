@@ -11,7 +11,7 @@ use crate::{
             explain::ExplainPlan,
             expr::{FilterExpr, SortExpr},
             intent::{CompiledQuery, IntentError, PlannedQuery, Query, QueryError},
-            policy,
+            plan::{validate_fluent_non_paged_mode, validate_fluent_paged_mode},
         },
         response::Response,
     },
@@ -729,15 +729,10 @@ impl<E> FluentLoadQuery<'_, E>
 where
     E: EntityKind,
 {
-    const fn non_paged_intent_error(&self) -> Option<IntentError> {
-        if self.cursor_token.is_some() {
-            return Some(IntentError::CursorRequiresPagedExecution);
-        }
-        if self.query.has_grouping() {
-            return Some(IntentError::GroupedRequiresExecuteGrouped);
-        }
-
-        None
+    fn non_paged_intent_error(&self) -> Option<IntentError> {
+        validate_fluent_non_paged_mode(self.cursor_token.is_some(), self.query.has_grouping())
+            .err()
+            .map(IntentError::from)
     }
 
     fn cursor_intent_error(&self) -> Option<IntentError> {
@@ -747,15 +742,13 @@ where
     }
 
     fn paged_intent_error(&self) -> Option<IntentError> {
-        if self.query.has_grouping() {
-            return Some(IntentError::GroupedRequiresExecuteGrouped);
-        }
-
-        let spec = self.query.load_spec()?;
-
-        policy::validate_cursor_paging_requirements(self.query.has_explicit_order(), spec)
-            .err()
-            .map(IntentError::from)
+        validate_fluent_paged_mode(
+            self.query.has_grouping(),
+            self.query.has_explicit_order(),
+            self.query.load_spec(),
+        )
+        .err()
+        .map(IntentError::from)
     }
 
     fn ensure_paged_mode_ready(&self) -> Result<(), QueryError> {
@@ -766,7 +759,7 @@ where
         Ok(())
     }
 
-    const fn ensure_non_paged_mode_ready(&self) -> Result<(), QueryError> {
+    fn ensure_non_paged_mode_ready(&self) -> Result<(), QueryError> {
         if let Some(err) = self.non_paged_intent_error() {
             return Err(QueryError::Intent(err));
         }

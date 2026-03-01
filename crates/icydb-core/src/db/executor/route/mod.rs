@@ -14,7 +14,13 @@ mod pushdown;
 mod semantics;
 
 pub(in crate::db::executor::route) use capability::direction_allows_physical_fetch_hint;
-pub(in crate::db::executor) use capability::supports_pk_stream_access_path;
+#[cfg(test)]
+pub(in crate::db::executor) use capability::{
+    derive_budget_safety_flags, streaming_access_shape_safe,
+};
+pub(in crate::db::executor) use capability::{
+    primary_scan_fetch_hint_for_access_path, supports_pk_stream_access_path,
+};
 pub(in crate::db::executor) use contracts::*;
 pub(in crate::db::executor) use fast_path::try_first_verified_fast_path_hit;
 pub(super) use guard::*;

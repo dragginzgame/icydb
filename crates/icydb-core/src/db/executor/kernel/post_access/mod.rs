@@ -5,7 +5,6 @@ mod window;
 
 use crate::{
     db::{
-        access::{AccessPath, AccessPlan},
         cursor::{
             ContinuationSignature, ContinuationToken, CursorBoundary,
             next_cursor_for_materialized_rows as derive_next_materialized_cursor,
@@ -16,10 +15,16 @@ use crate::{
         query::plan::AccessPlannedQuery,
     },
     error::InternalError,
-    traits::{EntityKind, EntitySchema, EntityValue},
+    traits::{EntityKind, EntityValue},
     types::Id,
 };
 use std::ops::Deref;
+
+#[cfg(test)]
+use crate::{
+    db::executor::route::{derive_budget_safety_flags, streaming_access_shape_safe},
+    traits::EntitySchema,
+};
 
 use crate::db::executor::kernel::post_access::order_cursor::{
     apply_order_spec as apply_post_access_order_spec,
@@ -81,6 +86,7 @@ pub(crate) struct PostAccessStats {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg(test)]
 pub(crate) struct BudgetSafetyMetadata {
     pub(crate) has_residual_filter: bool,
     pub(crate) access_order_satisfied_by_path: bool,
@@ -166,6 +172,7 @@ impl ExecutionKernel {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(crate) fn budget_safety_metadata<E, K>(plan: &AccessPlannedQuery<K>) -> BudgetSafetyMetadata
     where
         E: EntitySchema<Key = K>,
@@ -174,6 +181,7 @@ impl ExecutionKernel {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(crate) fn is_streaming_access_shape_safe<E, K>(plan: &AccessPlannedQuery<K>) -> bool
     where
         E: EntitySchema<Key = K>,
@@ -396,18 +404,13 @@ impl<K> PostAccessPlan<'_, K> {
 
     /// Build budget-safety metadata used by guarded execution scan budgeting.
     #[must_use]
+    #[cfg(test)]
     fn budget_safety_metadata<E>(&self) -> BudgetSafetyMetadata
     where
         E: EntitySchema<Key = K>,
     {
-        let logical = self.plan.scalar_plan();
-        let has_residual_filter = logical.predicate.is_some();
-        let access_order_satisfied_by_path = self.is_access_order_satisfied_by_path::<E>();
-        let has_order = logical
-            .order
-            .as_ref()
-            .is_some_and(|order| !order.fields.is_empty());
-        let requires_post_access_sort = has_order && !access_order_satisfied_by_path;
+        let (has_residual_filter, access_order_satisfied_by_path, requires_post_access_sort) =
+            derive_budget_safety_flags::<E, _>(self.plan);
 
         BudgetSafetyMetadata {
             has_residual_filter,
@@ -419,66 +422,12 @@ impl<K> PostAccessPlan<'_, K> {
     // Shared streaming eligibility gate for execution paths that consume
     // the resolved ordered key stream directly without post-access filtering/sorting.
     #[must_use]
+    #[cfg(test)]
     fn is_streaming_access_shape_safe<E>(&self) -> bool
     where
         E: EntitySchema<Key = K>,
     {
-        if !self.plan.scalar_plan().mode.is_load() {
-            return false;
-        }
-
-        let metadata = self.budget_safety_metadata::<E>();
-        if metadata.has_residual_filter {
-            return false;
-        }
-        if metadata.requires_post_access_sort {
-            return false;
-        }
-
-        true
-    }
-
-    // Return true when access-phase key ordering already matches canonical
-    // executor ordering for the current plan order spec.
-    fn is_access_order_satisfied_by_path<E>(&self) -> bool
-    where
-        E: EntitySchema<Key = K>,
-    {
-        let Some(order) = self.plan.scalar_plan().order.as_ref() else {
-            return false;
-        };
-        if order.fields.len() != 1 {
-            return false;
-        }
-        if order.fields[0].0 != E::MODEL.primary_key.name {
-            return false;
-        }
-
-        Self::access_stream_is_pk_ordered(&self.plan.access)
-    }
-
-    // Composite access order is valid only when every child preserves canonical
-    // primary-key ordering.
-    fn access_stream_is_pk_ordered(access: &AccessPlan<K>) -> bool {
-        match access {
-            AccessPlan::Path(path) => Self::access_path_is_pk_ordered(path),
-            AccessPlan::Union(children) | AccessPlan::Intersection(children) => {
-                children.iter().all(Self::access_stream_is_pk_ordered)
-            }
-        }
-    }
-
-    // Current access-path producers normalize emitted `DataKey` values into
-    // canonical order before stream composition.
-    const fn access_path_is_pk_ordered(path: &AccessPath<K>) -> bool {
-        match path {
-            AccessPath::ByKey(_)
-            | AccessPath::ByKeys(_)
-            | AccessPath::KeyRange { .. }
-            | AccessPath::IndexPrefix { .. }
-            | AccessPath::IndexRange { .. }
-            | AccessPath::FullScan => true,
-        }
+        streaming_access_shape_safe::<E, _>(self.plan)
     }
 }
 

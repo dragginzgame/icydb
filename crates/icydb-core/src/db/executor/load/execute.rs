@@ -85,18 +85,6 @@ enum FastPathDecision {
     None,
 }
 
-///
-/// VerifiedLoadFastPathRoute
-///
-/// Capability marker returned only by load fast-path eligibility verification.
-/// Branch execution requires this marker so route eligibility checks and
-/// branch dispatch stay coupled under one shared gate.
-///
-
-struct VerifiedLoadFastPathRoute {
-    route: FastPathOrder,
-}
-
 impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
@@ -196,7 +184,11 @@ where
 
         let fast = try_first_verified_fast_path_hit(
             route_plan.fast_path_order(),
-            |route| Ok(Self::verify_load_fast_path_eligibility(route_plan, route)),
+            |route| {
+                Ok(route_plan
+                    .load_fast_path_route_eligible(route)
+                    .then_some(route))
+            },
             |verified_route| {
                 Self::try_execute_verified_load_fast_path(
                     inputs,
@@ -214,37 +206,14 @@ where
         Ok(FastPathDecision::None)
     }
 
-    // Verify one fast-path route against planner-provided eligibility bits.
-    fn verify_load_fast_path_eligibility(
-        route_plan: &ExecutionPlan,
-        route: FastPathOrder,
-    ) -> Option<VerifiedLoadFastPathRoute> {
-        let verified = match route {
-            FastPathOrder::PrimaryKey if route_plan.pk_order_fast_path_eligible() => Some(route),
-            FastPathOrder::SecondaryPrefix if route_plan.secondary_fast_path_eligible() => {
-                Some(route)
-            }
-            FastPathOrder::IndexRange if route_plan.index_range_limit_fast_path_enabled() => {
-                Some(route)
-            }
-            FastPathOrder::PrimaryScan
-            | FastPathOrder::Composite
-            | FastPathOrder::PrimaryKey
-            | FastPathOrder::SecondaryPrefix
-            | FastPathOrder::IndexRange => None,
-        };
-
-        verified.map(|route| VerifiedLoadFastPathRoute { route })
-    }
-
     // Execute one verified fast-path route and return keys if the route produces them.
     fn try_execute_verified_load_fast_path(
         inputs: &ExecutionInputs<'_, E>,
         route_plan: &ExecutionPlan,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
-        verified_route: VerifiedLoadFastPathRoute,
+        verified_route: FastPathOrder,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
-        match verified_route.route {
+        match verified_route {
             FastPathOrder::PrimaryKey => Self::try_execute_pk_order_stream(
                 inputs.ctx,
                 inputs.plan,

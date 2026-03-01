@@ -24,13 +24,16 @@ use crate::{
             explain::ExplainPlan,
             expr::{FilterExpr, SortExpr, SortLowerError},
             plan::{
-                AccessPlannedQuery, DeleteLimitSpec, FieldSlot, GroupAggregateKind,
-                GroupAggregateSpec, GroupPlanError, GroupSpec, GroupedExecutionConfig, LogicalPlan,
+                AccessPlannedQuery, CursorPagingPolicyError, DeleteLimitSpec,
+                FluentLoadPolicyViolation, GroupAggregateKind, GroupAggregateSpec, GroupSpec,
+                GroupedExecutionConfig, IntentKeyAccessKind as IntentValidationKeyAccessKind,
+                IntentKeyAccessPolicyViolation, IntentTerminalPolicyViolation, LogicalPlan,
                 OrderDirection, OrderSpec, PageSpec, PlanError, PlannerError, PolicyPlanError,
-                ScalarPlan, has_explicit_order, plan_access, validate_group_query_semantics,
-                validate_intent_plan_shape, validate_order_shape, validate_query_semantics,
+                ScalarPlan, has_explicit_order, plan_access, resolve_group_field_slot,
+                validate_group_query_semantics, validate_grouped_field_target_extrema_policy,
+                validate_intent_key_access_policy, validate_intent_plan_shape,
+                validate_order_shape, validate_query_semantics,
             },
-            policy,
         },
         response::ResponseError,
     },
@@ -291,13 +294,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
     // Resolve one grouped field into one stable field slot and append it to the
     // grouped spec in declaration order.
     fn push_group_field(mut self, field: &str) -> Result<Self, QueryError> {
-        let Some(field_slot) = FieldSlot::resolve(self.model, field) else {
-            return Err(QueryError::from(PlanError::from(
-                GroupPlanError::UnknownGroupField {
-                    field: field.to_string(),
-                },
-            )));
-        };
+        let field_slot = resolve_group_field_slot(self.model, field).map_err(QueryError::from)?;
         let group = self.group.get_or_insert(GroupSpec {
             group_fields: Vec::new(),
             aggregates: Vec::new(),
@@ -480,25 +477,19 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
 
     // Validate pre-plan policy invariants and key-access rules before planning.
     fn validate_intent(&self) -> Result<(), IntentError> {
-        if self.key_access_conflict {
-            return Err(IntentError::KeyAccessConflict);
-        }
-
         validate_intent_plan_shape(self.mode, self.order.as_ref()).map_err(IntentError::from)?;
 
-        if let Some(state) = &self.key_access {
-            match state.kind {
-                KeyAccessKind::Many if self.predicate.is_some() => {
-                    return Err(IntentError::ByIdsWithPredicate);
-                }
-                KeyAccessKind::Only if self.predicate.is_some() => {
-                    return Err(IntentError::OnlyWithPredicate);
-                }
-                _ => {
-                    // NOTE: Single/Many without predicates impose no additional constraints.
-                }
-            }
-        }
+        let key_access_kind = self.key_access.as_ref().map(|state| match state.kind {
+            KeyAccessKind::Single => IntentValidationKeyAccessKind::Single,
+            KeyAccessKind::Many => IntentValidationKeyAccessKind::Many,
+            KeyAccessKind::Only => IntentValidationKeyAccessKind::Only,
+        });
+        validate_intent_key_access_policy(
+            self.key_access_conflict,
+            key_access_kind,
+            self.predicate.is_some(),
+        )
+        .map_err(IntentError::from)?;
 
         Ok(())
     }
@@ -711,18 +702,22 @@ impl<E: EntityKind> Query<E> {
     ///
     /// Grouped field-target extrema are deferred in grouped v1.
     pub fn group_min_by(self, _field: impl AsRef<str>) -> Result<Self, QueryError> {
-        Err(QueryError::Intent(
-            IntentError::GroupedFieldTargetExtremaUnsupported,
-        ))
+        validate_grouped_field_target_extrema_policy()
+            .map_err(IntentError::from)
+            .map_err(QueryError::Intent)?;
+
+        Ok(self)
     }
 
     /// Add one grouped `max(field)` terminal.
     ///
     /// Grouped field-target extrema are deferred in grouped v1.
     pub fn group_max_by(self, _field: impl AsRef<str>) -> Result<Self, QueryError> {
-        Err(QueryError::Intent(
-            IntentError::GroupedFieldTargetExtremaUnsupported,
-        ))
+        validate_grouped_field_target_extrema_policy()
+            .map_err(IntentError::from)
+            .map_err(QueryError::Intent)?;
+
+        Ok(self)
     }
 
     /// Override grouped hard limits for grouped execution budget enforcement.
@@ -903,11 +898,46 @@ pub enum IntentError {
     GroupedFieldTargetExtremaUnsupported,
 }
 
-impl From<policy::CursorPagingPolicyError> for IntentError {
-    fn from(err: policy::CursorPagingPolicyError) -> Self {
+impl From<CursorPagingPolicyError> for IntentError {
+    fn from(err: CursorPagingPolicyError) -> Self {
         match err {
-            policy::CursorPagingPolicyError::CursorRequiresOrder => Self::CursorRequiresOrder,
-            policy::CursorPagingPolicyError::CursorRequiresLimit => Self::CursorRequiresLimit,
+            CursorPagingPolicyError::CursorRequiresOrder => Self::CursorRequiresOrder,
+            CursorPagingPolicyError::CursorRequiresLimit => Self::CursorRequiresLimit,
+        }
+    }
+}
+
+impl From<IntentKeyAccessPolicyViolation> for IntentError {
+    fn from(err: IntentKeyAccessPolicyViolation) -> Self {
+        match err {
+            IntentKeyAccessPolicyViolation::KeyAccessConflict => Self::KeyAccessConflict,
+            IntentKeyAccessPolicyViolation::ByIdsWithPredicate => Self::ByIdsWithPredicate,
+            IntentKeyAccessPolicyViolation::OnlyWithPredicate => Self::OnlyWithPredicate,
+        }
+    }
+}
+
+impl From<IntentTerminalPolicyViolation> for IntentError {
+    fn from(err: IntentTerminalPolicyViolation) -> Self {
+        match err {
+            IntentTerminalPolicyViolation::GroupedFieldTargetExtremaUnsupported => {
+                Self::GroupedFieldTargetExtremaUnsupported
+            }
+        }
+    }
+}
+
+impl From<FluentLoadPolicyViolation> for IntentError {
+    fn from(err: FluentLoadPolicyViolation) -> Self {
+        match err {
+            FluentLoadPolicyViolation::CursorRequiresPagedExecution => {
+                Self::CursorRequiresPagedExecution
+            }
+            FluentLoadPolicyViolation::GroupedRequiresExecuteGrouped => {
+                Self::GroupedRequiresExecuteGrouped
+            }
+            FluentLoadPolicyViolation::CursorRequiresOrder => Self::CursorRequiresOrder,
+            FluentLoadPolicyViolation::CursorRequiresLimit => Self::CursorRequiresLimit,
         }
     }
 }

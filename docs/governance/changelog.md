@@ -214,7 +214,10 @@ Bullet and detail rules:
 - Avoid deep implementation detail (module paths, helper names, routing internals) unless required for migration/debugging.
 - In root `CHANGELOG.md`, avoid code examples/LoC dumps unless strictly necessary.
 - Prefer placing code examples, LoC snapshots, and fenced blocks in `docs/changelog/<major>.<minor>.md`.
-- Use fenced code blocks in detailed minor docs whenever they materially improve readability and break up dense text.
+- Inline fenced examples are optional, not mandatory.
+- In root `CHANGELOG.md`, include at most one inline fenced example per minor version (`0.x.x` line), and only when it materially improves clarity.
+- In `docs/changelog/<major>.<minor>.md`, include at most one inline fenced example per patch entry (`## 0.x.y`), and only when it materially improves clarity.
+- Use inline fenced examples only for meaningful code, config, or flow snapshots that explain behavior better than prose; if no good example exists, skip it.
 
 Testing section rules:
 

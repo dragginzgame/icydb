@@ -16,7 +16,8 @@ use crate::{
         cursor::CursorPlanError,
         predicate::{SchemaInfo, ValidateError, validate},
         query::plan::{
-            AccessPlannedQuery, GroupSpec, LogicalPlan, OrderSpec, QueryMode, ScalarPlan,
+            AccessPlannedQuery, FieldSlot, GroupSpec, LoadSpec, LogicalPlan, OrderSpec, QueryMode,
+            ScalarPlan,
         },
     },
     model::entity::EntityModel,
@@ -112,6 +113,20 @@ pub enum PolicyPlanError {
 }
 
 ///
+/// CursorPagingPolicyError
+///
+/// Cursor pagination readiness errors shared by intent/fluent entry surfaces.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ThisError)]
+pub enum CursorPagingPolicyError {
+    #[error("cursor pagination requires an explicit ordering")]
+    CursorRequiresOrder,
+
+    #[error("cursor pagination requires a limit")]
+    CursorRequiresLimit,
+}
+
+///
 /// GroupPlanError
 ///
 /// GROUP BY wrapper validation failures owned by query planning.
@@ -152,6 +167,64 @@ pub enum GroupPlanError {
         kind: String,
         field: String,
     },
+}
+
+///
+/// CursorOrderPlanShapeError
+///
+/// Logical cursor-order plan-shape failures used by cursor/runtime boundary adapters.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum CursorOrderPlanShapeError {
+    MissingExplicitOrder,
+    EmptyOrderSpec,
+}
+
+///
+/// IntentKeyAccessKind
+///
+/// Key-access shape used by intent policy validation.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum IntentKeyAccessKind {
+    Single,
+    Many,
+    Only,
+}
+
+///
+/// IntentKeyAccessPolicyViolation
+///
+/// Logical key-access policy violations at query-intent boundaries.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum IntentKeyAccessPolicyViolation {
+    KeyAccessConflict,
+    ByIdsWithPredicate,
+    OnlyWithPredicate,
+}
+
+///
+/// IntentTerminalPolicyViolation
+///
+/// Intent-level terminal compatibility violations.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum IntentTerminalPolicyViolation {
+    GroupedFieldTargetExtremaUnsupported,
+}
+
+///
+/// FluentLoadPolicyViolation
+///
+/// Fluent load-entry policy violations.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FluentLoadPolicyViolation {
+    CursorRequiresPagedExecution,
+    GroupedRequiresExecuteGrouped,
+    CursorRequiresOrder,
+    CursorRequiresLimit,
 }
 
 impl From<ValidateError> for PlanError {
@@ -374,6 +447,122 @@ pub(crate) fn validate_intent_plan_shape(
     }
 
     Ok(())
+}
+
+/// Validate cursor-pagination readiness for a load-spec + ordering pair.
+pub(crate) const fn validate_cursor_paging_requirements(
+    has_order: bool,
+    spec: LoadSpec,
+) -> Result<(), CursorPagingPolicyError> {
+    if !has_order {
+        return Err(CursorPagingPolicyError::CursorRequiresOrder);
+    }
+    if spec.limit.is_none() {
+        return Err(CursorPagingPolicyError::CursorRequiresLimit);
+    }
+
+    Ok(())
+}
+
+/// Validate cursor-order shape and return the logical order contract when present.
+pub(crate) const fn validate_cursor_order_plan_shape(
+    order: Option<&OrderSpec>,
+    require_explicit_order: bool,
+) -> Result<Option<&OrderSpec>, CursorOrderPlanShapeError> {
+    let Some(order) = order else {
+        if require_explicit_order {
+            return Err(CursorOrderPlanShapeError::MissingExplicitOrder);
+        }
+
+        return Ok(None);
+    };
+
+    if order.fields.is_empty() {
+        return Err(CursorOrderPlanShapeError::EmptyOrderSpec);
+    }
+
+    Ok(Some(order))
+}
+
+/// Resolve one grouped field into a stable field slot.
+pub(crate) fn resolve_group_field_slot(
+    model: &EntityModel,
+    field: &str,
+) -> Result<FieldSlot, PlanError> {
+    FieldSlot::resolve(model, field).ok_or_else(|| {
+        PlanError::from(GroupPlanError::UnknownGroupField {
+            field: field.to_string(),
+        })
+    })
+}
+
+/// Validate intent key-access policy before planning.
+pub(crate) const fn validate_intent_key_access_policy(
+    key_access_conflict: bool,
+    key_access_kind: Option<IntentKeyAccessKind>,
+    has_predicate: bool,
+) -> Result<(), IntentKeyAccessPolicyViolation> {
+    if key_access_conflict {
+        return Err(IntentKeyAccessPolicyViolation::KeyAccessConflict);
+    }
+
+    match key_access_kind {
+        Some(IntentKeyAccessKind::Many) if has_predicate => {
+            Err(IntentKeyAccessPolicyViolation::ByIdsWithPredicate)
+        }
+        Some(IntentKeyAccessKind::Only) if has_predicate => {
+            Err(IntentKeyAccessPolicyViolation::OnlyWithPredicate)
+        }
+        Some(
+            IntentKeyAccessKind::Single | IntentKeyAccessKind::Many | IntentKeyAccessKind::Only,
+        )
+        | None => Ok(()),
+    }
+}
+
+/// Validate grouped field-target terminal compatibility at intent boundaries.
+pub(crate) const fn validate_grouped_field_target_extrema_policy()
+-> Result<(), IntentTerminalPolicyViolation> {
+    Err(IntentTerminalPolicyViolation::GroupedFieldTargetExtremaUnsupported)
+}
+
+/// Validate fluent non-paged load entry policy.
+pub(crate) const fn validate_fluent_non_paged_mode(
+    has_cursor_token: bool,
+    has_grouping: bool,
+) -> Result<(), FluentLoadPolicyViolation> {
+    if has_cursor_token {
+        return Err(FluentLoadPolicyViolation::CursorRequiresPagedExecution);
+    }
+    if has_grouping {
+        return Err(FluentLoadPolicyViolation::GroupedRequiresExecuteGrouped);
+    }
+
+    Ok(())
+}
+
+/// Validate fluent paged load entry policy.
+pub(crate) fn validate_fluent_paged_mode(
+    has_grouping: bool,
+    has_explicit_order: bool,
+    spec: Option<LoadSpec>,
+) -> Result<(), FluentLoadPolicyViolation> {
+    if has_grouping {
+        return Err(FluentLoadPolicyViolation::GroupedRequiresExecuteGrouped);
+    }
+
+    let Some(spec) = spec else {
+        return Ok(());
+    };
+
+    validate_cursor_paging_requirements(has_explicit_order, spec).map_err(|err| match err {
+        CursorPagingPolicyError::CursorRequiresOrder => {
+            FluentLoadPolicyViolation::CursorRequiresOrder
+        }
+        CursorPagingPolicyError::CursorRequiresLimit => {
+            FluentLoadPolicyViolation::CursorRequiresLimit
+        }
+    })
 }
 
 /// Validate mode/order/pagination invariants for one logical plan.

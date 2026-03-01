@@ -7,10 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.35.x] - 2026-03-01 - GROUP BY
 
-- Started the `0.35` minor line as an active work-in-progress track.
-- Added fluent `GROUP BY` query-shape builders and grouped execution entrypoints so grouped pagination can be driven directly from the load-query fluent surface, including grouped `min/max` id extrema terminals, canonical grouped-key pagination when `ORDER BY` is omitted, explicit grouped-vs-scalar execution boundary errors in fluent APIs, and explicit deferral of grouped field-target extrema in grouped v1.
-- This section will capture `0.35` architectural and behavioral changes as they land.
+- Added fluent `GROUP BY` builders and grouped execution entrypoints, including grouped `min/max` id terminals and grouped pagination without requiring explicit `ORDER BY`.
+- Added clearer grouped-vs-scalar API boundary errors, and kept grouped field-target extrema deferred in grouped v1.
 - `0.34.x` remains the latest released minor line (`v0.34.3` on 2026-03-01).
+
+```rust
+let page = db
+    .load_query::<Order>()
+    .group_by("customer_id")
+    .group_count()
+    .execute_grouped(50)?;
+```
 
 See detailed breakdown:
 [docs/changelog/0.35.md](docs/changelog/0.35.md)
@@ -23,6 +30,11 @@ See detailed breakdown:
 - Tightened cursor and continuation authority through explicit spine/window/signature invariants and clearer token/error construction boundaries.
 - Continued structural decomposition work ahead of `0.35`, including aggregate contract modularization and no-shim cleanup in commit/recovery paths.
 
+```text
+query intent -> route intent -> route capability -> execution mode
+cursor token -> codec decode -> cursor invariant checks -> resume window
+```
+
 See detailed breakdown:
 [docs/changelog/0.34.md](docs/changelog/0.34.md)
 
@@ -33,6 +45,14 @@ See detailed breakdown:
 - Activated grouped query runtime from planning through execution, including grouped cursor continuation/resume support, grouped route observability, stronger grouped continuation-signature safety across query-shape changes, and explicit cursor-variant handling in load paths (without scalar panic accessors).
 - Reduced internal `db/` surface complexity with stream ownership cleanup, load-terminal dispatch consolidation, full predicate-spine convergence under one dedicated `db::predicate` boundary, access-plan canonicalization ownership moved into `db::access`, aggregate taxonomy unified under one query-owned enum authority across explain/fingerprint/executor, query planning decoupled from executor runtime shape through an explicit query-owned compile handoff, cursor planning/execution contracts decoupled from concrete query-plan carriers, query-shape policy ownership converged under `db::query::policy`, and grouped spec consumption converged on query-owned grouped spec contracts without executor-side projection types.
 - Hardened execution correctness and recovery by enforcing grouped hard limits against unique canonical groups, keeping commit replay/index rebuild semantics schema-fingerprint guarded and row-authoritative, and removing pre-marker store mutation from commit-window preflight via in-memory simulation.
+
+```rust
+let grouped = db
+    .load_query::<Event>()
+    .group_by("type")
+    .group_last("created_at")
+    .execute_grouped(25)?;
+```
 
 See detailed breakdown:
 [docs/changelog/0.33.md](docs/changelog/0.33.md)
@@ -54,6 +74,11 @@ See detailed breakdown:
 - Hardened pre-`GROUP BY` key/equality substrate with canonical group-key semantics and stable hashing contracts to keep DISTINCT behavior deterministic.
 - Aligned ordering/equality contracts and field-target distinct reducers around one canonical key model to reduce runtime drift across execution paths.
 
+```text
+canonical_key(value) -> stable_hash
+canonical_eq(lhs, rhs) => hash(lhs) == hash(rhs)
+```
+
 See detailed breakdown:
 [docs/changelog/0.31.md](docs/changelog/0.31.md)
 
@@ -64,6 +89,10 @@ See detailed breakdown:
 - Consolidated read and aggregate execution ownership into kernel-centered paths, with focused parity work across routing, cursor continuation, DISTINCT handling, and fallback behavior.
 - Completed broad `db/` boundary cleanup across plan, cursor, direction, access, and commit ownership to tighten layering and reduce structural duplication.
 - Expanded invariant guards and structural/regression coverage across the line to catch architectural drift earlier while preserving query semantics.
+
+```text
+plan -> preparation -> route -> kernel -> post_access -> response
+```
 
 See detailed breakdown:
 [docs/changelog/0.30.md](docs/changelog/0.30.md)
@@ -76,6 +105,10 @@ See detailed breakdown:
 - Completed the `db/query` Audit I-III boundary work, including planning/lowering separation, explicit routing contracts, and tighter cursor/runtime ownership.
 - Optimized routed key-stream and fast-path execution while preserving scan-budget and result parity across streaming/materialized paths.
 
+```text
+if route.streaming_eligible { stream() } else { materialize() }
+```
+
 See detailed breakdown:
 [docs/changelog/0.29.md](docs/changelog/0.29.md)
 
@@ -87,253 +120,26 @@ See detailed breakdown:
 - Kept load execution semantics stable by applying projection/ranking as terminal reductions over canonical effective windows, without introducing new routing or cursor behavior.
 - Hardened continuation and route-layer invariants with boundary cleanup plus parity/regression coverage for scan budgets, direction invariance, unknown-field fail-before-scan, and execute-equivalence.
 
+```rust
+let top = db.load_query::<User>().top_k_by_values("score", 10)?;
+let pairs = db.load_query::<User>().top_k_by_with_ids("score", 10)?;
+```
+
 See detailed breakdown:
 [docs/changelog/0.28.md](docs/changelog/0.28.md)
 
 ---
 
-## [0.27.9] - 2026-02-23 - Route Ownership Unification
+## [0.27.x] - 2026-02-23 - Index-Only and Runtime Hardening
 
-### 📝 Summary
+- Introduced index-only predicate execution for eligible load queries, reducing row reads while preserving result parity.
+- Hardened runtime safety across commit/index/data/cursor boundaries with stricter validation, clearer error/reporting paths, and fail-closed guardrails.
+- Expanded observability and regression coverage for routing, continuation behavior, DISTINCT handling, and fallback parity.
 
-* Unifies execution routing ownership so load, aggregate, and delete go through the same route boundary.
-
-### 🔧 Changed
-
-* Moved execution routing out of `load/route.rs` into an executor-level route module so load, aggregate, and delete now share one routing ownership boundary.
-* Added an explicit mutation route stage (`Materialized` only for now) and routed delete execution through it to remove parallel topology drift.
-* Added a single route-owned stream-construction facade for load and aggregate execution (`RoutedKeyStreamRequest`), so fast paths no longer call context stream builders directly.
-
-### 🧪 Testing
-
-* Added route-level guard coverage to enforce route-owned stream-construction entrypoints for load fast paths.
+See detailed breakdown:
+[docs/changelog/0.27.md](docs/changelog/0.27.md)
 
 ---
-
-## [0.27.8] - 2026-02-23 - Execution Boundary Fix
-
-### 📝 Summary
-
-* Fixes the execution boundary so access planning and store/index traversal go through one shared path.
-
-### 🔧 Changed
-
-* Moved fast-path key stream building behind the shared access resolver so load paths no longer build direct store/index streams on the side.
-* Kept index-spec alignment validation in one place (the resolver) and removed duplicate checks lower in physical resolution.
-* Added boundary guardrails so load modules cannot bypass the resolver with direct store/registry traversal.
-* Added a debug safety check for bounded secondary fast-path scans to prevent accidental over-scanning.
-
-### 🧪 Testing
-
-* Added architecture-level tests that fail if load modules perform direct store traversal outside the resolver boundary.
-* Updated executor/context invariant coverage so resolver-owned validation remains the only index-spec alignment gate.
-* Added pagination regression coverage for inverted PK ranges and PK fast-path scan-accounting behavior.
-
----
-
-## [0.27.7] - 2026-02-23 - Pushdown Coverage
-
-### 📝 Summary
-
-* Improves aggregate query performance on index-backed filters while keeping results and pagination behavior the same.
-* Keeps behavior safe by falling back to the existing row-based path whenever index filtering cannot be proven safe.
-
-### 🔧 Changed
-
-* Aggregate fast paths now pass safe index-predicate filters into secondary, index-range, and composite key streams before fold execution.
-* Aggregate streaming now uses strict all-or-none index predicate compilation; if a predicate is uncertain, execution falls back to materialized aggregation.
-* Field-target extrema streaming (`min_by` and `max_by`) now uses the same strict predicate policy as other aggregate fast paths.
-* `first`, `last`, `min_by`, and `max_by` now consistently try streaming execution on compatible non-`DISTINCT` shapes when predicates are fully index-covered.
-* Index-range `LIMIT` pushdown now supports queries that still have a residual filter, as long as the requested page window stays small.
-* When a bounded residual-filter pass might under-fill a page, execution now automatically retries without index-range `LIMIT` pushdown so returned rows and cursors stay exact.
-
-### 🧪 Testing
-
-* Added aggregate parity coverage for strict index-prefilter shapes across ASC/DESC, `DISTINCT`, `offset`, and `limit`.
-* Added scan-reduction coverage proving strict index-prefilter paths scan fewer rows than uncertainty fallback for equivalent filters.
-* Added aggregate coverage for strict index-covered `first`/`last` and `min_by`/`max_by`, including parity and scan-reduction checks versus uncertain fallback.
-* Added route coverage confirming field-extrema fast-path eligibility is retained for index-covered predicate shapes.
-* Added route-level tests that lock residual-filter index-range pushdown eligibility for small windows and automatic disablement above the configured safety cap.
-* Added pagination/execution tests that lock both residual-filter scan reduction and retry-on-underfill parity behavior.
-
----
-
-## [0.27.6] - 2026-02-23
-
-### 📝 Summary
-
-* Expands index-only filtering to cover more safe predicate shapes while keeping query results unchanged.
-
-### 🔧 Changed
-
-* Index-only compilation now keeps safe parts of `AND` predicates, instead of requiring every term to be index-compilable.
-* This now covers more practical filters on indexed fields, including strict `IN` constant lists and bounded ranges (`>=` with `<=`), even when other filter terms still need row checks.
-* Fallback behavior stays conservative: if a predicate is not safe to compile, execution keeps using the existing row-based path.
-* No API or tooling changes in this release.
-
-### 🧪 Testing
-
-* Added parity and read-reduction coverage for strict `IN` filters combined with residual row-only predicates.
-* Added bounded-range (`>=` + `<=`) parity coverage across ASC and DESC with `DISTINCT` and continuation pagination.
-* Updated existing fallback-control tests so non-strict coercion paths still keep index-only filtering disabled intentionally after safe `AND`-subset support.
-
----
-
-## [0.27.5] - 2026-02-23 - Auditing db/commit
-
-### 📝 Summary
-
-* Follow-up hardening and tests added after `0.27.4`.
-
-### 🔧 Changed
-
-* Cursor decode now rejects very large tokens up front, so malformed client input cannot trigger large decode allocations.
-* Bounded deserialization now returns a dedicated size-limit error variant, and DB row decode maps that case explicitly as persisted-payload corruption.
-* DB codec decode errors now use stable serializer error-kind labels instead of embedding backend deserialize message text in generic corruption messages.
-* Commit-marker persisted decode now uses the shared `db::codec` bounded-decode policy entry point, reducing policy drift.
-* Commit marker storage now reuses its existing memory slot after restarts/upgrades instead of allocating a new slot each boot.
-* Startup now fails clearly if multiple memory slots are registered for the commit marker label, instead of picking one silently.
-* Commit range detection now uses internal IcyDB registry labels, so user-defined store names no longer affect how commit memory is located.
-* Commit prepare now reuses decoded data-key validation output instead of validating the same key twice.
-* Commit prepare now avoids an extra `before` row allocation while keeping the same size and decode checks.
-* Commit prepare now classifies impossible index-store mapping drift as an internal invariant error.
-
-### 🧪 Testing
-
-* Added tests that oversized cursor tokens are rejected at both codec and paged-query API boundaries.
-* Added tests that lock the DB codec classification for bounded-size decode failures.
-* Added tests that lock stable DB codec error labels for deserialize/serialize decode failures.
-* Added a commit-marker regression test that rejects oversized marker payloads before persist, matching read-time bound enforcement.
-* Updated shared executor/save test reset helpers to initialize commit-store bootstrap internally before recovery and store clearing.
-* Added commit-memory scan tests that lock reuse behavior and duplicate-label detection.
-
----
-
-## [0.27.4] - 2026-02-23 - Auditing db/index/
-
-### 📝 Summary
-
-* Makes index and storage internals safer and easier to reason about, with clearer diagnostics.
-
-### 🔧 Changed
-
-* Kept `Direction` internal to `crate::db` so it is less likely to be used outside DB internals by mistake.
-* Stopped silently truncating account owner bytes in index keys; invalid sizes now fail fast.
-* Map fingerprinting now sorts map entries first, so the same map hashes the same regardless of insertion order.
-* Clarified that `Value::Unit` uses tag-only index encoding and replaced fragile branches with explicit checks.
-* `IndexKey` now writes component count from `components.len()` directly and checks segment bounds up front.
-* Made index-range empty checks explicitly direction-independent.
-* Continuation anchors outside the requested range are now rejected early.
-* `RawIndexEntry::try_from_keys` now rejects duplicate keys during encoding.
-* Unique checks now clearly validate current ownership before applying index updates.
-* Unique probes now stop after 2 keys (`0`, `1`, or `more than 1`) to avoid extra scanning on bad buckets.
-* Commit apply now verifies index stores have not changed between planning and apply; if they have, apply aborts safely.
-* Storage diagnostics now collect data and index snapshots in one sorted pass and fall back to entity name when path mapping is missing.
-
-### 🧪 Testing
-
-* Added tests for account encoding at max principal length.
-* Added tests that continuation resume always excludes the anchor key.
-* Added tests that map fingerprints stay stable across insertion orders.
-* Added tests that empty-range checks behave the same in both directions.
-* Added tests that out-of-range continuation anchors are rejected.
-* Added tests that duplicate index keys are rejected during encoding.
-* Added tests that apply fails closed if index-store state changes between planning and apply.
-* Rebuilt diagnostics tests for empty stores, multi-entity counts, min/max keys, corruption counters, and system/user index totals.
-
----
-
-## [0.27.3] - 2026-02-23 - Auditing db/data/
-
-### 📝 Summary
-
-* Hardens low-level data decode boundaries with typed corruption errors and tighter row-size validation.
-
-### 🔧 Changed
-
-* `StorageKey::try_from_bytes` now returns a structured `StorageKeyDecodeError` taxonomy instead of raw string errors, while preserving corruption semantics at decode boundaries.
-* `RawRow::try_new` now compares `bytes.len()` against `MAX_ROW_BYTES as usize`, removing theoretical truncation risk from intermediate integer casts.
-* `RawDataKey::from_bytes` now enforces fixed-size decode expectations with a debug assertion and fail-closed fallback, instead of silently accepting mismatched byte lengths.
-* Removed `Deref` from `DataStore` as it's dangerous
-
-### 🧪 Testing
-
-* Added structured decode regression coverage for invalid-size, invalid-tag, and non-zero-padding `StorageKey` payload failures.
-* Kept `RawRow` size-bound enforcement coverage passing with the updated `usize` guard path.
-* Added `RawDataKey` decode regression coverage for wrong-length payloads, including explicit debug-build assertion behavior.
-
----
-
-## [0.27.2] - 2026-02-23 - Auditing db/
-
-### 📝 Summary
-
-* Tightens runtime hook dispatch invariants and makes paged load result semantics explicit.
-
-### 🔧 Changed
-
-* Cursor-paged load return values now use named result structs (`PagedLoadExecution` and `PagedLoadExecutionWithTrace`) instead of positional tuples, making response/cursor/trace semantics explicit and safer to evolve.
-* Runtime hook dispatch now fails closed when hooks are ambiguously registered for the same `entity_path`, preventing first-match behavior from hiding configuration errors.
-* `StoreRegistry` now rejects alias registrations that reuse the same underlying row/index store pair under a second store name, preventing ambiguous logical store wiring.
-* `IndexName::as_str()` now uses safe UTF-8 decoding (`from_utf8(...).expect(...)`) instead of `from_utf8_unchecked`, keeping behavior unchanged while removing unnecessary unsafe code.
-
-### 🧪 Testing
-
-* Added regression coverage that duplicate runtime hook registrations by entity name or entity path are rejected as invariant violations.
-* Added registry coverage that reusing one row/index store pair under multiple store names is rejected as an invariant violation.
-
----
-
-## [0.27.1] - 2026-02-23 - Index-Only Hardening
-
-### 📝 Summary
-
-* Hardens the new index-only predicate path with explicit trace visibility and regression coverage for fallback parity.
-
-### 🔧 Changed
-
-* `ExecutionTrace` now reports `index_predicate_applied` so debug-traced load execution can explicitly show when index-only predicate filtering was active.
-* `ExecutionTrace` now also reports `index_predicate_keys_rejected` and `distinct_keys_deduped` to make index-only filtering impact and DISTINCT dedup activity directly visible per traced execution.
-* `DistinctOrderedKeyStream` now performs duplicate suppression through `KeyOrderComparator` equality, making DISTINCT semantics explicitly comparator-driven instead of relying on structural key equality alone.
-* Kept index-only fallback behavior unchanged while tightening assertions around when activation is reported.
-
-### 🧪 Testing
-
-* Added index-only row-read reduction + parity coverage against by-ids fallback for strict eligible predicate shapes.
-* Added `DISTINCT` + continuation parity coverage for index-only-enabled shapes, including trace assertions for activation and continuation state across page boundaries.
-* Added descending `DISTINCT` + continuation parity coverage for index-only-enabled shapes to lock boundary/cursor stability in both directions.
-* Added operator/coercion matrix tests for index-only predicate compilation, including strict-subset eligibility and non-strict coercion rejection across supported compare operators.
-* Added stream-level regression coverage that `DistinctOrderedKeyStream` increments dedup counters for every suppressed adjacent duplicate key.
-
----
-
-## [0.27.0] - 2026-02-23 - Index-Only Predicates
-
-### 📝 Summary
-
-* Introduces the first index-only predicate execution path for load queries on covered index-backed access paths.
-* Keeps query results unchanged while reducing unnecessary row reads for eligible predicate shapes.
-* Leaves expanded parity/observability hardening to `0.27.1` so `0.27.0` can ship the core path cleanly.
-
-### 🔧 Changed
-
-* `PredicateFieldSlots` now exposes referenced field slots via `required_slots()` and supports compiling a strict index-evaluable subset into `IndexPredicateProgram`.
-* Load execution now checks whether predicate slots are fully covered by the active index path and compiles an index predicate program only for covered shapes.
-* Index-backed traversal now evaluates eligible predicates directly on decoded `RawIndexKey` components and rejects non-matching keys before row materialization.
-* Unsupported predicate operators/coercions for index-only execution safely fall back to the existing row-based predicate path.
-* Added `IndexKey::component()` to support component-level raw-key predicate evaluation.
-* Access-plan to key-stream traversal, spec consumption, and invariant checks moved into `executor/access_stream.rs`; `Context` now focuses on store IO and row materialization.
-* Physical access-path resolution was split into focused primary-path and index-path helpers to keep execution flow explicit without changing routing behavior.
-* CI now installs `ripgrep` before invariant scripts so index-range/index-prefix guard checks run reliably on GitHub runners.
-
-### 🧪 Testing
-
-* Added predicate slot-coverage tests for index-backed vs non-index-backed access paths.
-* Added index-predicate unit tests for required-slot extraction, strict-coercion eligibility, component mapping, and encoded compare semantics.
-* Kept index-prefix/index-range invariant coverage aligned with the new `access_stream` module paths.
-
----
-
 ## [0.26.2] - 2026-02-23
 
 ### 📝 Summary

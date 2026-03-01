@@ -20,7 +20,11 @@ mod spine;
 pub(crate) mod token;
 
 use crate::{
-    db::{access::AccessPath, direction::Direction, query::plan::OrderSpec},
+    db::{
+        access::AccessPath,
+        direction::Direction,
+        query::plan::{CursorOrderPlanShapeError, OrderSpec, validate_cursor_order_plan_shape},
+    },
     error::InternalError,
     traits::{EntityKind, EntityValue, FieldValue},
 };
@@ -188,22 +192,18 @@ fn validated_cursor_order_internal<'a>(
     require_explicit_order: bool,
     missing_order_message: &'static str,
 ) -> Result<Option<&'a OrderSpec>, CursorPlanError> {
-    let Some(order) = order else {
-        if require_explicit_order {
-            return Err(CursorPlanError::invalid_continuation_cursor_payload(
+    validate_cursor_order_plan_shape(order, require_explicit_order).map_err(|err| match err {
+        CursorOrderPlanShapeError::MissingExplicitOrder => {
+            CursorPlanError::invalid_continuation_cursor_payload(
                 InternalError::executor_invariant_message(missing_order_message),
-            ));
+            )
         }
-
-        return Ok(None);
-    };
-    if order.fields.is_empty() {
-        return Err(CursorPlanError::invalid_continuation_cursor_payload(
-            InternalError::executor_invariant_message(
-                "cursor pagination requires non-empty ordering",
-            ),
-        ));
-    }
-
-    Ok(Some(order))
+        CursorOrderPlanShapeError::EmptyOrderSpec => {
+            CursorPlanError::invalid_continuation_cursor_payload(
+                InternalError::executor_invariant_message(
+                    "cursor pagination requires non-empty ordering",
+                ),
+            )
+        }
+    })
 }

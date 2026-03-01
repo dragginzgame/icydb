@@ -8,16 +8,16 @@ use crate::{
         access::{AccessPath, AccessPlan, PushdownApplicability},
         direction::Direction,
         executor::{
-            ExecutionKernel,
             aggregate::capability::field_is_orderable,
             aggregate::{AggregateKind, AggregateSpec},
             load::LoadExecutor,
             route::derive_secondary_pushdown_applicability_validated,
+            traversal::effective_page_offset_for_window,
         },
         query::plan::AccessPlannedQuery,
     },
     model::entity::resolve_field_slot,
-    traits::{EntityKind, EntityValue},
+    traits::{EntityKind, EntitySchema, EntityValue},
 };
 
 use crate::db::executor::route::{
@@ -30,6 +30,106 @@ pub(in crate::db::executor) const fn supports_pk_stream_access_path<K>(
     path: &AccessPath<K>,
 ) -> bool {
     matches!(path, AccessPath::FullScan | AccessPath::KeyRange { .. })
+}
+
+/// Return bounded primary-scan fetch hints only for path shapes that preserve
+/// physical key-order equivalence under bounded scans.
+pub(in crate::db::executor) const fn primary_scan_fetch_hint_for_access_path<K>(
+    path: &AccessPath<K>,
+    physical_fetch_hint: Option<usize>,
+) -> Option<usize> {
+    match path {
+        AccessPath::ByKey(_) | AccessPath::KeyRange { .. } | AccessPath::FullScan => {
+            physical_fetch_hint
+        }
+        AccessPath::ByKeys(_) | AccessPath::IndexPrefix { .. } | AccessPath::IndexRange { .. } => {
+            None
+        }
+    }
+}
+
+/// Derive budget-safety flags for one plan at the route capability boundary.
+pub(in crate::db::executor) fn derive_budget_safety_flags<E, K>(
+    plan: &AccessPlannedQuery<K>,
+) -> (bool, bool, bool)
+where
+    E: EntitySchema<Key = K>,
+{
+    let logical = plan.scalar_plan();
+    let has_residual_filter = logical.predicate.is_some();
+    let access_order_satisfied_by_path = access_order_satisfied_by_path::<E, K>(plan);
+    let has_order = logical
+        .order
+        .as_ref()
+        .is_some_and(|order| !order.fields.is_empty());
+    let requires_post_access_sort = has_order && !access_order_satisfied_by_path;
+
+    (
+        has_residual_filter,
+        access_order_satisfied_by_path,
+        requires_post_access_sort,
+    )
+}
+
+/// Return whether one plan shape is safe for direct streaming execution.
+pub(in crate::db::executor) fn streaming_access_shape_safe<E, K>(
+    plan: &AccessPlannedQuery<K>,
+) -> bool
+where
+    E: EntitySchema<Key = K>,
+{
+    if !plan.scalar_plan().mode.is_load() {
+        return false;
+    }
+
+    let (has_residual_filter, _, requires_post_access_sort) =
+        derive_budget_safety_flags::<E, K>(plan);
+    if has_residual_filter {
+        return false;
+    }
+    if requires_post_access_sort {
+        return false;
+    }
+
+    true
+}
+
+fn access_order_satisfied_by_path<E, K>(plan: &AccessPlannedQuery<K>) -> bool
+where
+    E: EntitySchema<Key = K>,
+{
+    let Some(order) = plan.scalar_plan().order.as_ref() else {
+        return false;
+    };
+    if order.fields.len() != 1 {
+        return false;
+    }
+    if order.fields[0].0 != E::MODEL.primary_key.name {
+        return false;
+    }
+
+    access_stream_is_pk_ordered(&plan.access)
+}
+
+fn access_stream_is_pk_ordered<K>(access: &AccessPlan<K>) -> bool {
+    match access {
+        AccessPlan::Path(path) => access_path_is_pk_ordered(path),
+        AccessPlan::Union(children) | AccessPlan::Intersection(children) => {
+            children.iter().all(access_stream_is_pk_ordered)
+        }
+    }
+}
+
+const fn access_path_is_pk_ordered<K>(path: &AccessPath<K>) -> bool {
+    matches!(
+        path,
+        AccessPath::ByKey(_)
+            | AccessPath::ByKeys(_)
+            | AccessPath::KeyRange { .. }
+            | AccessPath::IndexPrefix { .. }
+            | AccessPath::IndexRange { .. }
+            | AccessPath::FullScan
+    )
 }
 
 /// Return true when bounded physical fetch hints are valid for this direction.
@@ -78,9 +178,7 @@ where
             Self::assess_field_max_fast_path_eligibility(plan, direction, aggregate_spec);
 
         RouteCapabilities {
-            streaming_access_shape_safe: ExecutionKernel::is_streaming_access_shape_safe::<E, _>(
-                plan,
-            ),
+            streaming_access_shape_safe: streaming_access_shape_safe::<E, _>(plan),
             pk_order_fast_path_eligible: Self::pk_order_stream_fast_path_shape_supported(plan),
             desc_physical_reverse_supported: Self::is_desc_physical_reverse_traversal_supported(
                 &plan.access,
@@ -180,8 +278,8 @@ where
                 ineligibility_reason: Some(FieldExtremaIneligibilityReason::DistinctNotSupported),
             };
         }
-        let offset = usize::try_from(ExecutionKernel::effective_page_offset(plan, None))
-            .unwrap_or(usize::MAX);
+        let offset =
+            usize::try_from(effective_page_offset_for_window(plan, false)).unwrap_or(usize::MAX);
         if offset > 0 {
             return FieldExtremaEligibility {
                 eligible: false,
@@ -290,11 +388,12 @@ where
             return false;
         }
 
-        let metadata = ExecutionKernel::budget_safety_metadata::<E, _>(plan);
-        if metadata.has_residual_filter {
+        let (has_residual_filter, _, requires_post_access_sort) =
+            derive_budget_safety_flags::<E, _>(plan);
+        if has_residual_filter {
             return false;
         }
-        if metadata.requires_post_access_sort {
+        if requires_post_access_sort {
             return false;
         }
 

@@ -25,8 +25,15 @@ pub(crate) use planner::{PlannerError, plan_access};
 pub(crate) use semantics::{
     AccessPlanProjection, project_access_plan, project_explain_access_path,
 };
+#[cfg(test)]
+pub(crate) use validate::GroupPlanError;
 pub use validate::PlanError;
 pub(crate) use validate::{
-    GroupPlanError, PolicyPlanError, has_explicit_order, validate_group_query_semantics,
+    CursorOrderPlanShapeError, CursorPagingPolicyError, FluentLoadPolicyViolation,
+    IntentKeyAccessKind, IntentKeyAccessPolicyViolation, IntentTerminalPolicyViolation,
+    PolicyPlanError, has_explicit_order, resolve_group_field_slot,
+    validate_cursor_order_plan_shape, validate_cursor_paging_requirements,
+    validate_fluent_non_paged_mode, validate_fluent_paged_mode, validate_group_query_semantics,
+    validate_grouped_field_target_extrema_policy, validate_intent_key_access_policy,
     validate_intent_plan_shape, validate_order_shape, validate_query_semantics,
 };

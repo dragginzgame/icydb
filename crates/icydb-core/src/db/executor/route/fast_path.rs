@@ -84,6 +84,24 @@ where
         order.fields.len() == 1 && order.fields[0].0 == E::MODEL.primary_key.name
     }
 
+    /// Validate routed access-path shape for PK stream fast-path execution.
+    pub(in crate::db::executor) fn verify_pk_stream_fast_path_access(
+        plan: &AccessPlannedQuery<E::Key>,
+    ) -> Result<&AccessPath<E::Key>, InternalError> {
+        let access = plan.access.as_path().ok_or_else(|| {
+            InternalError::query_executor_invariant(
+                "pk stream fast-path requires direct access-path execution",
+            )
+        })?;
+        if !supports_pk_stream_access_path(access) {
+            return Err(InternalError::query_executor_invariant(
+                "pk stream fast-path requires full-scan/key-range access path",
+            ));
+        }
+
+        Ok(access)
+    }
+
     pub(super) const fn is_count_pushdown_eligible(
         kind: AggregateKind,
         capabilities: RouteCapabilities,
