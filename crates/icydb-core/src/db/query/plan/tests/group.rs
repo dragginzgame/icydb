@@ -38,12 +38,20 @@ crate::test_entity! {
 }
 
 fn load_plan(access: AccessPlan<Value>) -> AccessPlannedQuery<Value> {
+    load_plan_with_order_and_distinct(access, None, false)
+}
+
+fn load_plan_with_order_and_distinct(
+    access: AccessPlan<Value>,
+    order: Option<OrderSpec>,
+    distinct: bool,
+) -> AccessPlannedQuery<Value> {
     AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
-            order: None,
-            distinct: false,
+            order,
+            distinct,
             delete_limit: None,
             page: None,
             consistency: MissingRowPolicy::Ignore,
@@ -133,6 +141,83 @@ fn grouped_plan_rejects_duplicate_group_field() {
         inner.as_ref(),
         GroupPlanError::DuplicateGroupField { field } if field == "rank"
     )));
+}
+
+#[test]
+fn grouped_plan_rejects_distinct_without_adjacency_proof() {
+    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::from_entity_model(model).expect("valid model");
+    let grouped = grouped_plan(
+        load_plan_with_order_and_distinct(AccessPlan::path(AccessPath::FullScan), None, true),
+        vec!["rank"],
+        vec![GroupAggregateSpec {
+            kind: GroupAggregateKind::Count,
+            target_field: None,
+        }],
+    );
+
+    let err = validate_group_query_semantics(&schema, model, &grouped)
+        .expect_err("grouped distinct should fail without ordered-group adjacency eligibility");
+    assert!(matches!(err, PlanError::Group(inner) if matches!(
+        inner.as_ref(),
+        GroupPlanError::DistinctAdjacencyEligibilityRequired
+    )));
+}
+
+#[test]
+fn grouped_plan_rejects_order_prefix_not_aligned_with_group_keys() {
+    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::from_entity_model(model).expect("valid model");
+    let grouped = grouped_plan(
+        load_plan_with_order_and_distinct(
+            AccessPlan::path(AccessPath::FullScan),
+            Some(OrderSpec {
+                fields: vec![
+                    ("tag".to_string(), OrderDirection::Asc),
+                    ("id".to_string(), OrderDirection::Asc),
+                ],
+            }),
+            false,
+        ),
+        vec!["rank"],
+        vec![GroupAggregateSpec {
+            kind: GroupAggregateKind::Count,
+            target_field: None,
+        }],
+    );
+
+    let err = validate_group_query_semantics(&schema, model, &grouped)
+        .expect_err("grouped order should fail when grouped-key prefix is missing");
+    assert!(matches!(err, PlanError::Group(inner) if matches!(
+        inner.as_ref(),
+        GroupPlanError::OrderPrefixNotAlignedWithGroupKeys
+    )));
+}
+
+#[test]
+fn grouped_plan_accepts_order_prefix_aligned_with_group_keys() {
+    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::from_entity_model(model).expect("valid model");
+    let grouped = grouped_plan(
+        load_plan_with_order_and_distinct(
+            AccessPlan::path(AccessPath::FullScan),
+            Some(OrderSpec {
+                fields: vec![
+                    ("rank".to_string(), OrderDirection::Asc),
+                    ("id".to_string(), OrderDirection::Asc),
+                ],
+            }),
+            false,
+        ),
+        vec!["rank"],
+        vec![GroupAggregateSpec {
+            kind: GroupAggregateKind::Count,
+            target_field: None,
+        }],
+    );
+
+    validate_group_query_semantics(&schema, model, &grouped)
+        .expect("grouped order should be accepted when grouped keys are the leading prefix");
 }
 
 #[test]

@@ -8,8 +8,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ## [0.35.x] - 2026-03-01 - GROUP BY
 
 - Added fluent `GROUP BY` builders and grouped execution entrypoints, including grouped `min/max` id terminals and grouped pagination without requiring explicit `ORDER BY`.
-- Added clearer grouped-vs-scalar API boundary errors, and kept grouped field-target extrema deferred in grouped v1.
-- `0.34.x` remains the latest released minor line (`v0.34.3` on 2026-03-01).
+- Closed the `0.35.1` grouped hardening checklist with streaming predicate folding, bounded grouped `LIMIT` paging, deterministic grouped strategy metrics, grouped `DISTINCT`/`ORDER BY` policy gates, and grouped continuation anti-split coverage.
+- Added clearer grouped-vs-scalar API boundary errors, while keeping grouped field-target extrema deferred in grouped v1.
 
 ```rust
 let page = db

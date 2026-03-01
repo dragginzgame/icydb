@@ -205,6 +205,65 @@ fn grouped_load_limit_without_order_is_allowed() {
 }
 
 #[test]
+fn grouped_load_distinct_is_rejected_without_adjacency_eligibility() {
+    let err = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .group_by("name")
+        .expect("group field should resolve")
+        .group_count()
+        .distinct()
+        .plan()
+        .expect_err("grouped distinct should be rejected until adjacency eligibility exists");
+
+    assert!(matches!(
+        err,
+        QueryError::Plan(ref plan_err)
+            if matches!(
+                **plan_err,
+                crate::db::query::plan::PlanError::Group(ref inner)
+                    if matches!(
+                        inner.as_ref(),
+                        crate::db::query::plan::validate::GroupPlanError::DistinctAdjacencyEligibilityRequired
+                    )
+            )
+    ));
+}
+
+#[test]
+fn grouped_load_order_prefix_mismatch_is_rejected() {
+    let err = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .order_by("id")
+        .group_by("name")
+        .expect("group field should resolve")
+        .group_count()
+        .plan()
+        .expect_err("grouped order should be rejected when group keys are not the order prefix");
+
+    assert!(matches!(
+        err,
+        QueryError::Plan(ref plan_err)
+            if matches!(
+                **plan_err,
+                crate::db::query::plan::PlanError::Group(ref inner)
+                    if matches!(
+                        inner.as_ref(),
+                        crate::db::query::plan::validate::GroupPlanError::OrderPrefixNotAlignedWithGroupKeys
+                    )
+            )
+    ));
+}
+
+#[test]
+fn grouped_load_order_prefix_alignment_is_allowed() {
+    Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .order_by("name")
+        .group_by("name")
+        .expect("group field should resolve")
+        .group_count()
+        .plan()
+        .expect("grouped order should be accepted when grouped keys lead ORDER BY");
+}
+
+#[test]
 fn load_rejects_duplicate_non_primary_order_field() {
     let err = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .order_by("name")

@@ -154,6 +154,16 @@ pub enum GroupPlanError {
     #[error("group specification has duplicate group key: '{field}'")]
     DuplicateGroupField { field: String },
 
+    /// GROUP BY v1 does not accept DISTINCT unless adjacency eligibility is explicit.
+    #[error(
+        "grouped DISTINCT requires adjacency-based ordered-group eligibility proof in this release"
+    )]
+    DistinctAdjacencyEligibilityRequired,
+
+    /// GROUP BY ORDER BY shape must start with grouped-key prefix.
+    #[error("grouped ORDER BY must start with GROUP BY key prefix in this release")]
+    OrderPrefixNotAlignedWithGroupKeys,
+
     /// Aggregate target fields must resolve in the model schema.
     #[error("unknown grouped aggregate target field at index={index}: '{field}'")]
     UnknownAggregateTargetField { index: usize, field: String },
@@ -322,9 +332,45 @@ pub(crate) fn validate_group_query_semantics(
                 .map_err(PlanError::from)
         },
     )?;
+    validate_grouped_distinct_and_order_policy(logical, group)?;
     validate_group_spec(schema, model, group)?;
 
     Ok(())
+}
+
+// Validate grouped DISTINCT + ORDER BY policy gates for grouped v1 hardening.
+fn validate_grouped_distinct_and_order_policy(
+    logical: &ScalarPlan,
+    group: &GroupSpec,
+) -> Result<(), PlanError> {
+    if logical.distinct {
+        return Err(PlanError::from(
+            GroupPlanError::DistinctAdjacencyEligibilityRequired,
+        ));
+    }
+
+    let Some(order) = logical.order.as_ref() else {
+        return Ok(());
+    };
+    if order_prefix_aligned_with_group_fields(order, group.group_fields.as_slice()) {
+        return Ok(());
+    }
+
+    Err(PlanError::from(
+        GroupPlanError::OrderPrefixNotAlignedWithGroupKeys,
+    ))
+}
+
+// Return true when ORDER BY starts with GROUP BY key fields in declaration order.
+fn order_prefix_aligned_with_group_fields(order: &OrderSpec, group_fields: &[FieldSlot]) -> bool {
+    if order.fields.len() < group_fields.len() {
+        return false;
+    }
+
+    group_fields
+        .iter()
+        .zip(order.fields.iter())
+        .all(|(group_field, (order_field, _))| order_field == group_field.field())
 }
 
 /// Validate one grouped declarative spec against schema-level field surface.

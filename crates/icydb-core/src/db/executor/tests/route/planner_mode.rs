@@ -509,3 +509,69 @@ fn load_row_collector_runner_remains_kernel_ordered_and_single_owner() {
         "retry load materialization must resolve + decorate stream before resolved-stream materialization",
     );
 }
+
+#[test]
+fn grouped_paged_limit_selection_remains_bounded_without_full_group_buffer() {
+    let load_mod_source = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/db/executor/tests/route/",
+        "../../load/mod.rs"
+    ));
+
+    assert!(
+        load_mod_source.contains("let selection_bound = limit.and_then(|limit| {"),
+        "grouped paged limit path should derive one bounded selection window",
+    );
+    assert!(
+        load_mod_source
+            .contains("Keep only the smallest `offset + limit + 1` canonical grouped keys"),
+        "grouped paged limit path should document bounded grouped-key selection semantics",
+    );
+    assert!(
+        !load_mod_source
+            .contains("let mut grouped_rows_by_key = Vec::<(Value, Vec<Value>)>::new()"),
+        "grouped pagination must not rebuild one full grouped key/value buffer before limit paging",
+    );
+}
+
+#[test]
+fn grouped_path_predicate_filtering_remains_streaming_and_order_preserving() {
+    let load_mod_source = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/db/executor/tests/route/",
+        "../../load/mod.rs"
+    ));
+
+    assert!(
+        load_mod_source.contains("while let Some(key) = resolved.key_stream.next_key()?"),
+        "grouped execution should stream key->row traversal directly from ordered key stream",
+    );
+    assert!(
+        !load_mod_source.contains(
+            "let data_rows = ctx.rows_from_ordered_key_stream(\n            resolved.key_stream.as_mut(),"
+        ),
+        "grouped execution must not rematerialize all rows before predicate/filter folding",
+    );
+}
+
+#[test]
+fn grouped_path_avoids_kernel_row_buffer_materialization_fallback() {
+    let load_mod_source = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/db/executor/tests/route/",
+        "../../load/mod.rs"
+    ));
+
+    assert_eq!(
+        load_mod_source
+            .matches("ExecutionKernel::materialize_with_optional_residual_retry(")
+            .count(),
+        1,
+        "grouped execution must not route through kernel materialized row-buffer fallback",
+    );
+    assert!(
+        load_mod_source
+            .contains("let mut resolved = Self::resolve_execution_key_stream_without_distinct("),
+        "grouped execution should resolve one ordered key stream directly at grouped entry",
+    );
+}

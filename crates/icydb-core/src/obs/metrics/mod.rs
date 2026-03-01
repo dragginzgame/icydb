@@ -47,6 +47,8 @@ pub struct EventOps {
     pub plan_keys: u64,
     pub plan_range: u64,
     pub plan_full_scan: u64,
+    pub plan_grouped_hash_materialized: u64,
+    pub plan_grouped_ordered_streaming: u64,
 
     // Rows touched
     pub rows_loaded: u64,

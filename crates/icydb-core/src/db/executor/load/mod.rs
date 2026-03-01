@@ -40,12 +40,16 @@ use crate::{
                 CanonicalKey, grouped_budget_observability,
                 grouped_execution_context_from_planner_config,
             },
-            plan_metrics::{record_plan_metrics, record_rows_scanned},
+            plan_metrics::{
+                GroupedPlanMetricsStrategy, record_grouped_plan_metrics, record_plan_metrics,
+                record_rows_scanned,
+            },
             range_token_anchor_key, range_token_from_cursor_anchor,
             route::aggregate_materialized_fold_direction,
             validate_executor_plan,
         },
         index::IndexCompilePolicy,
+        predicate::MissingRowPolicy,
         query::plan::{AccessPlannedQuery, LogicalPlan, OrderDirection, grouped_executor_handoff},
         response::Response,
     },
@@ -462,6 +466,14 @@ where
         let grouped_route_rejection_reason = grouped_route_observability.rejection_reason();
         let grouped_route_eligible = grouped_route_observability.eligible();
         let grouped_route_execution_mode = grouped_route_observability.execution_mode();
+        let grouped_plan_metrics_strategy = if matches!(
+            grouped_route_execution_mode,
+            crate::db::executor::route::ExecutionMode::Streaming
+        ) {
+            GroupedPlanMetricsStrategy::OrderedStreaming
+        } else {
+            GroupedPlanMetricsStrategy::HashMaterialized
+        };
         debug_assert!(
             grouped_route_eligible == grouped_route_rejection_reason.is_none(),
             "grouped route eligibility and rejection reason must stay aligned",
@@ -513,25 +525,36 @@ where
             },
             execution_preparation: &execution_preparation,
         };
-        record_plan_metrics(&plan.access);
+        record_grouped_plan_metrics(&plan.access, grouped_plan_metrics_strategy);
         let mut resolved = Self::resolve_execution_key_stream_without_distinct(
             &execution_inputs,
             &grouped_route_plan,
             IndexCompilePolicy::ConservativeSubset,
         )?;
-        let data_rows = ctx.rows_from_ordered_key_stream(
-            resolved.key_stream.as_mut(),
-            plan.scalar_plan().consistency,
-        )?;
-        let scanned_rows = data_rows.len();
-        let mut rows = Context::<E>::deserialize_rows(data_rows)?;
-        if let Some(compiled_predicate) = execution_preparation.compiled_predicate() {
-            rows.retain(|row| compiled_predicate.eval(&row.1));
-        }
-        let filtered_rows = rows.len();
+        let mut scanned_rows = 0usize;
+        let mut filtered_rows = 0usize;
+        let compiled_predicate = execution_preparation.compiled_predicate();
 
-        // Phase 1: fold every filtered row into per-group aggregate states.
-        for (id, entity) in &rows {
+        // Phase 1: stream key->row reads, decode, predicate filtering, and grouped folding.
+        while let Some(key) = resolved.key_stream.next_key()? {
+            let row = match plan.scalar_plan().consistency {
+                MissingRowPolicy::Error => ctx.read_strict(&key),
+                MissingRowPolicy::Ignore => ctx.read(&key),
+            };
+            let row = match row {
+                Ok(row) => row,
+                Err(err) if err.is_not_found() => continue,
+                Err(err) => return Err(err),
+            };
+            scanned_rows = scanned_rows.saturating_add(1);
+            let (id, entity) = Context::<E>::deserialize_row((key, row))?;
+            if let Some(compiled_predicate) = compiled_predicate
+                && !compiled_predicate.eval(&entity)
+            {
+                continue;
+            }
+            filtered_rows = filtered_rows.saturating_add(1);
+
             let group_values = group_fields
                 .iter()
                 .map(|field| {
@@ -565,37 +588,25 @@ where
             }
         }
 
-        // Phase 2: finalize grouped aggregate states and align outputs by declared aggregate order.
+        // Phase 2: finalize grouped aggregates per terminal and iterate groups in lock-step.
+        //
+        // This avoids constructing one additional full grouped `(key, aggregates)` buffer
+        // prior to pagination; we page directly while walking finalized grouped outputs.
         let aggregate_count = grouped_engines.len();
-        let mut grouped_rows_by_key = Vec::<(Value, Vec<Value>)>::new();
-        for (index, engine) in grouped_engines.into_iter().enumerate() {
-            let finalized = engine.finalize_grouped()?;
-            for output in finalized {
-                let group_key = output.group_key().canonical_value().clone();
-                let aggregate_value = Self::aggregate_output_to_value(output.output());
-                if let Some((_, existing_aggregates)) =
-                    grouped_rows_by_key
-                        .iter_mut()
-                        .find(|(existing_group_key, _)| {
-                            canonical_value_compare(existing_group_key, &group_key)
-                                == Ordering::Equal
-                        })
-                {
-                    if let Some(slot) = existing_aggregates.get_mut(index) {
-                        *slot = aggregate_value;
-                    }
-                } else {
-                    let mut aggregates = vec![Value::Null; aggregate_count];
-                    if let Some(slot) = aggregates.get_mut(index) {
-                        *slot = aggregate_value;
-                    }
-                    grouped_rows_by_key.push((group_key, aggregates));
-                }
-            }
+        if aggregate_count == 0 {
+            return Err(InternalError::query_executor_invariant(
+                "grouped execution requires at least one aggregate terminal",
+            ));
         }
-        grouped_rows_by_key.sort_by(|(left, _), (right, _)| canonical_value_compare(left, right));
+        let mut finalized_iters = grouped_engines
+            .into_iter()
+            .map(|engine| engine.finalize_grouped().map(Vec::into_iter))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut primary_iter = finalized_iters.drain(..1).next().ok_or_else(|| {
+            InternalError::query_executor_invariant("missing grouped primary iterator")
+        })?;
 
-        // Phase 3: apply grouped resume/offset/limit and build grouped continuation token.
+        // Phase 3: apply grouped resume/offset/limit while finalizing grouped outputs.
         let initial_offset = plan
             .scalar_plan()
             .page
@@ -610,28 +621,101 @@ where
             .last_group_key()
             .map(|last_group_key| Value::List(last_group_key.to_vec()));
         let apply_initial_offset = cursor.is_empty();
-        let mut groups_skipped_for_offset = 0u32;
         let limit = plan
             .scalar_plan()
             .page
             .as_ref()
             .and_then(|page| page.limit)
             .and_then(|limit| usize::try_from(limit).ok());
+        let initial_offset_for_page = if apply_initial_offset {
+            usize::try_from(initial_offset).unwrap_or(usize::MAX)
+        } else {
+            0
+        };
+        let selection_bound = limit.and_then(|limit| {
+            limit
+                .checked_add(initial_offset_for_page)
+                .and_then(|count| count.checked_add(1))
+        });
+        let mut grouped_candidate_rows = Vec::<(Value, Vec<Value>)>::new();
+        if limit.is_none_or(|limit| limit != 0) {
+            for primary_output in primary_iter.by_ref() {
+                let group_key_value = primary_output.group_key().canonical_value().clone();
+                let mut aggregate_values = Vec::with_capacity(aggregate_count);
+                aggregate_values.push(Self::aggregate_output_to_value(primary_output.output()));
+                for (sibling_index, sibling_iter) in finalized_iters.iter_mut().enumerate() {
+                    let sibling_output = sibling_iter.next().ok_or_else(|| {
+                        InternalError::query_executor_invariant(format!(
+                            "grouped finalize alignment missing sibling aggregate row: sibling_index={sibling_index}"
+                        ))
+                    })?;
+                    let sibling_group_key = sibling_output.group_key().canonical_value();
+                    if canonical_value_compare(sibling_group_key, &group_key_value)
+                        != Ordering::Equal
+                    {
+                        return Err(InternalError::query_executor_invariant(format!(
+                            "grouped finalize alignment mismatch at sibling_index={sibling_index}: primary_key={group_key_value:?}, sibling_key={sibling_group_key:?}"
+                        )));
+                    }
+                    aggregate_values.push(Self::aggregate_output_to_value(sibling_output.output()));
+                }
+                debug_assert_eq!(
+                    aggregate_values.len(),
+                    aggregate_count,
+                    "grouped aggregate value alignment must preserve declared aggregate count",
+                );
+
+                if let Some(resume_boundary) = resume_boundary.as_ref()
+                    && canonical_value_compare(&group_key_value, resume_boundary)
+                        != Ordering::Greater
+                {
+                    continue;
+                }
+
+                // Keep only the smallest `offset + limit + 1` canonical grouped keys when
+                // paging is bounded so grouped LIMIT does not require one full grouped buffer.
+                if let Some(selection_bound) = selection_bound {
+                    match grouped_candidate_rows.binary_search_by(|(existing_key, _)| {
+                        canonical_value_compare(existing_key, &group_key_value)
+                    }) {
+                        Ok(_) => {
+                            return Err(InternalError::query_executor_invariant(format!(
+                                "grouped finalize produced duplicate canonical group key: {group_key_value:?}"
+                            )));
+                        }
+                        Err(insert_index) => {
+                            grouped_candidate_rows
+                                .insert(insert_index, (group_key_value, aggregate_values));
+                            if grouped_candidate_rows.len() > selection_bound {
+                                let _ = grouped_candidate_rows.pop();
+                            }
+                        }
+                    }
+                } else {
+                    grouped_candidate_rows.push((group_key_value, aggregate_values));
+                }
+            }
+            for (sibling_index, sibling_iter) in finalized_iters.iter_mut().enumerate() {
+                if sibling_iter.next().is_some() {
+                    return Err(InternalError::query_executor_invariant(format!(
+                        "grouped finalize alignment has trailing sibling rows: sibling_index={sibling_index}"
+                    )));
+                }
+            }
+            if selection_bound.is_none() {
+                grouped_candidate_rows
+                    .sort_by(|(left, _), (right, _)| canonical_value_compare(left, right));
+            }
+        }
+
         let mut page_rows = Vec::<GroupedRow>::new();
         let mut last_emitted_group_key: Option<Vec<Value>> = None;
         let mut has_more = false;
-        for (group_key_value, aggregate_values) in grouped_rows_by_key {
-            if let Some(resume_boundary) = resume_boundary.as_ref()
-                && canonical_value_compare(&group_key_value, resume_boundary) != Ordering::Greater
-            {
-                continue;
-            }
-            if apply_initial_offset && groups_skipped_for_offset < initial_offset {
+        let mut groups_skipped_for_offset = 0usize;
+        for (group_key_value, aggregate_values) in grouped_candidate_rows {
+            if groups_skipped_for_offset < initial_offset_for_page {
                 groups_skipped_for_offset = groups_skipped_for_offset.saturating_add(1);
                 continue;
-            }
-            if limit.is_some_and(|limit| limit == 0) {
-                break;
             }
             if let Some(limit) = limit
                 && page_rows.len() >= limit

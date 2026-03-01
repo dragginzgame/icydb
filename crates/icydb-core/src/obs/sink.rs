@@ -36,6 +36,18 @@ pub enum PlanKind {
 }
 
 ///
+/// GroupedPlanStrategy
+///
+/// Grouped execution strategy classification emitted with plan metrics.
+///
+
+#[derive(Clone, Copy, Debug)]
+pub enum GroupedPlanStrategy {
+    HashMaterialized,
+    OrderedStreaming,
+}
+
+///
 /// MetricsEvent
 ///
 
@@ -79,6 +91,7 @@ pub enum MetricsEvent {
     },
     Plan {
         kind: PlanKind,
+        grouped_strategy: Option<GroupedPlanStrategy>,
     },
 }
 
@@ -265,13 +278,30 @@ impl MetricsSink for GlobalMetricsSink {
                 });
             }
 
-            MetricsEvent::Plan { kind } => {
-                metrics::with_state_mut(|m| match kind {
-                    PlanKind::Keys => m.ops.plan_keys = m.ops.plan_keys.saturating_add(1),
-                    PlanKind::Index => m.ops.plan_index = m.ops.plan_index.saturating_add(1),
-                    PlanKind::Range => m.ops.plan_range = m.ops.plan_range.saturating_add(1),
-                    PlanKind::FullScan => {
-                        m.ops.plan_full_scan = m.ops.plan_full_scan.saturating_add(1);
+            MetricsEvent::Plan {
+                kind,
+                grouped_strategy,
+            } => {
+                metrics::with_state_mut(|m| {
+                    match kind {
+                        PlanKind::Keys => m.ops.plan_keys = m.ops.plan_keys.saturating_add(1),
+                        PlanKind::Index => m.ops.plan_index = m.ops.plan_index.saturating_add(1),
+                        PlanKind::Range => m.ops.plan_range = m.ops.plan_range.saturating_add(1),
+                        PlanKind::FullScan => {
+                            m.ops.plan_full_scan = m.ops.plan_full_scan.saturating_add(1);
+                        }
+                    }
+
+                    match grouped_strategy {
+                        Some(GroupedPlanStrategy::HashMaterialized) => {
+                            m.ops.plan_grouped_hash_materialized =
+                                m.ops.plan_grouped_hash_materialized.saturating_add(1);
+                        }
+                        Some(GroupedPlanStrategy::OrderedStreaming) => {
+                            m.ops.plan_grouped_ordered_streaming =
+                                m.ops.plan_grouped_ordered_streaming.saturating_add(1);
+                        }
+                        None => {}
                     }
                 });
             }
@@ -458,6 +488,7 @@ mod tests {
         // No override installed yet.
         record(MetricsEvent::Plan {
             kind: PlanKind::Keys,
+            grouped_strategy: None,
         });
         assert_eq!(outer_calls.load(Ordering::SeqCst), 0);
         assert_eq!(inner_calls.load(Ordering::SeqCst), 0);
@@ -465,6 +496,7 @@ mod tests {
         with_metrics_sink(&outer, || {
             record(MetricsEvent::Plan {
                 kind: PlanKind::Index,
+                grouped_strategy: None,
             });
             assert_eq!(outer_calls.load(Ordering::SeqCst), 1);
             assert_eq!(inner_calls.load(Ordering::SeqCst), 0);
@@ -472,12 +504,14 @@ mod tests {
             with_metrics_sink(&inner, || {
                 record(MetricsEvent::Plan {
                     kind: PlanKind::Range,
+                    grouped_strategy: None,
                 });
             });
 
             // Inner override was restored to outer override.
             record(MetricsEvent::Plan {
                 kind: PlanKind::FullScan,
+                grouped_strategy: None,
             });
         });
 
@@ -491,6 +525,7 @@ mod tests {
 
         record(MetricsEvent::Plan {
             kind: PlanKind::Keys,
+            grouped_strategy: None,
         });
         assert_eq!(outer_calls.load(Ordering::SeqCst), 2);
         assert_eq!(inner_calls.load(Ordering::SeqCst), 1);
@@ -509,6 +544,7 @@ mod tests {
             with_metrics_sink(&sink, || {
                 record(MetricsEvent::Plan {
                     kind: PlanKind::Index,
+                    grouped_strategy: None,
                 });
                 panic!("intentional panic for guard test");
             });
@@ -524,6 +560,7 @@ mod tests {
 
         record(MetricsEvent::Plan {
             kind: PlanKind::Range,
+            grouped_strategy: None,
         });
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
@@ -533,6 +570,7 @@ mod tests {
         metrics_reset_all();
         record(MetricsEvent::Plan {
             kind: PlanKind::Index,
+            grouped_strategy: None,
         });
 
         let report = metrics_report(None);
@@ -548,6 +586,7 @@ mod tests {
         let window_start = metrics::with_state(|m| m.window_start_ms);
         record(MetricsEvent::Plan {
             kind: PlanKind::Keys,
+            grouped_strategy: None,
         });
 
         let report = metrics_report(Some(window_start.saturating_sub(1)));
@@ -563,11 +602,33 @@ mod tests {
         let window_start = metrics::with_state(|m| m.window_start_ms);
         record(MetricsEvent::Plan {
             kind: PlanKind::FullScan,
+            grouped_strategy: None,
         });
 
         let report = metrics_report(Some(window_start.saturating_add(1)));
         assert!(report.counters.is_none());
         assert!(report.entity_counters.is_empty());
+    }
+
+    #[test]
+    fn metrics_report_grouped_plan_strategy_counters_accumulate() {
+        metrics_reset_all();
+        record(MetricsEvent::Plan {
+            kind: PlanKind::Index,
+            grouped_strategy: Some(GroupedPlanStrategy::HashMaterialized),
+        });
+        record(MetricsEvent::Plan {
+            kind: PlanKind::Range,
+            grouped_strategy: Some(GroupedPlanStrategy::OrderedStreaming),
+        });
+
+        let counters = metrics_report(None)
+            .counters
+            .expect("metrics report should include counters");
+        assert_eq!(counters.ops.plan_index, 1);
+        assert_eq!(counters.ops.plan_range, 1);
+        assert_eq!(counters.ops.plan_grouped_hash_materialized, 1);
+        assert_eq!(counters.ops.plan_grouped_ordered_streaming, 1);
     }
 
     #[test]

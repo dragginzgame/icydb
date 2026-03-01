@@ -41,6 +41,22 @@ fn seed_grouped_phase_entities_with_fixed_ids() -> (Ulid, Ulid, Ulid) {
     (id_a, id_b, id_c)
 }
 
+fn seed_single_group_phase_entities() {
+    reset_store();
+
+    let save = SaveExecutor::<PhaseEntity>::new(DB, false);
+    for label in ["alpha", "beta", "gamma"] {
+        save.insert(PhaseEntity {
+            id: Ulid::generate(),
+            opt_rank: Some(1_u32),
+            rank: 1_u32,
+            tags: vec![1_u32],
+            label: label.to_string(),
+        })
+        .expect("single-group seed insert should succeed");
+    }
+}
+
 #[test]
 fn paged_query_builder_requires_explicit_limit() {
     let session = DbSession::new(DB);
@@ -364,6 +380,41 @@ fn grouped_fluent_execute_supports_cursor_continuation() {
     assert!(
         page_2.continuation_cursor().is_none(),
         "terminal grouped page should not emit continuation cursor"
+    );
+}
+
+#[test]
+fn grouped_fluent_execute_does_not_split_single_group_across_pages() {
+    seed_single_group_phase_entities();
+    let session = DbSession::new(DB);
+
+    let page = session
+        .load::<PhaseEntity>()
+        .group_by("rank")
+        .expect("group field should resolve")
+        .group_count()
+        .limit(1)
+        .execute_grouped()
+        .expect("single-group grouped page should execute");
+
+    assert_eq!(
+        page.rows().len(),
+        1,
+        "single-group page should emit one group"
+    );
+    assert_eq!(
+        page.rows()[0].group_key(),
+        &[Value::Uint(1)],
+        "single-group page should preserve canonical grouped key"
+    );
+    assert_eq!(
+        page.rows()[0].aggregate_values(),
+        &[Value::Uint(3)],
+        "single group count should reflect all rows for that group"
+    );
+    assert!(
+        page.continuation_cursor().is_none(),
+        "single grouped result must not emit continuation cursor that could split one group",
     );
 }
 

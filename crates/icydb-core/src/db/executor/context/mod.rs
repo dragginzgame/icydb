@@ -165,37 +165,42 @@ where
     }
 
     /// Deserialize data rows into `(Id, Entity)` tuples with key/entity consistency checks.
+    pub(crate) fn deserialize_row(row: DataRow) -> Result<(Id<E>, E), InternalError>
+    where
+        E: EntityKind + EntityValue,
+    {
+        let (key, row) = row;
+        let expected_key = key.try_key::<E>()?;
+        let entity = decode_and_validate_entity_key::<E, _, _, _, _>(
+            expected_key,
+            || row.try_decode::<E>(),
+            |err| {
+                ExecutorError::serialize_corruption(format!(
+                    "failed to deserialize row: {key} ({err})"
+                ))
+                .into()
+            },
+            |expected_key, actual_key| {
+                let expected = format_entity_key_for_mismatch::<E>(expected_key);
+                let found = format_entity_key_for_mismatch::<E>(actual_key);
+
+                ExecutorError::store_corruption(format!(
+                    "row key mismatch: expected {expected}, found {found}"
+                ))
+                .into()
+            },
+        )?;
+
+        Ok((Id::from_key(expected_key), entity))
+    }
+
+    /// Deserialize data rows into `(Id, Entity)` tuples with key/entity consistency checks.
     pub(crate) fn deserialize_rows(rows: Vec<DataRow>) -> Result<Vec<(Id<E>, E)>, InternalError>
     where
         E: EntityKind + EntityValue,
     {
         // Phase 1: decode each row payload and enforce key/entity alignment invariants.
-        rows.into_iter()
-            .map(|(key, row)| {
-                let expected_key = key.try_key::<E>()?;
-                let entity = decode_and_validate_entity_key::<E, _, _, _, _>(
-                    expected_key,
-                    || row.try_decode::<E>(),
-                    |err| {
-                        ExecutorError::serialize_corruption(format!(
-                            "failed to deserialize row: {key} ({err})"
-                        ))
-                        .into()
-                    },
-                    |expected_key, actual_key| {
-                        let expected = format_entity_key_for_mismatch::<E>(expected_key);
-                        let found = format_entity_key_for_mismatch::<E>(actual_key);
-
-                        ExecutorError::store_corruption(format!(
-                            "row key mismatch: expected {expected}, found {found}"
-                        ))
-                        .into()
-                    },
-                )?;
-
-                Ok((Id::from_key(expected_key), entity))
-            })
-            .collect()
+        rows.into_iter().map(Self::deserialize_row).collect()
     }
 }
 
