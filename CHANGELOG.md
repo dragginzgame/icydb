@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `0.37.1` closes builder hardening for this cut with compile-fail guards for removed terminals, typed builder-validation parity coverage, and migration guidance for replacing `group_*` calls with `.aggregate(...)`.
 - `0.37.2` closes deferred resource follow-ups by making grouped route strategy labels explicitly materialized and consolidating non-grouped materialized DISTINCT helper ownership under one executor boundary.
 - `0.37.3` closes the cross-cutting audit pass by decomposing grouped execution into a staged spine, centralizing `AccessPath` routing under one executor dispatcher, splitting grouped validation into structure/policy/cursor gates, routing continuation filtering through a single cursor spine entrypoint, and normalizing invariant-constructor callsites behind per-module `invariant(...)` helpers.
-- `0.37.4` harmonizes cursor paging policy wording by centralizing cursor paging messages and constructors on `CursorPlanError`, and normalizes access canonicalization invocation so key-intent and planner paths both route through the shared `db::access` normalization boundary.
+- `0.37.4` harmonizes cursor paging policy wording by centralizing cursor paging messages and constructors on `CursorPlanError`, normalizes access canonicalization invocation so key-intent and planner paths both route through the shared `db::access` normalization boundary, and isolates `ExecutionTrace` contracts under `db::executor::trace` while leaving only load-path wiring and response/db payload accessors outside that contract module.
 
 ```rust
 let page = session
