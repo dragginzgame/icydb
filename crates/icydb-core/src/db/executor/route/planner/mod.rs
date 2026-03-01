@@ -172,18 +172,18 @@ impl ExecutionRoutePlan {
                     None => GroupedExecutionStrategy::HashMaterialized,
                 };
                 let eligible = self.fast_path_order.is_empty();
-                let (outcome, rejection_reason) = if !eligible {
-                    (
-                        GroupedRouteDecisionOutcome::Rejected,
-                        Some(GroupedRouteRejectionReason::CapabilityMismatch),
-                    )
-                } else {
+                let (outcome, rejection_reason) = if eligible {
                     match self.execution_mode {
                         ExecutionMode::Materialized => {
                             (GroupedRouteDecisionOutcome::MaterializedFallback, None)
                         }
                         ExecutionMode::Streaming => (GroupedRouteDecisionOutcome::Selected, None),
                     }
+                } else {
+                    (
+                        GroupedRouteDecisionOutcome::Rejected,
+                        Some(GroupedRouteRejectionReason::CapabilityMismatch),
+                    )
                 };
 
                 Some(GroupedRouteObservability {

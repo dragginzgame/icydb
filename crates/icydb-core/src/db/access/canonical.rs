@@ -556,8 +556,8 @@ mod tests {
         let k2 = Value::Ulid(Ulid::from_u128(2));
         let raw = AccessPlan::intersection(vec![
             AccessPlan::union(vec![
-                AccessPlan::path(AccessPath::ByKeys(vec![k2.clone(), k1.clone(), k1.clone()])),
-                AccessPlan::path(AccessPath::ByKeys(vec![k1.clone()])),
+                AccessPlan::path(AccessPath::ByKeys(vec![k2, k1.clone(), k1.clone()])),
+                AccessPlan::path(AccessPath::ByKeys(vec![k1])),
             ]),
             AccessPlan::full_scan(),
         ]);

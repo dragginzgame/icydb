@@ -76,7 +76,7 @@ where
             ContinuationMode::CursorBoundary | ContinuationMode::IndexRangeAnchor => {
                 return None;
             }
-        };
+        }
         if !capabilities.streaming_access_shape_safe {
             return None;
         }
