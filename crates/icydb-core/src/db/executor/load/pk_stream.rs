@@ -7,8 +7,8 @@ use crate::{
     db::{
         Context,
         executor::{
-            AccessPlanStreamRequest, AccessStreamBindings,
-            load::{ExecutionOptimization, FastPathKeyResult, LoadExecutor},
+            AccessPlanStreamRequest, AccessStreamBindings, ExecutionOptimization,
+            load::{FastPathKeyResult, LoadExecutor},
             traversal::derive_primary_scan_direction,
         },
         query::plan::AccessPlannedQuery,

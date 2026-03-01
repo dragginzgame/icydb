@@ -90,7 +90,7 @@ impl<E: EntityKind> AggregateReducerState<E> {
                 *count = count.saturating_add(1);
                 Ok(FoldControl::Continue)
             }
-            (AggregateKind::Sum, Self::Sum(_)) => Err(InternalError::query_executor_invariant(
+            (AggregateKind::Sum, Self::Sum(_)) => Err(invariant(
                 "aggregate reducer SUM requires field-target execution path",
             )),
             (AggregateKind::Exists, Self::Exists(exists)) => {
@@ -99,7 +99,7 @@ impl<E: EntityKind> AggregateReducerState<E> {
             }
             (AggregateKind::Min, Self::Min(min_id)) => {
                 let Some(id) = id else {
-                    return Err(InternalError::query_executor_invariant(
+                    return Err(invariant(
                         "aggregate reducer MIN update requires decoded id",
                     ));
                 };
@@ -118,7 +118,7 @@ impl<E: EntityKind> AggregateReducerState<E> {
             }
             (AggregateKind::Max, Self::Max(max_id)) => {
                 let Some(id) = id else {
-                    return Err(InternalError::query_executor_invariant(
+                    return Err(invariant(
                         "aggregate reducer MAX update requires decoded id",
                     ));
                 };
@@ -137,7 +137,7 @@ impl<E: EntityKind> AggregateReducerState<E> {
             }
             (AggregateKind::First, Self::First(first_id)) => {
                 let Some(id) = id else {
-                    return Err(InternalError::query_executor_invariant(
+                    return Err(invariant(
                         "aggregate reducer FIRST update requires decoded id",
                     ));
                 };
@@ -146,16 +146,14 @@ impl<E: EntityKind> AggregateReducerState<E> {
             }
             (AggregateKind::Last, Self::Last(last_id)) => {
                 let Some(id) = id else {
-                    return Err(InternalError::query_executor_invariant(
+                    return Err(invariant(
                         "aggregate reducer LAST update requires decoded id",
                     ));
                 };
                 *last_id = Some(id);
                 Ok(FoldControl::Continue)
             }
-            _ => Err(InternalError::query_executor_invariant(
-                "aggregate reducer state/kind mismatch",
-            )),
+            _ => Err(invariant("aggregate reducer state/kind mismatch")),
         }
     }
 
@@ -318,4 +316,8 @@ impl<E: EntityKind> TerminalAggregateState<E> {
 pub(in crate::db::executor) enum AggregateFoldMode {
     ExistingRows,
     KeysOnly,
+}
+
+fn invariant(message: impl Into<String>) -> InternalError {
+    InternalError::query_executor_invariant(message)
 }

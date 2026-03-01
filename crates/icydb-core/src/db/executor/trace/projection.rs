@@ -1,4 +1,4 @@
-//! Module: executor::load::trace
+//! Module: executor::trace::projection
 //! Responsibility: map load-path runtime inputs into trace-surface enum projections.
 //! Does not own: execution routing decisions or observability storage policy.
 //! Boundary: pure projection helpers used by `ExecutionTrace`.
@@ -8,7 +8,8 @@ use crate::db::{
     direction::Direction,
     executor::route::order_direction_from_direction,
     executor::{
-        AccessPathKind, AccessPlanKind, dispatch_access_plan_kind, load::ExecutionAccessPathVariant,
+        AccessPathKind, AccessPlanKind, dispatch_access_plan_kind,
+        trace::ExecutionAccessPathVariant,
     },
     query::plan::OrderDirection,
 };

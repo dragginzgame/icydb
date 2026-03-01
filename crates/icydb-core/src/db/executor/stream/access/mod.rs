@@ -119,12 +119,12 @@ impl<'a> AccessSpecCursor<'a> {
     /// Enforce that all lowered specs were consumed during access-plan traversal.
     pub(in crate::db::executor) fn validate_consumed(&mut self) -> Result<(), InternalError> {
         if self.index_prefix_specs.next().is_some() {
-            return Err(InternalError::query_executor_invariant(
+            return Err(invariant(
                 "unused index-prefix executable specs after access-plan traversal",
             ));
         }
         if self.index_range_specs.next().is_some() {
-            return Err(InternalError::query_executor_invariant(
+            return Err(invariant(
                 "unused index-range executable specs after access-plan traversal",
             ));
         }
@@ -419,7 +419,7 @@ impl AccessPlanStreamResolver {
         if let (Some(spec), Some(index)) = (index_prefix_spec, strategy.index_prefix_model())
             && spec.index() != &index
         {
-            return Err(InternalError::query_executor_invariant(
+            return Err(invariant(
                 "index-prefix spec does not match access path index",
             ));
         }
@@ -437,7 +437,7 @@ impl AccessPlanStreamResolver {
         if let (Some(spec), Some(index)) = (index_range_spec, strategy.index_range_model())
             && spec.index() != &index
         {
-            return Err(InternalError::query_executor_invariant(
+            return Err(invariant(
                 "index-range spec does not match access path index",
             ));
         }
@@ -582,4 +582,8 @@ impl AccessPlanStreamResolver {
             ))
         }))
     }
+}
+
+fn invariant(message: impl Into<String>) -> InternalError {
+    InternalError::query_executor_invariant(message)
 }

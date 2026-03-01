@@ -41,12 +41,12 @@ where
         // streaming-safe access shapes where access order is final.
         if scan_budget_hint.is_some() {
             if cursor_boundary.is_some() {
-                return Err(InternalError::query_executor_invariant(
+                return Err(invariant(
                     "load page scan budget hint requires non-continuation execution",
                 ));
             }
             if !streaming_access_shape_safe {
-                return Err(InternalError::query_executor_invariant(
+                return Err(invariant(
                     "load page scan budget hint requires streaming-safe access shape",
                 ));
             }
@@ -104,4 +104,8 @@ where
 
         Ok(CursorPage { items, next_cursor })
     }
+}
+
+fn invariant(message: impl Into<String>) -> InternalError {
+    InternalError::query_executor_invariant(message)
 }

@@ -51,7 +51,7 @@ impl CommitApplyGuard {
     /// Mark the guarded apply phase complete and drop rollback closures.
     pub(crate) fn finish(mut self) -> Result<(), InternalError> {
         if self.finished {
-            return Err(InternalError::executor_invariant(format!(
+            return Err(invariant(format!(
                 "commit apply guard invariant violated: finish called twice ({})",
                 self.phase
             )));
@@ -160,4 +160,8 @@ pub(crate) fn finish_commit(
     }
 
     result
+}
+
+fn invariant(message: impl Into<String>) -> InternalError {
+    InternalError::executor_invariant(message)
 }

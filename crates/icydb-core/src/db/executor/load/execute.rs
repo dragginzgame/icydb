@@ -6,13 +6,12 @@
 use crate::{
     db::{
         Context,
-        executor::load::{
-            CursorPage, ExecutionOptimization, ExecutionTrace, FastPathKeyResult, LoadExecutor,
-        },
+        executor::load::{CursorPage, FastPathKeyResult, LoadExecutor},
         executor::plan_metrics::set_rows_from_len,
         executor::{
-            AccessPlanStreamRequest, AccessStreamBindings, ExecutionPlan, ExecutionPreparation,
-            OrderedKeyStreamBox, range_token_from_lowered_anchor,
+            AccessPlanStreamRequest, AccessStreamBindings, ExecutionOptimization, ExecutionPlan,
+            ExecutionPreparation, ExecutionTrace, OrderedKeyStreamBox,
+            range_token_from_lowered_anchor,
             route::{
                 ExecutionMode, FastPathOrder, RoutedKeyStreamRequest,
                 ensure_load_fast_path_spec_arity, try_first_verified_fast_path_hit,

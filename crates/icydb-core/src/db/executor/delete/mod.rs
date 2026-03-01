@@ -126,9 +126,7 @@ where
         }
 
         if !plan.mode().is_delete() {
-            return Err(InternalError::query_executor_invariant(
-                "delete executor requires delete plans",
-            ));
+            return Err(invariant("delete executor requires delete plans"));
         }
         (|| {
             // Phase 1: preflight plan + context setup before any commit-window work.
@@ -214,4 +212,8 @@ where
             Ok(Response(res))
         })()
     }
+}
+
+fn invariant(message: impl Into<String>) -> InternalError {
+    InternalError::query_executor_invariant(message)
 }

@@ -242,9 +242,7 @@ where
         plan: &AccessPlannedQuery<E::Key>,
     ) -> Result<ExecutionPlan, InternalError> {
         if !plan.scalar_plan().mode.is_delete() {
-            return Err(InternalError::query_executor_invariant(
-                "mutation route planning requires delete plans",
-            ));
+            return Err(invariant("mutation route planning requires delete plans"));
         }
 
         let capabilities = Self::derive_route_capabilities(plan, Direction::Asc, None);
@@ -374,4 +372,8 @@ where
             grouped_execution_strategy: derivation.grouped_execution_strategy,
         }
     }
+}
+
+fn invariant(message: impl Into<String>) -> InternalError {
+    InternalError::query_executor_invariant(message)
 }

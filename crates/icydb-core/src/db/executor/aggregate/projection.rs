@@ -141,7 +141,7 @@ where
         terminal_kind: AggregateKind,
     ) -> Result<Option<Value>, InternalError> {
         if !terminal_kind.supports_terminal_value_projection() {
-            return Err(InternalError::query_executor_invariant(
+            return Err(invariant(
                 "terminal value projection requires FIRST/LAST aggregate kind",
             ));
         }
@@ -155,9 +155,7 @@ where
                 AggregateSpec::for_terminal(terminal_kind),
             )?
         else {
-            return Err(InternalError::query_executor_invariant(
-                "terminal value projection result kind mismatch",
-            ));
+            return Err(invariant("terminal value projection result kind mismatch"));
         };
         let Some(selected_id) = selected_id else {
             return Ok(None);
@@ -229,4 +227,8 @@ where
 
         Ok(projected_values)
     }
+}
+
+fn invariant(message: impl Into<String>) -> InternalError {
+    InternalError::query_executor_invariant(message)
 }

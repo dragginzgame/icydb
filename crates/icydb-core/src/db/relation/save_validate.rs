@@ -32,7 +32,7 @@ where
         };
 
         let value = entity.get_value_by_index(field_index).ok_or_else(|| {
-            InternalError::executor_invariant(format!(
+            invariant(format!(
                 "entity field missing: {} field={}",
                 E::PATH,
                 field.name
@@ -97,4 +97,8 @@ where
     }
 
     Ok(())
+}
+
+fn invariant(message: impl Into<String>) -> InternalError {
+    InternalError::executor_invariant(message)
 }

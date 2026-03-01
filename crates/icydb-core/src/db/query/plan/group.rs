@@ -65,7 +65,7 @@ pub(in crate::db) fn grouped_executor_handoff<K>(
 ) -> Result<GroupedExecutorHandoff<'_, K>, InternalError> {
     // Grouped handoff is valid only for plans with grouped execution payload.
     let Some(grouped) = plan.grouped_plan() else {
-        return Err(InternalError::query_executor_invariant(
+        return Err(invariant(
             "grouped executor handoff requires grouped logical plans",
         ));
     };
@@ -77,4 +77,8 @@ pub(in crate::db) fn grouped_executor_handoff<K>(
         having: grouped.having.as_ref(),
         execution: grouped.group.execution,
     })
+}
+
+fn invariant(message: impl Into<String>) -> InternalError {
+    InternalError::query_executor_invariant(message)
 }

@@ -184,11 +184,8 @@ fn collect_index_prefix_specs<E: EntityKind>(
     match access {
         AccessPlan::Path(path) => {
             if let AccessPath::IndexPrefix { index, values } = path.as_ref() {
-                let prefix_components = EncodedValue::try_encode_all(values).map_err(|_| {
-                    InternalError::query_executor_invariant(
-                        LOWERED_INDEX_PREFIX_VALUE_NOT_INDEXABLE,
-                    )
-                })?;
+                let prefix_components = EncodedValue::try_encode_all(values)
+                    .map_err(|_| invariant(LOWERED_INDEX_PREFIX_VALUE_NOT_INDEXABLE))?;
                 let (lower, upper) =
                     raw_keys_for_encoded_prefix::<E>(index, prefix_components.as_slice());
                 specs.push(LoweredIndexPrefixSpec::new(
@@ -277,4 +274,8 @@ const fn map_index_range_not_indexable_reason(
             "index-range cursor upper continuation bound is not indexable",
         ),
     }
+}
+
+fn invariant(message: impl Into<String>) -> InternalError {
+    InternalError::query_executor_invariant(message)
 }

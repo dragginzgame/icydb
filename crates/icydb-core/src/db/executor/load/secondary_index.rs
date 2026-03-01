@@ -6,9 +6,10 @@
 use crate::{
     db::{
         Context,
-        executor::load::{ExecutionOptimization, FastPathKeyResult, LoadExecutor},
         executor::{
-            AccessPlanStreamRequest, AccessStreamBindings, LoweredIndexPrefixSpec,
+            AccessPlanStreamRequest, AccessStreamBindings, ExecutionOptimization,
+            LoweredIndexPrefixSpec,
+            load::{FastPathKeyResult, LoadExecutor},
             traversal::derive_secondary_order_scan_direction,
         },
         index::predicate::IndexPredicateExecution,
@@ -35,7 +36,7 @@ where
             return Ok(None);
         };
         let Some(index_prefix_spec) = index_prefix_spec else {
-            return Err(InternalError::query_executor_invariant(
+            return Err(invariant(
                 "index-prefix executable spec must be materialized for index-prefix plans",
             ));
         };
@@ -70,4 +71,8 @@ where
 
         Ok(Some(fast))
     }
+}
+
+fn invariant(message: impl Into<String>) -> InternalError {
+    InternalError::query_executor_invariant(message)
 }

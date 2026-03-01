@@ -238,11 +238,9 @@ impl<C: CanisterKind> DbSession<C> {
         // Phase 1: build/validate executable plan and reject grouped plans.
         let plan = query.plan()?.into_executable();
         if plan.as_inner().grouped_plan().is_some() {
-            return Err(QueryError::Execute(
-                InternalError::query_executor_invariant(
-                    "grouped plans require execute_grouped(...)",
-                ),
-            ));
+            return Err(QueryError::Execute(invariant(
+                "grouped plans require execute_grouped(...)",
+            )));
         }
 
         // Phase 2: decode external cursor token and validate it against plan surface.
@@ -269,11 +267,9 @@ impl<C: CanisterKind> DbSession<C> {
             .next_cursor
             .map(|token| {
                 let Some(token) = token.as_scalar() else {
-                    return Err(QueryError::Execute(
-                        InternalError::query_executor_invariant(
-                            "scalar load pagination emitted grouped continuation token",
-                        ),
-                    ));
+                    return Err(QueryError::Execute(invariant(
+                        "scalar load pagination emitted grouped continuation token",
+                    )));
                 };
 
                 token.encode().map_err(|err| {
@@ -306,11 +302,9 @@ impl<C: CanisterKind> DbSession<C> {
         // Phase 1: build/validate executable plan and require grouped shape.
         let plan = query.plan()?.into_executable();
         if plan.as_inner().grouped_plan().is_none() {
-            return Err(QueryError::Execute(
-                InternalError::query_executor_invariant(
-                    "execute_grouped requires grouped logical plans",
-                ),
-            ));
+            return Err(QueryError::Execute(invariant(
+                "execute_grouped requires grouped logical plans",
+            )));
         }
 
         // Phase 2: decode external grouped cursor token and validate against plan.
@@ -337,11 +331,9 @@ impl<C: CanisterKind> DbSession<C> {
             .next_cursor
             .map(|token| {
                 let Some(token) = token.as_grouped() else {
-                    return Err(QueryError::Execute(
-                        InternalError::query_executor_invariant(
-                            "grouped pagination emitted scalar continuation token",
-                        ),
-                    ));
+                    return Err(QueryError::Execute(invariant(
+                        "grouped pagination emitted scalar continuation token",
+                    )));
                 };
 
                 token.encode().map_err(|err| {
@@ -508,4 +500,8 @@ impl<C: CanisterKind> DbSession<C> {
             }
         });
     }
+}
+
+fn invariant(message: impl Into<String>) -> InternalError {
+    InternalError::query_executor_invariant(message)
 }

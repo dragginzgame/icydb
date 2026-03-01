@@ -20,6 +20,10 @@ use crate::{
     traits::{EntityKind, EntityValue},
 };
 
+fn invariant(message: impl Into<String>) -> InternalError {
+    InternalError::query_executor_invariant(message)
+}
+
 ///
 /// PageWindow
 ///
@@ -179,15 +183,11 @@ impl ExecutionKernel {
             && let Some(boundary) = cursor_boundary
         {
             let Some(order) = logical.order.as_ref() else {
-                return Err(InternalError::query_executor_invariant(
-                    "cursor boundary requires ordering",
-                ));
+                return Err(invariant("cursor boundary requires ordering"));
             };
 
             if !ordered {
-                return Err(InternalError::query_executor_invariant(
-                    "cursor boundary must run after ordering",
-                ));
+                return Err(invariant("cursor boundary must run after ordering"));
             }
 
             apply_continuation::<E, R, _>(rows, order, boundary, |row| row.entity());

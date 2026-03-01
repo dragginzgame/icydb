@@ -148,9 +148,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
         &self,
     ) -> Result<&[LoweredIndexPrefixSpec], InternalError> {
         if self.index_prefix_spec_invalid {
-            return Err(InternalError::query_executor_invariant(
-                LOWERED_INDEX_PREFIX_SPEC_INVALID,
-            ));
+            return Err(invariant(LOWERED_INDEX_PREFIX_SPEC_INVALID));
         }
 
         Ok(self.index_prefix_specs.as_slice())
@@ -160,9 +158,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
         &self,
     ) -> Result<&[LoweredIndexRangeSpec], InternalError> {
         if self.index_range_spec_invalid {
-            return Err(InternalError::query_executor_invariant(
-                LOWERED_INDEX_RANGE_SPEC_INVALID,
-            ));
+            return Err(invariant(LOWERED_INDEX_RANGE_SPEC_INVALID));
         }
 
         Ok(self.index_range_specs.as_slice())
@@ -182,7 +178,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
     {
         // Grouped plans require grouped cursor contracts and must not enter scalar path.
         if matches!(&self.plan.logical, LogicalPlan::Grouped(_)) {
-            return Err(InternalError::query_executor_invariant(
+            return Err(invariant(
                 "grouped plans require grouped cursor revalidation",
             ));
         }
@@ -256,7 +252,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
         cursor: GroupedPlannedCursor,
     ) -> Result<GroupedPlannedCursor, InternalError> {
         if !matches!(&self.plan.logical, LogicalPlan::Grouped(_)) {
-            return Err(InternalError::query_executor_invariant(
+            return Err(invariant(
                 "grouped cursor revalidation requires grouped logical plans",
             ));
         }
@@ -289,4 +285,8 @@ impl<E: EntityKind> ExecutablePlan<E> {
         revalidate_grouped_cursor(Self::initial_page_offset(&self.plan.logical), cursor)
             .map_err(InternalError::from_cursor_plan_error)
     }
+}
+
+fn invariant(message: impl Into<String>) -> InternalError {
+    InternalError::query_executor_invariant(message)
 }

@@ -3,6 +3,15 @@
 mod order_cursor;
 mod window;
 
+use crate::db::executor::kernel::post_access::order_cursor::{
+    apply_order_spec as apply_post_access_order_spec,
+    apply_order_spec_bounded as apply_post_access_order_spec_bounded,
+};
+#[cfg(test)]
+use crate::{
+    db::executor::route::{derive_budget_safety_flags, streaming_access_shape_safe},
+    traits::EntitySchema,
+};
 use crate::{
     db::{
         cursor::{
@@ -20,16 +29,9 @@ use crate::{
 };
 use std::ops::Deref;
 
-#[cfg(test)]
-use crate::{
-    db::executor::route::{derive_budget_safety_flags, streaming_access_shape_safe},
-    traits::EntitySchema,
-};
-
-use crate::db::executor::kernel::post_access::order_cursor::{
-    apply_order_spec as apply_post_access_order_spec,
-    apply_order_spec_bounded as apply_post_access_order_spec_bounded,
-};
+fn invariant(message: impl Into<String>) -> InternalError {
+    InternalError::query_executor_invariant(message)
+}
 
 ///
 /// PlanRow
@@ -296,7 +298,7 @@ impl<K> PostAccessPlan<'_, K> {
     {
         let filtered = if self.plan.scalar_plan().predicate.is_some() {
             let Some(compiled_predicate) = compiled_predicate else {
-                return Err(InternalError::query_executor_invariant(
+                return Err(invariant(
                     "post-access filtering requires precompiled predicate slots",
                 ));
             };
@@ -327,9 +329,7 @@ impl<K> PostAccessPlan<'_, K> {
             && !order.fields.is_empty()
         {
             if logical.predicate.is_some() && !filtered {
-                return Err(InternalError::query_executor_invariant(
-                    "ordering must run after filtering",
-                ));
+                return Err(invariant("ordering must run after filtering"));
             }
 
             let ordered_total = rows.len();
@@ -361,9 +361,7 @@ impl<K> PostAccessPlan<'_, K> {
             && let Some(page) = &logical.page
         {
             if logical.order.is_some() && !ordered {
-                return Err(InternalError::query_executor_invariant(
-                    "pagination must run after ordering",
-                ));
+                return Err(invariant("pagination must run after ordering"));
             }
             window::apply_pagination(
                 rows,
@@ -389,9 +387,7 @@ impl<K> PostAccessPlan<'_, K> {
             && let Some(limit) = &logical.delete_limit
         {
             if logical.order.is_some() && !ordered {
-                return Err(InternalError::query_executor_invariant(
-                    "delete limit must run after ordering",
-                ));
+                return Err(invariant("delete limit must run after ordering"));
             }
             window::apply_delete_limit(rows, limit.max_rows);
             true

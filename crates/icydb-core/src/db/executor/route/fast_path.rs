@@ -95,14 +95,12 @@ where
         plan: &AccessPlannedQuery<E::Key>,
     ) -> Result<&crate::db::access::AccessPath<E::Key>, InternalError> {
         let access = plan.access.as_path().ok_or_else(|| {
-            InternalError::query_executor_invariant(
-                "pk stream fast-path requires direct access-path execution",
-            )
+            invariant("pk stream fast-path requires direct access-path execution")
         })?;
         let dispatched = dispatch_access_path(access);
         let strategy: &dyn AccessPathRuntimeStrategy<E::Key> = &dispatched;
         if !strategy.supports_pk_stream_access() {
-            return Err(InternalError::query_executor_invariant(
+            return Err(invariant(
                 "pk stream fast-path requires full-scan/key-range access path",
             ));
         }
@@ -140,4 +138,8 @@ where
             )
             .is_none()
     }
+}
+
+fn invariant(message: impl Into<String>) -> InternalError {
+    InternalError::query_executor_invariant(message)
 }

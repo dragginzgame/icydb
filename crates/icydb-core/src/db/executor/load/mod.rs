@@ -11,17 +11,14 @@ mod page;
 mod pk_stream;
 mod secondary_index;
 mod terminal;
-mod trace;
 
 pub(in crate::db::executor) use self::execute::{
     ExecutionInputs, MaterializedExecutionAttempt, ResolvedExecutionKeyStream,
 };
 
-use self::trace::{access_path_variant, execution_order_direction};
 use crate::{
     db::{
         Context, Db, GroupedRow,
-        access::AccessPlan,
         contracts::canonical_value_compare,
         cursor::{
             ContinuationSignature, ContinuationToken, CursorBoundary, GroupedContinuationToken,
@@ -30,8 +27,8 @@ use crate::{
         data::DataKey,
         direction::Direction,
         executor::{
-            AccessStreamBindings, ExecutablePlan, ExecutionKernel, ExecutionPreparation,
-            KeyOrderComparator, OrderedKeyStreamBox,
+            AccessStreamBindings, ExecutablePlan, ExecutionKernel, ExecutionOptimization,
+            ExecutionPreparation, ExecutionTrace, KeyOrderComparator, OrderedKeyStreamBox,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, extract_numeric_field_decimal,
                 extract_orderable_field_value, resolve_any_aggregate_target_slot,
@@ -53,8 +50,10 @@ use crate::{
         index::IndexCompilePolicy,
         predicate::{CoercionSpec, CompareOp, MissingRowPolicy, compare_eq, compare_order},
         query::plan::{
-            AccessPlannedQuery, GroupAggregateSpec, GroupHavingSpec, GroupHavingSymbol,
-            LogicalPlan, OrderDirection, grouped_executor_handoff,
+            AccessPlannedQuery, GroupAggregateSpec, GroupDistinctAdmissibility,
+            GroupDistinctPolicyReason, GroupHavingSpec, GroupHavingSymbol, LogicalPlan,
+            global_distinct_field_aggregate_admissibility, grouped_executor_handoff,
+            is_global_distinct_field_aggregate_candidate,
         },
         response::Response,
     },
@@ -132,90 +131,6 @@ pub(crate) struct CursorPage<E: EntityKind> {
 pub(in crate::db) struct GroupedCursorPage {
     pub(in crate::db) rows: Vec<GroupedRow>,
     pub(in crate::db) next_cursor: Option<PageCursor>,
-}
-
-///
-/// ExecutionAccessPathVariant
-///
-/// Coarse access path shape used by the load execution trace surface.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ExecutionAccessPathVariant {
-    ByKey,
-    ByKeys,
-    KeyRange,
-    IndexPrefix,
-    IndexRange,
-    FullScan,
-    Union,
-    Intersection,
-}
-
-///
-/// ExecutionOptimization
-///
-/// Canonical load optimization selected by execution, if any.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ExecutionOptimization {
-    PrimaryKey,
-    SecondaryOrderPushdown,
-    IndexRangeLimitPushdown,
-}
-
-///
-/// ExecutionTrace
-///
-/// Structured, opt-in load execution introspection snapshot.
-/// Captures plan-shape and execution decisions without changing semantics.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ExecutionTrace {
-    pub access_path_variant: ExecutionAccessPathVariant,
-    pub direction: OrderDirection,
-    pub optimization: Option<ExecutionOptimization>,
-    pub keys_scanned: u64,
-    pub rows_returned: u64,
-    pub continuation_applied: bool,
-    pub index_predicate_applied: bool,
-    pub index_predicate_keys_rejected: u64,
-    pub distinct_keys_deduped: u64,
-}
-
-impl ExecutionTrace {
-    fn new<K>(access: &AccessPlan<K>, direction: Direction, continuation_applied: bool) -> Self {
-        Self {
-            access_path_variant: access_path_variant(access),
-            direction: execution_order_direction(direction),
-            optimization: None,
-            keys_scanned: 0,
-            rows_returned: 0,
-            continuation_applied,
-            index_predicate_applied: false,
-            index_predicate_keys_rejected: 0,
-            distinct_keys_deduped: 0,
-        }
-    }
-
-    fn set_path_outcome(
-        &mut self,
-        optimization: Option<ExecutionOptimization>,
-        keys_scanned: usize,
-        rows_returned: usize,
-        index_predicate_applied: bool,
-        index_predicate_keys_rejected: u64,
-        distinct_keys_deduped: u64,
-    ) {
-        self.optimization = optimization;
-        self.keys_scanned = u64::try_from(keys_scanned).unwrap_or(u64::MAX);
-        self.rows_returned = u64::try_from(rows_returned).unwrap_or(u64::MAX);
-        self.index_predicate_applied = index_predicate_applied;
-        self.index_predicate_keys_rejected = index_predicate_keys_rejected;
-        self.distinct_keys_deduped = distinct_keys_deduped;
-    }
 }
 
 /// Resolve key-stream comparator contract from runtime direction.
@@ -378,7 +293,7 @@ where
         cursor: impl Into<PlannedCursor>,
     ) -> Result<(CursorPage<E>, Option<ExecutionTrace>), InternalError> {
         if matches!(&plan.as_inner().logical, LogicalPlan::Grouped(_)) {
-            return Err(InternalError::query_executor_invariant(
+            return Err(invariant(
                 "grouped plans require execute_grouped pagination entrypoints",
             ));
         }
@@ -390,9 +305,7 @@ where
             .map(range_token_from_cursor_anchor);
 
         if !plan.mode().is_load() {
-            return Err(InternalError::query_executor_invariant(
-                "load executor requires load plans",
-            ));
+            return Err(invariant("load executor requires load plans"));
         }
 
         let continuation_signature = plan.continuation_signature();
@@ -477,7 +390,7 @@ where
         cursor: impl Into<GroupedPlannedCursor>,
     ) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), InternalError> {
         if !matches!(&plan.as_inner().logical, LogicalPlan::Grouped(_)) {
-            return Err(InternalError::query_executor_invariant(
+            return Err(invariant(
                 "grouped execution requires grouped logical plans",
             ));
         }
@@ -520,9 +433,7 @@ where
             Self::build_execution_route_plan_for_grouped_handoff(grouped_handoff);
         let grouped_route_observability =
             grouped_route_plan.grouped_observability().ok_or_else(|| {
-                InternalError::query_executor_invariant(
-                    "grouped route planning must emit grouped observability payload",
-                )
+                invariant("grouped route planning must emit grouped observability payload")
             })?;
         let grouped_route_outcome = grouped_route_observability.outcome();
         let grouped_route_rejection_reason = grouped_route_observability.rejection_reason();
@@ -648,7 +559,7 @@ where
                 .iter()
                 .map(|aggregate| {
                     if aggregate.target_field().is_some() {
-                        return Err(InternalError::query_executor_invariant(format!(
+                        return Err(invariant(format!(
                             "grouped field-target aggregate reached executor after planning: {:?}",
                             aggregate.kind()
                         )));
@@ -747,7 +658,7 @@ where
                 .iter()
                 .map(|field| {
                     entity.get_value_by_index(field.index()).ok_or_else(|| {
-                        InternalError::query_executor_invariant(format!(
+                        invariant(format!(
                             "grouped field slot missing on entity: index={}",
                             field.index()
                         ))
@@ -786,7 +697,7 @@ where
         // prior to pagination; we page directly while walking finalized grouped outputs.
         let aggregate_count = grouped_engines.len();
         if aggregate_count == 0 {
-            return Err(InternalError::query_executor_invariant(
+            return Err(invariant(
                 "grouped execution requires at least one aggregate terminal",
             ));
         }
@@ -794,9 +705,10 @@ where
             .into_iter()
             .map(|engine| engine.finalize_grouped().map(Vec::into_iter))
             .collect::<Result<Vec<_>, _>>()?;
-        let mut primary_iter = finalized_iters.drain(..1).next().ok_or_else(|| {
-            InternalError::query_executor_invariant("missing grouped primary iterator")
-        })?;
+        let mut primary_iter = finalized_iters
+            .drain(..1)
+            .next()
+            .ok_or_else(|| invariant("missing grouped primary iterator"))?;
 
         // Phase 3: apply grouped resume/offset/limit while finalizing grouped outputs.
         let initial_offset = route
@@ -840,7 +752,7 @@ where
                 aggregate_values.push(Self::aggregate_output_to_value(primary_output.output()));
                 for (sibling_index, sibling_iter) in finalized_iters.iter_mut().enumerate() {
                     let sibling_output = sibling_iter.next().ok_or_else(|| {
-                        InternalError::query_executor_invariant(format!(
+                        invariant(format!(
                             "grouped finalize alignment missing sibling aggregate row: sibling_index={sibling_index}"
                         ))
                     })?;
@@ -848,7 +760,7 @@ where
                     if canonical_value_compare(sibling_group_key, &group_key_value)
                         != Ordering::Equal
                     {
-                        return Err(InternalError::query_executor_invariant(format!(
+                        return Err(invariant(format!(
                             "grouped finalize alignment mismatch at sibling_index={sibling_index}: primary_key={group_key_value:?}, sibling_key={sibling_group_key:?}"
                         )));
                     }
@@ -884,7 +796,7 @@ where
                         canonical_value_compare(existing_key, &group_key_value)
                     }) {
                         Ok(_) => {
-                            return Err(InternalError::query_executor_invariant(format!(
+                            return Err(invariant(format!(
                                 "grouped finalize produced duplicate canonical group key: {group_key_value:?}"
                             )));
                         }
@@ -910,7 +822,7 @@ where
             }
             for (sibling_index, sibling_iter) in finalized_iters.iter_mut().enumerate() {
                 if sibling_iter.next().is_some() {
-                    return Err(InternalError::query_executor_invariant(format!(
+                    return Err(invariant(format!(
                         "grouped finalize alignment has trailing sibling rows: sibling_index={sibling_index}"
                     )));
                 }
@@ -951,7 +863,7 @@ where
             let emitted_group_key = match group_key_value {
                 Value::List(values) => values,
                 value => {
-                    return Err(InternalError::query_executor_invariant(format!(
+                    return Err(invariant(format!(
                         "grouped canonical key must be Value::List, found {value:?}"
                     )));
                 }
@@ -1049,48 +961,45 @@ where
         aggregates: &[GroupAggregateSpec],
         having: Option<&GroupHavingSpec>,
     ) -> Result<Option<(AggregateKind, String)>, InternalError> {
-        if !group_fields.is_empty() {
+        if !is_global_distinct_field_aggregate_candidate(group_fields, aggregates) {
             return Ok(None);
-        }
-        if aggregates.is_empty() {
-            return Ok(None);
-        }
-        if aggregates
-            .iter()
-            .all(|aggregate| aggregate.target_field().is_none())
-        {
-            return Ok(None);
-        }
-        if having.is_some() {
-            return Err(InternalError::query_executor_invariant(
-                "global DISTINCT grouped aggregate shape does not support HAVING",
-            ));
-        }
-        if aggregates.len() != 1 {
-            return Err(InternalError::query_executor_invariant(
-                "global DISTINCT grouped aggregate shape requires exactly one aggregate terminal",
-            ));
         }
 
         let aggregate = &aggregates[0];
-        let Some(target_field) = aggregate.target_field() else {
-            return Err(InternalError::query_executor_invariant(
-                "global DISTINCT grouped aggregate shape requires field-target aggregate",
-            ));
-        };
-        if !aggregate.distinct() {
-            return Err(InternalError::query_executor_invariant(
-                "global DISTINCT grouped aggregate shape requires DISTINCT aggregate terminal",
-            ));
+        match global_distinct_field_aggregate_admissibility(aggregates, having) {
+            GroupDistinctAdmissibility::Allowed => {}
+            GroupDistinctAdmissibility::Disallowed(reason) => {
+                return Err(Self::group_distinct_policy_invariant(reason, aggregate));
+            }
         }
-        if !matches!(aggregate.kind(), AggregateKind::Count | AggregateKind::Sum) {
-            return Err(InternalError::query_executor_invariant(format!(
-                "unsupported global DISTINCT grouped aggregate kind: {:?}",
-                aggregate.kind()
-            )));
-        }
+        let target_field = aggregate.target_field().ok_or_else(|| {
+            Self::group_distinct_policy_invariant(
+                GroupDistinctPolicyReason::GlobalDistinctRequiresFieldTargetAggregate,
+                aggregate,
+            )
+        })?;
 
         Ok(Some((aggregate.kind(), target_field.to_string())))
+    }
+
+    // Build one canonical invariant error from grouped DISTINCT policy contract reasons.
+    fn group_distinct_policy_invariant(
+        reason: GroupDistinctPolicyReason,
+        aggregate: &GroupAggregateSpec,
+    ) -> InternalError {
+        match reason {
+            GroupDistinctPolicyReason::GlobalDistinctUnsupportedAggregateKind => invariant(
+                format!("{}: {:?}", reason.invariant_message(), aggregate.kind()),
+            ),
+            GroupDistinctPolicyReason::DistinctHavingUnsupported
+            | GroupDistinctPolicyReason::DistinctAdjacencyEligibilityRequired
+            | GroupDistinctPolicyReason::GlobalDistinctHavingUnsupported
+            | GroupDistinctPolicyReason::GlobalDistinctRequiresSingleAggregate
+            | GroupDistinctPolicyReason::GlobalDistinctRequiresFieldTargetAggregate
+            | GroupDistinctPolicyReason::GlobalDistinctRequiresDistinctAggregateTerminal => {
+                invariant(reason.invariant_message())
+            }
+        }
     }
 
     // Execute one global DISTINCT field-target grouped aggregate with grouped
@@ -1222,7 +1131,7 @@ where
                     let group_key_list = match group_key_value {
                         Value::List(values) => values,
                         value => {
-                            return Err(InternalError::query_executor_invariant(format!(
+                            return Err(invariant(format!(
                                 "grouped HAVING requires list-shaped grouped keys, found {value:?}"
                             )));
                         }
@@ -1231,13 +1140,13 @@ where
                         .iter()
                         .position(|group_field| group_field.index() == field_slot.index())
                     else {
-                        return Err(InternalError::query_executor_invariant(format!(
+                        return Err(invariant(format!(
                             "grouped HAVING field is not in grouped key projection: field='{}'",
                             field_slot.field()
                         )));
                     };
                     group_key_list.get(group_field_offset).ok_or_else(|| {
-                        InternalError::query_executor_invariant(format!(
+                        invariant(format!(
                             "grouped HAVING group key offset out of bounds: clause_index={index}, offset={group_field_offset}, key_len={}",
                             group_key_list.len()
                         ))
@@ -1245,7 +1154,7 @@ where
                 }
                 GroupHavingSymbol::AggregateIndex(aggregate_index) => {
                     aggregate_values.get(*aggregate_index).ok_or_else(|| {
-                        InternalError::query_executor_invariant(format!(
+                        invariant(format!(
                             "grouped HAVING aggregate index out of bounds: clause_index={index}, aggregate_index={aggregate_index}, aggregate_count={}",
                             aggregate_values.len()
                         ))
@@ -1280,7 +1189,7 @@ where
             | CompareOp::Contains
             | CompareOp::StartsWith
             | CompareOp::EndsWith => {
-                return Err(InternalError::query_executor_invariant(format!(
+                return Err(invariant(format!(
                     "unsupported grouped HAVING operator reached executor: {op:?}"
                 )));
             }
@@ -1309,11 +1218,6 @@ where
                 index_predicate_keys_rejected,
                 distinct_keys_deduped,
             );
-            debug_assert_eq!(
-                execution_trace.keys_scanned,
-                u64::try_from(rows_scanned).unwrap_or(u64::MAX),
-                "execution trace keys_scanned must match rows_scanned metrics input",
-            );
         }
     }
 
@@ -1329,4 +1233,8 @@ where
 
         Ok(())
     }
+}
+
+fn invariant(message: impl Into<String>) -> InternalError {
+    InternalError::query_executor_invariant(message)
 }

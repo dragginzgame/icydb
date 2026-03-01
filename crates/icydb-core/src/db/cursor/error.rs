@@ -3,6 +3,7 @@ use crate::{
         codec::cursor::CursorDecodeError,
         cursor::{ContinuationSignature, TokenWireError},
     },
+    error::InternalError,
     value::Value,
 };
 use thiserror::Error as ThisError;
@@ -72,6 +73,21 @@ pub enum CursorPlanError {
 }
 
 impl CursorPlanError {
+    /// Canonical policy text for missing cursor ORDER BY requirements.
+    pub(crate) const fn cursor_requires_order_message() -> &'static str {
+        "cursor pagination requires an explicit ordering"
+    }
+
+    /// Canonical policy text for missing cursor LIMIT requirements.
+    pub(crate) const fn cursor_requires_limit_message() -> &'static str {
+        "cursor pagination requires a limit"
+    }
+
+    /// Canonical payload text for empty cursor ORDER BY specifications.
+    pub(crate) const fn cursor_requires_non_empty_order_message() -> &'static str {
+        "cursor pagination requires non-empty ordering"
+    }
+
     // Construct one invalid cursor-token decode error.
     pub(in crate::db) const fn invalid_continuation_cursor(reason: CursorDecodeError) -> Self {
         Self::InvalidContinuationCursor { reason }
@@ -82,6 +98,20 @@ impl CursorPlanError {
         Self::InvalidContinuationCursorPayload {
             reason: reason.into(),
         }
+    }
+
+    // Construct one payload error for missing explicit cursor ordering.
+    pub(in crate::db) fn cursor_requires_order() -> Self {
+        Self::invalid_continuation_cursor_payload(InternalError::executor_invariant_message(
+            Self::cursor_requires_order_message(),
+        ))
+    }
+
+    // Construct one payload error for empty cursor ORDER BY specifications.
+    pub(in crate::db) fn cursor_requires_non_empty_order() -> Self {
+        Self::invalid_continuation_cursor_payload(InternalError::executor_invariant_message(
+            Self::cursor_requires_non_empty_order_message(),
+        ))
     }
 
     // Construct one cursor version mismatch error.

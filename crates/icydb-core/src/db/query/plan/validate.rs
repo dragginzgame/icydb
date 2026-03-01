@@ -16,8 +16,11 @@ use crate::{
         cursor::CursorPlanError,
         predicate::{CompareOp, SchemaInfo, ValidateError, validate},
         query::plan::{
-            AccessPlannedQuery, FieldSlot, GroupAggregateSpec, GroupHavingSpec, GroupHavingSymbol,
-            GroupSpec, LoadSpec, LogicalPlan, OrderSpec, QueryMode, ScalarPlan,
+            AccessPlannedQuery, FieldSlot, GroupAggregateSpec, GroupDistinctAdmissibility,
+            GroupDistinctPolicyReason, GroupHavingSpec, GroupHavingSymbol, GroupSpec, LoadSpec,
+            LogicalPlan, OrderSpec, QueryMode, ScalarPlan,
+            global_distinct_field_aggregate_admissibility, grouped_distinct_admissibility,
+            is_global_distinct_field_aggregate_candidate,
         },
     },
     model::entity::EntityModel,
@@ -117,12 +120,19 @@ pub enum PolicyPlanError {
 ///
 /// Cursor pagination readiness errors shared by intent/fluent entry surfaces.
 ///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ThisError)]
 pub enum CursorPagingPolicyError {
-    #[error("cursor pagination requires an explicit ordering")]
+    #[error(
+        "{message}",
+        message = CursorPlanError::cursor_requires_order_message()
+    )]
     CursorRequiresOrder,
 
-    #[error("cursor pagination requires a limit")]
+    #[error(
+        "{message}",
+        message = CursorPlanError::cursor_requires_limit_message()
+    )]
     CursorRequiresLimit,
 }
 
@@ -242,6 +252,7 @@ pub enum GroupPlanError {
 ///
 /// Logical cursor-order plan-shape failures used by cursor/runtime boundary adapters.
 ///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CursorOrderPlanShapeError {
     MissingExplicitOrder,
@@ -253,6 +264,7 @@ pub(crate) enum CursorOrderPlanShapeError {
 ///
 /// Key-access shape used by intent policy validation.
 ///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum IntentKeyAccessKind {
     Single,
@@ -277,6 +289,7 @@ pub(crate) enum IntentKeyAccessPolicyViolation {
 ///
 /// Fluent load-entry policy violations.
 ///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum FluentLoadPolicyViolation {
     CursorRequiresPagedExecution,
@@ -414,7 +427,7 @@ fn validate_group_policy(
 ) -> Result<(), PlanError> {
     validate_grouped_distinct_policy(logical, having.is_some())?;
     validate_grouped_having_policy(having)?;
-    validate_group_spec_policy(schema, group)?;
+    validate_group_spec_policy(schema, group, having)?;
 
     Ok(())
 }
@@ -446,16 +459,12 @@ fn validate_grouped_distinct_policy(
     logical: &ScalarPlan,
     has_having: bool,
 ) -> Result<(), PlanError> {
-    if logical.distinct && has_having {
-        return Err(PlanError::from(GroupPlanError::DistinctHavingUnsupported));
+    match grouped_distinct_admissibility(logical.distinct, has_having) {
+        GroupDistinctAdmissibility::Allowed => Ok(()),
+        GroupDistinctAdmissibility::Disallowed(reason) => Err(PlanError::from(
+            group_plan_error_from_distinct_policy_reason(reason, None),
+        )),
     }
-    if logical.distinct {
-        return Err(PlanError::from(
-            GroupPlanError::DistinctAdjacencyEligibilityRequired,
-        ));
-    }
-
-    Ok(())
 }
 
 // Validate grouped HAVING structural symbol/reference compatibility.
@@ -593,9 +602,13 @@ fn validate_group_spec_structure(
 }
 
 // Validate grouped execution policy over a structurally valid grouped spec.
-fn validate_group_spec_policy(schema: &SchemaInfo, group: &GroupSpec) -> Result<(), PlanError> {
+fn validate_group_spec_policy(
+    schema: &SchemaInfo,
+    group: &GroupSpec,
+    having: Option<&GroupHavingSpec>,
+) -> Result<(), PlanError> {
     if group.group_fields.is_empty() {
-        validate_global_distinct_aggregate_without_group_keys(schema, group)?;
+        validate_global_distinct_aggregate_without_group_keys(schema, group, having)?;
         return Ok(());
     }
 
@@ -637,28 +650,24 @@ fn validate_group_spec_policy(schema: &SchemaInfo, group: &GroupSpec) -> Result<
 fn validate_global_distinct_aggregate_without_group_keys(
     schema: &SchemaInfo,
     group: &GroupSpec,
+    having: Option<&GroupHavingSpec>,
 ) -> Result<(), PlanError> {
-    if group.aggregates.len() != 1 {
+    if !is_global_distinct_field_aggregate_candidate(
+        group.group_fields.as_slice(),
+        group.aggregates.as_slice(),
+    ) {
         return Err(PlanError::from(
             GroupPlanError::GlobalDistinctAggregateShapeUnsupported,
         ));
     }
     let aggregate = &group.aggregates[0];
-    if !aggregate.distinct() {
-        return Err(PlanError::from(
-            GroupPlanError::GlobalDistinctAggregateShapeUnsupported,
-        ));
-    }
-    if !aggregate
-        .kind()
-        .supports_global_distinct_without_group_keys()
-    {
-        return Err(PlanError::from(
-            GroupPlanError::DistinctAggregateKindUnsupported {
-                index: 0,
-                kind: format!("{:?}", aggregate.kind()),
-            },
-        ));
+    match global_distinct_field_aggregate_admissibility(group.aggregates.as_slice(), having) {
+        GroupDistinctAdmissibility::Allowed => {}
+        GroupDistinctAdmissibility::Disallowed(reason) => {
+            return Err(PlanError::from(
+                group_plan_error_from_distinct_policy_reason(reason, Some(aggregate)),
+            ));
+        }
     }
 
     let Some(target_field) = aggregate.target_field() else {
@@ -684,6 +693,34 @@ fn validate_global_distinct_aggregate_without_group_keys(
     }
 
     Ok(())
+}
+
+// Map one grouped DISTINCT policy reason to planner-visible grouped plan errors.
+fn group_plan_error_from_distinct_policy_reason(
+    reason: GroupDistinctPolicyReason,
+    aggregate: Option<&GroupAggregateSpec>,
+) -> GroupPlanError {
+    match reason {
+        GroupDistinctPolicyReason::DistinctHavingUnsupported => {
+            GroupPlanError::DistinctHavingUnsupported
+        }
+        GroupDistinctPolicyReason::DistinctAdjacencyEligibilityRequired => {
+            GroupPlanError::DistinctAdjacencyEligibilityRequired
+        }
+        GroupDistinctPolicyReason::GlobalDistinctHavingUnsupported
+        | GroupDistinctPolicyReason::GlobalDistinctRequiresSingleAggregate
+        | GroupDistinctPolicyReason::GlobalDistinctRequiresFieldTargetAggregate
+        | GroupDistinctPolicyReason::GlobalDistinctRequiresDistinctAggregateTerminal => {
+            GroupPlanError::GlobalDistinctAggregateShapeUnsupported
+        }
+        GroupDistinctPolicyReason::GlobalDistinctUnsupportedAggregateKind => {
+            let kind = aggregate.map_or_else(
+                || "Unknown".to_string(),
+                |aggregate| format!("{:?}", aggregate.kind()),
+            );
+            GroupPlanError::DistinctAggregateKindUnsupported { index: 0, kind }
+        }
+    }
 }
 
 // Shared logical plan validation core owned by planner semantics.

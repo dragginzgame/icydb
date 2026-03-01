@@ -16,6 +16,10 @@ const SECONDARY_LOAD_PREFIX_ARITY_MESSAGE: &str =
 const INDEX_RANGE_LOAD_RANGE_ARITY_MESSAGE: &str =
     "index-range fast-path resolution expects at most one index-range spec";
 
+fn invariant(message: impl Into<String>) -> InternalError {
+    InternalError::query_executor_invariant(message)
+}
+
 // Shared arity guard: enforce at most one lowered spec when a fast path is enabled.
 fn ensure_spec_at_most_one_if_enabled(
     fast_path_enabled: bool,
@@ -23,7 +27,7 @@ fn ensure_spec_at_most_one_if_enabled(
     message: &'static str,
 ) -> Result<(), InternalError> {
     if fast_path_enabled && spec_count > 1 {
-        return Err(InternalError::query_executor_invariant(message));
+        return Err(invariant(message));
     }
 
     Ok(())
@@ -36,7 +40,7 @@ fn ensure_spec_exactly_one_if_enabled(
     message: &'static str,
 ) -> Result<(), InternalError> {
     if fast_path_enabled && spec_count != 1 {
-        return Err(InternalError::query_executor_invariant(message));
+        return Err(invariant(message));
     }
 
     Ok(())
@@ -67,9 +71,7 @@ pub(in crate::db::executor) fn ensure_index_range_aggregate_fast_path_specs(
     }
 
     if index_prefix_spec_count != 0 {
-        return Err(InternalError::query_executor_invariant(
-            INDEX_RANGE_AGGREGATE_NO_PREFIX_MESSAGE,
-        ));
+        return Err(invariant(INDEX_RANGE_AGGREGATE_NO_PREFIX_MESSAGE));
     }
     ensure_spec_exactly_one_if_enabled(
         true,

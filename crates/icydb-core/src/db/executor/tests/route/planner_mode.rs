@@ -22,6 +22,14 @@ fn kernel_aggregate_field_extrema_source() -> &'static str {
     ))
 }
 
+fn trace_contract_source() -> &'static str {
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/db/executor/tests/route/",
+        "../../trace/mod.rs"
+    ))
+}
+
 #[test]
 fn load_fast_path_resolution_is_gated_by_route_execution_mode() {
     let execute_source = include_str!(concat!(
@@ -47,6 +55,7 @@ fn load_trace_outcome_mapping_is_single_owner_boundary() {
         "/src/db/executor/tests/route/",
         "../../load/mod.rs"
     ));
+    let trace_source = trace_contract_source();
 
     assert_eq!(
         load_mod_source
@@ -56,11 +65,8 @@ fn load_trace_outcome_mapping_is_single_owner_boundary() {
         "load trace outcome wiring should go through one set_path_outcome boundary",
     );
     assert!(
-        load_mod_source.contains("execution_trace.keys_scanned,")
-            && load_mod_source.contains("rows_scanned,")
-            && load_mod_source
-                .contains("execution trace keys_scanned must match rows_scanned metrics input"),
-        "load trace wiring must keep keys_scanned aligned with rows_scanned metrics",
+        trace_source.contains("execution trace keys_scanned must match rows_scanned metrics input"),
+        "execution trace key-scan alignment invariant must live in the trace contract module",
     );
 }
 

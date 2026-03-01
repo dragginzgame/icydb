@@ -51,7 +51,7 @@ where
     };
 
     let Some(order) = order else {
-        return Err(InternalError::query_executor_invariant(
+        return Err(invariant(
             "cannot build continuation cursor without ordering",
         ));
     };
@@ -81,9 +81,7 @@ where
     let boundary = cursor_boundary_from_entity(entity, order);
     let token = if let Some((index, _, _, _)) = access.as_index_range_path() {
         let index_key = IndexKey::new(entity, index)?.ok_or_else(|| {
-            InternalError::query_executor_invariant(
-                "cursor row is not indexable for planned index-range access",
-            )
+            invariant("cursor row is not indexable for planned index-range access")
         })?;
 
         ContinuationToken::new_index_range_with_direction(
@@ -115,4 +113,8 @@ fn effective_keep_count_for_limit(
     usize::try_from(effective_offset)
         .unwrap_or(usize::MAX)
         .saturating_add(usize::try_from(limit).unwrap_or(usize::MAX))
+}
+
+fn invariant(message: impl Into<String>) -> InternalError {
+    InternalError::query_executor_invariant(message)
 }

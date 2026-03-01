@@ -6,12 +6,19 @@
 use crate::{
     db::{
         Context,
-        executor::load::{ExecutionOptimization, FastPathKeyResult, LoadExecutor},
-        executor::{AccessPlanStreamRequest, route::RoutedKeyStreamRequest},
+        executor::{
+            AccessPlanStreamRequest, ExecutionOptimization,
+            load::{FastPathKeyResult, LoadExecutor},
+            route::RoutedKeyStreamRequest,
+        },
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
 };
+
+fn invariant(message: impl Into<String>) -> InternalError {
+    InternalError::query_executor_invariant(message)
+}
 
 impl<E> LoadExecutor<E>
 where
@@ -32,11 +39,9 @@ where
         )?;
 
         // Phase 2: enforce exact row-scan count hint required by fast-path observability.
-        let rows_scanned = key_stream.exact_key_count_hint().ok_or_else(|| {
-            InternalError::query_executor_invariant(
-                "fast-path stream must expose an exact key-count hint",
-            )
-        })?;
+        let rows_scanned = key_stream
+            .exact_key_count_hint()
+            .ok_or_else(|| invariant("fast-path stream must expose an exact key-count hint"))?;
 
         Ok(FastPathKeyResult {
             ordered_key_stream: key_stream,
@@ -58,8 +63,8 @@ mod tests {
             access::{AccessPath, AccessPlan},
             direction::Direction,
             executor::{
-                AccessPlanStreamRequest, AccessStreamBindings, Context, KeyOrderComparator,
-                load::{ExecutionOptimization, LoadExecutor},
+                AccessPlanStreamRequest, AccessStreamBindings, Context, ExecutionOptimization,
+                KeyOrderComparator, load::LoadExecutor,
             },
             registry::StoreRegistry,
         },

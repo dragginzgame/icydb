@@ -7,10 +7,11 @@ use crate::{
     db::{
         Context,
         direction::Direction,
-        executor::load::{ExecutionOptimization, FastPathKeyResult, LoadExecutor},
         executor::{
             AccessPathRuntimeStrategy, AccessPlanStreamRequest, AccessStreamBindings,
-            LoweredIndexRangeSpec, RangeToken, dispatch_access_path, range_token_anchor_key,
+            ExecutionOptimization, LoweredIndexRangeSpec, RangeToken, dispatch_access_path,
+            load::{FastPathKeyResult, LoadExecutor},
+            range_token_anchor_key,
         },
         index::predicate::IndexPredicateExecution,
         query::plan::AccessPlannedQuery,
@@ -43,7 +44,7 @@ where
             return Ok(None);
         };
         let Some(index_range_spec) = index_range_spec else {
-            return Err(InternalError::query_executor_invariant(
+            return Err(invariant(
                 "index-range executable spec must be materialized for index-range plans",
             ));
         };
@@ -71,4 +72,8 @@ where
             ExecutionOptimization::IndexRangeLimitPushdown,
         )?))
     }
+}
+
+fn invariant(message: impl Into<String>) -> InternalError {
+    InternalError::query_executor_invariant(message)
 }

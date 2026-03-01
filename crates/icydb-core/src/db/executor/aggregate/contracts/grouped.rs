@@ -636,7 +636,7 @@ impl<E: EntityKind> AggregateEngine<E> {
     ) -> Result<FoldControl, InternalError> {
         match self {
             Self::Scalar(state) => state.apply(key),
-            Self::Grouped(_) => Err(InternalError::query_executor_invariant(
+            Self::Grouped(_) => Err(invariant(
                 "scalar aggregate ingest reached grouped aggregate engine",
             )),
         }
@@ -651,11 +651,9 @@ impl<E: EntityKind> AggregateEngine<E> {
     ) -> Result<FoldControl, GroupError> {
         match self {
             Self::Grouped(state) => state.apply(group_key, data_key, execution_context),
-            Self::Scalar(_) => Err(GroupError::Internal(
-                InternalError::query_executor_invariant(
-                    "grouped aggregate ingest reached scalar aggregate engine",
-                ),
-            )),
+            Self::Scalar(_) => Err(GroupError::Internal(invariant(
+                "grouped aggregate ingest reached scalar aggregate engine",
+            ))),
         }
     }
 
@@ -665,7 +663,7 @@ impl<E: EntityKind> AggregateEngine<E> {
     ) -> Result<AggregateOutput<E>, InternalError> {
         match self {
             Self::Scalar(state) => Ok(state.finalize()),
-            Self::Grouped(_) => Err(InternalError::query_executor_invariant(
+            Self::Grouped(_) => Err(invariant(
                 "scalar aggregate finalize reached grouped aggregate engine",
             )),
         }
@@ -677,9 +675,13 @@ impl<E: EntityKind> AggregateEngine<E> {
     ) -> Result<Vec<GroupedAggregateOutput<E>>, InternalError> {
         match self {
             Self::Grouped(state) => Ok(state.finalize()),
-            Self::Scalar(_) => Err(InternalError::query_executor_invariant(
+            Self::Scalar(_) => Err(invariant(
                 "grouped aggregate finalize reached scalar aggregate engine",
             )),
         }
     }
+}
+
+fn invariant(message: impl Into<String>) -> InternalError {
+    InternalError::query_executor_invariant(message)
 }

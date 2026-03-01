@@ -62,7 +62,7 @@ where
         match value {
             Some(crate::value::Value::Decimal(value)) => Ok(Some(value)),
             Some(crate::value::Value::Null) | None => Ok(None),
-            Some(value) => Err(InternalError::query_executor_invariant(format!(
+            Some(value) => Err(invariant(format!(
                 "global SUM(DISTINCT field) grouped output type mismatch: {value:?}",
             ))),
         }
@@ -119,7 +119,7 @@ where
             NumericFieldAggregateKind::Sum => sum,
             NumericFieldAggregateKind::Avg => {
                 let Some(divisor) = Decimal::from_num(row_count) else {
-                    return Err(InternalError::query_executor_invariant(
+                    return Err(invariant(
                         "numeric field AVG divisor conversion overflowed decimal bounds",
                     ));
                 };
@@ -130,4 +130,8 @@ where
 
         Ok(Some(output))
     }
+}
+
+fn invariant(message: impl Into<String>) -> InternalError {
+    InternalError::query_executor_invariant(message)
 }

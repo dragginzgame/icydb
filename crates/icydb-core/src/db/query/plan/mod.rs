@@ -24,8 +24,10 @@ pub(crate) use model::{
 };
 pub(crate) use planner::{PlannerError, plan_access};
 pub(crate) use semantics::{
-    AccessPlanProjection, GroupedPlanStrategyHint, grouped_plan_strategy_hint, project_access_plan,
-    project_explain_access_path,
+    AccessPlanProjection, GroupDistinctAdmissibility, GroupDistinctPolicyReason,
+    GroupedPlanStrategyHint, global_distinct_field_aggregate_admissibility,
+    grouped_distinct_admissibility, grouped_plan_strategy_hint,
+    is_global_distinct_field_aggregate_candidate, project_access_plan, project_explain_access_path,
 };
 #[cfg(test)]
 pub(crate) use validate::GroupPlanError;

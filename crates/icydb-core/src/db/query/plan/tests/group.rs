@@ -6,9 +6,11 @@ use crate::{
             intent::{LoadSpec, QueryMode},
             plan::{
                 AccessPlannedQuery, DeleteLimitSpec, FieldSlot, GroupAggregateKind,
-                GroupAggregateSpec, GroupHavingClause, GroupHavingSpec, GroupHavingSymbol,
-                GroupPlanError, GroupSpec, GroupedExecutionConfig, LogicalPlan, OrderDirection,
-                OrderSpec, PageSpec, grouped_executor_handoff,
+                GroupAggregateSpec, GroupDistinctAdmissibility, GroupDistinctPolicyReason,
+                GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupPlanError, GroupSpec,
+                GroupedExecutionConfig, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
+                global_distinct_field_aggregate_admissibility, grouped_distinct_admissibility,
+                grouped_executor_handoff, is_global_distinct_field_aggregate_candidate,
                 validate::{PlanError, PolicyPlanError, validate_query_semantics},
                 validate_group_query_semantics,
             },
@@ -551,6 +553,50 @@ fn grouped_plan_rejects_having_with_distinct() {
         inner.as_ref(),
         GroupPlanError::DistinctHavingUnsupported
     )));
+}
+
+#[test]
+fn grouped_distinct_policy_contract_rejects_distinct_without_adjacency_proof() {
+    assert_eq!(
+        grouped_distinct_admissibility(true, false),
+        GroupDistinctAdmissibility::Disallowed(
+            GroupDistinctPolicyReason::DistinctAdjacencyEligibilityRequired
+        ),
+        "grouped DISTINCT policy contract should classify adjacency-proof gating explicitly",
+    );
+}
+
+#[test]
+fn grouped_global_distinct_policy_contract_matches_candidate_and_having_rules() {
+    let aggregates = vec![GroupAggregateSpec {
+        kind: GroupAggregateKind::Count,
+        target_field: Some("rank".to_string()),
+        distinct: true,
+    }];
+    let having = GroupHavingSpec {
+        clauses: vec![GroupHavingClause {
+            symbol: GroupHavingSymbol::AggregateIndex(0),
+            op: CompareOp::Gt,
+            value: Value::Uint(1),
+        }],
+    };
+
+    assert!(
+        is_global_distinct_field_aggregate_candidate(&[], aggregates.as_slice()),
+        "global grouped DISTINCT contract should detect field-target aggregate candidates",
+    );
+    assert_eq!(
+        global_distinct_field_aggregate_admissibility(aggregates.as_slice(), None),
+        GroupDistinctAdmissibility::Allowed,
+        "candidate global DISTINCT shape should be admissible without HAVING",
+    );
+    assert_eq!(
+        global_distinct_field_aggregate_admissibility(aggregates.as_slice(), Some(&having)),
+        GroupDistinctAdmissibility::Disallowed(
+            GroupDistinctPolicyReason::GlobalDistinctHavingUnsupported
+        ),
+        "global DISTINCT contract should reject HAVING consistently",
+    );
 }
 
 #[test]

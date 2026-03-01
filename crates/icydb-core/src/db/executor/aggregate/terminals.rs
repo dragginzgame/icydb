@@ -29,9 +29,7 @@ where
             AggregateSpec::for_terminal(AggregateKind::Count),
         )? {
             AggregateOutput::Count(value) => Ok(value),
-            _ => Err(InternalError::query_executor_invariant(
-                "aggregate COUNT result kind mismatch",
-            )),
+            _ => Err(invariant("aggregate COUNT result kind mismatch")),
         }
     }
 
@@ -46,9 +44,7 @@ where
             AggregateSpec::for_terminal(AggregateKind::Exists),
         )? {
             AggregateOutput::Exists(value) => Ok(value),
-            _ => Err(InternalError::query_executor_invariant(
-                "aggregate EXISTS result kind mismatch",
-            )),
+            _ => Err(invariant("aggregate EXISTS result kind mismatch")),
         }
     }
 
@@ -63,9 +59,7 @@ where
             AggregateSpec::for_terminal(AggregateKind::Min),
         )? {
             AggregateOutput::Min(value) => Ok(value),
-            _ => Err(InternalError::query_executor_invariant(
-                "aggregate MIN result kind mismatch",
-            )),
+            _ => Err(invariant("aggregate MIN result kind mismatch")),
         }
     }
 
@@ -80,9 +74,7 @@ where
             AggregateSpec::for_terminal(AggregateKind::Max),
         )? {
             AggregateOutput::Max(value) => Ok(value),
-            _ => Err(InternalError::query_executor_invariant(
-                "aggregate MAX result kind mismatch",
-            )),
+            _ => Err(invariant("aggregate MAX result kind mismatch")),
         }
     }
 
@@ -99,9 +91,7 @@ where
             AggregateSpec::for_target_field(AggregateKind::Min, target_field),
         )? {
             AggregateOutput::Min(value) => Ok(value),
-            _ => Err(InternalError::query_executor_invariant(
-                "aggregate MIN(field) result kind mismatch",
-            )),
+            _ => Err(invariant("aggregate MIN(field) result kind mismatch")),
         }
     }
 
@@ -118,9 +108,7 @@ where
             AggregateSpec::for_target_field(AggregateKind::Max, target_field),
         )? {
             AggregateOutput::Max(value) => Ok(value),
-            _ => Err(InternalError::query_executor_invariant(
-                "aggregate MAX(field) result kind mismatch",
-            )),
+            _ => Err(invariant("aggregate MAX(field) result kind mismatch")),
         }
     }
 
@@ -170,9 +158,7 @@ where
             AggregateSpec::for_terminal(AggregateKind::First),
         )? {
             AggregateOutput::First(value) => Ok(value),
-            _ => Err(InternalError::query_executor_invariant(
-                "aggregate FIRST result kind mismatch",
-            )),
+            _ => Err(invariant("aggregate FIRST result kind mismatch")),
         }
     }
 
@@ -187,9 +173,11 @@ where
             AggregateSpec::for_terminal(AggregateKind::Last),
         )? {
             AggregateOutput::Last(value) => Ok(value),
-            _ => Err(InternalError::query_executor_invariant(
-                "aggregate LAST result kind mismatch",
-            )),
+            _ => Err(invariant("aggregate LAST result kind mismatch")),
         }
     }
+}
+
+fn invariant(message: impl Into<String>) -> InternalError {
+    InternalError::query_executor_invariant(message)
 }

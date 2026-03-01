@@ -15,7 +15,8 @@ pub type QueryMode = crate::db::query::plan::QueryMode;
 
 use crate::{
     db::{
-        access::{AccessPath, AccessPlan, AccessPlanError, canonical_by_keys_path},
+        access::{AccessPath, AccessPlan, AccessPlanError, normalize_access_plan_value},
+        cursor::CursorPlanError,
         predicate::{
             CompareOp, MissingRowPolicy, Predicate, SchemaInfo, ValidateError, normalize,
             normalize_enum_literals, reject_unsupported_query_features,
@@ -86,13 +87,16 @@ where
     K: FieldValue,
 {
     // Phase 1: map typed keys into model-level Value access paths.
-    match access {
+    let plan = match access {
         KeyAccess::Single(key) => AccessPlan::path(AccessPath::ByKey(key.to_value())),
         KeyAccess::Many(keys) => {
             let values = keys.iter().map(FieldValue::to_value).collect();
-            AccessPlan::path(canonical_by_keys_path(values))
+            AccessPlan::path(AccessPath::ByKeys(values))
         }
-    }
+    };
+
+    // Phase 2: canonicalize the access shape via the shared access boundary.
+    normalize_access_plan_value(plan)
 }
 
 // Convert model-level access plans into entity-keyed access plans.
@@ -913,10 +917,16 @@ pub enum IntentError {
     #[error("multiple key access methods were used on the same query")]
     KeyAccessConflict,
 
-    #[error("cursor pagination requires an explicit ordering")]
+    #[error(
+        "{message}",
+        message = CursorPlanError::cursor_requires_order_message()
+    )]
     CursorRequiresOrder,
 
-    #[error("cursor pagination requires an explicit limit")]
+    #[error(
+        "{message}",
+        message = CursorPlanError::cursor_requires_limit_message()
+    )]
     CursorRequiresLimit,
 
     #[error("cursor tokens can only be used with .page().execute()")]

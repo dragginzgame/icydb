@@ -199,7 +199,7 @@ impl<K> AccessPath<K> {
         K: Copy + Ord,
     {
         let Some(spec) = index_prefix_spec else {
-            return Err(InternalError::query_executor_invariant(
+            return Err(invariant(
                 "index-prefix execution requires pre-lowered index-prefix spec",
             ));
         };
@@ -232,7 +232,7 @@ impl<K> AccessPath<K> {
         K: Copy + Ord,
     {
         let Some(spec) = index_range_spec else {
-            return Err(InternalError::query_executor_invariant(
+            return Err(invariant(
                 "index-range execution requires pre-lowered index-range spec",
             ));
         };
@@ -255,4 +255,8 @@ impl<K> AccessPath<K> {
 
         Ok((keys, key_order_state))
     }
+}
+
+fn invariant(message: impl Into<String>) -> InternalError {
+    InternalError::query_executor_invariant(message)
 }

@@ -57,7 +57,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             SchemaInfo::from_entity_model(E::MODEL)
                 .map(|schema| Box::leak(Box::new(schema)) as &'static SchemaInfo)
                 .map_err(|err| {
-                    CachedInvariant::from_error(InternalError::executor_invariant(format!(
+                    CachedInvariant::from_error(invariant(format!(
                         "entity schema invalid for {}: {err}",
                         E::PATH
                     )))
@@ -74,14 +74,14 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
     fn validate_entity_invariants(entity: &E, schema: &SchemaInfo) -> Result<(), InternalError> {
         // Phase 1: validate primary key field presence and *shape*.
         let Some(pk_field_index) = resolve_primary_key_slot(E::MODEL) else {
-            return Err(InternalError::executor_invariant(format!(
+            return Err(invariant(format!(
                 "entity primary key field missing: {} field={}",
                 E::PATH,
                 E::PRIMARY_KEY
             )));
         };
         let pk_value = entity.get_value_by_index(pk_field_index).ok_or_else(|| {
-            InternalError::executor_invariant(format!(
+            invariant(format!(
                 "entity primary key field missing: {} field={}",
                 E::PATH,
                 E::PRIMARY_KEY
@@ -91,7 +91,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         // Primary key must not be Null.
         // Unit is valid for singleton entities and is enforced by schema shape checks below.
         if matches!(pk_value, Value::Null) {
-            return Err(InternalError::executor_invariant(format!(
+            return Err(invariant(format!(
                 "entity primary key field has invalid value: {} field={} value={pk_value:?}",
                 E::PATH,
                 E::PRIMARY_KEY
@@ -102,7 +102,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         if let Some(pk_type) = schema.field(E::PRIMARY_KEY)
             && !literal_matches_type(&pk_value, pk_type)
         {
-            return Err(InternalError::executor_invariant(format!(
+            return Err(invariant(format!(
                 "entity primary key field type mismatch: {} field={} value={pk_value:?}",
                 E::PATH,
                 E::PRIMARY_KEY
@@ -112,7 +112,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         // The declared PK field value must exactly match the runtime identity key.
         let identity_pk = crate::traits::FieldValue::to_value(&entity.id().key());
         if pk_value != identity_pk {
-            return Err(InternalError::executor_invariant(format!(
+            return Err(invariant(format!(
                 "entity primary key mismatch: {} field={} field_value={pk_value:?} id_key={identity_pk:?}",
                 E::PATH,
                 E::PRIMARY_KEY
@@ -128,7 +128,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                 } else {
                     ""
                 };
-                InternalError::executor_invariant(format!(
+                invariant(format!(
                     "entity field missing: {} field={}{}",
                     E::PATH,
                     field.name,
@@ -152,7 +152,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             };
 
             if !literal_matches_type(&value, field_type) {
-                return Err(InternalError::executor_invariant(format!(
+                return Err(invariant(format!(
                     "entity field type mismatch: {} field={} value={value:?}",
                     E::PATH,
                     field.name
@@ -241,7 +241,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         }
 
         let Value::List(items) = value else {
-            return Err(InternalError::executor_invariant(format!(
+            return Err(invariant(format!(
                 "set field must encode as Value::List: {} field={field_name}",
                 E::PATH
             )));
@@ -253,7 +253,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             };
             let ordering = canonical_cmp(left, right);
             if ordering != Ordering::Less {
-                return Err(InternalError::executor_invariant(format!(
+                return Err(invariant(format!(
                     "set field must be strictly ordered and deduplicated: {} field={field_name}",
                     E::PATH
                 )));
@@ -273,27 +273,27 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         }
 
         let Value::Map(entries) = value else {
-            return Err(InternalError::executor_invariant(format!(
+            return Err(invariant(format!(
                 "map field must encode as Value::Map: {} field={field_name}",
                 E::PATH
             )));
         };
 
         Value::validate_map_entries(entries.as_slice()).map_err(|err| {
-            InternalError::executor_invariant(format!(
+            invariant(format!(
                 "map field entries violate map invariants: {} field={field_name} ({err})",
                 E::PATH
             ))
         })?;
 
         let normalized = Value::normalize_map_entries(entries.clone()).map_err(|err| {
-            InternalError::executor_invariant(format!(
+            invariant(format!(
                 "map field entries cannot be normalized: {} field={field_name} ({err})",
                 E::PATH
             ))
         })?;
         if normalized.as_slice() != entries.as_slice() {
-            return Err(InternalError::executor_invariant(format!(
+            return Err(invariant(format!(
                 "map field entries are not in canonical deterministic order: {} field={field_name}",
                 E::PATH
             )));
@@ -336,4 +336,8 @@ fn indexed_field_set<E: EntityKind>() -> BTreeSet<&'static str> {
     }
 
     fields
+}
+
+fn invariant(message: impl Into<String>) -> InternalError {
+    InternalError::executor_invariant(message)
 }

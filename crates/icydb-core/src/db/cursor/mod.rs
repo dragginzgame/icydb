@@ -135,12 +135,12 @@ where
 {
     decode_pk_boundary::<E>(boundary).map_err(|err| match err {
         CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch { value: None, .. } => {
-            InternalError::query_executor_invariant("pk cursor slot must be present")
+            invariant("pk cursor slot must be present")
         }
         CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch { value: Some(_), .. } => {
-            InternalError::query_executor_invariant("pk cursor slot type mismatch")
+            invariant("pk cursor slot type mismatch")
         }
-        _ => InternalError::query_executor_invariant(err.to_string()),
+        _ => invariant(err.to_string()),
     })
 }
 
@@ -149,14 +149,10 @@ fn validated_cursor_order(order: Option<&OrderSpec>) -> Result<&OrderSpec, Curso
     let Some(order) = validated_cursor_order_internal(
         order,
         true,
-        "cursor pagination requires explicit ordering",
+        CursorPlanError::cursor_requires_order_message(),
     )?
     else {
-        return Err(CursorPlanError::invalid_continuation_cursor_payload(
-            InternalError::executor_invariant_message(
-                "cursor pagination requires explicit ordering",
-            ),
-        ));
+        return Err(CursorPlanError::cursor_requires_order());
     };
 
     Ok(order)
@@ -199,11 +195,11 @@ fn validated_cursor_order_internal<'a>(
             )
         }
         CursorOrderPlanShapeError::EmptyOrderSpec => {
-            CursorPlanError::invalid_continuation_cursor_payload(
-                InternalError::executor_invariant_message(
-                    "cursor pagination requires non-empty ordering",
-                ),
-            )
+            CursorPlanError::cursor_requires_non_empty_order()
         }
     })
+}
+
+fn invariant(message: impl Into<String>) -> InternalError {
+    InternalError::query_executor_invariant(message)
 }

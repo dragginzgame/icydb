@@ -19,6 +19,7 @@ pub(super) mod route;
 mod stream;
 #[cfg(test)]
 mod tests;
+mod trace;
 mod traversal;
 mod window;
 
@@ -45,7 +46,6 @@ pub(super) use delete::DeleteExecutor;
 pub(in crate::db) use executable_plan::ExecutablePlan;
 pub(in crate::db::executor) use kernel::{ExecutionKernel, PlanRow};
 pub(super) use load::LoadExecutor;
-pub use load::{ExecutionAccessPathVariant, ExecutionOptimization, ExecutionTrace};
 pub(super) use mutation::save::SaveExecutor;
 pub(in crate::db::executor) use plan_validate::validate_executor_plan;
 pub(in crate::db::executor) use preparation::ExecutionPreparation;
@@ -56,6 +56,7 @@ pub(super) use stream::{
         VecOrderedKeyStream,
     },
 };
+pub use trace::{ExecutionAccessPathVariant, ExecutionOptimization, ExecutionTrace};
 pub(in crate::db) use window::compute_page_window;
 
 ///

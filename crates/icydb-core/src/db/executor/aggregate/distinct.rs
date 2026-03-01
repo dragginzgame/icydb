@@ -76,12 +76,12 @@ where
             .execute_grouped_paged_with_cursor_traced(grouped_plan, GroupedPlannedCursor::none())?;
 
         if page.next_cursor.is_some() {
-            return Err(InternalError::query_executor_invariant(
+            return Err(invariant(
                 "global DISTINCT grouped aggregate must not emit continuation cursor",
             ));
         }
         if page.rows.len() > 1 {
-            return Err(InternalError::query_executor_invariant(
+            return Err(invariant(
                 "global DISTINCT grouped aggregate must emit at most one grouped row",
             ));
         }
@@ -89,12 +89,12 @@ where
             return Ok(None);
         };
         if !row.group_key().is_empty() {
-            return Err(InternalError::query_executor_invariant(
+            return Err(invariant(
                 "global DISTINCT grouped aggregate row must have empty grouped key",
             ));
         }
         if row.aggregate_values().len() != 1 {
-            return Err(InternalError::query_executor_invariant(format!(
+            return Err(invariant(format!(
                 "global DISTINCT grouped aggregate row must have one aggregate value, found {}",
                 row.aggregate_values().len()
             )));
@@ -123,4 +123,8 @@ where
 
         Ok(distinct_count)
     }
+}
+
+fn invariant(message: impl Into<String>) -> InternalError {
+    InternalError::query_executor_invariant(message)
 }

@@ -11,28 +11,15 @@ use std::cmp::Ordering;
 use std::ops::Bound;
 
 /// Canonicalize access plans that use `Value` keys.
-pub(crate) fn canonicalize_access_plans_value(plans: &mut [AccessPlan<Value>]) {
+fn canonicalize_access_plans_value(plans: &mut [AccessPlan<Value>]) {
     // Canonical sort is total and must remain deterministic.
     plans.sort_by(|left, right| left.canonical_form().cmp(&right.canonical_form()));
 }
 
 /// Canonicalize a list of key values for deterministic ByKeys plans.
-pub(crate) fn canonicalize_key_values(keys: &mut Vec<Value>) {
+fn canonicalize_key_values(keys: &mut Vec<Value>) {
     keys.sort_by(Value::canonical_cmp);
     keys.dedup();
-}
-
-/// Build one canonical primary-key access path from possibly duplicated keys.
-#[must_use]
-pub(crate) fn canonical_by_keys_path(mut keys: Vec<Value>) -> AccessPath<Value> {
-    canonicalize_key_values(&mut keys);
-    if let Some(first) = keys.first()
-        && keys.len() == 1
-    {
-        return AccessPath::ByKey(first.clone());
-    }
-
-    AccessPath::ByKeys(keys)
 }
 
 /// Normalize one value-keyed access plan into deterministic canonical shape.
@@ -207,6 +194,12 @@ impl AccessPath<Value> {
         match self {
             Self::ByKeys(mut keys) => {
                 canonicalize_key_values(&mut keys);
+                if let Some(first) = keys.first()
+                    && keys.len() == 1
+                {
+                    return Self::ByKey(first.clone());
+                }
+
                 Self::ByKeys(keys)
             }
             other => other,
