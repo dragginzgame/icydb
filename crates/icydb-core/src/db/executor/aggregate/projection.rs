@@ -2,6 +2,10 @@
 //! Responsibility: field-value projection terminals over materialized responses.
 //! Does not own: grouped key canonicalization internals or route planning logic.
 //! Boundary: projection terminal helpers (`values`, `distinct_values`, `first/last value`).
+//!
+//! `distinct_values_by(field)` here is a non-grouped effective-window helper.
+//! Grouped Class B DISTINCT accounting is enforced only through grouped
+//! execution context boundaries.
 
 use crate::{
     db::{

@@ -2,6 +2,10 @@
 //! Responsibility: DISTINCT aggregate terminal helpers over materialized responses.
 //! Does not own: grouped key canonicalization internals or route planning policy.
 //! Boundary: value-DISTINCT aggregate adapters for load executor terminals.
+//!
+//! Non-grouped field-target DISTINCT helpers in this module are effective-window
+//! materialized terminals. Grouped Class B DISTINCT accounting remains owned by
+//! `ExecutionContext` and grouped executor paths.
 
 use crate::{
     db::{

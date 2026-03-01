@@ -13,20 +13,20 @@ use crate::{
 /// GroupedPlanMetricsStrategy
 ///
 /// Deterministic grouped strategy dimension emitted alongside plan metrics.
-/// `0.35.1` uses hash/materialized only, with ordered streaming reserved for
-/// forward-compatible grouped strategy enablement.
+/// Strategy labels reflect grouped ordering feasibility while execution mode
+/// remains materialized for grouped routes in `0.36.x`.
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) enum GroupedPlanMetricsStrategy {
     HashMaterialized,
-    OrderedStreaming,
+    OrderedMaterialized,
 }
 
 impl From<GroupedPlanMetricsStrategy> for GroupedPlanStrategy {
     fn from(value: GroupedPlanMetricsStrategy) -> Self {
         match value {
             GroupedPlanMetricsStrategy::HashMaterialized => Self::HashMaterialized,
-            GroupedPlanMetricsStrategy::OrderedStreaming => Self::OrderedStreaming,
+            GroupedPlanMetricsStrategy::OrderedMaterialized => Self::OrderedMaterialized,
         }
     }
 }

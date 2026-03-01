@@ -2,6 +2,7 @@
 //! Responsibility: load-path execution orchestration, pagination, and trace contracts.
 //! Does not own: logical planning semantics or relation/commit mutation policy.
 //! Boundary: consumes executable load plans and delegates post-access semantics to kernel.
+#![deny(unreachable_patterns)]
 
 mod execute;
 mod fast_stream;
@@ -460,6 +461,8 @@ where
 
         let mut grouped_execution_context =
             grouped_execution_context_from_planner_config(Some(grouped_execution));
+        let max_groups_bound =
+            usize::try_from(grouped_execution_context.config().max_groups()).unwrap_or(usize::MAX);
         let grouped_budget = grouped_budget_observability(&grouped_execution_context);
         debug_assert!(
             grouped_budget.max_groups() >= grouped_budget.groups()
@@ -483,7 +486,7 @@ where
                     GroupedPlanMetricsStrategy::HashMaterialized
                 }
                 crate::db::executor::route::GroupedExecutionStrategy::OrderedGroup => {
-                    GroupedPlanMetricsStrategy::OrderedStreaming
+                    GroupedPlanMetricsStrategy::OrderedMaterialized
                 }
             };
         debug_assert!(
@@ -660,6 +663,10 @@ where
                     .map_err(Self::map_group_error)?;
                 if matches!(fold_control, FoldControl::Break) {
                     short_circuit_keys[index].push(canonical_group_value.clone());
+                    debug_assert!(
+                        short_circuit_keys[index].len() <= max_groups_bound,
+                        "grouped short-circuit key tracking must stay bounded by max_groups",
+                    );
                 }
             }
         }
@@ -775,10 +782,18 @@ where
                             if grouped_candidate_rows.len() > selection_bound {
                                 let _ = grouped_candidate_rows.pop();
                             }
+                            debug_assert!(
+                                grouped_candidate_rows.len() <= selection_bound,
+                                "bounded grouped candidate rows must stay <= selection_bound",
+                            );
                         }
                     }
                 } else {
                     grouped_candidate_rows.push((group_key_value, aggregate_values));
+                    debug_assert!(
+                        grouped_candidate_rows.len() <= max_groups_bound,
+                        "grouped candidate rows must stay bounded by max_groups",
+                    );
                 }
             }
             for (sibling_index, sibling_iter) in finalized_iters.iter_mut().enumerate() {
@@ -792,6 +807,17 @@ where
                 grouped_candidate_rows
                     .sort_by(|(left, _), (right, _)| canonical_value_compare(left, right));
             }
+        }
+        if let Some(selection_bound) = selection_bound {
+            debug_assert!(
+                grouped_candidate_rows.len() <= selection_bound,
+                "grouped candidate rows must remain bounded by selection_bound",
+            );
+        } else {
+            debug_assert!(
+                grouped_candidate_rows.len() <= max_groups_bound,
+                "grouped candidate rows must remain bounded by max_groups",
+            );
         }
 
         let mut page_rows = Vec::<GroupedRow>::new();
@@ -820,6 +846,10 @@ where
             };
             last_emitted_group_key = Some(emitted_group_key.clone());
             page_rows.push(GroupedRow::new(emitted_group_key, aggregate_values));
+            debug_assert!(
+                limit.is_none_or(|bounded_limit| page_rows.len() <= bounded_limit),
+                "grouped page rows must not exceed explicit page limit",
+            );
         }
 
         let next_cursor = if has_more {
@@ -980,50 +1010,18 @@ where
             let distinct_key = distinct_value
                 .canonical_key()
                 .map_err(KeyCanonicalError::into_internal_error)?;
-            if distinct_values.contains_key(&distinct_key) {
-                continue;
-            }
-
-            let attempted_total = grouped_execution_context
-                .budget()
-                .distinct_values()
-                .saturating_add(1);
-            if attempted_total
-                > grouped_execution_context
-                    .config()
-                    .max_distinct_values_total()
-            {
-                return Err(Self::map_group_error(GroupError::DistinctBudgetExceeded {
-                    resource: "distinct_values_total",
-                    attempted: attempted_total,
-                    limit: grouped_execution_context
-                        .config()
-                        .max_distinct_values_total(),
-                }));
-            }
-
-            let attempted_per_group = u64::try_from(distinct_values.len())
-                .unwrap_or(u64::MAX)
-                .saturating_add(1);
-            if attempted_per_group
-                > grouped_execution_context
-                    .config()
-                    .max_distinct_values_per_group()
-            {
-                return Err(Self::map_group_error(GroupError::DistinctBudgetExceeded {
-                    resource: "distinct_values_per_group",
-                    attempted: attempted_per_group,
-                    limit: grouped_execution_context
+            let distinct_admitted = grouped_execution_context
+                .admit_distinct_key(
+                    &mut distinct_values,
+                    grouped_execution_context
                         .config()
                         .max_distinct_values_per_group(),
-                }));
-            }
-
-            let inserted = distinct_values.insert_key(distinct_key);
-            debug_assert!(inserted, "new global distinct key must insert exactly once");
-            grouped_execution_context
-                .record_distinct_value()
+                    distinct_key,
+                )
                 .map_err(Self::map_group_error)?;
+            if !distinct_admitted {
+                continue;
+            }
 
             if aggregate_kind.is_sum() {
                 let numeric_value =

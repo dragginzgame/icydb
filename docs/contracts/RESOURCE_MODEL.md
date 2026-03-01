@@ -101,7 +101,6 @@ Examples:
 - Scalar predicates
 - Key-range scans
 - Aggregates with fixed-size state
-- Ordered streaming grouped execution (when eligibility holds)
 
 These require no extra cardinality growth structures beyond fixed operator
 state.
@@ -113,14 +112,6 @@ Local `Vec`/set allocations are Class A only when their maximum size is proven b
 plan shape (for example fixed operator structure) or by explicit admitted window
 bounds (for example planner-admitted `LIMIT`/fetch window). Otherwise they are
 Class B or Class C depending on enforced bounds.
-
-Ordered streaming grouped execution must maintain:
-
-- At most one active group state at a time
-- DISTINCT state scoped to that active group and bounded by per-group caps
-
-Under ordered eligibility invariants, this keeps ordered grouped memory bounded
-by group-local limits (effectively `O(max_group_bytes)`), not `O(groups)`.
 
 ### 3.2 Class B: Cardinality-Bounded Operators
 
@@ -176,15 +167,18 @@ Distinct insertions must pass through grouped budget accounting.
 Budget enforcement over these counters is authoritative.
 This includes global DISTINCT field aggregates modeled as grouped execution with
 zero group keys.
+Non-grouped scalar DISTINCT projection helpers (for example
+`count_distinct_by(field)` / `distinct_values_by(field)`) are effective-window
+materialized terminals and are not grouped Class B operators.
 
 All cardinality-sensitive state must be reachable exclusively through
 budget-accounted structures.
 
 Typed grouped failures are part of the contract surface.
 
-## 5. Streaming Eligibility Contract
+## 5. Grouped Strategy Eligibility Contract
 
-`OrderedStreaming` grouped execution is permitted only when all grouped
+`OrderedGroup` strategy eligibility is permitted only when all grouped
 eligibility conditions hold. Current planner+executor matrix includes:
 
 - Ordered strategy hint present
@@ -198,6 +192,10 @@ Planner may propose ordered grouping; executor revalidates and downgrades to
 hash grouping when any eligibility condition fails.
 Executor revalidation must never upgrade execution beyond planner-declared
 eligibility.
+
+Grouped execution mode remains explicit and authoritative at runtime.
+In `0.36.x`, grouped execution is materialized for both ordered and hash
+strategy labels.
 
 ## 6. Scan Budget Contract
 

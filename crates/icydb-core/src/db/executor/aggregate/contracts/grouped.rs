@@ -321,6 +321,47 @@ impl ExecutionContext {
         self.budget.record_distinct_value(&self.config)
     }
 
+    /// Admit one grouped DISTINCT key through execution-context budget
+    /// accounting and per-group cardinality enforcement.
+    pub(in crate::db::executor) fn admit_distinct_key(
+        &mut self,
+        distinct_keys: &mut GroupKeySet,
+        max_distinct_values_per_group: u64,
+        key: GroupKey,
+    ) -> Result<bool, GroupError> {
+        if distinct_keys.contains_key(&key) {
+            return Ok(false);
+        }
+
+        // Preserve deterministic error ordering: enforce total cap first,
+        // then enforce per-group cap, before mutating key state.
+        let attempted_total = self.budget.distinct_values().saturating_add(1);
+        if attempted_total > self.config.max_distinct_values_total() {
+            return Err(GroupError::DistinctBudgetExceeded {
+                resource: "distinct_values_total",
+                attempted: attempted_total,
+                limit: self.config.max_distinct_values_total(),
+            });
+        }
+
+        let attempted_per_group = u64::try_from(distinct_keys.len())
+            .unwrap_or(u64::MAX)
+            .saturating_add(1);
+        if attempted_per_group > max_distinct_values_per_group {
+            return Err(GroupError::DistinctBudgetExceeded {
+                resource: "distinct_values_per_group",
+                attempted: attempted_per_group,
+                limit: max_distinct_values_per_group,
+            });
+        }
+
+        let inserted = distinct_keys.insert_key(key);
+        debug_assert!(inserted, "new distinct key must insert exactly once");
+        self.record_distinct_value()?;
+
+        Ok(true)
+    }
+
     /// Record one implicit singleton group for grouped shapes that are modeled
     /// without explicit group-key boundary transitions (for example zero-key
     /// global grouped aggregates).
@@ -519,7 +560,11 @@ impl<E: EntityKind> GroupedAggregateState<E> {
     /// Finalize all groups into deterministic grouped aggregate outputs.
     #[must_use]
     pub(in crate::db::executor) fn finalize(self) -> Vec<GroupedAggregateOutput<E>> {
-        let mut out = Vec::new();
+        let expected_output_count = self
+            .groups
+            .values()
+            .fold(0usize, |count, bucket| count.saturating_add(bucket.len()));
+        let mut out = Vec::with_capacity(expected_output_count);
 
         // Phase 1: walk stable-hash buckets in deterministic key order.
         for (_, mut bucket) in self.groups {
@@ -539,6 +584,11 @@ impl<E: EntityKind> GroupedAggregateState<E> {
                 });
             }
         }
+        debug_assert_eq!(
+            out.len(),
+            expected_output_count,
+            "grouped finalize output cardinality must match tracked grouped state slots",
+        );
 
         out
     }

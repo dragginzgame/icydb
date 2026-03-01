@@ -623,6 +623,7 @@ fn grouped_fluent_execute_global_distinct_sum_rejects_continuation_cursor() {
     seed_grouped_phase_entities();
     let signature = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .group_sum_distinct_by("rank")
+        .limit(1)
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("global grouped sum(distinct rank) plan should build")
@@ -640,6 +641,7 @@ fn grouped_fluent_execute_global_distinct_sum_rejects_continuation_cursor() {
     let err = session
         .load::<PhaseEntity>()
         .group_sum_distinct_by("rank")
+        .limit(1)
         .cursor(crate::db::encode_cursor(cursor.as_slice()))
         .execute_grouped()
         .expect_err("global grouped distinct aggregates must reject continuation cursors");
@@ -652,6 +654,84 @@ fn grouped_fluent_execute_global_distinct_sum_rejects_continuation_cursor() {
             .to_string()
             .contains("do not support continuation cursors"),
         "global grouped continuation rejection reason should mention cursor incompatibility",
+    );
+}
+
+#[test]
+fn grouped_fluent_execute_global_distinct_count_rejects_continuation_cursor() {
+    seed_grouped_phase_entities();
+    let signature = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
+        .group_count_distinct_by("rank")
+        .limit(1)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("global grouped count(distinct rank) plan should build")
+        .continuation_signature();
+    let cursor = crate::db::cursor::GroupedContinuationToken::new_with_direction(
+        signature,
+        Vec::new(),
+        crate::db::direction::Direction::Asc,
+        0,
+    )
+    .encode()
+    .expect("global grouped cursor should encode");
+    let session = DbSession::new(DB);
+
+    let err = session
+        .load::<PhaseEntity>()
+        .group_count_distinct_by("rank")
+        .limit(1)
+        .cursor(crate::db::encode_cursor(cursor.as_slice()))
+        .execute_grouped()
+        .expect_err("global grouped distinct aggregates must reject continuation cursors");
+
+    let QueryError::Plan(plan_err) = err else {
+        panic!("global grouped continuation rejection should surface as plan-layer cursor error");
+    };
+    assert!(
+        plan_err
+            .to_string()
+            .contains("do not support continuation cursors"),
+        "global grouped continuation rejection reason should mention cursor incompatibility",
+    );
+}
+
+#[test]
+fn grouped_fluent_execute_rejects_cursor_without_explicit_limit() {
+    seed_grouped_phase_entities();
+    let signature = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
+        .group_by("rank")
+        .expect("grouped cursor-without-limit query should build")
+        .group_count()
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("grouped cursor-without-limit plan should build")
+        .continuation_signature();
+    let cursor = crate::db::cursor::GroupedContinuationToken::new_with_direction(
+        signature,
+        vec![Value::Uint(1)],
+        crate::db::direction::Direction::Asc,
+        0,
+    )
+    .encode()
+    .expect("grouped cursor-without-limit token should encode");
+    let session = DbSession::new(DB);
+
+    let err = session
+        .load::<PhaseEntity>()
+        .group_by("rank")
+        .expect("group field should resolve")
+        .group_count()
+        .cursor(crate::db::encode_cursor(cursor.as_slice()))
+        .execute_grouped()
+        .expect_err("grouped continuation cursor should require explicit LIMIT");
+
+    let QueryError::Plan(plan_err) = err else {
+        panic!("grouped cursor-without-limit rejection should surface as plan-layer cursor error");
+    };
+    assert!(
+        plan_err.to_string().contains("require an explicit LIMIT"),
+        "grouped cursor-without-limit rejection should mention explicit LIMIT requirement",
     );
 }
 
@@ -673,6 +753,45 @@ fn grouped_fluent_execute_global_distinct_count_enforces_total_distinct_cap() {
     assert!(
         err.message.contains("distinct_values_total"),
         "global grouped distinct cap failure should report total distinct budget resource",
+    );
+}
+
+#[test]
+fn grouped_fluent_execute_rejects_cross_shape_cursor_when_only_distinct_changes() {
+    seed_grouped_phase_entities();
+    let session = DbSession::new(DB);
+
+    let first_page = session
+        .load::<PhaseEntity>()
+        .group_by("rank")
+        .expect("group field should resolve")
+        .group_count()
+        .limit(1)
+        .execute_grouped()
+        .expect("seed grouped page should execute");
+    let continuation = first_page
+        .continuation_cursor()
+        .map(crate::db::encode_cursor)
+        .expect("seed grouped page should emit continuation cursor");
+
+    let err = session
+        .load::<PhaseEntity>()
+        .group_by("rank")
+        .expect("group field should resolve")
+        .group_count_distinct()
+        .limit(1)
+        .cursor(continuation)
+        .execute_grouped()
+        .expect_err("grouped continuation should fail when DISTINCT shape changes");
+
+    let QueryError::Plan(plan_err) = err else {
+        panic!("cross-shape grouped cursor rejection should surface as plan-layer cursor error");
+    };
+    assert!(
+        plan_err
+            .to_string()
+            .contains("does not match query plan signature"),
+        "cross-shape grouped cursor rejection should mention signature mismatch",
     );
 }
 

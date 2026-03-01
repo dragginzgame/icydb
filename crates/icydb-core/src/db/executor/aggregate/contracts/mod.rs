@@ -2,6 +2,7 @@
 //! Responsibility: aggregate runtime contracts, specs, grouped state, and errors.
 //! Does not own: aggregate execution branching/orchestration behavior.
 //! Boundary: shared aggregate contract surface consumed by aggregate executors.
+#![deny(unreachable_patterns)]
 
 mod error;
 mod grouped;

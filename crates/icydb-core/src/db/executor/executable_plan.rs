@@ -213,6 +213,21 @@ impl<E: EntityKind> ExecutablePlan<E> {
                 ),
             ));
         }
+        if cursor.is_some()
+            && self
+                .plan
+                .scalar_plan()
+                .page
+                .as_ref()
+                .and_then(|page| page.limit)
+                .is_none()
+        {
+            return Err(ExecutorPlanError::from(
+                CursorPlanError::invalid_continuation_cursor_payload(
+                    "grouped continuation cursors require an explicit LIMIT",
+                ),
+            ));
+        }
         if self.plan.grouped_plan().is_some_and(
             crate::db::query::plan::GroupPlan::is_global_distinct_aggregate_without_group_keys,
         ) && cursor.is_some()
@@ -243,6 +258,21 @@ impl<E: EntityKind> ExecutablePlan<E> {
         if !matches!(&self.plan.logical, LogicalPlan::Grouped(_)) {
             return Err(InternalError::query_executor_invariant(
                 "grouped cursor revalidation requires grouped logical plans",
+            ));
+        }
+        if !cursor.is_empty()
+            && self
+                .plan
+                .scalar_plan()
+                .page
+                .as_ref()
+                .and_then(|page| page.limit)
+                .is_none()
+        {
+            return Err(InternalError::from_cursor_plan_error(
+                CursorPlanError::invalid_continuation_cursor_payload(
+                    "grouped continuation cursors require an explicit LIMIT",
+                ),
             ));
         }
         if self.plan.grouped_plan().is_some_and(

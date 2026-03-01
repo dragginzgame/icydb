@@ -7,9 +7,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.36.x] - 2026-03-01 - Ordered Group Strategy Foundations
 
-- `0.36.0` established explicit grouped strategy routing (`HashGroup` vs `OrderedGroup`) plus conservative grouped `HAVING`, with deterministic downgrade and explain/fingerprint coverage.
-- `0.36.1` added grouped DISTINCT contracts, including zero-key global `COUNT(DISTINCT field)` and `SUM(DISTINCT field)` with continuation rejection and typed distinct-budget failures.
-- `0.36.2` hardens zero-key global DISTINCT execution so singleton-group admission and distinct inserts flow through grouped budget accounting without changing the public grouped shape.
+- `0.36.0` established grouped strategy routing (`HashGroup` vs `OrderedGroup`) and conservative grouped `HAVING`, with deterministic downgrade and explain/fingerprint coverage.
+- `0.36.1` and `0.36.2` delivered grouped DISTINCT contracts, including zero-key global `COUNT(DISTINCT field)` / `SUM(DISTINCT field)` routed through grouped budget accounting with typed limit failures.
+- `0.36.3` closes grouped hardening with explicit grouped cursor-`LIMIT` gating, centralized grouped DISTINCT admission, bounded grouped-buffer assertions, fingerprint-snapshot locking, and deterministic `SUM(DISTINCT)`/continuation-matrix regression coverage.
 
 ```rust
 let page = session

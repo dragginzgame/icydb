@@ -1012,6 +1012,99 @@ fn aggregate_numeric_field_sum_distinct_uses_grouped_global_distinct_path() {
 }
 
 #[test]
+fn aggregate_numeric_field_sum_distinct_is_insertion_order_invariant() {
+    seed_pushdown_entities(&[
+        (809_911, 7, 10),
+        (809_912, 7, 20),
+        (809_913, 7, 20),
+        (809_914, 7, 30),
+        (809_915, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let plan_asc = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(u32_eq_predicate("group", 7))
+        .order_by("id")
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("sum_distinct_by(rank) ASC plan should build");
+    let plan_desc = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(u32_eq_predicate("group", 7))
+        .order_by_desc("id")
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("sum_distinct_by(rank) DESC plan should build");
+
+    let sum_distinct_asc = load
+        .aggregate_sum_distinct_by(plan_asc, "rank")
+        .expect("sum_distinct_by(rank) ASC should succeed");
+    let sum_distinct_desc = load
+        .aggregate_sum_distinct_by(plan_desc, "rank")
+        .expect("sum_distinct_by(rank) DESC should succeed");
+
+    assert_eq!(
+        sum_distinct_asc, sum_distinct_desc,
+        "sum_distinct_by(rank) should be invariant to insertion/traversal order",
+    );
+}
+
+#[test]
+fn aggregate_numeric_field_sum_distinct_handles_large_values_without_wrap() {
+    seed_pushdown_entities(&[
+        (809_921, 7, u32::MAX),
+        (809_922, 7, u32::MAX - 1),
+        (809_923, 7, u32::MAX),
+        (809_924, 8, 42),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(u32_eq_predicate("group", 7))
+        .order_by("id")
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("sum_distinct_by(rank) large-value plan should build");
+
+    let sum_distinct = load
+        .aggregate_sum_distinct_by(plan, "rank")
+        .expect("sum_distinct_by(rank) large values should succeed")
+        .expect("sum_distinct_by(rank) should return a value");
+    let expected = Decimal::from_num(u64::from(u32::MAX) + u64::from(u32::MAX - 1))
+        .expect("large expected decimal should convert");
+
+    assert_eq!(
+        sum_distinct, expected,
+        "sum_distinct_by(rank) should preserve large-value accumulation without wraparound",
+    );
+}
+
+#[test]
+fn aggregate_numeric_field_sum_distinct_preserves_decimal_integer_canonical_scale() {
+    seed_pushdown_entities(&[
+        (809_931, 7, 10),
+        (809_932, 7, 20),
+        (809_933, 7, 20),
+        (809_934, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(u32_eq_predicate("group", 7))
+        .order_by("rank")
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("sum_distinct_by(rank) canonical-scale plan should build");
+
+    let sum_distinct = load
+        .aggregate_sum_distinct_by(plan, "rank")
+        .expect("sum_distinct_by(rank) canonical-scale should succeed")
+        .expect("sum_distinct_by(rank) should return a value");
+
+    assert_eq!(
+        sum_distinct.scale(),
+        0,
+        "sum_distinct_by(rank) should preserve canonical integer decimal scale",
+    );
+}
+
+#[test]
 fn aggregate_numeric_field_unknown_target_fails_without_scan() {
     seed_pushdown_entities(&[(8_101, 7, 10), (8_102, 7, 20)]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);

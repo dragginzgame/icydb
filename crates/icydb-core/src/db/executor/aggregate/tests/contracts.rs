@@ -279,6 +279,58 @@ fn grouped_aggregate_state_enforces_distinct_values_total_limit() {
 }
 
 #[test]
+fn grouped_execution_budget_counters_remain_consistent_for_distinct_grouped_fold() {
+    let mut execution_context = ExecutionContext::new(
+        ExecutionConfig::with_hard_limits_and_distinct(16, 4096, 16, 16),
+    );
+    let mut grouped = execution_context.create_grouped_state::<GroupedStateTestEntity>(
+        AggregateKind::Count,
+        Direction::Asc,
+        true,
+    );
+
+    for (group, id) in [
+        ("alpha", 1_u64),
+        ("alpha", 1_u64),
+        ("alpha", 2_u64),
+        ("beta", 3_u64),
+        ("beta", 3_u64),
+    ] {
+        grouped
+            .apply(
+                group_key(Value::Text(group.to_string())),
+                &data_key(id),
+                &mut execution_context,
+            )
+            .expect("grouped budget-consistency fixture row should apply");
+    }
+
+    assert_eq!(
+        execution_context.budget().groups(),
+        2,
+        "group counter should track unique canonical groups only",
+    );
+    assert_eq!(
+        execution_context.budget().aggregate_states(),
+        2,
+        "aggregate state counter should track per-group grouped slots",
+    );
+    assert_eq!(
+        execution_context.budget().distinct_values(),
+        3,
+        "distinct counter should track unique grouped DISTINCT inserts only",
+    );
+    assert!(
+        execution_context.budget().estimated_bytes() > 0,
+        "estimated-bytes counter should account for grouped state allocations",
+    );
+    assert!(
+        execution_context.budget().aggregate_states() >= execution_context.budget().groups(),
+        "grouped aggregate-state counter must remain >= groups counter",
+    );
+}
+
+#[test]
 fn grouped_aggregate_state_finalization_is_deterministic_under_hash_collisions() {
     with_test_hash_override([0xCD; 16], || {
         let mut execution_context = ExecutionContext::new(ExecutionConfig::unbounded());

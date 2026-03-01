@@ -302,26 +302,11 @@ impl<E: EntityKind> TerminalAggregateState<E> {
             .canonical_key()
             .map_err(KeyCanonicalError::into_internal_error)
             .map_err(GroupError::from)?;
-        if distinct_keys.contains_key(&canonical_key) {
-            return Ok(false);
-        }
-
-        let attempted_per_group = u64::try_from(distinct_keys.len())
-            .unwrap_or(u64::MAX)
-            .saturating_add(1);
-        if attempted_per_group > self.max_distinct_values_per_group {
-            return Err(GroupError::DistinctBudgetExceeded {
-                resource: "distinct_values_per_group",
-                attempted: attempted_per_group,
-                limit: self.max_distinct_values_per_group,
-            });
-        }
-
-        let inserted = distinct_keys.insert_key(canonical_key);
-        debug_assert!(inserted, "new distinct key must insert exactly once");
-        execution_context.record_distinct_value()?;
-
-        Ok(true)
+        execution_context.admit_distinct_key(
+            distinct_keys,
+            self.max_distinct_values_per_group,
+            canonical_key,
+        )
     }
 }
 

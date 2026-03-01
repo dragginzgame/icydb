@@ -27,9 +27,9 @@ Check resource-model conformance for:
 For each run, explicitly mark `PASS` / `PARTIAL` / `FAIL`:
 
 1. All Class B operators route through budget-accounted execution context.
-2. No distinct state exists outside budget tracking for Class B paths.
+2. All Class B DISTINCT insertions are admitted through budget-accounted boundaries.
 3. Zero-key grouped uses implicit-single-group admission.
-4. Ordered-streaming claims do not hide cross-group accumulation.
+4. Ordered-group strategy labels do not imply streaming runtime behavior.
 5. `SUM(DISTINCT)` and `COUNT(DISTINCT)` enforce caps deterministically.
 6. No Class C shape is reachable through grouped `HAVING + ORDER + LIMIT`.
 7. Grouped `ORDER BY` policy is bounded (for example, explicit `LIMIT` gate).
@@ -40,7 +40,7 @@ For each run, explicitly mark `PASS` / `PARTIAL` / `FAIL`:
 
 Write one dated result file for each run:
 
-- `docs/audits/reports/YYYY-MM-DD/resource-model-compliance.md`
+- `docs/audits/reports/YYYY-MM-DD/resource-model-compliance*.md`
 
 Result must include:
 

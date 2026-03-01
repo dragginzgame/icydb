@@ -390,6 +390,7 @@ fn grouped_cursor_rejects_cross_shape_resume_token_and_encoded_bytes_differ() {
         .group_by("group")
         .expect("grouped-by-group query should build")
         .group_count()
+        .limit(1)
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("grouped-by-group plan should build");
@@ -397,6 +398,7 @@ fn grouped_cursor_rejects_cross_shape_resume_token_and_encoded_bytes_differ() {
         .group_by("rank")
         .expect("grouped-by-rank query should build")
         .group_count()
+        .limit(1)
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("grouped-by-rank plan should build");
@@ -461,6 +463,7 @@ fn grouped_cursor_rejects_unsupported_version_at_plan_time() {
         .group_by("group")
         .expect("grouped query should build")
         .group_count()
+        .limit(1)
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("grouped plan should build");
@@ -496,6 +499,7 @@ fn grouped_cursor_rejects_cross_shape_resume_token_when_having_changes() {
         .group_by("group")
         .expect("grouped having source query should build")
         .group_count()
+        .limit(1)
         .having_aggregate(0, CompareOp::Gt, Value::Uint(1))
         .expect("grouped having source clause should build")
         .plan()
@@ -505,6 +509,7 @@ fn grouped_cursor_rejects_cross_shape_resume_token_when_having_changes() {
         .group_by("group")
         .expect("grouped having target query should build")
         .group_count()
+        .limit(1)
         .having_aggregate(0, CompareOp::Gte, Value::Uint(1))
         .expect("grouped having target clause should build")
         .plan()
@@ -547,6 +552,7 @@ fn grouped_cursor_rejects_cross_shape_resume_token_when_distinct_aggregate_chang
         .group_by("group")
         .expect("grouped count source query should build")
         .group_count()
+        .limit(1)
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("grouped count source plan should build");
@@ -554,6 +560,7 @@ fn grouped_cursor_rejects_cross_shape_resume_token_when_distinct_aggregate_chang
         .group_by("group")
         .expect("grouped count distinct target query should build")
         .group_count_distinct()
+        .limit(1)
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("grouped count distinct target plan should build");

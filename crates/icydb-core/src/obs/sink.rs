@@ -44,7 +44,7 @@ pub enum PlanKind {
 #[derive(Clone, Copy, Debug)]
 pub enum GroupedPlanStrategy {
     HashMaterialized,
-    OrderedStreaming,
+    OrderedMaterialized,
 }
 
 ///
@@ -297,9 +297,9 @@ impl MetricsSink for GlobalMetricsSink {
                             m.ops.plan_grouped_hash_materialized =
                                 m.ops.plan_grouped_hash_materialized.saturating_add(1);
                         }
-                        Some(GroupedPlanStrategy::OrderedStreaming) => {
-                            m.ops.plan_grouped_ordered_streaming =
-                                m.ops.plan_grouped_ordered_streaming.saturating_add(1);
+                        Some(GroupedPlanStrategy::OrderedMaterialized) => {
+                            m.ops.plan_grouped_ordered_materialized =
+                                m.ops.plan_grouped_ordered_materialized.saturating_add(1);
                         }
                         None => {}
                     }
@@ -619,7 +619,7 @@ mod tests {
         });
         record(MetricsEvent::Plan {
             kind: PlanKind::Range,
-            grouped_strategy: Some(GroupedPlanStrategy::OrderedStreaming),
+            grouped_strategy: Some(GroupedPlanStrategy::OrderedMaterialized),
         });
 
         let counters = metrics_report(None)
@@ -628,7 +628,7 @@ mod tests {
         assert_eq!(counters.ops.plan_index, 1);
         assert_eq!(counters.ops.plan_range, 1);
         assert_eq!(counters.ops.plan_grouped_hash_materialized, 1);
-        assert_eq!(counters.ops.plan_grouped_ordered_streaming, 1);
+        assert_eq!(counters.ops.plan_grouped_ordered_materialized, 1);
     }
 
     #[test]

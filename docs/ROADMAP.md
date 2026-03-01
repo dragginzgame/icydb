@@ -31,6 +31,7 @@ Active execution/planning references:
 - `docs/status/0.36-grouped-hardening-status.md`
 - `docs/status/0.37-aggregate-fluent-api-status.md`
 - `docs/audits/reports/2026-03-01/resource-model-compliance.md`
+- `docs/audits/reports/2026-03-01/resource-model-compliance-0.36.3.md`
 - `docs/changelog/0.36.md`
 - `CHANGELOG.md`
 

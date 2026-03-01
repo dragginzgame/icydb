@@ -165,16 +165,15 @@ where
             None
         };
         let grouped_execution_strategy = if grouped {
-            let grouped_ordered_streaming_eligibility =
-                derive_grouped_ordered_streaming_eligibility(
-                    plan,
-                    grouped_plan_strategy_hint(plan).unwrap_or(GroupedPlanStrategyHint::HashGroup),
-                    direction,
-                    capabilities.desc_physical_reverse_supported,
-                    capabilities.streaming_access_shape_safe,
-                );
+            let grouped_ordered_eligibility = derive_grouped_ordered_eligibility(
+                plan,
+                grouped_plan_strategy_hint(plan).unwrap_or(GroupedPlanStrategyHint::HashGroup),
+                direction,
+                capabilities.desc_physical_reverse_supported,
+                capabilities.streaming_access_shape_safe,
+            );
             Some(grouped_execution_strategy_for_plan_hint(
-                grouped_ordered_streaming_eligibility,
+                grouped_ordered_eligibility,
             ))
         } else {
             None
@@ -197,16 +196,16 @@ where
 }
 
 ///
-/// GroupedOrderedStreamingEligibility
+/// GroupedOrderedEligibility
 ///
-/// Executor-owned grouped ordered-streaming eligibility matrix.
+/// Executor-owned grouped ordered-strategy eligibility matrix.
 /// This matrix revalidates planner ordered-group hints against runtime capability
 /// and grouped semantic guardrails before strategy projection.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[expect(clippy::struct_excessive_bools)]
-struct GroupedOrderedStreamingEligibility {
+struct GroupedOrderedEligibility {
     ordered_hint: bool,
     direction_compatible: bool,
     streaming_access_shape_safe: bool,
@@ -215,7 +214,7 @@ struct GroupedOrderedStreamingEligibility {
     distinct_streaming_compatible: bool,
 }
 
-impl GroupedOrderedStreamingEligibility {
+impl GroupedOrderedEligibility {
     const fn is_eligible(self) -> bool {
         self.ordered_hint
             && self.direction_compatible
@@ -226,14 +225,14 @@ impl GroupedOrderedStreamingEligibility {
     }
 }
 
-// Derive one grouped ordered-streaming eligibility matrix snapshot.
-fn derive_grouped_ordered_streaming_eligibility<K>(
+// Derive one grouped ordered-strategy eligibility matrix snapshot.
+fn derive_grouped_ordered_eligibility<K>(
     plan: &AccessPlannedQuery<K>,
     plan_hint: GroupedPlanStrategyHint,
     direction: Direction,
     desc_physical_reverse_supported: bool,
     streaming_access_shape_safe: bool,
-) -> GroupedOrderedStreamingEligibility {
+) -> GroupedOrderedEligibility {
     let grouped = plan.grouped_plan();
     let aggregates_streaming_compatible = grouped.is_some_and(|grouped| {
         grouped.group.aggregates.iter().all(|aggregate| {
@@ -257,23 +256,23 @@ fn derive_grouped_ordered_streaming_eligibility<K>(
         })
     });
 
-    GroupedOrderedStreamingEligibility {
+    GroupedOrderedEligibility {
         ordered_hint: matches!(plan_hint, GroupedPlanStrategyHint::OrderedGroup),
         direction_compatible: !matches!(direction, Direction::Desc)
             || desc_physical_reverse_supported,
         streaming_access_shape_safe,
         aggregates_streaming_compatible,
         having_streaming_compatible,
-        // Query-level DISTINCT remains incompatible with grouped ordered streaming in this line.
+        // Query-level DISTINCT remains incompatible with grouped ordered strategy in this line.
         distinct_streaming_compatible: !plan.scalar_plan().distinct,
     }
 }
 
 // Resolve one route-level grouped strategy from one revalidated eligibility matrix.
 const fn grouped_execution_strategy_for_plan_hint(
-    grouped_ordered_streaming_eligibility: GroupedOrderedStreamingEligibility,
+    grouped_ordered_eligibility: GroupedOrderedEligibility,
 ) -> GroupedExecutionStrategy {
-    if grouped_ordered_streaming_eligibility.is_eligible() {
+    if grouped_ordered_eligibility.is_eligible() {
         GroupedExecutionStrategy::OrderedGroup
     } else {
         GroupedExecutionStrategy::HashGroup

@@ -26,9 +26,20 @@ use crate::{
             },
         },
     },
+    model::index::IndexModel,
     types::Ulid,
     value::Value,
 };
+use std::fmt::Write;
+
+fn signature_hex(signature: ContinuationSignature) -> String {
+    let mut hex = String::with_capacity(64);
+    for byte in signature.into_bytes() {
+        let _ = write!(&mut hex, "{byte:02x}");
+    }
+
+    hex
+}
 
 #[test]
 fn signature_is_deterministic_for_equivalent_predicates() {
@@ -525,6 +536,108 @@ fn signature_changes_when_grouped_having_changes() {
     assert_ne!(
         grouped_having_gt.continuation_signature("tests::Entity"),
         grouped_having_gte.continuation_signature("tests::Entity")
+    );
+}
+
+#[test]
+fn signature_snapshot_grouped_having_shape_is_stable() {
+    let grouped_having: AccessPlannedQuery<Value> =
+        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+            .into_grouped_with_having(
+                GroupSpec {
+                    group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+                    aggregates: vec![GroupAggregateSpec {
+                        kind: GroupAggregateKind::Count,
+                        target_field: None,
+                        distinct: false,
+                    }],
+                    execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
+                },
+                Some(GroupHavingSpec {
+                    clauses: vec![GroupHavingClause {
+                        symbol: GroupHavingSymbol::AggregateIndex(0),
+                        op: CompareOp::Gt,
+                        value: Value::Uint(1),
+                    }],
+                }),
+            );
+    let signature = signature_hex(grouped_having.continuation_signature("tests::Entity"));
+    let expected = "e028bd8e57cc2a17014c91da49c72ff2a83942d231c5ef9502dc32a5ee940651".to_string();
+
+    assert_eq!(
+        signature, expected,
+        "grouped+having signature snapshot drifted: actual={signature}",
+    );
+}
+
+#[test]
+fn signature_snapshot_grouped_distinct_shape_is_stable() {
+    let grouped_distinct: AccessPlannedQuery<Value> =
+        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+            .into_grouped(GroupSpec {
+                group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+                aggregates: vec![GroupAggregateSpec {
+                    kind: GroupAggregateKind::Count,
+                    target_field: None,
+                    distinct: true,
+                }],
+                execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
+            });
+    let signature = signature_hex(grouped_distinct.continuation_signature("tests::Entity"));
+    let expected = "37b689432bb60afc74c388e1a60cb9c142990cc55f448e5988850c7f7b20680d".to_string();
+
+    assert_eq!(
+        signature, expected,
+        "grouped+distinct signature snapshot drifted: actual={signature}",
+    );
+}
+
+#[test]
+fn signature_snapshot_global_distinct_sum_shape_is_stable() {
+    let global_distinct_sum: AccessPlannedQuery<Value> =
+        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+            .into_grouped(GroupSpec {
+                group_fields: Vec::new(),
+                aggregates: vec![GroupAggregateSpec {
+                    kind: GroupAggregateKind::Sum,
+                    target_field: Some("rank".to_string()),
+                    distinct: true,
+                }],
+                execution: GroupedExecutionConfig::with_hard_limits(1, 1024),
+            });
+    let signature = signature_hex(global_distinct_sum.continuation_signature("tests::Entity"));
+    let expected = "1db8287da47b5b6d2042d1e413eca43b448a7d6a5222c9612372d430cf871429".to_string();
+
+    assert_eq!(
+        signature, expected,
+        "global distinct sum signature snapshot drifted: actual={signature}",
+    );
+}
+
+#[test]
+fn signature_snapshot_ordered_group_hint_shape_is_stable() {
+    let grouped_ordered: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: IndexModel::new("idx_tenant", "tests", &["tenant"], false),
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    )
+    .into_grouped(GroupSpec {
+        group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+        aggregates: vec![GroupAggregateSpec {
+            kind: GroupAggregateKind::Count,
+            target_field: None,
+            distinct: false,
+        }],
+        execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
+    });
+    let signature = signature_hex(grouped_ordered.continuation_signature("tests::Entity"));
+    let expected = "0ca59a1431dc0d0f45a7549a7fb8004696f74c5f3591916589f564c82896e875".to_string();
+
+    assert_eq!(
+        signature, expected,
+        "ordered-hint grouped signature snapshot drifted: actual={signature}",
     );
 }
 
