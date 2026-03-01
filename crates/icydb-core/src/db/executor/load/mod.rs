@@ -482,10 +482,10 @@ where
         let grouped_route_execution_mode = grouped_route_observability.execution_mode();
         let grouped_plan_metrics_strategy =
             match grouped_route_observability.grouped_execution_strategy() {
-                crate::db::executor::route::GroupedExecutionStrategy::HashGroup => {
+                crate::db::executor::route::GroupedExecutionStrategy::HashMaterialized => {
                     GroupedPlanMetricsStrategy::HashMaterialized
                 }
-                crate::db::executor::route::GroupedExecutionStrategy::OrderedGroup => {
+                crate::db::executor::route::GroupedExecutionStrategy::OrderedMaterialized => {
                     GroupedPlanMetricsStrategy::OrderedMaterialized
                 }
             };

@@ -12,8 +12,11 @@ use crate::{
         cursor::GroupedPlannedCursor,
         executor::{
             ExecutablePlan,
-            aggregate::{AggregateKind, field::extract_orderable_field_value},
-            group::{GroupKeySet, KeyCanonicalError},
+            aggregate::{
+                AggregateKind, field::extract_orderable_field_value,
+                materialized_distinct::insert_materialized_distinct_value,
+            },
+            group::GroupKeySet,
             load::LoadExecutor,
         },
         query::plan::{GroupAggregateSpec, GroupSpec, GroupedExecutionConfig},
@@ -112,10 +115,7 @@ where
         for (_, entity) in response {
             let value = extract_orderable_field_value(&entity, target_field, field_slot)
                 .map_err(Self::map_aggregate_field_value_error)?;
-            if !distinct_values
-                .insert_value(&value)
-                .map_err(KeyCanonicalError::into_internal_error)?
-            {
+            if !insert_materialized_distinct_value(&mut distinct_values, &value)? {
                 continue;
             }
             distinct_count = distinct_count.saturating_add(1);

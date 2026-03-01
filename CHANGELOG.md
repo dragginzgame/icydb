@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 - `0.37.0` starts aggregate fluent API consolidation with composable aggregate builders (`AggregateExpr`, `count`, `count_by`, `sum`, `exists`, `first`, `last`, `min`, `max`, `min_by`, `max_by`, `distinct`) and new `.aggregate(...)` query/fluent entrypoints.
 - `0.37.0` removes grouped combinatorial helper terminals (`group_count*`, `group_sum_distinct_by`, `group_exists`, `group_first`, `group_last`, `group_min*`, `group_max*`) as an intentional pre-`1.0` hard cut in favor of builder-only `.aggregate(...)` composition.
-- `0.37.1` closes hardening for this cut with compile-fail guards for removed terminals, typed builder-validation parity coverage, and migration guidance for replacing `group_*` calls with `.aggregate(...)`.
+- `0.37.1` closes builder hardening for this cut with compile-fail guards for removed terminals, typed builder-validation parity coverage, and migration guidance for replacing `group_*` calls with `.aggregate(...)`.
+- `0.37.2` closes deferred resource follow-ups by making grouped route strategy labels explicitly materialized and consolidating non-grouped materialized DISTINCT helper ownership under one executor boundary.
 
 ```rust
 let page = session
@@ -178,367 +179,36 @@ See detailed breakdown:
 [docs/changelog/0.27.md](docs/changelog/0.27.md)
 
 ---
-## [0.26.2] - 2026-02-23
+## [0.26.x] - 2026-02-23 - Compiled Field Projection Hardening
 
-### 📝 Summary
+- `0.26.0` moved runtime field projection from name lookups to slot/index access and removed `FieldProjection::get_value(...)` in favor of `get_value_by_index(...)`.
+- `0.26.1` and `0.26.2` hardened this rollout with stricter index invariants, CI projection guardrails, and full slot-resolved ordering/predicate runtime paths.
+- The line closes with hot-loop field access consistently using pre-resolved slots, reducing runtime lookup drift and keeping behavior deterministic.
 
-* Finishes `0.26.x` runtime slot hardening by removing remaining field-name lookups from critical execution paths.
-
-### 🔧 Changed
-
-* Predicate filtering now compiles predicates into a slot-resolved runtime form once per query filter phase, then evaluates rows with `get_value_by_index` only.
-* Removed remaining shared `field_index` lookup usage in runtime paths and consolidated slot resolution behind shared model helpers.
-* Ordering, cursor-boundary comparison, and predicate filtering now consistently operate on pre-resolved field slots in hot loops.
+See detailed breakdown:
+[docs/changelog/0.26.md](docs/changelog/0.26.md)
 
 ---
 
-## [0.26.1] - 2026-02-23
+## [0.25.x] - 2026-02-23 - Field Aggregate Expansion
 
-### 📝 Summary
+- `0.25.0` introduced field aggregate terminals (`min_by`, `max_by`, `nth_by`, `sum_by`, `avg_by`) with deterministic ordering and fail-fast target validation.
+- `0.25.2` expanded the surface with `median_by`, `count_distinct_by`, and `min_max_by`, while preserving canonical effective-window semantics.
+- `0.25.1` and `0.25.2` focused on parity and eligibility hardening so fallback/fast-path behavior and error classification stay stable.
 
-* Hardens the post-`0.26.0` field-slot rollout with stronger index invariants and CI guardrails.
-
-### 🔧 Changed
-
-* `IndexKey::new` now classifies missing declared index fields as explicit invariant violations instead of silently skipping index-key materialization.
-* CI now enforces a string-free runtime field projection contract with a dedicated invariant script that rejects `.get_value(` and `fn get_value(...)` in runtime modules.
-* CI Rust toolchain is pinned to `1.93.1` in workflow jobs to match `rust-toolchain.toml` and avoid local-vs-CI drift.
-* Order execution now resolves order-field names to schema slots once per phase and uses slot reads during sort and cursor-boundary comparisons.
-* Predicate execution now resolves referenced field names to schema slots once per filter phase and evaluates rows through pre-resolved slot reads.
-
-### 🧪 Testing
-
-* Added a commit/index regression test that locks missing-index-field behavior to `InvariantViolation`/`Index`.
-* Added cross-crate field-projection invariants that assert `EntityModel.fields` order matches `get_value_by_index` slot output across scalar, optional, and list fields.
+See detailed breakdown:
+[docs/changelog/0.25.md](docs/changelog/0.25.md)
 
 ---
 
-## [0.26.0] – 2026-02-23 - Compiled Field Projection
+## [0.24.x] - 2026-02-22 - Aggregate Route Foundation
 
-### 📝 Summary
+- `0.24.0` introduced composite aggregate direct-path routing with parity-focused behavior locking against fallback execution.
+- `0.24.1` added `first()` and `last()` terminals with explicit cursor and bounded-scan guardrails.
+- `0.24.2` through `0.24.7` hardened route capability ownership, descending/scan-hint safety, secondary extrema probe fallback behavior, and pre-`0.25` field-aggregate validation boundaries.
 
-* Moves runtime field projection to slot/index access and removes name-based `FieldProjection` lookup.
-
-### ⚠️ Breaking
-
-* `FieldProjection::get_value(&self, field: &str)` was removed.
-* `FieldProjection` now only requires `get_value_by_index(&self, index: usize) -> Option<Value>`.
-
-### 🔧 Changed
-
-* Field-target aggregate terminals now resolve the target once at setup into a stable field slot and then read values by index during execution.
-* Aggregate field reducers (`min_by`, `max_by`, `nth_by`, `median_by`, `sum_by`, `avg_by`, `count_distinct_by`, `min_max_by`) now use index projection in both materialized and streaming aggregate paths.
-* Aggregate field helper paths now share slot-aware validation and extraction helpers, keeping taxonomy and semantics unchanged.
-* Additional runtime paths now use index projection (`index` key build/unique validation, save-time invariant/relation validation, reverse-relation key extraction, order cursor field slot extraction, and predicate row field reads for entity rows).
-
-### 🧭 Migration Notes
-
-* If you implement `FieldProjection` manually, implement `get_value_by_index` using the same declared field order as your schema model.
-
-```rust
-impl FieldProjection for MyEntity {
-    fn get_value_by_index(&self, index: usize) -> Option<Value> {
-        match index {
-            0 => Some(self.id.to_value()),
-            1 => Some(self.name.to_value()),
-            _ => None,
-        }
-    }
-}
-```
-
-### 🧪 Testing
-
-* Added slot-resolution regression coverage in aggregate field helpers to lock schema-order index mapping.
-* Existing aggregate field parity matrix continues to pass with slot-based projection.
-
----
-
-## [0.25.2] – 2026-02-23 - Field Aggregate Additions
-
-### 📝 Summary
-
-* Adds three new field aggregate terminals in the `0.25.x` line: `median_by`, `count_distinct_by`, and `min_max_by`.
-
-### ➕ Added
-
-* Added `median_by("field")` to return the entity id at the median position in deterministic field order (`field asc`, then primary key asc). For even-length windows, this release uses the lower-median policy.
-* Added `count_distinct_by("field")` to count unique field values in the effective result window. This terminal supports non-orderable fields (for example list/structured values) because it relies on value equality, not ordering; unknown fields remain explicit `Unsupported` errors.
-* Added `min_max_by("field")` to return `Option<(Id<E>, Id<E>)>` in one terminal call (`None` for empty windows), with deterministic primary-key tie-breaks.
-
-```rust
-let median_rank_id = session
-    .load::<User>()
-    .filter_expr(FilterExpr::eq(User::GROUP, 7))?
-    .order_by("id")
-    .median_by("rank")?;
-
-let distinct_ranks = session
-    .load::<User>()
-    .filter_expr(FilterExpr::eq(User::GROUP, 7))?
-    .order_by("id")
-    .count_distinct_by("rank")?;
-
-let min_max_rank_ids = session
-    .load::<User>()
-    .filter_expr(FilterExpr::eq(User::GROUP, 7))?
-    .order_by("id")
-    .min_max_by("rank")?;
-```
-
-### 🔧 Changed
-
-* These new terminals execute via canonical window scan and do not introduce new fast-path eligibility.
-* The query `DISTINCT` modifier remains ineligible for field-extrema fast paths. For `count_distinct_by`, `DISTINCT` only changes the effective window row set; field-distinct counting semantics are unchanged.
-
-### 🧪 Testing
-
-* Expanded the field-terminal parity matrix to include all three new terminals across DISTINCT/windowed ASC and DESC query shapes.
-* Added focused regressions for lower-median even-window behavior, distinct counting on non-orderable fields, unknown-field rejection before scan-budget consumption, and session-level parity.
-* Added a metamorphic `min_max_by(field) == min_by(field).zip(max_by(field))` matrix across DISTINCT/direction/window variants, plus explicit `count_distinct_by` effective-window semantics and expanded error-classification coverage for new terminals.
-* Added invariant tests for `min_max_by` return shape (`None` on empty windows, same id pair for single-row windows) and a median direction-invariance parity check.
-
----
-
-## [0.25.1] – 2026-02-23 - Aggregate Stabilization
-
-### 📝 Summary
-
-* Patch-line stabilization for `0.25.0` field aggregates, with no new user-facing aggregate surface.
-
-### 🔧 Changed
-
-* Hardened aggregate regression contracts for field terminals without expanding API scope.
-* Locked fallback-vs-fast-path scan behavior for eligible and ineligible field-extrema shapes.
-
-### 📚 Documentation
-
-* Kept release docs synchronized across status, roadmap, and README aggregate references.
-
-### 🧪 Testing
-
-* Added eligibility negative-lock coverage for field extrema so DISTINCT/offset ineligible shapes cannot silently drift into single-step probe behavior.
-* Added deterministic `nth_by` boundary matrix coverage over windowed queries, including out-of-range and empty-window behavior.
-* Added scan-budget enforcement for an eligible secondary-index field-extrema shape to lock current traversal budget.
-* Added a field-terminal error-classification matrix (`Unsupported` vs `Corruption`) across unknown/non-orderable/non-numeric/stale-leading cases.
-
----
-
-## [0.25.0] – 2026-02-22 - MORE AGGREGATE COMMANDS
-
-### 📝 Summary
-
-* This starts the `0.25` aggregate expansion with field-based aggregate terminals and explicit behavior boundaries.
-
-### ➕ Added
-
-* Added `min_by("field")` and `max_by("field")` on load queries to return the id of the row with the smallest or largest value for that field.
-* Added `nth_by("field", n)` to return the id at zero-based position `n` in deterministic field order (field ascending, then primary key ascending).
-* Added `sum_by("field")` and `avg_by("field")` for numeric fields, returning `Decimal` values with `None` for empty result windows.
-
-```rust
-let min_rank_id = session.load::<User>().order_by("id").min_by("rank")?;
-let max_rank_id = session.load::<User>().order_by("id").max_by("rank")?;
-let second_rank_id = session.load::<User>().order_by("id").nth_by("rank", 1)?;
-```
-
-### 🔧 Changed
-
-* Eligible index-leading shapes now execute `min_by`/`max_by` through a route-gated streaming path, while non-eligible shapes use canonical fallback behavior.
-* Tie handling is deterministic: when field values are equal, selection uses primary key ascending.
-* Invalid field targets (unknown fields or non-orderable field kinds) now fail fast with clear `Unsupported` errors before scan work starts.
-* `nth_by` now returns `None` when `n` is outside the current result window.
-
-### 🧪 Testing
-
-* Added DISTINCT parity coverage for field terminals (`min_by`, `max_by`, `nth_by`, `sum_by`, `avg_by`) in both ASC and DESC windowed query shapes.
-* Added stale-leading secondary-index consistency coverage for field extrema:
-  `MissingOk` fallback parity and `Strict` corruption classification.
-* Added a field-terminal matrix harness check that locks expected aggregate terminal coverage for `rank`-target parity.
-
----
-
-## [0.24.7] – 2026-02-22
-
-This patch continues pre-`0.25` hardening for field-based aggregates.
-
-* Added a shared aggregate spec boundary so field-targeted aggregate requests are validated in one place before execution starts.
-* Unsupported field-target aggregate shapes now fail fast with clear `Unsupported` executor errors instead of drifting into generic execution paths.
-* Locked deterministic tie-break behavior for upcoming `min(field)`/`max(field)` work: compare by field value first, then by primary key ascending.
-* Added route-level ineligibility reasons and matrix tests so it is explicit why field-extrema fast paths are currently disabled for each shape.
-* Expanded regressions to ensure unsupported field-target aggregate requests consume zero scan budget.
-
----
-
-## [0.24.6] – 2026-02-22 - Route Authority Hardening
-
-This release is an internal cleanup. It centralizes route decisions and tightens guardrails to reduce drift as new execution features are added.
-
-* Consolidated duplicated routing/eligibility checks across load and aggregate paths.
-* Simplified fast-path guard logic (spec arity and alignment checks).
-* Added targeted tests to keep route behavior, aggregate fold modes, and invariant/error classification stable.
-
----
-
-## [0.24.5] – 2026-02-22 - Secondary Min/Max Probe
-
-### 📝 Summary
-
-* Eligible secondary-index `min()`/`max()` queries now start with a small bounded probe (`offset + 1`) instead of scanning the full window first.
-* When `MissingOk` encounters stale leading index keys, execution automatically retries unbounded to keep results correct.
-* Internal route and guard paths were simplified to reduce drift between load and aggregate fast paths.
-
-### 🔧 Changed
-
-* Added a secondary extrema probe path for aggregate `min()`/`max()` on eligible secondary index-prefix routes.
-* Added safe fallback: bounded `MissingOk` probes that return no extrema at the boundary now retry unbounded.
-* Kept scan accounting explicit by counting both probe and fallback traversal when fallback runs.
-* Consolidated shared fast-path guards and aggregate hint routing to remove duplicated executor logic.
-
-### 🧪 Testing
-
-* Added regressions that lock `offset + 1` probe budgets for secondary `min()`/`max()` in `Strict` and clean `MissingOk` paths.
-* Added stale-leading and routing-guard regressions to confirm fallback parity and shared fast-path arity/hint invariants.
-
----
-
-## [0.24.4] – 2026-02-22 - RouteCapabilities
-
-### 📝 Summary
-
-* This release cleans up how query execution decides which path to use.
-* Load and aggregate queries now follow the same routing rules instead of keeping separate copies of similar checks.
-* This reduces internal complexity and lowers the chance of inconsistent behavior in edge cases.
-
-### 🔧 Changed
-
-* Added a canonical internal `RouteCapabilities` snapshot so route planning derives key execution capabilities once per plan and direction.
-* Updated execution routing to consume that shared capability snapshot for streaming mode selection, bounded hint eligibility, and aggregate count/probe decisions.
-* Wired load and aggregate fast-path dispatch checks to route-plan capability accessors so eligibility state is carried from one route source through execution.
-* Moved composite aggregate fast-path eligibility behind the same route-derived capability path and removed the duplicate aggregate-side shape gate.
-* Added critical route `debug_assert!` invariants to fail fast on internal contradictions between capability flags and selected execution/hint outcomes.
-
-### 🧪 Testing
-
-* Added capability-focused route tests that lock expected flags for representative shapes (`FullScan` + DESC PK order, and `ByKeys` + DESC with `distinct + offset`).
-
-### 🛣️ Roadmap
-
-* Why this matters: routing decisions are now easier to reason about because eligibility logic is centralized and shared across execution paths.
-* What this unlocks: safer performance work on direction-sensitive execution (especially DESC paths) and cleaner expansion of aggregate/load fast paths.
-* What’s next: expand capability-driven routing coverage as new optimizations are added, so new features plug into the same routing boundary instead of introducing parallel gates.
-
----
-
-## [0.24.3] – 2026-02-22
-
-### 🧹 Cleanup
-
-* Removed a redundant `COUNT` pushdown gate in execution routing so eligibility is decided in one place.
-* Dropped an unused internal routing helper to reduce drift risk before the next feature cycle.
-* Centralized direction-based bounded-hint gating behind one shared route helper used by both aggregate probe planning and load fallback execution.
-* Consolidated page-window fetch sizing behind one internal route helper so bounded hint math is reused consistently.
-
-### 🧪 Testing
-
-* Added a route-matrix regression for `ByKeys` + DESC to lock fallback bounded-hint suppression when reverse traversal is not physically supported.
-
----
-
-## [0.24.2] – 2026-02-22
-
-### 🔧 Changed
-
-* Unified load and aggregate execution routing so both paths follow the same decision rules.
-* Tightened descending-query handling so bounded scan hints are only used when reverse traversal is truly supported.
-* Added a safety guard to prevent bounded page scans from applying in shapes that require full post-access ordering.
-* Cleaned up route naming to make DESC physical traversal behavior clearer for maintainers.
-
-### 🧪 Testing
-
-* Added DESC parity tests for aggregate ordering and cursor resume across PK, secondary-index, and index-range paths.
-* Added route-matrix tests to lock routing behavior across direction, paging, distinct, cursor state, and aggregate terminal type.
-* Added focused regressions to ensure unsafe hints stay disabled for non-PK ordered loads and `ByKeys` DESC aggregates without reverse support.
-* Added a regression test that locks canonical key dedup ordering for directional `ByKeys` aggregate behavior.
-
----
-
-## [0.24.1] – 2026-02-22 - FIRST and LAST
-
-### 📝 Summary
-
-* Added `first()` and `last()` aggregate terminals for load queries.
-* These return the first or last matching id in response order without needing full result materialization.
-
-### 🔧 Changed
-
-* Kept behavior aligned with normal query order, pagination, and consistency rules.
-* Added bounded scan hints for `first()` and limited-window `last()` to avoid extra key scans.
-* Cursor tokens are now rejected for non-paged execution terminals, so continuation tokens are only accepted via `.page().execute()`.
-
-### 📚 Example
-
-```rust
-// Aggregate terminals on ordered query results.
-let first_id = session.load::<MyEntity>().order_by("id").first()?;
-let last_id = session.load::<MyEntity>().order_by_desc("id").last()?;
-
-// Cursor tokens are only valid in paged mode.
-let (items, next_cursor) = session
-    .load::<MyEntity>()
-    .order_by("id")
-    .limit(25)
-    .page()?
-    .cursor(cursor_token)
-    .execute()?;
-
-// Non-paged cursor usage now fails fast with an intent error.
-let err = session
-    .load::<MyEntity>()
-    .order_by("id")
-    .limit(25)
-    .cursor(cursor_token)
-    .last()
-    .expect_err("cursor requires paged execution");
-```
-
-### 🧪 Testing
-
-* Added aggregate parity coverage for `first()` and `last()` against materialized execution.
-* Added scan-budget regressions for `first()` (`offset + 1`) and limited-window `last()` (`offset + limit`).
-* Added regressions that verify unbounded `last()` scans the full stream and that cursor tokens fail fast on non-paged terminals.
-
----
-
-## [0.24.0] – 2026-02-21 - Composite Aggregate Direct Path
-
-### 📝 Summary
-
-* Aggregate queries over combined query shapes now use a faster execution route.
-* Query results stay the same, but these aggregate reads do less internal work.
-
-### 🔧 Changed
-
-* Added direct aggregate handling for combined query plans (such as unions and intersections).
-* Kept aggregate behavior aligned with existing fallback behavior, including count semantics.
-* Unified route priority so load and aggregate execution follow the same ordering rules.
-
-### 🧹 Cleanup
-
-* Moved aggregate fold internals into a dedicated executor module to reduce complexity.
-* Reused shared guard and binding helpers so load and aggregate paths enforce the same checks.
-* Consolidated index-range eligibility mapping behind one shared helper.
-
-### 🧪 Testing
-
-* Added regressions to confirm the direct path matches fallback aggregate results.
-* Added focused tests for route-priority ordering and aggregate guard checks.
-
-### 🛣️ Roadmap
-
-* This release opens the `0.24.x` line with a stability-first foundation for aggregate query execution.
-* The goal is to speed up common aggregate reads now while keeping behavior predictable and unchanged for users.
-* It unlocks a cleaner next step: adding more aggregate performance work on top of one shared execution path instead of growing separate code paths.
+See detailed breakdown:
+[docs/changelog/0.24.md](docs/changelog/0.24.md)
 
 ---
 

@@ -169,7 +169,9 @@ This includes global DISTINCT field aggregates modeled as grouped execution with
 zero group keys.
 Non-grouped scalar DISTINCT projection helpers (for example
 `count_distinct_by(field)` / `distinct_values_by(field)`) are effective-window
-materialized terminals and are not grouped Class B operators.
+materialized terminals and are not grouped Class B operators. Their DISTINCT
+key admission is owned by the materialized helper boundary
+`executor::aggregate::materialized_distinct`.
 
 All cardinality-sensitive state must be reachable exclusively through
 budget-accounted structures.

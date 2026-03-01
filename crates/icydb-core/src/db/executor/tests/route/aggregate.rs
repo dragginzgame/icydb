@@ -66,7 +66,7 @@ fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_pat
     );
     assert_eq!(
         grouped_observability.grouped_execution_strategy(),
-        crate::db::executor::route::GroupedExecutionStrategy::HashGroup
+        crate::db::executor::route::GroupedExecutionStrategy::HashMaterialized
     );
 }
 
@@ -117,7 +117,7 @@ fn route_plan_grouped_wrapper_keeps_blocking_shape_under_tight_budget_config() {
     );
     assert_eq!(
         grouped_observability.grouped_execution_strategy(),
-        crate::db::executor::route::GroupedExecutionStrategy::HashGroup
+        crate::db::executor::route::GroupedExecutionStrategy::HashMaterialized
     );
 }
 
@@ -151,7 +151,7 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_index_prefix_sh
 
     assert_eq!(
         grouped_observability.grouped_execution_strategy(),
-        crate::db::executor::route::GroupedExecutionStrategy::OrderedGroup
+        crate::db::executor::route::GroupedExecutionStrategy::OrderedMaterialized
     );
     assert_eq!(
         grouped_observability.outcome(),
@@ -190,7 +190,7 @@ fn route_plan_grouped_wrapper_downgrades_ordered_strategy_when_residual_predicat
 
     assert_eq!(
         grouped_observability.grouped_execution_strategy(),
-        crate::db::executor::route::GroupedExecutionStrategy::HashGroup
+        crate::db::executor::route::GroupedExecutionStrategy::HashMaterialized
     );
 }
 
@@ -233,7 +233,7 @@ fn route_plan_grouped_wrapper_downgrades_ordered_strategy_for_unsupported_having
 
     assert_eq!(
         grouped_observability.grouped_execution_strategy(),
-        crate::db::executor::route::GroupedExecutionStrategy::HashGroup
+        crate::db::executor::route::GroupedExecutionStrategy::HashMaterialized
     );
 }
 
@@ -370,7 +370,7 @@ fn route_plan_grouped_wrapper_observability_vector_is_frozen() {
         None,
         true,
         ExecutionMode::Materialized,
-        crate::db::executor::route::GroupedExecutionStrategy::HashGroup,
+        crate::db::executor::route::GroupedExecutionStrategy::HashMaterialized,
     );
 
     assert_eq!(actual, expected);

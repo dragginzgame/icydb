@@ -28,12 +28,13 @@ pub(in crate::db::executor) enum ExecutionMode {
 ///
 /// GroupedExecutionStrategy
 ///
-/// Canonical grouped execution strategy classification selected by route planning.
+/// Canonical grouped execution strategy label selected by route planning.
+/// Variants are runtime-truthful and explicitly mark materialized execution.
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) enum GroupedExecutionStrategy {
-    HashGroup,
-    OrderedGroup,
+    HashMaterialized,
+    OrderedMaterialized,
 }
 
 ///

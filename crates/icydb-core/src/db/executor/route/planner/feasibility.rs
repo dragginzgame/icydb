@@ -274,8 +274,8 @@ const fn grouped_execution_strategy_for_plan_hint(
     grouped_ordered_eligibility: GroupedOrderedEligibility,
 ) -> GroupedExecutionStrategy {
     if grouped_ordered_eligibility.is_eligible() {
-        GroupedExecutionStrategy::OrderedGroup
+        GroupedExecutionStrategy::OrderedMaterialized
     } else {
-        GroupedExecutionStrategy::HashGroup
+        GroupedExecutionStrategy::HashMaterialized
     }
 }

@@ -13,8 +13,9 @@ use crate::{
         executor::{
             ExecutablePlan, ExecutionKernel,
             aggregate::field::{FieldSlot, extract_orderable_field_value},
+            aggregate::materialized_distinct::insert_materialized_distinct_value,
             aggregate::{AggregateKind, AggregateOutput, AggregateSpec},
-            group::{GroupKeySet, KeyCanonicalError},
+            group::GroupKeySet,
             load::LoadExecutor,
         },
         response::Response,
@@ -203,10 +204,7 @@ where
         for (_, entity) in response {
             let value = extract_orderable_field_value(&entity, target_field, field_slot)
                 .map_err(Self::map_aggregate_field_value_error)?;
-            if !distinct_values
-                .insert_value(&value)
-                .map_err(KeyCanonicalError::into_internal_error)?
-            {
+            if !insert_materialized_distinct_value(&mut distinct_values, &value)? {
                 continue;
             }
             projected_values.push(value);

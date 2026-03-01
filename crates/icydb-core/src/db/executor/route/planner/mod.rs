@@ -169,7 +169,7 @@ impl ExecutionRoutePlan {
             ExecutionModeRouteCase::AggregateGrouped => {
                 let grouped_execution_strategy = match self.grouped_execution_strategy {
                     Some(strategy) => strategy,
-                    None => GroupedExecutionStrategy::HashGroup,
+                    None => GroupedExecutionStrategy::HashMaterialized,
                 };
                 let eligible = self.fast_path_order.is_empty();
                 let (outcome, rejection_reason) = if !eligible {

@@ -11,6 +11,7 @@ mod fast_path;
 pub(in crate::db::executor) mod field;
 mod field_extrema;
 mod helpers;
+mod materialized_distinct;
 mod numeric;
 mod projection;
 mod terminals;
