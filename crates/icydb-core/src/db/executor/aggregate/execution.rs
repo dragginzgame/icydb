@@ -11,6 +11,7 @@ use crate::{
             ExecutionPlan, ExecutionPreparation, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
         },
         index::IndexPredicateProgram,
+        query::builder::AggregateExpr,
         query::plan::AccessPlannedQuery,
     },
     traits::{EntityKind, EntityValue},
@@ -45,7 +46,7 @@ pub(in crate::db::executor) struct AggregateFastPathInputs<'exec, 'ctx, E: Entit
 ///
 
 pub(in crate::db::executor) struct AggregateExecutionDescriptor {
-    pub(in crate::db::executor) spec: super::AggregateSpec,
+    pub(in crate::db::executor) aggregate: AggregateExpr,
     pub(in crate::db::executor) direction: Direction,
     pub(in crate::db::executor) route_plan: ExecutionPlan,
     pub(in crate::db::executor) execution_preparation: ExecutionPreparation,

@@ -61,7 +61,7 @@ where
                 if aggregate_force_materialized_due_to_predicate_uncertainty {
                     ExecutionMode::Materialized
                 } else if Self::aggregate_non_count_streaming_allowed(
-                    intent_stage.aggregate_spec.as_ref(),
+                    intent_stage.aggregate_expr.as_ref(),
                     feasibility_stage.derivation.capabilities,
                     feasibility_stage
                         .derivation

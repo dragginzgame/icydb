@@ -16,8 +16,12 @@ use crate::{
             fingerprint::aggregate_hash::{
                 AggregateHashShape, hash_group_aggregate_structural_fingerprint_v1,
             },
+            fingerprint::projection_hash::hash_projection_structural_fingerprint_v1,
             intent::QueryMode,
-            plan::{AccessPlanProjection, OrderDirection, project_explain_access_path},
+            plan::{
+                AccessPlanProjection, OrderDirection, expr::ProjectionSpec,
+                project_explain_access_path,
+            },
         },
     },
     value::{Value, hash_value},
@@ -246,6 +250,7 @@ enum ExplainHashField {
     DeleteLimit,
     Consistency,
     ProjectionDefault,
+    ProjectionSpecV1,
 }
 
 #[derive(Clone, Copy)]
@@ -259,7 +264,7 @@ struct ExplainHashProfileSpec<'a> {
     steps: &'static [ExplainHashStep],
 }
 
-const FINGERPRINT_V2_STEPS: [ExplainHashStep; 8] = [
+const FINGERPRINT_V2_STEPS: [ExplainHashStep; 9] = [
     ExplainHashStep {
         section_tag: 0x01,
         field: ExplainHashField::Access,
@@ -292,9 +297,13 @@ const FINGERPRINT_V2_STEPS: [ExplainHashStep; 8] = [
         section_tag: 0x08,
         field: ExplainHashField::Mode,
     },
+    ExplainHashStep {
+        section_tag: 0x09,
+        field: ExplainHashField::ProjectionSpecV1,
+    },
 ];
 
-const CONTINUATION_V1_STEPS: [ExplainHashStep; 7] = [
+const CONTINUATION_V1_STEPS: [ExplainHashStep; 8] = [
     ExplainHashStep {
         section_tag: 0x01,
         field: ExplainHashField::EntityPath,
@@ -323,6 +332,10 @@ const CONTINUATION_V1_STEPS: [ExplainHashStep; 7] = [
         section_tag: 0x07,
         field: ExplainHashField::ProjectionDefault,
     },
+    ExplainHashStep {
+        section_tag: 0x08,
+        field: ExplainHashField::ProjectionSpecV1,
+    },
 ];
 
 impl<'a> ExplainHashProfile<'a> {
@@ -345,6 +358,7 @@ fn hash_explain_field(
     plan: &ExplainPlan,
     field: ExplainHashField,
     entity_path: Option<&str>,
+    projection: Option<&ProjectionSpec>,
 ) {
     match field {
         ExplainHashField::EntityPath => {
@@ -360,6 +374,9 @@ fn hash_explain_field(
         ExplainHashField::DeleteLimit => hash_delete_limit(hasher, &plan.delete_limit),
         ExplainHashField::Consistency => hash_consistency(hasher, plan.consistency),
         ExplainHashField::ProjectionDefault => hash_projection_default(hasher, &plan.grouping),
+        ExplainHashField::ProjectionSpecV1 => {
+            hash_projection_spec_v1(hasher, projection, &plan.grouping);
+        }
     }
 }
 
@@ -369,11 +386,30 @@ pub(in crate::db::query) fn hash_explain_plan_profile(
     plan: &ExplainPlan,
     profile: ExplainHashProfile<'_>,
 ) {
+    hash_explain_plan_profile_internal(hasher, plan, profile, None);
+}
+
+/// Hash an `ExplainPlan` with one explicit semantic projection section.
+pub(in crate::db::query) fn hash_explain_plan_profile_with_projection(
+    hasher: &mut Sha256,
+    plan: &ExplainPlan,
+    profile: ExplainHashProfile<'_>,
+    projection: &ProjectionSpec,
+) {
+    hash_explain_plan_profile_internal(hasher, plan, profile, Some(projection));
+}
+
+fn hash_explain_plan_profile_internal(
+    hasher: &mut Sha256,
+    plan: &ExplainPlan,
+    profile: ExplainHashProfile<'_>,
+    projection: Option<&ProjectionSpec>,
+) {
     // Apply selected hash profile in declared order to preserve determinism.
     let spec = profile.spec();
     for step in spec.steps {
         write_tag(hasher, step.section_tag);
-        hash_explain_field(hasher, plan, step.field, spec.entity_path);
+        hash_explain_field(hasher, plan, step.field, spec.entity_path, projection);
     }
 }
 
@@ -460,6 +496,21 @@ fn hash_projection_default(hasher: &mut Sha256, grouping: &ExplainGrouping) {
             write_u64(hasher, *max_group_bytes);
         }
     }
+}
+
+fn hash_projection_spec_v1(
+    hasher: &mut Sha256,
+    projection: Option<&ProjectionSpec>,
+    grouping: &ExplainGrouping,
+) {
+    // Explain-only hashing callsites may not have planner projection semantics.
+    // In that case, preserve existing grouping/default projection behavior.
+    if let Some(projection) = projection {
+        hash_projection_structural_fingerprint_v1(hasher, projection);
+        return;
+    }
+
+    hash_projection_default(hasher, grouping);
 }
 
 fn hash_grouped_strategy(hasher: &mut Sha256, strategy: ExplainGroupedStrategy) {

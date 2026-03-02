@@ -37,7 +37,7 @@ fn aggregate_spec_field_target_non_extrema_surfaces_unsupported_taxonomy() {
         ExecutionKernel::execute_aggregate_spec(
             &load,
             plan,
-            AggregateSpec::for_target_field(AggregateKind::Count, "rank"),
+            crate::db::query::builder::aggregate::count_by("rank"),
         )
     });
     let Err(err) = result else {
@@ -111,7 +111,7 @@ fn aggregate_spec_field_target_unknown_field_surfaces_unsupported_without_scan()
         ExecutionKernel::execute_aggregate_spec(
             &load,
             plan,
-            AggregateSpec::for_target_field(AggregateKind::Min, "missing_field"),
+            crate::db::query::builder::aggregate::min_by("missing_field"),
         )
     });
     let Err(err) = result else {
@@ -143,7 +143,7 @@ fn aggregate_spec_field_target_non_orderable_field_surfaces_unsupported_without_
         ExecutionKernel::execute_aggregate_spec(
             &load,
             plan,
-            AggregateSpec::for_target_field(AggregateKind::Min, "tags"),
+            crate::db::query::builder::aggregate::min_by("tags"),
         )
     });
     let Err(err) = result else {

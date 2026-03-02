@@ -13,10 +13,12 @@ use crate::{
                 aggregate::{count_by, sum},
             },
             explain::ExplainAccessPath,
+            plan::expr::ProjectionSpec,
             plan::{
                 AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec,
                 GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupPlan, GroupSpec,
                 GroupedExecutionConfig, LogicalPlan, OrderSpec, QueryMode, ScalarPlan,
+                lower_projection_identity, lower_projection_intent,
             },
         },
     },
@@ -576,6 +578,18 @@ impl<K> AccessPlannedQuery<K> {
             LogicalPlan::Scalar(_) => None,
             LogicalPlan::Grouped(plan) => Some(plan),
         }
+    }
+
+    /// Lower this plan into one canonical planner-owned projection semantic spec.
+    #[must_use]
+    pub(in crate::db) fn projection_spec(&self, model: &EntityModel) -> ProjectionSpec {
+        lower_projection_intent(model, &self.logical)
+    }
+
+    /// Lower this plan into one projection semantic shape for identity hashing.
+    #[must_use]
+    pub(in crate::db::query) fn projection_spec_for_identity(&self) -> ProjectionSpec {
+        lower_projection_identity(&self.logical)
     }
 
     /// Borrow scalar semantic fields mutably across logical variants.

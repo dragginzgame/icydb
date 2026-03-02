@@ -16,12 +16,12 @@ fn route_matrix_field_extrema_capability_flags_enable_for_eligible_shapes() {
     let min_route =
         LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
             &min_plan,
-            AggregateSpec::for_target_field(AggregateKind::Min, "id"),
+            crate::db::query::builder::aggregate::min_by("id"),
         );
     let max_route =
         LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
             &max_plan,
-            AggregateSpec::for_target_field(AggregateKind::Max, "id"),
+            crate::db::query::builder::aggregate::max_by("id"),
         );
 
     assert!(min_route.field_min_fast_path_eligible());
@@ -38,7 +38,7 @@ fn route_matrix_field_extrema_capability_rejects_unknown_target_field() {
 
     let route = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
         &plan,
-        AggregateSpec::for_target_field(AggregateKind::Min, "missing_field"),
+        crate::db::query::builder::aggregate::min_by("missing_field"),
     );
 
     assert!(!route.field_min_fast_path_eligible());
@@ -55,7 +55,7 @@ fn route_matrix_field_extrema_reason_rejects_unsupported_field_type() {
 
     let route = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
         &plan,
-        AggregateSpec::for_target_field(AggregateKind::Min, "scores"),
+        crate::db::query::builder::aggregate::min_by("scores"),
     );
 
     assert_eq!(
@@ -70,7 +70,7 @@ fn route_matrix_field_extrema_reason_rejects_distinct_shape() {
 
     let route = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
         &plan,
-        AggregateSpec::for_target_field(AggregateKind::Min, "rank"),
+        crate::db::query::builder::aggregate::min_by("rank"),
     );
 
     assert_eq!(
@@ -104,7 +104,7 @@ fn route_matrix_field_extrema_capability_allows_index_predicate_covered_shape() 
 
     let route = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
         &plan,
-        AggregateSpec::for_target_field(AggregateKind::Min, "rank"),
+        crate::db::query::builder::aggregate::min_by("rank"),
     );
 
     assert!(
@@ -120,7 +120,7 @@ fn route_matrix_field_extrema_reason_rejects_offset_shape() {
 
     let route = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
         &plan,
-        AggregateSpec::for_target_field(AggregateKind::Min, "rank"),
+        crate::db::query::builder::aggregate::min_by("rank"),
     );
 
     assert_eq!(
@@ -155,7 +155,7 @@ fn route_matrix_field_extrema_reason_rejects_composite_access_shape() {
 
     let route = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
         &plan,
-        AggregateSpec::for_target_field(AggregateKind::Min, "rank"),
+        crate::db::query::builder::aggregate::min_by("rank"),
     );
 
     assert_eq!(
@@ -177,7 +177,7 @@ fn route_matrix_field_extrema_reason_rejects_no_matching_index() {
 
     let route = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
         &plan,
-        AggregateSpec::for_target_field(AggregateKind::Min, "rank"),
+        crate::db::query::builder::aggregate::min_by("rank"),
     );
 
     assert_eq!(
@@ -199,7 +199,7 @@ fn route_matrix_field_extrema_reason_rejects_page_limit_shape() {
 
     let route = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
         &plan,
-        AggregateSpec::for_target_field(AggregateKind::Min, "id"),
+        crate::db::query::builder::aggregate::min_by("id"),
     );
 
     assert_eq!(
@@ -227,7 +227,7 @@ fn route_matrix_field_target_min_fallback_route_matches_terminal_min() {
     let field_route =
         LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
             &plan,
-            AggregateSpec::for_target_field(AggregateKind::Min, "rank"),
+            crate::db::query::builder::aggregate::min_by("rank"),
         );
 
     assert_eq!(terminal_route.execution_mode, ExecutionMode::Streaming);
@@ -262,7 +262,7 @@ fn route_matrix_field_target_unknown_field_fallback_route_matches_terminal_min()
     let unknown_field_route =
         LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
             &plan,
-            AggregateSpec::for_target_field(AggregateKind::Min, "missing_field"),
+            crate::db::query::builder::aggregate::min_by("missing_field"),
         );
 
     assert_eq!(terminal_route.execution_mode, ExecutionMode::Streaming);
@@ -300,7 +300,7 @@ fn route_matrix_field_target_max_fallback_route_matches_terminal_max_desc() {
     let field_route =
         LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
             &plan,
-            AggregateSpec::for_target_field(AggregateKind::Max, "rank"),
+            crate::db::query::builder::aggregate::max_by("rank"),
         );
 
     assert_eq!(terminal_route.execution_mode, ExecutionMode::Streaming);
@@ -335,7 +335,7 @@ fn route_matrix_field_target_non_extrema_fallback_route_matches_terminal_count()
     let field_route =
         LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
             &plan,
-            AggregateSpec::for_target_field(AggregateKind::Count, "rank"),
+            crate::db::query::builder::aggregate::count_by("rank"),
         );
 
     assert_eq!(field_route.execution_mode, terminal_route.execution_mode);

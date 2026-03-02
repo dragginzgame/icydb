@@ -9,6 +9,7 @@ mod fast_stream;
 mod index_range_limit;
 mod page;
 mod pk_stream;
+mod projection;
 mod secondary_index;
 mod terminal;
 
@@ -39,6 +40,7 @@ use crate::{
                 CanonicalKey, GroupKeySet, KeyCanonicalError, grouped_budget_observability,
                 grouped_execution_context_from_planner_config,
             },
+            load::projection::{GroupedRowView, evaluate_grouped_projection_values},
             plan_metrics::{
                 GroupedPlanMetricsStrategy, record_grouped_plan_metrics, record_plan_metrics,
                 record_rows_scanned,
@@ -50,10 +52,9 @@ use crate::{
         index::IndexCompilePolicy,
         predicate::{CompareOp, MissingRowPolicy},
         query::plan::{
-            AccessPlannedQuery, GroupAggregateSpec, GroupDistinctPolicyReason, GroupHavingSpec,
-            GroupHavingSymbol, LogicalPlan, evaluate_grouped_having_compare_v1,
-            grouped_cursor_policy_violation, grouped_executor_handoff,
-            resolve_global_distinct_field_aggregate,
+            AccessPlannedQuery, GroupDistinctPolicyReason, GroupHavingSpec, GroupHavingSymbol,
+            LogicalPlan, PlannedProjectionLayout, evaluate_grouped_having_compare_v1,
+            expr::ProjectionSpec, grouped_cursor_policy_violation, grouped_executor_handoff,
         },
         response::Response,
     },
@@ -118,7 +119,6 @@ impl From<GroupedContinuationToken> for PageCursor {
 #[derive(Debug)]
 pub(crate) struct CursorPage<E: EntityKind> {
     pub(crate) items: Response<E>,
-
     pub(crate) next_cursor: Option<PageCursor>,
 }
 
@@ -184,7 +184,8 @@ struct GroupedRouteStage<E: EntityKind + EntityValue> {
     index_range_specs: Vec<crate::db::access::LoweredIndexRangeSpec>,
     grouped_execution: crate::db::query::plan::GroupedExecutionConfig,
     group_fields: Vec<crate::db::query::plan::FieldSlot>,
-    grouped_aggregates: Vec<GroupAggregateSpec>,
+    grouped_aggregate_exprs: Vec<crate::db::query::builder::AggregateExpr>,
+    projection_layout: PlannedProjectionLayout,
     grouped_having: Option<GroupHavingSpec>,
     grouped_route_plan: crate::db::executor::ExecutionPlan,
     grouped_plan_metrics_strategy: GroupedPlanMetricsStrategy,
@@ -432,7 +433,8 @@ where
         let grouped_handoff = grouped_executor_handoff(plan.as_inner())?;
         let grouped_execution = grouped_handoff.execution();
         let group_fields = grouped_handoff.group_fields().to_vec();
-        let grouped_aggregates = grouped_handoff.aggregates().to_vec();
+        let grouped_aggregate_exprs = grouped_handoff.aggregate_exprs().to_vec();
+        let projection_layout = grouped_handoff.projection_layout().clone();
         let grouped_having = grouped_handoff.having().cloned();
         let grouped_route_plan =
             Self::build_execution_route_plan_for_grouped_handoff(grouped_handoff);
@@ -475,7 +477,7 @@ where
         let index_range_specs = plan.index_range_specs()?.to_vec();
         let global_distinct_field_aggregate = Self::global_distinct_field_aggregate_spec(
             group_fields.as_slice(),
-            grouped_aggregates.as_slice(),
+            grouped_aggregate_exprs.as_slice(),
             grouped_having.as_ref(),
         )?;
         let plan = plan.into_inner();
@@ -489,7 +491,8 @@ where
             index_range_specs,
             grouped_execution,
             group_fields,
-            grouped_aggregates,
+            grouped_aggregate_exprs,
+            projection_layout,
             grouped_having,
             grouped_route_plan,
             grouped_plan_metrics_strategy,
@@ -551,33 +554,48 @@ where
                 && grouped_budget.aggregate_states() >= grouped_budget.groups(),
             "grouped budget observability invariants must hold at grouped route entry",
         );
+        let aggregate_count = route.projection_layout.aggregate_positions().len();
+        Self::ensure_grouped_projection_layout_matches_handoff(route)?;
+        let grouped_projection_spec = route.plan.projection_spec(E::MODEL);
 
-        let (mut grouped_engines, mut short_circuit_keys) =
-            if route.global_distinct_field_aggregate.is_none() {
-                let grouped_engines = route
-                .grouped_aggregates
-                .iter()
-                .map(|aggregate| {
-                    if aggregate.target_field().is_some() {
-                        return Err(invariant(format!(
-                            "grouped field-target aggregate reached executor after planning: {:?}",
-                            aggregate.kind()
-                        )));
-                    }
+        let (mut grouped_engines, mut short_circuit_keys) = if route
+            .global_distinct_field_aggregate
+            .is_none()
+        {
+            let grouped_engines = route
+                    .projection_layout
+                    .aggregate_positions()
+                    .iter()
+                    .enumerate()
+                    .map(|(aggregate_index, projection_index)| {
+                        let aggregate_expr = route
+                            .grouped_aggregate_exprs
+                            .get(aggregate_index)
+                            .ok_or_else(|| {
+                                invariant(format!(
+                                    "grouped aggregate index out of bounds for projection layout: projection_index={projection_index}, aggregate_index={aggregate_index}"
+                                ))
+                            })?;
+                        if aggregate_expr.target_field().is_some() {
+                            return Err(invariant(format!(
+                                "grouped field-target aggregate reached executor after planning: {:?}",
+                                aggregate_expr.kind()
+                            )));
+                        }
 
-                    Ok(grouped_execution_context.create_grouped_engine::<E>(
-                        aggregate.kind(),
-                        aggregate_materialized_fold_direction(aggregate.kind()),
-                        aggregate.distinct(),
-                    ))
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-                let short_circuit_keys = vec![Vec::<Value>::new(); grouped_engines.len()];
+                        Ok(grouped_execution_context.create_grouped_engine::<E>(
+                            aggregate_expr.kind(),
+                            aggregate_materialized_fold_direction(aggregate_expr.kind()),
+                            aggregate_expr.is_distinct(),
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+            let short_circuit_keys = vec![Vec::<Value>::new(); grouped_engines.len()];
 
-                (grouped_engines, short_circuit_keys)
-            } else {
-                (Vec::new(), Vec::new())
-            };
+            (grouped_engines, short_circuit_keys)
+        } else {
+            (Vec::new(), Vec::new())
+        };
         let mut scanned_rows = 0usize;
         let mut filtered_rows = 0usize;
         let compiled_predicate = stream.execution_preparation.compiled_predicate();
@@ -604,6 +622,13 @@ where
                 global_row,
                 route.plan.scalar_plan().page.as_ref(),
             );
+            let page_rows = Self::project_grouped_rows_from_projection(
+                &grouped_projection_spec,
+                &route.projection_layout,
+                route.group_fields.as_slice(),
+                route.grouped_aggregate_exprs.as_slice(),
+                page_rows,
+            )?;
             let rows_scanned = stream
                 .resolved
                 .rows_scanned_override
@@ -694,7 +719,6 @@ where
         //
         // This avoids constructing one additional full grouped `(key, aggregates)` buffer
         // prior to pagination; we page directly while walking finalized grouped outputs.
-        let aggregate_count = grouped_engines.len();
         if aggregate_count == 0 {
             return Err(invariant(
                 "grouped execution requires at least one aggregate terminal",
@@ -868,7 +892,15 @@ where
                 }
             };
             last_emitted_group_key = Some(emitted_group_key.clone());
-            page_rows.push(GroupedRow::new(emitted_group_key, aggregate_values));
+            let projected_row = Self::project_grouped_row_from_projection(
+                &grouped_projection_spec,
+                &route.projection_layout,
+                route.group_fields.as_slice(),
+                route.grouped_aggregate_exprs.as_slice(),
+                emitted_group_key.as_slice(),
+                aggregate_values.as_slice(),
+            )?;
+            page_rows.push(projected_row);
             debug_assert!(
                 limit.is_none_or(|bounded_limit| page_rows.len() <= bounded_limit),
                 "grouped page rows must not exceed explicit page limit",
@@ -953,37 +985,126 @@ where
         }
     }
 
+    // Validate planner-provided grouped projection layout against grouped handoff vectors.
+    fn ensure_grouped_projection_layout_matches_handoff(
+        route: &GroupedRouteStage<E>,
+    ) -> Result<(), InternalError> {
+        let group_positions = route.projection_layout.group_field_positions();
+        let aggregate_positions = route.projection_layout.aggregate_positions();
+        if group_positions.len() != route.group_fields.len() {
+            return Err(invariant(format!(
+                "grouped projection layout group-field count mismatch: layout={}, handoff={}",
+                group_positions.len(),
+                route.group_fields.len()
+            )));
+        }
+        if aggregate_positions.len() != route.grouped_aggregate_exprs.len() {
+            return Err(invariant(format!(
+                "grouped projection layout aggregate count mismatch: layout={}, handoff={}",
+                aggregate_positions.len(),
+                route.grouped_aggregate_exprs.len()
+            )));
+        }
+
+        // Projection position vectors must be strictly increasing and non-overlapping.
+        if !group_positions
+            .windows(2)
+            .all(|window| window[0] < window[1])
+        {
+            return Err(invariant(
+                "grouped projection layout group-field positions must be strictly increasing",
+            ));
+        }
+        if !aggregate_positions
+            .windows(2)
+            .all(|window| window[0] < window[1])
+        {
+            return Err(invariant(
+                "grouped projection layout aggregate positions must be strictly increasing",
+            ));
+        }
+        if let (Some(last_group_position), Some(first_aggregate_position)) =
+            (group_positions.last(), aggregate_positions.first())
+            && last_group_position >= first_aggregate_position
+        {
+            return Err(invariant(
+                "grouped projection layout must keep group fields before aggregate terminals",
+            ));
+        }
+
+        Ok(())
+    }
+
     // Resolve whether this grouped shape is the supported global DISTINCT
     // field-target aggregate contract (`COUNT` or `SUM` with zero group keys).
     fn global_distinct_field_aggregate_spec(
         group_fields: &[crate::db::query::plan::FieldSlot],
-        aggregates: &[GroupAggregateSpec],
+        aggregate_exprs: &[crate::db::query::builder::AggregateExpr],
         having: Option<&GroupHavingSpec>,
     ) -> Result<Option<(AggregateKind, String)>, InternalError> {
-        match resolve_global_distinct_field_aggregate(group_fields, aggregates, having) {
-            Ok(Some(aggregate)) => Ok(Some((
-                aggregate.kind(),
-                aggregate.target_field().to_string(),
-            ))),
-            Ok(None) => Ok(None),
-            Err(reason) => {
-                let aggregate = aggregates.first().ok_or_else(|| {
-                    invariant("global DISTINCT candidate invariants require at least one aggregate")
-                })?;
-                Err(Self::group_distinct_policy_invariant(reason, aggregate))
-            }
+        if !group_fields.is_empty()
+            || aggregate_exprs.is_empty()
+            || !aggregate_exprs
+                .iter()
+                .any(|aggregate| aggregate.target_field().is_some())
+        {
+            return Ok(None);
         }
+        if having.is_some() {
+            return Err(Self::group_distinct_policy_invariant(
+                GroupDistinctPolicyReason::GlobalDistinctHavingUnsupported,
+                aggregate_exprs.first(),
+            ));
+        }
+        if aggregate_exprs.len() != 1 {
+            return Err(Self::group_distinct_policy_invariant(
+                GroupDistinctPolicyReason::GlobalDistinctRequiresSingleAggregate,
+                aggregate_exprs.first(),
+            ));
+        }
+
+        let aggregate_expr = aggregate_exprs.first().ok_or_else(|| {
+            invariant("global DISTINCT candidate invariants require one aggregate")
+        })?;
+        let Some(target_field) = aggregate_expr.target_field() else {
+            return Err(Self::group_distinct_policy_invariant(
+                GroupDistinctPolicyReason::GlobalDistinctRequiresFieldTargetAggregate,
+                Some(aggregate_expr),
+            ));
+        };
+        if !aggregate_expr.is_distinct() {
+            return Err(Self::group_distinct_policy_invariant(
+                GroupDistinctPolicyReason::GlobalDistinctRequiresDistinctAggregateTerminal,
+                Some(aggregate_expr),
+            ));
+        }
+        if !aggregate_expr
+            .kind()
+            .supports_global_distinct_without_group_keys()
+        {
+            return Err(Self::group_distinct_policy_invariant(
+                GroupDistinctPolicyReason::GlobalDistinctUnsupportedAggregateKind,
+                Some(aggregate_expr),
+            ));
+        }
+
+        Ok(Some((aggregate_expr.kind(), target_field.to_string())))
     }
 
     // Build one canonical invariant error from grouped DISTINCT policy contract reasons.
     fn group_distinct_policy_invariant(
         reason: GroupDistinctPolicyReason,
-        aggregate: &GroupAggregateSpec,
+        aggregate: Option<&crate::db::query::builder::AggregateExpr>,
     ) -> InternalError {
         match reason {
-            GroupDistinctPolicyReason::GlobalDistinctUnsupportedAggregateKind => invariant(
-                format!("{}: {:?}", reason.invariant_message(), aggregate.kind()),
-            ),
+            GroupDistinctPolicyReason::GlobalDistinctUnsupportedAggregateKind => {
+                let aggregate_kind = aggregate.map_or_else(
+                    || "unknown".to_string(),
+                    |aggregate| format!("{:?}", aggregate.kind()),
+                );
+
+                invariant(format!("{}: {aggregate_kind}", reason.invariant_message()))
+            }
             GroupDistinctPolicyReason::DistinctHavingUnsupported
             | GroupDistinctPolicyReason::DistinctAdjacencyEligibilityRequired
             | GroupDistinctPolicyReason::GlobalDistinctHavingUnsupported
@@ -1096,6 +1217,83 @@ where
         }
 
         vec![row]
+    }
+
+    // Evaluate grouped projection semantics for each grouped row while preserving
+    // legacy grouped response shape at the public boundary.
+    fn project_grouped_rows_from_projection(
+        projection: &ProjectionSpec,
+        projection_layout: &PlannedProjectionLayout,
+        group_fields: &[crate::db::query::plan::FieldSlot],
+        aggregate_exprs: &[crate::db::query::builder::AggregateExpr],
+        rows: Vec<GroupedRow>,
+    ) -> Result<Vec<GroupedRow>, InternalError> {
+        let mut projected_rows = Vec::with_capacity(rows.len());
+        for row in rows {
+            projected_rows.push(Self::project_grouped_row_from_projection(
+                projection,
+                projection_layout,
+                group_fields,
+                aggregate_exprs,
+                row.group_key(),
+                row.aggregate_values(),
+            )?);
+        }
+
+        Ok(projected_rows)
+    }
+
+    // Evaluate one grouped projection expression row and convert it back into
+    // legacy grouped `(group_key, aggregate_values)` payload vectors.
+    fn project_grouped_row_from_projection(
+        projection: &ProjectionSpec,
+        projection_layout: &PlannedProjectionLayout,
+        group_fields: &[crate::db::query::plan::FieldSlot],
+        aggregate_exprs: &[crate::db::query::builder::AggregateExpr],
+        group_key_values: &[Value],
+        aggregate_values: &[Value],
+    ) -> Result<GroupedRow, InternalError> {
+        let grouped_row = GroupedRowView::new(
+            group_key_values,
+            aggregate_values,
+            group_fields,
+            aggregate_exprs,
+        );
+        let projected_values = evaluate_grouped_projection_values(projection, &grouped_row)
+            .map_err(|err| {
+                InternalError::query_invalid_logical_plan(format!(
+                    "grouped projection evaluation failed: {err}",
+                ))
+            })?;
+
+        let mut projected_group_key =
+            Vec::with_capacity(projection_layout.group_field_positions().len());
+        for position in projection_layout.group_field_positions() {
+            let Some(value) = projected_values.get(*position) else {
+                return Err(invariant(format!(
+                    "grouped projection layout group-field position out of bounds: position={position}, projected_len={}",
+                    projected_values.len()
+                )));
+            };
+            projected_group_key.push(value.clone());
+        }
+
+        let mut projected_aggregate_values =
+            Vec::with_capacity(projection_layout.aggregate_positions().len());
+        for position in projection_layout.aggregate_positions() {
+            let Some(value) = projected_values.get(*position) else {
+                return Err(invariant(format!(
+                    "grouped projection layout aggregate position out of bounds: position={position}, projected_len={}",
+                    projected_values.len()
+                )));
+            };
+            projected_aggregate_values.push(value.clone());
+        }
+
+        Ok(GroupedRow::new(
+            projected_group_key,
+            projected_aggregate_values,
+        ))
     }
 
     // Convert one aggregate output payload into grouped response value payload.

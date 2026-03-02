@@ -19,9 +19,9 @@ mod terminals;
 mod tests;
 
 pub(in crate::db::executor) use contracts::{
-    AggregateEngine, AggregateFoldMode, AggregateKind, AggregateOutput, AggregateSpec,
-    AggregateState, AggregateStateFactory, ExecutionConfig, ExecutionContext, FoldControl,
-    GroupError, TerminalAggregateState,
+    AggregateEngine, AggregateFoldMode, AggregateKind, AggregateOutput, AggregateState,
+    AggregateStateFactory, ExecutionConfig, ExecutionContext, FoldControl, GroupError,
+    TerminalAggregateState,
 };
 pub(in crate::db::executor) use execution::{
     AggregateExecutionDescriptor, AggregateFastPathInputs, PreparedAggregateStreamingInputs,
@@ -42,6 +42,7 @@ use crate::{
             validate_executor_plan,
         },
         index::IndexCompilePolicy,
+        query::builder::AggregateExpr,
         response::Response,
     },
     error::InternalError,
@@ -58,7 +59,7 @@ use crate::{
 
 enum AggregateReducerDispatch<'a> {
     Materialized {
-        spec: &'a AggregateSpec,
+        aggregate: &'a AggregateExpr,
     },
     FieldExtremaStreaming {
         kind: AggregateKind,
@@ -92,12 +93,12 @@ impl<'a> AggregateReducerDispatch<'a> {
             ExecutionMode::Materialized
         ) {
             return Self::Materialized {
-                spec: &descriptor.spec,
+                aggregate: &descriptor.aggregate,
             };
         }
-        if let Some(target_field) = descriptor.spec.target_field() {
+        if let Some(target_field) = descriptor.aggregate.target_field() {
             return Self::FieldExtremaStreaming {
-                kind: descriptor.spec.kind(),
+                kind: descriptor.aggregate.kind(),
                 target_field,
                 direction: descriptor.direction,
                 route_plan: &descriptor.route_plan,
@@ -117,8 +118,8 @@ impl<'a> AggregateReducerDispatch<'a> {
         E: EntityKind + EntityValue,
     {
         match self {
-            Self::Materialized { spec } => Ok(AggregateReducerSelection::Completed(
-                ExecutionKernel::execute_materialized_aggregate_spec(executor, plan, spec)?,
+            Self::Materialized { aggregate } => Ok(AggregateReducerSelection::Completed(
+                ExecutionKernel::execute_materialized_aggregate_spec(executor, plan, aggregate)?,
             )),
             Self::FieldExtremaStreaming {
                 kind,
@@ -143,11 +144,13 @@ impl<'a> AggregateReducerDispatch<'a> {
 impl ExecutionKernel {
     // Validate aggregate spec compatibility at the executor boundary so
     // unsupported user shapes fail before route/scan work.
-    fn validate_scalar_aggregate_spec_supported(spec: &AggregateSpec) -> Result<(), InternalError> {
-        if spec.target_field().is_some() && !spec.kind().supports_field_targets() {
+    fn validate_scalar_aggregate_spec_supported(
+        aggregate: &AggregateExpr,
+    ) -> Result<(), InternalError> {
+        if aggregate.target_field().is_some() && !aggregate.kind().supports_field_targets() {
             return Err(InternalError::executor_unsupported(format!(
                 "field-target aggregate is only supported for min/max terminals: found {:?}",
-                spec.kind()
+                aggregate.kind()
             )));
         }
 
@@ -158,7 +161,7 @@ impl ExecutionKernel {
     // validated shape with route-owned mode/direction/fold decisions.
     fn build_aggregate_execution_descriptor<E>(
         plan: &ExecutablePlan<E>,
-        spec: AggregateSpec,
+        aggregate: AggregateExpr,
     ) -> Result<AggregateExecutionDescriptor, InternalError>
     where
         E: EntityKind + EntityValue,
@@ -174,13 +177,13 @@ impl ExecutionKernel {
         let route_plan =
             LoadExecutor::<E>::build_execution_route_plan_for_aggregate_spec_with_preparation(
                 plan.as_inner(),
-                spec.clone(),
+                aggregate.clone(),
                 &execution_preparation,
             );
         let direction = route_plan.direction();
 
         Ok(AggregateExecutionDescriptor {
-            spec,
+            aggregate,
             direction,
             route_plan,
             execution_preparation,
@@ -223,13 +226,13 @@ impl ExecutionKernel {
     fn execute_materialized_aggregate_spec<E>(
         executor: &LoadExecutor<E>,
         plan: ExecutablePlan<E>,
-        spec: &AggregateSpec,
+        aggregate: &AggregateExpr,
     ) -> Result<AggregateOutput<E>, InternalError>
     where
         E: EntityKind + EntityValue,
     {
-        let kind = spec.kind();
-        if let Some(target_field) = spec.target_field() {
+        let kind = aggregate.kind();
+        if let Some(target_field) = aggregate.target_field() {
             // Validate field-target semantics before execution to preserve
             // fail-fast unsupported behavior without scan-budget consumption.
             let field_slot = resolve_orderable_aggregate_target_slot::<E>(target_field)
@@ -278,13 +281,13 @@ impl ExecutionKernel {
     fn execute_scalar_terminal_stage<E>(
         executor: &LoadExecutor<E>,
         plan: ExecutablePlan<E>,
-        spec: AggregateSpec,
+        aggregate: AggregateExpr,
     ) -> Result<AggregateOutput<E>, InternalError>
     where
         E: EntityKind + EntityValue,
     {
-        let descriptor = Self::build_aggregate_execution_descriptor(&plan, spec)?;
-        let kind = descriptor.spec.kind();
+        let descriptor = Self::build_aggregate_execution_descriptor(&plan, aggregate)?;
+        let kind = descriptor.aggregate.kind();
 
         // Kernel-owned reducer adapter selection. Eager reducers return
         // immediately; streaming reducers continue through canonical key-stream
@@ -367,14 +370,14 @@ impl ExecutionKernel {
     pub(in crate::db::executor) fn execute_aggregate_spec<E>(
         executor: &LoadExecutor<E>,
         plan: ExecutablePlan<E>,
-        spec: AggregateSpec,
+        aggregate: AggregateExpr,
     ) -> Result<AggregateOutput<E>, InternalError>
     where
         E: EntityKind + EntityValue,
     {
-        Self::validate_scalar_aggregate_spec_supported(&spec)?;
+        Self::validate_scalar_aggregate_spec_supported(&aggregate)?;
 
         // Scalar terminal execution boundary.
-        Self::execute_scalar_terminal_stage(executor, plan, spec)
+        Self::execute_scalar_terminal_stage(executor, plan, aggregate)
     }
 }

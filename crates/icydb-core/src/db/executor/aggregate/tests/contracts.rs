@@ -3,10 +3,11 @@ use crate::{
         data::DataKey,
         direction::Direction,
         executor::aggregate::contracts::{
-            AggregateKind, AggregateOutput, AggregateSpec, ExecutionConfig, ExecutionContext,
-            GroupError, GroupedAggregateOutput,
+            AggregateKind, AggregateOutput, ExecutionConfig, ExecutionContext, GroupError,
+            GroupedAggregateOutput,
         },
         executor::group::CanonicalKey,
+        query::builder::aggregate::{count, min_by},
     },
     model::field::FieldKind,
     testing,
@@ -97,12 +98,12 @@ fn grouped_count_rows_for_order(order: &[usize]) -> Vec<(Value, u32)> {
 }
 
 #[test]
-fn aggregate_spec_builders_preserve_kind_and_target_field() {
-    let terminal = AggregateSpec::for_terminal(AggregateKind::Count);
+fn aggregate_expr_builders_preserve_kind_and_target_field() {
+    let terminal = count();
     assert_eq!(terminal.kind(), AggregateKind::Count);
     assert_eq!(terminal.target_field(), None);
 
-    let field_target = AggregateSpec::for_target_field(AggregateKind::Min, "rank");
+    let field_target = min_by("rank");
     assert_eq!(field_target.kind(), AggregateKind::Min);
     assert_eq!(field_target.target_field(), Some("rank"));
 }

@@ -8,6 +8,7 @@ use crate::{
     prelude::*,
     traits::{AsView, EntityValue},
     types::Id,
+    value::Value,
 };
 use thiserror::Error as ThisError;
 
@@ -19,6 +20,45 @@ pub use paged::{PagedLoadExecution, PagedLoadExecutionWithTrace};
 ///
 
 pub type Row<E> = (Id<E>, E);
+
+///
+/// ProjectedRow
+///
+/// One scalar projection output row emitted in planner declaration order.
+/// `values` carries evaluated expression outputs for this row.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProjectedRow<E: EntityKind> {
+    id: Id<E>,
+    values: Vec<Value>,
+}
+
+impl<E: EntityKind> ProjectedRow<E> {
+    /// Construct one projected scalar row.
+    #[must_use]
+    pub const fn new(id: Id<E>, values: Vec<Value>) -> Self {
+        Self { id, values }
+    }
+
+    /// Borrow the source row identifier.
+    #[must_use]
+    pub const fn id(&self) -> Id<E> {
+        self.id
+    }
+
+    /// Borrow projected scalar values in declaration order.
+    #[must_use]
+    pub const fn values(&self) -> &[Value] {
+        self.values.as_slice()
+    }
+
+    /// Consume and return `(id, projected_values)`.
+    #[must_use]
+    pub fn into_parts(self) -> (Id<E>, Vec<Value>) {
+        (self.id, self.values)
+    }
+}
 
 ///
 /// ResponseError
@@ -52,12 +92,41 @@ impl ResponseError {
 /// Materialized query result: ordered `(Id, Entity)` pairs.
 /// IDs are returned for correlation, reporting, and lookup; they are public values and do not imply
 /// authorization, ownership, or row existence outside this response payload.
+/// When scalar projection evaluation runs, `projected_rows()` exposes the
+/// evaluated projection payload in matching row order.
 ///
 
 #[derive(Debug)]
-pub struct Response<E: EntityKind>(pub Vec<Row<E>>);
+pub struct Response<E: EntityKind>(pub Vec<Row<E>>, Option<Vec<ProjectedRow<E>>>);
 
 impl<E: EntityKind> Response<E> {
+    /// Construct one entity-row response without projection payload.
+    #[must_use]
+    pub const fn from_rows(rows: Vec<Row<E>>) -> Self {
+        Self(rows, None)
+    }
+
+    /// Construct one entity-row response with optional scalar projection output.
+    #[must_use]
+    pub const fn from_rows_with_projection(
+        rows: Vec<Row<E>>,
+        projected_rows: Option<Vec<ProjectedRow<E>>>,
+    ) -> Self {
+        Self(rows, projected_rows)
+    }
+
+    /// Borrow optional projected scalar rows when projection materialization ran.
+    #[must_use]
+    pub fn projected_rows(&self) -> Option<&[ProjectedRow<E>]> {
+        self.1.as_deref()
+    }
+
+    /// Consume and return optional projected scalar rows.
+    #[must_use]
+    pub fn into_projected_rows(self) -> Option<Vec<ProjectedRow<E>>> {
+        self.1
+    }
+
     // ------------------------------------------------------------------
     // Introspection
     // ------------------------------------------------------------------

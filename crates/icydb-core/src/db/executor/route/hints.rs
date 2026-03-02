@@ -7,7 +7,8 @@ use crate::{
     db::{
         cursor::CursorBoundary,
         direction::Direction,
-        executor::{ExecutionKernel, RangeToken, aggregate::AggregateSpec, load::LoadExecutor},
+        executor::{ExecutionKernel, RangeToken, load::LoadExecutor},
+        query::builder::AggregateExpr,
         query::plan::AccessPlannedQuery,
     },
     traits::{EntityKind, EntityValue},
@@ -119,15 +120,15 @@ where
     }
 
     pub(super) fn aggregate_probe_fetch_hint(
-        spec: &AggregateSpec,
+        aggregate: &AggregateExpr,
         direction: Direction,
         capabilities: RouteCapabilities,
         route_window: RouteWindowPlan,
     ) -> Option<usize> {
-        if spec.target_field().is_some() {
+        if aggregate.target_field().is_some() {
             return None;
         }
-        let kind = spec.kind();
+        let kind = aggregate.kind();
         if !aggregate_supports_bounded_probe_hint(kind) {
             return None;
         }

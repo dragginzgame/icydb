@@ -14,10 +14,11 @@ use crate::{
         direction::Direction,
         executor::{
             Context, ExecutionPlan, ExecutionPreparation, OrderedKeyStreamBox, RangeToken,
-            aggregate::{AggregateFoldMode, AggregateKind, AggregateSpec},
+            aggregate::{AggregateFoldMode, AggregateKind},
             compute_page_window,
             load::LoadExecutor,
         },
+        query::builder::AggregateExpr,
         query::plan::{AccessPlannedQuery, GroupedExecutorHandoff},
     },
     error::InternalError,
@@ -62,7 +63,7 @@ pub(in crate::db::executor::route::planner) struct RouteDerivationContext {
 ///
 
 pub(in crate::db::executor::route::planner) struct RouteIntentStage {
-    pub(in crate::db::executor::route::planner) aggregate_spec: Option<AggregateSpec>,
+    pub(in crate::db::executor::route::planner) aggregate_expr: Option<AggregateExpr>,
     pub(in crate::db::executor::route::planner) grouped: bool,
     pub(in crate::db::executor::route::planner) fast_path_order: &'static [FastPathOrder],
     pub(in crate::db::executor::route::planner) aggregate_force_materialized_due_to_predicate_uncertainty:
@@ -72,7 +73,7 @@ pub(in crate::db::executor::route::planner) struct RouteIntentStage {
 impl RouteIntentStage {
     /// Return aggregate kind carried by this intent stage, if any.
     pub(in crate::db::executor::route::planner) fn kind(&self) -> Option<AggregateKind> {
-        self.aggregate_spec.as_ref().map(AggregateSpec::kind)
+        self.aggregate_expr.as_ref().map(AggregateExpr::kind)
     }
 }
 
@@ -259,20 +260,20 @@ where
         plan: &AccessPlannedQuery<E::Key>,
         kind: AggregateKind,
     ) -> ExecutionPlan {
-        Self::build_execution_route_plan_for_aggregate_spec(plan, AggregateSpec::for_terminal(kind))
+        Self::build_execution_route_plan_for_aggregate_spec(plan, aggregate_terminal_expr(kind))
     }
 
     // Build canonical execution routing for aggregate execution via spec.
     #[cfg(test)]
     pub(in crate::db::executor) fn build_execution_route_plan_for_aggregate_spec(
         plan: &AccessPlannedQuery<E::Key>,
-        spec: AggregateSpec,
+        aggregate: AggregateExpr,
     ) -> ExecutionPlan {
         let execution_preparation = ExecutionPreparation::for_plan::<E>(plan);
 
         Self::build_execution_route_plan_for_aggregate_spec_with_preparation(
             plan,
-            spec,
+            aggregate,
             &execution_preparation,
         )
     }
@@ -280,7 +281,7 @@ where
     /// Build canonical aggregate execution routing using one precomputed preparation bundle.
     pub(in crate::db::executor) fn build_execution_route_plan_for_aggregate_spec_with_preparation(
         plan: &AccessPlannedQuery<E::Key>,
-        spec: AggregateSpec,
+        aggregate: AggregateExpr,
         execution_preparation: &ExecutionPreparation,
     ) -> ExecutionPlan {
         Self::build_execution_route_plan(
@@ -289,7 +290,7 @@ where
             None,
             None,
             RouteIntent::Aggregate {
-                spec,
+                aggregate,
                 aggregate_force_materialized_due_to_predicate_uncertainty:
                     Self::aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
                         execution_preparation,
@@ -379,4 +380,19 @@ where
 
 fn invariant(message: impl Into<String>) -> InternalError {
     InternalError::query_executor_invariant(message)
+}
+
+#[cfg(test)]
+fn aggregate_terminal_expr(kind: AggregateKind) -> AggregateExpr {
+    match kind {
+        AggregateKind::Count => crate::db::query::builder::aggregate::count(),
+        AggregateKind::Sum => {
+            unreachable!("aggregate route-terminal helper must not construct SUM(fieldless) intent")
+        }
+        AggregateKind::Exists => crate::db::query::builder::aggregate::exists(),
+        AggregateKind::Min => crate::db::query::builder::aggregate::min(),
+        AggregateKind::Max => crate::db::query::builder::aggregate::max(),
+        AggregateKind::First => crate::db::query::builder::aggregate::first(),
+        AggregateKind::Last => crate::db::query::builder::aggregate::last(),
+    }
 }

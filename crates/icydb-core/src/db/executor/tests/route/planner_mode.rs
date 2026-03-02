@@ -263,7 +263,9 @@ fn aggregate_execution_mode_selection_is_route_owned_and_explicit() {
         "aggregate terminal wrappers must delegate execution to kernel orchestration",
     );
     assert!(
-        kernel_aggregate_source
+        kernel_aggregate_source.contains(
+            "ExecutionKernel::execute_materialized_aggregate_spec(executor, plan, aggregate)",
+        ) || kernel_aggregate_source
             .contains("ExecutionKernel::execute_materialized_aggregate_spec(executor, plan, spec)"),
         "kernel aggregate orchestration should route materialized terminals through one shared helper boundary",
     );

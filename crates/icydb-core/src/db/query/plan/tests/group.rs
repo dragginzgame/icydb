@@ -9,11 +9,17 @@ use crate::{
                 GroupAggregateSpec, GroupDistinctAdmissibility, GroupDistinctPolicyReason,
                 GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupPlanError, GroupSpec,
                 GroupedCursorPolicyViolation, GroupedExecutionConfig, LogicalPlan, OrderDirection,
-                OrderSpec, PageSpec, global_distinct_field_aggregate_admissibility,
+                OrderSpec, PageSpec,
+                expr::{Alias, BinaryOp, Expr, FieldId, ProjectionField, ProjectionSpec},
+                global_distinct_field_aggregate_admissibility,
                 global_distinct_group_spec_for_semantic_aggregate, grouped_cursor_policy_violation,
                 grouped_distinct_admissibility, grouped_executor_handoff,
                 is_global_distinct_field_aggregate_candidate,
-                validate::{PlanError, PolicyPlanError, validate_query_semantics},
+                validate::{
+                    ExprPlanError, PlanError, PolicyPlanError,
+                    validate_group_projection_expr_compatibility_for_test,
+                    validate_query_semantics,
+                },
                 validate_group_query_semantics,
             },
         },
@@ -107,6 +113,25 @@ fn grouped_plan_with_having(
         },
         having,
     )
+}
+
+fn grouped_spec_for_projection_expr_tests(group_fields: Vec<&str>) -> GroupSpec {
+    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
+    GroupSpec {
+        group_fields: group_fields
+            .into_iter()
+            .map(|field| {
+                FieldSlot::resolve(model, field)
+                    .expect("grouped projection compatibility tests require valid field slots")
+            })
+            .collect(),
+        aggregates: vec![GroupAggregateSpec {
+            kind: GroupAggregateKind::Count,
+            target_field: None,
+            distinct: false,
+        }],
+        execution: GroupedExecutionConfig::unbounded(),
+    }
 }
 
 #[test]
@@ -882,16 +907,18 @@ fn grouped_executor_handoff_preserves_group_fields_aggregates_and_execution_conf
             .collect::<Vec<_>>(),
         vec!["rank".to_string(), "tag".to_string()]
     );
-    assert_eq!(handoff.aggregates().len(), 2);
-    assert_eq!(handoff.aggregates()[0].kind, GroupAggregateKind::Count);
-    assert_eq!(handoff.aggregates()[0].target_field, None);
-    assert_eq!(handoff.aggregates()[1].kind, GroupAggregateKind::Max);
+    assert_eq!(handoff.aggregate_exprs().len(), 2);
     assert_eq!(
-        handoff.aggregates()[1].target_field.as_deref(),
-        Some("rank")
+        handoff.aggregate_exprs()[0].kind(),
+        GroupAggregateKind::Count
     );
+    assert_eq!(handoff.aggregate_exprs()[0].target_field(), None);
+    assert_eq!(handoff.aggregate_exprs()[1].kind(), GroupAggregateKind::Max);
+    assert_eq!(handoff.aggregate_exprs()[1].target_field(), Some("rank"));
     assert_eq!(handoff.execution().max_groups(), 11);
     assert_eq!(handoff.execution().max_group_bytes(), 2048);
+    assert_eq!(handoff.projection_layout().group_field_positions(), &[0, 1]);
+    assert_eq!(handoff.projection_layout().aggregate_positions(), &[2, 3]);
     assert_eq!(
         handoff.base().scalar_plan().consistency,
         grouped.scalar_plan().consistency
@@ -975,6 +1002,8 @@ fn grouped_executor_handoff_contract_matrix_vectors_are_frozen() {
     let actual_vectors: Vec<(
         Vec<String>,
         Vec<(GroupAggregateKind, Option<String>)>,
+        Vec<usize>,
+        Vec<usize>,
         u64,
         u64,
     )> = grouped_cases
@@ -984,9 +1013,14 @@ fn grouped_executor_handoff_contract_matrix_vectors_are_frozen() {
             let handoff = grouped_executor_handoff(&grouped)
                 .expect("grouped logical plans should build handoff");
             let aggregate_vector = handoff
-                .aggregates()
+                .aggregate_exprs()
                 .iter()
-                .map(|aggregate| (aggregate.kind, aggregate.target_field.clone()))
+                .map(|aggregate| {
+                    (
+                        aggregate.kind(),
+                        aggregate.target_field().map(str::to_string),
+                    )
+                })
                 .collect::<Vec<_>>();
 
             (
@@ -996,6 +1030,8 @@ fn grouped_executor_handoff_contract_matrix_vectors_are_frozen() {
                     .map(|field| field.field().to_string())
                     .collect::<Vec<_>>(),
                 aggregate_vector,
+                handoff.projection_layout().group_field_positions().to_vec(),
+                handoff.projection_layout().aggregate_positions().to_vec(),
                 handoff.execution().max_groups(),
                 handoff.execution().max_group_bytes(),
             )
@@ -1005,6 +1041,8 @@ fn grouped_executor_handoff_contract_matrix_vectors_are_frozen() {
         (
             vec!["rank".to_string()],
             vec![(GroupAggregateKind::Count, None::<String>)],
+            vec![0],
+            vec![1],
             u64::MAX,
             u64::MAX,
         ),
@@ -1014,6 +1052,8 @@ fn grouped_executor_handoff_contract_matrix_vectors_are_frozen() {
                 (GroupAggregateKind::Max, Some("rank".to_string())),
                 (GroupAggregateKind::Min, None::<String>),
             ],
+            vec![0, 1],
+            vec![2, 3],
             11,
             2048,
         ),
@@ -1077,5 +1117,77 @@ fn grouped_validation_preserves_scalar_policy_errors_on_base_plan() {
     assert!(matches!(grouped_err, PlanError::Policy(inner) if matches!(
         inner.as_ref(),
         PolicyPlanError::LoadPlanWithDeleteLimit
+    )));
+}
+
+#[test]
+fn grouped_projection_expr_compatibility_accepts_group_fields_and_aggregates_with_alias_wrapping() {
+    let group = grouped_spec_for_projection_expr_tests(vec!["rank"]);
+    let projection = ProjectionSpec::from_fields_for_test(vec![
+        ProjectionField::Scalar {
+            expr: Expr::Alias {
+                expr: Box::new(Expr::Field(FieldId::new("rank"))),
+                name: Alias::new("group_key"),
+            },
+            alias: Some(Alias::new("group_key_out")),
+        },
+        ProjectionField::Scalar {
+            expr: Expr::Binary {
+                op: BinaryOp::Add,
+                left: Box::new(Expr::Field(FieldId::new("rank"))),
+                right: Box::new(Expr::Literal(Value::Int(1))),
+            },
+            alias: None,
+        },
+        ProjectionField::Scalar {
+            expr: Expr::Alias {
+                expr: Box::new(Expr::Aggregate(crate::db::count())),
+                name: Alias::new("count_alias"),
+            },
+            alias: None,
+        },
+    ]);
+
+    validate_group_projection_expr_compatibility_for_test(&group, &projection).expect(
+        "grouped projection compatibility should allow grouped fields, aliases, and aggregates",
+    );
+}
+
+#[test]
+fn grouped_projection_expr_compatibility_rejects_non_group_field_reference() {
+    let group = grouped_spec_for_projection_expr_tests(vec!["rank"]);
+    let projection = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+        expr: Expr::Alias {
+            expr: Box::new(Expr::Field(FieldId::new("tag"))),
+            name: Alias::new("not_grouped"),
+        },
+        alias: None,
+    }]);
+
+    let err = validate_group_projection_expr_compatibility_for_test(&group, &projection)
+        .expect_err("grouped projection compatibility should reject non-group field references");
+    assert!(matches!(err, PlanError::Expr(inner) if matches!(
+        inner.as_ref(),
+        ExprPlanError::GroupedProjectionReferencesNonGroupField { index } if *index == 0
+    )));
+}
+
+#[test]
+fn grouped_projection_expr_compatibility_rejects_non_group_field_in_mixed_aggregate_expression() {
+    let group = grouped_spec_for_projection_expr_tests(vec!["rank"]);
+    let projection = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+        expr: Expr::Binary {
+            op: BinaryOp::Add,
+            left: Box::new(Expr::Aggregate(crate::db::count())),
+            right: Box::new(Expr::Field(FieldId::new("tag"))),
+        },
+        alias: None,
+    }]);
+
+    let err = validate_group_projection_expr_compatibility_for_test(&group, &projection)
+        .expect_err("mixed expressions must still reject non-group field references outside aggregate nodes");
+    assert!(matches!(err, PlanError::Expr(inner) if matches!(
+        inner.as_ref(),
+        ExprPlanError::GroupedProjectionReferencesNonGroupField { index } if *index == 0
     )));
 }

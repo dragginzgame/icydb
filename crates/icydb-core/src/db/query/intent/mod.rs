@@ -613,6 +613,13 @@ impl<E: EntityKind> CompiledQuery<E> {
         self.plan.explain_with_model(E::MODEL)
     }
 
+    /// Borrow planner-lowered projection semantics for this compiled query.
+    #[must_use]
+    #[cfg(test)]
+    pub(crate) fn projection_spec(&self) -> crate::db::query::plan::expr::ProjectionSpec {
+        self.plan.projection_spec(E::MODEL)
+    }
+
     #[must_use]
     pub(in crate::db) fn into_inner(self) -> AccessPlannedQuery<E::Key> {
         self.plan
@@ -811,6 +818,7 @@ impl<E: EntityKind> Query<E> {
     /// Plan this intent into a neutral planned query contract.
     pub fn planned(&self) -> Result<PlannedQuery<E>, QueryError> {
         let plan = self.build_plan()?;
+        let _projection = plan.projection_spec(E::MODEL);
 
         Ok(PlannedQuery::new(plan))
     }
@@ -820,6 +828,7 @@ impl<E: EntityKind> Query<E> {
     /// This boundary intentionally does not expose executor runtime shape.
     pub fn plan(&self) -> Result<CompiledQuery<E>, QueryError> {
         let plan = self.build_plan()?;
+        let _projection = plan.projection_spec(E::MODEL);
 
         Ok(CompiledQuery::new(plan))
     }

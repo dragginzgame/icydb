@@ -10,13 +10,14 @@ use crate::{
         direction::Direction,
         executor::{
             RangeToken,
-            aggregate::{AggregateKind, AggregateSpec},
+            aggregate::AggregateKind,
             load::LoadExecutor,
             route::{
                 ContinuationMode, GroupedExecutionStrategy, RouteWindowPlan, ScanHintPlan,
                 planner::{RouteDerivationContext, RouteFeasibilityStage, RouteIntentStage},
             },
         },
+        query::builder::AggregateExpr,
         query::plan::{
             AccessPlannedQuery, GroupedPlanStrategyHint, grouped_having_compare_op_supported,
             grouped_plan_strategy_hint,
@@ -41,7 +42,7 @@ where
         let secondary_pushdown_applicability = Self::derive_secondary_pushdown_applicability(plan);
         let derivation = Self::derive_route_derivation_context(
             plan,
-            intent_stage.aggregate_spec.as_ref(),
+            intent_stage.aggregate_expr.as_ref(),
             intent_stage.grouped,
             continuation_mode,
             route_window,
@@ -121,19 +122,19 @@ where
 
     pub(in crate::db::executor::route::planner) fn derive_route_derivation_context(
         plan: &AccessPlannedQuery<E::Key>,
-        aggregate_spec: Option<&AggregateSpec>,
+        aggregate_expr: Option<&AggregateExpr>,
         grouped: bool,
         continuation_mode: ContinuationMode,
         route_window: RouteWindowPlan,
         probe_fetch_hint: Option<usize>,
         secondary_pushdown_applicability: PushdownApplicability,
     ) -> RouteDerivationContext {
-        let direction = aggregate_spec.map_or_else(
+        let direction = aggregate_expr.map_or_else(
             || Self::derive_load_route_direction(plan),
-            |spec| Self::derive_aggregate_route_direction(plan, spec),
+            |aggregate| Self::derive_aggregate_route_direction(plan, aggregate),
         );
-        let capabilities = Self::derive_route_capabilities(plan, direction, aggregate_spec);
-        let kind = aggregate_spec.map(AggregateSpec::kind);
+        let capabilities = Self::derive_route_capabilities(plan, direction, aggregate_expr);
+        let kind = aggregate_expr.map(AggregateExpr::kind);
         let count_pushdown_eligible = kind.is_some_and(|aggregate_kind| {
             Self::is_count_pushdown_eligible(aggregate_kind, capabilities)
         });
@@ -145,8 +146,8 @@ where
         } else {
             None
         };
-        let aggregate_terminal_probe_fetch_hint = aggregate_spec.and_then(|spec| {
-            Self::aggregate_probe_fetch_hint(spec, direction, capabilities, route_window)
+        let aggregate_terminal_probe_fetch_hint = aggregate_expr.and_then(|aggregate| {
+            Self::aggregate_probe_fetch_hint(aggregate, direction, capabilities, route_window)
         });
         let aggregate_physical_fetch_hint =
             count_pushdown_probe_fetch_hint.or(aggregate_terminal_probe_fetch_hint);

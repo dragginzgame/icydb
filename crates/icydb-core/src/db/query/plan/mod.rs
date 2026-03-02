@@ -4,17 +4,22 @@
 //! Boundary: intent/explain/planner/validator consumers import from this root only.
 
 mod access_plan;
+#[allow(dead_code)]
+pub(crate) mod expr;
 mod group;
 mod model;
 mod model_builder;
 mod planner;
+mod projection;
 mod semantics;
 #[cfg(test)]
 mod tests;
 pub(crate) mod validate;
 
 pub(crate) use access_plan::AccessPlannedQuery;
-pub(in crate::db) use group::{GroupedExecutorHandoff, grouped_executor_handoff};
+pub(in crate::db) use group::{
+    GroupedExecutorHandoff, PlannedProjectionLayout, grouped_executor_handoff,
+};
 pub use model::OrderDirection;
 pub(crate) use model::{AggregateKind, DeleteSpec, LoadSpec, QueryMode};
 pub(crate) use model::{
@@ -23,6 +28,7 @@ pub(crate) use model::{
     OrderSpec, PageSpec, ScalarPlan,
 };
 pub(crate) use planner::{PlannerError, plan_access};
+pub(crate) use projection::{lower_projection_identity, lower_projection_intent};
 pub(in crate::db) use semantics::global_distinct_group_spec_for_semantic_aggregate;
 pub(crate) use semantics::{
     AccessPlanProjection, GroupDistinctAdmissibility, GroupDistinctPolicyReason,

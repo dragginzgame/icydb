@@ -355,8 +355,10 @@ impl ExecutionKernel {
 
         let (rows, keys_scanned) =
             Self::run_row_stream_reducer(ctx, plan, key_stream, RowCollectorReducer)?;
+        let projected_rows =
+            LoadExecutor::<E>::project_materialized_rows_if_needed(plan, rows.as_slice())?;
         let page = CursorPage {
-            items: Response(rows),
+            items: Response::from_rows_with_projection(rows, projected_rows),
             next_cursor: None,
         };
         let post_access_rows = page.items.0.len();

@@ -6,4 +6,8 @@
 mod aggregate_hash;
 pub(crate) mod fingerprint;
 pub(crate) mod hash_parts;
+mod projection_hash;
 mod shape_signature;
+
+#[cfg(test)]
+pub(in crate::db) use projection_hash::projection_hash_for_test;

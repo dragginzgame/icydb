@@ -282,7 +282,7 @@ where
             .map(|(id, entity, _)| (id, entity))
             .collect();
 
-        Ok(Response(output_rows))
+        Ok(Response::from_rows(output_rows))
     }
 
     // Reduce one materialized response into top-k projected field values under
@@ -348,7 +348,7 @@ where
             .map(|(id, entity, _)| (id, entity))
             .collect();
 
-        Ok(Response(output_rows))
+        Ok(Response::from_rows(output_rows))
     }
 
     // Reduce one materialized response into bottom-k projected field values

@@ -18,14 +18,16 @@ use crate::{
         query::plan::{
             AccessPlannedQuery, FieldSlot, GroupAggregateSpec, GroupDistinctAdmissibility,
             GroupDistinctPolicyReason, GroupHavingSpec, GroupHavingSymbol, GroupSpec, LoadSpec,
-            LogicalPlan, OrderSpec, QueryMode, ScalarPlan, grouped_distinct_admissibility,
-            grouped_having_compare_op_supported, resolve_global_distinct_field_aggregate,
+            LogicalPlan, OrderSpec, QueryMode, ScalarPlan,
+            expr::{ProjectionField, ProjectionSpec, expr_references_only_fields},
+            grouped_distinct_admissibility, grouped_having_compare_op_supported,
+            resolve_global_distinct_field_aggregate,
         },
     },
     model::entity::EntityModel,
     value::Value,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use thiserror::Error as ThisError;
 
 ///
@@ -56,6 +58,9 @@ pub enum PlanError {
 
     #[error("{0}")]
     Group(Box<GroupPlanError>),
+
+    #[error("{0}")]
+    Expr(Box<ExprPlanError>),
 }
 
 ///
@@ -247,6 +252,41 @@ pub enum GroupPlanError {
 }
 
 ///
+/// ExprPlanError
+///
+/// Expression-spine inference failures owned by planner semantics.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq, ThisError)]
+pub enum ExprPlanError {
+    /// Expression references a field that does not exist in schema.
+    #[error("unknown expression field '{field}'")]
+    UnknownExprField { field: String },
+
+    /// Aggregate terminal requires a numeric target field.
+    #[error("aggregate '{kind}' requires numeric target field '{field}'")]
+    NonNumericAggregateTarget { kind: String, field: String },
+
+    /// Unary operation is incompatible with inferred operand type.
+    #[error("unary operator '{op}' is incompatible with operand type {found}")]
+    InvalidUnaryOperand { op: String, found: String },
+
+    /// Binary operation is incompatible with inferred operand types.
+    #[error("binary operator '{op}' is incompatible with operand types ({left}, {right})")]
+    InvalidBinaryOperands {
+        op: String,
+        left: String,
+        right: String,
+    },
+
+    /// GROUP BY projections must not reference fields outside grouped keys.
+    #[error(
+        "grouped projection expression at index={index} references fields outside GROUP BY keys"
+    )]
+    GroupedProjectionReferencesNonGroupField { index: usize },
+}
+
+///
 /// CursorOrderPlanShapeError
 ///
 /// Logical cursor-order plan-shape failures used by cursor/runtime boundary adapters.
@@ -333,6 +373,12 @@ impl From<GroupPlanError> for PlanError {
     }
 }
 
+impl From<ExprPlanError> for PlanError {
+    fn from(err: ExprPlanError) -> Self {
+        Self::Expr(Box::new(err))
+    }
+}
+
 /// Validate a logical plan with model-level key values.
 ///
 /// Ownership:
@@ -379,6 +425,7 @@ pub(crate) fn validate_group_query_semantics(
             return Err(PlanError::from(GroupPlanError::GroupedLogicalPlanRequired));
         }
     };
+    let projection = plan.projection_spec(model);
 
     validate_plan_core(
         schema,
@@ -391,7 +438,7 @@ pub(crate) fn validate_group_query_semantics(
                 .map_err(PlanError::from)
         },
     )?;
-    validate_group_structure(schema, model, group, having)?;
+    validate_group_structure(schema, model, group, &projection, having)?;
     validate_group_policy(schema, logical, group, having)?;
     validate_group_cursor_constraints(logical, group)?;
 
@@ -403,6 +450,7 @@ fn validate_group_structure(
     schema: &SchemaInfo,
     model: &EntityModel,
     group: &GroupSpec,
+    projection: &ProjectionSpec,
     having: Option<&GroupHavingSpec>,
 ) -> Result<(), PlanError> {
     if group.group_fields.is_empty() && having.is_some() {
@@ -412,6 +460,7 @@ fn validate_group_structure(
     }
 
     validate_group_spec_structure(schema, model, group)?;
+    validate_group_projection_expr_compatibility(group, projection)?;
     validate_grouped_having_structure(group, having)?;
 
     Ok(())
@@ -631,6 +680,44 @@ fn validate_group_spec_policy(
     }
 
     Ok(())
+}
+
+// Validate GROUP BY expression compatibility over canonical projection semantics.
+fn validate_group_projection_expr_compatibility(
+    group: &GroupSpec,
+    projection: &ProjectionSpec,
+) -> Result<(), PlanError> {
+    if group.group_fields.is_empty() {
+        return Ok(());
+    }
+
+    let grouped_fields = group
+        .group_fields
+        .iter()
+        .map(FieldSlot::field)
+        .collect::<HashSet<_>>();
+
+    for (index, field) in projection.fields().enumerate() {
+        match field {
+            ProjectionField::Scalar { expr, .. } => {
+                if !expr_references_only_fields(expr, &grouped_fields) {
+                    return Err(PlanError::from(
+                        ExprPlanError::GroupedProjectionReferencesNonGroupField { index },
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+pub(in crate::db::query) fn validate_group_projection_expr_compatibility_for_test(
+    group: &GroupSpec,
+    projection: &ProjectionSpec,
+) -> Result<(), PlanError> {
+    validate_group_projection_expr_compatibility(group, projection)
 }
 
 // Validate the restricted global DISTINCT aggregate shape (`GROUP BY` omitted).

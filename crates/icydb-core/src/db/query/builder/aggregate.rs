@@ -55,6 +55,19 @@ impl AggregateExpr {
         self.distinct
     }
 
+    // Build one aggregate expression directly from planner semantic parts.
+    pub(in crate::db::query) const fn from_semantic_parts(
+        kind: GroupAggregateKind,
+        target_field: Option<String>,
+        distinct: bool,
+    ) -> Self {
+        Self {
+            kind,
+            target_field,
+            distinct,
+        }
+    }
+
     /// Return whether this expression kind is `COUNT`.
     #[must_use]
     pub(crate) const fn is_count_kind(kind: GroupAggregateKind) -> bool {

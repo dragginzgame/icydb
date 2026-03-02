@@ -13,9 +13,7 @@ use crate::{
         access::AccessPath,
         data::DataKey,
         executor::{
-            ExecutablePlan, ExecutionKernel,
-            aggregate::{AggregateKind, AggregateSpec},
-            route::ExecutionMode,
+            ExecutablePlan, ExecutionKernel, aggregate::AggregateKind, route::ExecutionMode,
         },
         query::{
             explain::ExplainAccessPath,

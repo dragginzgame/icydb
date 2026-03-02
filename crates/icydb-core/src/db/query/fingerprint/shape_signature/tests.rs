@@ -6,6 +6,7 @@
 ///
 /// TESTS
 ///
+use super::continuation_signature_with_projection;
 use crate::{
     db::{
         access::AccessPath,
@@ -23,6 +24,7 @@ use crate::{
                 AccessPlannedQuery, FieldSlot, GroupAggregateKind, GroupAggregateSpec,
                 GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupSpec,
                 GroupedExecutionConfig, LogicalPlan, OrderSpec, PageSpec,
+                expr::{Alias, Expr, FieldId, ProjectionField, ProjectionSpec},
             },
         },
     },
@@ -39,6 +41,35 @@ fn signature_hex(signature: ContinuationSignature) -> String {
     }
 
     hex
+}
+
+fn scalar_explain_with_fixed_shape() -> crate::db::query::explain::ExplainPlan {
+    let mut plan: AccessPlannedQuery<Value> =
+        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+    plan.scalar_plan_mut().predicate = Some(FieldRef::new("id").eq(Ulid::default()));
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
+    });
+    plan.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(25),
+        offset: 0,
+    });
+
+    plan.explain()
+}
+
+fn grouped_explain_with_fixed_shape() -> crate::db::query::explain::ExplainPlan {
+    AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+        .into_grouped(GroupSpec {
+            group_fields: vec![FieldSlot::from_parts_for_test(1, "rank")],
+            aggregates: vec![GroupAggregateSpec {
+                kind: GroupAggregateKind::Count,
+                target_field: None,
+                distinct: false,
+            }],
+            execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
+        })
+        .explain()
 }
 
 #[test]
@@ -191,6 +222,100 @@ fn signature_changes_with_entity_path() {
     assert_ne!(
         plan.continuation_signature("tests::EntityA"),
         plan.continuation_signature("tests::EntityB")
+    );
+}
+
+#[test]
+fn continuation_signature_projection_alias_only_change_does_not_invalidate() {
+    let explain = scalar_explain_with_fixed_shape();
+    let semantic_projection = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+        expr: Expr::Field(FieldId::new("rank")),
+        alias: None,
+    }]);
+    let alias_only_projection =
+        ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+            expr: Expr::Alias {
+                expr: Box::new(Expr::Field(FieldId::new("rank"))),
+                name: Alias::new("rank_expr"),
+            },
+            alias: Some(Alias::new("rank_alias")),
+        }]);
+
+    let semantic_signature =
+        continuation_signature_with_projection(&explain, "tests::Entity", &semantic_projection);
+    let alias_signature =
+        continuation_signature_with_projection(&explain, "tests::Entity", &alias_only_projection);
+
+    assert_eq!(semantic_signature, alias_signature);
+}
+
+#[test]
+fn continuation_signature_identity_projection_remains_stable() {
+    let plan: AccessPlannedQuery<Value> =
+        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+    let explain = plan.explain();
+    let identity_projection = plan.projection_spec_for_identity();
+
+    let signature_from_plan = plan.continuation_signature("tests::Entity");
+    let signature_from_identity =
+        continuation_signature_with_projection(&explain, "tests::Entity", &identity_projection);
+
+    assert_eq!(
+        signature_from_plan, signature_from_identity,
+        "identity projection must preserve continuation signature stability",
+    );
+}
+
+#[test]
+fn continuation_signature_projection_semantic_change_invalidates() {
+    let explain = scalar_explain_with_fixed_shape();
+    let projection_rank = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+        expr: Expr::Field(FieldId::new("rank")),
+        alias: None,
+    }]);
+    let projection_tenant = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+        expr: Expr::Field(FieldId::new("tenant")),
+        alias: None,
+    }]);
+
+    let rank_signature =
+        continuation_signature_with_projection(&explain, "tests::Entity", &projection_rank);
+    let tenant_signature =
+        continuation_signature_with_projection(&explain, "tests::Entity", &projection_tenant);
+
+    assert_ne!(rank_signature, tenant_signature);
+}
+
+#[test]
+fn continuation_signature_grouped_projection_semantic_change_invalidates() {
+    let explain = grouped_explain_with_fixed_shape();
+    let grouped_projection_a =
+        ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+            expr: Expr::Binary {
+                op: crate::db::query::plan::expr::BinaryOp::Add,
+                left: Box::new(Expr::Field(FieldId::new("rank"))),
+                right: Box::new(Expr::Literal(Value::Int(1))),
+            },
+            alias: None,
+        }]);
+    let grouped_projection_b =
+        ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+            expr: Expr::Binary {
+                op: crate::db::query::plan::expr::BinaryOp::Add,
+                left: Box::new(Expr::Field(FieldId::new("rank"))),
+                right: Box::new(Expr::Literal(Value::Int(2))),
+            },
+            alias: None,
+        }]);
+
+    let signature_a =
+        continuation_signature_with_projection(&explain, "tests::Entity", &grouped_projection_a);
+    let signature_b =
+        continuation_signature_with_projection(&explain, "tests::Entity", &grouped_projection_b);
+
+    assert_ne!(
+        signature_a, signature_b,
+        "grouped continuation signatures must invalidate on grouped projection semantic changes",
     );
 }
 
@@ -562,7 +687,7 @@ fn signature_snapshot_grouped_having_shape_is_stable() {
                 }),
             );
     let signature = signature_hex(grouped_having.continuation_signature("tests::Entity"));
-    let expected = "e028bd8e57cc2a17014c91da49c72ff2a83942d231c5ef9502dc32a5ee940651".to_string();
+    let expected = "0eca1a1c05466d52b13bc1e31b9519fffd24c1bf702fa60875f3a8b9472721b6".to_string();
 
     assert_eq!(
         signature, expected,
@@ -584,7 +709,7 @@ fn signature_snapshot_grouped_distinct_shape_is_stable() {
                 execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
             });
     let signature = signature_hex(grouped_distinct.continuation_signature("tests::Entity"));
-    let expected = "37b689432bb60afc74c388e1a60cb9c142990cc55f448e5988850c7f7b20680d".to_string();
+    let expected = "f9348a540a88540d5edfb477af0520ddefdce520ec17e4bbe0fbc05e408ec9c0".to_string();
 
     assert_eq!(
         signature, expected,
@@ -606,7 +731,7 @@ fn signature_snapshot_global_distinct_sum_shape_is_stable() {
                 execution: GroupedExecutionConfig::with_hard_limits(1, 1024),
             });
     let signature = signature_hex(global_distinct_sum.continuation_signature("tests::Entity"));
-    let expected = "1db8287da47b5b6d2042d1e413eca43b448a7d6a5222c9612372d430cf871429".to_string();
+    let expected = "2002c378e4b2427a75c746d6f89739ed470659d6c8a6fad0532c46211e8e80aa".to_string();
 
     assert_eq!(
         signature, expected,
@@ -633,7 +758,7 @@ fn signature_snapshot_ordered_group_hint_shape_is_stable() {
         execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
     });
     let signature = signature_hex(grouped_ordered.continuation_signature("tests::Entity"));
-    let expected = "0ca59a1431dc0d0f45a7549a7fb8004696f74c5f3591916589f564c82896e875".to_string();
+    let expected = "8132b7e59101dbbd9b2cfc86c757db6d6fd77570fe1e4d4a301cd4fb3a80f7e4".to_string();
 
     assert_eq!(
         signature, expected,

@@ -23,16 +23,16 @@ where
     ) -> RouteIntentStage {
         let stage = match intent {
             RouteIntent::Load => RouteIntentStage {
-                aggregate_spec: None,
+                aggregate_expr: None,
                 grouped: false,
                 fast_path_order: &LOAD_FAST_PATH_ORDER,
                 aggregate_force_materialized_due_to_predicate_uncertainty: false,
             },
             RouteIntent::Aggregate {
-                spec,
+                aggregate,
                 aggregate_force_materialized_due_to_predicate_uncertainty,
             } => RouteIntentStage {
-                aggregate_spec: Some(spec),
+                aggregate_expr: Some(aggregate),
                 grouped: false,
                 fast_path_order: &AGGREGATE_FAST_PATH_ORDER,
                 aggregate_force_materialized_due_to_predicate_uncertainty,
@@ -40,7 +40,7 @@ where
             RouteIntent::AggregateGrouped {
                 aggregate_force_materialized_due_to_predicate_uncertainty,
             } => RouteIntentStage {
-                aggregate_spec: None,
+                aggregate_expr: None,
                 grouped: true,
                 fast_path_order: &GROUPED_AGGREGATE_FAST_PATH_ORDER,
                 aggregate_force_materialized_due_to_predicate_uncertainty,
@@ -60,7 +60,7 @@ where
             "route invariant: route intent must map to the canonical fast-path order contract",
         );
         debug_assert!(
-            !stage.grouped || stage.aggregate_spec.is_none() && stage.fast_path_order.is_empty(),
+            !stage.grouped || stage.aggregate_expr.is_none() && stage.fast_path_order.is_empty(),
             "route invariant: grouped intent must not carry scalar aggregate specs or fast-path routes",
         );
 

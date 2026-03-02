@@ -8,9 +8,10 @@ use crate::{
         cursor::CursorBoundary,
         direction::Direction,
         executor::{
-            ExecutionKernel, RangeToken, aggregate::AggregateSpec, load::LoadExecutor,
+            ExecutionKernel, RangeToken, load::LoadExecutor,
             traversal::derive_primary_scan_direction,
         },
+        query::builder::AggregateExpr,
         query::plan::AccessPlannedQuery,
     },
     traits::{EntityKind, EntityValue},
@@ -30,13 +31,13 @@ where
 
     pub(super) fn derive_aggregate_route_direction(
         plan: &AccessPlannedQuery<E::Key>,
-        spec: &AggregateSpec,
+        aggregate: &AggregateExpr,
     ) -> Direction {
         // Aggregate direction authority flows from AggregateKind.
         // Field-target extrema derive from `AggregateKind::extrema_direction`;
         // all other cases inherit canonical load ordering direction.
-        if spec.target_field().is_some() {
-            return aggregate_extrema_direction(spec.kind())
+        if aggregate.target_field().is_some() {
+            return aggregate_extrema_direction(aggregate.kind())
                 .unwrap_or_else(|| Self::derive_load_route_direction(plan));
         }
 
@@ -68,15 +69,15 @@ where
     // Field-target extrema uses route capability flags directly; non-target
     // terminals use the shared streaming-safe/pushdown/index-range route gates.
     pub(super) fn aggregate_non_count_streaming_allowed(
-        aggregate_spec: Option<&AggregateSpec>,
+        aggregate_expr: Option<&AggregateExpr>,
         capabilities: RouteCapabilities,
         secondary_pushdown_eligible: bool,
         index_range_limit_enabled: bool,
     ) -> bool {
-        if let Some(spec) = aggregate_spec
-            && spec.target_field().is_some()
+        if let Some(aggregate) = aggregate_expr
+            && aggregate.target_field().is_some()
         {
-            return match aggregate_extrema_direction(spec.kind()) {
+            return match aggregate_extrema_direction(aggregate.kind()) {
                 Some(Direction::Asc) => capabilities.field_min_fast_path_eligible,
                 Some(Direction::Desc) => capabilities.field_max_fast_path_eligible,
                 None => false,

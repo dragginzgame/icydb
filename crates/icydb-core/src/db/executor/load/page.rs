@@ -100,7 +100,8 @@ where
             continuation_signature,
         )?
         .map(PageCursor::Scalar);
-        let items = Response(std::mem::take(rows));
+        let projected_rows = Self::project_materialized_rows_if_needed(plan, rows.as_slice())?;
+        let items = Response::from_rows_with_projection(std::mem::take(rows), projected_rows);
 
         Ok(CursorPage { items, next_cursor })
     }

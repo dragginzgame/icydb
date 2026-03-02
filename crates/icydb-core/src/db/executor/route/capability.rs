@@ -9,14 +9,13 @@ use crate::{
         direction::Direction,
         executor::{
             AccessPathRuntimeStrategy, access_plan_is_pk_ordered_stream,
-            access_plan_supports_reverse_traversal,
-            aggregate::capability::field_is_orderable,
-            aggregate::{AggregateKind, AggregateSpec},
-            dispatch_access_path, is_composite_access_plan,
-            load::LoadExecutor,
+            access_plan_supports_reverse_traversal, aggregate::AggregateKind,
+            aggregate::capability::field_is_orderable, dispatch_access_path,
+            is_composite_access_plan, load::LoadExecutor,
             route::derive_secondary_pushdown_applicability_validated,
             traversal::effective_page_offset_for_window,
         },
+        query::builder::AggregateExpr,
         query::plan::AccessPlannedQuery,
     },
     model::entity::resolve_field_slot,
@@ -156,12 +155,12 @@ where
     pub(in crate::db::executor::route) fn derive_route_capabilities(
         plan: &AccessPlannedQuery<E::Key>,
         direction: Direction,
-        aggregate_spec: Option<&AggregateSpec>,
+        aggregate_expr: Option<&AggregateExpr>,
     ) -> RouteCapabilities {
         let field_min_eligibility =
-            Self::assess_field_min_fast_path_eligibility(plan, direction, aggregate_spec);
+            Self::assess_field_min_fast_path_eligibility(plan, direction, aggregate_expr);
         let field_max_eligibility =
-            Self::assess_field_max_fast_path_eligibility(plan, direction, aggregate_spec);
+            Self::assess_field_max_fast_path_eligibility(plan, direction, aggregate_expr);
 
         RouteCapabilities {
             streaming_access_shape_safe: streaming_access_shape_safe::<E, _>(plan),
@@ -191,12 +190,12 @@ where
     fn assess_field_min_fast_path_eligibility(
         plan: &AccessPlannedQuery<E::Key>,
         direction: Direction,
-        aggregate_spec: Option<&AggregateSpec>,
+        aggregate_expr: Option<&AggregateExpr>,
     ) -> FieldExtremaEligibility {
         Self::assess_field_extrema_fast_path_eligibility(
             plan,
             direction,
-            aggregate_spec,
+            aggregate_expr,
             AggregateKind::Min,
         )
     }
@@ -206,12 +205,12 @@ where
     fn assess_field_max_fast_path_eligibility(
         plan: &AccessPlannedQuery<E::Key>,
         direction: Direction,
-        aggregate_spec: Option<&AggregateSpec>,
+        aggregate_expr: Option<&AggregateExpr>,
     ) -> FieldExtremaEligibility {
         Self::assess_field_extrema_fast_path_eligibility(
             plan,
             direction,
-            aggregate_spec,
+            aggregate_expr,
             AggregateKind::Max,
         )
     }
@@ -224,22 +223,22 @@ where
     fn assess_field_extrema_fast_path_eligibility(
         plan: &AccessPlannedQuery<E::Key>,
         direction: Direction,
-        aggregate_spec: Option<&AggregateSpec>,
+        aggregate_expr: Option<&AggregateExpr>,
         extrema_kind: AggregateKind,
     ) -> FieldExtremaEligibility {
-        let Some(spec) = aggregate_spec else {
+        let Some(aggregate) = aggregate_expr else {
             return FieldExtremaEligibility {
                 eligible: false,
                 ineligibility_reason: Some(FieldExtremaIneligibilityReason::SpecMissing),
             };
         };
-        if spec.kind() != extrema_kind {
+        if aggregate.kind() != extrema_kind {
             return FieldExtremaEligibility {
                 eligible: false,
                 ineligibility_reason: Some(FieldExtremaIneligibilityReason::AggregateKindMismatch),
             };
         }
-        let Some(target_field) = spec.target_field() else {
+        let Some(target_field) = aggregate.target_field() else {
             return FieldExtremaEligibility {
                 eligible: false,
                 ineligibility_reason: Some(FieldExtremaIneligibilityReason::TargetFieldMissing),

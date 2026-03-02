@@ -43,7 +43,21 @@ where
     #[must_use]
     #[cfg(test)]
     pub(crate) fn fingerprint(&self) -> PlanFingerprint {
-        self.explain().fingerprint()
+        let explain = self.explain();
+        let projection = self.projection_spec_for_identity();
+        let mut hasher = Sha256::new();
+        hasher.update(b"planfp:v2");
+        hash_parts::hash_explain_plan_profile_with_projection(
+            &mut hasher,
+            &explain,
+            hash_parts::ExplainHashProfile::FingerprintV2,
+            &projection,
+        );
+        let digest = hasher.finalize();
+        let mut out = [0u8; 32];
+        out.copy_from_slice(&digest);
+
+        PlanFingerprint(out)
     }
 }
 

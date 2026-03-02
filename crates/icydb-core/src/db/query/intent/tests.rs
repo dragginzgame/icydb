@@ -8,7 +8,10 @@ use crate::{
         query::{
             builder::{FieldRef, count, count_by, exists, first, last, max, max_by, min, sum},
             expr::FilterExpr,
-            plan::{AccessPlannedQuery, LogicalPlan, ScalarPlan},
+            plan::{
+                AccessPlannedQuery, AggregateKind, LogicalPlan, ScalarPlan,
+                expr::{Expr, ProjectionField},
+            },
         },
     },
     model::{
@@ -1129,6 +1132,97 @@ fn query_distinct_sets_logical_plan_flag() {
         plan.scalar_plan().distinct,
         "distinct should be true when query intent enables distinct"
     );
+}
+
+#[test]
+fn compiled_query_projection_spec_lowers_scalar_fields_in_model_order() {
+    let compiled = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .plan()
+        .expect("plan should build");
+    let field_names = compiled
+        .projection_spec()
+        .fields()
+        .map(|field| match field {
+            ProjectionField::Scalar {
+                expr: Expr::Field(field),
+                alias: None,
+            } => field.as_str().to_string(),
+            other @ ProjectionField::Scalar { .. } => {
+                panic!("scalar projection should lower to plain field exprs: {other:?}")
+            }
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(field_names, vec!["id".to_string(), "name".to_string()]);
+}
+
+#[test]
+fn compiled_query_projection_spec_lowers_grouped_shape_in_declaration_order() {
+    let compiled = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .group_by("name")
+        .expect("group by should resolve")
+        .aggregate(count())
+        .plan()
+        .expect("grouped plan should build");
+    let projection = compiled.projection_spec();
+    let fields = projection.fields().collect::<Vec<_>>();
+    assert_eq!(
+        fields.len(),
+        2,
+        "grouped projection should include key + aggregate"
+    );
+
+    match fields[0] {
+        ProjectionField::Scalar {
+            expr: Expr::Field(field),
+            alias: None,
+        } => assert_eq!(field.as_str(), "name"),
+        other @ ProjectionField::Scalar { .. } => {
+            panic!("first grouped projection field should be grouped key expr: {other:?}")
+        }
+    }
+    match fields[1] {
+        ProjectionField::Scalar {
+            expr: Expr::Aggregate(aggregate),
+            alias: None,
+        } => {
+            assert_eq!(aggregate.kind(), AggregateKind::Count);
+            assert_eq!(aggregate.target_field(), None);
+            assert!(!aggregate.is_distinct());
+        }
+        other @ ProjectionField::Scalar { .. } => {
+            panic!("second grouped projection field should be grouped aggregate expr: {other:?}")
+        }
+    }
+}
+
+#[test]
+fn compiled_query_projection_spec_preserves_global_distinct_aggregate_semantics() {
+    let compiled = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .aggregate(count_by("name").distinct())
+        .plan()
+        .expect("global distinct grouped plan should build");
+    let projection = compiled.projection_spec();
+    let fields = projection.fields().collect::<Vec<_>>();
+    assert_eq!(
+        fields.len(),
+        1,
+        "global distinct grouped projection should only include one aggregate"
+    );
+
+    match fields[0] {
+        ProjectionField::Scalar {
+            expr: Expr::Aggregate(aggregate),
+            alias: None,
+        } => {
+            assert_eq!(aggregate.kind(), AggregateKind::Count);
+            assert_eq!(aggregate.target_field(), Some("name"));
+            assert!(aggregate.is_distinct());
+        }
+        other @ ProjectionField::Scalar { .. } => {
+            panic!("global distinct projection should lower to aggregate expr: {other:?}")
+        }
+    }
 }
 
 #[test]

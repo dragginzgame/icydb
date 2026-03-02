@@ -273,10 +273,16 @@ fn route_plan_grouped_wrapper_preserves_kind_matrix_in_query_handoff() {
 
     assert_eq!(grouped_handoff.group_fields().len(), 1);
     assert_eq!(grouped_handoff.group_fields()[0].field(), "rank");
-    assert_eq!(grouped_handoff.aggregates().len(), kind_cases.len());
+    assert_eq!(grouped_handoff.aggregate_exprs().len(), kind_cases.len());
     for (index, expected_kind) in kind_cases.iter().enumerate() {
-        assert_eq!(grouped_handoff.aggregates()[index].kind(), *expected_kind);
-        assert_eq!(grouped_handoff.aggregates()[index].target_field(), None);
+        assert_eq!(
+            grouped_handoff.aggregate_exprs()[index].kind(),
+            *expected_kind
+        );
+        assert_eq!(
+            grouped_handoff.aggregate_exprs()[index].target_field(),
+            None
+        );
     }
 }
 
@@ -299,9 +305,15 @@ fn route_plan_grouped_wrapper_preserves_target_field_in_query_handoff() {
     assert_eq!(grouped_handoff.group_fields().len(), 2);
     assert_eq!(grouped_handoff.group_fields()[0].field(), "rank");
     assert_eq!(grouped_handoff.group_fields()[1].field(), "label");
-    assert_eq!(grouped_handoff.aggregates().len(), 1);
-    assert_eq!(grouped_handoff.aggregates()[0].kind(), AggregateKind::Max);
-    assert_eq!(grouped_handoff.aggregates()[0].target_field(), Some("rank"));
+    assert_eq!(grouped_handoff.aggregate_exprs().len(), 1);
+    assert_eq!(
+        grouped_handoff.aggregate_exprs()[0].kind(),
+        AggregateKind::Max
+    );
+    assert_eq!(
+        grouped_handoff.aggregate_exprs()[0].target_field(),
+        Some("rank")
+    );
 }
 
 #[test]
@@ -336,9 +348,9 @@ fn route_plan_grouped_wrapper_preserves_supported_target_field_matrix_in_query_h
     assert_eq!(grouped_handoff.group_fields().len(), 2);
     assert_eq!(grouped_handoff.group_fields()[0].field(), "rank");
     assert_eq!(grouped_handoff.group_fields()[1].field(), "label");
-    assert_eq!(grouped_handoff.aggregates().len(), grouped_cases.len());
+    assert_eq!(grouped_handoff.aggregate_exprs().len(), grouped_cases.len());
     for (index, (expected_kind, expected_target)) in grouped_cases.iter().enumerate() {
-        let aggregate = &grouped_handoff.aggregates()[index];
+        let aggregate = &grouped_handoff.aggregate_exprs()[index];
         assert_eq!(aggregate.kind(), *expected_kind);
         assert_eq!(aggregate.target_field(), *expected_target);
     }

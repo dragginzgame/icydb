@@ -4,7 +4,10 @@
 //! Boundary: response DTOs returned by session/query execution APIs.
 
 use crate::{
-    db::{executor::ExecutionTrace, response::Response},
+    db::{
+        executor::ExecutionTrace,
+        response::{ProjectedRow, Response},
+    },
     traits::EntityKind,
 };
 
@@ -34,6 +37,14 @@ impl<E: EntityKind> PagedLoadExecution<E> {
     #[must_use]
     pub const fn response(&self) -> &Response<E> {
         &self.response
+    }
+
+    /// Borrow optional projected scalar rows for this page.
+    ///
+    /// Projection rows are present when scalar projection evaluation ran.
+    #[must_use]
+    pub fn projected_rows(&self) -> Option<&[ProjectedRow<E>]> {
+        self.response.projected_rows()
     }
 
     /// Borrow the optional continuation cursor bytes.
@@ -99,6 +110,14 @@ impl<E: EntityKind> PagedLoadExecutionWithTrace<E> {
     #[must_use]
     pub const fn response(&self) -> &Response<E> {
         self.execution.response()
+    }
+
+    /// Borrow optional projected scalar rows for this page.
+    ///
+    /// Projection rows are present when scalar projection evaluation ran.
+    #[must_use]
+    pub fn projected_rows(&self) -> Option<&[ProjectedRow<E>]> {
+        self.execution.projected_rows()
     }
 
     /// Borrow the optional continuation cursor bytes.

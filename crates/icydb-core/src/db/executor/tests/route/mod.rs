@@ -5,7 +5,7 @@ use crate::{
         cursor::CursorBoundary,
         direction::Direction,
         executor::{
-            aggregate::{AggregateFoldMode, AggregateKind, AggregateSpec},
+            aggregate::{AggregateFoldMode, AggregateKind},
             load::LoadExecutor,
             route::{
                 AGGREGATE_FAST_PATH_ORDER, ContinuationMode, ExecutionMode, ExecutionModeRouteCase,

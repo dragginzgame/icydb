@@ -102,6 +102,7 @@ mod tests {
     /// Test-only source adapter to verify alias/explain metadata is excluded
     /// from semantic aggregate hash construction.
     ///
+
     struct AggregateSource<'a> {
         kind: AggregateKind,
         target_field: Option<&'a str>,

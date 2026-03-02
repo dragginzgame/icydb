@@ -17,9 +17,13 @@ use crate::{
                 resolve_any_aggregate_target_slot_from_planner_slot,
             },
             aggregate::materialized_distinct::insert_materialized_distinct_value,
-            aggregate::{AggregateKind, AggregateOutput, AggregateSpec},
+            aggregate::{AggregateKind, AggregateOutput},
             group::GroupKeySet,
             load::LoadExecutor,
+        },
+        query::builder::{
+            AggregateExpr,
+            aggregate::{count, exists, first, last, max, min},
         },
         query::plan::FieldSlot as PlannedFieldSlot,
         response::Response,
@@ -139,7 +143,7 @@ where
             ExecutionKernel::execute_aggregate_spec(
                 self,
                 plan,
-                AggregateSpec::for_terminal(terminal_kind),
+                terminal_aggregate_expr(terminal_kind),
             )?
         else {
             return Err(invariant("terminal value projection result kind mismatch"));
@@ -217,4 +221,18 @@ where
 
 fn invariant(message: impl Into<String>) -> InternalError {
     InternalError::query_executor_invariant(message)
+}
+
+fn terminal_aggregate_expr(kind: AggregateKind) -> AggregateExpr {
+    match kind {
+        AggregateKind::Count => count(),
+        AggregateKind::Sum => {
+            unreachable!("terminal aggregate expression helper must not be used for SUM(field)")
+        }
+        AggregateKind::Exists => exists(),
+        AggregateKind::Min => min(),
+        AggregateKind::Max => max(),
+        AggregateKind::First => first(),
+        AggregateKind::Last => last(),
+    }
 }

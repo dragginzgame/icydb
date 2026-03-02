@@ -162,7 +162,7 @@ where
 
             if rows.is_empty() {
                 set_rows_from_len(&mut span, 0);
-                return Ok(Response(Vec::new()));
+                return Ok(Response::from_rows(Vec::new()));
             }
 
             // Relation phase: reject target deletes that are still strongly referenced.
@@ -209,7 +209,7 @@ where
                 .collect::<Vec<_>>();
             set_rows_from_len(&mut span, res.len());
 
-            Ok(Response(res))
+            Ok(Response::from_rows(res))
         })()
     }
 }

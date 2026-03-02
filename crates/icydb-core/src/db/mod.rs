@@ -69,7 +69,7 @@ pub use query::{
 pub use registry::StoreRegistry;
 pub use relation::validate_delete_strong_relations_for_source;
 pub use response::{
-    PagedLoadExecution, PagedLoadExecutionWithTrace, Response, ResponseError, Row,
+    PagedLoadExecution, PagedLoadExecutionWithTrace, ProjectedRow, Response, ResponseError, Row,
     WriteBatchResponse, WriteResponse,
 };
 pub use session::DbSession;
