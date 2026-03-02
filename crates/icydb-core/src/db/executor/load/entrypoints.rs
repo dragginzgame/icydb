@@ -7,11 +7,11 @@ use crate::{
     db::{
         cursor::{GroupedPlannedCursor, PlannedCursor},
         executor::{
-            AccessStreamBindings, ExecutablePlan, ExecutionKernel, ExecutionPreparation,
-            ExecutionTrace,
+            AccessStreamBindings, ContinuationEngine, ExecutablePlan, ExecutionKernel,
+            ExecutionPreparation, ExecutionTrace,
             load::{CursorPage, GroupedCursorPage, LoadExecutor},
             plan_metrics::record_plan_metrics,
-            range_token_anchor_key, range_token_from_cursor_anchor, validate_executor_plan,
+            range_token_anchor_key, validate_executor_plan,
         },
         index::IndexCompilePolicy,
         query::plan::LogicalPlan,
@@ -21,6 +21,21 @@ use crate::{
     obs::sink::{ExecKind, Span},
     traits::{EntityKind, EntityValue},
 };
+
+// Cursor variant input contract for unified load entrypoint dispatch.
+enum LoadCursorInput {
+    Scalar(PlannedCursor),
+    Grouped(GroupedPlannedCursor),
+}
+
+// Unified load entrypoint output contract spanning scalar and grouped payloads.
+enum LoadExecutionPage<E: EntityKind> {
+    Scalar(CursorPageWithTrace<E>),
+    Grouped(GroupedPageWithTrace),
+}
+
+type CursorPageWithTrace<E> = (CursorPage<E>, Option<ExecutionTrace>);
+type GroupedPageWithTrace = (GroupedCursorPage, Option<ExecutionTrace>);
 
 impl<E> LoadExecutor<E>
 where
@@ -48,29 +63,96 @@ where
         plan: ExecutablePlan<E>,
         cursor: impl Into<PlannedCursor>,
     ) -> Result<(CursorPage<E>, Option<ExecutionTrace>), InternalError> {
-        if matches!(&plan.as_inner().logical, LogicalPlan::Grouped(_)) {
+        let execution =
+            self.execute_paged_internal_traced(plan, LoadCursorInput::Scalar(cursor.into()))?;
+
+        let LoadExecutionPage::Scalar(page) = execution else {
             return Err(super::invariant(
-                "grouped plans require execute_grouped pagination entrypoints",
+                "scalar load entrypoint must emit scalar execution payload",
             ));
-        }
+        };
 
-        let cursor: PlannedCursor = plan.revalidate_cursor(cursor.into())?;
-        let cursor_boundary = cursor.boundary().cloned();
-        let index_range_token = cursor
-            .index_range_anchor()
-            .map(range_token_from_cursor_anchor);
+        Ok(page)
+    }
 
+    // Execute one grouped load plan with grouped cursor support and trace output.
+    pub(in crate::db) fn execute_grouped_paged_with_cursor_traced(
+        &self,
+        plan: ExecutablePlan<E>,
+        cursor: impl Into<GroupedPlannedCursor>,
+    ) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), InternalError> {
+        let execution =
+            self.execute_paged_internal_traced(plan, LoadCursorInput::Grouped(cursor.into()))?;
+
+        let LoadExecutionPage::Grouped(page) = execution else {
+            return Err(super::invariant(
+                "grouped load entrypoint must emit grouped execution payload",
+            ));
+        };
+
+        Ok(page)
+    }
+
+    // Unified load entrypoint pipeline:
+    // 1) validate mode and logical/cursor shape pairing
+    // 2) revalidate cursor through continuation protocol boundary
+    // 3) dispatch to scalar or grouped execution spine
+    fn execute_paged_internal_traced(
+        &self,
+        plan: ExecutablePlan<E>,
+        cursor: LoadCursorInput,
+    ) -> Result<LoadExecutionPage<E>, InternalError> {
         if !plan.mode().is_load() {
             return Err(super::invariant("load executor requires load plans"));
         }
 
+        let grouped_plan = matches!(&plan.as_inner().logical, LogicalPlan::Grouped(_));
+        match cursor {
+            LoadCursorInput::Scalar(cursor) => {
+                if grouped_plan {
+                    return Err(super::invariant(
+                        "grouped plans require execute_grouped pagination entrypoints",
+                    ));
+                }
+                let cursor = plan.revalidate_cursor(cursor)?;
+                let page = self.execute_scalar_path(plan, cursor)?;
+
+                Ok(LoadExecutionPage::Scalar(page))
+            }
+            LoadCursorInput::Grouped(cursor) => {
+                if !grouped_plan {
+                    return Err(super::invariant(
+                        "grouped execution requires grouped logical plans",
+                    ));
+                }
+                let cursor = plan.revalidate_grouped_cursor(cursor)?;
+                let page = self.execute_grouped_path(plan, cursor)?;
+
+                Ok(LoadExecutionPage::Grouped(page))
+            }
+        }
+    }
+
+    // Scalar execution spine:
+    // 1) normalize continuation runtime bindings
+    // 2) derive routing and trace contracts
+    // 3) execute kernel materialization
+    // 4) finalize scalar page + observability
+    fn execute_scalar_path(
+        &self,
+        plan: ExecutablePlan<E>,
+        cursor: PlannedCursor,
+    ) -> Result<(CursorPage<E>, Option<ExecutionTrace>), InternalError> {
+        let scalar_runtime = ContinuationEngine::scalar_runtime(cursor);
+        let cursor_boundary = scalar_runtime.cursor_boundary();
+        let index_range_token = scalar_runtime.index_range_token();
         let continuation_signature = plan.continuation_signature();
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
         let route_plan = Self::build_execution_route_plan_for_load(
             plan.as_inner(),
-            cursor_boundary.as_ref(),
-            index_range_token.as_ref(),
+            cursor_boundary,
+            index_range_token,
             None,
         )?;
         let continuation_applied = !matches!(
@@ -80,7 +162,7 @@ where
         let direction = route_plan.direction();
         debug_assert_eq!(
             route_plan.window().effective_offset,
-            ExecutionKernel::effective_page_offset(plan.as_inner(), cursor_boundary.as_ref()),
+            ExecutionKernel::effective_page_offset(plan.as_inner(), cursor_boundary),
             "route window effective offset must match logical plan offset semantics",
         );
         let mut execution_trace = self
@@ -100,19 +182,17 @@ where
                 stream_bindings: AccessStreamBindings {
                     index_prefix_specs: index_prefix_specs.as_slice(),
                     index_range_specs: index_range_specs.as_slice(),
-                    index_range_anchor: index_range_token.as_ref().map(range_token_anchor_key),
+                    index_range_anchor: index_range_token.map(range_token_anchor_key),
                     direction,
                 },
                 execution_preparation: &execution_preparation,
             };
 
             record_plan_metrics(&plan.access);
-            // Plan execution routing once, then execute in canonical order.
-            // Resolve one canonical key stream, then run shared page materialization/finalization.
             let materialized = ExecutionKernel::materialize_with_optional_residual_retry(
                 &execution_inputs,
                 &route_plan,
-                cursor_boundary.as_ref(),
+                cursor_boundary,
                 continuation_signature,
                 IndexCompilePolicy::ConservativeSubset,
             )?;
@@ -138,23 +218,6 @@ where
         })();
 
         result.map(|page| (page, execution_trace))
-    }
-
-    // Execute one grouped load plan with grouped cursor support and trace output.
-    pub(in crate::db) fn execute_grouped_paged_with_cursor_traced(
-        &self,
-        plan: ExecutablePlan<E>,
-        cursor: impl Into<GroupedPlannedCursor>,
-    ) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), InternalError> {
-        if !matches!(&plan.as_inner().logical, LogicalPlan::Grouped(_)) {
-            return Err(super::invariant(
-                "grouped execution requires grouped logical plans",
-            ));
-        }
-
-        let cursor = plan.revalidate_grouped_cursor(cursor.into())?;
-
-        self.execute_grouped_path(plan, cursor)
     }
 
     // Grouped execution spine:

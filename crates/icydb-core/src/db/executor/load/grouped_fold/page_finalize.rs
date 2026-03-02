@@ -1,8 +1,9 @@
 use crate::{
     db::{
-        cursor::GroupedContinuationToken,
-        direction::Direction,
-        executor::load::{GroupedRouteStage, LoadExecutor, PageCursor},
+        executor::{
+            ContinuationEngine,
+            load::{GroupedRouteStage, LoadExecutor, PageCursor},
+        },
         query::plan::expr::ProjectionSpec,
     },
     error::InternalError,
@@ -66,10 +67,9 @@ where
 
         let next_cursor = if has_more {
             last_emitted_group_key.map(|last_group_key| {
-                PageCursor::Grouped(GroupedContinuationToken::new_with_direction(
+                PageCursor::Grouped(ContinuationEngine::grouped_next_cursor_token(
                     route.continuation_signature,
                     last_group_key,
-                    Direction::Asc,
                     resume_initial_offset,
                 ))
             })

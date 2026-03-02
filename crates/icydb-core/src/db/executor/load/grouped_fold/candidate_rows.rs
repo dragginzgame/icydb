@@ -4,6 +4,7 @@ use crate::{
     db::{
         contracts::canonical_value_compare,
         executor::{
+            ContinuationEngine,
             aggregate::AggregateEngine,
             load::{GroupedRouteStage, LoadExecutor},
         },
@@ -21,47 +22,7 @@ where
     pub(super) fn grouped_pagination_window(
         route: &GroupedRouteStage<E>,
     ) -> (Option<usize>, usize, Option<usize>, u32, Option<Value>) {
-        let initial_offset = route
-            .plan
-            .scalar_plan()
-            .page
-            .as_ref()
-            .map_or(0, |page| page.offset);
-        let resume_initial_offset = if route.cursor.is_empty() {
-            initial_offset
-        } else {
-            route.cursor.initial_offset()
-        };
-        let resume_boundary = route
-            .cursor
-            .last_group_key()
-            .map(|last_group_key| Value::List(last_group_key.to_vec()));
-        let apply_initial_offset = route.cursor.is_empty();
-        let limit = route
-            .plan
-            .scalar_plan()
-            .page
-            .as_ref()
-            .and_then(|page| page.limit)
-            .and_then(|limit| usize::try_from(limit).ok());
-        let initial_offset_for_page = if apply_initial_offset {
-            usize::try_from(initial_offset).unwrap_or(usize::MAX)
-        } else {
-            0
-        };
-        let selection_bound = limit.and_then(|limit| {
-            limit
-                .checked_add(initial_offset_for_page)
-                .and_then(|count| count.checked_add(1))
-        });
-
-        (
-            limit,
-            initial_offset_for_page,
-            selection_bound,
-            resume_initial_offset,
-            resume_boundary,
-        )
+        ContinuationEngine::grouped_paging_contract(&route.plan, &route.cursor).into_parts()
     }
 
     // Finalize grouped reducers into deterministic candidate rows before paging.

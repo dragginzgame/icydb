@@ -101,3 +101,30 @@ File-level branch signals:
 5. Flow Multiplication Risks: access-path + continuation + grouped/scalar bifurcation.
 6. Cross-Cutting Spread Risks: access-path, continuation, and error mapping spread.
 7. Early Structural Pressure Signals: high coordination pressure concentrated in a small number of large modules.
+
+## Rerun Addendum - 2026-03-02 (post continuation + load entrypoint unification)
+
+Targeted rerun findings after introducing `executor/continuation/mod.rs` and
+unifying scalar/grouped load entry dispatch:
+
+- New unified load entry pipeline exists in
+  `executor/load/entrypoints.rs`:
+  - `enum LoadCursorInput`
+  - `enum LoadExecutionPage`
+  - `fn execute_paged_internal_traced`
+  - `fn execute_scalar_path`
+- Executor runtime token construction drift check:
+  - `ContinuationToken::new*` / `GroupedContinuationToken::new*` outside
+    `executor/continuation/mod.rs` (non-test): **0**.
+- Executor runtime cursor-boundary derivation drift check:
+  - `cursor_boundary_from_entity` / `CursorBoundary::from_ordered_entity`
+    outside cursor protocol (non-test): **0**.
+- Updated spread metrics (non-test runtime):
+  - `AccessPath::` references: **188** across **17** files.
+  - `continuation|anchor` mentions: **681** across **70** files.
+  - `.as_inner()` usage in executor runtime: **11** callsites.
+
+Rerun conclusion:
+- Grouped/scalar load entrypoint bifurcation pressure decreased structurally.
+- Continuation concern spread remains high in absolute terms.
+- Overall Complexity Risk Index remains **7/10**.

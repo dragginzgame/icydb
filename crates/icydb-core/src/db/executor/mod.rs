@@ -7,6 +7,7 @@ pub(in crate::db) mod access_contract;
 mod access_dispatcher;
 mod aggregate;
 mod context;
+mod continuation;
 mod delete;
 mod executable_plan;
 pub(in crate::db) mod group;
@@ -30,10 +31,7 @@ use crate::db::{
         LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey, lower_index_prefix_specs,
         lower_index_range_specs,
     },
-    cursor::{
-        RangeToken, range_token_anchor_key, range_token_from_cursor_anchor,
-        range_token_from_lowered_anchor,
-    },
+    cursor::{RangeToken, range_token_anchor_key, range_token_from_lowered_anchor},
 };
 
 pub(in crate::db) use access_contract::{
@@ -48,6 +46,7 @@ pub(in crate::db::executor) use access_dispatcher::{
     dispatch_access_plan_kind, is_composite_access_plan,
 };
 pub(super) use context::*;
+pub(in crate::db::executor) use continuation::ContinuationEngine;
 pub(super) use delete::DeleteExecutor;
 pub(in crate::db) use executable_plan::ExecutablePlan;
 pub(in crate::db::executor) use kernel::{ExecutionKernel, PlanRow};

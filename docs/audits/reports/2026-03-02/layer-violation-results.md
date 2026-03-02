@@ -31,3 +31,17 @@ No strict layer violations detected.
 ## Overall Status
 
 **PASS** (no upward dependency or ownership-boundary violations found in audited scope).
+
+## Rerun Addendum - 2026-03-02 (post continuation + load entrypoint unification)
+
+Rerun checks:
+
+| Check | Result | Evidence |
+| ---- | ---- | ---- |
+| Query upward dependency to executor | Pass | non-comment `query/* -> executor/*` matches: **0** |
+| Index/data/commit upward dependency to query | Pass | non-comment `index|data|commit/* -> query/*` matches: **0** |
+| Query runtime symbol leakage | Pass | non-test query matches for `ExecutionKernel|ExecutionPreparation|LoadExecutor`: **0** |
+| Executor continuation boundary drift | Pass | runtime token constructors outside `executor/continuation/mod.rs`: **0** |
+| Executor cursor-boundary derivation drift | Pass | runtime `cursor_boundary_from_entity` / `CursorBoundary::from_ordered_entity` outside cursor protocol: **0** |
+
+Rerun status remains **PASS**.

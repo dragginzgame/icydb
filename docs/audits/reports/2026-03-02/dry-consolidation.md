@@ -98,3 +98,30 @@ Classification:
 5. Estimated LoC Reduction Range: **100-180 LOC**.
 6. Architectural Risk Summary: DRY pressure is concentrated in divergence-prone grouped policy/runtime overlap, not raw copy volume.
 7. DRY Risk Index (1-10, lower is better): **6/10**.
+
+## Rerun Addendum - 2026-03-02 (post continuation + load entrypoint unification)
+
+Targeted DRY rerun findings:
+
+- Grouped paging window derivation now routes through
+  `executor/continuation/mod.rs` (`grouped_paging_contract`), removing duplicate
+  grouped cursor-window math from grouped fold helpers.
+- Grouped next-cursor token construction now routes through
+  `executor/continuation/mod.rs` (`grouped_next_cursor_token`), removing direct
+  token construction in grouped page finalization.
+- Executor runtime drift checks:
+  - `ContinuationToken::new*` / `GroupedContinuationToken::new*` outside
+    continuation facade (non-test): **0**.
+  - Cursor-boundary derivation outside cursor protocol (non-test): **0**.
+
+Residual pressure:
+
+- Planner/executor grouped DISTINCT policy layering remains the dominant
+  divergence-prone seam.
+- Executor `.as_inner()` usage remains at **11** non-test callsites and should
+  be tracked to prevent semantic backdoor growth.
+
+Rerun conclusion:
+
+- DRY pressure improved in continuation/load orchestration.
+- Overall DRY Risk Index improves slightly to **5/10** for this rerun snapshot.

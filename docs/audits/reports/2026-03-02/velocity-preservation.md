@@ -102,3 +102,31 @@ CAF flags:
 4. Gravity Wells: `executor/load/mod.rs`, `query/plan/validate.rs`, `query/intent/mod.rs`.
 5. Feature Friction Map: highest friction remains path-shape, ordering, and continuation-evolution work.
 6. Change Amplification Summary: architecture remains extendable, but cross-layer coordination cost stays high for route/cursor/grouped changes.
+
+## Rerun Addendum - 2026-03-02 (post continuation + load entrypoint unification)
+
+Post-refactor velocity checks:
+
+- Load entrypoint execution now routes through one internal pipeline in
+  `executor/load/entrypoints.rs`:
+  - `fn execute_paged_internal_traced`
+  - typed input/output variants (`LoadCursorInput`, `LoadExecutionPage`)
+  - grouped and scalar public entrypoints remain wrappers.
+- Continuation mechanics are now centralized for executor runtime orchestration in
+  `executor/continuation/mod.rs` (cursor runtime bindings, grouped paging window,
+  grouped next-token construction).
+
+Drift-sensitive counters (non-test runtime):
+
+- `AccessPath::` references: **188** across **17** files.
+- `continuation|anchor` mentions: **681** across **70** files.
+- `.as_inner()` executor callsites: **11**.
+
+Rerun conclusion:
+
+- Change amplification for load entrypoint behavior is reduced by collapsing
+  grouped/scalar dispatch into one internal path.
+- Continuation surface area is still broad, so continuation-heavy feature work
+  remains medium-high friction.
+- Velocity Risk Index remains **7/10** with improved local ergonomics in load
+  entrypoint evolution.

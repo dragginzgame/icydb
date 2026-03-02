@@ -160,3 +160,31 @@ Hub Import Pressure Index (`HIP = cross_layer / unique`):
 | Error taxonomy growth | query + executor + boundary mapping surfaces | Medium |
 
 Summary: layer direction remains clean; main structural pressure is concentrated in large coordination hubs and high HIP ratios.
+
+## Rerun Addendum - 2026-03-02 (post continuation + load entrypoint unification)
+
+Structural rerun snapshot:
+
+- Runtime Rust files audited (non-test): **225**.
+- Unrestricted `pub` declarations (runtime, non-test): **512**.
+- Restricted visibility declarations (`pub(crate)`, `pub(super)`, `pub(in ...)`): **1679**.
+- Public `struct/enum/trait/fn` declarations: **312**.
+- Public field declarations: **89**.
+
+Layer-direction recheck:
+
+- `query/* -> executor/*` non-comment matches: **0**.
+- `index|data|commit/* -> query/*` non-comment matches: **0**.
+- Query runtime symbol leakage (`ExecutionKernel|ExecutionPreparation|LoadExecutor`) in
+  non-test query modules: **0**.
+
+Post-refactor boundary checks:
+
+- Executor runtime token construction outside `executor/continuation/mod.rs` (non-test): **0**.
+- Executor runtime cursor-boundary derivation outside cursor protocol (non-test): **0**.
+- Executor `.as_inner()` callsites (non-test): **11** (baseline for drift monitoring).
+
+Rerun conclusion:
+- Strict layering remains clean.
+- Continuation boundary ownership improved in executor runtime.
+- Overall Structural Risk Index remains **6/10**.
