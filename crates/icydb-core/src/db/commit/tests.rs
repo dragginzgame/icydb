@@ -456,7 +456,7 @@ fn recovery_rejects_corrupt_marker_data_key_decode() {
 
     let err = ensure_recovered(&DB).expect_err("recovery should reject corrupt marker bytes");
     assert_eq!(err.class, ErrorClass::Corruption);
-    assert_eq!(err.origin, ErrorOrigin::Store);
+    assert_eq!(err.origin, ErrorOrigin::Recovery);
     let marker_still_present = store::with_commit_store(|store| Ok(!store.is_empty()))
         .expect("raw commit marker presence check should succeed");
     assert!(
@@ -518,7 +518,7 @@ fn recovery_replay_rolls_back_applied_prefix_when_later_marker_op_fails_prepare(
         "recovery should fail when a later marker op has an unsupported entity path during replay",
     );
     assert_eq!(err.class, ErrorClass::Unsupported);
-    assert_eq!(err.origin, ErrorOrigin::Store);
+    assert_eq!(err.origin, ErrorOrigin::Recovery);
     assert!(
         commit_marker_present().expect("commit marker check should succeed"),
         "failed replay should keep marker persisted for later recovery attempts"
@@ -567,7 +567,7 @@ fn recovery_rejects_unsupported_entity_path_without_fallback() {
     let err =
         ensure_recovered(&DB).expect_err("recovery should reject unsupported entity path markers");
     assert_eq!(err.class, ErrorClass::Unsupported);
-    assert_eq!(err.origin, ErrorOrigin::Store);
+    assert_eq!(err.origin, ErrorOrigin::Recovery);
     assert!(
         err.message.contains("unsupported entity path"),
         "unsupported entity diagnostics should include dispatch context: {err:?}"
@@ -619,7 +619,7 @@ fn recovery_rejects_miswired_hook_entity_path_mismatch_as_corruption() {
     let err = ensure_recovered(&MISWIRED_DB)
         .expect_err("miswired hook dispatch should fail with path mismatch corruption");
     assert_eq!(err.class, ErrorClass::Corruption);
-    assert_eq!(err.origin, ErrorOrigin::Store);
+    assert_eq!(err.origin, ErrorOrigin::Recovery);
     assert!(
         err.message.contains("commit marker entity path mismatch"),
         "dispatch corruption should include mismatch context: {err:?}"
@@ -714,7 +714,7 @@ fn recovery_replay_rejects_schema_fingerprint_mismatch() {
     let err = ensure_recovered(&DB)
         .expect_err("recovery should reject mismatched commit schema fingerprint");
     assert_eq!(err.class, ErrorClass::Unsupported);
-    assert_eq!(err.origin, ErrorOrigin::Store);
+    assert_eq!(err.origin, ErrorOrigin::Recovery);
     assert!(
         err.message.contains("schema fingerprint mismatch"),
         "fingerprint mismatch should include explicit reason: {err:?}"
@@ -1351,7 +1351,7 @@ fn recovery_startup_rebuild_fail_closed_restores_previous_index_state_on_corrupt
 
     let err = ensure_recovered(&DB).expect_err("startup rebuild should reject corrupted row bytes");
     assert_eq!(err.class, ErrorClass::Corruption);
-    assert_eq!(err.origin, ErrorOrigin::Serialize);
+    assert_eq!(err.origin, ErrorOrigin::Recovery);
 
     let after_snapshot = index_key_bytes_snapshot();
     assert_eq!(

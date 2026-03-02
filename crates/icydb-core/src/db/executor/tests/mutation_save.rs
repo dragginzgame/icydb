@@ -1353,6 +1353,48 @@ fn unique_index_violation_rejected_on_insert() {
 }
 
 #[test]
+fn unique_index_row_key_mismatch_surfaces_store_invariant_violation() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let existing_id = Ulid::from_u128(510);
+    let save = SaveExecutor::<UniqueEmailEntity>::new(DB, false);
+    save.insert(UniqueEmailEntity {
+        id: existing_id,
+        email: "alice@example.com".to_string(),
+    })
+    .expect("seed unique row should save");
+
+    let raw_key = DataKey::try_new::<UniqueEmailEntity>(existing_id)
+        .expect("existing key should build")
+        .to_raw()
+        .expect("existing key should encode");
+    let mismatched_row = UniqueEmailEntity {
+        id: Ulid::from_u128(511),
+        email: "alice@example.com".to_string(),
+    };
+    let raw_row =
+        RawRow::try_new(serialize(&mismatched_row).expect("mismatched row should encode"))
+            .expect("mismatched row should satisfy row bound");
+    with_data_store_mut(SourceStore::PATH, |data_store| {
+        data_store.insert(raw_key, raw_row);
+    });
+
+    let err = save
+        .insert(UniqueEmailEntity {
+            id: Ulid::from_u128(512),
+            email: "alice@example.com".to_string(),
+        })
+        .expect_err("row-key mismatch should fail unique validation");
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+    assert!(
+        err.message.contains("index entry points at key"),
+        "row-key mismatch should report index/data key disagreement: {err:?}"
+    );
+}
+
+#[test]
 fn decimal_scale_mixed_writes_reject_noncanonical_scale() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();

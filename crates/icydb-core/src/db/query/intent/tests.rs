@@ -583,6 +583,38 @@ fn grouped_aggregate_builder_fingerprint_parity_preserves_distinct_flag_shape() 
 }
 
 #[test]
+fn grouped_aggregate_builder_fingerprint_parity_preserves_distinct_sum_shape() {
+    let helper_plan = Query::<PlanNumericEntity>::new(MissingRowPolicy::Ignore)
+        .aggregate(crate::db::sum("rank").distinct())
+        .limit(1)
+        .plan()
+        .expect("helper grouped global distinct sum plan should build")
+        .into_inner();
+    let builder_plan = Query::<PlanNumericEntity>::new(MissingRowPolicy::Ignore)
+        .aggregate(sum("rank").distinct())
+        .limit(1)
+        .plan()
+        .expect("builder grouped global distinct sum plan should build")
+        .into_inner();
+
+    assert_eq!(
+        helper_plan.explain().grouping,
+        builder_plan.explain().grouping,
+        "helper and builder global distinct-sum plans must have identical grouped projection shapes",
+    );
+    assert_eq!(
+        helper_plan.fingerprint(),
+        builder_plan.fingerprint(),
+        "helper and builder global distinct-sum plans must have identical fingerprints",
+    );
+    assert_eq!(
+        helper_plan.continuation_signature("intent::tests::PlanNumericEntity"),
+        builder_plan.continuation_signature("intent::tests::PlanNumericEntity"),
+        "helper and builder global distinct-sum plans must have identical continuation signatures",
+    );
+}
+
+#[test]
 fn grouped_aggregate_builder_fingerprint_parity_preserves_projection_order_shape() {
     let helper_plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .group_by("name")

@@ -82,6 +82,34 @@ impl<E: EntityKind> ExecutablePlan<E> {
         }
     }
 
+    // Return grouped-cursor policy violation text when one grouped cursor shape
+    // is not executable for this logical grouped plan.
+    fn grouped_cursor_policy_violation_message(
+        &self,
+        cursor_present: bool,
+    ) -> Option<&'static str> {
+        if !cursor_present {
+            return None;
+        }
+        if self
+            .plan
+            .scalar_plan()
+            .page
+            .as_ref()
+            .and_then(|page| page.limit)
+            .is_none()
+        {
+            return Some("grouped continuation cursors require an explicit LIMIT");
+        }
+        if self.plan.grouped_plan().is_some_and(
+            crate::db::query::plan::GroupPlan::is_global_distinct_aggregate_without_group_keys,
+        ) {
+            return Some("global DISTINCT grouped aggregates do not support continuation cursors");
+        }
+
+        None
+    }
+
     /// Explain this plan without executing it.
     #[must_use]
     #[cfg(test)]
@@ -108,7 +136,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
         // Grouped plans require grouped cursor contracts and must not enter scalar path.
         if matches!(&self.plan.logical, LogicalPlan::Grouped(_)) {
             return Err(ExecutorPlanError::from(
-                CursorPlanError::invalid_continuation_cursor_payload(
+                CursorPlanError::continuation_cursor_invariant(
                     InternalError::executor_invariant_message(
                         "grouped plans require grouped cursor preparation",
                     ),
@@ -202,36 +230,16 @@ impl<E: EntityKind> ExecutablePlan<E> {
     ) -> Result<GroupedPlannedCursor, ExecutorPlanError> {
         if !matches!(&self.plan.logical, LogicalPlan::Grouped(_)) {
             return Err(ExecutorPlanError::from(
-                CursorPlanError::invalid_continuation_cursor_payload(
+                CursorPlanError::continuation_cursor_invariant(
                     InternalError::executor_invariant_message(
                         "grouped cursor preparation requires grouped logical plans",
                     ),
                 ),
             ));
         }
-        if cursor.is_some()
-            && self
-                .plan
-                .scalar_plan()
-                .page
-                .as_ref()
-                .and_then(|page| page.limit)
-                .is_none()
-        {
+        if let Some(message) = self.grouped_cursor_policy_violation_message(cursor.is_some()) {
             return Err(ExecutorPlanError::from(
-                CursorPlanError::invalid_continuation_cursor_payload(
-                    "grouped continuation cursors require an explicit LIMIT",
-                ),
-            ));
-        }
-        if self.plan.grouped_plan().is_some_and(
-            crate::db::query::plan::GroupPlan::is_global_distinct_aggregate_without_group_keys,
-        ) && cursor.is_some()
-        {
-            return Err(ExecutorPlanError::from(
-                CursorPlanError::invalid_continuation_cursor_payload(
-                    "global DISTINCT grouped aggregates do not support continuation cursors",
-                ),
+                CursorPlanError::continuation_cursor_invariant(message),
             ));
         }
 
@@ -256,29 +264,9 @@ impl<E: EntityKind> ExecutablePlan<E> {
                 "grouped cursor revalidation requires grouped logical plans",
             ));
         }
-        if !cursor.is_empty()
-            && self
-                .plan
-                .scalar_plan()
-                .page
-                .as_ref()
-                .and_then(|page| page.limit)
-                .is_none()
-        {
+        if let Some(message) = self.grouped_cursor_policy_violation_message(!cursor.is_empty()) {
             return Err(InternalError::from_cursor_plan_error(
-                CursorPlanError::invalid_continuation_cursor_payload(
-                    "grouped continuation cursors require an explicit LIMIT",
-                ),
-            ));
-        }
-        if self.plan.grouped_plan().is_some_and(
-            crate::db::query::plan::GroupPlan::is_global_distinct_aggregate_without_group_keys,
-        ) && !cursor.is_empty()
-        {
-            return Err(InternalError::from_cursor_plan_error(
-                CursorPlanError::invalid_continuation_cursor_payload(
-                    "global DISTINCT grouped aggregates do not support continuation cursors",
-                ),
+                CursorPlanError::continuation_cursor_invariant(message),
             ));
         }
 

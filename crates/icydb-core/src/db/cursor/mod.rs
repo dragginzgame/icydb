@@ -190,7 +190,7 @@ fn validated_cursor_order_internal<'a>(
 ) -> Result<Option<&'a OrderSpec>, CursorPlanError> {
     validate_cursor_order_plan_shape(order, require_explicit_order).map_err(|err| match err {
         CursorOrderPlanShapeError::MissingExplicitOrder => {
-            CursorPlanError::invalid_continuation_cursor_payload(
+            CursorPlanError::continuation_cursor_invariant(
                 InternalError::executor_invariant_message(missing_order_message),
             )
         }
@@ -201,5 +201,5 @@ fn validated_cursor_order_internal<'a>(
 }
 
 fn invariant(message: impl Into<String>) -> InternalError {
-    InternalError::query_executor_invariant(message)
+    InternalError::cursor_invariant(InternalError::executor_invariant_message(message))
 }

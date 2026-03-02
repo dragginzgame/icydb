@@ -1,8 +1,8 @@
 use candid::CandidType;
 use derive_more::Display;
 use icydb_core::{
-    db::{PlanError, QueryError, ResponseError},
-    error::{ErrorOrigin as CoreErrorOrigin, InternalError},
+    db::{QueryError, QueryExecuteError, ResponseError},
+    error::{ErrorClass as CoreErrorClass, ErrorOrigin as CoreErrorOrigin, InternalError},
     patch::MergePatchError as CoreMergePatchError,
 };
 use serde::{Deserialize, Serialize};
@@ -59,7 +59,11 @@ impl Error {
 
 impl From<InternalError> for Error {
     fn from(err: InternalError) -> Self {
-        Self::new(ErrorKind::Internal, err.origin.into(), err.message)
+        Self::new(
+            ErrorKind::Runtime(map_class(err.class)),
+            err.origin.into(),
+            err.message,
+        )
     }
 }
 
@@ -78,18 +82,6 @@ impl From<QueryError> for Error {
                 err.to_string(),
             ),
 
-            QueryError::Plan(err) if is_unordered_pagination_plan_error(&err) => Self::new(
-                ErrorKind::Query(QueryErrorKind::UnorderedPagination),
-                ErrorOrigin::Query,
-                err.to_string(),
-            ),
-
-            QueryError::Plan(err) if is_invalid_continuation_cursor_plan_error(&err) => Self::new(
-                ErrorKind::Query(QueryErrorKind::InvalidContinuationCursor),
-                ErrorOrigin::Query,
-                err.to_string(),
-            ),
-
             QueryError::Plan(_) => Self::new(
                 ErrorKind::Query(QueryErrorKind::Plan),
                 ErrorOrigin::Query,
@@ -98,30 +90,27 @@ impl From<QueryError> for Error {
 
             QueryError::Response(err) => Self::from_response_error(err),
 
-            QueryError::Execute(err) => err.into(),
+            QueryError::Execute(err) => match err {
+                QueryExecuteError::Corruption(inner)
+                | QueryExecuteError::InvariantViolation(inner)
+                | QueryExecuteError::Conflict(inner)
+                | QueryExecuteError::NotFound(inner)
+                | QueryExecuteError::Unsupported(inner)
+                | QueryExecuteError::Internal(inner) => inner.into(),
+            },
         }
     }
 }
 
-fn is_unordered_pagination_plan_error(err: &PlanError) -> bool {
-    is_unordered_pagination_message(&err.to_string())
-}
-
-fn is_invalid_continuation_cursor_plan_error(err: &PlanError) -> bool {
-    is_invalid_continuation_cursor_message(&err.to_string())
-}
-
-fn is_unordered_pagination_message(message: &str) -> bool {
-    message.starts_with("Unordered pagination is not allowed.")
-}
-
-fn is_invalid_continuation_cursor_message(message: &str) -> bool {
-    message.starts_with("invalid continuation cursor:")
-        || message.starts_with("unsupported continuation cursor version:")
-        || message.starts_with("continuation cursor does not match query plan signature")
-        || message.starts_with("continuation cursor boundary arity mismatch:")
-        || message.starts_with("continuation cursor boundary type mismatch")
-        || message.starts_with("continuation cursor primary key type mismatch")
+const fn map_class(class: CoreErrorClass) -> RuntimeErrorKind {
+    match class {
+        CoreErrorClass::Corruption => RuntimeErrorKind::Corruption,
+        CoreErrorClass::InvariantViolation => RuntimeErrorKind::InvariantViolation,
+        CoreErrorClass::Conflict => RuntimeErrorKind::Conflict,
+        CoreErrorClass::NotFound => RuntimeErrorKind::NotFound,
+        CoreErrorClass::Unsupported => RuntimeErrorKind::Unsupported,
+        CoreErrorClass::Internal => RuntimeErrorKind::Internal,
+    }
 }
 
 impl From<ResponseError> for Error {
@@ -140,7 +129,22 @@ pub enum ErrorKind {
     Query(QueryErrorKind),
     Update(UpdateErrorKind),
 
-    /// The caller cannot remediate this.
+    /// Runtime failure preserving the core semantic error class.
+    Runtime(RuntimeErrorKind),
+}
+
+///
+/// RuntimeErrorKind
+/// Public runtime class taxonomy mirrored from `icydb-core::ErrorClass`.
+///
+
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum RuntimeErrorKind {
+    Corruption,
+    InvariantViolation,
+    Conflict,
+    NotFound,
+    Unsupported,
     Internal,
 }
 
@@ -209,10 +213,14 @@ impl PatchError {
 
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Display, Eq, PartialEq, Serialize)]
 pub enum ErrorOrigin {
+    Cursor,
     Executor,
+    Identity,
     Index,
     Interface,
+    Planner,
     Query,
+    Recovery,
     Response,
     Serialize,
     Store,
@@ -221,10 +229,14 @@ pub enum ErrorOrigin {
 impl From<CoreErrorOrigin> for ErrorOrigin {
     fn from(origin: CoreErrorOrigin) -> Self {
         match origin {
+            CoreErrorOrigin::Cursor => Self::Cursor,
             CoreErrorOrigin::Executor => Self::Executor,
+            CoreErrorOrigin::Identity => Self::Identity,
             CoreErrorOrigin::Index => Self::Index,
             CoreErrorOrigin::Interface => Self::Interface,
+            CoreErrorOrigin::Planner => Self::Planner,
             CoreErrorOrigin::Query => Self::Query,
+            CoreErrorOrigin::Recovery => Self::Recovery,
             CoreErrorOrigin::Response => Self::Response,
             CoreErrorOrigin::Serialize => Self::Serialize,
             CoreErrorOrigin::Store => Self::Store,
@@ -239,7 +251,8 @@ impl From<CoreErrorOrigin> for ErrorOrigin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use icydb_core::db::{IntentError, ValidateError};
+    use icydb_core::db::{IntentError, PlanError, ValidateError};
+    use icydb_core::error::{ErrorClass as CoreErrorClass, ErrorOrigin as CoreErrorOrigin};
 
     #[test]
     fn query_validate_maps_to_validate_kind() {
@@ -262,34 +275,6 @@ mod tests {
     }
 
     #[test]
-    fn plan_unordered_pagination_maps_to_dedicated_kind() {
-        assert!(
-            is_unordered_pagination_message(
-                "Unordered pagination is not allowed.\nThis query uses LIMIT or OFFSET without an ORDER BY clause.",
-            ),
-            "unordered pagination prefix should map to dedicated facade kind",
-        );
-    }
-
-    #[test]
-    fn plan_invalid_continuation_cursor_maps_to_dedicated_kind() {
-        assert!(
-            is_invalid_continuation_cursor_message(
-                "invalid continuation cursor: cursor token is empty",
-            ),
-            "invalid continuation cursor payload should map to dedicated facade kind",
-        );
-    }
-
-    #[test]
-    fn plan_continuation_cursor_version_mismatch_maps_to_dedicated_kind() {
-        assert!(
-            is_invalid_continuation_cursor_message("unsupported continuation cursor version: 2"),
-            "version mismatch should map to dedicated facade kind",
-        );
-    }
-
-    #[test]
     fn plan_errors_map_to_plan_kind() {
         let err = QueryError::Plan(Box::new(PlanError::from(ValidateError::UnknownField {
             field: "field".to_string(),
@@ -306,5 +291,77 @@ mod tests {
 
         assert_eq!(facade.kind, ErrorKind::Query(QueryErrorKind::NotFound));
         assert_eq!(facade.origin, ErrorOrigin::Response);
+    }
+
+    #[test]
+    fn internal_error_class_matrix_maps_to_runtime_kind_and_preserves_origin() {
+        let cases = [
+            (CoreErrorClass::Corruption, RuntimeErrorKind::Corruption),
+            (
+                CoreErrorClass::InvariantViolation,
+                RuntimeErrorKind::InvariantViolation,
+            ),
+            (CoreErrorClass::Conflict, RuntimeErrorKind::Conflict),
+            (CoreErrorClass::NotFound, RuntimeErrorKind::NotFound),
+            (CoreErrorClass::Unsupported, RuntimeErrorKind::Unsupported),
+            (CoreErrorClass::Internal, RuntimeErrorKind::Internal),
+        ];
+
+        for (class, expected_kind) in cases {
+            let core_err = InternalError::new(class, CoreErrorOrigin::Index, "runtime failure");
+            let facade = Error::from(core_err);
+
+            assert_eq!(facade.kind, ErrorKind::Runtime(expected_kind));
+            assert_eq!(facade.origin, ErrorOrigin::Index);
+        }
+    }
+
+    #[test]
+    fn query_execute_preserves_runtime_class_and_origin() {
+        let cases = [
+            (
+                CoreErrorClass::Conflict,
+                CoreErrorOrigin::Store,
+                RuntimeErrorKind::Conflict,
+                ErrorOrigin::Store,
+                "write conflict",
+            ),
+            (
+                CoreErrorClass::NotFound,
+                CoreErrorOrigin::Executor,
+                RuntimeErrorKind::NotFound,
+                ErrorOrigin::Executor,
+                "row missing",
+            ),
+        ];
+
+        for (class, origin, expected_kind, expected_origin, message) in cases {
+            let query_err = QueryError::Execute(QueryExecuteError::from(InternalError::new(
+                class, origin, message,
+            )));
+            let facade = Error::from(query_err);
+
+            assert_eq!(facade.kind, ErrorKind::Runtime(expected_kind));
+            assert_eq!(facade.origin, expected_origin);
+        }
+    }
+
+    #[test]
+    fn origin_mapping_includes_new_core_domains() {
+        let cases = [
+            (CoreErrorOrigin::Cursor, ErrorOrigin::Cursor),
+            (CoreErrorOrigin::Planner, ErrorOrigin::Planner),
+            (CoreErrorOrigin::Recovery, ErrorOrigin::Recovery),
+            (CoreErrorOrigin::Identity, ErrorOrigin::Identity),
+        ];
+
+        for (origin, expected) in cases {
+            let facade = Error::from(InternalError::new(
+                CoreErrorClass::Internal,
+                origin,
+                "origin mapping",
+            ));
+            assert_eq!(facade.origin, expected);
+        }
     }
 }

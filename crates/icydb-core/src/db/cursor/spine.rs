@@ -153,9 +153,7 @@ where
         initial_offset: expected_initial_offset,
     };
     let boundary = cursor.boundary().cloned().ok_or_else(|| {
-        CursorPlanError::invalid_continuation_cursor_payload(
-            "continuation cursor boundary is missing",
-        )
+        CursorPlanError::continuation_cursor_invariant("continuation cursor boundary is missing")
     })?;
     let index_range_anchor = cursor.index_range_anchor().cloned();
 

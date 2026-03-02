@@ -206,7 +206,10 @@ pub mod design {
 ///
 /// -------------------------- CODE -----------------------------------
 ///
-use icydb_core::{error::InternalError, traits::Visitable};
+use icydb_core::{
+    error::{ErrorClass, ErrorOrigin, InternalError},
+    traits::Visitable,
+};
 use serde::{Serialize, de::DeserializeOwned};
 
 ///
@@ -265,7 +268,13 @@ where
     T: Serialize,
 {
     icydb_core::serialize::serialize(ty)
-        .map_err(InternalError::from)
+        .map_err(|err| {
+            InternalError::new(
+                ErrorClass::Internal,
+                ErrorOrigin::Serialize,
+                err.to_string(),
+            )
+        })
         .map_err(Error::from)
 }
 
@@ -278,6 +287,12 @@ where
     T: DeserializeOwned,
 {
     icydb_core::serialize::deserialize(bytes)
-        .map_err(InternalError::from)
+        .map_err(|err| {
+            InternalError::new(
+                ErrorClass::Internal,
+                ErrorOrigin::Serialize,
+                err.to_string(),
+            )
+        })
         .map_err(Error::from)
 }

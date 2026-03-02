@@ -207,7 +207,7 @@ impl<C: CanisterKind> DbSession<C> {
             QueryMode::Delete(_) => self.with_metrics(|| self.delete_executor::<E>().execute(plan)),
         };
 
-        result.map_err(QueryError::Execute)
+        result.map_err(QueryError::execute)
     }
 
     // Shared load-query terminal wrapper: build plan, run under metrics, map
@@ -223,7 +223,7 @@ impl<C: CanisterKind> DbSession<C> {
         let plan = query.plan()?.into_executable();
 
         self.with_metrics(|| op(self.load_executor::<E>(), plan))
-            .map_err(QueryError::Execute)
+            .map_err(QueryError::execute)
     }
 
     /// Execute one scalar paged load query and return optional continuation cursor plus trace.
@@ -238,7 +238,7 @@ impl<C: CanisterKind> DbSession<C> {
         // Phase 1: build/validate executable plan and reject grouped plans.
         let plan = query.plan()?.into_executable();
         if plan.as_inner().grouped_plan().is_some() {
-            return Err(QueryError::Execute(invariant(
+            return Err(QueryError::execute(invariant(
                 "grouped plans require execute_grouped(...)",
             )));
         }
@@ -262,18 +262,18 @@ impl<C: CanisterKind> DbSession<C> {
                 self.load_executor::<E>()
                     .execute_paged_with_cursor_traced(plan, cursor)
             })
-            .map_err(QueryError::Execute)?;
+            .map_err(QueryError::execute)?;
         let next_cursor = page
             .next_cursor
             .map(|token| {
                 let Some(token) = token.as_scalar() else {
-                    return Err(QueryError::Execute(invariant(
+                    return Err(QueryError::execute(invariant(
                         "scalar load pagination emitted grouped continuation token",
                     )));
                 };
 
                 token.encode().map_err(|err| {
-                    QueryError::Execute(InternalError::serialize_internal(format!(
+                    QueryError::execute(InternalError::serialize_internal(format!(
                         "failed to serialize continuation cursor: {err}"
                     )))
                 })
@@ -302,7 +302,7 @@ impl<C: CanisterKind> DbSession<C> {
         // Phase 1: build/validate executable plan and require grouped shape.
         let plan = query.plan()?.into_executable();
         if plan.as_inner().grouped_plan().is_none() {
-            return Err(QueryError::Execute(invariant(
+            return Err(QueryError::execute(invariant(
                 "execute_grouped requires grouped logical plans",
             )));
         }
@@ -326,18 +326,18 @@ impl<C: CanisterKind> DbSession<C> {
                 self.load_executor::<E>()
                     .execute_grouped_paged_with_cursor_traced(plan, cursor)
             })
-            .map_err(QueryError::Execute)?;
+            .map_err(QueryError::execute)?;
         let next_cursor = page
             .next_cursor
             .map(|token| {
                 let Some(token) = token.as_grouped() else {
-                    return Err(QueryError::Execute(invariant(
+                    return Err(QueryError::execute(invariant(
                         "grouped pagination emitted scalar continuation token",
                     )));
                 };
 
                 token.encode().map_err(|err| {
-                    QueryError::Execute(InternalError::serialize_internal(format!(
+                    QueryError::execute(InternalError::serialize_internal(format!(
                         "failed to serialize grouped continuation cursor: {err}"
                     )))
                 })

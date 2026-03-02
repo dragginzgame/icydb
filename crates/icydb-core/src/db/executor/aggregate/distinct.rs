@@ -19,7 +19,10 @@ use crate::{
             group::GroupKeySet,
             load::LoadExecutor,
         },
-        query::plan::{GroupAggregateSpec, GroupSpec, GroupedExecutionConfig},
+        query::{
+            builder::aggregate::{count_by, sum},
+            plan::{GroupSpec, GroupedExecutionConfig},
+        },
         response::Response,
     },
     error::InternalError,
@@ -59,18 +62,25 @@ where
         kind: AggregateKind,
         target_field: &str,
     ) -> Result<Option<Value>, InternalError> {
-        let grouped_plan = plan.into_inner().into_grouped(GroupSpec {
-            group_fields: Vec::new(),
-            aggregates: vec![GroupAggregateSpec {
-                kind,
-                target_field: Some(target_field.to_string()),
-                distinct: true,
-            }],
-            execution: GroupedExecutionConfig::with_hard_limits(
-                GLOBAL_DISTINCT_GROUPED_MAX_GROUPS,
-                GLOBAL_DISTINCT_GROUPED_MAX_GROUP_BYTES,
-            ),
-        });
+        // Build global DISTINCT grouped shape via the query semantic spine.
+        let aggregate = match kind {
+            AggregateKind::Count => count_by(target_field).distinct(),
+            AggregateKind::Sum => sum(target_field).distinct(),
+            _ => {
+                return Err(invariant(format!(
+                    "global DISTINCT grouped aggregate supports COUNT/SUM only: found {kind:?}",
+                )));
+            }
+        };
+        let grouped_plan =
+            plan.into_inner()
+                .into_grouped(GroupSpec::global_distinct_shape_from_aggregate_expr(
+                    &aggregate,
+                    GroupedExecutionConfig::with_hard_limits(
+                        GLOBAL_DISTINCT_GROUPED_MAX_GROUPS,
+                        GLOBAL_DISTINCT_GROUPED_MAX_GROUP_BYTES,
+                    ),
+                ));
         let grouped_plan = ExecutablePlan::new(grouped_plan);
         let (page, _) = self
             .execute_grouped_paged_with_cursor_traced(grouped_plan, GroupedPlannedCursor::none())?;

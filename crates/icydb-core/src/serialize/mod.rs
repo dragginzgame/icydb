@@ -1,6 +1,5 @@
 mod cbor;
 
-use crate::error::InternalError;
 use serde::{Serialize, de::DeserializeOwned};
 use std::fmt;
 use thiserror::Error as ThisError;
@@ -69,12 +68,6 @@ impl SerializeError {
                 SerializeErrorKind::DeserializeSizeLimitExceeded
             }
         }
-    }
-}
-
-impl From<SerializeError> for InternalError {
-    fn from(err: SerializeError) -> Self {
-        Self::serialize_internal(err.to_string())
     }
 }
 

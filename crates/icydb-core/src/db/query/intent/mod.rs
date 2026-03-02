@@ -27,9 +27,9 @@ use crate::{
             expr::{FilterExpr, SortExpr, SortLowerError},
             plan::{
                 AccessPlannedQuery, CursorPagingPolicyError, DeleteLimitSpec,
-                FluentLoadPolicyViolation, GroupAggregateKind, GroupAggregateSpec,
-                GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupSpec,
-                GroupedExecutionConfig, IntentKeyAccessKind as IntentValidationKeyAccessKind,
+                FluentLoadPolicyViolation, GroupAggregateSpec, GroupHavingClause, GroupHavingSpec,
+                GroupHavingSymbol, GroupSpec, GroupedExecutionConfig,
+                IntentKeyAccessKind as IntentValidationKeyAccessKind,
                 IntentKeyAccessPolicyViolation, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
                 PlanError, PlannerError, PolicyPlanError, ScalarPlan, has_explicit_order,
                 plan_access, resolve_group_field_slot, validate_group_query_semantics,
@@ -39,7 +39,7 @@ use crate::{
         },
         response::ResponseError,
     },
-    error::InternalError,
+    error::{ErrorClass, InternalError},
     model::entity::EntityModel,
     traits::{EntityKind, FieldValue, SingletonEntity},
     value::Value,
@@ -319,22 +319,15 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
     }
 
     // Append one grouped aggregate terminal to the grouped declarative spec.
-    fn push_group_aggregate(
-        mut self,
-        kind: GroupAggregateKind,
-        target_field: Option<String>,
-        distinct: bool,
-    ) -> Self {
+    fn push_group_aggregate(mut self, aggregate: AggregateExpr) -> Self {
         let group = self.group.get_or_insert(GroupSpec {
             group_fields: Vec::new(),
             aggregates: Vec::new(),
             execution: GroupedExecutionConfig::unbounded(),
         });
-        group.aggregates.push(GroupAggregateSpec {
-            kind,
-            target_field,
-            distinct,
-        });
+        group
+            .aggregates
+            .push(GroupAggregateSpec::from_aggregate_expr(&aggregate));
 
         self
     }
@@ -720,11 +713,7 @@ impl<E: EntityKind> Query<E> {
     /// Add one aggregate terminal via composable aggregate expression.
     #[must_use]
     pub fn aggregate(mut self, aggregate: AggregateExpr) -> Self {
-        self.intent = self.intent.push_group_aggregate(
-            aggregate.kind(),
-            aggregate.target_field().map(str::to_string),
-            aggregate.is_distinct(),
-        );
+        self.intent = self.intent.push_group_aggregate(aggregate);
         self
     }
 
@@ -881,14 +870,74 @@ pub enum QueryError {
     Response(#[from] ResponseError),
 
     #[error("{0}")]
-    Execute(#[from] InternalError),
+    Execute(#[from] QueryExecuteError),
+}
+
+impl QueryError {
+    /// Construct an execution-domain query error from one classified runtime error.
+    pub(crate) fn execute(err: InternalError) -> Self {
+        Self::Execute(QueryExecuteError::from(err))
+    }
+}
+
+///
+/// QueryExecuteError
+///
+
+#[derive(Debug, ThisError)]
+pub enum QueryExecuteError {
+    #[error("{0}")]
+    Corruption(InternalError),
+
+    #[error("{0}")]
+    InvariantViolation(InternalError),
+
+    #[error("{0}")]
+    Conflict(InternalError),
+
+    #[error("{0}")]
+    NotFound(InternalError),
+
+    #[error("{0}")]
+    Unsupported(InternalError),
+
+    #[error("{0}")]
+    Internal(InternalError),
+}
+
+impl QueryExecuteError {
+    #[must_use]
+    /// Borrow the wrapped classified runtime error.
+    pub const fn as_internal(&self) -> &InternalError {
+        match self {
+            Self::Corruption(err)
+            | Self::InvariantViolation(err)
+            | Self::Conflict(err)
+            | Self::NotFound(err)
+            | Self::Unsupported(err)
+            | Self::Internal(err) => err,
+        }
+    }
+}
+
+impl From<InternalError> for QueryExecuteError {
+    fn from(err: InternalError) -> Self {
+        match err.class {
+            ErrorClass::Corruption => Self::Corruption(err),
+            ErrorClass::InvariantViolation => Self::InvariantViolation(err),
+            ErrorClass::Conflict => Self::Conflict(err),
+            ErrorClass::NotFound => Self::NotFound(err),
+            ErrorClass::Unsupported => Self::Unsupported(err),
+            ErrorClass::Internal => Self::Internal(err),
+        }
+    }
 }
 
 impl From<PlannerError> for QueryError {
     fn from(err: PlannerError) -> Self {
         match err {
             PlannerError::Plan(err) => Self::from(*err),
-            PlannerError::Internal(err) => Self::Execute(*err),
+            PlannerError::Internal(err) => Self::execute(*err),
         }
     }
 }

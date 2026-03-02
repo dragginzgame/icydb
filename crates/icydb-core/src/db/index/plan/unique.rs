@@ -144,9 +144,10 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
 
     let stored_key = stored.id().key();
     if stored_key != existing_key {
-        // Stored row decoded successfully but key mismatch indicates index/data divergence; treat as corruption.
-        return Err(InternalError::index_plan_store_corruption(format!(
-            "index corrupted: {} ({}) -> {}",
+        // Stored row decoded successfully but key disagreement is a cross-component invariant
+        // failure, not a structural decode/persistence corruption.
+        return Err(InternalError::index_plan_store_invariant(format!(
+            "index invariant violated: {} ({}) -> {}",
             E::PATH,
             index.fields.join(", "),
             IndexEntryCorruption::RowKeyMismatch {

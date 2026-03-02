@@ -17,8 +17,10 @@ use crate::{
                 planner::{RouteDerivationContext, RouteFeasibilityStage, RouteIntentStage},
             },
         },
-        predicate::CompareOp,
-        query::plan::{AccessPlannedQuery, GroupedPlanStrategyHint, grouped_plan_strategy_hint},
+        query::plan::{
+            AccessPlannedQuery, GroupedPlanStrategyHint, grouped_having_compare_op_supported,
+            grouped_plan_strategy_hint,
+        },
     },
     traits::{EntityKind, EntityValue},
 };
@@ -243,17 +245,10 @@ fn derive_grouped_ordered_eligibility<K>(
     });
     let having_streaming_compatible = grouped.is_none_or(|grouped| {
         grouped.having.as_ref().is_none_or(|having| {
-            having.clauses().iter().all(|clause| {
-                matches!(
-                    clause.op(),
-                    CompareOp::Eq
-                        | CompareOp::Ne
-                        | CompareOp::Lt
-                        | CompareOp::Lte
-                        | CompareOp::Gt
-                        | CompareOp::Gte
-                )
-            })
+            having
+                .clauses()
+                .iter()
+                .all(|clause| grouped_having_compare_op_supported(clause.op()))
         })
     });
 

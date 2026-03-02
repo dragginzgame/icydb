@@ -80,5 +80,5 @@ pub(in crate::db) fn grouped_executor_handoff<K>(
 }
 
 fn invariant(message: impl Into<String>) -> InternalError {
-    InternalError::query_executor_invariant(message)
+    InternalError::planner_invariant(InternalError::executor_invariant_message(message))
 }

@@ -1203,8 +1203,8 @@ fn load_cursor_pagination_pk_order_missing_slot_is_invariant_violation() {
     );
     assert_eq!(
         err.origin,
-        ErrorOrigin::Query,
-        "missing pk slot should originate from query invariant checks"
+        ErrorOrigin::Cursor,
+        "missing pk slot should originate from cursor invariant checks"
     );
     assert!(
         err.message.contains("pk cursor slot must be present"),
@@ -1249,8 +1249,8 @@ fn load_cursor_pagination_pk_order_type_mismatch_is_invariant_violation() {
     );
     assert_eq!(
         err.origin,
-        ErrorOrigin::Query,
-        "pk slot mismatch should originate from query invariant checks"
+        ErrorOrigin::Cursor,
+        "pk slot mismatch should originate from cursor invariant checks"
     );
     assert!(
         err.message.contains("pk cursor slot type mismatch"),
@@ -1296,8 +1296,8 @@ fn load_cursor_pagination_pk_order_arity_mismatch_is_invariant_violation() {
     );
     assert_eq!(
         err.origin,
-        ErrorOrigin::Query,
-        "pk slot arity mismatch should originate from query invariant checks"
+        ErrorOrigin::Cursor,
+        "pk slot arity mismatch should originate from cursor invariant checks"
     );
     assert!(
         err.message

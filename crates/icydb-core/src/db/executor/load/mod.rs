@@ -50,10 +50,9 @@ use crate::{
         index::IndexCompilePolicy,
         predicate::{CoercionSpec, CompareOp, MissingRowPolicy, compare_eq, compare_order},
         query::plan::{
-            AccessPlannedQuery, GroupAggregateSpec, GroupDistinctAdmissibility,
-            GroupDistinctPolicyReason, GroupHavingSpec, GroupHavingSymbol, LogicalPlan,
-            global_distinct_field_aggregate_admissibility, grouped_executor_handoff,
-            is_global_distinct_field_aggregate_candidate,
+            AccessPlannedQuery, GroupAggregateSpec, GroupDistinctPolicyReason, GroupHavingSpec,
+            GroupHavingSymbol, LogicalPlan, grouped_executor_handoff,
+            grouped_having_compare_op_supported, resolve_global_distinct_field_aggregate,
         },
         response::Response,
     },
@@ -593,13 +592,10 @@ where
 
         if let Some((aggregate_kind, target_field)) = route.global_distinct_field_aggregate.as_ref()
         {
-            if !route.cursor.is_empty() {
-                return Err(InternalError::from_cursor_plan_error(
-                    crate::db::cursor::CursorPlanError::invalid_continuation_cursor_payload(
-                        "global DISTINCT grouped aggregates do not support continuation cursors",
-                    ),
-                ));
-            }
+            debug_assert!(
+                route.cursor.is_empty(),
+                "global DISTINCT grouped aggregate cursor compatibility must be validated before grouped folding",
+            );
 
             let global_row = Self::execute_global_distinct_field_aggregate(
                 &route.plan,
@@ -970,25 +966,19 @@ where
         aggregates: &[GroupAggregateSpec],
         having: Option<&GroupHavingSpec>,
     ) -> Result<Option<(AggregateKind, String)>, InternalError> {
-        if !is_global_distinct_field_aggregate_candidate(group_fields, aggregates) {
-            return Ok(None);
-        }
-
-        let aggregate = &aggregates[0];
-        match global_distinct_field_aggregate_admissibility(aggregates, having) {
-            GroupDistinctAdmissibility::Allowed => {}
-            GroupDistinctAdmissibility::Disallowed(reason) => {
-                return Err(Self::group_distinct_policy_invariant(reason, aggregate));
+        match resolve_global_distinct_field_aggregate(group_fields, aggregates, having) {
+            Ok(Some(aggregate)) => Ok(Some((
+                aggregate.kind(),
+                aggregate.target_field().to_string(),
+            ))),
+            Ok(None) => Ok(None),
+            Err(reason) => {
+                let aggregate = aggregates.first().ok_or_else(|| {
+                    invariant("global DISTINCT candidate invariants require at least one aggregate")
+                })?;
+                Err(Self::group_distinct_policy_invariant(reason, aggregate))
             }
         }
-        let target_field = aggregate.target_field().ok_or_else(|| {
-            Self::group_distinct_policy_invariant(
-                GroupDistinctPolicyReason::GlobalDistinctRequiresFieldTargetAggregate,
-                aggregate,
-            )
-        })?;
-
-        Ok(Some((aggregate.kind(), target_field.to_string())))
     }
 
     // Build one canonical invariant error from grouped DISTINCT policy contract reasons.
@@ -1185,6 +1175,12 @@ where
         op: CompareOp,
         expected: &Value,
     ) -> Result<bool, InternalError> {
+        if !grouped_having_compare_op_supported(op) {
+            return Err(invariant(format!(
+                "unsupported grouped HAVING operator reached executor: {op:?}"
+            )));
+        }
+
         let strict = CoercionSpec::default();
         let matches = match op {
             CompareOp::Eq => compare_eq(actual, expected, &strict).unwrap_or(false),
@@ -1198,9 +1194,11 @@ where
             | CompareOp::Contains
             | CompareOp::StartsWith
             | CompareOp::EndsWith => {
-                return Err(invariant(format!(
-                    "unsupported grouped HAVING operator reached executor: {op:?}"
-                )));
+                debug_assert!(
+                    false,
+                    "unsupported grouped HAVING operator should have been gated before evaluation",
+                );
+                unreachable!("unsupported grouped HAVING operator was pre-gated")
             }
         };
 

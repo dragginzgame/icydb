@@ -24,7 +24,7 @@ use crate::{
             store::{commit_marker_present_fast, with_commit_store},
         },
     },
-    error::InternalError,
+    error::{ErrorOrigin, InternalError},
     traits::CanisterKind,
 };
 use std::sync::OnceLock;
@@ -46,13 +46,13 @@ static RECOVERED: OnceLock<()> = OnceLock::new();
 /// entrypoints), but must always complete **before** any operation-specific
 /// planning, validation, or apply phase begins.
 pub(crate) fn ensure_recovered<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
-    configure_commit_memory_id(C::COMMIT_MEMORY_ID)?;
+    configure_commit_memory_id(C::COMMIT_MEMORY_ID).map_err(recovery_origin)?;
 
     if RECOVERED.get().is_none() {
         return perform_recovery(db);
     }
 
-    if commit_marker_present_fast()? {
+    if commit_marker_present_fast().map_err(recovery_origin)? {
         return perform_recovery(db);
     }
 
@@ -60,25 +60,33 @@ pub(crate) fn ensure_recovered<C: CanisterKind>(db: &Db<C>) -> Result<(), Intern
 }
 
 fn perform_recovery<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
-    let marker = with_commit_store(|store| store.load())?;
+    let marker = with_commit_store(|store| store.load()).map_err(recovery_origin)?;
     let had_marker = marker.is_some();
     if let Some(marker) = marker {
         // Phase 1: replay persisted row operations while marker authority is active.
-        db.replay_commit_marker_row_ops(&marker.row_ops)?;
+        db.replay_commit_marker_row_ops(&marker.row_ops)
+            .map_err(recovery_origin)?;
     }
 
     // Phase 2: rebuild secondary indexes from authoritative data rows.
-    db.rebuild_secondary_indexes_from_rows()?;
+    db.rebuild_secondary_indexes_from_rows()
+        .map_err(recovery_origin)?;
 
     // Phase 3: clear marker only after replay + rebuild both succeed.
     if had_marker {
         with_commit_store(|store| {
             store.clear_infallible();
             Ok(())
-        })?;
+        })
+        .map_err(recovery_origin)?;
     }
 
     let _ = RECOVERED.set(());
 
     Ok(())
+}
+
+// Re-originate recovery-phase failures at the recovery boundary for telemetry.
+fn recovery_origin(err: InternalError) -> InternalError {
+    err.with_origin(ErrorOrigin::Recovery)
 }

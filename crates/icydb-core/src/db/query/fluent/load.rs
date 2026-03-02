@@ -11,6 +11,9 @@ use crate::{
             builder::aggregate::AggregateExpr,
             explain::ExplainPlan,
             expr::{FilterExpr, SortExpr},
+            fluent::projection_shape::{
+                ProjectionFieldShape, RankedProjectionDirection, RankedProjectionMode,
+            },
             intent::{CompiledQuery, IntentError, PlannedQuery, Query, QueryError},
             plan::{validate_fluent_non_paged_mode, validate_fluent_paged_mode},
         },
@@ -391,10 +394,11 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
+        let shape = ProjectionFieldShape::sum_distinct(field);
 
         self.session
             .execute_load_query_with(self.query(), |load, plan| {
-                load.aggregate_sum_distinct_by(plan, field.as_ref())
+                load.aggregate_sum_distinct_by(plan, shape.target_field())
             })
     }
 
@@ -434,10 +438,11 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
+        let shape = ProjectionFieldShape::count_distinct(field);
 
         self.session
             .execute_load_query_with(self.query(), |load, plan| {
-                load.aggregate_count_distinct_by(plan, field.as_ref())
+                load.aggregate_count_distinct_by(plan, shape.target_field())
             })
     }
 
@@ -462,10 +467,11 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
+        let shape = ProjectionFieldShape::field(field);
 
         self.session
             .execute_load_query_with(self.query(), |load, plan| {
-                load.values_by(plan, field.as_ref())
+                load.values_by(plan, shape.target_field())
             })
     }
 
@@ -496,10 +502,25 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
+        let shape = ProjectionFieldShape::ranked(
+            field,
+            RankedProjectionDirection::Top,
+            RankedProjectionMode::Rows,
+        );
 
         self.session
             .execute_load_query_with(self.query(), |load, plan| {
-                load.top_k_by(plan, field.as_ref(), take_count)
+                debug_assert_eq!(
+                    shape.ranked_direction(),
+                    Some(RankedProjectionDirection::Top),
+                    "top_k_by must preserve top-ranked projection shape",
+                );
+                debug_assert_eq!(
+                    shape.ranked_mode(),
+                    Some(RankedProjectionMode::Rows),
+                    "top_k_by must preserve row projection shape",
+                );
+                load.top_k_by(plan, shape.target_field(), take_count)
             })
     }
 
@@ -519,10 +540,25 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
+        let shape = ProjectionFieldShape::ranked(
+            field,
+            RankedProjectionDirection::Bottom,
+            RankedProjectionMode::Rows,
+        );
 
         self.session
             .execute_load_query_with(self.query(), |load, plan| {
-                load.bottom_k_by(plan, field.as_ref(), take_count)
+                debug_assert_eq!(
+                    shape.ranked_direction(),
+                    Some(RankedProjectionDirection::Bottom),
+                    "bottom_k_by must preserve bottom-ranked projection shape",
+                );
+                debug_assert_eq!(
+                    shape.ranked_mode(),
+                    Some(RankedProjectionMode::Rows),
+                    "bottom_k_by must preserve row projection shape",
+                );
+                load.bottom_k_by(plan, shape.target_field(), take_count)
             })
     }
 
@@ -542,10 +578,25 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
+        let shape = ProjectionFieldShape::ranked(
+            field,
+            RankedProjectionDirection::Top,
+            RankedProjectionMode::Values,
+        );
 
         self.session
             .execute_load_query_with(self.query(), |load, plan| {
-                load.top_k_by_values(plan, field.as_ref(), take_count)
+                debug_assert_eq!(
+                    shape.ranked_direction(),
+                    Some(RankedProjectionDirection::Top),
+                    "top_k_by_values must preserve top-ranked projection shape",
+                );
+                debug_assert_eq!(
+                    shape.ranked_mode(),
+                    Some(RankedProjectionMode::Values),
+                    "top_k_by_values must preserve value projection shape",
+                );
+                load.top_k_by_values(plan, shape.target_field(), take_count)
             })
     }
 
@@ -565,10 +616,25 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
+        let shape = ProjectionFieldShape::ranked(
+            field,
+            RankedProjectionDirection::Bottom,
+            RankedProjectionMode::Values,
+        );
 
         self.session
             .execute_load_query_with(self.query(), |load, plan| {
-                load.bottom_k_by_values(plan, field.as_ref(), take_count)
+                debug_assert_eq!(
+                    shape.ranked_direction(),
+                    Some(RankedProjectionDirection::Bottom),
+                    "bottom_k_by_values must preserve bottom-ranked projection shape",
+                );
+                debug_assert_eq!(
+                    shape.ranked_mode(),
+                    Some(RankedProjectionMode::Values),
+                    "bottom_k_by_values must preserve value projection shape",
+                );
+                load.bottom_k_by_values(plan, shape.target_field(), take_count)
             })
     }
 
@@ -588,10 +654,25 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
+        let shape = ProjectionFieldShape::ranked(
+            field,
+            RankedProjectionDirection::Top,
+            RankedProjectionMode::ValuesWithIds,
+        );
 
         self.session
             .execute_load_query_with(self.query(), |load, plan| {
-                load.top_k_by_with_ids(plan, field.as_ref(), take_count)
+                debug_assert_eq!(
+                    shape.ranked_direction(),
+                    Some(RankedProjectionDirection::Top),
+                    "top_k_by_with_ids must preserve top-ranked projection shape",
+                );
+                debug_assert_eq!(
+                    shape.ranked_mode(),
+                    Some(RankedProjectionMode::ValuesWithIds),
+                    "top_k_by_with_ids must preserve value/id projection shape",
+                );
+                load.top_k_by_with_ids(plan, shape.target_field(), take_count)
             })
     }
 
@@ -611,10 +692,25 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
+        let shape = ProjectionFieldShape::ranked(
+            field,
+            RankedProjectionDirection::Bottom,
+            RankedProjectionMode::ValuesWithIds,
+        );
 
         self.session
             .execute_load_query_with(self.query(), |load, plan| {
-                load.bottom_k_by_with_ids(plan, field.as_ref(), take_count)
+                debug_assert_eq!(
+                    shape.ranked_direction(),
+                    Some(RankedProjectionDirection::Bottom),
+                    "bottom_k_by_with_ids must preserve bottom-ranked projection shape",
+                );
+                debug_assert_eq!(
+                    shape.ranked_mode(),
+                    Some(RankedProjectionMode::ValuesWithIds),
+                    "bottom_k_by_with_ids must preserve value/id projection shape",
+                );
+                load.bottom_k_by_with_ids(plan, shape.target_field(), take_count)
             })
     }
 
@@ -625,10 +721,11 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
+        let shape = ProjectionFieldShape::field(field);
 
         self.session
             .execute_load_query_with(self.query(), |load, plan| {
-                load.distinct_values_by(plan, field.as_ref())
+                load.distinct_values_by(plan, shape.target_field())
             })
     }
 
@@ -642,10 +739,11 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
+        let shape = ProjectionFieldShape::field(field);
 
         self.session
             .execute_load_query_with(self.query(), |load, plan| {
-                load.values_by_with_ids(plan, field.as_ref())
+                load.values_by_with_ids(plan, shape.target_field())
             })
     }
 
@@ -656,10 +754,11 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
+        let shape = ProjectionFieldShape::field(field);
 
         self.session
             .execute_load_query_with(self.query(), |load, plan| {
-                load.first_value_by(plan, field.as_ref())
+                load.first_value_by(plan, shape.target_field())
             })
     }
 
@@ -670,10 +769,11 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
+        let shape = ProjectionFieldShape::field(field);
 
         self.session
             .execute_load_query_with(self.query(), |load, plan| {
-                load.last_value_by(plan, field.as_ref())
+                load.last_value_by(plan, shape.target_field())
             })
     }
 

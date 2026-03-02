@@ -2084,8 +2084,8 @@ fn recovery_rollback_restores_reverse_index_state_on_prepare_error() {
     );
     assert_eq!(
         err.origin,
-        crate::error::ErrorOrigin::Store,
-        "malformed key bytes should surface store corruption origin",
+        crate::error::ErrorOrigin::Recovery,
+        "malformed key bytes should surface recovery-boundary origin",
     );
 
     let marker_still_present = match commit_marker_present() {

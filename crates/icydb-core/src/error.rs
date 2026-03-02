@@ -162,11 +162,27 @@ impl InternalError {
         Self::classified(self.class, self.origin, message)
     }
 
+    /// Rebuild this error with a new origin while preserving class/message.
+    ///
+    /// Origin-scoped detail payloads are intentionally dropped when re-origining.
+    pub(crate) fn with_origin(self, origin: ErrorOrigin) -> Self {
+        Self::classified(self.class, origin, self.message)
+    }
+
     /// Construct a query-origin invariant violation.
     pub(crate) fn query_invariant(message: impl Into<String>) -> Self {
         Self::new(
             ErrorClass::InvariantViolation,
             ErrorOrigin::Query,
+            message.into(),
+        )
+    }
+
+    /// Construct a planner-origin invariant violation.
+    pub(crate) fn planner_invariant(message: impl Into<String>) -> Self {
+        Self::new(
+            ErrorClass::InvariantViolation,
+            ErrorOrigin::Planner,
             message.into(),
         )
     }
@@ -190,7 +206,16 @@ impl InternalError {
 
     /// Construct a query-origin invariant with the canonical invalid-plan prefix.
     pub(crate) fn query_invalid_logical_plan(reason: impl Into<String>) -> Self {
-        Self::query_invariant(Self::invalid_logical_plan_message(reason))
+        Self::planner_invariant(Self::invalid_logical_plan_message(reason))
+    }
+
+    /// Construct a cursor-origin invariant violation.
+    pub(crate) fn cursor_invariant(message: impl Into<String>) -> Self {
+        Self::new(
+            ErrorClass::InvariantViolation,
+            ErrorOrigin::Cursor,
+            message.into(),
+        )
     }
 
     /// Construct an index-origin invariant violation.
@@ -261,6 +286,15 @@ impl InternalError {
         Self::new(
             ErrorClass::Corruption,
             ErrorOrigin::Serialize,
+            message.into(),
+        )
+    }
+
+    /// Construct an identity-origin corruption error.
+    pub(crate) fn identity_corruption(message: impl Into<String>) -> Self {
+        Self::new(
+            ErrorClass::Corruption,
+            ErrorOrigin::Identity,
             message.into(),
         )
     }
@@ -353,6 +387,21 @@ impl InternalError {
         Self::index_plan_corruption(ErrorOrigin::Serialize, message)
     }
 
+    /// Construct an index-plan invariant violation error with a canonical prefix.
+    pub(crate) fn index_plan_invariant(origin: ErrorOrigin, message: impl Into<String>) -> Self {
+        let message = message.into();
+        Self::new(
+            ErrorClass::InvariantViolation,
+            origin,
+            format!("invariant violation detected ({origin}): {message}"),
+        )
+    }
+
+    /// Construct an index-plan invariant violation error for store-origin failures.
+    pub(crate) fn index_plan_store_invariant(message: impl Into<String>) -> Self {
+        Self::index_plan_invariant(ErrorOrigin::Store, message)
+    }
+
     /// Construct an index uniqueness violation conflict error.
     pub(crate) fn index_violation(path: &str, index_fields: &[&str]) -> Self {
         Self::new(
@@ -382,7 +431,7 @@ impl InternalError {
             _ => err.to_string(),
         };
 
-        Self::query_invariant(message)
+        Self::cursor_invariant(message)
     }
 
     /// Map grouped plan failures into query-boundary invariants.
@@ -393,7 +442,7 @@ impl InternalError {
             _ => err.to_string(),
         };
 
-        Self::query_invariant(message)
+        Self::planner_invariant(message)
     }
 
     /// Map shared access-validation failures into executor-boundary invariants.
@@ -415,7 +464,7 @@ impl InternalError {
             PolicyPlanError::UnorderedPagination => "pagination requires explicit ordering",
         };
 
-        Self::query_executor_invariant(reason)
+        Self::planner_invariant(Self::executor_invariant_message(reason))
     }
 }
 
@@ -514,7 +563,11 @@ pub enum ErrorOrigin {
     Serialize,
     Store,
     Index,
+    Identity,
     Query,
+    Planner,
+    Cursor,
+    Recovery,
     Response,
     Executor,
     Interface,
@@ -526,7 +579,11 @@ impl fmt::Display for ErrorOrigin {
             Self::Serialize => "serialize",
             Self::Store => "store",
             Self::Index => "index",
+            Self::Identity => "identity",
             Self::Query => "query",
+            Self::Planner => "planner",
+            Self::Cursor => "cursor",
+            Self::Recovery => "recovery",
             Self::Response => "response",
             Self::Executor => "executor",
             Self::Interface => "interface",
@@ -575,6 +632,17 @@ mod tests {
     }
 
     #[test]
+    fn index_plan_store_invariant_uses_store_origin() {
+        let err = InternalError::index_plan_store_invariant("row/key mismatch");
+        assert_eq!(err.class, ErrorClass::InvariantViolation);
+        assert_eq!(err.origin, ErrorOrigin::Store);
+        assert_eq!(
+            err.message,
+            "invariant violation detected (store): row/key mismatch"
+        );
+    }
+
+    #[test]
     fn query_executor_invariant_uses_invariant_violation_class() {
         let err = InternalError::query_executor_invariant("route contract mismatch");
         assert_eq!(err.class, ErrorClass::InvariantViolation);
@@ -593,7 +661,7 @@ mod tests {
         let err =
             InternalError::plan_invariant_violation(PolicyPlanError::DeleteLimitRequiresOrder);
         assert_eq!(err.class, ErrorClass::InvariantViolation);
-        assert_eq!(err.origin, ErrorOrigin::Query);
+        assert_eq!(err.origin, ErrorOrigin::Planner);
         assert_eq!(
             err.message,
             "executor invariant violated: delete limit requires explicit ordering",
@@ -609,7 +677,7 @@ mod tests {
         ));
 
         assert_eq!(err.class, ErrorClass::InvariantViolation);
-        assert_eq!(err.origin, ErrorOrigin::Query);
+        assert_eq!(err.origin, ErrorOrigin::Planner);
         assert_eq!(
             err.message,
             "invalid logical plan: unknown group field 'tenant'",

@@ -24,6 +24,10 @@ pub enum CursorPlanError {
     #[error("invalid continuation cursor: {reason}")]
     InvalidContinuationCursorPayload { reason: String },
 
+    /// Cursor plan/runtime contract invariants were violated.
+    #[error("{reason}")]
+    ContinuationCursorInvariantViolation { reason: String },
+
     /// Cursor token version is unsupported.
     #[error("unsupported continuation cursor version: {version}")]
     ContinuationCursorVersionMismatch { version: u8 },
@@ -100,16 +104,23 @@ impl CursorPlanError {
         }
     }
 
-    // Construct one payload error for missing explicit cursor ordering.
+    // Construct one cursor invariant-violation error variant.
+    pub(in crate::db) fn continuation_cursor_invariant(reason: impl Into<String>) -> Self {
+        Self::ContinuationCursorInvariantViolation {
+            reason: reason.into(),
+        }
+    }
+
+    // Construct one invariant error for missing explicit cursor ordering.
     pub(in crate::db) fn cursor_requires_order() -> Self {
-        Self::invalid_continuation_cursor_payload(InternalError::executor_invariant_message(
+        Self::continuation_cursor_invariant(InternalError::executor_invariant_message(
             Self::cursor_requires_order_message(),
         ))
     }
 
-    // Construct one payload error for empty cursor ORDER BY specifications.
+    // Construct one invariant error for empty cursor ORDER BY specifications.
     pub(in crate::db) fn cursor_requires_non_empty_order() -> Self {
-        Self::invalid_continuation_cursor_payload(InternalError::executor_invariant_message(
+        Self::continuation_cursor_invariant(InternalError::executor_invariant_message(
             Self::cursor_requires_non_empty_order_message(),
         ))
     }

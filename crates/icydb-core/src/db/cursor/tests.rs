@@ -124,7 +124,7 @@ fn validate_grouped_cursor_order_plan_rejects_empty_order_spec() {
 
     assert!(matches!(
         err,
-        CursorPlanError::InvalidContinuationCursorPayload { reason }
+        CursorPlanError::ContinuationCursorInvariantViolation { reason }
             if reason.contains("cursor pagination requires non-empty ordering")
     ));
 }

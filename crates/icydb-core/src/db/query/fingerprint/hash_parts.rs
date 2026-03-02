@@ -8,11 +8,13 @@ use crate::{
     db::{
         predicate::{MissingRowPolicy, Predicate, hash_predicate as hash_model_predicate},
         query::{
-            builder::AggregateExpr,
             explain::{
-                ExplainAccessPath, ExplainDeleteLimit, ExplainGroupAggregate, ExplainGroupHaving,
+                ExplainAccessPath, ExplainDeleteLimit, ExplainGroupHaving,
                 ExplainGroupHavingClause, ExplainGroupHavingSymbol, ExplainGroupedStrategy,
                 ExplainGrouping, ExplainOrderBy, ExplainPagination, ExplainPlan,
+            },
+            fingerprint::aggregate_hash::{
+                AggregateHashShape, hash_group_aggregate_structural_fingerprint_v1,
             },
             intent::QueryMode,
             plan::{AccessPlanProjection, OrderDirection, project_explain_access_path},
@@ -443,7 +445,14 @@ fn hash_projection_default(hasher: &mut Sha256, grouping: &ExplainGrouping) {
 
             write_u32(hasher, aggregates.len() as u32);
             for aggregate in aggregates {
-                hash_group_aggregate_structural_fingerprint_v1(hasher, aggregate);
+                hash_group_aggregate_structural_fingerprint_v1(
+                    hasher,
+                    &AggregateHashShape::semantic(
+                        aggregate.kind,
+                        aggregate.target_field.as_deref(),
+                        aggregate.distinct,
+                    ),
+                );
             }
             hash_group_having(hasher, having.as_ref());
 
@@ -458,34 +467,6 @@ fn hash_grouped_strategy(hasher: &mut Sha256, strategy: ExplainGroupedStrategy) 
         ExplainGroupedStrategy::HashGroup => write_tag(hasher, 0x72),
         ExplainGroupedStrategy::OrderedGroup => write_tag(hasher, 0x73),
     }
-}
-
-fn hash_group_aggregate_structural_fingerprint_v1(
-    hasher: &mut Sha256,
-    aggregate: &ExplainGroupAggregate,
-) {
-    const GROUP_AGGREGATE_STRUCTURAL_FINGERPRINT_V1: u8 = 0x01;
-
-    // v1 grouped aggregate fingerprint includes exactly:
-    // - aggregate kind discriminant
-    // - optional target field
-    // - distinct modifier flag
-    //
-    // Future aggregate features (distinct/filter/window/precision/mode) must
-    // extend this helper explicitly to preserve continuation-signature safety.
-    write_tag(hasher, GROUP_AGGREGATE_STRUCTURAL_FINGERPRINT_V1);
-    write_tag(
-        hasher,
-        AggregateExpr::fingerprint_tag_for_kind_v1(aggregate.kind),
-    );
-    match &aggregate.target_field {
-        Some(field) => {
-            write_tag(hasher, 0x01);
-            write_str(hasher, field);
-        }
-        None => write_tag(hasher, 0x00),
-    }
-    write_tag(hasher, if aggregate.distinct { 0x02 } else { 0x03 });
 }
 
 fn hash_group_having(hasher: &mut Sha256, having: Option<&ExplainGroupHaving>) {

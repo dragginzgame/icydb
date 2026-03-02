@@ -116,5 +116,5 @@ fn effective_keep_count_for_limit(
 }
 
 fn invariant(message: impl Into<String>) -> InternalError {
-    InternalError::query_executor_invariant(message)
+    InternalError::cursor_invariant(InternalError::executor_invariant_message(message))
 }

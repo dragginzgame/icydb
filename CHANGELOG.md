@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `0.37.3` closes the cross-cutting audit pass by decomposing grouped execution into a staged spine, centralizing `AccessPath` routing under one executor dispatcher, splitting grouped validation into structure/policy/cursor gates, routing continuation filtering through a single cursor spine entrypoint, and normalizing invariant-constructor callsites behind per-module `invariant(...)` helpers.
 - `0.37.4` harmonizes cursor paging policy wording by centralizing cursor paging messages and constructors on `CursorPlanError`, normalizes access canonicalization invocation so key-intent and planner paths both route through the shared `db::access` normalization boundary, and isolates `ExecutionTrace` contracts under `db::executor::trace` while leaving only load-path wiring and response/db payload accessors outside that contract module.
 - `0.37.5` freezes core execution contracts across topology, cursor semantics, grouped route strategy, and access canonicalization boundaries, adding invariant and regression locks that prevent silent planner/runtime drift.
+- `0.37.6` hardens runtime error boundaries by removing blanket serializer-to-runtime conversion, replacing query execute error tunneling with typed runtime execution errors, and preserving expanded origin and class taxonomy (`Planner`, `Cursor`, `Recovery`, `Identity`) through facade mapping.
 
 ```rust
 let page = session

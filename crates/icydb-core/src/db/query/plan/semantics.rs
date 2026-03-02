@@ -6,13 +6,14 @@
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},
+        predicate::CompareOp,
         query::{
             builder::AggregateExpr,
             explain::ExplainAccessPath,
             plan::{
                 AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec,
-                GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupPlan, LogicalPlan,
-                OrderSpec, QueryMode, ScalarPlan,
+                GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupPlan, GroupSpec,
+                GroupedExecutionConfig, LogicalPlan, OrderSpec, QueryMode, ScalarPlan,
             },
         },
     },
@@ -48,6 +49,32 @@ pub(crate) enum GroupDistinctPolicyReason {
 pub(crate) enum GroupDistinctAdmissibility {
     Allowed,
     Disallowed(GroupDistinctPolicyReason),
+}
+
+///
+/// GlobalDistinctFieldAggregate
+///
+/// Canonical semantic projection of the supported global DISTINCT field-target
+/// grouped aggregate shape.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct GlobalDistinctFieldAggregate<'a> {
+    kind: AggregateKind,
+    target_field: &'a str,
+}
+
+impl<'a> GlobalDistinctFieldAggregate<'a> {
+    /// Borrow grouped aggregate kind.
+    #[must_use]
+    pub(crate) const fn kind(self) -> AggregateKind {
+        self.kind
+    }
+
+    /// Borrow grouped aggregate target field.
+    #[must_use]
+    pub(crate) const fn target_field(self) -> &'a str {
+        self.target_field
+    }
 }
 
 impl GroupDistinctPolicyReason {
@@ -143,13 +170,54 @@ pub(crate) fn global_distinct_field_aggregate_admissibility(
             GroupDistinctPolicyReason::GlobalDistinctRequiresDistinctAggregateTerminal,
         );
     }
-    if !matches!(aggregate.kind(), AggregateKind::Count | AggregateKind::Sum) {
+    if !aggregate
+        .kind()
+        .supports_global_distinct_without_group_keys()
+    {
         return GroupDistinctAdmissibility::Disallowed(
             GroupDistinctPolicyReason::GlobalDistinctUnsupportedAggregateKind,
         );
     }
 
     GroupDistinctAdmissibility::Allowed
+}
+
+/// Resolve one supported global DISTINCT field-target grouped aggregate shape.
+pub(crate) fn resolve_global_distinct_field_aggregate<'a>(
+    group_fields: &'a [FieldSlot],
+    aggregates: &'a [GroupAggregateSpec],
+    having: Option<&'a GroupHavingSpec>,
+) -> Result<Option<GlobalDistinctFieldAggregate<'a>>, GroupDistinctPolicyReason> {
+    if !is_global_distinct_field_aggregate_candidate(group_fields, aggregates) {
+        return Ok(None);
+    }
+    match global_distinct_field_aggregate_admissibility(aggregates, having) {
+        GroupDistinctAdmissibility::Allowed => {}
+        GroupDistinctAdmissibility::Disallowed(reason) => return Err(reason),
+    }
+    let aggregate = &aggregates[0];
+    let target_field = aggregate
+        .target_field()
+        .ok_or(GroupDistinctPolicyReason::GlobalDistinctRequiresFieldTargetAggregate)?;
+
+    Ok(Some(GlobalDistinctFieldAggregate {
+        kind: aggregate.kind(),
+        target_field,
+    }))
+}
+
+/// Return whether grouped HAVING supports this compare operator in grouped v1.
+#[must_use]
+pub(crate) const fn grouped_having_compare_op_supported(op: CompareOp) -> bool {
+    matches!(
+        op,
+        CompareOp::Eq
+            | CompareOp::Ne
+            | CompareOp::Lt
+            | CompareOp::Lte
+            | CompareOp::Gt
+            | CompareOp::Gte
+    )
 }
 
 impl QueryMode {
@@ -223,6 +291,16 @@ impl AggregateKind {
 }
 
 impl GroupAggregateSpec {
+    /// Build one grouped aggregate spec from one aggregate expression.
+    #[must_use]
+    pub(in crate::db) fn from_aggregate_expr(aggregate: &AggregateExpr) -> Self {
+        Self {
+            kind: aggregate.kind(),
+            target_field: aggregate.target_field().map(str::to_string),
+            distinct: aggregate.is_distinct(),
+        }
+    }
+
     /// Return the canonical grouped aggregate terminal kind.
     #[must_use]
     pub(crate) const fn kind(&self) -> AggregateKind {
@@ -246,6 +324,21 @@ impl GroupAggregateSpec {
     pub(in crate::db) const fn streaming_compatible_v1(&self) -> bool {
         self.target_field.is_none()
             && (!self.distinct || AggregateExpr::supports_grouped_distinct_kind_v1(self.kind))
+    }
+}
+
+impl GroupSpec {
+    /// Build one global DISTINCT grouped shape from one aggregate expression.
+    #[must_use]
+    pub(in crate::db) fn global_distinct_shape_from_aggregate_expr(
+        aggregate: &AggregateExpr,
+        execution: GroupedExecutionConfig,
+    ) -> Self {
+        Self {
+            group_fields: Vec::new(),
+            aggregates: vec![GroupAggregateSpec::from_aggregate_expr(aggregate)],
+            execution,
+        }
     }
 }
 
@@ -383,14 +476,14 @@ impl GroupPlan {
     /// Return true when this grouped plan is the global DISTINCT aggregate shape.
     #[must_use]
     pub(in crate::db) fn is_global_distinct_aggregate_without_group_keys(&self) -> bool {
-        self.group.group_fields.is_empty()
-            && self.having.is_none()
-            && self.group.aggregates.len() == 1
-            && self.group.aggregates[0].distinct()
-            && self.group.aggregates[0].target_field().is_some()
-            && self.group.aggregates[0]
-                .kind()
-                .supports_global_distinct_without_group_keys()
+        resolve_global_distinct_field_aggregate(
+            self.group.group_fields.as_slice(),
+            self.group.aggregates.as_slice(),
+            self.having.as_ref(),
+        )
+        .ok()
+        .flatten()
+        .is_some()
     }
 }
 
@@ -445,17 +538,10 @@ fn grouped_aggregates_streaming_compatible(aggregates: &[GroupAggregateSpec]) ->
 
 fn grouped_having_streaming_compatible(having: Option<&GroupHavingSpec>) -> bool {
     having.is_none_or(|having| {
-        having.clauses().iter().all(|clause| {
-            matches!(
-                clause.op(),
-                crate::db::predicate::CompareOp::Eq
-                    | crate::db::predicate::CompareOp::Ne
-                    | crate::db::predicate::CompareOp::Lt
-                    | crate::db::predicate::CompareOp::Lte
-                    | crate::db::predicate::CompareOp::Gt
-                    | crate::db::predicate::CompareOp::Gte
-            )
-        })
+        having
+            .clauses()
+            .iter()
+            .all(|clause| grouped_having_compare_op_supported(clause.op()))
     })
 }
 

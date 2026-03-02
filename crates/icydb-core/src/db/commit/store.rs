@@ -43,7 +43,9 @@ impl RawCommitMarker {
 
     /// Serialize and bound-check a commit marker payload.
     fn try_from_marker(marker: &CommitMarker) -> Result<Self, InternalError> {
-        let bytes = serialize(marker)?;
+        let bytes = serialize(marker).map_err(|err| {
+            InternalError::serialize_internal(format!("failed to serialize commit marker: {err}"))
+        })?;
         if bytes.len() > MAX_COMMIT_BYTES as usize {
             return Err(InternalError::store_unsupported(format!(
                 "commit marker exceeds max size: {} bytes (limit {MAX_COMMIT_BYTES})",

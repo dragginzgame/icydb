@@ -192,7 +192,7 @@ where
     S: EntityKind,
 {
     let target_data_key = DataKey::try_from_raw(target_raw_key).map_err(|err| {
-        InternalError::store_corruption(format!(
+        InternalError::identity_corruption(format!(
             "{}: source={} field={} target={} ({err})",
             relation_target_decode_message(context),
             S::PATH,

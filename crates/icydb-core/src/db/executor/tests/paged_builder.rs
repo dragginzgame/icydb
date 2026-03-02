@@ -329,11 +329,13 @@ fn grouped_fluent_execute_rejects_scalar_query_shape() {
     assert!(
         matches!(
             err,
-            QueryError::Execute(crate::error::InternalError {
-                class: crate::error::ErrorClass::InvariantViolation,
-                origin: crate::error::ErrorOrigin::Query,
-                ..
-            })
+            QueryError::Execute(crate::db::QueryExecuteError::InvariantViolation(
+                crate::error::InternalError {
+                    class: crate::error::ErrorClass::InvariantViolation,
+                    origin: crate::error::ErrorOrigin::Query,
+                    ..
+                }
+            ))
         ),
         "non-grouped execute_grouped should preserve query invariant classification"
     );
@@ -833,7 +835,7 @@ fn grouped_fluent_execute_global_distinct_count_enforces_total_distinct_cap() {
         panic!("global grouped distinct cap failure should surface as execution error");
     };
     assert!(
-        err.message.contains("distinct_values_total"),
+        err.as_internal().message.contains("distinct_values_total"),
         "global grouped distinct cap failure should report total distinct budget resource",
     );
 }

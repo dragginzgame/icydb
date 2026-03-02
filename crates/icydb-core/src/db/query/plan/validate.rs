@@ -14,13 +14,12 @@ use crate::{
             validate_access_structure_model as validate_access_structure_model_shared,
         },
         cursor::CursorPlanError,
-        predicate::{CompareOp, SchemaInfo, ValidateError, validate},
+        predicate::{SchemaInfo, ValidateError, validate},
         query::plan::{
             AccessPlannedQuery, FieldSlot, GroupAggregateSpec, GroupDistinctAdmissibility,
             GroupDistinctPolicyReason, GroupHavingSpec, GroupHavingSymbol, GroupSpec, LoadSpec,
-            LogicalPlan, OrderSpec, QueryMode, ScalarPlan,
-            global_distinct_field_aggregate_admissibility, grouped_distinct_admissibility,
-            is_global_distinct_field_aggregate_candidate,
+            LogicalPlan, OrderSpec, QueryMode, ScalarPlan, grouped_distinct_admissibility,
+            grouped_having_compare_op_supported, resolve_global_distinct_field_aggregate,
         },
     },
     model::entity::EntityModel,
@@ -516,7 +515,7 @@ fn validate_grouped_having_policy(having: Option<&GroupHavingSpec>) -> Result<()
     };
 
     for (index, clause) in having.clauses().iter().enumerate() {
-        if !having_compare_op_supported(clause.op()) {
+        if !grouped_having_compare_op_supported(clause.op()) {
             return Err(PlanError::from(
                 GroupPlanError::HavingUnsupportedCompareOp {
                     index,
@@ -527,18 +526,6 @@ fn validate_grouped_having_policy(having: Option<&GroupHavingSpec>) -> Result<()
     }
 
     Ok(())
-}
-
-const fn having_compare_op_supported(op: CompareOp) -> bool {
-    matches!(
-        op,
-        CompareOp::Eq
-            | CompareOp::Ne
-            | CompareOp::Lt
-            | CompareOp::Lte
-            | CompareOp::Gt
-            | CompareOp::Gte
-    )
 }
 
 // Return true when ORDER BY starts with GROUP BY key fields in declaration order.
@@ -652,29 +639,26 @@ fn validate_global_distinct_aggregate_without_group_keys(
     group: &GroupSpec,
     having: Option<&GroupHavingSpec>,
 ) -> Result<(), PlanError> {
-    if !is_global_distinct_field_aggregate_candidate(
+    let aggregate = match resolve_global_distinct_field_aggregate(
         group.group_fields.as_slice(),
         group.aggregates.as_slice(),
+        having,
     ) {
-        return Err(PlanError::from(
-            GroupPlanError::GlobalDistinctAggregateShapeUnsupported,
-        ));
-    }
-    let aggregate = &group.aggregates[0];
-    match global_distinct_field_aggregate_admissibility(group.aggregates.as_slice(), having) {
-        GroupDistinctAdmissibility::Allowed => {}
-        GroupDistinctAdmissibility::Disallowed(reason) => {
+        Ok(Some(aggregate)) => aggregate,
+        Ok(None) => {
             return Err(PlanError::from(
-                group_plan_error_from_distinct_policy_reason(reason, Some(aggregate)),
+                GroupPlanError::GlobalDistinctAggregateShapeUnsupported,
             ));
         }
-    }
-
-    let Some(target_field) = aggregate.target_field() else {
-        return Err(PlanError::from(
-            GroupPlanError::GlobalDistinctAggregateShapeUnsupported,
-        ));
+        Err(reason) => {
+            let aggregate = group.aggregates.first();
+            return Err(PlanError::from(
+                group_plan_error_from_distinct_policy_reason(reason, aggregate),
+            ));
+        }
     };
+
+    let target_field = aggregate.target_field();
     let Some(field_type) = schema.field(target_field) else {
         return Err(PlanError::from(
             GroupPlanError::UnknownAggregateTargetField {

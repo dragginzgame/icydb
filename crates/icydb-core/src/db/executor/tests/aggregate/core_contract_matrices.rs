@@ -1151,3 +1151,72 @@ fn aggregate_numeric_field_non_numeric_target_fails_without_scan() {
         "non-numeric target should fail before scan-budget consumption"
     );
 }
+
+#[test]
+fn grouped_having_supported_operator_executes_through_planner_shape() {
+    seed_pushdown_entities(&[(8_1201, 7, 10), (8_1202, 7, 20), (8_1203, 7, 30)]);
+    let session = crate::db::DbSession::new(DB);
+
+    let grouped = session
+        .load::<PushdownParityEntity>()
+        .group_by("group")
+        .expect("group_by(group) should resolve")
+        .aggregate(crate::db::count())
+        .having_aggregate(0, CompareOp::Gt, Value::Uint(0))
+        .expect("having aggregate should build")
+        .execute_grouped()
+        .expect("planner-validated grouped HAVING should execute");
+
+    assert_eq!(
+        grouped.rows().len(),
+        1,
+        "supported grouped HAVING shape should execute with one grouped row for one seeded group",
+    );
+}
+
+#[test]
+fn grouped_having_unsupported_operator_is_executor_invariant_only_when_planner_is_bypassed() {
+    seed_pushdown_entities(&[(8_1211, 7, 10), (8_1212, 7, 20), (8_1213, 7, 30)]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let grouped = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore)
+        .into_grouped_with_having(
+            crate::db::query::plan::GroupSpec {
+                group_fields: vec![
+                    crate::db::query::plan::FieldSlot::resolve(
+                        <PushdownParityEntity as crate::traits::EntitySchema>::MODEL,
+                        "group",
+                    )
+                    .expect("group field should resolve for bypass fixture"),
+                ],
+                aggregates: vec![crate::db::query::plan::GroupAggregateSpec {
+                    kind: crate::db::query::plan::GroupAggregateKind::Count,
+                    target_field: None,
+                    distinct: false,
+                }],
+                execution: crate::db::query::plan::GroupedExecutionConfig::unbounded(),
+            },
+            Some(crate::db::query::plan::GroupHavingSpec {
+                clauses: vec![crate::db::query::plan::GroupHavingClause {
+                    symbol: crate::db::query::plan::GroupHavingSymbol::AggregateIndex(0),
+                    op: CompareOp::In,
+                    value: Value::List(vec![Value::Uint(1)]),
+                }],
+            }),
+        );
+    let plan = crate::db::executor::ExecutablePlan::<PushdownParityEntity>::new(grouped);
+
+    let err = load
+        .execute_grouped_paged_with_cursor_traced(
+            plan,
+            crate::db::cursor::GroupedPlannedCursor::none(),
+        )
+        .expect_err("bypassed planner shape should fail with executor invariant");
+
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Query);
+    assert!(
+        err.message
+            .contains("unsupported grouped HAVING operator reached executor"),
+        "bypassed grouped HAVING operator should fail with executor invariant taxonomy: {err:?}",
+    );
+}

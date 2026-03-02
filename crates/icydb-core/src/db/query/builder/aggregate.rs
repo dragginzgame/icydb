@@ -114,20 +114,6 @@ impl AggregateExpr {
         matches!(kind, GroupAggregateKind::Count | GroupAggregateKind::Sum)
     }
 
-    /// Return the canonical grouped aggregate fingerprint tag (v1).
-    #[must_use]
-    pub(crate) const fn fingerprint_tag_for_kind_v1(kind: GroupAggregateKind) -> u8 {
-        match kind {
-            GroupAggregateKind::Count => 0x01,
-            GroupAggregateKind::Sum => 0x02,
-            GroupAggregateKind::Exists => 0x03,
-            GroupAggregateKind::Min => 0x04,
-            GroupAggregateKind::Max => 0x05,
-            GroupAggregateKind::First => 0x06,
-            GroupAggregateKind::Last => 0x07,
-        }
-    }
-
     /// Return the canonical extrema traversal direction for this kind.
     #[must_use]
     pub(crate) const fn extrema_direction_for_kind(kind: GroupAggregateKind) -> Option<Direction> {

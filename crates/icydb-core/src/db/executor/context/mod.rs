@@ -161,7 +161,9 @@ where
 
     /// Decode one raw data key and map decode failures to executor corruption errors.
     pub(super) fn decode_data_key(raw: &RawDataKey) -> Result<DataKey, InternalError> {
-        DataKey::try_from_raw(raw).map_err(|err| ExecutorError::store_corruption_from(err).into())
+        DataKey::try_from_raw(raw).map_err(|err| {
+            InternalError::identity_corruption(format!("failed to decode data key: {err}"))
+        })
     }
 
     /// Deserialize data rows into `(Id, Entity)` tuples with key/entity consistency checks.
