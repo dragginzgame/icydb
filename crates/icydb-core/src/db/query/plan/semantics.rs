@@ -6,7 +6,7 @@
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},
-        predicate::{CoercionSpec, CompareOp, compare_eq, compare_order},
+        predicate::{CoercionId, CoercionSpec, CompareOp, compare_eq, compare_order},
         query::{
             builder::{
                 AggregateExpr,
@@ -278,25 +278,31 @@ pub(crate) fn evaluate_grouped_having_compare_v1(
     op: CompareOp,
     expected: &Value,
 ) -> Option<bool> {
+    let numeric = CoercionSpec::new(CoercionId::NumericWiden);
     let strict = CoercionSpec::default();
+    let coercion = if actual.supports_numeric_coercion() || expected.supports_numeric_coercion() {
+        &numeric
+    } else {
+        &strict
+    };
     let kind = grouped_having_compare_kind(op)?;
 
     Some(match kind {
-        GroupedHavingCompareKind::Eq => compare_eq(actual, expected, &strict).unwrap_or(false),
+        GroupedHavingCompareKind::Eq => compare_eq(actual, expected, coercion).unwrap_or(false),
         GroupedHavingCompareKind::Ne => {
-            compare_eq(actual, expected, &strict).is_some_and(|equal| !equal)
+            compare_eq(actual, expected, coercion).is_some_and(|equal| !equal)
         }
         GroupedHavingCompareKind::Lt => {
-            compare_order(actual, expected, &strict).is_some_and(std::cmp::Ordering::is_lt)
+            compare_order(actual, expected, coercion).is_some_and(std::cmp::Ordering::is_lt)
         }
         GroupedHavingCompareKind::Lte => {
-            compare_order(actual, expected, &strict).is_some_and(std::cmp::Ordering::is_le)
+            compare_order(actual, expected, coercion).is_some_and(std::cmp::Ordering::is_le)
         }
         GroupedHavingCompareKind::Gt => {
-            compare_order(actual, expected, &strict).is_some_and(std::cmp::Ordering::is_gt)
+            compare_order(actual, expected, coercion).is_some_and(std::cmp::Ordering::is_gt)
         }
         GroupedHavingCompareKind::Gte => {
-            compare_order(actual, expected, &strict).is_some_and(std::cmp::Ordering::is_ge)
+            compare_order(actual, expected, coercion).is_some_and(std::cmp::Ordering::is_ge)
         }
     })
 }
@@ -347,6 +353,48 @@ const fn grouped_having_compare_kind(op: CompareOp) -> Option<GroupedHavingCompa
         | CompareOp::Contains
         | CompareOp::StartsWith
         | CompareOp::EndsWith => None,
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        db::{contracts::CompareOp, query::plan::semantics::evaluate_grouped_having_compare_v1},
+        value::Value,
+    };
+
+    #[test]
+    fn grouped_having_numeric_equality_uses_numeric_widen_semantics() {
+        let matched =
+            evaluate_grouped_having_compare_v1(&Value::Uint(7), CompareOp::Eq, &Value::Int(7))
+                .expect("eq should be supported");
+
+        assert!(matched);
+    }
+
+    #[test]
+    fn grouped_having_numeric_ordering_uses_numeric_widen_semantics() {
+        let matched =
+            evaluate_grouped_having_compare_v1(&Value::Uint(2), CompareOp::Lt, &Value::Int(3))
+                .expect("lt should be supported");
+
+        assert!(matched);
+    }
+
+    #[test]
+    fn grouped_having_numeric_vs_non_numeric_is_fail_closed() {
+        let matched = evaluate_grouped_having_compare_v1(
+            &Value::Uint(7),
+            CompareOp::Eq,
+            &Value::Text("7".to_string()),
+        )
+        .expect("eq should be supported");
+
+        assert!(!matched);
     }
 }
 

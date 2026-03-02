@@ -8,6 +8,22 @@ use crate::types::Decimal;
 use crate::value::Value;
 use std::cmp::Ordering;
 
+///
+/// NumericArithmeticOp
+///
+/// Canonical runtime arithmetic operator set for numeric expression evaluation.
+///
+/// This enum is intentionally independent from planner expression operators so
+/// numeric runtime semantics stay reusable at executor boundaries.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum NumericArithmeticOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+}
+
 /// Return true when one field kind is accepted by planner expression arithmetic.
 ///
 /// This intentionally mirrors the current expression-spine bootstrap domain.
@@ -77,6 +93,39 @@ pub(in crate::db) fn coerce_numeric_decimal(value: &Value) -> Option<Decimal> {
     value.to_numeric_decimal()
 }
 
+/// Apply one numeric arithmetic operation under the shared numeric runtime contract.
+///
+/// Promotion and boundary rules:
+/// - all supported numeric operands are coerced to `Decimal` first
+/// - `Int`/`Uint`/`Int128`/`Uint128`/`Float32`/`Float64`/`Decimal`/`Duration`
+///   /`Timestamp` participate when decimal coercion succeeds
+/// - `IntBig` and `UintBig` are numeric-eligible at planning boundaries but are
+///   rejected at runtime arithmetic boundaries when decimal coercion fails
+///
+/// Decimal operation semantics are inherited from `types::Decimal`:
+/// - add/sub/mul saturate on overflow
+/// - div rounds half-away-from-zero at runtime division precision
+/// - div by zero returns `Decimal::ZERO`
+/// - div overflow saturates with division-scale output
+#[must_use]
+pub(in crate::db) fn apply_numeric_arithmetic(
+    op: NumericArithmeticOp,
+    left: &Value,
+    right: &Value,
+) -> Option<Decimal> {
+    let left = coerce_numeric_decimal(left)?;
+    let right = coerce_numeric_decimal(right)?;
+
+    let result = match op {
+        NumericArithmeticOp::Add => left + right,
+        NumericArithmeticOp::Sub => left - right,
+        NumericArithmeticOp::Mul => left * right,
+        NumericArithmeticOp::Div => left / right,
+    };
+
+    Some(result)
+}
+
 /// Compare two values under numeric-widen coercion semantics.
 ///
 /// Returns `None` when either side is outside numeric coercion domain or when
@@ -102,11 +151,12 @@ pub(in crate::db) fn compare_numeric_eq(left: &Value, right: &Value) -> Option<b
 mod tests {
     use crate::{
         db::numeric::{
-            coerce_numeric_decimal, compare_numeric_eq, compare_numeric_order,
-            field_kind_supports_aggregate_numeric, field_kind_supports_expr_numeric,
+            NumericArithmeticOp, apply_numeric_arithmetic, coerce_numeric_decimal,
+            compare_numeric_eq, compare_numeric_order, field_kind_supports_aggregate_numeric,
+            field_kind_supports_expr_numeric,
         },
         model::field::FieldKind,
-        types::Int,
+        types::{Decimal, Int},
         value::Value,
     };
     use std::cmp::Ordering;
@@ -153,5 +203,41 @@ mod tests {
         assert!(coerce_numeric_decimal(&Value::Int(4)).is_some());
         assert!(coerce_numeric_decimal(&Value::Text("x".to_string())).is_none());
         assert!(coerce_numeric_decimal(&Value::IntBig(Int::from(4i32))).is_none());
+    }
+
+    #[test]
+    fn numeric_arithmetic_promotes_integer_and_decimal_to_decimal_domain() {
+        let left = Value::Int(2);
+        let right = Value::Decimal(Decimal::new(15, 1));
+
+        let result = apply_numeric_arithmetic(NumericArithmeticOp::Add, &left, &right)
+            .expect("mixed integer/decimal arithmetic should coerce into decimal domain");
+
+        assert_eq!(result, Decimal::new(35, 1));
+    }
+
+    #[test]
+    fn numeric_arithmetic_division_rounds_half_away_from_zero() {
+        let left = Value::Int(-1);
+        let right = Value::Int(6);
+
+        let result = apply_numeric_arithmetic(NumericArithmeticOp::Div, &left, &right)
+            .expect("numeric division should produce deterministic decimal output");
+
+        assert_eq!(
+            result,
+            Decimal::from_i128_with_scale(-166_666_666_666_666_667, 18)
+        );
+    }
+
+    #[test]
+    fn numeric_arithmetic_addition_saturates_on_overflow() {
+        let left = Value::Decimal(Decimal::from_i128_with_scale(i128::MAX, 0));
+        let right = Value::Int(1);
+
+        let result = apply_numeric_arithmetic(NumericArithmeticOp::Add, &left, &right)
+            .expect("saturating decimal arithmetic should return a value");
+
+        assert_eq!(result, Decimal::from_i128_with_scale(i128::MAX, 0));
     }
 }

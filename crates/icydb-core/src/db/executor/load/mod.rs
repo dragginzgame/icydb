@@ -50,6 +50,7 @@ use crate::{
             validate_executor_plan,
         },
         index::IndexCompilePolicy,
+        numeric::{NumericArithmeticOp, apply_numeric_arithmetic},
         predicate::{CompareOp, MissingRowPolicy},
         query::plan::{
             AccessPlannedQuery, GroupDistinctPolicyReason, GroupHavingSpec, GroupHavingSymbol,
@@ -1184,7 +1185,16 @@ where
                 let numeric_value =
                     extract_numeric_field_decimal(&entity, target_field, field_slot)
                         .map_err(AggregateFieldValueError::into_internal_error)?;
-                sum += numeric_value;
+                let Some(next_sum) = apply_numeric_arithmetic(
+                    NumericArithmeticOp::Add,
+                    &Value::Decimal(sum),
+                    &Value::Decimal(numeric_value),
+                ) else {
+                    return Err(invariant(
+                        "global grouped SUM(DISTINCT field) addition failed numeric coercion",
+                    ));
+                };
+                sum = next_sum;
                 saw_sum_value = true;
             } else {
                 count = count.saturating_add(1);

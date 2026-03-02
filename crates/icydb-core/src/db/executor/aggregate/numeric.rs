@@ -13,12 +13,14 @@ use crate::{
             },
             load::LoadExecutor,
         },
+        numeric::{NumericArithmeticOp, apply_numeric_arithmetic},
         query::plan::FieldSlot as PlannedFieldSlot,
         response::Response,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
     types::Decimal,
+    value::Value,
 };
 
 ///
@@ -112,7 +114,7 @@ where
         for (_, entity) in response {
             let value = extract_numeric_field_decimal(&entity, target_field, field_slot)
                 .map_err(Self::map_aggregate_field_value_error)?;
-            sum += value;
+            sum = add_numeric_decimal(sum, value)?;
             row_count = row_count.saturating_add(1);
         }
         if row_count == 0 {
@@ -128,7 +130,7 @@ where
                     ));
                 };
 
-                sum / divisor
+                divide_numeric_decimal(sum, divisor)?
             }
         };
 
@@ -136,6 +138,73 @@ where
     }
 }
 
+// Add one decimal term to one aggregate numeric accumulator through the shared
+// numeric arithmetic contract so projection/aggregate arithmetic semantics stay aligned.
+fn add_numeric_decimal(sum: Decimal, value: Decimal) -> Result<Decimal, InternalError> {
+    let Some(next) = apply_numeric_arithmetic(
+        NumericArithmeticOp::Add,
+        &Value::Decimal(sum),
+        &Value::Decimal(value),
+    ) else {
+        return Err(invariant(
+            "numeric aggregate addition produced non-coercible decimal operands",
+        ));
+    };
+
+    Ok(next)
+}
+
+// Divide one decimal accumulator by one decimal divisor through the shared
+// numeric arithmetic contract so aggregate AVG inherits canonical rounding behavior.
+fn divide_numeric_decimal(sum: Decimal, divisor: Decimal) -> Result<Decimal, InternalError> {
+    let Some(result) = apply_numeric_arithmetic(
+        NumericArithmeticOp::Div,
+        &Value::Decimal(sum),
+        &Value::Decimal(divisor),
+    ) else {
+        return Err(invariant(
+            "numeric aggregate division produced non-coercible decimal operands",
+        ));
+    };
+
+    Ok(result)
+}
+
 fn invariant(message: impl Into<String>) -> InternalError {
     InternalError::query_executor_invariant(message)
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        db::executor::aggregate::numeric::{add_numeric_decimal, divide_numeric_decimal},
+        types::Decimal,
+    };
+
+    #[test]
+    fn aggregate_numeric_addition_uses_shared_saturating_decimal_semantics() {
+        let left = Decimal::from_i128_with_scale(i128::MAX, 0);
+        let right = Decimal::from_i128_with_scale(1, 0);
+
+        let result = add_numeric_decimal(left, right).expect("decimal add should succeed");
+
+        assert_eq!(result, Decimal::from_i128_with_scale(i128::MAX, 0));
+    }
+
+    #[test]
+    fn aggregate_numeric_avg_division_uses_shared_rounding_semantics() {
+        let sum = Decimal::from_num(-1_i64).expect("sum decimal");
+        let divisor = Decimal::from_num(6_u64).expect("divisor decimal");
+
+        let result = divide_numeric_decimal(sum, divisor).expect("decimal div should succeed");
+
+        assert_eq!(
+            result,
+            Decimal::from_i128_with_scale(-166_666_666_666_666_667, 18)
+        );
+    }
 }

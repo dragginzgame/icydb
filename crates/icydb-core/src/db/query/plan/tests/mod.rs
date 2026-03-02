@@ -442,7 +442,7 @@ fn plan_access_rejects_empty_exclusive_interval() {
 }
 
 #[test]
-fn plan_access_rejects_mixed_numeric_variants_for_range_bounds() {
+fn plan_access_rejects_non_strict_numeric_widen_for_range_bounds() {
     let model = model_with_range_index();
     let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
     let predicate = Predicate::And(vec![
@@ -454,6 +454,6 @@ fn plan_access_rejects_mixed_numeric_variants_for_range_bounds() {
     let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
     assert!(
         find_index_range(&plan).is_none(),
-        "mixed numeric variants should fall back until canonical coercion is implemented"
+        "non-strict numeric widen predicates must not compile into index range access paths"
     );
 }

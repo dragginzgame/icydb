@@ -6,7 +6,10 @@
 use crate::{
     db::{
         executor::load::LoadExecutor,
-        numeric::{coerce_numeric_decimal, compare_numeric_eq, compare_numeric_order},
+        numeric::{
+            NumericArithmeticOp, apply_numeric_arithmetic, coerce_numeric_decimal,
+            compare_numeric_eq, compare_numeric_order,
+        },
         query::builder::AggregateExpr,
         query::plan::{
             AccessPlannedQuery, FieldSlot,
@@ -312,30 +315,19 @@ fn eval_numeric_binary_expr(
     left: Value,
     right: Value,
 ) -> Result<Value, ExecutionError> {
-    let (Some(left_decimal), Some(right_decimal)) = (
-        coerce_numeric_decimal(&left),
-        coerce_numeric_decimal(&right),
-    ) else {
+    let Some(arithmetic_op) = numeric_arithmetic_op(op) else {
         return Err(ExecutionError::InvalidBinaryOperands {
             op: binary_op_name(op).to_string(),
             left: Box::new(left),
             right: Box::new(right),
         });
     };
-
-    let result = match op {
-        BinaryOp::Add => left_decimal + right_decimal,
-        BinaryOp::Sub => left_decimal - right_decimal,
-        BinaryOp::Mul => left_decimal * right_decimal,
-        BinaryOp::Div => left_decimal / right_decimal,
-        BinaryOp::And
-        | BinaryOp::Or
-        | BinaryOp::Eq
-        | BinaryOp::Ne
-        | BinaryOp::Lt
-        | BinaryOp::Lte
-        | BinaryOp::Gt
-        | BinaryOp::Gte => unreachable!("numeric binary evaluator called with non-numeric op"),
+    let Some(result) = apply_numeric_arithmetic(arithmetic_op, &left, &right) else {
+        return Err(ExecutionError::InvalidBinaryOperands {
+            op: binary_op_name(op).to_string(),
+            left: Box::new(left),
+            right: Box::new(right),
+        });
     };
 
     Ok(Value::Decimal(result))
@@ -447,6 +439,23 @@ fn compare_ordering(op: BinaryOp, left: &Value, right: &Value) -> Option<Orderin
     }
 
     Value::strict_order_cmp(left, right)
+}
+
+const fn numeric_arithmetic_op(op: BinaryOp) -> Option<NumericArithmeticOp> {
+    match op {
+        BinaryOp::Add => Some(NumericArithmeticOp::Add),
+        BinaryOp::Sub => Some(NumericArithmeticOp::Sub),
+        BinaryOp::Mul => Some(NumericArithmeticOp::Mul),
+        BinaryOp::Div => Some(NumericArithmeticOp::Div),
+        BinaryOp::And
+        | BinaryOp::Or
+        | BinaryOp::Eq
+        | BinaryOp::Ne
+        | BinaryOp::Lt
+        | BinaryOp::Lte
+        | BinaryOp::Gt
+        | BinaryOp::Gte => None,
+    }
 }
 
 fn project_rows_from_projection<E>(

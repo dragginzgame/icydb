@@ -512,15 +512,16 @@ mod range {
     use crate::{
         db::{
             access::SemanticIndexRangeSpec,
+            numeric::compare_numeric_order,
             predicate::{
                 CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo, canonical_cmp,
             },
             query::plan::planner::{index_literal_matches_schema, sorted_indexes},
         },
         model::{entity::EntityModel, index::IndexModel},
-        value::{CoercionFamily, CoercionFamilyExt, Value},
+        value::Value,
     };
-    use std::{mem::discriminant, ops::Bound};
+    use std::{cmp::Ordering, ops::Bound};
 
     ///
     /// RangeConstraint
@@ -735,7 +736,9 @@ mod range {
         Some((range_position, prefix, range))
     }
 
-    // Merge one comparison operator into a bounded range without widening semantics.
+    // Merge one comparison operator into one bounded range under shared numeric
+    // comparison semantics for numeric values and strict ordering semantics for
+    // non-numeric values.
     fn merge_range_constraint(
         existing: &mut RangeConstraint,
         op: CompareOp,
@@ -760,23 +763,20 @@ mod range {
     }
 
     fn merge_lower_bound(existing: &mut Bound<Value>, candidate: Bound<Value>) -> bool {
-        if !bounds_numeric_variants_compatible(existing, &candidate) {
-            return false;
-        }
-
         let replace = match (&candidate, &*existing) {
             (Bound::Unbounded, _) => false,
             (_, Bound::Unbounded) => true,
             (
                 Bound::Included(left) | Bound::Excluded(left),
                 Bound::Included(right) | Bound::Excluded(right),
-            ) => match canonical_cmp(left, right) {
-                std::cmp::Ordering::Greater => true,
-                std::cmp::Ordering::Less => false,
-                std::cmp::Ordering::Equal => {
+            ) => match compare_range_bound_values(left, right) {
+                Some(Ordering::Greater) => true,
+                Some(Ordering::Less) => false,
+                Some(Ordering::Equal) => {
                     matches!(candidate, Bound::Excluded(_))
                         && matches!(existing, Bound::Included(_))
                 }
+                None => return false,
             },
         };
 
@@ -788,23 +788,20 @@ mod range {
     }
 
     fn merge_upper_bound(existing: &mut Bound<Value>, candidate: Bound<Value>) -> bool {
-        if !bounds_numeric_variants_compatible(existing, &candidate) {
-            return false;
-        }
-
         let replace = match (&candidate, &*existing) {
             (Bound::Unbounded, _) => false,
             (_, Bound::Unbounded) => true,
             (
                 Bound::Included(left) | Bound::Excluded(left),
                 Bound::Included(right) | Bound::Excluded(right),
-            ) => match canonical_cmp(left, right) {
-                std::cmp::Ordering::Less => true,
-                std::cmp::Ordering::Greater => false,
-                std::cmp::Ordering::Equal => {
+            ) => match compare_range_bound_values(left, right) {
+                Some(Ordering::Less) => true,
+                Some(Ordering::Greater) => false,
+                Some(Ordering::Equal) => {
                     matches!(candidate, Bound::Excluded(_))
                         && matches!(existing, Bound::Included(_))
                 }
+                None => return false,
             },
         };
 
@@ -815,33 +812,23 @@ mod range {
         true
     }
 
-    // Validate interval shape and reject empty/mixed-numeric intervals.
+    // Validate interval shape and reject empty or incomparable intervals.
     fn range_bounds_are_compatible(range: &RangeConstraint) -> bool {
         let (Some(lower), Some(upper)) = (bound_value(&range.lower), bound_value(&range.upper))
         else {
             return true;
         };
 
-        if !numeric_variants_compatible(lower, upper) {
-            return false;
-        }
-
-        !range_is_empty(range)
-    }
-
-    // Return true when a bounded range is empty under canonical value ordering.
-    fn range_is_empty(range: &RangeConstraint) -> bool {
-        let (Some(lower), Some(upper)) = (bound_value(&range.lower), bound_value(&range.upper))
-        else {
+        let Some(ordering) = compare_range_bound_values(lower, upper) else {
             return false;
         };
 
-        match canonical_cmp(lower, upper) {
-            std::cmp::Ordering::Less => false,
-            std::cmp::Ordering::Greater => true,
-            std::cmp::Ordering::Equal => {
-                !matches!(range.lower, Bound::Included(_))
-                    || !matches!(range.upper, Bound::Included(_))
+        match ordering {
+            Ordering::Less => true,
+            Ordering::Greater => false,
+            Ordering::Equal => {
+                matches!(range.lower, Bound::Included(_))
+                    && matches!(range.upper, Bound::Included(_))
             }
         }
     }
@@ -853,20 +840,19 @@ mod range {
         }
     }
 
-    fn bounds_numeric_variants_compatible(left: &Bound<Value>, right: &Bound<Value>) -> bool {
-        match (bound_value(left), bound_value(right)) {
-            (Some(left), Some(right)) => numeric_variants_compatible(left, right),
-            _ => true,
-        }
-    }
-
-    fn numeric_variants_compatible(left: &Value, right: &Value) -> bool {
-        if left.coercion_family() != CoercionFamily::Numeric
-            || right.coercion_family() != CoercionFamily::Numeric
-        {
-            return true;
+    fn compare_range_bound_values(left: &Value, right: &Value) -> Option<Ordering> {
+        if left.supports_numeric_coercion() || right.supports_numeric_coercion() {
+            return compare_numeric_order(left, right);
         }
 
-        discriminant(left) == discriminant(right)
+        if let Some(ordering) = Value::strict_order_cmp(left, right) {
+            return Some(ordering);
+        }
+
+        if std::mem::discriminant(left) == std::mem::discriminant(right) {
+            return Some(canonical_cmp(left, right));
+        }
+
+        None
     }
 }
