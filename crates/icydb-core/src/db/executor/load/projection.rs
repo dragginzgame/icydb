@@ -10,10 +10,12 @@ use crate::{
             NumericArithmeticOp, apply_numeric_arithmetic, compare_numeric_eq,
             compare_numeric_order,
         },
-        query::builder::AggregateExpr,
-        query::plan::{
-            AccessPlannedQuery, FieldSlot,
-            expr::{BinaryOp, Expr, ProjectionField, ProjectionSpec, UnaryOp},
+        query::{
+            builder::AggregateExpr,
+            plan::{
+                AccessPlannedQuery, FieldSlot,
+                expr::{BinaryOp, Expr, ProjectionField, ProjectionSpec, UnaryOp},
+            },
         },
         response::ProjectedRow,
     },

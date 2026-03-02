@@ -5,6 +5,24 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.40.x] - 2026-03-02 - AUDIT ALL THE THINGS!!!!1
+
+- `0.40.0` starts the `0.40` line with a Rust LOC baseline: test code is 35,133 LOC across 79 files, and non-test code is 59,049 LOC across 460 files.
+
+See detailed breakdown:
+[docs/changelog/0.40.md](docs/changelog/0.40.md)
+
+### START - LLM DO NOT TOUCH THIS
+### It's going to be an epic changelog and I want to organise it in a different way
+
+- split executor/mod.rs (1428 LOC)
+- split query/plan/validate.rs (1108 LOC)
+
+### END - LLM DO NOT TOUCH THIS
+
+
+---
+
 ## [0.39.x] - 2026-03-02 - Numeric Consolidation
 
 - `0.39.3` adds numeric identity drift guards for continuation signatures and plan fingerprints, including literal/promotion stability checks (`1 + 2` vs mixed numeric literal forms), aggregate/DISTINCT no-op promotion-path checks, and alias-only continuation decode/resume stability coverage.
