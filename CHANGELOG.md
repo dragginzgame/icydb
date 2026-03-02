@@ -7,19 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.40.x] - 2026-03-02 - AUDIT ALL THE THINGS!!!!1
 
-- `0.40.0` starts the `0.40` line with a Rust LOC baseline: test code is 35,133 LOC across 79 files, and non-test code is 59,049 LOC across 460 files.
+- `0.40.0` - split up two files (add details to this bullet point)
 
 See detailed breakdown:
 [docs/changelog/0.40.md](docs/changelog/0.40.md)
-
-### START - LLM DO NOT TOUCH THIS
-### It's going to be an epic changelog and I want to organise it in a different way
-
-- split executor/mod.rs (1428 LOC)
-- split query/plan/validate.rs (1108 LOC)
-
-### END - LLM DO NOT TOUCH THIS
-
 
 ---
 
