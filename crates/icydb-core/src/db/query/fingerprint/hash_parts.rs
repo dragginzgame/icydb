@@ -249,7 +249,7 @@ enum ExplainHashField {
     Page,
     DeleteLimit,
     Consistency,
-    ProjectionDefault,
+    GroupingShapeV1,
     ProjectionSpecV1,
 }
 
@@ -330,7 +330,7 @@ const CONTINUATION_V1_STEPS: [ExplainHashStep; 8] = [
     },
     ExplainHashStep {
         section_tag: 0x07,
-        field: ExplainHashField::ProjectionDefault,
+        field: ExplainHashField::GroupingShapeV1,
     },
     ExplainHashStep {
         section_tag: 0x08,
@@ -373,7 +373,7 @@ fn hash_explain_field(
         ExplainHashField::Page => hash_page(hasher, &plan.page),
         ExplainHashField::DeleteLimit => hash_delete_limit(hasher, &plan.delete_limit),
         ExplainHashField::Consistency => hash_consistency(hasher, plan.consistency),
-        ExplainHashField::ProjectionDefault => hash_projection_default(hasher, &plan.grouping),
+        ExplainHashField::GroupingShapeV1 => hash_grouping_shape_v1(hasher, &plan.grouping),
         ExplainHashField::ProjectionSpecV1 => {
             hash_projection_spec_v1(hasher, projection, &plan.grouping);
         }
@@ -455,8 +455,9 @@ fn hash_consistency(hasher: &mut Sha256, consistency: MissingRowPolicy) {
     }
 }
 
-// Phase 1 projection surface is always full row `(Id<E>, E)`.
-fn hash_projection_default(hasher: &mut Sha256, grouping: &ExplainGrouping) {
+// Grouped shape semantics that remain part of continuation identity independent
+// from projection expression hashing.
+fn hash_grouping_shape_v1(hasher: &mut Sha256, grouping: &ExplainGrouping) {
     match grouping {
         ExplainGrouping::None => write_tag(hasher, 0x70),
         ExplainGrouping::Grouped {
@@ -467,8 +468,8 @@ fn hash_projection_default(hasher: &mut Sha256, grouping: &ExplainGrouping) {
             max_groups,
             max_group_bytes,
         } => {
-            // Preserve scalar v1 projection marker while extending grouped signatures
-            // with grouped shape and grouped budget policy.
+            // Grouped continuation identity includes grouped key/aggregate ordering,
+            // grouped HAVING semantics, and grouped budget policy.
             write_tag(hasher, 0x71);
             hash_grouped_strategy(hasher, *strategy);
             write_u32(hasher, group_fields.len() as u32);
@@ -504,13 +505,13 @@ fn hash_projection_spec_v1(
     grouping: &ExplainGrouping,
 ) {
     // Explain-only hashing callsites may not have planner projection semantics.
-    // In that case, preserve existing grouping/default projection behavior.
+    // In that case, preserve grouped-shape identity semantics.
     if let Some(projection) = projection {
         hash_projection_structural_fingerprint_v1(hasher, projection);
         return;
     }
 
-    hash_projection_default(hasher, grouping);
+    hash_grouping_shape_v1(hasher, grouping);
 }
 
 fn hash_grouped_strategy(hasher: &mut Sha256, strategy: ExplainGroupedStrategy) {

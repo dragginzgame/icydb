@@ -37,24 +37,6 @@ const ROUTE_FEATURE_SOFT_BUDGET_DELTA: usize = 1;
 const ROUTE_CAPABILITY_FLAG_BASELINE_0247: usize = 9;
 const ROUTE_EXECUTION_MODE_CASE_BASELINE_0246: usize = 3;
 
-fn assert_no_eligibility_helper_defs(file_label: &str, source: &str) {
-    for line in source.lines() {
-        let trimmed = line.trim_start();
-        let defines_eligibility_helper = (trimmed.starts_with("fn is_")
-            || trimmed.starts_with("const fn is_"))
-            && trimmed.contains("eligible");
-        assert!(
-            !defines_eligibility_helper,
-            "{file_label} must keep eligibility helpers route-owned (found: {trimmed})"
-        );
-    }
-}
-
-fn source_uses_direct_context_stream_construction(source: &str) -> bool {
-    source.contains(".ordered_key_stream_from_access(")
-        || source.contains(".ordered_key_stream_from_access_plan_with_index_range_anchor(")
-}
-
 crate::test_canister! {
     ident = RouteMatrixCanister,
     commit_memory_id = crate::testing::test_commit_memory_id(),
@@ -147,7 +129,4 @@ mod capability;
 mod field_extrema;
 mod load;
 mod mutation;
-mod planner_capability;
-mod planner_fast_path;
-mod planner_mode;
 mod precedence;

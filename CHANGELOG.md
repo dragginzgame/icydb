@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.38.x] - 2026-03-02 - Pre-Unified Expr Hardening
 
+- `0.38.3` removes the remaining route-layer `include_str!` architectural-policing tests and replaces continuation-profile `ProjectionDefault` sectioning with explicit grouped-shape hashing.
 - `0.38.2` makes `ProjectionSpec` the grouped output authority, evaluates grouped rows through expression projections, and ties continuation/fingerprint identity to projection semantics (alias-only changes stay stable while semantic changes invalidate).
 - `0.38.1` hardens fluent field-target terminal dispatch by requiring planner slot routing, removing runtime fallback from production query paths, and adding guard coverage so slot-first behavior cannot silently drift back.
 - `0.38.0` cleans up query and error internals before unified expressions: projection building now follows one path, planner/executor duplicate rule checks are reduced, aggregate fingerprints ignore alias/explain-only metadata, runtime error class/origin are preserved at the public boundary, and architecture guards now use structural tests instead of source-text scans.
