@@ -6,9 +6,13 @@
 use crate::{
     db::executor::{
         ExecutablePlan, ExecutionKernel,
-        aggregate::{AggregateKind, AggregateOutput, AggregateSpec},
+        aggregate::{
+            AggregateKind, AggregateOutput, AggregateSpec,
+            field::resolve_orderable_aggregate_target_slot_from_planner_slot,
+        },
         load::LoadExecutor,
     },
+    db::query::plan::FieldSlot as PlannedFieldSlot,
     error::InternalError,
     traits::{EntityKind, EntityValue},
     types::Id,
@@ -78,73 +82,86 @@ where
         }
     }
 
-    /// Execute `min(field)` over the effective aggregate window.
-    pub(in crate::db) fn aggregate_min_by(
+    /// Execute `min(field)` over the effective aggregate window using one
+    /// planner-resolved field slot.
+    pub(in crate::db) fn aggregate_min_by_slot(
         &self,
         plan: ExecutablePlan<E>,
-        target_field: impl Into<String>,
+        target_field: PlannedFieldSlot,
     ) -> Result<Option<Id<E>>, InternalError> {
-        let target_field = target_field.into();
+        resolve_orderable_aggregate_target_slot_from_planner_slot::<E>(&target_field)
+            .map_err(Self::map_aggregate_field_value_error)?;
         match ExecutionKernel::execute_aggregate_spec(
             self,
             plan,
-            AggregateSpec::for_target_field(AggregateKind::Min, target_field),
+            AggregateSpec::for_target_field(AggregateKind::Min, target_field.field()),
         )? {
             AggregateOutput::Min(value) => Ok(value),
             _ => Err(invariant("aggregate MIN(field) result kind mismatch")),
         }
     }
 
-    /// Execute `max(field)` over the effective aggregate window.
-    pub(in crate::db) fn aggregate_max_by(
+    /// Execute `max(field)` over the effective aggregate window using one
+    /// planner-resolved field slot.
+    pub(in crate::db) fn aggregate_max_by_slot(
         &self,
         plan: ExecutablePlan<E>,
-        target_field: impl Into<String>,
+        target_field: PlannedFieldSlot,
     ) -> Result<Option<Id<E>>, InternalError> {
-        let target_field = target_field.into();
+        resolve_orderable_aggregate_target_slot_from_planner_slot::<E>(&target_field)
+            .map_err(Self::map_aggregate_field_value_error)?;
         match ExecutionKernel::execute_aggregate_spec(
             self,
             plan,
-            AggregateSpec::for_target_field(AggregateKind::Max, target_field),
+            AggregateSpec::for_target_field(AggregateKind::Max, target_field.field()),
         )? {
             AggregateOutput::Max(value) => Ok(value),
             _ => Err(invariant("aggregate MAX(field) result kind mismatch")),
         }
     }
 
-    /// Execute `nth(field, n)` over the effective aggregate window.
-    pub(in crate::db) fn aggregate_nth_by(
+    /// Execute `nth(field, n)` over the effective aggregate window using one
+    /// planner-resolved field slot.
+    pub(in crate::db) fn aggregate_nth_by_slot(
         &self,
         plan: ExecutablePlan<E>,
-        target_field: impl Into<String>,
+        target_field: PlannedFieldSlot,
         nth: usize,
     ) -> Result<Option<Id<E>>, InternalError> {
-        let target_field = target_field.into();
+        let field_slot =
+            resolve_orderable_aggregate_target_slot_from_planner_slot::<E>(&target_field)
+                .map_err(Self::map_aggregate_field_value_error)?;
 
-        self.execute_nth_field_aggregate(plan, target_field.as_str(), nth)
+        self.execute_nth_field_aggregate_with_slot(plan, target_field.field(), field_slot, nth)
     }
 
-    /// Execute `median(field)` over the effective aggregate window.
-    pub(in crate::db) fn aggregate_median_by(
+    /// Execute `median(field)` over the effective aggregate window using one
+    /// planner-resolved field slot.
+    pub(in crate::db) fn aggregate_median_by_slot(
         &self,
         plan: ExecutablePlan<E>,
-        target_field: impl Into<String>,
+        target_field: PlannedFieldSlot,
     ) -> Result<Option<Id<E>>, InternalError> {
-        let target_field = target_field.into();
+        let field_slot =
+            resolve_orderable_aggregate_target_slot_from_planner_slot::<E>(&target_field)
+                .map_err(Self::map_aggregate_field_value_error)?;
 
-        self.execute_median_field_aggregate(plan, target_field.as_str())
+        self.execute_median_field_aggregate_with_slot(plan, target_field.field(), field_slot)
     }
 
     #[expect(clippy::type_complexity)]
-    /// Execute paired extrema `min_max(field)` over the effective aggregate window.
-    pub(in crate::db) fn aggregate_min_max_by(
+    /// Execute paired extrema `min_max(field)` over the effective aggregate
+    /// window using one planner-resolved field slot.
+    pub(in crate::db) fn aggregate_min_max_by_slot(
         &self,
         plan: ExecutablePlan<E>,
-        target_field: impl Into<String>,
+        target_field: PlannedFieldSlot,
     ) -> Result<Option<(Id<E>, Id<E>)>, InternalError> {
-        let target_field = target_field.into();
+        let field_slot =
+            resolve_orderable_aggregate_target_slot_from_planner_slot::<E>(&target_field)
+                .map_err(Self::map_aggregate_field_value_error)?;
 
-        self.execute_min_max_field_aggregate(plan, target_field.as_str())
+        self.execute_min_max_field_aggregate_with_slot(plan, target_field.field(), field_slot)
     }
 
     /// Execute `first()` over the effective aggregate window.

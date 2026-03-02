@@ -18,6 +18,52 @@ type LoadExecuteFn<E> = fn(
     &LoadExecutor<E>,
     ExecutablePlan<E>,
 ) -> Result<crate::db::Response<E>, crate::error::InternalError>;
+type SlotValuesByFn<E> = fn(
+    &LoadExecutor<E>,
+    ExecutablePlan<E>,
+    FieldSlot,
+) -> Result<Vec<crate::value::Value>, crate::error::InternalError>;
+type SlotTopKByFn<E> = fn(
+    &LoadExecutor<E>,
+    ExecutablePlan<E>,
+    FieldSlot,
+    u32,
+) -> Result<crate::db::Response<E>, crate::error::InternalError>;
+type SlotSumByFn<E> = fn(
+    &LoadExecutor<E>,
+    ExecutablePlan<E>,
+    FieldSlot,
+) -> Result<Option<crate::types::Decimal>, crate::error::InternalError>;
+type SlotCountDistinctByFn<E> =
+    fn(&LoadExecutor<E>, ExecutablePlan<E>, FieldSlot) -> Result<u32, crate::error::InternalError>;
+type SlotMinByFn<E> = fn(
+    &LoadExecutor<E>,
+    ExecutablePlan<E>,
+    FieldSlot,
+) -> Result<Option<crate::types::Id<E>>, crate::error::InternalError>;
+type SlotMaxByFn<E> = fn(
+    &LoadExecutor<E>,
+    ExecutablePlan<E>,
+    FieldSlot,
+) -> Result<Option<crate::types::Id<E>>, crate::error::InternalError>;
+type SlotNthByFn<E> = fn(
+    &LoadExecutor<E>,
+    ExecutablePlan<E>,
+    FieldSlot,
+    usize,
+) -> Result<Option<crate::types::Id<E>>, crate::error::InternalError>;
+type SlotMedianByFn<E> = fn(
+    &LoadExecutor<E>,
+    ExecutablePlan<E>,
+    FieldSlot,
+) -> Result<Option<crate::types::Id<E>>, crate::error::InternalError>;
+type SlotMinMaxByFn<E> =
+    fn(
+        &LoadExecutor<E>,
+        ExecutablePlan<E>,
+        FieldSlot,
+    )
+        -> Result<Option<(crate::types::Id<E>, crate::types::Id<E>)>, crate::error::InternalError>;
 
 fn assert_global_distinct_builder_signature(
     builder: fn(
@@ -35,9 +81,28 @@ where
 {
     let executable_new: ExecutablePlanNewFn<E> = ExecutablePlan::<E>::new;
     let load_execute: LoadExecuteFn<E> = LoadExecutor::<E>::execute;
+    let values_by_slot: SlotValuesByFn<E> = LoadExecutor::<E>::values_by_slot;
+    let top_k_by_slot: SlotTopKByFn<E> = LoadExecutor::<E>::top_k_by_slot;
+    let aggregate_sum_by_slot: SlotSumByFn<E> = LoadExecutor::<E>::aggregate_sum_by_slot;
+    let aggregate_count_distinct_by_slot: SlotCountDistinctByFn<E> =
+        LoadExecutor::<E>::aggregate_count_distinct_by_slot;
+    let aggregate_min_by_slot: SlotMinByFn<E> = LoadExecutor::<E>::aggregate_min_by_slot;
+    let aggregate_max_by_slot: SlotMaxByFn<E> = LoadExecutor::<E>::aggregate_max_by_slot;
+    let aggregate_nth_by_slot: SlotNthByFn<E> = LoadExecutor::<E>::aggregate_nth_by_slot;
+    let aggregate_median_by_slot: SlotMedianByFn<E> = LoadExecutor::<E>::aggregate_median_by_slot;
+    let aggregate_min_max_by_slot: SlotMinMaxByFn<E> = LoadExecutor::<E>::aggregate_min_max_by_slot;
 
     let _ = executable_new;
     let _ = load_execute;
+    let _ = values_by_slot;
+    let _ = top_k_by_slot;
+    let _ = aggregate_sum_by_slot;
+    let _ = aggregate_count_distinct_by_slot;
+    let _ = aggregate_min_by_slot;
+    let _ = aggregate_max_by_slot;
+    let _ = aggregate_nth_by_slot;
+    let _ = aggregate_median_by_slot;
+    let _ = aggregate_min_max_by_slot;
 }
 
 #[test]
@@ -50,7 +115,7 @@ fn executor_entry_contract_requires_planned_query_wrapping() {
     // Signature checks compile under trait bounds and fail if executor entrypoints
     // drift away from planned-query + executable-plan contracts.
     // Compile-time only helper; no runtime call is required for this guard.
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     fn compile_only<E>()
     where
         E: EntityKind + EntityValue,

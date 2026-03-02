@@ -74,11 +74,11 @@ fn aggregate_spec_field_target_extrema_selects_deterministic_ids() {
     };
 
     let (min_id, scanned_min) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-        load.aggregate_min_by(build_plan(), "rank")
+        load.aggregate_min_by_slot(build_plan(), slot(&load, "rank"))
             .expect("field-target MIN should execute")
     });
     let (max_id, scanned_max) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-        load.aggregate_max_by(build_plan(), "rank")
+        load.aggregate_max_by_slot(build_plan(), slot(&load, "rank"))
             .expect("field-target MAX should execute")
     });
 
@@ -183,10 +183,10 @@ fn aggregate_spec_field_target_tie_breaks_on_primary_key_ascending() {
         .expect("field-target MAX tie-break plan should build");
 
     let min_id = load
-        .aggregate_min_by(min_plan, "rank")
+        .aggregate_min_by_slot(min_plan, slot(&load, "rank"))
         .expect("field-target MIN tie-break should succeed");
     let max_id = load
-        .aggregate_max_by(max_plan, "rank")
+        .aggregate_max_by_slot(max_plan, slot(&load, "rank"))
         .expect("field-target MAX tie-break should succeed");
 
     assert_eq!(
@@ -217,7 +217,7 @@ fn aggregate_field_target_secondary_index_min_uses_index_leading_order() {
     );
 
     let min_id = load
-        .aggregate_min_by(plan, "rank")
+        .aggregate_min_by_slot(plan, slot(&load, "rank"))
         .expect("secondary-index field-target MIN should succeed");
 
     assert_eq!(
@@ -244,7 +244,7 @@ fn aggregate_field_target_secondary_index_max_tie_breaks_primary_key_ascending()
     );
 
     let max_id = load
-        .aggregate_max_by(plan, "rank")
+        .aggregate_max_by_slot(plan, slot(&load, "rank"))
         .expect("secondary-index field-target MAX should succeed");
 
     assert_eq!(
@@ -274,19 +274,19 @@ fn aggregate_field_target_nth_selects_deterministic_position() {
     };
 
     let nth_0 = load
-        .aggregate_nth_by(build_plan(), "rank", 0)
+        .aggregate_nth_by_slot(build_plan(), slot(&load, "rank"), 0)
         .expect("nth_by(rank, 0) should succeed");
     let nth_1 = load
-        .aggregate_nth_by(build_plan(), "rank", 1)
+        .aggregate_nth_by_slot(build_plan(), slot(&load, "rank"), 1)
         .expect("nth_by(rank, 1) should succeed");
     let nth_2 = load
-        .aggregate_nth_by(build_plan(), "rank", 2)
+        .aggregate_nth_by_slot(build_plan(), slot(&load, "rank"), 2)
         .expect("nth_by(rank, 2) should succeed");
     let nth_3 = load
-        .aggregate_nth_by(build_plan(), "rank", 3)
+        .aggregate_nth_by_slot(build_plan(), slot(&load, "rank"), 3)
         .expect("nth_by(rank, 3) should succeed");
     let nth_4 = load
-        .aggregate_nth_by(build_plan(), "rank", 4)
+        .aggregate_nth_by_slot(build_plan(), slot(&load, "rank"), 4)
         .expect("nth_by(rank, 4) should succeed");
 
     assert_eq!(
@@ -325,7 +325,7 @@ fn aggregate_field_target_nth_unknown_field_fails_without_scan() {
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("field-target nth unknown-field plan should build");
     let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-        load.aggregate_nth_by(plan, "missing_field", 0)
+        load.aggregate_nth_by_slot(plan, slot(&load, "missing_field"), 0)
     });
     let Err(err) = result else {
         panic!("nth_by(missing_field, 0) should be rejected");
@@ -349,7 +349,7 @@ fn aggregate_field_target_nth_non_orderable_field_fails_without_scan() {
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("field-target nth non-orderable plan should build");
     let (result, scanned) = capture_rows_scanned_for_entity(PhaseEntity::PATH, || {
-        load.aggregate_nth_by(plan, "tags", 0)
+        load.aggregate_nth_by_slot(plan, slot(&load, "tags"), 0)
     });
     let Err(err) = result else {
         panic!("nth_by(tags, 0) should be rejected");
@@ -393,12 +393,12 @@ fn aggregate_field_target_nth_boundary_matrix_respects_window_and_out_of_range()
 
     for nth in [0usize, 1, 2, 3, usize::MAX] {
         let actual = load
-            .aggregate_nth_by(
+            .aggregate_nth_by_slot(
                 base_query()
                     .plan()
                     .map(crate::db::executor::ExecutablePlan::from)
                     .expect("nth boundary plan should build"),
-                "rank",
+                slot(&load, "rank"),
                 nth,
             )
             .expect("nth boundary aggregate should succeed");
@@ -408,7 +408,7 @@ fn aggregate_field_target_nth_boundary_matrix_respects_window_and_out_of_range()
     }
 
     let empty_window_nth_zero = load
-        .aggregate_nth_by(
+        .aggregate_nth_by_slot(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(u32_eq_predicate("group", 7))
                 .order_by_desc("id")
@@ -417,7 +417,7 @@ fn aggregate_field_target_nth_boundary_matrix_respects_window_and_out_of_range()
                 .plan()
                 .map(crate::db::executor::ExecutablePlan::from)
                 .expect("empty-window nth plan should build"),
-            "rank",
+            slot(&load, "rank"),
             0,
         )
         .expect("empty-window nth should succeed");
@@ -456,7 +456,7 @@ fn aggregate_field_target_median_even_window_uses_lower_policy() {
         .execute(build_plan())
         .expect("field-target median baseline execute should succeed");
     let median = load
-        .aggregate_median_by(build_plan(), "rank")
+        .aggregate_median_by_slot(build_plan(), slot(&load, "rank"))
         .expect("median_by(rank) should succeed");
 
     assert_eq!(
@@ -486,7 +486,7 @@ fn aggregate_field_target_new_terminals_unknown_field_fail_without_scan() {
 
     let (median_result, median_scanned) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.aggregate_median_by(build_plan(), "missing_field")
+            load.aggregate_median_by_slot(build_plan(), slot(&load, "missing_field"))
         });
     let Err(median_err) = median_result else {
         panic!("median_by(missing_field) should be rejected");
@@ -500,7 +500,7 @@ fn aggregate_field_target_new_terminals_unknown_field_fail_without_scan() {
 
     let (count_result, count_scanned) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.aggregate_count_distinct_by(build_plan(), "missing_field")
+            load.aggregate_count_distinct_by_slot(build_plan(), slot(&load, "missing_field"))
         });
     let Err(count_err) = count_result else {
         panic!("count_distinct_by(missing_field) should be rejected");
@@ -514,7 +514,7 @@ fn aggregate_field_target_new_terminals_unknown_field_fail_without_scan() {
 
     let (min_max_result, min_max_scanned) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.aggregate_min_max_by(build_plan(), "missing_field")
+            load.aggregate_min_max_by_slot(build_plan(), slot(&load, "missing_field"))
         });
     let Err(min_max_err) = min_max_result else {
         panic!("min_max_by(missing_field) should be rejected");
@@ -528,7 +528,7 @@ fn aggregate_field_target_new_terminals_unknown_field_fail_without_scan() {
 
     let (values_result, values_scanned) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.values_by(build_plan(), "missing_field")
+            load.values_by_slot(build_plan(), slot(&load, "missing_field"))
         });
     let Err(values_err) = values_result else {
         panic!("values_by(missing_field) should be rejected");
@@ -542,7 +542,7 @@ fn aggregate_field_target_new_terminals_unknown_field_fail_without_scan() {
 
     let (distinct_values_result, distinct_values_scanned) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.distinct_values_by(build_plan(), "missing_field")
+            load.distinct_values_by_slot(build_plan(), slot(&load, "missing_field"))
         });
     let Err(distinct_values_err) = distinct_values_result else {
         panic!("distinct_values_by(missing_field) should be rejected");
@@ -556,7 +556,7 @@ fn aggregate_field_target_new_terminals_unknown_field_fail_without_scan() {
 
     let (values_with_ids_result, values_with_ids_scanned) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.values_by_with_ids(build_plan(), "missing_field")
+            load.values_by_with_ids_slot(build_plan(), slot(&load, "missing_field"))
         });
     let Err(values_with_ids_err) = values_with_ids_result else {
         panic!("values_by_with_ids(missing_field) should be rejected");
@@ -570,7 +570,7 @@ fn aggregate_field_target_new_terminals_unknown_field_fail_without_scan() {
 
     let (first_value_result, first_value_scanned) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.first_value_by(build_plan(), "missing_field")
+            load.first_value_by_slot(build_plan(), slot(&load, "missing_field"))
         });
     let Err(first_value_err) = first_value_result else {
         panic!("first_value_by(missing_field) should be rejected");
@@ -584,7 +584,7 @@ fn aggregate_field_target_new_terminals_unknown_field_fail_without_scan() {
 
     let (last_value_result, last_value_scanned) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.last_value_by(build_plan(), "missing_field")
+            load.last_value_by_slot(build_plan(), slot(&load, "missing_field"))
         });
     let Err(last_value_err) = last_value_result else {
         panic!("last_value_by(missing_field) should be rejected");
@@ -598,7 +598,7 @@ fn aggregate_field_target_new_terminals_unknown_field_fail_without_scan() {
 
     let (top_k_result, top_k_scanned) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.top_k_by(build_plan(), "missing_field", 2)
+            load.top_k_by_slot(build_plan(), slot(&load, "missing_field"), 2)
         });
     let Err(top_k_err) = top_k_result else {
         panic!("top_k_by(missing_field, k) should be rejected");
@@ -612,7 +612,7 @@ fn aggregate_field_target_new_terminals_unknown_field_fail_without_scan() {
 
     let (bottom_k_result, bottom_k_scanned) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.bottom_k_by(build_plan(), "missing_field", 2)
+            load.bottom_k_by_slot(build_plan(), slot(&load, "missing_field"), 2)
         });
     let Err(bottom_k_err) = bottom_k_result else {
         panic!("bottom_k_by(missing_field, k) should be rejected");
@@ -626,7 +626,7 @@ fn aggregate_field_target_new_terminals_unknown_field_fail_without_scan() {
 
     let (top_k_values_result, top_k_values_scanned) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.top_k_by_values(build_plan(), "missing_field", 2)
+            load.top_k_by_values_slot(build_plan(), slot(&load, "missing_field"), 2)
         });
     let Err(top_k_values_err) = top_k_values_result else {
         panic!("top_k_by_values(missing_field, k) should be rejected");
@@ -640,7 +640,7 @@ fn aggregate_field_target_new_terminals_unknown_field_fail_without_scan() {
 
     let (bottom_k_values_result, bottom_k_values_scanned) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.bottom_k_by_values(build_plan(), "missing_field", 2)
+            load.bottom_k_by_values_slot(build_plan(), slot(&load, "missing_field"), 2)
         });
     let Err(bottom_k_values_err) = bottom_k_values_result else {
         panic!("bottom_k_by_values(missing_field, k) should be rejected");
@@ -654,7 +654,7 @@ fn aggregate_field_target_new_terminals_unknown_field_fail_without_scan() {
 
     let (top_k_with_ids_result, top_k_with_ids_scanned) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.top_k_by_with_ids(build_plan(), "missing_field", 2)
+            load.top_k_by_with_ids_slot(build_plan(), slot(&load, "missing_field"), 2)
         });
     let Err(top_k_with_ids_err) = top_k_with_ids_result else {
         panic!("top_k_by_with_ids(missing_field, k) should be rejected");
@@ -668,7 +668,7 @@ fn aggregate_field_target_new_terminals_unknown_field_fail_without_scan() {
 
     let (bottom_k_with_ids_result, bottom_k_with_ids_scanned) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.bottom_k_by_with_ids(build_plan(), "missing_field", 2)
+            load.bottom_k_by_with_ids_slot(build_plan(), slot(&load, "missing_field"), 2)
         });
     let Err(bottom_k_with_ids_err) = bottom_k_with_ids_result else {
         panic!("bottom_k_by_with_ids(missing_field, k) should be rejected");
@@ -694,7 +694,7 @@ fn aggregate_field_target_top_and_bottom_k_by_non_orderable_field_fail_without_s
     };
 
     let (top_k_result, top_k_scanned) = capture_rows_scanned_for_entity(PhaseEntity::PATH, || {
-        load.top_k_by(build_plan(), "tags", 2)
+        load.top_k_by_slot(build_plan(), slot(&load, "tags"), 2)
     });
     let Err(top_k_err) = top_k_result else {
         panic!("top_k_by(tags, 2) should be rejected");
@@ -712,7 +712,7 @@ fn aggregate_field_target_top_and_bottom_k_by_non_orderable_field_fail_without_s
 
     let (bottom_k_result, bottom_k_scanned) =
         capture_rows_scanned_for_entity(PhaseEntity::PATH, || {
-            load.bottom_k_by(build_plan(), "tags", 2)
+            load.bottom_k_by_slot(build_plan(), slot(&load, "tags"), 2)
         });
     let Err(bottom_k_err) = bottom_k_result else {
         panic!("bottom_k_by(tags, 2) should be rejected");
@@ -750,13 +750,13 @@ fn aggregate_field_target_min_max_matches_individual_extrema() {
     };
 
     let min_max = load
-        .aggregate_min_max_by(build_plan(), "rank")
+        .aggregate_min_max_by_slot(build_plan(), slot(&load, "rank"))
         .expect("min_max_by(rank) should succeed");
     let min_by = load
-        .aggregate_min_by(build_plan(), "rank")
+        .aggregate_min_by_slot(build_plan(), slot(&load, "rank"))
         .expect("min_by(rank) should succeed");
     let max_by = load
-        .aggregate_max_by(build_plan(), "rank")
+        .aggregate_max_by_slot(build_plan(), slot(&load, "rank"))
         .expect("max_by(rank) should succeed");
     let expected_pair = min_by.zip(max_by);
 
@@ -822,30 +822,30 @@ fn aggregate_field_target_min_max_metamorphic_matrix_matches_individual_extrema(
         };
 
         let min_max = load
-            .aggregate_min_max_by(
+            .aggregate_min_max_by_slot(
                 build_query()
                     .plan()
                     .map(crate::db::executor::ExecutablePlan::from)
                     .expect("metamorphic min_max plan should build"),
-                "rank",
+                slot(&load, "rank"),
             )
             .expect("metamorphic min_max_by(rank) should succeed");
         let min_by = load
-            .aggregate_min_by(
+            .aggregate_min_by_slot(
                 build_query()
                     .plan()
                     .map(crate::db::executor::ExecutablePlan::from)
                     .expect("metamorphic min plan should build"),
-                "rank",
+                slot(&load, "rank"),
             )
             .expect("metamorphic min_by(rank) should succeed");
         let max_by = load
-            .aggregate_max_by(
+            .aggregate_max_by_slot(
                 build_query()
                     .plan()
                     .map(crate::db::executor::ExecutablePlan::from)
                     .expect("metamorphic max plan should build"),
-                "rank",
+                slot(&load, "rank"),
             )
             .expect("metamorphic max_by(rank) should succeed");
 
@@ -863,7 +863,7 @@ fn aggregate_field_target_min_max_empty_window_returns_none() {
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
 
     let min_max = load
-        .aggregate_min_max_by(
+        .aggregate_min_max_by_slot(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(u32_eq_predicate("group", 7))
                 .order_by("id")
@@ -872,7 +872,7 @@ fn aggregate_field_target_min_max_empty_window_returns_none() {
                 .plan()
                 .map(crate::db::executor::ExecutablePlan::from)
                 .expect("empty-window min_max plan should build"),
-            "rank",
+            slot(&load, "rank"),
         )
         .expect("empty-window min_max_by(rank) should succeed");
 
@@ -885,7 +885,7 @@ fn aggregate_field_target_min_max_single_row_returns_same_id_pair() {
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
 
     let min_max = load
-        .aggregate_min_max_by(
+        .aggregate_min_max_by_slot(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(u32_eq_predicate("group", 7))
                 .order_by("id")
@@ -894,7 +894,7 @@ fn aggregate_field_target_min_max_single_row_returns_same_id_pair() {
                 .plan()
                 .map(crate::db::executor::ExecutablePlan::from)
                 .expect("single-row min_max plan should build"),
-            "rank",
+            slot(&load, "rank"),
         )
         .expect("single-row min_max_by(rank) should succeed");
 
@@ -917,25 +917,25 @@ fn aggregate_field_target_median_order_direction_invariant_on_same_window() {
     ]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let asc_median = load
-        .aggregate_median_by(
+        .aggregate_median_by_slot(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(u32_eq_predicate("group", 7))
                 .order_by("id")
                 .plan()
                 .map(crate::db::executor::ExecutablePlan::from)
                 .expect("median ASC plan should build"),
-            "rank",
+            slot(&load, "rank"),
         )
         .expect("median_by(rank) ASC should succeed");
     let desc_median = load
-        .aggregate_median_by(
+        .aggregate_median_by_slot(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(u32_eq_predicate("group", 7))
                 .order_by_desc("id")
                 .plan()
                 .map(crate::db::executor::ExecutablePlan::from)
                 .expect("median DESC plan should build"),
-            "rank",
+            slot(&load, "rank"),
         )
         .expect("median_by(rank) DESC should succeed");
 
@@ -964,10 +964,10 @@ fn aggregate_numeric_field_sum_and_avg_use_decimal_projection() {
     };
 
     let sum = load
-        .aggregate_sum_by(build_plan(), "rank")
+        .aggregate_sum_by_slot(build_plan(), slot(&load, "rank"))
         .expect("sum_by(rank) should succeed");
     let avg = load
-        .aggregate_avg_by(build_plan(), "rank")
+        .aggregate_avg_by_slot(build_plan(), slot(&load, "rank"))
         .expect("avg_by(rank) should succeed");
     let expected_avg = Decimal::from_num(65u64).expect("sum decimal")
         / Decimal::from_num(3u64).expect("count decimal");
@@ -1001,7 +1001,7 @@ fn aggregate_numeric_field_sum_distinct_uses_grouped_global_distinct_path() {
         .expect("sum_distinct_by(rank) plan should build");
 
     let sum_distinct = load
-        .aggregate_sum_distinct_by(plan, "rank")
+        .aggregate_sum_distinct_by_slot(plan, slot(&load, "rank"))
         .expect("sum_distinct_by(rank) should succeed");
 
     assert_eq!(
@@ -1035,10 +1035,10 @@ fn aggregate_numeric_field_sum_distinct_is_insertion_order_invariant() {
         .expect("sum_distinct_by(rank) DESC plan should build");
 
     let sum_distinct_asc = load
-        .aggregate_sum_distinct_by(plan_asc, "rank")
+        .aggregate_sum_distinct_by_slot(plan_asc, slot(&load, "rank"))
         .expect("sum_distinct_by(rank) ASC should succeed");
     let sum_distinct_desc = load
-        .aggregate_sum_distinct_by(plan_desc, "rank")
+        .aggregate_sum_distinct_by_slot(plan_desc, slot(&load, "rank"))
         .expect("sum_distinct_by(rank) DESC should succeed");
 
     assert_eq!(
@@ -1064,7 +1064,7 @@ fn aggregate_numeric_field_sum_distinct_handles_large_values_without_wrap() {
         .expect("sum_distinct_by(rank) large-value plan should build");
 
     let sum_distinct = load
-        .aggregate_sum_distinct_by(plan, "rank")
+        .aggregate_sum_distinct_by_slot(plan, slot(&load, "rank"))
         .expect("sum_distinct_by(rank) large values should succeed")
         .expect("sum_distinct_by(rank) should return a value");
     let expected = Decimal::from_num(u64::from(u32::MAX) + u64::from(u32::MAX - 1))
@@ -1093,7 +1093,7 @@ fn aggregate_numeric_field_sum_distinct_preserves_decimal_integer_canonical_scal
         .expect("sum_distinct_by(rank) canonical-scale plan should build");
 
     let sum_distinct = load
-        .aggregate_sum_distinct_by(plan, "rank")
+        .aggregate_sum_distinct_by_slot(plan, slot(&load, "rank"))
         .expect("sum_distinct_by(rank) canonical-scale should succeed")
         .expect("sum_distinct_by(rank) should return a value");
 
@@ -1114,7 +1114,7 @@ fn aggregate_numeric_field_unknown_target_fails_without_scan() {
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("numeric field unknown-target plan should build");
     let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-        load.aggregate_sum_by(plan, "missing_field")
+        load.aggregate_sum_by_slot(plan, slot(&load, "missing_field"))
     });
     let Err(err) = result else {
         panic!("sum_by(missing_field) should be rejected");
@@ -1138,7 +1138,7 @@ fn aggregate_numeric_field_non_numeric_target_fails_without_scan() {
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("numeric field non-numeric target plan should build");
     let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-        load.aggregate_avg_by(plan, "label")
+        load.aggregate_avg_by_slot(plan, slot(&load, "label"))
     });
     let Err(err) = result else {
         panic!("avg_by(label) should be rejected");

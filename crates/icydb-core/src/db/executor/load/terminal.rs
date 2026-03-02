@@ -10,9 +10,11 @@ use crate::{
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, compare_orderable_field_values,
                 extract_orderable_field_value,
+                resolve_orderable_aggregate_target_slot_from_planner_slot,
             },
             load::LoadExecutor,
         },
+        query::plan::FieldSlot as PlannedFieldSlot,
         response::Response,
     },
     error::InternalError,
@@ -53,78 +55,123 @@ where
         self.execute_take_terminal(plan, take_count)
     }
 
-    /// Execute one `top_k_by(field, k)` terminal over materialized load rows.
-    pub(in crate::db) fn top_k_by(
+    /// Execute one `top_k_by(field, k)` terminal over materialized load rows
+    /// using one planner-resolved field slot.
+    pub(in crate::db) fn top_k_by_slot(
         &self,
         plan: ExecutablePlan<E>,
-        target_field: impl Into<String>,
+        target_field: PlannedFieldSlot,
         take_count: u32,
     ) -> Result<Response<E>, InternalError> {
-        let target_field = target_field.into();
+        let field_slot =
+            resolve_orderable_aggregate_target_slot_from_planner_slot::<E>(&target_field)
+                .map_err(AggregateFieldValueError::into_internal_error)?;
+        let response = self.execute(plan)?;
 
-        self.execute_top_k_field_terminal(plan, target_field.as_str(), take_count)
+        Self::top_k_field_from_materialized(response, target_field.field(), field_slot, take_count)
     }
 
-    /// Execute one `bottom_k_by(field, k)` terminal over materialized load rows.
-    pub(in crate::db) fn bottom_k_by(
+    /// Execute one `bottom_k_by(field, k)` terminal over materialized load rows
+    /// using one planner-resolved field slot.
+    pub(in crate::db) fn bottom_k_by_slot(
         &self,
         plan: ExecutablePlan<E>,
-        target_field: impl Into<String>,
+        target_field: PlannedFieldSlot,
         take_count: u32,
     ) -> Result<Response<E>, InternalError> {
-        let target_field = target_field.into();
+        let field_slot =
+            resolve_orderable_aggregate_target_slot_from_planner_slot::<E>(&target_field)
+                .map_err(AggregateFieldValueError::into_internal_error)?;
+        let response = self.execute(plan)?;
 
-        self.execute_bottom_k_field_terminal(plan, target_field.as_str(), take_count)
+        Self::bottom_k_field_from_materialized(
+            response,
+            target_field.field(),
+            field_slot,
+            take_count,
+        )
     }
 
-    /// Execute one `top_k_by_values(field, k)` terminal and return ranked values.
-    pub(in crate::db) fn top_k_by_values(
+    /// Execute one `top_k_by_values(field, k)` terminal and return ranked values
+    /// using one planner-resolved field slot.
+    pub(in crate::db) fn top_k_by_values_slot(
         &self,
         plan: ExecutablePlan<E>,
-        target_field: impl Into<String>,
+        target_field: PlannedFieldSlot,
         take_count: u32,
     ) -> Result<Vec<Value>, InternalError> {
-        let target_field = target_field.into();
+        let field_slot =
+            resolve_orderable_aggregate_target_slot_from_planner_slot::<E>(&target_field)
+                .map_err(AggregateFieldValueError::into_internal_error)?;
+        let response = self.execute(plan)?;
 
-        self.execute_top_k_field_values_terminal(plan, target_field.as_str(), take_count)
+        Self::top_k_field_values_from_materialized(
+            response,
+            target_field.field(),
+            field_slot,
+            take_count,
+        )
     }
 
-    /// Execute one `bottom_k_by_values(field, k)` terminal and return ranked values.
-    pub(in crate::db) fn bottom_k_by_values(
+    /// Execute one `bottom_k_by_values(field, k)` terminal and return ranked
+    /// values using one planner-resolved field slot.
+    pub(in crate::db) fn bottom_k_by_values_slot(
         &self,
         plan: ExecutablePlan<E>,
-        target_field: impl Into<String>,
+        target_field: PlannedFieldSlot,
         take_count: u32,
     ) -> Result<Vec<Value>, InternalError> {
-        let target_field = target_field.into();
+        let field_slot =
+            resolve_orderable_aggregate_target_slot_from_planner_slot::<E>(&target_field)
+                .map_err(AggregateFieldValueError::into_internal_error)?;
+        let response = self.execute(plan)?;
 
-        self.execute_bottom_k_field_values_terminal(plan, target_field.as_str(), take_count)
+        Self::bottom_k_field_values_from_materialized(
+            response,
+            target_field.field(),
+            field_slot,
+            take_count,
+        )
     }
 
-    /// Execute one `top_k_by_with_ids(field, k)` terminal and return `(id, value)` rows.
-    pub(in crate::db) fn top_k_by_with_ids(
+    /// Execute one `top_k_by_with_ids(field, k)` terminal and return `(id, value)`
+    /// rows using one planner-resolved field slot.
+    pub(in crate::db) fn top_k_by_with_ids_slot(
         &self,
         plan: ExecutablePlan<E>,
-        target_field: impl Into<String>,
+        target_field: PlannedFieldSlot,
         take_count: u32,
     ) -> Result<Vec<(Id<E>, Value)>, InternalError> {
-        let target_field = target_field.into();
+        let field_slot =
+            resolve_orderable_aggregate_target_slot_from_planner_slot::<E>(&target_field)
+                .map_err(AggregateFieldValueError::into_internal_error)?;
+        let response = self.execute(plan)?;
 
-        self.execute_top_k_field_values_with_ids_terminal(plan, target_field.as_str(), take_count)
+        Self::top_k_field_values_with_ids_from_materialized(
+            response,
+            target_field.field(),
+            field_slot,
+            take_count,
+        )
     }
 
-    /// Execute one `bottom_k_by_with_ids(field, k)` terminal and return `(id, value)` rows.
-    pub(in crate::db) fn bottom_k_by_with_ids(
+    /// Execute one `bottom_k_by_with_ids(field, k)` terminal and return
+    /// `(id, value)` rows using one planner-resolved field slot.
+    pub(in crate::db) fn bottom_k_by_with_ids_slot(
         &self,
         plan: ExecutablePlan<E>,
-        target_field: impl Into<String>,
+        target_field: PlannedFieldSlot,
         take_count: u32,
     ) -> Result<Vec<(Id<E>, Value)>, InternalError> {
-        let target_field = target_field.into();
+        let field_slot =
+            resolve_orderable_aggregate_target_slot_from_planner_slot::<E>(&target_field)
+                .map_err(AggregateFieldValueError::into_internal_error)?;
+        let response = self.execute(plan)?;
 
-        self.execute_bottom_k_field_values_with_ids_terminal(
-            plan,
-            target_field.as_str(),
+        Self::bottom_k_field_values_with_ids_from_materialized(
+            response,
+            target_field.field(),
+            field_slot,
             take_count,
         )
     }
@@ -143,105 +190,6 @@ where
         }
 
         Ok(response)
-    }
-
-    // Execute one row terminal (`top_k_by(field, k)`) over the effective
-    // materialized response window.
-    fn execute_top_k_field_terminal(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: &str,
-        take_count: u32,
-    ) -> Result<Response<E>, InternalError> {
-        let field_slot = Self::resolve_orderable_field_slot(target_field)?;
-        let response = self.execute(plan)?;
-
-        Self::top_k_field_from_materialized(response, target_field, field_slot, take_count)
-    }
-
-    // Execute one row terminal (`bottom_k_by(field, k)`) over the effective
-    // materialized response window.
-    fn execute_bottom_k_field_terminal(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: &str,
-        take_count: u32,
-    ) -> Result<Response<E>, InternalError> {
-        let field_slot = Self::resolve_orderable_field_slot(target_field)?;
-        let response = self.execute(plan)?;
-
-        Self::bottom_k_field_from_materialized(response, target_field, field_slot, take_count)
-    }
-
-    // Execute one value terminal (`top_k_by_values(field, k)`) over the
-    // effective materialized response window.
-    fn execute_top_k_field_values_terminal(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: &str,
-        take_count: u32,
-    ) -> Result<Vec<Value>, InternalError> {
-        let field_slot = Self::resolve_orderable_field_slot(target_field)?;
-        let response = self.execute(plan)?;
-
-        Self::top_k_field_values_from_materialized(response, target_field, field_slot, take_count)
-    }
-
-    // Execute one value terminal (`bottom_k_by_values(field, k)`) over the
-    // effective materialized response window.
-    fn execute_bottom_k_field_values_terminal(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: &str,
-        take_count: u32,
-    ) -> Result<Vec<Value>, InternalError> {
-        let field_slot = Self::resolve_orderable_field_slot(target_field)?;
-        let response = self.execute(plan)?;
-
-        Self::bottom_k_field_values_from_materialized(
-            response,
-            target_field,
-            field_slot,
-            take_count,
-        )
-    }
-
-    // Execute one value-with-id terminal (`top_k_by_with_ids(field, k)`) over
-    // the effective materialized response window.
-    fn execute_top_k_field_values_with_ids_terminal(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: &str,
-        take_count: u32,
-    ) -> Result<Vec<(Id<E>, Value)>, InternalError> {
-        let field_slot = Self::resolve_orderable_field_slot(target_field)?;
-        let response = self.execute(plan)?;
-
-        Self::top_k_field_values_with_ids_from_materialized(
-            response,
-            target_field,
-            field_slot,
-            take_count,
-        )
-    }
-
-    // Execute one value-with-id terminal (`bottom_k_by_with_ids(field, k)`)
-    // over the effective materialized response window.
-    fn execute_bottom_k_field_values_with_ids_terminal(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: &str,
-        take_count: u32,
-    ) -> Result<Vec<(Id<E>, Value)>, InternalError> {
-        let field_slot = Self::resolve_orderable_field_slot(target_field)?;
-        let response = self.execute(plan)?;
-
-        Self::bottom_k_field_values_with_ids_from_materialized(
-            response,
-            target_field,
-            field_slot,
-            take_count,
-        )
     }
 
     // Reduce one materialized response into deterministic top-k ranked rows

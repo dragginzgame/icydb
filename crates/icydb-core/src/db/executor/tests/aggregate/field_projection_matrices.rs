@@ -25,10 +25,10 @@ fn aggregate_field_target_count_distinct_counts_window_values() {
         .execute(build_plan())
         .expect("field-target count-distinct baseline execute should succeed");
     let distinct_count = load
-        .aggregate_count_distinct_by(build_plan(), "rank")
+        .aggregate_count_distinct_by_slot(build_plan(), slot(&load, "rank"))
         .expect("count_distinct_by(rank) should succeed");
     let empty_window_count = load
-        .aggregate_count_distinct_by(
+        .aggregate_count_distinct_by_slot(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(u32_eq_predicate("group", 7))
                 .order_by_desc("id")
@@ -37,7 +37,7 @@ fn aggregate_field_target_count_distinct_counts_window_values() {
                 .plan()
                 .map(crate::db::executor::ExecutablePlan::from)
                 .expect("empty-window count-distinct plan should build"),
-            "rank",
+            slot(&load, "rank"),
         )
         .expect("empty-window count_distinct_by(rank) should succeed");
 
@@ -58,13 +58,13 @@ fn aggregate_field_target_count_distinct_supports_non_orderable_fields() {
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
 
     let distinct_count = load
-        .aggregate_count_distinct_by(
+        .aggregate_count_distinct_by_slot(
             Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .plan()
                 .map(crate::db::executor::ExecutablePlan::from)
                 .expect("non-orderable count-distinct plan should build"),
-            "tags",
+            slot(&load, "tags"),
         )
         .expect("count_distinct_by(tags) should succeed");
 
@@ -109,13 +109,13 @@ fn aggregate_field_target_count_distinct_list_order_semantics_are_stable() {
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
 
     let distinct_count = load
-        .aggregate_count_distinct_by(
+        .aggregate_count_distinct_by_slot(
             Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .plan()
                 .map(crate::db::executor::ExecutablePlan::from)
                 .expect("list-order count-distinct plan should build"),
-            "tags",
+            slot(&load, "tags"),
         )
         .expect("count_distinct_by(tags) should succeed");
 
@@ -176,7 +176,7 @@ fn aggregate_field_target_count_distinct_residual_retry_parity_and_scan_budget_m
 
     let (distinct_count, scanned_count_distinct) =
         capture_rows_scanned_for_entity(IndexedMetricsEntity::PATH, || {
-            load.aggregate_count_distinct_by(build_plan(), "tag")
+            load.aggregate_count_distinct_by_slot(build_plan(), slot(&load, "tag"))
                 .expect("residual-retry count_distinct_by(tag) should succeed")
         });
     let (response, scanned_execute) =
@@ -219,18 +219,18 @@ fn aggregate_field_target_count_distinct_is_direction_invariant() {
     ]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let asc_count = load
-        .aggregate_count_distinct_by(
+        .aggregate_count_distinct_by_slot(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(u32_eq_predicate("group", 7))
                 .order_by("rank")
                 .plan()
                 .map(crate::db::executor::ExecutablePlan::from)
                 .expect("direction-invariant ASC plan should build"),
-            "rank",
+            slot(&load, "rank"),
         )
         .expect("direction-invariant ASC count_distinct_by(rank) should succeed");
     let desc_count = load
-        .aggregate_count_distinct_by(
+        .aggregate_count_distinct_by_slot(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(u32_eq_predicate("group", 7))
                 .order_by_desc("rank")
@@ -238,7 +238,7 @@ fn aggregate_field_target_count_distinct_is_direction_invariant() {
                 .plan()
                 .map(crate::db::executor::ExecutablePlan::from)
                 .expect("direction-invariant DESC plan should build"),
-            "rank",
+            slot(&load, "rank"),
         )
         .expect("direction-invariant DESC count_distinct_by(rank) should succeed");
 
@@ -268,10 +268,10 @@ fn aggregate_field_target_count_distinct_optional_field_null_values_are_rejected
             .expect("optional-field null-semantics DESC plan should build")
     };
     let asc_err = load
-        .aggregate_count_distinct_by(build_plan_asc(), "opt_rank")
+        .aggregate_count_distinct_by_slot(build_plan_asc(), slot(&load, "opt_rank"))
         .expect_err("count_distinct_by(opt_rank) ASC should reject null field values");
     let desc_err = load
-        .aggregate_count_distinct_by(build_plan_desc(), "opt_rank")
+        .aggregate_count_distinct_by_slot(build_plan_desc(), slot(&load, "opt_rank"))
         .expect_err("count_distinct_by(opt_rank) DESC should reject null field values");
 
     assert_eq!(
@@ -364,11 +364,11 @@ fn optional_field_null_baseline_error(
 ) -> InternalError {
     match terminal {
         OptionalFieldNullTerminal::TopKByWithIds | OptionalFieldNullTerminal::BottomKByWithIds => {
-            load.values_by_with_ids(optional_field_null_plan(), "opt_rank")
+            load.values_by_with_ids_slot(optional_field_null_plan(), slot(load, "opt_rank"))
                 .expect_err("values_by_with_ids(opt_rank) should reject null field values")
         }
         _ => load
-            .values_by(optional_field_null_plan(), "opt_rank")
+            .values_by_slot(optional_field_null_plan(), slot(load, "opt_rank"))
             .expect_err("values_by(opt_rank) should reject null field values"),
     }
 }
@@ -379,22 +379,22 @@ fn optional_field_null_terminal_error(
 ) -> InternalError {
     match terminal {
         OptionalFieldNullTerminal::TopKBy => load
-            .top_k_by(optional_field_null_plan(), "opt_rank", 2)
+            .top_k_by_slot(optional_field_null_plan(), slot(load, "opt_rank"), 2)
             .expect_err("top_k_by(opt_rank, 2) should reject null field values"),
         OptionalFieldNullTerminal::BottomKBy => load
-            .bottom_k_by(optional_field_null_plan(), "opt_rank", 2)
+            .bottom_k_by_slot(optional_field_null_plan(), slot(load, "opt_rank"), 2)
             .expect_err("bottom_k_by(opt_rank, 2) should reject null field values"),
         OptionalFieldNullTerminal::TopKByValues => load
-            .top_k_by_values(optional_field_null_plan(), "opt_rank", 2)
+            .top_k_by_values_slot(optional_field_null_plan(), slot(load, "opt_rank"), 2)
             .expect_err("top_k_by_values(opt_rank, 2) should reject null field values"),
         OptionalFieldNullTerminal::BottomKByValues => load
-            .bottom_k_by_values(optional_field_null_plan(), "opt_rank", 2)
+            .bottom_k_by_values_slot(optional_field_null_plan(), slot(load, "opt_rank"), 2)
             .expect_err("bottom_k_by_values(opt_rank, 2) should reject null field values"),
         OptionalFieldNullTerminal::TopKByWithIds => load
-            .top_k_by_with_ids(optional_field_null_plan(), "opt_rank", 2)
+            .top_k_by_with_ids_slot(optional_field_null_plan(), slot(load, "opt_rank"), 2)
             .expect_err("top_k_by_with_ids(opt_rank, 2) should reject null field values"),
         OptionalFieldNullTerminal::BottomKByWithIds => load
-            .bottom_k_by_with_ids(optional_field_null_plan(), "opt_rank", 2)
+            .bottom_k_by_with_ids_slot(optional_field_null_plan(), slot(load, "opt_rank"), 2)
             .expect_err("bottom_k_by_with_ids(opt_rank, 2) should reject null field values"),
     }
 }
@@ -452,10 +452,10 @@ fn missing_field_baseline_error(
 ) -> InternalError {
     match terminal {
         MissingFieldTerminal::TopKByWithIds | MissingFieldTerminal::BottomKByWithIds => load
-            .values_by_with_ids(missing_field_parity_plan(), "missing_field")
+            .values_by_with_ids_slot(missing_field_parity_plan(), slot(load, "missing_field"))
             .expect_err("values_by_with_ids(missing_field) should be rejected"),
         _ => load
-            .values_by(missing_field_parity_plan(), "missing_field")
+            .values_by_slot(missing_field_parity_plan(), slot(load, "missing_field"))
             .expect_err("values_by(missing_field) should be rejected"),
     }
 }
@@ -466,22 +466,22 @@ fn missing_field_terminal_error(
 ) -> InternalError {
     match terminal {
         MissingFieldTerminal::TopKBy => load
-            .top_k_by(missing_field_parity_plan(), "missing_field", 2)
+            .top_k_by_slot(missing_field_parity_plan(), slot(load, "missing_field"), 2)
             .expect_err("top_k_by(missing_field, 2) should be rejected"),
         MissingFieldTerminal::TopKByValues => load
-            .top_k_by_values(missing_field_parity_plan(), "missing_field", 2)
+            .top_k_by_values_slot(missing_field_parity_plan(), slot(load, "missing_field"), 2)
             .expect_err("top_k_by_values(missing_field, 2) should be rejected"),
         MissingFieldTerminal::BottomKBy => load
-            .bottom_k_by(missing_field_parity_plan(), "missing_field", 2)
+            .bottom_k_by_slot(missing_field_parity_plan(), slot(load, "missing_field"), 2)
             .expect_err("bottom_k_by(missing_field, 2) should be rejected"),
         MissingFieldTerminal::BottomKByValues => load
-            .bottom_k_by_values(missing_field_parity_plan(), "missing_field", 2)
+            .bottom_k_by_values_slot(missing_field_parity_plan(), slot(load, "missing_field"), 2)
             .expect_err("bottom_k_by_values(missing_field, 2) should be rejected"),
         MissingFieldTerminal::TopKByWithIds => load
-            .top_k_by_with_ids(missing_field_parity_plan(), "missing_field", 2)
+            .top_k_by_with_ids_slot(missing_field_parity_plan(), slot(load, "missing_field"), 2)
             .expect_err("top_k_by_with_ids(missing_field, 2) should be rejected"),
         MissingFieldTerminal::BottomKByWithIds => load
-            .bottom_k_by_with_ids(missing_field_parity_plan(), "missing_field", 2)
+            .bottom_k_by_with_ids_slot(missing_field_parity_plan(), slot(load, "missing_field"), 2)
             .expect_err("bottom_k_by_with_ids(missing_field, 2) should be rejected"),
     }
 }
@@ -580,21 +580,21 @@ fn aggregate_field_target_count_distinct_distinct_modifier_tracks_effective_wind
         .expect("distinct count-distinct baseline execute should succeed");
 
     let non_distinct_count = load
-        .aggregate_count_distinct_by(
+        .aggregate_count_distinct_by_slot(
             build_query(false)
                 .plan()
                 .map(crate::db::executor::ExecutablePlan::from)
                 .expect("non-distinct count-distinct plan should build"),
-            "rank",
+            slot(&load, "rank"),
         )
         .expect("non-distinct count_distinct_by(rank) should succeed");
     let distinct_count = load
-        .aggregate_count_distinct_by(
+        .aggregate_count_distinct_by_slot(
             build_query(true)
                 .plan()
                 .map(crate::db::executor::ExecutablePlan::from)
                 .expect("distinct count-distinct plan should build"),
-            "rank",
+            slot(&load, "rank"),
         )
         .expect("distinct count_distinct_by(rank) should succeed");
 
@@ -620,7 +620,7 @@ fn aggregate_field_target_values_by_distinct_remains_row_level() {
     ]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let values = load
-        .values_by(
+        .values_by_slot(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(u32_eq_predicate("group", 7))
                 .distinct()
@@ -628,7 +628,7 @@ fn aggregate_field_target_values_by_distinct_remains_row_level() {
                 .plan()
                 .map(crate::db::executor::ExecutablePlan::from)
                 .expect("values_by distinct plan should build"),
-            "rank",
+            slot(&load, "rank"),
         )
         .expect("values_by(rank) should succeed");
 
@@ -665,7 +665,7 @@ fn aggregate_field_target_distinct_values_by_matches_effective_window_projection
         .execute(build_plan())
         .expect("baseline execute for distinct_values_by should succeed");
     let actual = load
-        .distinct_values_by(build_plan(), "rank")
+        .distinct_values_by_slot(build_plan(), slot(&load, "rank"))
         .expect("distinct_values_by(rank) should succeed");
 
     assert_eq!(
@@ -698,10 +698,10 @@ fn aggregate_field_target_distinct_values_by_matches_values_by_first_observed_de
     };
 
     let values = load
-        .values_by(build_plan(), "rank")
+        .values_by_slot(build_plan(), slot(&load, "rank"))
         .expect("values_by(rank) should succeed");
     let distinct_values = load
-        .distinct_values_by(build_plan(), "rank")
+        .distinct_values_by_slot(build_plan(), slot(&load, "rank"))
         .expect("distinct_values_by(rank) should succeed");
 
     let mut expected_distinct_from_values = Vec::new();

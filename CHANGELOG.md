@@ -7,7 +7,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.38.x] - 2026-03-02 - Pre-Unified Expr Hardening
 
-- `0.38.0` starts pre-unified-expression structural hardening by converging projection authority, removing planner/executor semantic duplication, isolating aggregate fingerprint identity from explain/alias metadata, preserving runtime class/origin taxonomy through facade conversion, and replacing source-text guard enforcement with structural/type-signature guard tests.
+- `0.38.1` hardens fluent field-target terminal dispatch by requiring planner slot routing, removing runtime fallback from production query paths, and adding guard coverage so slot-first behavior cannot silently drift back.
+- `0.38.0` cleans up query and error internals before unified expressions: projection building now follows one path, planner/executor duplicate rule checks are reduced, aggregate fingerprints ignore alias/explain-only metadata, runtime error class/origin are preserved at the public boundary, and architecture guards now use structural tests instead of source-text scans.
 
 See detailed breakdown:
 [docs/changelog/0.38.md](docs/changelog/0.38.md)
@@ -16,14 +17,14 @@ See detailed breakdown:
 
 ## [0.37.x] - 2026-03-01 - Aggregate Fluent API Consolidation
 
-- `0.37.0` starts aggregate fluent API consolidation with composable aggregate builders (`AggregateExpr`, `count`, `count_by`, `sum`, `exists`, `first`, `last`, `min`, `max`, `min_by`, `max_by`, `distinct`) and new `.aggregate(...)` query/fluent entrypoints.
-- `0.37.0` removes grouped combinatorial helper terminals (`group_count*`, `group_sum_distinct_by`, `group_exists`, `group_first`, `group_last`, `group_min*`, `group_max*`) as an intentional pre-`1.0` hard cut in favor of builder-only `.aggregate(...)` composition.
-- `0.37.1` closes builder hardening for this cut with compile-fail guards for removed terminals, typed builder-validation parity coverage, and migration guidance for replacing `group_*` calls with `.aggregate(...)`.
-- `0.37.2` closes deferred resource follow-ups by making grouped route strategy labels explicitly materialized and consolidating non-grouped materialized DISTINCT helper ownership under one executor boundary.
-- `0.37.3` closes the cross-cutting audit pass by decomposing grouped execution into a staged spine, centralizing `AccessPath` routing under one executor dispatcher, splitting grouped validation into structure/policy/cursor gates, routing continuation filtering through a single cursor spine entrypoint, and normalizing invariant-constructor callsites behind per-module `invariant(...)` helpers.
-- `0.37.4` harmonizes cursor paging policy wording by centralizing cursor paging messages and constructors on `CursorPlanError`, normalizes access canonicalization invocation so key-intent and planner paths both route through the shared `db::access` normalization boundary, and isolates `ExecutionTrace` contracts under `db::executor::trace` while leaving only load-path wiring and response/db payload accessors outside that contract module.
-- `0.37.5` freezes core execution contracts across topology, cursor semantics, grouped route strategy, and access canonicalization boundaries, adding invariant and regression locks that prevent silent planner/runtime drift.
-- `0.37.6` hardens runtime error boundaries by removing blanket serializer-to-runtime conversion, replacing query execute error tunneling with typed runtime execution errors, and preserving expanded origin and class taxonomy (`Planner`, `Cursor`, `Recovery`, `Identity`) through facade mapping.
+- `0.37.0` added a simpler grouped query style with `.aggregate(...)` plus reusable aggregate builders like `count()`, `sum("field")`, and `distinct()`.
+- `0.37.0` removed older `group_*` aggregate helper methods so grouped aggregation uses one consistent API path.
+- `0.37.1` added migration safety checks and tests so removed grouped helpers fail clearly and `.aggregate(...)` replacements are verified.
+- `0.37.2` cleaned up grouped route labeling and DISTINCT helper ownership so grouped execution behavior is easier to reason about.
+- `0.37.3` reduced grouped execution complexity by splitting responsibilities into clearer stages and centralizing key routing/validation paths.
+- `0.37.4` unified cursor paging and access-normalization handling to reduce inconsistent behavior across query paths.
+- `0.37.5` added stronger invariant and regression coverage to lock core execution behavior and catch drift earlier.
+- `0.37.6` preserved runtime error class and origin details at public boundaries so client-side error handling can be more precise.
 
 ```rust
 let page = session

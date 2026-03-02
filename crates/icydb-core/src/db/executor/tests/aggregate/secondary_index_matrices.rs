@@ -243,25 +243,25 @@ fn assert_secondary_field_extrema_missing_ok_stale_fallback(
     );
     let (min_by, scanned_min_by) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.aggregate_min_by(
+            load.aggregate_min_by_slot(
                 secondary_group_rank_order_plan(
                     MissingRowPolicy::Ignore,
                     crate::db::query::plan::OrderDirection::Asc,
                     0,
                 ),
-                target_field,
+                slot(&load, target_field),
             )
             .expect("missing-ok field MIN should succeed")
         });
     let (max_by, scanned_max_by) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.aggregate_max_by(
+            load.aggregate_max_by_slot(
                 secondary_group_rank_order_plan(
                     MissingRowPolicy::Ignore,
                     crate::db::query::plan::OrderDirection::Desc,
                     0,
                 ),
-                target_field,
+                slot(&load, target_field),
             )
             .expect("missing-ok field MAX should succeed")
         });
@@ -293,23 +293,23 @@ fn assert_secondary_field_extrema_strict_stale_corruption(
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
 
     let min_err = load
-        .aggregate_min_by(
+        .aggregate_min_by_slot(
             secondary_group_rank_order_plan(
                 MissingRowPolicy::Error,
                 crate::db::query::plan::OrderDirection::Asc,
                 0,
             ),
-            target_field,
+            slot(&load, target_field),
         )
         .expect_err("strict field MIN should fail when leading key is stale");
     let max_err = load
-        .aggregate_max_by(
+        .aggregate_max_by_slot(
             secondary_group_rank_order_plan(
                 MissingRowPolicy::Error,
                 crate::db::query::plan::OrderDirection::Desc,
                 0,
             ),
-            target_field,
+            slot(&load, target_field),
         )
         .expect_err("strict field MAX should fail when leading key is stale");
 
@@ -448,25 +448,25 @@ fn aggregate_field_extrema_secondary_index_eligible_shape_locks_scan_budget() {
 
     let (min_by_asc, scanned_min_by_asc) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.aggregate_min_by(
+            load.aggregate_min_by_slot(
                 secondary_group_rank_order_plan(
                     MissingRowPolicy::Ignore,
                     crate::db::query::plan::OrderDirection::Asc,
                     0,
                 ),
-                "rank",
+                slot(&load, "rank"),
             )
             .expect("missing-ok secondary MIN(field) eligible shape should succeed")
         });
     let (max_by_desc, scanned_max_by_desc) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.aggregate_max_by(
+            load.aggregate_max_by_slot(
                 secondary_group_rank_order_plan(
                     MissingRowPolicy::Ignore,
                     crate::db::query::plan::OrderDirection::Desc,
                     0,
                 ),
-                "rank",
+                slot(&load, "rank"),
             )
             .expect("missing-ok secondary MAX(field) eligible shape should succeed")
         });
@@ -525,127 +525,127 @@ fn aggregate_field_terminal_error_classification_matrix() {
     seed_pushdown_entities(&[(8_291, 7, 10), (8_292, 7, 20), (8_293, 7, 30)]);
     let pushdown_load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let unknown_field_min_error = pushdown_load
-        .aggregate_min_by(
+        .aggregate_min_by_slot(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .plan()
                 .map(crate::db::executor::ExecutablePlan::from)
                 .expect("unknown-field MIN(field) plan should build"),
-            "missing_field",
+            slot(&pushdown_load, "missing_field"),
         )
         .expect_err("unknown field MIN(field) should fail");
     let unknown_field_median_error = pushdown_load
-        .aggregate_median_by(
+        .aggregate_median_by_slot(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .plan()
                 .map(crate::db::executor::ExecutablePlan::from)
                 .expect("unknown-field MEDIAN(field) plan should build"),
-            "missing_field",
+            slot(&pushdown_load, "missing_field"),
         )
         .expect_err("unknown field MEDIAN(field) should fail");
     let unknown_field_count_distinct_error = pushdown_load
-        .aggregate_count_distinct_by(
+        .aggregate_count_distinct_by_slot(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .plan()
                 .map(crate::db::executor::ExecutablePlan::from)
                 .expect("unknown-field COUNT_DISTINCT(field) plan should build"),
-            "missing_field",
+            slot(&pushdown_load, "missing_field"),
         )
         .expect_err("unknown field COUNT_DISTINCT(field) should fail");
     let unknown_field_min_max_error = pushdown_load
-        .aggregate_min_max_by(
+        .aggregate_min_max_by_slot(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .plan()
                 .map(crate::db::executor::ExecutablePlan::from)
                 .expect("unknown-field MIN_MAX(field) plan should build"),
-            "missing_field",
+            slot(&pushdown_load, "missing_field"),
         )
         .expect_err("unknown field MIN_MAX(field) should fail");
     let non_numeric_error = pushdown_load
-        .aggregate_sum_by(
+        .aggregate_sum_by_slot(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .plan()
                 .map(crate::db::executor::ExecutablePlan::from)
                 .expect("non-numeric SUM(field) plan should build"),
-            "label",
+            slot(&pushdown_load, "label"),
         )
         .expect_err("non-numeric SUM(field) should fail");
     remove_pushdown_row_data(8_291);
     let strict_stale_error = pushdown_load
-        .aggregate_min_by(
+        .aggregate_min_by_slot(
             secondary_group_rank_order_plan(
                 MissingRowPolicy::Error,
                 crate::db::query::plan::OrderDirection::Asc,
                 0,
             ),
-            "rank",
+            slot(&pushdown_load, "rank"),
         )
         .expect_err("strict stale-leading MIN(field) should fail");
     let strict_stale_median_error = pushdown_load
-        .aggregate_median_by(
+        .aggregate_median_by_slot(
             secondary_group_rank_order_plan(
                 MissingRowPolicy::Error,
                 crate::db::query::plan::OrderDirection::Asc,
                 0,
             ),
-            "rank",
+            slot(&pushdown_load, "rank"),
         )
         .expect_err("strict stale-leading MEDIAN(field) should fail");
     let strict_stale_count_distinct_error = pushdown_load
-        .aggregate_count_distinct_by(
+        .aggregate_count_distinct_by_slot(
             secondary_group_rank_order_plan(
                 MissingRowPolicy::Error,
                 crate::db::query::plan::OrderDirection::Asc,
                 0,
             ),
-            "rank",
+            slot(&pushdown_load, "rank"),
         )
         .expect_err("strict stale-leading COUNT_DISTINCT(field) should fail");
     let strict_stale_min_max_error = pushdown_load
-        .aggregate_min_max_by(
+        .aggregate_min_max_by_slot(
             secondary_group_rank_order_plan(
                 MissingRowPolicy::Error,
                 crate::db::query::plan::OrderDirection::Asc,
                 0,
             ),
-            "rank",
+            slot(&pushdown_load, "rank"),
         )
         .expect_err("strict stale-leading MIN_MAX(field) should fail");
 
     seed_phase_entities(&[(8_294, 10), (8_295, 20)]);
     let phase_load = LoadExecutor::<PhaseEntity>::new(DB, false);
     let non_orderable_min_error = phase_load
-        .aggregate_min_by(
+        .aggregate_min_by_slot(
             Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .plan()
                 .map(crate::db::executor::ExecutablePlan::from)
                 .expect("non-orderable MIN(field) plan should build"),
-            "tags",
+            slot(&phase_load, "tags"),
         )
         .expect_err("non-orderable MIN(field) should fail");
     let non_orderable_median_error = phase_load
-        .aggregate_median_by(
+        .aggregate_median_by_slot(
             Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .plan()
                 .map(crate::db::executor::ExecutablePlan::from)
                 .expect("non-orderable MEDIAN(field) plan should build"),
-            "tags",
+            slot(&phase_load, "tags"),
         )
         .expect_err("non-orderable MEDIAN(field) should fail");
     let non_orderable_min_max_error = phase_load
-        .aggregate_min_max_by(
+        .aggregate_min_max_by_slot(
             Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
                 .order_by("id")
                 .plan()
                 .map(crate::db::executor::ExecutablePlan::from)
                 .expect("non-orderable MIN_MAX(field) plan should build"),
-            "tags",
+            slot(&phase_load, "tags"),
         )
         .expect_err("non-orderable MIN_MAX(field) should fail");
 
@@ -725,7 +725,7 @@ fn aggregate_field_extrema_negative_lock_distinct_and_offset_shapes_avoid_single
 
     let (distinct_min, scanned_distinct_min) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.aggregate_min_by(
+            load.aggregate_min_by_slot(
                 Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                     .filter(u32_eq_predicate("group", 7))
                     .distinct()
@@ -733,13 +733,13 @@ fn aggregate_field_extrema_negative_lock_distinct_and_offset_shapes_avoid_single
                     .plan()
                     .map(crate::db::executor::ExecutablePlan::from)
                     .expect("distinct MIN(field) plan should build"),
-                "rank",
+                slot(&load, "rank"),
             )
             .expect("distinct MIN(field) should succeed")
         });
     let (offset_max, scanned_offset_max) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.aggregate_max_by(
+            load.aggregate_max_by_slot(
                 Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                     .filter(u32_eq_predicate("group", 7))
                     .order_by("rank")
@@ -747,7 +747,7 @@ fn aggregate_field_extrema_negative_lock_distinct_and_offset_shapes_avoid_single
                     .plan()
                     .map(crate::db::executor::ExecutablePlan::from)
                     .expect("offset MAX(field) plan should build"),
-                "rank",
+                slot(&load, "rank"),
             )
             .expect("offset MAX(field) should succeed")
         });

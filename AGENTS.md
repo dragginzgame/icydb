@@ -401,16 +401,23 @@ Code is considered non-trivial if it:
 
 ## Changelog Readability Rules
 
-* Write changelog entries for a broad engineering audience, not only subsystem owners.
-* Prefer plain language and user impact first; avoid dense internal wording when a simpler phrase is accurate.
-* Avoid internal-only jargon in summaries unless it is required for migration/debugging (for example: "canonicalization convergence", "semantic spine", "compile handoff isolation").
-* Keep bullets short; split long bullets into multiple bullets instead of chaining many clauses.
+* Audience split is mandatory:
+  * Root `CHANGELOG.md` is written for junior engineers and new contributors.
+  * `docs/changelog/0.*.md` is written for senior engineers and domain experts who need deeper technical context.
+* In root `CHANGELOG.md`, prefer plain language and user impact first; avoid dense internal wording when a simpler phrase is accurate.
+* In root `CHANGELOG.md`, every bullet MUST be understandable without prior subsystem context.
+* In root `CHANGELOG.md`, avoid internal-only jargon unless required for migration/debugging; when unavoidable, add a short plain-language explanation in the same bullet.
 * In root `CHANGELOG.md`, keep each minor-line summary focused on shipped behavior and outcomes; avoid WIP/meta narration.
-* In root `CHANGELOG.md`, use exactly one bullet line per patch version in each minor-line summary (one patch version per bullet, no wrapped continuation lines).
+* In root `CHANGELOG.md`, use exactly one bullet per patch version in each minor-line summary.
+* In `docs/changelog/0.*.md`, include implementation detail, architectural rationale, and subsystem terminology needed by maintainers and domain experts.
+* In `docs/changelog/0.*.md`, prefer precision over simplification, but keep claims concrete and avoid unnecessary verbosity.
+* Never copy internal design-doc phrasing directly into changelog summaries.
+* Keep bullets short; split long bullets into multiple bullets instead of chaining many clauses.
 * Inline fenced examples are optional, not mandatory.
 * In root `CHANGELOG.md`, include at most one inline fenced example per minor version (`0.x.x` line) when it materially improves clarity.
 * In `docs/changelog/0.*.md`, include at most one inline fenced example per patch entry (`## 0.x.y`) when it materially improves clarity.
 * Use inline fenced examples only for meaningful code, config, or flow snapshots that explain behavior better than prose; if no good example exists, skip it.
+* Before finalizing root `CHANGELOG.md` text, perform one plain-language pass that removes unnecessary architecture jargon.
 
 ---
 

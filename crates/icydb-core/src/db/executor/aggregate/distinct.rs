@@ -13,13 +13,20 @@ use crate::{
         executor::{
             ExecutablePlan,
             aggregate::{
-                AggregateKind, field::extract_orderable_field_value,
+                AggregateKind,
+                field::{
+                    extract_orderable_field_value,
+                    resolve_any_aggregate_target_slot_from_planner_slot,
+                },
                 materialized_distinct::insert_materialized_distinct_value,
             },
             group::GroupKeySet,
             load::LoadExecutor,
         },
-        query::plan::{GroupedExecutionConfig, global_distinct_group_spec_for_semantic_aggregate},
+        query::plan::{
+            FieldSlot as PlannedFieldSlot, GroupedExecutionConfig,
+            global_distinct_group_spec_for_semantic_aggregate,
+        },
         response::Response,
     },
     error::InternalError,
@@ -34,19 +41,20 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
-    /// Execute `count_distinct(field)` over the effective response window.
-    pub(in crate::db) fn aggregate_count_distinct_by(
+    /// Execute `count_distinct(field)` over the effective response window using
+    /// one planner-resolved field slot.
+    pub(in crate::db) fn aggregate_count_distinct_by_slot(
         &self,
         plan: ExecutablePlan<E>,
-        target_field: impl Into<String>,
+        target_field: PlannedFieldSlot,
     ) -> Result<u32, InternalError> {
-        let target_field = target_field.into();
-        let field_slot = Self::resolve_any_field_slot(target_field.as_str())?;
+        let field_slot = resolve_any_aggregate_target_slot_from_planner_slot::<E>(&target_field)
+            .map_err(Self::map_aggregate_field_value_error)?;
         let response = self.execute(plan)?;
 
         Self::count_distinct_field_values_from_materialized(
             response,
-            target_field.as_str(),
+            target_field.field(),
             field_slot,
         )
     }

@@ -19,13 +19,14 @@ use crate::{
         },
         query::{
             explain::ExplainAccessPath,
-            plan::{AccessPlannedQuery, OrderDirection, OrderSpec, PageSpec},
+            plan::{AccessPlannedQuery, FieldSlot, OrderDirection, OrderSpec, PageSpec},
         },
         response::Response,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     obs::sink::{MetricsEvent, MetricsSink, with_metrics_sink},
     types::{Decimal, Id},
+    value::Value,
 };
 use std::cell::RefCell;
 use std::ops::Bound;
@@ -146,6 +147,19 @@ fn seed_phase_entities_custom(rows: Vec<PhaseEntity>) {
         save.insert(row)
             .expect("seed custom phase row save should succeed");
     }
+}
+
+fn field_slot_for_test<E: EntityKind>(field: &str) -> FieldSlot {
+    FieldSlot::resolve(E::MODEL, field)
+        .unwrap_or_else(|| FieldSlot::from_parts_for_test(usize::MAX, field.to_string()))
+}
+
+fn slot<E>(load: &LoadExecutor<E>, field: &str) -> FieldSlot
+where
+    E: EntityKind + EntityValue,
+{
+    let _ = load;
+    field_slot_for_test::<E>(field)
 }
 
 fn remove_pushdown_row_data(id: u128) {
@@ -529,7 +543,7 @@ fn field_parity_actual_min_by_rank(
     plan: ExecutablePlan<PushdownParityEntity>,
 ) -> Result<FieldAggregateParityValue, InternalError> {
     Ok(FieldAggregateParityValue::Id(
-        load.aggregate_min_by(plan, "rank")?,
+        load.aggregate_min_by_slot(plan, slot(load, "rank"))?,
     ))
 }
 
@@ -538,7 +552,7 @@ fn field_parity_actual_max_by_rank(
     plan: ExecutablePlan<PushdownParityEntity>,
 ) -> Result<FieldAggregateParityValue, InternalError> {
     Ok(FieldAggregateParityValue::Id(
-        load.aggregate_max_by(plan, "rank")?,
+        load.aggregate_max_by_slot(plan, slot(load, "rank"))?,
     ))
 }
 
@@ -546,9 +560,9 @@ fn field_parity_actual_nth_by_rank(
     load: &LoadExecutor<PushdownParityEntity>,
     plan: ExecutablePlan<PushdownParityEntity>,
 ) -> Result<FieldAggregateParityValue, InternalError> {
-    Ok(FieldAggregateParityValue::Id(load.aggregate_nth_by(
+    Ok(FieldAggregateParityValue::Id(load.aggregate_nth_by_slot(
         plan,
-        "rank",
+        slot(load, "rank"),
         FIELD_PARITY_NTH_ORDINAL,
     )?))
 }
@@ -558,7 +572,7 @@ fn field_parity_actual_sum_by_rank(
     plan: ExecutablePlan<PushdownParityEntity>,
 ) -> Result<FieldAggregateParityValue, InternalError> {
     Ok(FieldAggregateParityValue::Decimal(
-        load.aggregate_sum_by(plan, "rank")?,
+        load.aggregate_sum_by_slot(plan, slot(load, "rank"))?,
     ))
 }
 
@@ -567,7 +581,7 @@ fn field_parity_actual_avg_by_rank(
     plan: ExecutablePlan<PushdownParityEntity>,
 ) -> Result<FieldAggregateParityValue, InternalError> {
     Ok(FieldAggregateParityValue::Decimal(
-        load.aggregate_avg_by(plan, "rank")?,
+        load.aggregate_avg_by_slot(plan, slot(load, "rank"))?,
     ))
 }
 
@@ -576,7 +590,7 @@ fn field_parity_actual_median_by_rank(
     plan: ExecutablePlan<PushdownParityEntity>,
 ) -> Result<FieldAggregateParityValue, InternalError> {
     Ok(FieldAggregateParityValue::Id(
-        load.aggregate_median_by(plan, "rank")?,
+        load.aggregate_median_by_slot(plan, slot(load, "rank"))?,
     ))
 }
 
@@ -585,7 +599,7 @@ fn field_parity_actual_count_distinct_by_rank(
     plan: ExecutablePlan<PushdownParityEntity>,
 ) -> Result<FieldAggregateParityValue, InternalError> {
     Ok(FieldAggregateParityValue::Count(
-        load.aggregate_count_distinct_by(plan, "rank")?,
+        load.aggregate_count_distinct_by_slot(plan, slot(load, "rank"))?,
     ))
 }
 
@@ -594,7 +608,7 @@ fn field_parity_actual_min_max_by_rank(
     plan: ExecutablePlan<PushdownParityEntity>,
 ) -> Result<FieldAggregateParityValue, InternalError> {
     Ok(FieldAggregateParityValue::IdPair(
-        load.aggregate_min_max_by(plan, "rank")?,
+        load.aggregate_min_max_by_slot(plan, slot(load, "rank"))?,
     ))
 }
 

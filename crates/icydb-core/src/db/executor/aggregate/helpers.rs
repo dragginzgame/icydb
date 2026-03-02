@@ -54,40 +54,42 @@ where
     }
 
     // Execute one field-target nth aggregate (`nth(field, n)`) via canonical
-    // materialized fallback semantics.
-    pub(in crate::db::executor::aggregate) fn execute_nth_field_aggregate(
+    // materialized fallback semantics using one planner-resolved field slot.
+    pub(in crate::db::executor::aggregate) fn execute_nth_field_aggregate_with_slot(
         &self,
         plan: ExecutablePlan<E>,
         target_field: &str,
+        field_slot: FieldSlot,
         nth: usize,
     ) -> Result<Option<Id<E>>, InternalError> {
-        let field_slot = Self::resolve_orderable_field_slot(target_field)?;
         let response = self.execute(plan)?;
 
         Self::aggregate_nth_field_from_materialized(response, target_field, field_slot, nth)
     }
 
     // Execute one field-target median aggregate (`median(field)`) via
-    // canonical materialized fallback semantics.
-    pub(in crate::db::executor::aggregate) fn execute_median_field_aggregate(
+    // canonical materialized fallback semantics using one planner-resolved
+    // field slot.
+    pub(in crate::db::executor::aggregate) fn execute_median_field_aggregate_with_slot(
         &self,
         plan: ExecutablePlan<E>,
         target_field: &str,
+        field_slot: FieldSlot,
     ) -> Result<Option<Id<E>>, InternalError> {
-        let field_slot = Self::resolve_orderable_field_slot(target_field)?;
         let response = self.execute(plan)?;
 
         Self::aggregate_median_field_from_materialized(response, target_field, field_slot)
     }
 
     // Execute one field-target paired extrema aggregate (`min_max(field)`)
-    // via canonical materialized fallback semantics.
-    pub(in crate::db::executor::aggregate) fn execute_min_max_field_aggregate(
+    // via canonical materialized fallback semantics using one
+    // planner-resolved field slot.
+    pub(in crate::db::executor::aggregate) fn execute_min_max_field_aggregate_with_slot(
         &self,
         plan: ExecutablePlan<E>,
         target_field: &str,
+        field_slot: FieldSlot,
     ) -> Result<MinMaxByIds<E>, InternalError> {
-        let field_slot = Self::resolve_orderable_field_slot(target_field)?;
         let response = self.execute(plan)?;
 
         Self::aggregate_min_max_field_from_materialized(response, target_field, field_slot)

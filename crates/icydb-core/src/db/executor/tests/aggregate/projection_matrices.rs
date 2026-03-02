@@ -174,6 +174,46 @@ fn session_load_projection_terminals_execute_projection_matrix_covers_all_forms(
 }
 
 #[test]
+fn session_load_values_by_unknown_field_fails_before_scan_budget_consumption() {
+    seed_pushdown_entities(&[
+        (8_3391, 7, 10),
+        (8_3392, 7, 20),
+        (8_3393, 7, 30),
+        (8_3394, 8, 99),
+    ]);
+    let session = DbSession::new(DB);
+    let load_window = || {
+        session
+            .load::<PushdownParityEntity>()
+            .filter(u32_eq_predicate("group", 7))
+            .order_by_desc("id")
+            .offset(0)
+            .limit(3)
+    };
+
+    let (result, scanned_rows) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load_window().values_by("missing_field")
+        });
+    let Err(err) = result else {
+        panic!("session values_by(missing_field) should be rejected");
+    };
+
+    assert!(
+        matches!(err, QueryError::Execute(_)),
+        "session unknown-field projection should remain an execute-domain error: {err:?}"
+    );
+    assert_eq!(
+        scanned_rows, 0,
+        "session unknown-field projection should fail before scan-budget consumption",
+    );
+    assert!(
+        err.to_string().contains("unknown aggregate target field"),
+        "session unknown-field projection should preserve explicit field taxonomy: {err:?}",
+    );
+}
+
+#[test]
 fn session_load_take_matches_execute_prefix() {
     seed_pushdown_entities(&[
         (8_3601, 7, 10),
@@ -684,13 +724,13 @@ fn run_projection_scan_budget_terminal(
 ) -> Result<(), InternalError> {
     match terminal {
         ProjectionScanBudgetTerminal::ValuesBy => {
-            load.values_by(plan, "rank")?;
+            load.values_by_slot(plan, slot(load, "rank"))?;
         }
         ProjectionScanBudgetTerminal::DistinctValuesBy => {
-            load.distinct_values_by(plan, "rank")?;
+            load.distinct_values_by_slot(plan, slot(load, "rank"))?;
         }
         ProjectionScanBudgetTerminal::ValuesByWithIds => {
-            load.values_by_with_ids(plan, "rank")?;
+            load.values_by_with_ids_slot(plan, slot(load, "rank"))?;
         }
     }
 

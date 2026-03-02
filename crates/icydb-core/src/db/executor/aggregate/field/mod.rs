@@ -10,6 +10,7 @@ use crate::{
             field_kind_supports_aggregate_ordering, field_kind_supports_numeric_aggregation,
         },
         predicate::strict_value_order,
+        query::plan::FieldSlot as PlannedFieldSlot,
     },
     error::InternalError,
     model::{
@@ -158,6 +159,36 @@ pub(in crate::db::executor) fn resolve_orderable_aggregate_target_slot<E: Entity
     })
 }
 
+/// Resolve one planner field slot into one orderable aggregate projection slot.
+pub(in crate::db::executor) fn resolve_orderable_aggregate_target_slot_from_planner_slot<
+    E: EntityKind,
+>(
+    field_slot: &PlannedFieldSlot,
+) -> Result<FieldSlot, AggregateFieldValueError> {
+    let target_field = field_slot.field();
+    let Some(field) = E::MODEL.fields.get(field_slot.index()) else {
+        return Err(AggregateFieldValueError::UnknownField {
+            field: target_field.to_string(),
+        });
+    };
+    if field.name != target_field {
+        return Err(AggregateFieldValueError::UnknownField {
+            field: target_field.to_string(),
+        });
+    }
+    if !field_kind_supports_aggregate_ordering(&field.kind) {
+        return Err(AggregateFieldValueError::UnsupportedFieldKind {
+            field: target_field.to_string(),
+            kind: field.kind,
+        });
+    }
+
+    Ok(FieldSlot {
+        index: field_slot.index(),
+        kind: field.kind,
+    })
+}
+
 /// Resolve one aggregate target field into a stable projection slot.
 pub(in crate::db::executor) fn resolve_any_aggregate_target_slot<E: EntityKind>(
     target_field: &str,
@@ -170,6 +201,30 @@ pub(in crate::db::executor) fn resolve_any_aggregate_target_slot<E: EntityKind>(
 
     Ok(FieldSlot {
         index,
+        kind: field.kind,
+    })
+}
+
+/// Resolve one planner field slot into one aggregate projection slot.
+pub(in crate::db::executor) fn resolve_any_aggregate_target_slot_from_planner_slot<
+    E: EntityKind,
+>(
+    field_slot: &PlannedFieldSlot,
+) -> Result<FieldSlot, AggregateFieldValueError> {
+    let target_field = field_slot.field();
+    let Some(field) = E::MODEL.fields.get(field_slot.index()) else {
+        return Err(AggregateFieldValueError::UnknownField {
+            field: target_field.to_string(),
+        });
+    };
+    if field.name != target_field {
+        return Err(AggregateFieldValueError::UnknownField {
+            field: target_field.to_string(),
+        });
+    }
+
+    Ok(FieldSlot {
+        index: field_slot.index(),
         kind: field.kind,
     })
 }
@@ -192,6 +247,36 @@ pub(in crate::db::executor) fn resolve_numeric_aggregate_target_slot<E: EntityKi
 
     Ok(FieldSlot {
         index,
+        kind: field.kind,
+    })
+}
+
+/// Resolve one planner field slot into one numeric aggregate projection slot.
+pub(in crate::db::executor) fn resolve_numeric_aggregate_target_slot_from_planner_slot<
+    E: EntityKind,
+>(
+    field_slot: &PlannedFieldSlot,
+) -> Result<FieldSlot, AggregateFieldValueError> {
+    let target_field = field_slot.field();
+    let Some(field) = E::MODEL.fields.get(field_slot.index()) else {
+        return Err(AggregateFieldValueError::UnknownField {
+            field: target_field.to_string(),
+        });
+    };
+    if field.name != target_field {
+        return Err(AggregateFieldValueError::UnknownField {
+            field: target_field.to_string(),
+        });
+    }
+    if !field_kind_supports_numeric_aggregation(&field.kind) {
+        return Err(AggregateFieldValueError::UnsupportedFieldKind {
+            field: target_field.to_string(),
+            kind: field.kind,
+        });
+    }
+
+    Ok(FieldSlot {
+        index: field_slot.index(),
         kind: field.kind,
     })
 }

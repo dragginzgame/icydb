@@ -7,9 +7,13 @@ use crate::{
     db::{
         executor::{
             ExecutablePlan,
-            aggregate::field::{FieldSlot, extract_numeric_field_decimal},
+            aggregate::field::{
+                FieldSlot, extract_numeric_field_decimal,
+                resolve_numeric_aggregate_target_slot_from_planner_slot,
+            },
             load::LoadExecutor,
         },
+        query::plan::FieldSlot as PlannedFieldSlot,
         response::Response,
     },
     error::InternalError,
@@ -33,30 +37,37 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
-    /// Execute `sum(field)` over the effective response window.
-    pub(in crate::db) fn aggregate_sum_by(
+    /// Execute `sum(field)` over the effective response window using one
+    /// planner-resolved numeric field slot.
+    pub(in crate::db) fn aggregate_sum_by_slot(
         &self,
         plan: ExecutablePlan<E>,
-        target_field: impl Into<String>,
+        target_field: PlannedFieldSlot,
     ) -> Result<Option<Decimal>, InternalError> {
-        self.execute_numeric_field_aggregate(
-            plan,
-            target_field.into().as_str(),
+        let field_slot =
+            resolve_numeric_aggregate_target_slot_from_planner_slot::<E>(&target_field)
+                .map_err(Self::map_aggregate_field_value_error)?;
+        let response = self.execute(plan)?;
+
+        Self::aggregate_numeric_field_from_materialized(
+            response,
+            target_field.field(),
+            field_slot,
             NumericFieldAggregateKind::Sum,
         )
     }
 
-    /// Execute global `sum(distinct field)` through grouped zero-key execution.
-    pub(in crate::db) fn aggregate_sum_distinct_by(
+    /// Execute global `sum(distinct field)` through grouped zero-key execution
+    /// using one planner-resolved field slot.
+    pub(in crate::db) fn aggregate_sum_distinct_by_slot(
         &self,
         plan: ExecutablePlan<E>,
-        target_field: impl Into<String>,
+        target_field: PlannedFieldSlot,
     ) -> Result<Option<Decimal>, InternalError> {
-        let target_field = target_field.into();
         let value = self.execute_global_distinct_field_grouped_aggregate(
             plan,
             crate::db::query::plan::AggregateKind::Sum,
-            target_field.as_str(),
+            target_field.field(),
         )?;
 
         match value {
@@ -68,31 +79,24 @@ where
         }
     }
 
-    /// Execute `avg(field)` over the effective response window.
-    pub(in crate::db) fn aggregate_avg_by(
+    /// Execute `avg(field)` over the effective response window using one
+    /// planner-resolved numeric field slot.
+    pub(in crate::db) fn aggregate_avg_by_slot(
         &self,
         plan: ExecutablePlan<E>,
-        target_field: impl Into<String>,
+        target_field: PlannedFieldSlot,
     ) -> Result<Option<Decimal>, InternalError> {
-        self.execute_numeric_field_aggregate(
-            plan,
-            target_field.into().as_str(),
-            NumericFieldAggregateKind::Avg,
-        )
-    }
-
-    // Execute one field-target numeric aggregate (`sum(field)` / `avg(field)`)
-    // via canonical materialized fallback semantics.
-    fn execute_numeric_field_aggregate(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: &str,
-        kind: NumericFieldAggregateKind,
-    ) -> Result<Option<Decimal>, InternalError> {
-        let field_slot = Self::resolve_numeric_field_slot(target_field)?;
+        let field_slot =
+            resolve_numeric_aggregate_target_slot_from_planner_slot::<E>(&target_field)
+                .map_err(Self::map_aggregate_field_value_error)?;
         let response = self.execute(plan)?;
 
-        Self::aggregate_numeric_field_from_materialized(response, target_field, field_slot, kind)
+        Self::aggregate_numeric_field_from_materialized(
+            response,
+            target_field.field(),
+            field_slot,
+            NumericFieldAggregateKind::Avg,
+        )
     }
 
     // Reduce one materialized response into `sum(field)` / `avg(field)` over

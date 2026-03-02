@@ -11,14 +11,12 @@ use crate::{
             builder::aggregate::AggregateExpr,
             explain::ExplainPlan,
             expr::{FilterExpr, SortExpr},
-            fluent::projection_shape::{
-                ProjectionFieldShape, RankedProjectionDirection, RankedProjectionMode,
-            },
             intent::{CompiledQuery, IntentError, PlannedQuery, Query, QueryError},
-            plan::{validate_fluent_non_paged_mode, validate_fluent_paged_mode},
+            plan::{FieldSlot, validate_fluent_non_paged_mode, validate_fluent_paged_mode},
         },
         response::Response,
     },
+    error::InternalError,
     traits::{EntityKind, EntityValue, SingletonEntity},
     types::{Decimal, Id},
     value::Value,
@@ -328,10 +326,11 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
+        let target_slot = Self::resolve_terminal_field_slot(field.as_ref())?;
 
         self.session
-            .execute_load_query_with(self.query(), |load, plan| {
-                load.aggregate_min_by(plan, field.as_ref())
+            .execute_load_query_with(self.query(), move |load, plan| {
+                load.aggregate_min_by_slot(plan, target_slot)
             })
     }
 
@@ -354,10 +353,11 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
+        let target_slot = Self::resolve_terminal_field_slot(field.as_ref())?;
 
         self.session
-            .execute_load_query_with(self.query(), |load, plan| {
-                load.aggregate_max_by(plan, field.as_ref())
+            .execute_load_query_with(self.query(), move |load, plan| {
+                load.aggregate_max_by_slot(plan, target_slot)
             })
     }
 
@@ -368,10 +368,11 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
+        let target_slot = Self::resolve_terminal_field_slot(field.as_ref())?;
 
         self.session
-            .execute_load_query_with(self.query(), |load, plan| {
-                load.aggregate_nth_by(plan, field.as_ref(), nth)
+            .execute_load_query_with(self.query(), move |load, plan| {
+                load.aggregate_nth_by_slot(plan, target_slot, nth)
             })
     }
 
@@ -381,10 +382,11 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
+        let target_slot = Self::resolve_terminal_field_slot(field.as_ref())?;
 
         self.session
-            .execute_load_query_with(self.query(), |load, plan| {
-                load.aggregate_sum_by(plan, field.as_ref())
+            .execute_load_query_with(self.query(), move |load, plan| {
+                load.aggregate_sum_by_slot(plan, target_slot)
             })
     }
 
@@ -394,11 +396,11 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
-        let shape = ProjectionFieldShape::sum_distinct(field);
+        let target_slot = Self::resolve_terminal_field_slot(field.as_ref())?;
 
         self.session
-            .execute_load_query_with(self.query(), |load, plan| {
-                load.aggregate_sum_distinct_by(plan, shape.target_field())
+            .execute_load_query_with(self.query(), move |load, plan| {
+                load.aggregate_sum_distinct_by_slot(plan, target_slot)
             })
     }
 
@@ -408,10 +410,11 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
+        let target_slot = Self::resolve_terminal_field_slot(field.as_ref())?;
 
         self.session
-            .execute_load_query_with(self.query(), |load, plan| {
-                load.aggregate_avg_by(plan, field.as_ref())
+            .execute_load_query_with(self.query(), move |load, plan| {
+                load.aggregate_avg_by_slot(plan, target_slot)
             })
     }
 
@@ -424,10 +427,11 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
+        let target_slot = Self::resolve_terminal_field_slot(field.as_ref())?;
 
         self.session
-            .execute_load_query_with(self.query(), |load, plan| {
-                load.aggregate_median_by(plan, field.as_ref())
+            .execute_load_query_with(self.query(), move |load, plan| {
+                load.aggregate_median_by_slot(plan, target_slot)
             })
     }
 
@@ -438,11 +442,11 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
-        let shape = ProjectionFieldShape::count_distinct(field);
+        let target_slot = Self::resolve_terminal_field_slot(field.as_ref())?;
 
         self.session
-            .execute_load_query_with(self.query(), |load, plan| {
-                load.aggregate_count_distinct_by(plan, shape.target_field())
+            .execute_load_query_with(self.query(), move |load, plan| {
+                load.aggregate_count_distinct_by_slot(plan, target_slot)
             })
     }
 
@@ -454,10 +458,11 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
+        let target_slot = Self::resolve_terminal_field_slot(field.as_ref())?;
 
         self.session
-            .execute_load_query_with(self.query(), |load, plan| {
-                load.aggregate_min_max_by(plan, field.as_ref())
+            .execute_load_query_with(self.query(), move |load, plan| {
+                load.aggregate_min_max_by_slot(plan, target_slot)
             })
     }
 
@@ -467,11 +472,11 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
-        let shape = ProjectionFieldShape::field(field);
+        let target_slot = Self::resolve_terminal_field_slot(field.as_ref())?;
 
         self.session
-            .execute_load_query_with(self.query(), |load, plan| {
-                load.values_by(plan, shape.target_field())
+            .execute_load_query_with(self.query(), move |load, plan| {
+                load.values_by_slot(plan, target_slot)
             })
     }
 
@@ -502,25 +507,11 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
-        let shape = ProjectionFieldShape::ranked(
-            field,
-            RankedProjectionDirection::Top,
-            RankedProjectionMode::Rows,
-        );
+        let target_slot = Self::resolve_terminal_field_slot(field.as_ref())?;
 
         self.session
-            .execute_load_query_with(self.query(), |load, plan| {
-                debug_assert_eq!(
-                    shape.ranked_direction(),
-                    Some(RankedProjectionDirection::Top),
-                    "top_k_by must preserve top-ranked projection shape",
-                );
-                debug_assert_eq!(
-                    shape.ranked_mode(),
-                    Some(RankedProjectionMode::Rows),
-                    "top_k_by must preserve row projection shape",
-                );
-                load.top_k_by(plan, shape.target_field(), take_count)
+            .execute_load_query_with(self.query(), move |load, plan| {
+                load.top_k_by_slot(plan, target_slot, take_count)
             })
     }
 
@@ -540,25 +531,11 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
-        let shape = ProjectionFieldShape::ranked(
-            field,
-            RankedProjectionDirection::Bottom,
-            RankedProjectionMode::Rows,
-        );
+        let target_slot = Self::resolve_terminal_field_slot(field.as_ref())?;
 
         self.session
-            .execute_load_query_with(self.query(), |load, plan| {
-                debug_assert_eq!(
-                    shape.ranked_direction(),
-                    Some(RankedProjectionDirection::Bottom),
-                    "bottom_k_by must preserve bottom-ranked projection shape",
-                );
-                debug_assert_eq!(
-                    shape.ranked_mode(),
-                    Some(RankedProjectionMode::Rows),
-                    "bottom_k_by must preserve row projection shape",
-                );
-                load.bottom_k_by(plan, shape.target_field(), take_count)
+            .execute_load_query_with(self.query(), move |load, plan| {
+                load.bottom_k_by_slot(plan, target_slot, take_count)
             })
     }
 
@@ -578,25 +555,11 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
-        let shape = ProjectionFieldShape::ranked(
-            field,
-            RankedProjectionDirection::Top,
-            RankedProjectionMode::Values,
-        );
+        let target_slot = Self::resolve_terminal_field_slot(field.as_ref())?;
 
         self.session
-            .execute_load_query_with(self.query(), |load, plan| {
-                debug_assert_eq!(
-                    shape.ranked_direction(),
-                    Some(RankedProjectionDirection::Top),
-                    "top_k_by_values must preserve top-ranked projection shape",
-                );
-                debug_assert_eq!(
-                    shape.ranked_mode(),
-                    Some(RankedProjectionMode::Values),
-                    "top_k_by_values must preserve value projection shape",
-                );
-                load.top_k_by_values(plan, shape.target_field(), take_count)
+            .execute_load_query_with(self.query(), move |load, plan| {
+                load.top_k_by_values_slot(plan, target_slot, take_count)
             })
     }
 
@@ -616,25 +579,11 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
-        let shape = ProjectionFieldShape::ranked(
-            field,
-            RankedProjectionDirection::Bottom,
-            RankedProjectionMode::Values,
-        );
+        let target_slot = Self::resolve_terminal_field_slot(field.as_ref())?;
 
         self.session
-            .execute_load_query_with(self.query(), |load, plan| {
-                debug_assert_eq!(
-                    shape.ranked_direction(),
-                    Some(RankedProjectionDirection::Bottom),
-                    "bottom_k_by_values must preserve bottom-ranked projection shape",
-                );
-                debug_assert_eq!(
-                    shape.ranked_mode(),
-                    Some(RankedProjectionMode::Values),
-                    "bottom_k_by_values must preserve value projection shape",
-                );
-                load.bottom_k_by_values(plan, shape.target_field(), take_count)
+            .execute_load_query_with(self.query(), move |load, plan| {
+                load.bottom_k_by_values_slot(plan, target_slot, take_count)
             })
     }
 
@@ -654,25 +603,11 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
-        let shape = ProjectionFieldShape::ranked(
-            field,
-            RankedProjectionDirection::Top,
-            RankedProjectionMode::ValuesWithIds,
-        );
+        let target_slot = Self::resolve_terminal_field_slot(field.as_ref())?;
 
         self.session
-            .execute_load_query_with(self.query(), |load, plan| {
-                debug_assert_eq!(
-                    shape.ranked_direction(),
-                    Some(RankedProjectionDirection::Top),
-                    "top_k_by_with_ids must preserve top-ranked projection shape",
-                );
-                debug_assert_eq!(
-                    shape.ranked_mode(),
-                    Some(RankedProjectionMode::ValuesWithIds),
-                    "top_k_by_with_ids must preserve value/id projection shape",
-                );
-                load.top_k_by_with_ids(plan, shape.target_field(), take_count)
+            .execute_load_query_with(self.query(), move |load, plan| {
+                load.top_k_by_with_ids_slot(plan, target_slot, take_count)
             })
     }
 
@@ -692,25 +627,11 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
-        let shape = ProjectionFieldShape::ranked(
-            field,
-            RankedProjectionDirection::Bottom,
-            RankedProjectionMode::ValuesWithIds,
-        );
+        let target_slot = Self::resolve_terminal_field_slot(field.as_ref())?;
 
         self.session
-            .execute_load_query_with(self.query(), |load, plan| {
-                debug_assert_eq!(
-                    shape.ranked_direction(),
-                    Some(RankedProjectionDirection::Bottom),
-                    "bottom_k_by_with_ids must preserve bottom-ranked projection shape",
-                );
-                debug_assert_eq!(
-                    shape.ranked_mode(),
-                    Some(RankedProjectionMode::ValuesWithIds),
-                    "bottom_k_by_with_ids must preserve value/id projection shape",
-                );
-                load.bottom_k_by_with_ids(plan, shape.target_field(), take_count)
+            .execute_load_query_with(self.query(), move |load, plan| {
+                load.bottom_k_by_with_ids_slot(plan, target_slot, take_count)
             })
     }
 
@@ -721,11 +642,11 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
-        let shape = ProjectionFieldShape::field(field);
+        let target_slot = Self::resolve_terminal_field_slot(field.as_ref())?;
 
         self.session
-            .execute_load_query_with(self.query(), |load, plan| {
-                load.distinct_values_by(plan, shape.target_field())
+            .execute_load_query_with(self.query(), move |load, plan| {
+                load.distinct_values_by_slot(plan, target_slot)
             })
     }
 
@@ -739,11 +660,11 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
-        let shape = ProjectionFieldShape::field(field);
+        let target_slot = Self::resolve_terminal_field_slot(field.as_ref())?;
 
         self.session
-            .execute_load_query_with(self.query(), |load, plan| {
-                load.values_by_with_ids(plan, shape.target_field())
+            .execute_load_query_with(self.query(), move |load, plan| {
+                load.values_by_with_ids_slot(plan, target_slot)
             })
     }
 
@@ -754,11 +675,11 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
-        let shape = ProjectionFieldShape::field(field);
+        let target_slot = Self::resolve_terminal_field_slot(field.as_ref())?;
 
         self.session
-            .execute_load_query_with(self.query(), |load, plan| {
-                load.first_value_by(plan, shape.target_field())
+            .execute_load_query_with(self.query(), move |load, plan| {
+                load.first_value_by_slot(plan, target_slot)
             })
     }
 
@@ -769,11 +690,11 @@ where
         E: EntityValue,
     {
         self.ensure_non_paged_mode_ready()?;
-        let shape = ProjectionFieldShape::field(field);
+        let target_slot = Self::resolve_terminal_field_slot(field.as_ref())?;
 
         self.session
-            .execute_load_query_with(self.query(), |load, plan| {
-                load.last_value_by(plan, shape.target_field())
+            .execute_load_query_with(self.query(), move |load, plan| {
+                load.last_value_by_slot(plan, target_slot)
             })
     }
 
@@ -822,6 +743,17 @@ impl<E> FluentLoadQuery<'_, E>
 where
     E: EntityKind,
 {
+    // Resolve one terminal field target through the planner field-slot boundary.
+    // Unknown fields are rejected here so fluent terminal routing cannot bypass
+    // planner slot resolution and drift back to runtime string lookups.
+    fn resolve_terminal_field_slot(field: &str) -> Result<FieldSlot, QueryError> {
+        FieldSlot::resolve(E::MODEL, field).ok_or_else(|| {
+            QueryError::execute(InternalError::executor_unsupported(format!(
+                "unknown aggregate target field: {field}",
+            )))
+        })
+    }
+
     fn non_paged_intent_error(&self) -> Option<IntentError> {
         validate_fluent_non_paged_mode(self.cursor_token.is_some(), self.query.has_grouping())
             .err()

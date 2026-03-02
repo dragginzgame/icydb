@@ -69,6 +69,46 @@ fn session_load_aggregate_terminals_match_execute() {
 }
 
 #[test]
+fn session_load_min_by_unknown_field_fails_before_scan_budget_consumption() {
+    seed_pushdown_entities(&[
+        (8_901, 7, 10),
+        (8_902, 7, 20),
+        (8_903, 7, 30),
+        (8_904, 8, 99),
+    ]);
+    let session = DbSession::new(DB);
+    let load_window = || {
+        session
+            .load::<PushdownParityEntity>()
+            .filter(u32_eq_predicate("group", 7))
+            .order_by_desc("id")
+            .offset(0)
+            .limit(3)
+    };
+
+    let (result, scanned_rows) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load_window().min_by("missing_field")
+        });
+    let Err(err) = result else {
+        panic!("session min_by(missing_field) should be rejected");
+    };
+
+    assert!(
+        matches!(err, QueryError::Execute(_)),
+        "session unknown-field min_by should remain an execute-domain error: {err:?}"
+    );
+    assert_eq!(
+        scanned_rows, 0,
+        "session unknown-field min_by should fail before scan-budget consumption",
+    );
+    assert!(
+        err.to_string().contains("unknown aggregate target field"),
+        "session unknown-field min_by should preserve explicit field taxonomy: {err:?}",
+    );
+}
+
+#[test]
 fn session_load_numeric_field_aggregates_match_execute() {
     seed_pushdown_entities(&[
         (8_121, 7, 10),

@@ -248,7 +248,7 @@ fn aggregate_field_target_top_k_by_direction_invariance_across_forced_access_sha
         );
 
         simple_load
-            .top_k_by(plan, "id", 3)
+            .top_k_by_slot(plan, slot(&simple_load, "id"), 3)
             .expect("top_k_by(id, 3) should succeed for full-scan direction matrix")
             .ids()
     };
@@ -287,7 +287,7 @@ fn aggregate_field_target_top_k_by_direction_invariance_across_forced_access_sha
         );
 
         range_load
-            .top_k_by(plan, "code", 3)
+            .top_k_by_slot(plan, slot(&range_load, "code"), 3)
             .expect("top_k_by(code, 3) should succeed for index-range direction matrix")
             .ids()
     };
@@ -441,23 +441,33 @@ fn run_ranked_k_one_terminal(
 ) -> Result<RankedDirectionResult, InternalError> {
     match (terminal, projection) {
         (RankedKOneTerminal::Top, RankedKOneProjection::Ids) => Ok(RankedDirectionResult::Ids(
-            load.top_k_by(plan, "rank", 1)?.ids(),
+            load.top_k_by_slot(plan, slot(load, "rank"), 1)?.ids(),
         )),
-        (RankedKOneTerminal::Top, RankedKOneProjection::Values) => Ok(
-            RankedDirectionResult::Values(load.top_k_by_values(plan, "rank", 1)?),
-        ),
-        (RankedKOneTerminal::Top, RankedKOneProjection::ValuesWithIds) => Ok(
-            RankedDirectionResult::ValuesWithIds(load.top_k_by_with_ids(plan, "rank", 1)?),
-        ),
+        (RankedKOneTerminal::Top, RankedKOneProjection::Values) => {
+            Ok(RankedDirectionResult::Values(load.top_k_by_values_slot(
+                plan,
+                slot(load, "rank"),
+                1,
+            )?))
+        }
+        (RankedKOneTerminal::Top, RankedKOneProjection::ValuesWithIds) => {
+            Ok(RankedDirectionResult::ValuesWithIds(
+                load.top_k_by_with_ids_slot(plan, slot(load, "rank"), 1)?,
+            ))
+        }
         (RankedKOneTerminal::Bottom, RankedKOneProjection::Ids) => Ok(RankedDirectionResult::Ids(
-            load.bottom_k_by(plan, "rank", 1)?.ids(),
+            load.bottom_k_by_slot(plan, slot(load, "rank"), 1)?.ids(),
         )),
-        (RankedKOneTerminal::Bottom, RankedKOneProjection::Values) => Ok(
-            RankedDirectionResult::Values(load.bottom_k_by_values(plan, "rank", 1)?),
-        ),
-        (RankedKOneTerminal::Bottom, RankedKOneProjection::ValuesWithIds) => Ok(
-            RankedDirectionResult::ValuesWithIds(load.bottom_k_by_with_ids(plan, "rank", 1)?),
-        ),
+        (RankedKOneTerminal::Bottom, RankedKOneProjection::Values) => {
+            Ok(RankedDirectionResult::Values(
+                load.bottom_k_by_values_slot(plan, slot(load, "rank"), 1)?,
+            ))
+        }
+        (RankedKOneTerminal::Bottom, RankedKOneProjection::ValuesWithIds) => {
+            Ok(RankedDirectionResult::ValuesWithIds(
+                load.bottom_k_by_with_ids_slot(plan, slot(load, "rank"), 1)?,
+            ))
+        }
     }
 }
 
@@ -467,8 +477,8 @@ fn run_ranked_k_one_extrema(
     terminal: RankedKOneTerminal,
 ) -> Result<Option<Id<PushdownParityEntity>>, InternalError> {
     match terminal {
-        RankedKOneTerminal::Top => load.aggregate_max_by(plan, "rank"),
-        RankedKOneTerminal::Bottom => load.aggregate_min_by(plan, "rank"),
+        RankedKOneTerminal::Top => load.aggregate_max_by_slot(plan, slot(load, "rank")),
+        RankedKOneTerminal::Bottom => load.aggregate_min_by_slot(plan, slot(load, "rank")),
     }
 }
 
@@ -711,32 +721,32 @@ fn aggregate_field_target_take_and_rank_terminals_k_zero_return_empty_with_execu
         });
     let (top_k_zero, scanned_top_k_zero) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.top_k_by(build_plan(), "rank", 0)
+            load.top_k_by_slot(build_plan(), slot(&load, "rank"), 0)
                 .expect("top_k_by(rank, 0) should succeed and return an empty response")
         });
     let (bottom_k_zero, scanned_bottom_k_zero) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.bottom_k_by(build_plan(), "rank", 0)
+            load.bottom_k_by_slot(build_plan(), slot(&load, "rank"), 0)
                 .expect("bottom_k_by(rank, 0) should succeed and return an empty response")
         });
     let (top_k_values_zero, scanned_top_k_values_zero) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.top_k_by_values(build_plan(), "rank", 0)
+            load.top_k_by_values_slot(build_plan(), slot(&load, "rank"), 0)
                 .expect("top_k_by_values(rank, 0) should succeed and return an empty response")
         });
     let (bottom_k_values_zero, scanned_bottom_k_values_zero) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.bottom_k_by_values(build_plan(), "rank", 0)
+            load.bottom_k_by_values_slot(build_plan(), slot(&load, "rank"), 0)
                 .expect("bottom_k_by_values(rank, 0) should succeed and return an empty response")
         });
     let (top_k_with_ids_zero, scanned_top_k_with_ids_zero) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.top_k_by_with_ids(build_plan(), "rank", 0)
+            load.top_k_by_with_ids_slot(build_plan(), slot(&load, "rank"), 0)
                 .expect("top_k_by_with_ids(rank, 0) should succeed and return an empty response")
         });
     let (bottom_k_with_ids_zero, scanned_bottom_k_with_ids_zero) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-            load.bottom_k_by_with_ids(build_plan(), "rank", 0)
+            load.bottom_k_by_with_ids_slot(build_plan(), slot(&load, "rank"), 0)
                 .expect("bottom_k_by_with_ids(rank, 0) should succeed and return an empty response")
         });
 

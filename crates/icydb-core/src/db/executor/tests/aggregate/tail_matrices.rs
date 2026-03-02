@@ -48,8 +48,8 @@ fn run_pushdown_rank_terminal(
     k: u32,
 ) -> Result<Response<PushdownParityEntity>, InternalError> {
     match terminal {
-        RankOrderTerminal::Top => load.top_k_by(plan, "rank", k),
-        RankOrderTerminal::Bottom => load.bottom_k_by(plan, "rank", k),
+        RankOrderTerminal::Top => load.top_k_by_slot(plan, slot(load, "rank"), k),
+        RankOrderTerminal::Bottom => load.bottom_k_by_slot(plan, slot(load, "rank"), k),
     }
 }
 
@@ -199,8 +199,8 @@ fn run_simple_rank_terminal(
     k: u32,
 ) -> Result<Response<SimpleEntity>, InternalError> {
     match terminal {
-        RankOrderTerminal::Top => load.top_k_by(plan, "id", k),
-        RankOrderTerminal::Bottom => load.bottom_k_by(plan, "id", k),
+        RankOrderTerminal::Top => load.top_k_by_slot(plan, slot(load, "id"), k),
+        RankOrderTerminal::Bottom => load.bottom_k_by_slot(plan, slot(load, "id"), k),
     }
 }
 
@@ -211,8 +211,8 @@ fn run_unique_index_rank_terminal(
     k: u32,
 ) -> Result<Response<UniqueIndexRangeEntity>, InternalError> {
     match terminal {
-        RankOrderTerminal::Top => load.top_k_by(plan, "code", k),
-        RankOrderTerminal::Bottom => load.bottom_k_by(plan, "code", k),
+        RankOrderTerminal::Top => load.top_k_by_slot(plan, slot(load, "code"), k),
+        RankOrderTerminal::Bottom => load.bottom_k_by_slot(plan, slot(load, "code"), k),
     }
 }
 
@@ -924,10 +924,10 @@ fn run_strict_prefilter_aggregate(
             .aggregate_exists(plan)
             .map(StrictPrefilterOutput::Exists),
         StrictPrefilterAggregate::MinBy => load
-            .aggregate_min_by(plan, "rank")
+            .aggregate_min_by_slot(plan, slot(load, "rank"))
             .map(StrictPrefilterOutput::Id),
         StrictPrefilterAggregate::MaxBy => load
-            .aggregate_max_by(plan, "rank")
+            .aggregate_max_by_slot(plan, slot(load, "rank"))
             .map(StrictPrefilterOutput::Id),
         StrictPrefilterAggregate::First => {
             load.aggregate_first(plan).map(StrictPrefilterOutput::Id)

@@ -32,7 +32,7 @@ use crate::{
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, extract_numeric_field_decimal,
                 extract_orderable_field_value, resolve_any_aggregate_target_slot,
-                resolve_numeric_aggregate_target_slot, resolve_orderable_aggregate_target_slot,
+                resolve_numeric_aggregate_target_slot,
             },
             aggregate::{AggregateKind, AggregateOutput, FoldControl, GroupError},
             group::{
@@ -244,15 +244,6 @@ where
         &self,
     ) -> Result<crate::db::Context<'_, E>, InternalError> {
         self.db.recovered_context::<E>()
-    }
-
-    // Resolve one orderable aggregate target field into a stable slot with
-    // canonical field-error taxonomy mapping.
-    pub(in crate::db::executor) fn resolve_orderable_field_slot(
-        target_field: &str,
-    ) -> Result<FieldSlot, InternalError> {
-        resolve_orderable_aggregate_target_slot::<E>(target_field)
-            .map_err(AggregateFieldValueError::into_internal_error)
     }
 
     // Resolve one aggregate target field into a stable slot with canonical

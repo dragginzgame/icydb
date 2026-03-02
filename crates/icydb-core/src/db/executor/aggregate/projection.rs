@@ -12,12 +12,16 @@ use crate::{
         data::DataKey,
         executor::{
             ExecutablePlan, ExecutionKernel,
-            aggregate::field::{FieldSlot, extract_orderable_field_value},
+            aggregate::field::{
+                FieldSlot, extract_orderable_field_value,
+                resolve_any_aggregate_target_slot_from_planner_slot,
+            },
             aggregate::materialized_distinct::insert_materialized_distinct_value,
             aggregate::{AggregateKind, AggregateOutput, AggregateSpec},
             group::GroupKeySet,
             load::LoadExecutor,
         },
+        query::plan::FieldSlot as PlannedFieldSlot,
         response::Response,
     },
     error::InternalError,
@@ -30,114 +34,98 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
-    /// Execute `values_by(field)` over the effective response window.
-    pub(in crate::db) fn values_by(
+    /// Execute `values_by(field)` over the effective response window using one
+    /// planner-resolved field slot.
+    pub(in crate::db) fn values_by_slot(
         &self,
         plan: ExecutablePlan<E>,
-        target_field: impl Into<String>,
+        target_field: PlannedFieldSlot,
     ) -> Result<Vec<Value>, InternalError> {
-        let target_field = target_field.into();
+        let field_slot = resolve_any_aggregate_target_slot_from_planner_slot::<E>(&target_field)
+            .map_err(Self::map_aggregate_field_value_error)?;
+        let response = self.execute(plan)?;
 
-        self.execute_values_field_projection(plan, target_field.as_str())
+        Self::project_field_values_from_materialized(response, target_field.field(), field_slot)
     }
 
-    /// Execute `distinct_values_by(field)` over the effective response window.
-    pub(in crate::db) fn distinct_values_by(
+    /// Execute `distinct_values_by(field)` over the effective response window
+    /// using one planner-resolved field slot.
+    pub(in crate::db) fn distinct_values_by_slot(
         &self,
         plan: ExecutablePlan<E>,
-        target_field: impl Into<String>,
+        target_field: PlannedFieldSlot,
     ) -> Result<Vec<Value>, InternalError> {
-        let target_field = target_field.into();
+        let field_slot = resolve_any_aggregate_target_slot_from_planner_slot::<E>(&target_field)
+            .map_err(Self::map_aggregate_field_value_error)?;
+        let response = self.execute(plan)?;
 
-        self.execute_distinct_values_field_projection(plan, target_field.as_str())
+        Self::project_distinct_field_values_from_materialized(
+            response,
+            target_field.field(),
+            field_slot,
+        )
     }
 
-    /// Execute `values_by_with_ids(field)` over the effective response window.
-    pub(in crate::db) fn values_by_with_ids(
+    /// Execute `values_by_with_ids(field)` over the effective response window
+    /// using one planner-resolved field slot.
+    pub(in crate::db) fn values_by_with_ids_slot(
         &self,
         plan: ExecutablePlan<E>,
-        target_field: impl Into<String>,
+        target_field: PlannedFieldSlot,
     ) -> Result<Vec<(Id<E>, Value)>, InternalError> {
-        let target_field = target_field.into();
+        let field_slot = resolve_any_aggregate_target_slot_from_planner_slot::<E>(&target_field)
+            .map_err(Self::map_aggregate_field_value_error)?;
+        let response = self.execute(plan)?;
 
-        self.execute_values_with_ids_field_projection(plan, target_field.as_str())
+        Self::project_field_values_with_ids_from_materialized(
+            response,
+            target_field.field(),
+            field_slot,
+        )
     }
 
-    /// Execute `first_value_by(field)` using canonical FIRST terminal semantics.
-    pub(in crate::db) fn first_value_by(
+    /// Execute `first_value_by(field)` using one planner-resolved field slot.
+    pub(in crate::db) fn first_value_by_slot(
         &self,
         plan: ExecutablePlan<E>,
-        target_field: impl Into<String>,
+        target_field: PlannedFieldSlot,
     ) -> Result<Option<Value>, InternalError> {
-        let target_field = target_field.into();
+        let field_slot = resolve_any_aggregate_target_slot_from_planner_slot::<E>(&target_field)
+            .map_err(Self::map_aggregate_field_value_error)?;
 
-        self.execute_terminal_value_field_projection(
+        self.execute_terminal_value_field_projection_with_slot(
             plan,
-            target_field.as_str(),
+            target_field.field(),
+            field_slot,
             AggregateKind::First,
         )
     }
 
-    /// Execute `last_value_by(field)` using canonical LAST terminal semantics.
-    pub(in crate::db) fn last_value_by(
+    /// Execute `last_value_by(field)` using one planner-resolved field slot.
+    pub(in crate::db) fn last_value_by_slot(
         &self,
         plan: ExecutablePlan<E>,
-        target_field: impl Into<String>,
+        target_field: PlannedFieldSlot,
     ) -> Result<Option<Value>, InternalError> {
-        let target_field = target_field.into();
+        let field_slot = resolve_any_aggregate_target_slot_from_planner_slot::<E>(&target_field)
+            .map_err(Self::map_aggregate_field_value_error)?;
 
-        self.execute_terminal_value_field_projection(
+        self.execute_terminal_value_field_projection_with_slot(
             plan,
-            target_field.as_str(),
+            target_field.field(),
+            field_slot,
             AggregateKind::Last,
         )
     }
 
-    // Execute one field-target value projection (`values_by(field)`) via
-    // canonical materialized fallback semantics.
-    fn execute_values_field_projection(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: &str,
-    ) -> Result<Vec<Value>, InternalError> {
-        let field_slot = Self::resolve_any_field_slot(target_field)?;
-        let response = self.execute(plan)?;
-
-        Self::project_field_values_from_materialized(response, target_field, field_slot)
-    }
-
-    // Execute one field-target distinct value projection
-    // (`distinct_values_by(field)`) via canonical materialized fallback semantics.
-    fn execute_distinct_values_field_projection(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: &str,
-    ) -> Result<Vec<Value>, InternalError> {
-        let field_slot = Self::resolve_any_field_slot(target_field)?;
-        let response = self.execute(plan)?;
-
-        Self::project_distinct_field_values_from_materialized(response, target_field, field_slot)
-    }
-
-    // Execute one field-target id/value paired projection (`values_by_with_ids(field)`)
-    // via canonical materialized fallback semantics.
-    fn execute_values_with_ids_field_projection(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: &str,
-    ) -> Result<Vec<(Id<E>, Value)>, InternalError> {
-        let field_slot = Self::resolve_any_field_slot(target_field)?;
-        let response = self.execute(plan)?;
-
-        Self::project_field_values_with_ids_from_materialized(response, target_field, field_slot)
-    }
-
     // Execute one field-target scalar terminal projection (`first_value_by` /
-    // `last_value_by`) using route-owned first/last row selection semantics.
-    fn execute_terminal_value_field_projection(
+    // `last_value_by`) using a planner-validated slot and route-owned
+    // first/last row selection semantics.
+    fn execute_terminal_value_field_projection_with_slot(
         &self,
         plan: ExecutablePlan<E>,
         target_field: &str,
+        field_slot: FieldSlot,
         terminal_kind: AggregateKind,
     ) -> Result<Option<Value>, InternalError> {
         if !terminal_kind.supports_terminal_value_projection() {
@@ -146,7 +134,6 @@ where
             ));
         }
 
-        let field_slot = Self::resolve_any_field_slot(target_field)?;
         let consistency = plan.as_inner().scalar_plan().consistency;
         let (AggregateOutput::First(selected_id) | AggregateOutput::Last(selected_id)) =
             ExecutionKernel::execute_aggregate_spec(
@@ -166,10 +153,9 @@ where
         let Some(entity) = Self::read_entity_for_field_extrema(&ctx, consistency, &key)? else {
             return Ok(None);
         };
-        let value = extract_orderable_field_value(&entity, target_field, field_slot)
-            .map_err(Self::map_aggregate_field_value_error)?;
-
-        Ok(Some(value))
+        extract_orderable_field_value(&entity, target_field, field_slot)
+            .map_err(Self::map_aggregate_field_value_error)
+            .map(Some)
     }
 
     // Project one materialized response into one field value vector while

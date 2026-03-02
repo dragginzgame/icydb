@@ -138,6 +138,7 @@ When preparing a release:
 7. Insert clickable Markdown link from root file to detailed file.
 8. Use the version specified by the release request or the existing latest changelog entry.
 9. Do not create a new version header if the newest entry already exists for the target version.
+10. If a change set is changelog-policy/governance-only, do not add or update release notes in `CHANGELOG.md` or `docs/changelog/<major>.<minor>.md`.
 
 Agents must never:
 
@@ -145,6 +146,7 @@ Agents must never:
 - Rewrite previous release summaries.
 - Reorder version history.
 - Collapse multiple minor lines into one detailed file.
+- Add release notes for changelog-policy/governance-only edits (for example updates to `docs/governance/changelog.md`, `AGENTS.md`, or changelog formatting policy), unless explicitly requested as a documented release artifact.
 
 ---
 
