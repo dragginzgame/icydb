@@ -10,7 +10,7 @@ use crate::{
             AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec, GroupHavingSpec,
             GroupedExecutionConfig,
             expr::{Expr, ProjectionField, ProjectionSpec},
-            resolve_global_distinct_field_aggregate,
+            resolve_global_distinct_field_aggregate, validate_grouped_projection_layout,
         },
     },
     error::InternalError,
@@ -122,6 +122,11 @@ pub(in crate::db) fn grouped_executor_handoff<K>(
     let projection_spec = plan.projection_spec_for_identity();
     let (projection_layout, aggregate_exprs) =
         planned_projection_layout_and_aggregate_exprs_from_spec(&projection_spec)?;
+    validate_grouped_projection_layout(
+        &projection_layout,
+        grouped.group.group_fields.len(),
+        aggregate_exprs.len(),
+    )?;
     let distinct_execution_strategy = grouped_distinct_execution_strategy(
         grouped.group.group_fields.as_slice(),
         grouped.group.aggregates.as_slice(),

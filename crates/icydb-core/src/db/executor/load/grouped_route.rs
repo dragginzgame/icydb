@@ -12,7 +12,7 @@ use crate::{
             plan_metrics::GroupedPlanMetricsStrategy,
             validate_executor_plan,
         },
-        query::plan::grouped_executor_handoff,
+        query::plan::{grouped_executor_handoff, validate_grouped_projection_layout},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -48,6 +48,15 @@ where
         let group_fields = grouped_handoff.group_fields().to_vec();
         let grouped_aggregate_exprs = grouped_handoff.aggregate_exprs().to_vec();
         let projection_layout = grouped_handoff.projection_layout().clone();
+        debug_assert!(
+            validate_grouped_projection_layout(
+                grouped_handoff.projection_layout(),
+                grouped_handoff.group_fields().len(),
+                grouped_handoff.aggregate_exprs().len(),
+            )
+            .is_ok(),
+            "planner grouped projection layout invariants must hold at executor boundary",
+        );
         let grouped_distinct_execution_strategy =
             grouped_handoff.distinct_execution_strategy().clone();
         let grouped_having = grouped_handoff.having().cloned();
@@ -109,55 +118,5 @@ where
             grouped_distinct_execution_strategy,
             execution_trace,
         })
-    }
-
-    // Validate planner-provided grouped projection layout against grouped handoff vectors.
-    pub(super) fn ensure_grouped_projection_layout_matches_handoff(
-        route: &GroupedRouteStage<E>,
-    ) -> Result<(), InternalError> {
-        let group_positions = route.projection_layout.group_field_positions();
-        let aggregate_positions = route.projection_layout.aggregate_positions();
-        if group_positions.len() != route.group_fields.len() {
-            return Err(super::invariant(format!(
-                "grouped projection layout group-field count mismatch: layout={}, handoff={}",
-                group_positions.len(),
-                route.group_fields.len()
-            )));
-        }
-        if aggregate_positions.len() != route.grouped_aggregate_exprs.len() {
-            return Err(super::invariant(format!(
-                "grouped projection layout aggregate count mismatch: layout={}, handoff={}",
-                aggregate_positions.len(),
-                route.grouped_aggregate_exprs.len()
-            )));
-        }
-
-        // Projection position vectors must be strictly increasing and non-overlapping.
-        if !group_positions
-            .windows(2)
-            .all(|window| window[0] < window[1])
-        {
-            return Err(super::invariant(
-                "grouped projection layout group-field positions must be strictly increasing",
-            ));
-        }
-        if !aggregate_positions
-            .windows(2)
-            .all(|window| window[0] < window[1])
-        {
-            return Err(super::invariant(
-                "grouped projection layout aggregate positions must be strictly increasing",
-            ));
-        }
-        if let (Some(last_group_position), Some(first_aggregate_position)) =
-            (group_positions.last(), aggregate_positions.first())
-            && last_group_position >= first_aggregate_position
-        {
-            return Err(super::invariant(
-                "grouped projection layout must keep group fields before aggregate terminals",
-            ));
-        }
-
-        Ok(())
     }
 }

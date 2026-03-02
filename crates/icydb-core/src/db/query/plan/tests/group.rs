@@ -12,9 +12,9 @@ use crate::{
                 GroupedExecutionConfig, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
                 expr::{Alias, BinaryOp, Expr, FieldId, ProjectionField, ProjectionSpec},
                 global_distinct_field_aggregate_admissibility,
-                global_distinct_group_spec_for_semantic_aggregate, grouped_cursor_policy_violation,
-                grouped_distinct_admissibility, grouped_executor_handoff,
-                is_global_distinct_field_aggregate_candidate,
+                global_distinct_group_spec_for_semantic_aggregate,
+                grouped_cursor_policy_violation_for_test, grouped_distinct_admissibility,
+                grouped_executor_handoff, is_global_distinct_field_aggregate_candidate,
                 validate::{
                     ExprPlanError, PlanError, PolicyPlanError,
                     validate_group_projection_expr_compatibility_for_test,
@@ -275,7 +275,7 @@ fn grouped_cursor_policy_violation_contract_is_shared_for_limit_and_global_disti
         .grouped_plan()
         .expect("grouped plan should be present");
     assert_eq!(
-        grouped_cursor_policy_violation(grouped_without_limit_plan, true)
+        grouped_cursor_policy_violation_for_test(grouped_without_limit_plan, true)
             .map(GroupedCursorPolicyViolation::invariant_message),
         Some("grouped continuation cursors require an explicit LIMIT"),
         "grouped cursor contract should require explicit limit when continuation is present",
@@ -304,7 +304,7 @@ fn grouped_cursor_policy_violation_contract_is_shared_for_limit_and_global_disti
         .grouped_plan()
         .expect("grouped plan should be present");
     assert_eq!(
-        grouped_cursor_policy_violation(grouped_global_distinct_plan, true)
+        grouped_cursor_policy_violation_for_test(grouped_global_distinct_plan, true)
             .map(GroupedCursorPolicyViolation::invariant_message),
         Some("global DISTINCT grouped aggregates do not support continuation cursors"),
         "global DISTINCT grouped cursor policy should reject continuation reuse",

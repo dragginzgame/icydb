@@ -7,9 +7,7 @@ use crate::{
                 LoadExecutor,
             },
         },
-        query::plan::{
-            GroupedDistinctExecutionStrategy, expr::ProjectionSpec, grouped_cursor_policy_violation,
-        },
+        query::plan::{GroupedDistinctExecutionStrategy, expr::ProjectionSpec},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -35,14 +33,6 @@ where
                 target_field,
             } => (kind, target_field),
         };
-        if let Some(grouped_plan) = route.plan.grouped_plan()
-            && let Some(violation) =
-                grouped_cursor_policy_violation(grouped_plan, !route.cursor.is_empty())
-        {
-            return Err(crate::db::executor::load::invariant(
-                violation.invariant_message(),
-            ));
-        }
         let compiled_predicate = stream.execution_preparation.compiled_predicate();
 
         let global_row = Self::execute_global_distinct_field_aggregate(

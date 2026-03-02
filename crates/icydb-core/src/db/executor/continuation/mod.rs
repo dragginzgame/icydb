@@ -7,8 +7,8 @@ use crate::{
         direction::Direction,
         executor::{ExecutorPlanError, RangeToken, traversal::derive_primary_scan_direction},
         query::plan::{
-            AccessPlannedQuery, GroupedCursorPolicyViolation, grouped_cursor_policy_violation,
-            lower_executable_access_path,
+            AccessPlannedQuery, GroupedCursorPolicyViolation,
+            grouped_cursor_policy_violation_for_continuation, lower_executable_access_path,
         },
     },
     error::InternalError,
@@ -223,7 +223,9 @@ impl ContinuationEngine {
         cursor_present: bool,
     ) -> Option<&'static str> {
         plan.grouped_plan()
-            .and_then(|grouped| grouped_cursor_policy_violation(grouped, cursor_present))
+            .and_then(|grouped| {
+                grouped_cursor_policy_violation_for_continuation(grouped, cursor_present)
+            })
             .map(GroupedCursorPolicyViolation::invariant_message)
     }
 }

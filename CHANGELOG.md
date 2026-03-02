@@ -7,9 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.40.x] - 2026-03-02 - AUDIT ALL THE THINGS!!!!1
 
-- `0.40.0` - split up `mod.rs` and `validate` totalling 2500 LoC
-- `0.40.1` removes executor runtime branching on raw `AccessPath` variants by lowering path mechanics into one executable access contract and adds a structural guard test to prevent this drift from returning.
-- `0.40.2` centralizes continuation protocol handling in `crates/icydb-core/src/db/executor/continuation/mod.rs` and unifies scalar/grouped load entry dispatch into one internal pipeline in `crates/icydb-core/src/db/executor/load/entrypoints.rs`.
+- `0.40.0` split very large runtime/planner files into smaller modules to make the codebase easier to navigate and review.
+- `0.40.1` made load routing use one shared executable access shape at runtime and added a guard test so old path-specific branching does not come back.
+- `0.40.2` unified cursor continuation handling and merged scalar/grouped load dispatch into one internal execution pipeline.
+- `0.40.3` added guard tests that lock load pipeline structure and reduced duplicate grouped cursor-policy checks by keeping that rule behind one continuation boundary.
 
 See detailed breakdown:
 [docs/changelog/0.40.md](docs/changelog/0.40.md)

@@ -7,6 +7,7 @@ mod access_plan;
 #[allow(dead_code)]
 pub(crate) mod expr;
 mod group;
+mod grouped_layout;
 mod model;
 mod model_builder;
 mod planner;
@@ -22,6 +23,7 @@ pub(in crate::db) use group::{
     GroupedDistinctExecutionStrategy, GroupedExecutorHandoff, PlannedProjectionLayout,
     grouped_executor_handoff,
 };
+pub(in crate::db) use grouped_layout::validate_grouped_projection_layout;
 pub use model::OrderDirection;
 pub(crate) use model::{AggregateKind, DeleteSpec, DistinctExecutionStrategy, LoadSpec, QueryMode};
 pub(crate) use model::{
@@ -35,9 +37,9 @@ pub(in crate::db) use semantics::global_distinct_group_spec_for_semantic_aggrega
 pub(crate) use semantics::{
     AccessPlanProjection, GroupDistinctAdmissibility, GroupDistinctPolicyReason,
     GroupedCursorPolicyViolation, GroupedPlanStrategyHint, evaluate_grouped_having_compare_v1,
-    grouped_cursor_policy_violation, grouped_distinct_admissibility,
-    grouped_having_compare_op_supported, grouped_plan_strategy_hint, project_access_plan,
-    project_explain_access_path, resolve_global_distinct_field_aggregate,
+    grouped_distinct_admissibility, grouped_having_compare_op_supported,
+    grouped_plan_strategy_hint, project_access_plan, project_explain_access_path,
+    resolve_global_distinct_field_aggregate,
 };
 #[cfg(test)]
 pub(crate) use semantics::{
@@ -54,3 +56,18 @@ pub(crate) use validate::{
     validate_fluent_paged_mode, validate_group_query_semantics, validate_intent_key_access_policy,
     validate_intent_plan_shape, validate_order_shape, validate_query_semantics,
 };
+
+pub(in crate::db) fn grouped_cursor_policy_violation_for_continuation(
+    grouped: &GroupPlan,
+    cursor_present: bool,
+) -> Option<GroupedCursorPolicyViolation> {
+    semantics::grouped_cursor_policy_violation(grouped, cursor_present)
+}
+
+#[cfg(test)]
+pub(crate) fn grouped_cursor_policy_violation_for_test(
+    grouped: &GroupPlan,
+    cursor_present: bool,
+) -> Option<GroupedCursorPolicyViolation> {
+    semantics::grouped_cursor_policy_violation(grouped, cursor_present)
+}

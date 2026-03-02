@@ -107,6 +107,12 @@ impl<E: EntityKind> ExecutablePlan<E> {
         self.plan.scalar_plan().mode
     }
 
+    /// Return whether this executable plan carries grouped logical shape.
+    #[must_use]
+    pub(in crate::db) const fn is_grouped(&self) -> bool {
+        self.plan.grouped_plan().is_some()
+    }
+
     pub(in crate::db) const fn access(&self) -> &AccessPlan<E::Key> {
         &self.plan.access
     }

@@ -2,6 +2,7 @@ mod aggregate;
 mod cursor_validation;
 mod lifecycle;
 mod live_state;
+mod load_structure;
 mod metrics;
 mod mutation_save;
 mod paged_builder;

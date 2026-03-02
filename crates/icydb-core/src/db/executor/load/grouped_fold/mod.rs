@@ -82,7 +82,6 @@ where
             "grouped budget observability invariants must hold at grouped route entry",
         );
         let aggregate_count = route.projection_layout.aggregate_positions().len();
-        Self::ensure_grouped_projection_layout_matches_handoff(route)?;
         let grouped_projection_spec = route.plan.projection_spec(E::MODEL);
         let (mut grouped_engines, mut short_circuit_keys) =
             Self::build_grouped_engines(route, &grouped_execution_context)?;

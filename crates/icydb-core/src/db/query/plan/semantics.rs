@@ -246,7 +246,7 @@ pub(crate) const fn grouped_having_compare_op_supported(op: CompareOp) -> bool {
 
 /// Return grouped cursor-policy violations for one grouped plan shape.
 #[must_use]
-pub(crate) fn grouped_cursor_policy_violation(
+pub(in crate::db::query::plan) fn grouped_cursor_policy_violation(
     grouped: &GroupPlan,
     cursor_present: bool,
 ) -> Option<GroupedCursorPolicyViolation> {
