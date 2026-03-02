@@ -406,6 +406,7 @@ Code is considered non-trivial if it:
 * Avoid internal-only jargon in summaries unless it is required for migration/debugging (for example: "canonicalization convergence", "semantic spine", "compile handoff isolation").
 * Keep bullets short; split long bullets into multiple bullets instead of chaining many clauses.
 * In root `CHANGELOG.md`, keep each minor-line summary focused on shipped behavior and outcomes; avoid WIP/meta narration.
+* In root `CHANGELOG.md`, use exactly one bullet line per patch version in each minor-line summary (one patch version per bullet, no wrapped continuation lines).
 * Inline fenced examples are optional, not mandatory.
 * In root `CHANGELOG.md`, include at most one inline fenced example per minor version (`0.x.x` line) when it materially improves clarity.
 * In `docs/changelog/0.*.md`, include at most one inline fenced example per patch entry (`## 0.x.y`) when it materially improves clarity.
