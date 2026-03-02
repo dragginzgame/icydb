@@ -4,7 +4,10 @@
 //! Boundary: runtime predicate evaluation delegates compare behavior here.
 
 use crate::{
-    db::predicate::coercion::{CoercionId, CoercionSpec},
+    db::{
+        numeric::{compare_numeric_eq, compare_numeric_order},
+        predicate::coercion::{CoercionId, CoercionSpec},
+    },
     value::{TextMode, Value},
 };
 use std::{cmp::Ordering, mem::discriminant};
@@ -31,13 +34,7 @@ pub(in crate::db) fn compare_eq(
         CoercionId::Strict | CoercionId::CollectionElement => {
             same_variant(left, right).then_some(left == right)
         }
-        CoercionId::NumericWiden => {
-            if !left.supports_numeric_coercion() || !right.supports_numeric_coercion() {
-                return None;
-            }
-
-            left.cmp_numeric(right).map(|ord| ord == Ordering::Equal)
-        }
+        CoercionId::NumericWiden => compare_numeric_eq(left, right),
         CoercionId::TextCasefold => compare_casefold(left, right),
     }
 }
@@ -57,13 +54,7 @@ pub(in crate::db) fn compare_order(
             }
             Value::strict_order_cmp(left, right)
         }
-        CoercionId::NumericWiden => {
-            if !left.supports_numeric_coercion() || !right.supports_numeric_coercion() {
-                return None;
-            }
-
-            left.cmp_numeric(right)
-        }
+        CoercionId::NumericWiden => compare_numeric_order(left, right),
         CoercionId::TextCasefold => {
             let left = casefold_value(left)?;
             let right = casefold_value(right)?;

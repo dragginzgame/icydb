@@ -5,7 +5,16 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.38.x] - 2026-03-02 - Pre-Unified Expr Hardening
+## [0.39.x] - 2026-03-02 - Numeric Consolidation
+
+- `0.39.0` consolidates numeric capability checks under shared helpers and tightens planner expression typing so numeric operators/aggregates fail early on known non-numeric fields while mixed numeric expressions still work when subtype cannot be resolved yet.
+
+See detailed breakdown:
+[docs/changelog/0.39.md](docs/changelog/0.39.md)
+
+---
+
+## [0.38.x] - 2026-03-02 - Projection Expression Spine
 
 - `0.38.3` removes the remaining route-layer `include_str!` architectural-policing tests and replaces continuation-profile `ProjectionDefault` sectioning with explicit grouped-shape hashing.
 - `0.38.2` makes `ProjectionSpec` the grouped output authority, evaluates grouped rows through expression projections, and ties continuation/fingerprint identity to projection semantics (alias-only changes stay stable while semantic changes invalidate).

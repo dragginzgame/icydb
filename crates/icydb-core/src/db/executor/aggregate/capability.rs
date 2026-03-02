@@ -3,7 +3,9 @@
 //! Does not own: route planning policy or aggregate execution dispatch.
 //! Boundary: reusable field capability checks for aggregate/route modules.
 
-use crate::{model::field::FieldKind, traits::EntityKind};
+use crate::{
+    db::numeric::field_kind_supports_aggregate_numeric, model::field::FieldKind, traits::EntityKind,
+};
 
 /// Return true when the field kind is eligible for deterministic aggregate ordering.
 #[must_use]
@@ -45,34 +47,7 @@ pub(in crate::db::executor) const fn field_kind_supports_aggregate_ordering(
 pub(in crate::db::executor) const fn field_kind_supports_numeric_aggregation(
     kind: &FieldKind,
 ) -> bool {
-    match kind {
-        FieldKind::Decimal { .. }
-        | FieldKind::Duration
-        | FieldKind::Float32
-        | FieldKind::Float64
-        | FieldKind::Int
-        | FieldKind::Int128
-        | FieldKind::IntBig
-        | FieldKind::Timestamp
-        | FieldKind::Uint
-        | FieldKind::Uint128
-        | FieldKind::UintBig => true,
-        FieldKind::Relation { key_kind, .. } => field_kind_supports_numeric_aggregation(key_kind),
-        FieldKind::Account
-        | FieldKind::Blob
-        | FieldKind::Bool
-        | FieldKind::Date
-        | FieldKind::Enum { .. }
-        | FieldKind::List(_)
-        | FieldKind::Map { .. }
-        | FieldKind::Principal
-        | FieldKind::Set(_)
-        | FieldKind::Structured { .. }
-        | FieldKind::Subaccount
-        | FieldKind::Text
-        | FieldKind::Ulid
-        | FieldKind::Unit => false,
-    }
+    field_kind_supports_aggregate_numeric(kind)
 }
 
 #[must_use]

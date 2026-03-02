@@ -19,7 +19,7 @@ use crate::{
             AccessPlannedQuery, FieldSlot, GroupAggregateSpec, GroupDistinctAdmissibility,
             GroupDistinctPolicyReason, GroupHavingSpec, GroupHavingSymbol, GroupSpec, LoadSpec,
             LogicalPlan, OrderSpec, QueryMode, ScalarPlan,
-            expr::{ProjectionField, ProjectionSpec, expr_references_only_fields},
+            expr::{ProjectionField, ProjectionSpec, expr_references_only_fields, infer_expr_type},
             grouped_distinct_admissibility, grouped_having_compare_op_supported,
             resolve_global_distinct_field_aggregate,
         },
@@ -267,6 +267,10 @@ pub enum ExprPlanError {
     #[error("aggregate '{kind}' requires numeric target field '{field}'")]
     NonNumericAggregateTarget { kind: String, field: String },
 
+    /// Aggregate expression requires an explicit target field.
+    #[error("aggregate '{kind}' requires an explicit target field")]
+    AggregateTargetRequired { kind: String },
+
     /// Unary operation is incompatible with inferred operand type.
     #[error("unary operator '{op}' is incompatible with operand type {found}")]
     InvalidUnaryOperand { op: String, found: String },
@@ -393,6 +397,7 @@ pub(crate) fn validate_query_semantics(
     plan: &AccessPlannedQuery<Value>,
 ) -> Result<(), PlanError> {
     let logical = plan.scalar_plan();
+    let projection = plan.projection_spec(model);
 
     validate_plan_core(
         schema,
@@ -405,6 +410,7 @@ pub(crate) fn validate_query_semantics(
                 .map_err(PlanError::from)
         },
     )?;
+    validate_projection_expr_types(schema, &projection)?;
 
     Ok(())
 }
@@ -441,6 +447,7 @@ pub(crate) fn validate_group_query_semantics(
     validate_group_structure(schema, model, group, &projection, having)?;
     validate_group_policy(schema, logical, group, having)?;
     validate_group_cursor_constraints(logical, group)?;
+    validate_projection_expr_types(schema, &projection)?;
 
     Ok(())
 }
@@ -705,6 +712,22 @@ fn validate_group_projection_expr_compatibility(
                         ExprPlanError::GroupedProjectionReferencesNonGroupField { index },
                     ));
                 }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+// Validate deterministic planner expression typing over one canonical projection shape.
+fn validate_projection_expr_types(
+    schema: &SchemaInfo,
+    projection: &ProjectionSpec,
+) -> Result<(), PlanError> {
+    for field in projection.fields() {
+        match field {
+            ProjectionField::Scalar { expr, .. } => {
+                infer_expr_type(expr, schema)?;
             }
         }
     }

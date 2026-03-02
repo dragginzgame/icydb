@@ -5,6 +5,7 @@
 
 use crate::{
     db::{
+        numeric::field_kind_supports_expr_numeric,
         predicate::SchemaInfo,
         query::{
             builder::aggregate::AggregateExpr,
@@ -237,13 +238,36 @@ pub(crate) fn expr_references_only_fields(expr: &Expr, allowed: &HashSet<&str>) 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum ExprType {
     Bool,
-    Numeric,
+    Numeric(NumericSubtype),
     Text,
     Null,
     Collection,
     Structured,
     Opaque,
     Unknown,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum NumericSubtype {
+    Integer,
+    Float,
+    Decimal,
+    Unknown,
+}
+
+impl ExprType {
+    // Eligibility answers "can this participate in numeric-only operators?".
+    // Subtype answers "which numeric family?" and may remain unresolved.
+    const fn is_numeric_eligible(&self) -> bool {
+        matches!(self, Self::Numeric(_))
+    }
+
+    const fn numeric_subtype(&self) -> Option<NumericSubtype> {
+        match self {
+            Self::Numeric(subtype) => Some(*subtype),
+            _ => None,
+        }
+    }
 }
 
 /// Infer expression type deterministically from canonical expression shape.
@@ -279,7 +303,7 @@ fn infer_aggregate_expr_type(
     let target_field = aggregate.target_field();
 
     match kind {
-        AggregateKind::Count => Ok(ExprType::Numeric),
+        AggregateKind::Count => Ok(ExprType::Numeric(NumericSubtype::Integer)),
         AggregateKind::Exists => Ok(ExprType::Bool),
         AggregateKind::Sum => infer_sum_aggregate_type(target_field, schema),
         AggregateKind::Min | AggregateKind::Max | AggregateKind::First | AggregateKind::Last => {
@@ -293,8 +317,9 @@ fn infer_sum_aggregate_type(
     schema: &SchemaInfo,
 ) -> Result<ExprType, PlanError> {
     let Some(field_name) = target_field else {
-        // Bootstrap behavior: target-less SUM remains unresolved in this phase.
-        return Ok(ExprType::Unknown);
+        return Err(PlanError::from(ExprPlanError::AggregateTargetRequired {
+            kind: "sum".to_string(),
+        }));
     };
 
     let Some(field_kind) = schema.field_kind(field_name) else {
@@ -303,14 +328,14 @@ fn infer_sum_aggregate_type(
         }));
     };
 
-    if !field_kind_is_numeric(field_kind) {
+    if !field_kind_supports_expr_numeric(field_kind) {
         return Err(PlanError::from(ExprPlanError::NonNumericAggregateTarget {
             kind: "sum".to_string(),
             field: field_name.to_string(),
         }));
     }
 
-    Ok(ExprType::Numeric)
+    Ok(expr_type_from_field_kind(field_kind))
 }
 
 fn infer_target_field_aggregate_type(
@@ -342,14 +367,16 @@ fn infer_unary_expr_type(
 
     match op {
         UnaryOp::Neg => {
-            if !matches!(inner, ExprType::Numeric) {
+            if !inner.is_numeric_eligible() {
                 return Err(PlanError::from(ExprPlanError::InvalidUnaryOperand {
                     op: "neg".to_string(),
                     found: format!("{inner:?}"),
                 }));
             }
 
-            Ok(ExprType::Numeric)
+            Ok(ExprType::Numeric(
+                inner.numeric_subtype().unwrap_or(NumericSubtype::Unknown),
+            ))
         }
         UnaryOp::Not => {
             if !matches!(inner, ExprType::Bool) {
@@ -383,7 +410,9 @@ fn infer_binary_expr_type(
                 }));
             }
 
-            Ok(ExprType::Numeric)
+            Ok(ExprType::Numeric(infer_numeric_result_subtype(
+                op, &left_ty, &right_ty,
+            )))
         }
         BinaryOp::And | BinaryOp::Or => {
             if !matches!(left_ty, ExprType::Bool) || !matches!(right_ty, ExprType::Bool) {
@@ -396,13 +425,19 @@ fn infer_binary_expr_type(
 
             Ok(ExprType::Bool)
         }
-        BinaryOp::Eq
-        | BinaryOp::Ne
-        | BinaryOp::Lt
-        | BinaryOp::Lte
-        | BinaryOp::Gt
-        | BinaryOp::Gte => {
-            if !binary_comparable(&left_ty, &right_ty) {
+        BinaryOp::Eq | BinaryOp::Ne => {
+            if !binary_equality_comparable(&left_ty, &right_ty) {
+                return Err(PlanError::from(ExprPlanError::InvalidBinaryOperands {
+                    op: binary_op_name(op).to_string(),
+                    left: format!("{left_ty:?}"),
+                    right: format!("{right_ty:?}"),
+                }));
+            }
+
+            Ok(ExprType::Bool)
+        }
+        BinaryOp::Lt | BinaryOp::Lte | BinaryOp::Gt | BinaryOp::Gte => {
+            if !binary_order_comparable(&left_ty, &right_ty) {
                 return Err(PlanError::from(ExprPlanError::InvalidBinaryOperands {
                     op: binary_op_name(op).to_string(),
                     left: format!("{left_ty:?}"),
@@ -416,11 +451,11 @@ fn infer_binary_expr_type(
 }
 
 const fn binary_numeric_compatible(left: &ExprType, right: &ExprType) -> bool {
-    matches!(left, ExprType::Numeric) && matches!(right, ExprType::Numeric)
+    left.is_numeric_eligible() && right.is_numeric_eligible()
 }
 
-const fn binary_comparable(left: &ExprType, right: &ExprType) -> bool {
-    if matches!(left, ExprType::Numeric) && matches!(right, ExprType::Numeric) {
+const fn binary_equality_comparable(left: &ExprType, right: &ExprType) -> bool {
+    if left.is_numeric_eligible() && right.is_numeric_eligible() {
         return true;
     }
 
@@ -432,8 +467,37 @@ const fn binary_comparable(left: &ExprType, right: &ExprType) -> bool {
             | (ExprType::Collection, ExprType::Collection)
             | (ExprType::Structured, ExprType::Structured)
             | (ExprType::Opaque, ExprType::Opaque)
-            | (ExprType::Unknown, ExprType::Unknown)
     )
+}
+
+const fn binary_order_comparable(left: &ExprType, right: &ExprType) -> bool {
+    if left.is_numeric_eligible() && right.is_numeric_eligible() {
+        return true;
+    }
+
+    matches!(
+        (left, right),
+        (ExprType::Bool, ExprType::Bool) | (ExprType::Text, ExprType::Text)
+    )
+}
+
+const fn infer_numeric_result_subtype(
+    _op: BinaryOp,
+    left: &ExprType,
+    right: &ExprType,
+) -> NumericSubtype {
+    let (Some(left_subtype), Some(right_subtype)) =
+        (left.numeric_subtype(), right.numeric_subtype())
+    else {
+        return NumericSubtype::Unknown;
+    };
+
+    match (left_subtype, right_subtype) {
+        (NumericSubtype::Integer, NumericSubtype::Integer) => NumericSubtype::Integer,
+        (NumericSubtype::Float, NumericSubtype::Float) => NumericSubtype::Float,
+        (NumericSubtype::Decimal, NumericSubtype::Decimal) => NumericSubtype::Decimal,
+        _ => NumericSubtype::Unknown,
+    }
 }
 
 const fn infer_literal_type(value: &Value) -> ExprType {
@@ -446,18 +510,17 @@ const fn infer_literal_type(value: &Value) -> ExprType {
         | Value::Uint(_)
         | Value::Uint128(_)
         | Value::UintBig(_)
-        | Value::Float32(_)
-        | Value::Float64(_)
-        | Value::Decimal(_) => ExprType::Numeric,
+        | Value::Duration(_)
+        | Value::Timestamp(_) => ExprType::Numeric(NumericSubtype::Integer),
+        Value::Float32(_) | Value::Float64(_) => ExprType::Numeric(NumericSubtype::Float),
+        Value::Decimal(_) => ExprType::Numeric(NumericSubtype::Decimal),
         Value::List(_) | Value::Map(_) => ExprType::Collection,
         Value::Null => ExprType::Null,
         Value::Account(_)
         | Value::Blob(_)
         | Value::Date(_)
-        | Value::Duration(_)
         | Value::Principal(_)
         | Value::Subaccount(_)
-        | Value::Timestamp(_)
         | Value::Ulid(_)
         | Value::Unit => ExprType::Opaque,
     }
@@ -472,9 +535,10 @@ fn expr_type_from_field_kind(kind: &FieldKind) -> ExprType {
         | FieldKind::Uint
         | FieldKind::Uint128
         | FieldKind::UintBig
-        | FieldKind::Float32
-        | FieldKind::Float64
-        | FieldKind::Decimal { .. } => ExprType::Numeric,
+        | FieldKind::Duration
+        | FieldKind::Timestamp => ExprType::Numeric(NumericSubtype::Integer),
+        FieldKind::Float32 | FieldKind::Float64 => ExprType::Numeric(NumericSubtype::Float),
+        FieldKind::Decimal { .. } => ExprType::Numeric(NumericSubtype::Decimal),
         FieldKind::Text | FieldKind::Enum { .. } => ExprType::Text,
         FieldKind::List(_) | FieldKind::Set(_) | FieldKind::Map { .. } => ExprType::Collection,
         FieldKind::Structured { .. } => ExprType::Structured,
@@ -482,28 +546,11 @@ fn expr_type_from_field_kind(kind: &FieldKind) -> ExprType {
         FieldKind::Account
         | FieldKind::Blob
         | FieldKind::Date
-        | FieldKind::Duration
         | FieldKind::Principal
         | FieldKind::Subaccount
-        | FieldKind::Timestamp
         | FieldKind::Ulid
         | FieldKind::Unit => ExprType::Opaque,
     }
-}
-
-const fn field_kind_is_numeric(kind: &FieldKind) -> bool {
-    matches!(
-        kind,
-        FieldKind::Int
-            | FieldKind::Int128
-            | FieldKind::IntBig
-            | FieldKind::Uint
-            | FieldKind::Uint128
-            | FieldKind::UintBig
-            | FieldKind::Float32
-            | FieldKind::Float64
-            | FieldKind::Decimal { .. }
-    )
 }
 
 const fn binary_op_name(op: BinaryOp) -> &'static str {
@@ -532,13 +579,16 @@ mod tests {
     use crate::{
         db::{
             predicate::SchemaInfo,
-            query::{builder::aggregate::sum, plan::validate::ExprPlanError},
+            query::{
+                builder::aggregate::{AggregateExpr, min, min_by, sum},
+                plan::{GroupAggregateKind, validate::ExprPlanError},
+            },
         },
         model::{entity::EntityModel, field::FieldKind, index::IndexModel},
         value::Value,
     };
 
-    use super::{BinaryOp, Expr, ExprType, FieldId, UnaryOp, infer_expr_type};
+    use super::{BinaryOp, Expr, ExprType, FieldId, NumericSubtype, UnaryOp, infer_expr_type};
 
     const EMPTY_INDEX_FIELDS: [&str; 0] = [];
     const EMPTY_INDEX: IndexModel = IndexModel::new(
@@ -559,6 +609,7 @@ mod tests {
             ("rank", FieldKind::Uint),
             ("flag", FieldKind::Bool),
             ("label", FieldKind::Text),
+            ("created_on", FieldKind::Date),
         ],
         indexes = [&EMPTY_INDEX],
     }
@@ -576,17 +627,24 @@ mod tests {
 
         let inferred = infer_expr_type(&expr, &schema).expect("field should infer");
 
-        assert_eq!(inferred, ExprType::Numeric);
+        assert_eq!(inferred, ExprType::Numeric(NumericSubtype::Integer));
     }
 
     #[test]
     fn infer_literal_type_is_deterministic() {
         let schema = schema();
         let expr = Expr::Literal(Value::Bool(true));
+        let duration_expr = Expr::Literal(Value::Duration(crate::types::Duration::from_millis(5)));
 
         let inferred = infer_expr_type(&expr, &schema).expect("literal should infer");
+        let duration_inferred =
+            infer_expr_type(&duration_expr, &schema).expect("duration literal should infer");
 
         assert_eq!(inferred, ExprType::Bool);
+        assert_eq!(
+            duration_inferred,
+            ExprType::Numeric(NumericSubtype::Integer)
+        );
     }
 
     #[test]
@@ -600,7 +658,137 @@ mod tests {
 
         let inferred = infer_expr_type(&expr, &schema).expect("numeric addition should infer");
 
-        assert_eq!(inferred, ExprType::Numeric);
+        assert_eq!(inferred, ExprType::Numeric(NumericSubtype::Integer));
+    }
+
+    #[test]
+    fn infer_binary_numeric_expr_rejects_decidable_non_numeric_schema_operand() {
+        let schema = schema();
+        let expr = Expr::Binary {
+            op: BinaryOp::Add,
+            left: Box::new(Expr::Field(FieldId::new("rank"))),
+            right: Box::new(Expr::Field(FieldId::new("label"))),
+        };
+
+        let err = infer_expr_type(&expr, &schema)
+            .expect_err("numeric operators must reject schema-known non-numeric fields");
+        assert!(matches!(
+            err,
+            crate::db::query::plan::PlanError::Expr(inner)
+                if matches!(inner.as_ref(), ExprPlanError::InvalidBinaryOperands { op, .. } if op == "add")
+        ));
+    }
+
+    #[test]
+    fn infer_binary_numeric_expr_rejects_decidable_non_numeric_bool_field_operand() {
+        let schema = schema();
+        let expr = Expr::Binary {
+            op: BinaryOp::Add,
+            left: Box::new(Expr::Field(FieldId::new("rank"))),
+            right: Box::new(Expr::Field(FieldId::new("flag"))),
+        };
+
+        let err = infer_expr_type(&expr, &schema)
+            .expect_err("numeric operators must reject schema-known bool fields");
+        assert!(matches!(
+            err,
+            crate::db::query::plan::PlanError::Expr(inner)
+                if matches!(inner.as_ref(), ExprPlanError::InvalidBinaryOperands { op, .. } if op == "add")
+        ));
+    }
+
+    #[test]
+    fn infer_binary_numeric_expr_rejects_decidable_non_numeric_date_field_operand() {
+        let schema = schema();
+        let expr = Expr::Binary {
+            op: BinaryOp::Add,
+            left: Box::new(Expr::Field(FieldId::new("rank"))),
+            right: Box::new(Expr::Field(FieldId::new("created_on"))),
+        };
+
+        let err = infer_expr_type(&expr, &schema)
+            .expect_err("numeric operators must reject schema-known date fields");
+        assert!(matches!(
+            err,
+            crate::db::query::plan::PlanError::Expr(inner)
+                if matches!(inner.as_ref(), ExprPlanError::InvalidBinaryOperands { op, .. } if op == "add")
+        ));
+    }
+
+    #[test]
+    fn infer_binary_numeric_expr_rejects_decidable_non_numeric_literal_operand() {
+        let schema = schema();
+        let expr = Expr::Binary {
+            op: BinaryOp::Add,
+            left: Box::new(Expr::Literal(Value::Bool(true))),
+            right: Box::new(Expr::Literal(Value::Int(5))),
+        };
+
+        let err = infer_expr_type(&expr, &schema)
+            .expect_err("numeric operators must reject non-numeric literal operands");
+        assert!(matches!(
+            err,
+            crate::db::query::plan::PlanError::Expr(inner)
+                if matches!(inner.as_ref(), ExprPlanError::InvalidBinaryOperands { op, .. } if op == "add")
+        ));
+    }
+
+    #[test]
+    fn infer_binary_numeric_expr_keeps_numeric_with_unknown_subtype_for_mixed_operands() {
+        let schema = schema();
+        let expr = Expr::Binary {
+            op: BinaryOp::Add,
+            left: Box::new(Expr::Field(FieldId::new("rank"))),
+            right: Box::new(Expr::Literal(Value::Decimal(
+                crate::types::Decimal::from_num(7_u64).expect("decimal literal"),
+            ))),
+        };
+
+        let inferred =
+            infer_expr_type(&expr, &schema).expect("mixed numeric addition should stay numeric");
+
+        assert_eq!(inferred, ExprType::Numeric(NumericSubtype::Unknown));
+    }
+
+    #[test]
+    fn infer_binary_numeric_expr_rejects_unknown_non_eligible_operands() {
+        let schema = schema();
+        let expr = Expr::Binary {
+            op: BinaryOp::Add,
+            left: Box::new(Expr::Aggregate(min())),
+            right: Box::new(Expr::Literal(Value::Int(1))),
+        };
+
+        let err = infer_expr_type(&expr, &schema)
+            .expect_err("unknown type does not imply numeric eligibility");
+        assert!(matches!(
+            err,
+            crate::db::query::plan::PlanError::Expr(inner)
+                if matches!(inner.as_ref(), ExprPlanError::InvalidBinaryOperands { op, .. } if op == "add")
+        ));
+    }
+
+    #[test]
+    fn infer_sum_aggregate_rejects_decidable_non_numeric_bool_target() {
+        let schema = schema();
+        let expr = Expr::Aggregate(sum("flag"));
+
+        let err = infer_expr_type(&expr, &schema).expect_err("sum over bool should fail");
+        assert!(matches!(
+            err,
+            crate::db::query::plan::PlanError::Expr(inner)
+                if matches!(inner.as_ref(), ExprPlanError::NonNumericAggregateTarget { field, .. } if field == "flag")
+        ));
+    }
+
+    #[test]
+    fn infer_min_by_aggregate_keeps_existing_non_numeric_semantics() {
+        let schema = schema();
+        let expr = Expr::Aggregate(min_by("label"));
+
+        let inferred = infer_expr_type(&expr, &schema).expect("min_by(text) should remain valid");
+
+        assert_eq!(inferred, ExprType::Text);
     }
 
     #[test]
@@ -613,6 +801,23 @@ mod tests {
             err,
             crate::db::query::plan::PlanError::Expr(inner)
                 if matches!(inner.as_ref(), ExprPlanError::NonNumericAggregateTarget { field, .. } if field == "label")
+        ));
+    }
+
+    #[test]
+    fn infer_sum_aggregate_without_target_rejects_missing_target() {
+        let schema = schema();
+        let expr = Expr::Aggregate(AggregateExpr::from_semantic_parts(
+            GroupAggregateKind::Sum,
+            None,
+            false,
+        ));
+
+        let err = infer_expr_type(&expr, &schema).expect_err("sum without target should fail");
+        assert!(matches!(
+            err,
+            crate::db::query::plan::PlanError::Expr(inner)
+                if matches!(inner.as_ref(), ExprPlanError::AggregateTargetRequired { kind } if kind == "sum")
         ));
     }
 
@@ -643,6 +848,32 @@ mod tests {
 
         let err = infer_expr_type(&expr, &schema)
             .expect_err("numeric/text comparison should fail deterministic type inference");
+        assert!(matches!(
+            err,
+            crate::db::query::plan::PlanError::Expr(inner)
+                if matches!(inner.as_ref(), ExprPlanError::InvalidBinaryOperands { op, .. } if op == "eq")
+        ));
+    }
+
+    #[test]
+    fn infer_binary_compare_rejects_unknown_operands_fail_closed() {
+        let schema = schema();
+        let expr = Expr::Binary {
+            op: BinaryOp::Eq,
+            left: Box::new(Expr::Aggregate(AggregateExpr::from_semantic_parts(
+                GroupAggregateKind::Min,
+                None,
+                false,
+            ))),
+            right: Box::new(Expr::Aggregate(AggregateExpr::from_semantic_parts(
+                GroupAggregateKind::Max,
+                None,
+                false,
+            ))),
+        };
+
+        let err = infer_expr_type(&expr, &schema)
+            .expect_err("unknown aggregate operand comparison should fail closed");
         assert!(matches!(
             err,
             crate::db::query::plan::PlanError::Expr(inner)

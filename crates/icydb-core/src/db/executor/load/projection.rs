@@ -6,6 +6,7 @@
 use crate::{
     db::{
         executor::load::LoadExecutor,
+        numeric::{compare_numeric_eq, compare_numeric_order},
         query::builder::AggregateExpr,
         query::plan::{
             AccessPlannedQuery, FieldSlot,
@@ -376,7 +377,7 @@ fn eval_equality_binary_expr(
     right: Value,
 ) -> Result<Value, ExecutionError> {
     let are_equal = if left.supports_numeric_coercion() && right.supports_numeric_coercion() {
-        let Some(ordering) = left.cmp_numeric(&right) else {
+        let Some(are_equal) = compare_numeric_eq(&left, &right) else {
             return Err(ExecutionError::InvalidBinaryOperands {
                 op: binary_op_name(op).to_string(),
                 left: Box::new(left),
@@ -384,7 +385,7 @@ fn eval_equality_binary_expr(
             });
         };
 
-        ordering == Ordering::Equal
+        are_equal
     } else {
         left == right
     };
@@ -441,7 +442,7 @@ fn eval_compare_binary_expr(
 fn compare_ordering(op: BinaryOp, left: &Value, right: &Value) -> Option<Ordering> {
     let _ = op;
     if left.supports_numeric_coercion() && right.supports_numeric_coercion() {
-        return left.cmp_numeric(right);
+        return compare_numeric_order(left, right);
     }
 
     Value::strict_order_cmp(left, right)
