@@ -16,8 +16,6 @@ pub(super) struct AggregateHashShape<'a> {
     kind: AggregateKind,
     target_field: Option<&'a str>,
     distinct: bool,
-    alias: Option<&'a str>,
-    explain_projection_tag: Option<u8>,
 }
 
 impl<'a> AggregateHashShape<'a> {
@@ -32,25 +30,7 @@ impl<'a> AggregateHashShape<'a> {
             kind,
             target_field,
             distinct,
-            alias: None,
-            explain_projection_tag: None,
         }
-    }
-
-    /// Attach optional alias metadata ignored by aggregate structural hashing.
-    #[must_use]
-    #[cfg(test)]
-    pub(super) const fn with_alias(mut self, alias: Option<&'a str>) -> Self {
-        self.alias = alias;
-        self
-    }
-
-    /// Attach explain-only metadata ignored by aggregate structural hashing.
-    #[must_use]
-    #[cfg(test)]
-    pub(super) const fn with_explain_projection_tag(mut self, tag: Option<u8>) -> Self {
-        self.explain_projection_tag = tag;
-        self
     }
 }
 
@@ -66,8 +46,7 @@ pub(super) fn hash_group_aggregate_structural_fingerprint_v1(
     // - optional target field
     // - distinct modifier flag
     //
-    // Alias and explain projection tags are intentionally excluded so aggregate
-    // fingerprint identity remains purely semantic.
+    // Aggregate fingerprint identity must remain purely semantic.
     write_tag(hasher, GROUP_AGGREGATE_STRUCTURAL_FINGERPRINT_V1);
     write_tag(hasher, aggregate_kind_tag_v1(shape.kind));
     match shape.target_field {
@@ -78,9 +57,6 @@ pub(super) fn hash_group_aggregate_structural_fingerprint_v1(
         None => write_tag(hasher, 0x00),
     }
     write_tag(hasher, if shape.distinct { 0x02 } else { 0x03 });
-
-    let _ = shape.alias;
-    let _ = shape.explain_projection_tag;
 }
 
 const fn aggregate_kind_tag_v1(kind: AggregateKind) -> u8 {
@@ -112,12 +88,36 @@ fn write_str(hasher: &mut Sha256, value: &str) {
 #[cfg(test)]
 mod tests {
     use crate::db::query::{
+        builder::count_by,
         fingerprint::aggregate_hash::{
             AggregateHashShape, hash_group_aggregate_structural_fingerprint_v1,
         },
-        plan::AggregateKind,
+        plan::{AggregateKind, GroupAggregateSpec},
     };
     use sha2::{Digest, Sha256};
+
+    ///
+    /// AggregateSource
+    ///
+    /// Test-only source adapter to verify alias/explain metadata is excluded
+    /// from semantic aggregate hash construction.
+    ///
+    struct AggregateSource<'a> {
+        kind: AggregateKind,
+        target_field: Option<&'a str>,
+        distinct: bool,
+        alias: Option<&'a str>,
+        explain_projection_tag: Option<u8>,
+    }
+
+    impl<'a> AggregateSource<'a> {
+        fn semantic_shape(&self) -> AggregateHashShape<'a> {
+            let _ = self.alias;
+            let _ = self.explain_projection_tag;
+
+            AggregateHashShape::semantic(self.kind, self.target_field, self.distinct)
+        }
+    }
 
     fn hash_shapes(shapes: &[AggregateHashShape<'_>]) -> [u8; 32] {
         let mut hasher = Sha256::new();
@@ -139,21 +139,25 @@ mod tests {
     }
 
     #[test]
-    fn alias_metadata_is_excluded_from_aggregate_hash_identity() {
-        let without_alias = AggregateHashShape::semantic(AggregateKind::Sum, Some("rank"), true);
-        let with_alias = AggregateHashShape::semantic(AggregateKind::Sum, Some("rank"), true)
-            .with_alias(Some("sum_rank"));
+    fn alias_and_explain_metadata_are_excluded_from_aggregate_hash_identity() {
+        let semantic = AggregateSource {
+            kind: AggregateKind::Sum,
+            target_field: Some("rank"),
+            distinct: true,
+            alias: None,
+            explain_projection_tag: None,
+        }
+        .semantic_shape();
+        let with_alias_and_tag = AggregateSource {
+            kind: AggregateKind::Sum,
+            target_field: Some("rank"),
+            distinct: true,
+            alias: Some("sum_rank"),
+            explain_projection_tag: Some(0xAA),
+        }
+        .semantic_shape();
 
-        assert_eq!(hash_shapes(&[without_alias]), hash_shapes(&[with_alias]));
-    }
-
-    #[test]
-    fn explain_projection_metadata_is_excluded_from_aggregate_hash_identity() {
-        let without_tag = AggregateHashShape::semantic(AggregateKind::Min, Some("rank"), false);
-        let with_tag = AggregateHashShape::semantic(AggregateKind::Min, Some("rank"), false)
-            .with_explain_projection_tag(Some(0xAA));
-
-        assert_eq!(hash_shapes(&[without_tag]), hash_shapes(&[with_tag]));
+        assert_eq!(hash_shapes(&[semantic]), hash_shapes(&[with_alias_and_tag]),);
     }
 
     #[test]
@@ -162,5 +166,38 @@ mod tests {
         let sum = AggregateHashShape::semantic(AggregateKind::Sum, Some("rank"), false);
 
         assert_ne!(hash_shapes(&[count, sum]), hash_shapes(&[sum, count]));
+    }
+
+    #[test]
+    fn aggregate_expr_and_helper_shapes_hash_identically() {
+        let aggregate_expr = count_by("rank").distinct();
+        let helper_shape = GroupAggregateSpec::from_aggregate_expr(&aggregate_expr);
+        let from_helper = AggregateHashShape::semantic(
+            helper_shape.kind(),
+            helper_shape.target_field(),
+            helper_shape.distinct(),
+        );
+        let manual = AggregateHashShape::semantic(AggregateKind::Count, Some("rank"), true);
+
+        assert_eq!(hash_shapes(&[from_helper]), hash_shapes(&[manual]));
+    }
+
+    #[test]
+    fn aggregate_hash_shape_constructor_signature_accepts_only_semantic_fields() {
+        let constructor: fn(
+            AggregateKind,
+            Option<&'static str>,
+            bool,
+        ) -> AggregateHashShape<'static> = AggregateHashShape::semantic;
+
+        let _ = constructor;
+    }
+
+    #[test]
+    fn aggregate_hash_encoder_signature_accepts_semantic_shape_only() {
+        let hash: fn(&mut Sha256, &AggregateHashShape<'static>) =
+            hash_group_aggregate_structural_fingerprint_v1;
+
+        let _ = hash;
     }
 }

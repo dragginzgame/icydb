@@ -171,4 +171,55 @@ mod tests {
             Some(RankedProjectionMode::ValuesWithIds)
         );
     }
+
+    #[test]
+    fn non_aggregate_projection_shapes_do_not_drift_into_distinct_aggregate_variant() {
+        let field_shape = ProjectionFieldShape::field("rank");
+        assert!(
+            matches!(field_shape, ProjectionFieldShape::Field { .. }),
+            "values_by-style projection must remain a direct field shape",
+        );
+
+        let ranked_shape = ProjectionFieldShape::ranked(
+            "rank",
+            RankedProjectionDirection::Bottom,
+            RankedProjectionMode::Rows,
+        );
+        assert!(
+            matches!(ranked_shape, ProjectionFieldShape::Ranked { .. }),
+            "top_k/bottom_k-style projection must remain a ranked shape",
+        );
+    }
+
+    #[test]
+    fn projection_shape_builders_preserve_terminal_target_identity_for_owned_and_borrowed_inputs() {
+        let field_from_borrowed = ProjectionFieldShape::field("rank");
+        let field_from_owned = ProjectionFieldShape::field(String::from("rank"));
+        assert_eq!(
+            field_from_borrowed.target_field(),
+            field_from_owned.target_field()
+        );
+
+        let distinct_from_borrowed = ProjectionFieldShape::count_distinct("rank");
+        let distinct_from_owned = ProjectionFieldShape::count_distinct(String::from("rank"));
+        assert_eq!(
+            distinct_from_borrowed.target_field(),
+            distinct_from_owned.target_field(),
+        );
+
+        let ranked_from_borrowed = ProjectionFieldShape::ranked(
+            "rank",
+            RankedProjectionDirection::Top,
+            RankedProjectionMode::Values,
+        );
+        let ranked_from_owned = ProjectionFieldShape::ranked(
+            String::from("rank"),
+            RankedProjectionDirection::Top,
+            RankedProjectionMode::Values,
+        );
+        assert_eq!(
+            ranked_from_borrowed.target_field(),
+            ranked_from_owned.target_field(),
+        );
+    }
 }

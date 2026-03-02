@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.38.x] - 2026-03-02 - Pre-Unified Expr Hardening
+
+- `0.38.0` starts pre-unified-expression structural hardening by converging projection authority, removing planner/executor semantic duplication, isolating aggregate fingerprint identity from explain/alias metadata, preserving runtime class/origin taxonomy through facade conversion, and replacing source-text guard enforcement with structural/type-signature guard tests.
+
+See detailed breakdown:
+[docs/changelog/0.38.md](docs/changelog/0.38.md)
+
+---
+
 ## [0.37.x] - 2026-03-01 - Aggregate Fluent API Consolidation
 
 - `0.37.0` starts aggregate fluent API consolidation with composable aggregate builders (`AggregateExpr`, `count`, `count_by`, `sum`, `exists`, `first`, `last`, `min`, `max`, `min_by`, `max_by`, `distinct`) and new `.aggregate(...)` query/fluent entrypoints.

@@ -205,6 +205,62 @@ Example:
 
 ---
 
+## Test Placement Contract
+
+Tests must live at the boundary that owns the behavior.
+
+### Ownership Rule
+
+A test should live in the lowest layer that promises the behavior being asserted.
+
+Examples:
+
+* Cursor contract assertions belong under cursor tests.
+* Route policy matrix assertions belong under route tests.
+* End-to-end execution behavior belongs in executor integration harnesses.
+
+### Default Placement Rule
+
+Prefer co-located test files over large inline blocks:
+
+* Directory module: `tests.rs`
+* Leaf file module: `*_tests.rs` sibling
+
+Inline `#[cfg(test)] mod tests` is acceptable for small micro-tests only.
+
+### Inline Test Limit
+
+Inline tests are allowed only when all are true:
+
+* Small (about `< 100` lines total)
+* No shared fixtures/helpers
+* Validates a local helper/invariant
+* Improves readability of the code directly above it
+
+When inline tests outgrow this, move them to `tests.rs` or `*_tests.rs`.
+
+### Cross-Subsystem Rule
+
+Cross-subsystem behaviors must live in explicit harnesses, not scattered leaf modules.
+
+Examples:
+
+* `crates/icydb-core/src/db/executor/tests/**`
+* `crates/icydb-core/tests/*.rs`
+
+### Test-Scaffolding Rule
+
+Test scaffolding must not leak into production APIs.
+
+If tests need helpers:
+
+* Keep helpers in test modules/harness files, or
+* Keep helpers behind `#[cfg(test)]` with crate-private visibility
+
+Do not add public exports solely to satisfy tests.
+
+---
+
 ## What We Explicitly Do NOT Have
 
 * ❌ IC canister-level E2E tests (deployment, upgrade, message boundaries)
@@ -212,6 +268,8 @@ Example:
 * ❌ Dual schema languages ("real" vs "test")
 * ❌ Inline `EntityModel { ... }` in test modules
 * ❌ Unlabeled manual models (use `LegacyTestEntityModel`)
+* ❌ `include_str!` used to enforce architectural invariants
+* ❌ String-content matching used for semantic error classification/assertion
 
 If a test requires one of these, the architecture is wrong.
 
@@ -230,6 +288,89 @@ If a test requires one of these, the architecture is wrong.
 
 4. **Determinism is testable**
    Planner output must be stable across runs and input ordering.
+
+---
+
+## Architectural Guard Enforcement (Required)
+
+Architectural invariants must be enforced structurally, not via source-text scanning.
+
+### Allowed `include_str!` usage
+
+`include_str!` is allowed only for fixture-style inputs:
+
+* Snapshot fixtures
+* Parser fixtures
+* Large golden data inputs
+
+### Prohibited `include_str!` usage
+
+Do not use `include_str!` to police architecture, layering, or module boundaries.
+
+Examples of prohibited use:
+
+* Asserting a module contains/does not contain specific symbols
+* Enforcing boundary ownership through source text
+* Enforcing semantic authority through string search
+
+### Required alternatives
+
+Use structural tests instead:
+
+* Type/signature guard tests
+* Compile-fail visibility boundary tests
+* Boundary contract tests (planner-owned semantics, executor invariant-only)
+* Semantic parity/rejection tests over typed contracts
+
+Rule:
+
+> If correctness depends on source text content, architectural authority is leaking.
+
+---
+
+## Error Assertion Guidelines
+
+Error tests must assert semantics through structure (types/variants), not presentation strings.
+
+### Smells (Avoid)
+
+* Message prefix/substring matching for behavior:
+  * `starts_with("invalid cursor")`
+  * `contains("Unsupported aggregate kind")`
+* Asserting `Display` text for semantic correctness:
+  * `assert_eq!(format!("{}", err), "...")`
+* Layer-leaking deep variant matching when contract is higher-level
+* Catch-all variant assertions when specific class/kind matters:
+  * `matches!(err.kind, ErrorKind::Runtime(_))`
+* Exact variant-count assertions unless freezing public ABI:
+  * `variant_count::<ErrorKind>() == ...`
+* Repeated deep exhaustive matching across many modules (semantic authority diffusion)
+
+### Approved Patterns
+
+* Boundary-level variant matching for semantic mapping guarantees
+* Policy rejection matching on typed policy enums
+* Signature guard checks via the type system
+* Semantic helper assertions (class/origin/kind preserved across boundaries)
+
+### Layering Rule
+
+Test at the semantic boundary of the layer under test:
+
+* Facade tests: assert facade taxonomy contracts
+* Query-layer tests: assert query-layer taxonomy contracts
+* Internal planner/executor tests: assert internal typed contracts only when they are the boundary
+
+Do not over-fit tests to deeper implementation details than the layer contract requires.
+
+### Formatting Tests
+
+Testing `Display`/`to_string()` is valid only when testing formatting itself.
+It is not valid as a substitute for semantic error assertions.
+
+Rule:
+
+> If correctness depends on error string content, semantic authority is leaking.
 
 ---
 

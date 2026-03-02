@@ -19,10 +19,7 @@ use crate::{
             group::GroupKeySet,
             load::LoadExecutor,
         },
-        query::{
-            builder::aggregate::{count_by, sum},
-            plan::{GroupSpec, GroupedExecutionConfig},
-        },
+        query::plan::{GroupedExecutionConfig, global_distinct_group_spec_for_semantic_aggregate},
         response::Response,
     },
     error::InternalError,
@@ -62,25 +59,17 @@ where
         kind: AggregateKind,
         target_field: &str,
     ) -> Result<Option<Value>, InternalError> {
-        // Build global DISTINCT grouped shape via the query semantic spine.
-        let aggregate = match kind {
-            AggregateKind::Count => count_by(target_field).distinct(),
-            AggregateKind::Sum => sum(target_field).distinct(),
-            _ => {
-                return Err(invariant(format!(
-                    "global DISTINCT grouped aggregate supports COUNT/SUM only: found {kind:?}",
-                )));
-            }
-        };
-        let grouped_plan =
-            plan.into_inner()
-                .into_grouped(GroupSpec::global_distinct_shape_from_aggregate_expr(
-                    &aggregate,
-                    GroupedExecutionConfig::with_hard_limits(
-                        GLOBAL_DISTINCT_GROUPED_MAX_GROUPS,
-                        GLOBAL_DISTINCT_GROUPED_MAX_GROUP_BYTES,
-                    ),
-                ));
+        // Build global DISTINCT grouped shape via query semantic authority.
+        let grouped_shape = global_distinct_group_spec_for_semantic_aggregate(
+            kind,
+            target_field,
+            GroupedExecutionConfig::with_hard_limits(
+                GLOBAL_DISTINCT_GROUPED_MAX_GROUPS,
+                GLOBAL_DISTINCT_GROUPED_MAX_GROUP_BYTES,
+            ),
+        )
+        .map_err(|reason| invariant(format!("{}: found {kind:?}", reason.invariant_message(),)))?;
+        let grouped_plan = plan.into_inner().into_grouped(grouped_shape);
         let grouped_plan = ExecutablePlan::new(grouped_plan);
         let (page, _) = self
             .execute_grouped_paged_with_cursor_traced(grouped_plan, GroupedPlannedCursor::none())?;

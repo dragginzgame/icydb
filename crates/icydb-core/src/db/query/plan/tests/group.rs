@@ -8,9 +8,11 @@ use crate::{
                 AccessPlannedQuery, DeleteLimitSpec, FieldSlot, GroupAggregateKind,
                 GroupAggregateSpec, GroupDistinctAdmissibility, GroupDistinctPolicyReason,
                 GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupPlanError, GroupSpec,
-                GroupedExecutionConfig, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
-                global_distinct_field_aggregate_admissibility, grouped_distinct_admissibility,
-                grouped_executor_handoff, is_global_distinct_field_aggregate_candidate,
+                GroupedCursorPolicyViolation, GroupedExecutionConfig, LogicalPlan, OrderDirection,
+                OrderSpec, PageSpec, global_distinct_field_aggregate_admissibility,
+                global_distinct_group_spec_for_semantic_aggregate, grouped_cursor_policy_violation,
+                grouped_distinct_admissibility, grouped_executor_handoff,
+                is_global_distinct_field_aggregate_candidate,
                 validate::{PlanError, PolicyPlanError, validate_query_semantics},
                 validate_group_query_semantics,
             },
@@ -163,6 +165,125 @@ fn grouped_plan_accepts_global_distinct_sum_field_without_group_keys() {
 
     validate_group_query_semantics(&schema, model, &grouped)
         .expect("global grouped sum(distinct field) should be accepted");
+}
+
+#[test]
+fn global_distinct_shape_helper_matches_aggregate_expr_path_for_count_and_sum() {
+    let execution = GroupedExecutionConfig::with_hard_limits(64, 4096);
+
+    let helper_count = global_distinct_group_spec_for_semantic_aggregate(
+        GroupAggregateKind::Count,
+        "tag",
+        execution,
+    )
+    .expect("count distinct helper shape should build");
+    let builder_count = GroupSpec::global_distinct_shape_from_aggregate_expr(
+        &crate::db::count_by("tag").distinct(),
+        execution,
+    );
+    assert_eq!(
+        helper_count, builder_count,
+        "count distinct shape helper must match aggregate-expression semantic path",
+    );
+
+    let helper_sum = global_distinct_group_spec_for_semantic_aggregate(
+        GroupAggregateKind::Sum,
+        "rank",
+        execution,
+    )
+    .expect("sum distinct helper shape should build");
+    let builder_sum = GroupSpec::global_distinct_shape_from_aggregate_expr(
+        &crate::db::sum("rank").distinct(),
+        execution,
+    );
+    assert_eq!(
+        helper_sum, builder_sum,
+        "sum distinct shape helper must match aggregate-expression semantic path",
+    );
+}
+
+#[test]
+fn global_distinct_shape_helper_rejects_unsupported_kinds_structurally() {
+    let execution = GroupedExecutionConfig::with_hard_limits(64, 4096);
+
+    for kind in [
+        GroupAggregateKind::Exists,
+        GroupAggregateKind::Min,
+        GroupAggregateKind::Max,
+        GroupAggregateKind::First,
+        GroupAggregateKind::Last,
+    ] {
+        let result = global_distinct_group_spec_for_semantic_aggregate(kind, "tag", execution);
+
+        assert!(
+            matches!(
+                result,
+                Err(GroupDistinctPolicyReason::GlobalDistinctUnsupportedAggregateKind)
+            ),
+            "unsupported grouped distinct kind should be rejected by semantic helper: {kind:?}",
+        );
+    }
+}
+
+#[test]
+fn grouped_cursor_policy_violation_contract_is_shared_for_limit_and_global_distinct_cases() {
+    let grouped_without_limit = grouped_plan(
+        load_plan_with_order_distinct_and_limit(
+            AccessPlan::path(AccessPath::FullScan),
+            Some(OrderSpec {
+                fields: vec![
+                    ("tag".to_string(), OrderDirection::Asc),
+                    ("id".to_string(), OrderDirection::Asc),
+                ],
+            }),
+            false,
+            None,
+        ),
+        vec!["tag"],
+        vec![GroupAggregateSpec {
+            kind: GroupAggregateKind::Count,
+            target_field: None,
+            distinct: false,
+        }],
+    );
+    let grouped_without_limit_plan = grouped_without_limit
+        .grouped_plan()
+        .expect("grouped plan should be present");
+    assert_eq!(
+        grouped_cursor_policy_violation(grouped_without_limit_plan, true)
+            .map(GroupedCursorPolicyViolation::invariant_message),
+        Some("grouped continuation cursors require an explicit LIMIT"),
+        "grouped cursor contract should require explicit limit when continuation is present",
+    );
+
+    let grouped_global_distinct = grouped_plan(
+        load_plan_with_order_distinct_and_limit(
+            AccessPlan::path(AccessPath::FullScan),
+            Some(OrderSpec {
+                fields: vec![
+                    ("tag".to_string(), OrderDirection::Asc),
+                    ("id".to_string(), OrderDirection::Asc),
+                ],
+            }),
+            false,
+            Some(1),
+        ),
+        Vec::new(),
+        vec![GroupAggregateSpec {
+            kind: GroupAggregateKind::Count,
+            target_field: Some("tag".to_string()),
+            distinct: true,
+        }],
+    );
+    let grouped_global_distinct_plan = grouped_global_distinct
+        .grouped_plan()
+        .expect("grouped plan should be present");
+    assert_eq!(
+        grouped_cursor_policy_violation(grouped_global_distinct_plan, true)
+            .map(GroupedCursorPolicyViolation::invariant_message),
+        Some("global DISTINCT grouped aggregates do not support continuation cursors"),
+        "global DISTINCT grouped cursor policy should reject continuation reuse",
+    );
 }
 
 #[test]

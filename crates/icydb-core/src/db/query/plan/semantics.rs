@@ -6,9 +6,12 @@
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},
-        predicate::CompareOp,
+        predicate::{CoercionSpec, CompareOp, compare_eq, compare_order},
         query::{
-            builder::AggregateExpr,
+            builder::{
+                AggregateExpr,
+                aggregate::{count_by, sum},
+            },
             explain::ExplainAccessPath,
             plan::{
                 AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec,
@@ -49,6 +52,33 @@ pub(crate) enum GroupDistinctPolicyReason {
 pub(crate) enum GroupDistinctAdmissibility {
     Allowed,
     Disallowed(GroupDistinctPolicyReason),
+}
+
+///
+/// GroupedCursorPolicyViolation
+///
+/// Canonical grouped cursor-policy violations shared by planner and executor
+/// boundaries so grouped continuation rules are not reimplemented per layer.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum GroupedCursorPolicyViolation {
+    ContinuationRequiresLimit,
+    GlobalDistinctContinuationUnsupported,
+}
+
+impl GroupedCursorPolicyViolation {
+    /// Return canonical invariant message text for grouped cursor policy violations.
+    #[must_use]
+    pub(in crate::db) const fn invariant_message(self) -> &'static str {
+        match self {
+            Self::ContinuationRequiresLimit => {
+                "grouped continuation cursors require an explicit LIMIT"
+            }
+            Self::GlobalDistinctContinuationUnsupported => {
+                "global DISTINCT grouped aggregates do not support continuation cursors"
+            }
+        }
+    }
 }
 
 ///
@@ -209,15 +239,113 @@ pub(crate) fn resolve_global_distinct_field_aggregate<'a>(
 /// Return whether grouped HAVING supports this compare operator in grouped v1.
 #[must_use]
 pub(crate) const fn grouped_having_compare_op_supported(op: CompareOp) -> bool {
-    matches!(
-        op,
-        CompareOp::Eq
-            | CompareOp::Ne
-            | CompareOp::Lt
-            | CompareOp::Lte
-            | CompareOp::Gt
-            | CompareOp::Gte
-    )
+    grouped_having_compare_kind(op).is_some()
+}
+
+/// Return grouped cursor-policy violations for one grouped plan shape.
+#[must_use]
+pub(crate) fn grouped_cursor_policy_violation(
+    grouped: &GroupPlan,
+    cursor_present: bool,
+) -> Option<GroupedCursorPolicyViolation> {
+    if !cursor_present {
+        return None;
+    }
+    if grouped
+        .scalar
+        .page
+        .as_ref()
+        .and_then(|page| page.limit)
+        .is_none()
+    {
+        return Some(GroupedCursorPolicyViolation::ContinuationRequiresLimit);
+    }
+    if grouped.is_global_distinct_aggregate_without_group_keys() {
+        return Some(GroupedCursorPolicyViolation::GlobalDistinctContinuationUnsupported);
+    }
+
+    None
+}
+
+/// Evaluate one grouped HAVING comparison under v1 semantic rules.
+///
+/// Returns `None` when `op` is outside grouped HAVING v1 support.
+#[must_use]
+pub(crate) fn evaluate_grouped_having_compare_v1(
+    actual: &Value,
+    op: CompareOp,
+    expected: &Value,
+) -> Option<bool> {
+    let strict = CoercionSpec::default();
+    let kind = grouped_having_compare_kind(op)?;
+
+    Some(match kind {
+        GroupedHavingCompareKind::Eq => compare_eq(actual, expected, &strict).unwrap_or(false),
+        GroupedHavingCompareKind::Ne => {
+            compare_eq(actual, expected, &strict).is_some_and(|equal| !equal)
+        }
+        GroupedHavingCompareKind::Lt => {
+            compare_order(actual, expected, &strict).is_some_and(std::cmp::Ordering::is_lt)
+        }
+        GroupedHavingCompareKind::Lte => {
+            compare_order(actual, expected, &strict).is_some_and(std::cmp::Ordering::is_le)
+        }
+        GroupedHavingCompareKind::Gt => {
+            compare_order(actual, expected, &strict).is_some_and(std::cmp::Ordering::is_gt)
+        }
+        GroupedHavingCompareKind::Gte => {
+            compare_order(actual, expected, &strict).is_some_and(std::cmp::Ordering::is_ge)
+        }
+    })
+}
+
+/// Build one global DISTINCT grouped spec from canonical semantic aggregate shape.
+pub(in crate::db) fn global_distinct_group_spec_for_semantic_aggregate(
+    kind: AggregateKind,
+    target_field: &str,
+    execution: GroupedExecutionConfig,
+) -> Result<GroupSpec, GroupDistinctPolicyReason> {
+    let aggregate = match kind {
+        AggregateKind::Count => count_by(target_field).distinct(),
+        AggregateKind::Sum => sum(target_field).distinct(),
+        AggregateKind::Exists
+        | AggregateKind::Min
+        | AggregateKind::Max
+        | AggregateKind::First
+        | AggregateKind::Last => {
+            return Err(GroupDistinctPolicyReason::GlobalDistinctUnsupportedAggregateKind);
+        }
+    };
+
+    Ok(GroupSpec::global_distinct_shape_from_aggregate_expr(
+        &aggregate, execution,
+    ))
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum GroupedHavingCompareKind {
+    Eq,
+    Ne,
+    Lt,
+    Lte,
+    Gt,
+    Gte,
+}
+
+const fn grouped_having_compare_kind(op: CompareOp) -> Option<GroupedHavingCompareKind> {
+    match op {
+        CompareOp::Eq => Some(GroupedHavingCompareKind::Eq),
+        CompareOp::Ne => Some(GroupedHavingCompareKind::Ne),
+        CompareOp::Lt => Some(GroupedHavingCompareKind::Lt),
+        CompareOp::Lte => Some(GroupedHavingCompareKind::Lte),
+        CompareOp::Gt => Some(GroupedHavingCompareKind::Gt),
+        CompareOp::Gte => Some(GroupedHavingCompareKind::Gte),
+        CompareOp::In
+        | CompareOp::NotIn
+        | CompareOp::Contains
+        | CompareOp::StartsWith
+        | CompareOp::EndsWith => None,
+    }
 }
 
 impl QueryMode {

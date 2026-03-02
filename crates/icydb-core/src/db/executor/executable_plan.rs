@@ -15,7 +15,10 @@ use crate::{
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec, lower_index_prefix_specs,
             lower_index_range_specs, traversal::derive_primary_scan_direction,
         },
-        query::plan::{AccessPlannedQuery, LogicalPlan, QueryMode},
+        query::plan::{
+            AccessPlannedQuery, GroupedCursorPolicyViolation, LogicalPlan, QueryMode,
+            grouped_cursor_policy_violation,
+        },
     },
     error::InternalError,
     traits::{EntityKind, FieldValue},
@@ -88,26 +91,10 @@ impl<E: EntityKind> ExecutablePlan<E> {
         &self,
         cursor_present: bool,
     ) -> Option<&'static str> {
-        if !cursor_present {
-            return None;
-        }
-        if self
-            .plan
-            .scalar_plan()
-            .page
-            .as_ref()
-            .and_then(|page| page.limit)
-            .is_none()
-        {
-            return Some("grouped continuation cursors require an explicit LIMIT");
-        }
-        if self.plan.grouped_plan().is_some_and(
-            crate::db::query::plan::GroupPlan::is_global_distinct_aggregate_without_group_keys,
-        ) {
-            return Some("global DISTINCT grouped aggregates do not support continuation cursors");
-        }
-
-        None
+        self.plan
+            .grouped_plan()
+            .and_then(|grouped| grouped_cursor_policy_violation(grouped, cursor_present))
+            .map(GroupedCursorPolicyViolation::invariant_message)
     }
 
     /// Explain this plan without executing it.

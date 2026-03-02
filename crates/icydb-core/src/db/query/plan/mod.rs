@@ -23,11 +23,13 @@ pub(crate) use model::{
     OrderSpec, PageSpec, ScalarPlan,
 };
 pub(crate) use planner::{PlannerError, plan_access};
+pub(in crate::db) use semantics::global_distinct_group_spec_for_semantic_aggregate;
 pub(crate) use semantics::{
     AccessPlanProjection, GroupDistinctAdmissibility, GroupDistinctPolicyReason,
-    GroupedPlanStrategyHint, grouped_distinct_admissibility, grouped_having_compare_op_supported,
-    grouped_plan_strategy_hint, project_access_plan, project_explain_access_path,
-    resolve_global_distinct_field_aggregate,
+    GroupedCursorPolicyViolation, GroupedPlanStrategyHint, evaluate_grouped_having_compare_v1,
+    grouped_cursor_policy_violation, grouped_distinct_admissibility,
+    grouped_having_compare_op_supported, grouped_plan_strategy_hint, project_access_plan,
+    project_explain_access_path, resolve_global_distinct_field_aggregate,
 };
 #[cfg(test)]
 pub(crate) use semantics::{

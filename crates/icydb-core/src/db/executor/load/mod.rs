@@ -48,11 +48,12 @@ use crate::{
             validate_executor_plan,
         },
         index::IndexCompilePolicy,
-        predicate::{CoercionSpec, CompareOp, MissingRowPolicy, compare_eq, compare_order},
+        predicate::{CompareOp, MissingRowPolicy},
         query::plan::{
             AccessPlannedQuery, GroupAggregateSpec, GroupDistinctPolicyReason, GroupHavingSpec,
-            GroupHavingSymbol, LogicalPlan, grouped_executor_handoff,
-            grouped_having_compare_op_supported, resolve_global_distinct_field_aggregate,
+            GroupHavingSymbol, LogicalPlan, evaluate_grouped_having_compare_v1,
+            grouped_cursor_policy_violation, grouped_executor_handoff,
+            resolve_global_distinct_field_aggregate,
         },
         response::Response,
     },
@@ -592,10 +593,12 @@ where
 
         if let Some((aggregate_kind, target_field)) = route.global_distinct_field_aggregate.as_ref()
         {
-            debug_assert!(
-                route.cursor.is_empty(),
-                "global DISTINCT grouped aggregate cursor compatibility must be validated before grouped folding",
-            );
+            if let Some(grouped_plan) = route.plan.grouped_plan()
+                && let Some(violation) =
+                    grouped_cursor_policy_violation(grouped_plan, !route.cursor.is_empty())
+            {
+                return Err(invariant(violation.invariant_message()));
+            }
 
             let global_row = Self::execute_global_distinct_field_aggregate(
                 &route.plan,
@@ -1175,31 +1178,10 @@ where
         op: CompareOp,
         expected: &Value,
     ) -> Result<bool, InternalError> {
-        if !grouped_having_compare_op_supported(op) {
+        let Some(matches) = evaluate_grouped_having_compare_v1(actual, op, expected) else {
             return Err(invariant(format!(
-                "unsupported grouped HAVING operator reached executor: {op:?}"
+                "unsupported grouped HAVING operator reached executor: {op:?}",
             )));
-        }
-
-        let strict = CoercionSpec::default();
-        let matches = match op {
-            CompareOp::Eq => compare_eq(actual, expected, &strict).unwrap_or(false),
-            CompareOp::Ne => compare_eq(actual, expected, &strict).is_some_and(|equal| !equal),
-            CompareOp::Lt => compare_order(actual, expected, &strict).is_some_and(Ordering::is_lt),
-            CompareOp::Lte => compare_order(actual, expected, &strict).is_some_and(Ordering::is_le),
-            CompareOp::Gt => compare_order(actual, expected, &strict).is_some_and(Ordering::is_gt),
-            CompareOp::Gte => compare_order(actual, expected, &strict).is_some_and(Ordering::is_ge),
-            CompareOp::In
-            | CompareOp::NotIn
-            | CompareOp::Contains
-            | CompareOp::StartsWith
-            | CompareOp::EndsWith => {
-                debug_assert!(
-                    false,
-                    "unsupported grouped HAVING operator should have been gated before evaluation",
-                );
-                unreachable!("unsupported grouped HAVING operator was pre-gated")
-            }
         };
 
         Ok(matches)

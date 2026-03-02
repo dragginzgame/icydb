@@ -2,6 +2,7 @@ mod error_mapping;
 mod group;
 mod pushdown;
 mod semantics;
+mod structural_guards;
 
 use crate::{
     db::access::{AccessPath, AccessPlan},
