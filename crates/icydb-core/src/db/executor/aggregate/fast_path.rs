@@ -9,7 +9,7 @@ use crate::{
         direction::Direction,
         executor::{
             AccessPathRuntimeStrategy, AccessPlanStreamRequest, AccessStreamBindings,
-            ExecutionKernel, IndexStreamConstraints, LoweredIndexPrefixSpec, StreamExecutionHints,
+            ExecutionKernel, LoweredIndexPrefixSpec,
             aggregate::{
                 AggregateFastPathInputs, AggregateFoldMode, AggregateKind, AggregateOutput,
             },
@@ -23,7 +23,7 @@ use crate::{
         },
         index::predicate::IndexPredicateExecution,
         predicate::MissingRowPolicy,
-        query::plan::AccessPlannedQuery,
+        query::plan::{AccessPlannedQuery, lower_executable_access_path},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -268,8 +268,9 @@ impl ExecutionKernel {
         let Some(path) = plan.access.as_path() else {
             return Ok(None);
         };
-        let dispatched = dispatch_access_path(path);
-        let strategy: &dyn AccessPathRuntimeStrategy<E::Key> = &dispatched;
+        let executable_path = lower_executable_access_path(path);
+        let dispatched = dispatch_access_path(&executable_path);
+        let strategy: &dyn AccessPathRuntimeStrategy<E::Key> = dispatched;
         if strategy.is_by_keys_empty() {
             return Ok(None);
         }
@@ -383,8 +384,9 @@ impl ExecutionKernel {
         let Some(path) = plan.access.as_path() else {
             return Ok(None);
         };
-        let dispatched = dispatch_access_path(path);
-        let strategy: &dyn AccessPathRuntimeStrategy<E::Key> = &dispatched;
+        let executable_path = lower_executable_access_path(path);
+        let dispatched = dispatch_access_path(&executable_path);
+        let strategy: &dyn AccessPathRuntimeStrategy<E::Key> = dispatched;
         if !strategy.supports_count_pushdown_shape() {
             return Ok(None);
         }
@@ -395,19 +397,12 @@ impl ExecutionKernel {
             direction,
             kind,
             fold_mode,
-            RoutedKeyStreamRequest::AccessPath {
-                access: path,
-                constraints: IndexStreamConstraints {
-                    prefix: None,
-                    range: None,
-                    anchor: None,
-                },
-                direction,
-                hints: StreamExecutionHints {
-                    physical_fetch_hint,
-                    predicate_execution: None,
-                },
-            },
+            RoutedKeyStreamRequest::AccessPlan(AccessPlanStreamRequest::from_bindings(
+                &plan.access,
+                AccessStreamBindings::no_index(direction),
+                physical_fetch_hint,
+                None,
+            )),
         )?;
 
         Ok(Some((aggregate_output, keys_scanned)))

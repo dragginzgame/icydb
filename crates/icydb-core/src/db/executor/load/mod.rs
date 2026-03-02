@@ -30,14 +30,16 @@ use crate::{
         executor::{
             ExecutionOptimization, ExecutionPreparation, ExecutionTrace, KeyOrderComparator,
             OrderedKeyStreamBox,
-            aggregate::AggregateKind,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, resolve_any_aggregate_target_slot,
                 resolve_numeric_aggregate_target_slot,
             },
             plan_metrics::GroupedPlanMetricsStrategy,
         },
-        query::plan::{AccessPlannedQuery, GroupHavingSpec, PlannedProjectionLayout},
+        query::plan::{
+            AccessPlannedQuery, GroupHavingSpec, GroupedDistinctExecutionStrategy,
+            PlannedProjectionLayout,
+        },
         response::Response,
     },
     error::InternalError,
@@ -172,7 +174,7 @@ struct GroupedRouteStage<E: EntityKind + EntityValue> {
     grouped_having: Option<GroupHavingSpec>,
     grouped_route_plan: crate::db::executor::ExecutionPlan,
     grouped_plan_metrics_strategy: GroupedPlanMetricsStrategy,
-    global_distinct_field_aggregate: Option<(AggregateKind, String)>,
+    grouped_distinct_execution_strategy: GroupedDistinctExecutionStrategy,
     execution_trace: Option<ExecutionTrace>,
 }
 

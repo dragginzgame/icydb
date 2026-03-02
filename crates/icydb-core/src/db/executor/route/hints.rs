@@ -9,7 +9,7 @@ use crate::{
         direction::Direction,
         executor::{ExecutionKernel, RangeToken, load::LoadExecutor},
         query::builder::AggregateExpr,
-        query::plan::AccessPlannedQuery,
+        query::plan::{AccessPlannedQuery, DistinctExecutionStrategy},
     },
     traits::{EntityKind, EntityValue},
 };
@@ -94,7 +94,12 @@ where
     pub(super) fn bounded_probe_hint_is_safe(plan: &AccessPlannedQuery<E::Key>) -> bool {
         let offset = usize::try_from(ExecutionKernel::effective_page_offset(plan, None))
             .unwrap_or(usize::MAX);
-        !(plan.scalar_plan().distinct && offset > 0)
+        let distinct_enabled = !matches!(
+            plan.distinct_execution_strategy(),
+            DistinctExecutionStrategy::None
+        );
+
+        !(distinct_enabled && offset > 0)
     }
 
     // Residual predicates are allowed for index-range limit pushdown only when

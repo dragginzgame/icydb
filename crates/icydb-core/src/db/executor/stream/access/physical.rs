@@ -1,17 +1,17 @@
 //! Module: executor::stream::access::physical
-//! Responsibility: lower logical access paths into physical key-stream candidates.
+//! Responsibility: lower executable access-path payloads into physical key streams.
 //! Does not own: planner eligibility decisions or post-access semantics.
 //! Boundary: physical key resolution through primary/index scan adapters.
 
 use crate::{
     db::{
-        access::AccessPath,
         data::DataKey,
         direction::Direction,
         executor::LoweredKey,
         executor::{
-            Context, IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, OrderedKeyStreamBox,
-            PrimaryScan, VecOrderedKeyStream, route::primary_scan_fetch_hint_for_access_path,
+            Context, ExecutableAccessPath, ExecutionPathPayload, IndexScan, LoweredIndexPrefixSpec,
+            LoweredIndexRangeSpec, OrderedKeyStreamBox, PrimaryScan, VecOrderedKeyStream,
+            route::primary_scan_fetch_hint_for_executable_access_path,
         },
         index::predicate::IndexPredicateExecution,
     },
@@ -33,8 +33,8 @@ enum KeyOrderState {
     Unordered,
 }
 
-impl<K> AccessPath<K> {
-    // Physical access lowering for one access path.
+impl<K> ExecutableAccessPath<'_, K> {
+    // Physical access lowering for one executable access path.
     // All store/index traversal must route through `PrimaryScan`/`IndexScan`.
     /// Build an ordered key stream for this access path.
     #[expect(clippy::too_many_arguments)]
@@ -55,29 +55,33 @@ impl<K> AccessPath<K> {
         // Only apply bounded physical scans where key-stream semantics remain
         // equivalent without requiring full-set normalization.
         let primary_scan_fetch_hint =
-            primary_scan_fetch_hint_for_access_path(self, physical_fetch_hint);
+            primary_scan_fetch_hint_for_executable_access_path(self, physical_fetch_hint);
 
         // Resolve candidate keys and track explicit ordering state.
-        let (mut candidates, key_order_state) = match self {
-            Self::ByKey(key) => Self::resolve_by_key::<E>(*key)?,
-            Self::ByKeys(keys) => Self::resolve_by_keys::<E>(keys)?,
-            Self::KeyRange { start, end } => {
-                Self::resolve_key_range::<E>(ctx, *start, *end, direction, primary_scan_fetch_hint)?
-            }
-            Self::FullScan => {
+        let (mut candidates, key_order_state) = match self.payload() {
+            ExecutionPathPayload::ByKey(key) => Self::resolve_by_key::<E>(**key)?,
+            ExecutionPathPayload::ByKeys(keys) => Self::resolve_by_keys::<E>(keys)?,
+            ExecutionPathPayload::KeyRange { start, end } => Self::resolve_key_range::<E>(
+                ctx,
+                **start,
+                **end,
+                direction,
+                primary_scan_fetch_hint,
+            )?,
+            ExecutionPathPayload::FullScan => {
                 Self::resolve_full_scan::<E>(ctx, direction, primary_scan_fetch_hint)?
             }
-            Self::IndexPrefix { index, .. } => Self::resolve_index_prefix::<E>(
+            ExecutionPathPayload::IndexPrefix => Self::resolve_index_prefix::<E>(
                 ctx,
-                index,
+                self.index_prefix_details().map(|(index, _)| index),
                 index_prefix_spec,
                 direction,
                 physical_fetch_hint,
                 index_predicate_execution,
             )?,
-            Self::IndexRange { spec } => Self::resolve_index_range::<E>(
+            ExecutionPathPayload::IndexRange { .. } => Self::resolve_index_range::<E>(
                 ctx,
-                spec.index(),
+                self.index_range_details().map(|(index, _)| index),
                 index_range_spec,
                 index_range_anchor,
                 direction,
@@ -188,7 +192,7 @@ impl<K> AccessPath<K> {
     // Resolve one index-prefix traversal using a pre-lowered index-prefix spec.
     fn resolve_index_prefix<E>(
         ctx: &Context<'_, E>,
-        _index: &IndexModel,
+        _index: Option<IndexModel>,
         index_prefix_spec: Option<&LoweredIndexPrefixSpec>,
         direction: Direction,
         index_fetch_hint: Option<usize>,
@@ -220,7 +224,7 @@ impl<K> AccessPath<K> {
     // Resolve one index-range traversal using a pre-lowered index-range spec.
     fn resolve_index_range<E>(
         ctx: &Context<'_, E>,
-        _index: &IndexModel,
+        _index: Option<IndexModel>,
         index_range_spec: Option<&LoweredIndexRangeSpec>,
         index_range_anchor: Option<&LoweredKey>,
         direction: Direction,

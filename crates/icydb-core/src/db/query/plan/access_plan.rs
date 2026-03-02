@@ -3,15 +3,19 @@
 //! Does not own: pure logical plan model definitions or semantic interpretation.
 //! Boundary: glue between logical plan semantics and selected access paths.
 
+use crate::db::{
+    access::{AccessPath, AccessPlan},
+    direction::Direction,
+    executor::{
+        ExecutableAccessPath, ExecutableAccessPlan, ExecutionBounds, ExecutionDistinctMode,
+        ExecutionMode, ExecutionOrdering, ExecutionPathPayload,
+    },
+    query::plan::{GroupHavingSpec, GroupPlan, GroupSpec, LogicalPlan},
+};
 #[cfg(test)]
 use crate::db::{
-    access::AccessPath,
     predicate::MissingRowPolicy,
     query::plan::{LoadSpec, QueryMode, ScalarPlan},
-};
-use crate::db::{
-    access::AccessPlan,
-    query::plan::{GroupHavingSpec, GroupPlan, GroupSpec, LogicalPlan},
 };
 
 ///
@@ -69,6 +73,12 @@ impl<K> AccessPlannedQuery<K> {
         }
     }
 
+    /// Lower the chosen access plan into an executor-owned normalized contract.
+    #[must_use]
+    pub(in crate::db) fn to_executable(&self) -> ExecutableAccessPlan<'_, K> {
+        lower_executable_access_plan(&self.access)
+    }
+
     /// Construct a minimal access-planned query with only an access path.
     ///
     /// Predicates, ordering, and pagination may be attached later.
@@ -86,5 +96,92 @@ impl<K> AccessPlannedQuery<K> {
             }),
             access: AccessPlan::path(access),
         }
+    }
+}
+
+/// Lower one logical `AccessPlan` into its normalized executable contract.
+#[must_use]
+pub(in crate::db) fn lower_executable_access_plan<K>(
+    access: &AccessPlan<K>,
+) -> ExecutableAccessPlan<'_, K> {
+    match access {
+        AccessPlan::Path(path) => {
+            ExecutableAccessPlan::for_path(lower_executable_access_path(path.as_ref()))
+        }
+        AccessPlan::Union(children) => {
+            ExecutableAccessPlan::union(children.iter().map(lower_executable_access_plan).collect())
+        }
+        AccessPlan::Intersection(children) => ExecutableAccessPlan::intersection(
+            children.iter().map(lower_executable_access_plan).collect(),
+        ),
+    }
+}
+
+/// Lower one logical `AccessPath` into its normalized executable contract.
+#[must_use]
+pub(in crate::db) const fn lower_executable_access_path<K>(
+    path: &AccessPath<K>,
+) -> ExecutableAccessPath<'_, K> {
+    match path {
+        AccessPath::ByKey(key) => ExecutableAccessPath::new(
+            ExecutionMode::FullScan,
+            ExecutionOrdering::Natural,
+            ExecutionBounds::Unbounded,
+            ExecutionDistinctMode::None,
+            false,
+            ExecutionPathPayload::ByKey(key),
+        ),
+        AccessPath::ByKeys(keys) => ExecutableAccessPath::new(
+            ExecutionMode::FullScan,
+            ExecutionOrdering::Natural,
+            ExecutionBounds::Unbounded,
+            ExecutionDistinctMode::None,
+            false,
+            ExecutionPathPayload::ByKeys(keys.as_slice()),
+        ),
+        AccessPath::KeyRange { start, end } => ExecutableAccessPath::new(
+            ExecutionMode::FullScan,
+            ExecutionOrdering::Natural,
+            ExecutionBounds::PrimaryKeyRange,
+            ExecutionDistinctMode::None,
+            false,
+            ExecutionPathPayload::KeyRange { start, end },
+        ),
+        AccessPath::IndexPrefix { index, values } => ExecutableAccessPath::new(
+            ExecutionMode::OrderedIndexScan,
+            ExecutionOrdering::ByIndex(Direction::Asc),
+            ExecutionBounds::IndexPrefix {
+                index: *index,
+                prefix_len: values.len(),
+            },
+            ExecutionDistinctMode::PreOrdered,
+            true,
+            ExecutionPathPayload::IndexPrefix,
+        ),
+        AccessPath::IndexRange { spec } => {
+            let index = *spec.index();
+            let prefix_len = spec.prefix_values().len();
+
+            ExecutableAccessPath::new(
+                ExecutionMode::IndexRange,
+                ExecutionOrdering::ByIndex(Direction::Asc),
+                ExecutionBounds::IndexRange { index, prefix_len },
+                ExecutionDistinctMode::PreOrdered,
+                true,
+                ExecutionPathPayload::IndexRange {
+                    prefix_values: spec.prefix_values(),
+                    lower: spec.lower(),
+                    upper: spec.upper(),
+                },
+            )
+        }
+        AccessPath::FullScan => ExecutableAccessPath::new(
+            ExecutionMode::FullScan,
+            ExecutionOrdering::Natural,
+            ExecutionBounds::Unbounded,
+            ExecutionDistinctMode::None,
+            false,
+            ExecutionPathPayload::FullScan,
+        ),
     }
 }

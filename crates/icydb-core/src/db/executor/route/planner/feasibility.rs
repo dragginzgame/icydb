@@ -19,8 +19,8 @@ use crate::{
         },
         query::builder::AggregateExpr,
         query::plan::{
-            AccessPlannedQuery, GroupedPlanStrategyHint, grouped_having_compare_op_supported,
-            grouped_plan_strategy_hint,
+            AccessPlannedQuery, DistinctExecutionStrategy, GroupedPlanStrategyHint,
+            grouped_having_compare_op_supported, grouped_plan_strategy_hint,
         },
     },
     traits::{EntityKind, EntityValue},
@@ -261,7 +261,10 @@ fn derive_grouped_ordered_eligibility<K>(
         aggregates_streaming_compatible,
         having_streaming_compatible,
         // Query-level DISTINCT remains incompatible with grouped ordered strategy in this line.
-        distinct_streaming_compatible: !plan.scalar_plan().distinct,
+        distinct_streaming_compatible: matches!(
+            plan.distinct_execution_strategy(),
+            DistinctExecutionStrategy::None
+        ),
     }
 }
 

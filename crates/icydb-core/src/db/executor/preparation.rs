@@ -5,8 +5,7 @@
 
 use crate::{
     db::{
-        access::AccessPlan,
-        executor::{AccessPathRuntimeStrategy, dispatch_access_path},
+        executor::{AccessPathRuntimeStrategy, ExecutableAccessPlan, dispatch_access_path},
         index::{IndexCompilePolicy, IndexPredicateProgram, compile_index_program},
         predicate::PredicateProgram,
         query::plan::AccessPlannedQuery,
@@ -44,7 +43,8 @@ impl ExecutionPreparation {
             .map(PredicateProgram::compile::<E>);
 
         // Phase 2: Resolve access-path slot mapping used by index predicate compilation.
-        let slot_map = resolved_index_slots_for_access_path::<E>(&plan.access);
+        let executable_access = plan.to_executable();
+        let slot_map = resolved_index_slots_for_access_path::<E>(&executable_access);
 
         // Phase 3: Build strict index predicate program only when both inputs exist.
         let strict_mode = match (compiled_predicate.as_ref(), slot_map.as_deref()) {
@@ -80,13 +80,15 @@ impl ExecutionPreparation {
 }
 
 // Resolve index field slots from a single-path index access shape.
-fn resolved_index_slots_for_access_path<E>(access: &AccessPlan<E::Key>) -> Option<Vec<usize>>
+fn resolved_index_slots_for_access_path<E>(
+    access: &ExecutableAccessPlan<'_, E::Key>,
+) -> Option<Vec<usize>>
 where
     E: EntityKind + EntityValue,
 {
     let path = access.as_path()?;
     let dispatched = dispatch_access_path(path);
-    let strategy: &dyn AccessPathRuntimeStrategy<E::Key> = &dispatched;
+    let strategy: &dyn AccessPathRuntimeStrategy<E::Key> = dispatched;
     let index_fields = strategy.index_fields_for_slot_map()?;
 
     let mut slots = Vec::with_capacity(index_fields.len());

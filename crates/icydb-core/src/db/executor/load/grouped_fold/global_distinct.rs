@@ -7,7 +7,9 @@ use crate::{
                 LoadExecutor,
             },
         },
-        query::plan::{expr::ProjectionSpec, grouped_cursor_policy_violation},
+        query::plan::{
+            GroupedDistinctExecutionStrategy, expr::ProjectionSpec, grouped_cursor_policy_violation,
+        },
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -26,9 +28,12 @@ where
         scanned_rows: &mut usize,
         filtered_rows: &mut usize,
     ) -> Result<Option<GroupedFoldStage>, InternalError> {
-        let Some((aggregate_kind, target_field)) = route.global_distinct_field_aggregate.as_ref()
-        else {
-            return Ok(None);
+        let (aggregate_kind, target_field) = match &route.grouped_distinct_execution_strategy {
+            GroupedDistinctExecutionStrategy::None => return Ok(None),
+            GroupedDistinctExecutionStrategy::GlobalDistinctFieldAggregate {
+                kind,
+                target_field,
+            } => (kind, target_field),
         };
         if let Some(grouped_plan) = route.plan.grouped_plan()
             && let Some(violation) =

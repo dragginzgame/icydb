@@ -1,8 +1,9 @@
 use crate::{
     db::{
-        access::{AccessPath, lower_cursor_anchor_index_range_bounds},
+        access::lower_cursor_anchor_index_range_bounds,
         cursor::{CursorPlanError, IndexRangeCursorAnchor},
         direction::Direction,
+        executor::ExecutableAccessPath,
         index::{
             IndexId, IndexKey, IndexKeyKind, KeyEnvelope, PrimaryKeyEquivalenceError, RawIndexKey,
             primary_key_matches_value,
@@ -46,7 +47,7 @@ fn decode_canonical_cursor_anchor_index_key(
 // - These two validations are intentionally redundant and must not be merged.
 pub(in crate::db) fn validate_index_range_anchor<E: EntityKind>(
     anchor: Option<&IndexRangeCursorAnchor>,
-    access: Option<&AccessPath<E::Key>>,
+    access: Option<&ExecutableAccessPath<'_, E::Key>>,
     direction: Direction,
     require_anchor: bool,
 ) -> Result<(), CursorPlanError> {
@@ -60,7 +61,12 @@ pub(in crate::db) fn validate_index_range_anchor<E: EntityKind>(
         return Ok(());
     };
 
-    if let Some((index, prefix, lower, upper)) = access.as_index_range() {
+    if let Some((index, _prefix_len)) = access.index_range_details() {
+        let Some((prefix, lower, upper)) = access.index_range_semantic_bounds() else {
+            return Err(CursorPlanError::invalid_continuation_cursor_payload(
+                "index-range continuation validation is missing semantic bounds payload",
+            ));
+        };
         let Some(anchor) = anchor else {
             if require_anchor {
                 return Err(CursorPlanError::invalid_continuation_cursor_payload(
@@ -73,7 +79,7 @@ pub(in crate::db) fn validate_index_range_anchor<E: EntityKind>(
 
         // Phase 1: decode and classify anchor key-space shape.
         let decoded_key = decode_canonical_cursor_anchor_index_key(anchor)?;
-        let expected_index_id = IndexId::new::<E>(index);
+        let expected_index_id = IndexId::new::<E>(&index);
 
         if decoded_key.index_id() != &expected_index_id {
             return Err(CursorPlanError::invalid_continuation_cursor_payload(
@@ -93,7 +99,7 @@ pub(in crate::db) fn validate_index_range_anchor<E: EntityKind>(
 
         // Phase 2: validate envelope membership against planned range bounds.
         let (range_start, range_end) =
-            lower_cursor_anchor_index_range_bounds::<E>(index, prefix, lower, upper)
+            lower_cursor_anchor_index_range_bounds::<E>(&index, prefix, lower, upper)
                 .map_err(CursorPlanError::invalid_continuation_cursor_payload)?;
         let anchor_raw = decoded_key.to_raw();
 
@@ -114,7 +120,7 @@ pub(in crate::db) fn validate_index_range_anchor<E: EntityKind>(
 // Enforce that boundary and raw anchor identify the same ordered row position.
 pub(in crate::db) fn validate_index_range_boundary_anchor_consistency<K: FieldValue>(
     anchor: Option<&IndexRangeCursorAnchor>,
-    access: Option<&AccessPath<K>>,
+    access: Option<&ExecutableAccessPath<'_, K>>,
     boundary_pk_key: K,
 ) -> Result<(), CursorPlanError> {
     let Some(anchor) = anchor else {
@@ -123,7 +129,7 @@ pub(in crate::db) fn validate_index_range_boundary_anchor_consistency<K: FieldVa
     let Some(access) = access else {
         return Ok(());
     };
-    if !matches!(access, AccessPath::IndexRange { .. }) {
+    if access.index_range_details().is_none() {
         return Ok(());
     }
 

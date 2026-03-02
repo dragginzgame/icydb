@@ -19,10 +19,7 @@ use crate::{
         },
         numeric::{NumericArithmeticOp, apply_numeric_arithmetic},
         predicate::MissingRowPolicy,
-        query::{
-            builder::AggregateExpr,
-            plan::{AccessPlannedQuery, AggregateKind, GroupDistinctPolicyReason, GroupHavingSpec},
-        },
+        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -34,87 +31,6 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
-    // Resolve whether this grouped shape is the supported global DISTINCT
-    // field-target aggregate contract (`COUNT` or `SUM` with zero group keys).
-    pub(super) fn global_distinct_field_aggregate_spec(
-        group_fields: &[crate::db::query::plan::FieldSlot],
-        aggregate_exprs: &[AggregateExpr],
-        having: Option<&GroupHavingSpec>,
-    ) -> Result<Option<(AggregateKind, String)>, InternalError> {
-        if !group_fields.is_empty()
-            || aggregate_exprs.is_empty()
-            || !aggregate_exprs
-                .iter()
-                .any(|aggregate| aggregate.target_field().is_some())
-        {
-            return Ok(None);
-        }
-        if having.is_some() {
-            return Err(Self::group_distinct_policy_invariant(
-                GroupDistinctPolicyReason::GlobalDistinctHavingUnsupported,
-                aggregate_exprs.first(),
-            ));
-        }
-        if aggregate_exprs.len() != 1 {
-            return Err(Self::group_distinct_policy_invariant(
-                GroupDistinctPolicyReason::GlobalDistinctRequiresSingleAggregate,
-                aggregate_exprs.first(),
-            ));
-        }
-
-        let aggregate_expr = aggregate_exprs.first().ok_or_else(|| {
-            super::invariant("global DISTINCT candidate invariants require one aggregate")
-        })?;
-        let Some(target_field) = aggregate_expr.target_field() else {
-            return Err(Self::group_distinct_policy_invariant(
-                GroupDistinctPolicyReason::GlobalDistinctRequiresFieldTargetAggregate,
-                Some(aggregate_expr),
-            ));
-        };
-        if !aggregate_expr.is_distinct() {
-            return Err(Self::group_distinct_policy_invariant(
-                GroupDistinctPolicyReason::GlobalDistinctRequiresDistinctAggregateTerminal,
-                Some(aggregate_expr),
-            ));
-        }
-        if !aggregate_expr
-            .kind()
-            .supports_global_distinct_without_group_keys()
-        {
-            return Err(Self::group_distinct_policy_invariant(
-                GroupDistinctPolicyReason::GlobalDistinctUnsupportedAggregateKind,
-                Some(aggregate_expr),
-            ));
-        }
-
-        Ok(Some((aggregate_expr.kind(), target_field.to_string())))
-    }
-
-    // Build one canonical invariant error from grouped DISTINCT policy contract reasons.
-    fn group_distinct_policy_invariant(
-        reason: GroupDistinctPolicyReason,
-        aggregate: Option<&AggregateExpr>,
-    ) -> InternalError {
-        match reason {
-            GroupDistinctPolicyReason::GlobalDistinctUnsupportedAggregateKind => {
-                let aggregate_kind = aggregate.map_or_else(
-                    || "unknown".to_string(),
-                    |aggregate| format!("{:?}", aggregate.kind()),
-                );
-
-                super::invariant(format!("{}: {aggregate_kind}", reason.invariant_message()))
-            }
-            GroupDistinctPolicyReason::DistinctHavingUnsupported
-            | GroupDistinctPolicyReason::DistinctAdjacencyEligibilityRequired
-            | GroupDistinctPolicyReason::GlobalDistinctHavingUnsupported
-            | GroupDistinctPolicyReason::GlobalDistinctRequiresSingleAggregate
-            | GroupDistinctPolicyReason::GlobalDistinctRequiresFieldTargetAggregate
-            | GroupDistinctPolicyReason::GlobalDistinctRequiresDistinctAggregateTerminal => {
-                super::invariant(reason.invariant_message())
-            }
-        }
-    }
-
     // Execute one global DISTINCT field-target grouped aggregate with grouped
     // distinct budget accounting and deterministic reducer behavior.
     pub(super) fn execute_global_distinct_field_aggregate(
@@ -123,7 +39,7 @@ where
         resolved: &mut ResolvedExecutionKeyStream,
         compiled_predicate: Option<&crate::db::predicate::PredicateProgram>,
         grouped_execution_context: &mut ExecutionContext,
-        aggregate_spec: (AggregateKind, &str),
+        aggregate_spec: (crate::db::query::plan::AggregateKind, &str),
         row_counters: (&mut usize, &mut usize),
     ) -> Result<GroupedRow, InternalError> {
         let (aggregate_kind, target_field) = aggregate_spec;

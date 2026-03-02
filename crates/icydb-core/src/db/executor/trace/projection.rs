@@ -11,12 +11,14 @@ use crate::db::{
         AccessPathKind, AccessPlanKind, dispatch_access_plan_kind,
         trace::ExecutionAccessPathVariant,
     },
-    query::plan::OrderDirection,
+    query::plan::{OrderDirection, lower_executable_access_plan},
 };
 
 /// Project access-plan shape into trace-level access-path variant.
 pub(super) fn access_path_variant<K>(access: &AccessPlan<K>) -> ExecutionAccessPathVariant {
-    match dispatch_access_plan_kind(access) {
+    let executable = lower_executable_access_plan(access);
+
+    match dispatch_access_plan_kind(&executable) {
         AccessPlanKind::Path(kind) => match kind {
             AccessPathKind::ByKey => ExecutionAccessPathVariant::ByKey,
             AccessPathKind::ByKeys => ExecutionAccessPathVariant::ByKeys,

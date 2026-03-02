@@ -21,8 +21,8 @@ pub(crate) mod token;
 
 use crate::{
     db::{
-        access::AccessPath,
         direction::Direction,
+        executor::ExecutableAccessPath,
         query::plan::{CursorOrderPlanShapeError, OrderSpec, validate_cursor_order_plan_shape},
     },
     error::InternalError,
@@ -49,7 +49,7 @@ pub(in crate::db) use token::{GroupedContinuationToken, IndexRangeCursorAnchor};
 
 /// Validate and decode a continuation cursor into executor-ready cursor state.
 pub(in crate::db) fn prepare_cursor<E: EntityKind>(
-    access: Option<&AccessPath<E::Key>>,
+    access: Option<ExecutableAccessPath<'_, E::Key>>,
     order: Option<&OrderSpec>,
     direction: Direction,
     continuation_signature: ContinuationSignature,
@@ -75,7 +75,7 @@ where
 
 /// Revalidate executor-provided cursor state through the canonical cursor spine.
 pub(in crate::db) fn revalidate_cursor<E: EntityKind>(
-    access: Option<&AccessPath<E::Key>>,
+    access: Option<ExecutableAccessPath<'_, E::Key>>,
     order: Option<&OrderSpec>,
     direction: Direction,
     initial_offset: u32,

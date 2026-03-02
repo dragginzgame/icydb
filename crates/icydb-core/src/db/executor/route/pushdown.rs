@@ -14,7 +14,10 @@ use crate::{
             AccessPathRuntimeStrategy, access_plan_first_index_range_details, dispatch_access_path,
             route::direction_from_order,
         },
-        query::plan::{AccessPlannedQuery, OrderDirection, ScalarPlan},
+        query::plan::{
+            AccessPlannedQuery, OrderDirection, ScalarPlan, lower_executable_access_path,
+            lower_executable_access_plan,
+        },
     },
     model::entity::EntityModel,
 };
@@ -150,7 +153,8 @@ pub(in crate::db) fn assess_secondary_order_pushdown_from_parts<K>(
     }
 
     let Some(access) = access_plan.as_path() else {
-        if let Some((index, prefix_len)) = access_plan_first_index_range_details(access_plan) {
+        let executable_plan = lower_executable_access_plan(access_plan);
+        if let Some((index, prefix_len)) = access_plan_first_index_range_details(&executable_plan) {
             return SecondaryOrderPushdownEligibility::Rejected(
                 SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
                     index: index.name,
@@ -163,8 +167,9 @@ pub(in crate::db) fn assess_secondary_order_pushdown_from_parts<K>(
             SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix,
         );
     };
-    let dispatched = dispatch_access_path(access);
-    let strategy: &dyn AccessPathRuntimeStrategy<K> = &dispatched;
+    let executable_path = lower_executable_access_path(access);
+    let dispatched = dispatch_access_path(&executable_path);
+    let strategy: &dyn AccessPathRuntimeStrategy<K> = dispatched;
     if let Some((index, prefix_len)) = strategy.index_prefix_details() {
         if prefix_len > index.fields.len() {
             return SecondaryOrderPushdownEligibility::Rejected(

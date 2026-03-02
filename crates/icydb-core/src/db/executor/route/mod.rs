@@ -19,7 +19,7 @@ pub(in crate::db::executor) use capability::{
     derive_budget_safety_flags, streaming_access_shape_safe,
 };
 pub(in crate::db::executor) use capability::{
-    primary_scan_fetch_hint_for_access_path, supports_pk_stream_access_path,
+    primary_scan_fetch_hint_for_executable_access_path, supports_pk_stream_access_executable_path,
 };
 pub(in crate::db::executor) use contracts::*;
 pub(in crate::db::executor) use fast_path::try_first_verified_fast_path_hit;

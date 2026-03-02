@@ -48,6 +48,8 @@ where
         let group_fields = grouped_handoff.group_fields().to_vec();
         let grouped_aggregate_exprs = grouped_handoff.aggregate_exprs().to_vec();
         let projection_layout = grouped_handoff.projection_layout().clone();
+        let grouped_distinct_execution_strategy =
+            grouped_handoff.distinct_execution_strategy().clone();
         let grouped_having = grouped_handoff.having().cloned();
         let grouped_route_plan =
             Self::build_execution_route_plan_for_grouped_handoff(grouped_handoff);
@@ -88,11 +90,6 @@ where
         let continuation_signature = plan.continuation_signature();
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
-        let global_distinct_field_aggregate = Self::global_distinct_field_aggregate_spec(
-            group_fields.as_slice(),
-            grouped_aggregate_exprs.as_slice(),
-            grouped_having.as_ref(),
-        )?;
         let plan = plan.into_inner();
 
         Ok(GroupedRouteStage {
@@ -109,7 +106,7 @@ where
             grouped_having,
             grouped_route_plan,
             grouped_plan_metrics_strategy,
-            global_distinct_field_aggregate,
+            grouped_distinct_execution_strategy,
             execution_trace,
         })
     }

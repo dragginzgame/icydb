@@ -3,8 +3,9 @@ use crate::{
     db::{
         executor::{ExecutablePlan, LoadExecutor},
         query::plan::{
-            AggregateKind, FieldSlot, GroupAggregateSpec, GroupDistinctPolicyReason,
-            GroupHavingSpec, GroupSpec, GroupedExecutionConfig,
+            AccessPlannedQuery, AggregateKind, DistinctExecutionStrategy, FieldSlot,
+            GroupAggregateSpec, GroupDistinctPolicyReason, GroupHavingSpec, GroupSpec,
+            GroupedDistinctExecutionStrategy, GroupedExecutionConfig, GroupedExecutorHandoff,
             global_distinct_group_spec_for_semantic_aggregate,
             resolve_global_distinct_field_aggregate,
         },
@@ -64,6 +65,13 @@ type SlotMinMaxByFn<E> =
         FieldSlot,
     )
         -> Result<Option<(crate::types::Id<E>, crate::types::Id<E>)>, crate::error::InternalError>;
+type DistinctExecutionStrategyFn<K> = fn(&AccessPlannedQuery<K>) -> DistinctExecutionStrategy;
+
+fn grouped_distinct_strategy_accessor_type_check<'a, K>(
+    handoff: &'a GroupedExecutorHandoff<'a, K>,
+) -> &'a GroupedDistinctExecutionStrategy {
+    handoff.distinct_execution_strategy()
+}
 
 fn assert_global_distinct_builder_signature(
     builder: fn(
@@ -91,6 +99,8 @@ where
     let aggregate_nth_by_slot: SlotNthByFn<E> = LoadExecutor::<E>::aggregate_nth_by_slot;
     let aggregate_median_by_slot: SlotMedianByFn<E> = LoadExecutor::<E>::aggregate_median_by_slot;
     let aggregate_min_max_by_slot: SlotMinMaxByFn<E> = LoadExecutor::<E>::aggregate_min_max_by_slot;
+    let distinct_execution_strategy: DistinctExecutionStrategyFn<E::Key> =
+        AccessPlannedQuery::distinct_execution_strategy;
 
     let _ = executable_new;
     let _ = load_execute;
@@ -103,6 +113,8 @@ where
     let _ = aggregate_nth_by_slot;
     let _ = aggregate_median_by_slot;
     let _ = aggregate_min_max_by_slot;
+    let _ = distinct_execution_strategy;
+    let _ = grouped_distinct_strategy_accessor_type_check::<E::Key>;
 }
 
 #[test]

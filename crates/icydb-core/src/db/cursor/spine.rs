@@ -1,6 +1,5 @@
 use crate::{
     db::{
-        access::AccessPath,
         cursor::{
             ContinuationSignature, ContinuationToken, CursorBoundary, CursorPlanError,
             IndexRangeCursorAnchor, PlannedCursor,
@@ -12,6 +11,7 @@ use crate::{
             validate_cursor_window_offset,
         },
         direction::Direction,
+        executor::ExecutableAccessPath,
         query::plan::OrderSpec,
     },
     model::entity::EntityModel,
@@ -33,7 +33,7 @@ trait CursorPlanSurface<K: FieldValue> {
 
     fn direction(&self) -> Direction;
 
-    fn access(&self) -> Option<&AccessPath<K>>;
+    fn access(&self) -> Option<&ExecutableAccessPath<'_, K>>;
 
     fn initial_offset(&self) -> u32;
 }
@@ -45,7 +45,7 @@ trait CursorPlanSurface<K: FieldValue> {
 ///
 
 struct StructuredCursorPlanSurface<'a, K> {
-    access: Option<&'a AccessPath<K>>,
+    access: Option<ExecutableAccessPath<'a, K>>,
     model: &'a EntityModel,
     order: &'a OrderSpec,
     direction: Direction,
@@ -65,8 +65,8 @@ impl<K: FieldValue> CursorPlanSurface<K> for StructuredCursorPlanSurface<'_, K> 
         self.direction
     }
 
-    fn access(&self) -> Option<&AccessPath<K>> {
-        self.access
+    fn access(&self) -> Option<&ExecutableAccessPath<'_, K>> {
+        self.access.as_ref()
     }
 
     fn initial_offset(&self) -> u32 {
@@ -94,7 +94,7 @@ pub(in crate::db) fn apply_continuation<E, R, F>(
 #[expect(clippy::too_many_arguments)]
 pub(in crate::db) fn validate_planned_cursor<E>(
     cursor: Option<&[u8]>,
-    access: Option<&AccessPath<E::Key>>,
+    access: Option<ExecutableAccessPath<'_, E::Key>>,
     entity_path: &'static str,
     model: &EntityModel,
     order: &OrderSpec,
@@ -131,7 +131,7 @@ where
 /// Validate an executor-provided cursor state through the canonical cursor spine.
 pub(in crate::db) fn validate_planned_cursor_state<E>(
     cursor: PlannedCursor,
-    access: Option<&AccessPath<E::Key>>,
+    access: Option<ExecutableAccessPath<'_, E::Key>>,
     model: &EntityModel,
     order: &OrderSpec,
     direction: Direction,

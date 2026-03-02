@@ -1,8 +1,11 @@
 use crate::{
-    db::executor::{
-        aggregate::{AggregateEngine, ExecutionContext},
-        load::{GroupedRouteStage, LoadExecutor},
-        route::aggregate_materialized_fold_direction,
+    db::{
+        executor::{
+            aggregate::{AggregateEngine, ExecutionContext},
+            load::{GroupedRouteStage, LoadExecutor},
+            route::aggregate_materialized_fold_direction,
+        },
+        query::plan::GroupedDistinctExecutionStrategy,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -19,7 +22,10 @@ where
         route: &GroupedRouteStage<E>,
         grouped_execution_context: &ExecutionContext,
     ) -> Result<(Vec<AggregateEngine<E>>, Vec<Vec<Value>>), InternalError> {
-        if route.global_distinct_field_aggregate.is_some() {
+        if matches!(
+            route.grouped_distinct_execution_strategy,
+            GroupedDistinctExecutionStrategy::GlobalDistinctFieldAggregate { .. }
+        ) {
             return Ok((Vec::new(), Vec::new()));
         }
 

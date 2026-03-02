@@ -214,12 +214,6 @@ where
             crate::db::executor::route::RoutedKeyStreamRequest::AccessPlan(stream_request) => {
                 ctx.ordered_key_stream_from_access_plan_with_index_range_anchor(stream_request)
             }
-            crate::db::executor::route::RoutedKeyStreamRequest::AccessPath {
-                access,
-                constraints,
-                direction,
-                hints,
-            } => ctx.ordered_key_stream_from_access(access, constraints, direction, hints),
         }
     }
 

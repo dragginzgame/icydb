@@ -8,8 +8,8 @@ use crate::{
                 AccessPlannedQuery, DeleteLimitSpec, FieldSlot, GroupAggregateKind,
                 GroupAggregateSpec, GroupDistinctAdmissibility, GroupDistinctPolicyReason,
                 GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupPlanError, GroupSpec,
-                GroupedCursorPolicyViolation, GroupedExecutionConfig, LogicalPlan, OrderDirection,
-                OrderSpec, PageSpec,
+                GroupedCursorPolicyViolation, GroupedDistinctExecutionStrategy,
+                GroupedExecutionConfig, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
                 expr::{Alias, BinaryOp, Expr, FieldId, ProjectionField, ProjectionSpec},
                 global_distinct_field_aggregate_admissibility,
                 global_distinct_group_spec_for_semantic_aggregate, grouped_cursor_policy_violation,
@@ -919,10 +919,40 @@ fn grouped_executor_handoff_preserves_group_fields_aggregates_and_execution_conf
     assert_eq!(handoff.execution().max_group_bytes(), 2048);
     assert_eq!(handoff.projection_layout().group_field_positions(), &[0, 1]);
     assert_eq!(handoff.projection_layout().aggregate_positions(), &[2, 3]);
+    assert!(matches!(
+        handoff.distinct_execution_strategy(),
+        GroupedDistinctExecutionStrategy::None
+    ));
     assert_eq!(
         handoff.base().scalar_plan().consistency,
         grouped.scalar_plan().consistency
     );
+}
+
+#[test]
+fn grouped_executor_handoff_lowers_global_distinct_execution_strategy() {
+    let base = load_plan(AccessPlan::path(AccessPath::FullScan));
+    let grouped = grouped_plan(
+        base,
+        vec![],
+        vec![GroupAggregateSpec {
+            kind: GroupAggregateKind::Count,
+            target_field: Some("tag".to_string()),
+            distinct: true,
+        }],
+    );
+
+    let handoff =
+        grouped_executor_handoff(&grouped).expect("grouped logical plans should build handoff");
+    assert_eq!(handoff.group_fields().len(), 0);
+    assert_eq!(handoff.aggregate_exprs().len(), 1);
+    assert!(matches!(
+        handoff.distinct_execution_strategy(),
+        GroupedDistinctExecutionStrategy::GlobalDistinctFieldAggregate {
+            kind: GroupAggregateKind::Count,
+            target_field
+        } if target_field == "tag"
+    ));
 }
 
 #[test]
@@ -1004,6 +1034,7 @@ fn grouped_executor_handoff_contract_matrix_vectors_are_frozen() {
         Vec<(GroupAggregateKind, Option<String>)>,
         Vec<usize>,
         Vec<usize>,
+        String,
         u64,
         u64,
     )> = grouped_cases
@@ -1032,6 +1063,7 @@ fn grouped_executor_handoff_contract_matrix_vectors_are_frozen() {
                 aggregate_vector,
                 handoff.projection_layout().group_field_positions().to_vec(),
                 handoff.projection_layout().aggregate_positions().to_vec(),
+                format!("{:?}", handoff.distinct_execution_strategy()),
                 handoff.execution().max_groups(),
                 handoff.execution().max_group_bytes(),
             )
@@ -1043,6 +1075,7 @@ fn grouped_executor_handoff_contract_matrix_vectors_are_frozen() {
             vec![(GroupAggregateKind::Count, None::<String>)],
             vec![0],
             vec![1],
+            "None".to_string(),
             u64::MAX,
             u64::MAX,
         ),
@@ -1054,6 +1087,7 @@ fn grouped_executor_handoff_contract_matrix_vectors_are_frozen() {
             ],
             vec![0, 1],
             vec![2, 3],
+            "None".to_string(),
             11,
             2048,
         ),

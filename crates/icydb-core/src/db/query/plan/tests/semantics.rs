@@ -8,8 +8,8 @@ use crate::{
                 OrderPlanError, PlanError, PolicyPlanError, validate_query_semantics,
             },
             plan::{
-                AccessPlannedQuery, DeleteLimitSpec, LogicalPlan, OrderDirection, OrderSpec,
-                PageSpec,
+                AccessPlannedQuery, DeleteLimitSpec, DistinctExecutionStrategy, LogicalPlan,
+                OrderDirection, OrderSpec, PageSpec,
             },
         },
     },
@@ -254,6 +254,38 @@ fn scalar_shorthand_helpers_remain_explicit_without_deref() {
 
     plan.logical.scalar_mut().distinct = false;
     assert!(!plan.scalar().distinct);
+}
+
+#[test]
+fn scalar_distinct_execution_strategy_is_planner_lowered_from_access_shape() {
+    let mut path_plan: AccessPlannedQuery<Value> =
+        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+    path_plan.scalar_mut().distinct = true;
+    assert_eq!(
+        path_plan.distinct_execution_strategy(),
+        DistinctExecutionStrategy::PreOrdered,
+        "single-path DISTINCT should lower to preordered execution strategy",
+    );
+
+    let mut composite_plan: AccessPlannedQuery<Value> =
+        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+    composite_plan.access = AccessPlan::Union(vec![
+        AccessPlan::path(AccessPath::ByKey(Value::Ulid(Ulid::from_u128(1)))),
+        AccessPlan::path(AccessPath::ByKey(Value::Ulid(Ulid::from_u128(2)))),
+    ]);
+    composite_plan.scalar_mut().distinct = true;
+    assert_eq!(
+        composite_plan.distinct_execution_strategy(),
+        DistinctExecutionStrategy::HashMaterialize,
+        "composite DISTINCT should lower to materialized execution strategy",
+    );
+
+    composite_plan.scalar_mut().distinct = false;
+    assert_eq!(
+        composite_plan.distinct_execution_strategy(),
+        DistinctExecutionStrategy::None,
+        "disabled DISTINCT should lower to no-op strategy",
+    );
 }
 
 #[test]

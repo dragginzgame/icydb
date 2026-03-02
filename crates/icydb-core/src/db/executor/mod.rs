@@ -3,6 +3,7 @@
 //! Does not own: logical query semantics or persistence encoding policy.
 //! Boundary: consumes query/access/cursor contracts and drives load/delete/aggregate runtime.
 
+pub(in crate::db) mod access_contract;
 mod access_dispatcher;
 mod aggregate;
 mod context;
@@ -35,6 +36,11 @@ use crate::db::{
     },
 };
 
+pub(in crate::db) use access_contract::{
+    ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan, ExecutionBounds,
+    ExecutionDistinctMode, ExecutionMode, ExecutionOrdering, ExecutionPathKind,
+    ExecutionPathPayload,
+};
 pub(in crate::db::executor) use access_dispatcher::{
     AccessPathKind, AccessPathRuntimeStrategy, AccessPlanKind,
     access_plan_first_index_range_details, access_plan_is_pk_ordered_stream,

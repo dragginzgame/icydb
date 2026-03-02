@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ## [0.40.x] - 2026-03-02 - AUDIT ALL THE THINGS!!!!1
 
 - `0.40.0` - split up two files (add details to this bullet point)
+- `0.40.1` removes executor runtime branching on raw `AccessPath` variants by lowering path mechanics into one executable access contract and adds a structural guard test to prevent this drift from returning.
 
 See detailed breakdown:
 [docs/changelog/0.40.md](docs/changelog/0.40.md)

@@ -9,13 +9,18 @@ mod tests;
 mod physical;
 mod scan;
 
+#[cfg(test)]
+use crate::db::access::AccessPath;
+#[cfg(test)]
+use crate::db::query::plan::lower_executable_access_path;
 use crate::{
     db::{
-        access::{AccessPath, AccessPlan},
+        access::AccessPlan,
         direction::Direction,
         executor::LoweredKey,
         executor::{
-            AccessPathRuntimeStrategy, Context, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
+            AccessPathRuntimeStrategy, Context, ExecutableAccessNode, ExecutableAccessPath,
+            ExecutableAccessPlan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             dispatch_access_path,
             stream::key::{
                 IntersectOrderedKeyStream, KeyOrderComparator, MergeOrderedKeyStream,
@@ -24,6 +29,7 @@ use crate::{
         },
         index::predicate::IndexPredicateExecution,
         predicate::MissingRowPolicy,
+        query::plan::lower_executable_access_plan,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -268,9 +274,30 @@ where
 {
     /// Resolve one access path into an ordered key stream with optional
     /// index-lowered constraints and execution hints.
+    #[cfg(test)]
     pub(in crate::db) fn ordered_key_stream_from_access(
         &self,
         access: &AccessPath<E::Key>,
+        constraints: IndexStreamConstraints<'_>,
+        direction: Direction,
+        hints: StreamExecutionHints<'_>,
+    ) -> Result<OrderedKeyStreamBox, InternalError>
+    where
+        E: EntityKind,
+    {
+        let executable_access = lower_executable_access_path(access);
+        self.ordered_key_stream_from_executable_access(
+            &executable_access,
+            constraints,
+            direction,
+            hints,
+        )
+    }
+
+    /// Resolve one executable access path into an ordered key stream.
+    pub(in crate::db::executor) fn ordered_key_stream_from_executable_access(
+        &self,
+        access: &ExecutableAccessPath<'_, E::Key>,
         constraints: IndexStreamConstraints<'_>,
         direction: Direction,
         hints: StreamExecutionHints<'_>,
@@ -329,9 +356,10 @@ where
             physical_fetch_hint: request.physical_fetch_hint,
             index_predicate_execution: request.index_predicate_execution,
         };
+        let executable_access = lower_executable_access_plan(request.access);
         let mut spec_cursor = inputs.spec_cursor();
         let key_stream = AccessPlanStreamResolver::produce_key_stream(
-            request.access,
+            &executable_access,
             &inputs,
             &mut spec_cursor,
         )?;
@@ -386,7 +414,7 @@ struct AccessPlanStreamResolver;
 impl AccessPlanStreamResolver {
     // Lower one path through the canonical physical resolver boundary.
     fn lower_path_access<E, K>(
-        path: &AccessPath<K>,
+        path: &ExecutableAccessPath<'_, K>,
         inputs: &AccessStreamInputs<'_, '_, E>,
         index_prefix_spec: Option<&LoweredIndexPrefixSpec>,
         index_range_spec: Option<&LoweredIndexRangeSpec>,
@@ -404,19 +432,23 @@ impl AccessPlanStreamResolver {
             physical_fetch_hint: inputs.physical_fetch_hint,
             predicate_execution: inputs.index_predicate_execution,
         };
-        inputs
-            .ctx
-            .ordered_key_stream_from_access(path, constraints, inputs.direction, hints)
+        inputs.ctx.ordered_key_stream_from_executable_access(
+            path,
+            constraints,
+            inputs.direction,
+            hints,
+        )
     }
 
     // Validate that a consumed prefix spec belongs to the same index path node.
     fn validate_index_prefix_spec_alignment<K>(
-        path: &AccessPath<K>,
+        path: &ExecutableAccessPath<'_, K>,
         index_prefix_spec: Option<&LoweredIndexPrefixSpec>,
     ) -> Result<(), InternalError> {
         let dispatched = dispatch_access_path(path);
-        let strategy: &dyn AccessPathRuntimeStrategy<K> = &dispatched;
-        if let (Some(spec), Some(index)) = (index_prefix_spec, strategy.index_prefix_model())
+        let strategy: &dyn AccessPathRuntimeStrategy<K> = dispatched;
+        if let Some(spec) = index_prefix_spec
+            && let Some(index) = strategy.index_prefix_model()
             && spec.index() != &index
         {
             return Err(invariant(
@@ -429,12 +461,13 @@ impl AccessPlanStreamResolver {
 
     // Validate that a consumed range spec belongs to the same index path node.
     fn validate_index_range_spec_alignment<K>(
-        path: &AccessPath<K>,
+        path: &ExecutableAccessPath<'_, K>,
         index_range_spec: Option<&LoweredIndexRangeSpec>,
     ) -> Result<(), InternalError> {
         let dispatched = dispatch_access_path(path);
-        let strategy: &dyn AccessPathRuntimeStrategy<K> = &dispatched;
-        if let (Some(spec), Some(index)) = (index_range_spec, strategy.index_range_model())
+        let strategy: &dyn AccessPathRuntimeStrategy<K> = dispatched;
+        if let Some(spec) = index_range_spec
+            && let Some(index) = strategy.index_range_model()
             && spec.index() != &index
         {
             return Err(invariant(
@@ -447,7 +480,7 @@ impl AccessPlanStreamResolver {
 
     // Collect one child key stream for each child access plan.
     fn collect_child_key_streams<'a, E, K>(
-        children: &[AccessPlan<K>],
+        children: &[ExecutableAccessPlan<'a, K>],
         inputs: &AccessStreamInputs<'_, 'a, E>,
         spec_cursor: &mut AccessSpecCursor<'a>,
     ) -> Result<Vec<OrderedKeyStreamBox>, InternalError>
@@ -503,7 +536,7 @@ impl AccessPlanStreamResolver {
     // Build an ordered key stream for this access plan.
     /// Produce one ordered key stream for an access plan while consuming lowered specs.
     pub(super) fn produce_key_stream<'a, E, K>(
-        access: &AccessPlan<K>,
+        access: &ExecutableAccessPlan<'a, K>,
         inputs: &AccessStreamInputs<'_, 'a, E>,
         spec_cursor: &mut AccessSpecCursor<'a>,
     ) -> Result<OrderedKeyStreamBox, InternalError>
@@ -511,10 +544,10 @@ impl AccessPlanStreamResolver {
         E: EntityKind<Key = K> + EntityValue,
         K: Copy,
     {
-        match access {
-            AccessPlan::Path(path) => {
-                let dispatched = dispatch_access_path(path.as_ref());
-                let strategy: &dyn AccessPathRuntimeStrategy<K> = &dispatched;
+        match access.node() {
+            ExecutableAccessNode::Path(path) => {
+                let dispatched = dispatch_access_path(path);
+                let strategy: &dyn AccessPathRuntimeStrategy<K> = dispatched;
                 let index_prefix_spec = if strategy.consumes_index_prefix_spec() {
                     spec_cursor.next_index_prefix_spec()
                 } else {
@@ -525,15 +558,15 @@ impl AccessPlanStreamResolver {
                 } else {
                     None
                 };
-                Self::validate_index_prefix_spec_alignment(path.as_ref(), index_prefix_spec)?;
-                Self::validate_index_range_spec_alignment(path.as_ref(), index_range_spec)?;
+                Self::validate_index_prefix_spec_alignment(path, index_prefix_spec)?;
+                Self::validate_index_range_spec_alignment(path, index_range_spec)?;
 
                 Self::lower_path_access(path, inputs, index_prefix_spec, index_range_spec)
             }
-            AccessPlan::Union(children) => {
+            ExecutableAccessNode::Union(children) => {
                 Self::produce_union_key_stream(children, inputs, spec_cursor)
             }
-            AccessPlan::Intersection(children) => {
+            ExecutableAccessNode::Intersection(children) => {
                 Self::produce_intersection_key_stream(children, inputs, spec_cursor)
             }
         }
@@ -541,7 +574,7 @@ impl AccessPlanStreamResolver {
 
     // Build one canonical stream for a union by pairwise-merging child streams.
     fn produce_union_key_stream<'a, E, K>(
-        children: &[AccessPlan<K>],
+        children: &[ExecutableAccessPlan<'a, K>],
         inputs: &AccessStreamInputs<'_, 'a, E>,
         spec_cursor: &mut AccessSpecCursor<'a>,
     ) -> Result<OrderedKeyStreamBox, InternalError>
@@ -563,7 +596,7 @@ impl AccessPlanStreamResolver {
 
     // Build one canonical stream for an intersection by pairwise-intersecting child streams.
     fn produce_intersection_key_stream<'a, E, K>(
-        children: &[AccessPlan<K>],
+        children: &[ExecutableAccessPlan<'a, K>],
         inputs: &AccessStreamInputs<'_, 'a, E>,
         spec_cursor: &mut AccessSpecCursor<'a>,
     ) -> Result<OrderedKeyStreamBox, InternalError>

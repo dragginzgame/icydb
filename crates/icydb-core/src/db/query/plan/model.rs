@@ -77,6 +77,29 @@ pub(crate) struct DeleteLimitSpec {
 }
 
 ///
+/// DistinctExecutionStrategy
+///
+/// Planner-owned scalar DISTINCT execution strategy.
+/// This is execution-mechanics only and must not be used for semantic
+/// admissibility decisions.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum DistinctExecutionStrategy {
+    None,
+    PreOrdered,
+    HashMaterialize,
+}
+
+impl DistinctExecutionStrategy {
+    /// Return true when scalar DISTINCT execution is enabled.
+    #[must_use]
+    pub(crate) const fn is_enabled(self) -> bool {
+        !matches!(self, Self::None)
+    }
+}
+
+///
 /// PageSpec
 /// Executor-facing pagination specification.
 ///

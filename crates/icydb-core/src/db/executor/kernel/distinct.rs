@@ -10,18 +10,19 @@ use crate::db::{
         load::{ResolvedExecutionKeyStream, key_stream_comparator_from_direction},
         stream::key::DistinctOrderedKeyStream,
     },
-    query::plan::AccessPlannedQuery,
+    query::plan::{AccessPlannedQuery, DistinctExecutionStrategy},
 };
 use std::{cell::Cell, rc::Rc};
 
 fn wrap_distinct_ordered_key_stream(
     ordered_key_stream: OrderedKeyStreamBox,
-    distinct: bool,
+    strategy: DistinctExecutionStrategy,
     key_comparator: KeyOrderComparator,
     dedup_counter: Option<Rc<Cell<u64>>>,
 ) -> (OrderedKeyStreamBox, Option<Rc<Cell<u64>>>) {
-    if !distinct {
-        return (ordered_key_stream, None);
+    match strategy {
+        DistinctExecutionStrategy::None => return (ordered_key_stream, None),
+        DistinctExecutionStrategy::PreOrdered | DistinctExecutionStrategy::HashMaterialize => {}
     }
 
     if let Some(counter) = dedup_counter {
@@ -49,11 +50,11 @@ pub(super) fn decorate_resolved_execution_key_stream<K>(
     direction: Direction,
 ) -> ResolvedExecutionKeyStream {
     let key_comparator = key_stream_comparator_from_direction(direction);
-    let distinct = plan.scalar_plan().distinct;
-    let dedup_counter = distinct.then(|| Rc::new(Cell::new(0u64)));
+    let strategy = plan.distinct_execution_strategy();
+    let dedup_counter = strategy.is_enabled().then(|| Rc::new(Cell::new(0u64)));
     let (key_stream, dedup_counter) = wrap_distinct_ordered_key_stream(
         resolved.key_stream,
-        distinct,
+        strategy,
         key_comparator,
         dedup_counter,
     );
@@ -63,7 +64,7 @@ pub(super) fn decorate_resolved_execution_key_stream<K>(
     resolved
 }
 
-/// Decorate one ordered key stream with DISTINCT behavior using plan distinct flag.
+/// Decorate one ordered key stream with DISTINCT behavior using planner strategy.
 pub(in crate::db::executor) fn decorate_key_stream_for_plan<K>(
     ordered_key_stream: OrderedKeyStreamBox,
     plan: &AccessPlannedQuery<K>,
@@ -73,7 +74,7 @@ pub(in crate::db::executor) fn decorate_key_stream_for_plan<K>(
 
     wrap_distinct_ordered_key_stream(
         ordered_key_stream,
-        plan.scalar_plan().distinct,
+        plan.distinct_execution_strategy(),
         key_comparator,
         None,
     )

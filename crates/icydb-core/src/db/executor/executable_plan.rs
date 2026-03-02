@@ -17,7 +17,7 @@ use crate::{
         },
         query::plan::{
             AccessPlannedQuery, GroupedCursorPolicyViolation, LogicalPlan, QueryMode,
-            grouped_cursor_policy_violation,
+            grouped_cursor_policy_violation, lower_executable_access_path,
         },
     },
     error::InternalError,
@@ -134,7 +134,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
         // Derive canonical primary traversal direction, then delegate to cursor spine.
         let direction = derive_primary_scan_direction(self.plan.scalar_plan().order.as_ref());
         crate::db::cursor::prepare_cursor::<E>(
-            self.plan.access.as_path(),
+            self.plan.access.as_path().map(lower_executable_access_path),
             self.plan.scalar_plan().order.as_ref(),
             direction,
             self.continuation_signature(),
@@ -201,7 +201,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
         // Re-derive canonical direction and revalidate through the cursor spine boundary.
         let direction = derive_primary_scan_direction(self.plan.scalar_plan().order.as_ref());
         crate::db::cursor::revalidate_cursor::<E>(
-            self.plan.access.as_path(),
+            self.plan.access.as_path().map(lower_executable_access_path),
             self.plan.scalar_plan().order.as_ref(),
             direction,
             Self::initial_page_offset(&self.plan.logical),

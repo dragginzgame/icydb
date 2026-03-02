@@ -15,10 +15,10 @@ use crate::{
             explain::ExplainAccessPath,
             plan::expr::ProjectionSpec,
             plan::{
-                AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec,
-                GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupPlan, GroupSpec,
-                GroupedExecutionConfig, LogicalPlan, OrderSpec, QueryMode, ScalarPlan,
-                lower_projection_identity, lower_projection_intent,
+                AccessPlannedQuery, AggregateKind, DistinctExecutionStrategy, FieldSlot,
+                GroupAggregateSpec, GroupHavingClause, GroupHavingSpec, GroupHavingSymbol,
+                GroupPlan, GroupSpec, GroupedExecutionConfig, LogicalPlan, OrderSpec, QueryMode,
+                ScalarPlan, lower_projection_identity, lower_projection_intent,
             },
         },
     },
@@ -640,6 +640,20 @@ impl<K> AccessPlannedQuery<K> {
         lower_projection_identity(&self.logical)
     }
 
+    /// Lower scalar DISTINCT semantics into one executor-facing execution strategy.
+    #[must_use]
+    pub(in crate::db) const fn distinct_execution_strategy(&self) -> DistinctExecutionStrategy {
+        if !self.scalar_plan().distinct {
+            return DistinctExecutionStrategy::None;
+        }
+
+        if access_shape_requires_distinct_materialization(&self.access) {
+            DistinctExecutionStrategy::HashMaterialize
+        } else {
+            DistinctExecutionStrategy::PreOrdered
+        }
+    }
+
     /// Borrow scalar semantic fields mutably across logical variants.
     #[must_use]
     #[cfg(test)]
@@ -660,6 +674,10 @@ impl<K> AccessPlannedQuery<K> {
     pub(in crate::db) const fn scalar_mut(&mut self) -> &mut ScalarPlan {
         self.scalar_plan_mut()
     }
+}
+
+const fn access_shape_requires_distinct_materialization<K>(access: &AccessPlan<K>) -> bool {
+    matches!(access, AccessPlan::Union(_) | AccessPlan::Intersection(_))
 }
 
 impl GroupPlan {

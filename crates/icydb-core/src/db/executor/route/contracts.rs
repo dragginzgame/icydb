@@ -4,12 +4,9 @@
 //! Boundary: shared immutable route types consumed by route submodules and executor runtime.
 
 use crate::db::{
-    access::{AccessPath, PushdownApplicability},
+    access::PushdownApplicability,
     direction::Direction,
-    executor::{
-        AccessPlanStreamRequest, IndexStreamConstraints, StreamExecutionHints,
-        aggregate::AggregateFoldMode,
-    },
+    executor::{AccessPlanStreamRequest, aggregate::AggregateFoldMode},
     query::builder::AggregateExpr,
 };
 
@@ -309,12 +306,6 @@ pub(in crate::db::executor) const MUTATION_FAST_PATH_ORDER: [FastPathOrder; 0] =
 
 pub(in crate::db::executor) enum RoutedKeyStreamRequest<'a, K> {
     AccessPlan(AccessPlanStreamRequest<'a, K>),
-    AccessPath {
-        access: &'a AccessPath<K>,
-        constraints: IndexStreamConstraints<'a>,
-        direction: Direction,
-        hints: StreamExecutionHints<'a>,
-    },
 }
 
 ///

@@ -31,6 +31,44 @@ fn collect_rust_sources(root: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
+// Strip top-level `#[cfg(test)]` items from source text using a lightweight
+// brace-depth scanner so runtime-only guard scans ignore inline test modules.
+fn strip_cfg_test_items(source: &str) -> String {
+    let mut output = String::new();
+    let lines = source.lines();
+    let mut pending_cfg_test = false;
+    let mut skip_depth = 0usize;
+
+    for line in lines {
+        let trimmed = line.trim();
+        if skip_depth > 0 {
+            skip_depth = skip_depth
+                .saturating_add(line.matches('{').count())
+                .saturating_sub(line.matches('}').count());
+            continue;
+        }
+
+        if trimmed.starts_with("#[cfg(test)]") {
+            pending_cfg_test = true;
+            continue;
+        }
+        if pending_cfg_test {
+            let opens = line.matches('{').count();
+            let closes = line.matches('}').count();
+            if opens > 0 {
+                skip_depth = opens.saturating_sub(closes);
+            }
+            pending_cfg_test = false;
+            continue;
+        }
+
+        output.push_str(line);
+        output.push('\n');
+    }
+
+    output
+}
+
 #[test]
 fn load_module_has_no_direct_store_traversal() {
     let load_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/load");
@@ -59,5 +97,43 @@ fn physical_module_has_no_direct_store_traversal() {
     assert!(
         !source_uses_direct_store_or_registry_access(source.as_str()),
         "stream access physical resolver must request access via PrimaryScan/IndexScan adapters, not direct store handles",
+    );
+}
+
+#[test]
+fn executor_runtime_modules_have_no_raw_access_path_variant_matching() {
+    let executor_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor");
+    let mut sources = Vec::new();
+    collect_rust_sources(executor_root.as_path(), &mut sources);
+    sources.sort();
+
+    let mut violations = Vec::new();
+    for source_path in sources {
+        if source_path
+            .components()
+            .any(|part| part.as_os_str() == "tests")
+            || source_path
+                .file_name()
+                .is_some_and(|name| name == "tests.rs")
+        {
+            continue;
+        }
+
+        let source = fs::read_to_string(&source_path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
+        let runtime_source = strip_cfg_test_items(source.as_str());
+        if runtime_source.contains("AccessPath::") {
+            violations.push(source_path);
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "executor runtime modules must not pattern-match raw AccessPath variants; violations: {}",
+        violations
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", "),
     );
 }

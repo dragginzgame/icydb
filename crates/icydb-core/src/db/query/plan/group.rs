@@ -7,8 +7,10 @@ use crate::{
     db::query::{
         builder::AggregateExpr,
         plan::{
-            AccessPlannedQuery, FieldSlot, GroupHavingSpec, GroupedExecutionConfig,
+            AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec, GroupHavingSpec,
+            GroupedExecutionConfig,
             expr::{Expr, ProjectionField, ProjectionSpec},
+            resolve_global_distinct_field_aggregate,
         },
     },
     error::InternalError,
@@ -56,6 +58,7 @@ pub(in crate::db) struct GroupedExecutorHandoff<'a, K> {
     group_fields: &'a [FieldSlot],
     aggregate_exprs: Vec<AggregateExpr>,
     projection_layout: PlannedProjectionLayout,
+    distinct_execution_strategy: GroupedDistinctExecutionStrategy,
     having: Option<&'a GroupHavingSpec>,
     execution: GroupedExecutionConfig,
 }
@@ -85,6 +88,14 @@ impl<'a, K> GroupedExecutorHandoff<'a, K> {
         &self.projection_layout
     }
 
+    /// Borrow grouped DISTINCT execution strategy lowered by planner.
+    #[must_use]
+    pub(in crate::db) const fn distinct_execution_strategy(
+        &self,
+    ) -> &GroupedDistinctExecutionStrategy {
+        &self.distinct_execution_strategy
+    }
+
     /// Borrow grouped HAVING clause specification when present.
     #[must_use]
     pub(in crate::db) const fn having(&self) -> Option<&'a GroupHavingSpec> {
@@ -111,15 +122,58 @@ pub(in crate::db) fn grouped_executor_handoff<K>(
     let projection_spec = plan.projection_spec_for_identity();
     let (projection_layout, aggregate_exprs) =
         planned_projection_layout_and_aggregate_exprs_from_spec(&projection_spec)?;
+    let distinct_execution_strategy = grouped_distinct_execution_strategy(
+        grouped.group.group_fields.as_slice(),
+        grouped.group.aggregates.as_slice(),
+        grouped.having.as_ref(),
+    )?;
 
     Ok(GroupedExecutorHandoff {
         base: plan,
         group_fields: grouped.group.group_fields.as_slice(),
         aggregate_exprs,
         projection_layout,
+        distinct_execution_strategy,
         having: grouped.having.as_ref(),
         execution: grouped.group.execution,
     })
+}
+
+///
+/// GroupedDistinctExecutionStrategy
+///
+/// Planner-owned grouped DISTINCT execution strategy lowered for executor consumption.
+/// This strategy is mechanical-only and must not be re-derived by executor policy checks.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) enum GroupedDistinctExecutionStrategy {
+    None,
+    GlobalDistinctFieldAggregate {
+        kind: AggregateKind,
+        target_field: String,
+    },
+}
+
+// Lower grouped DISTINCT execution strategy from validated grouped planner semantics.
+fn grouped_distinct_execution_strategy(
+    group_fields: &[FieldSlot],
+    aggregates: &[GroupAggregateSpec],
+    having: Option<&GroupHavingSpec>,
+) -> Result<GroupedDistinctExecutionStrategy, InternalError> {
+    match resolve_global_distinct_field_aggregate(group_fields, aggregates, having) {
+        Ok(Some(aggregate)) => Ok(
+            GroupedDistinctExecutionStrategy::GlobalDistinctFieldAggregate {
+                kind: aggregate.kind(),
+                target_field: aggregate.target_field().to_string(),
+            },
+        ),
+        Ok(None) => Ok(GroupedDistinctExecutionStrategy::None),
+        Err(reason) => Err(invariant(format!(
+            "planner grouped DISTINCT strategy handoff must be validated before executor handoff: {}",
+            reason.invariant_message()
+        ))),
+    }
 }
 
 // Derive grouped field/aggregate projection slots and aggregate expressions from

@@ -14,7 +14,7 @@ use crate::{
             range_token_anchor_key,
         },
         index::predicate::IndexPredicateExecution,
-        query::plan::AccessPlannedQuery,
+        query::plan::{AccessPlannedQuery, lower_executable_access_path},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -38,8 +38,9 @@ where
         let Some(path) = plan.access.as_path() else {
             return Ok(None);
         };
-        let dispatched = dispatch_access_path(path);
-        let strategy: &dyn AccessPathRuntimeStrategy<E::Key> = &dispatched;
+        let executable_path = lower_executable_access_path(path);
+        let dispatched = dispatch_access_path(&executable_path);
+        let strategy: &dyn AccessPathRuntimeStrategy<E::Key> = dispatched;
         let Some(index) = strategy.index_range_model() else {
             return Ok(None);
         };

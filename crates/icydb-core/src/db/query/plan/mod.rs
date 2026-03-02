@@ -17,11 +17,13 @@ mod tests;
 pub(crate) mod validate;
 
 pub(crate) use access_plan::AccessPlannedQuery;
+pub(in crate::db) use access_plan::{lower_executable_access_path, lower_executable_access_plan};
 pub(in crate::db) use group::{
-    GroupedExecutorHandoff, PlannedProjectionLayout, grouped_executor_handoff,
+    GroupedDistinctExecutionStrategy, GroupedExecutorHandoff, PlannedProjectionLayout,
+    grouped_executor_handoff,
 };
 pub use model::OrderDirection;
-pub(crate) use model::{AggregateKind, DeleteSpec, LoadSpec, QueryMode};
+pub(crate) use model::{AggregateKind, DeleteSpec, DistinctExecutionStrategy, LoadSpec, QueryMode};
 pub(crate) use model::{
     DeleteLimitSpec, FieldSlot, GroupAggregateKind, GroupAggregateSpec, GroupHavingClause,
     GroupHavingSpec, GroupHavingSymbol, GroupPlan, GroupSpec, GroupedExecutionConfig, LogicalPlan,

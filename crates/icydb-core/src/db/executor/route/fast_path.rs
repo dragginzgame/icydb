@@ -6,17 +6,20 @@
 use crate::{
     db::{
         access::AccessPlan,
-        executor::{AccessPathRuntimeStrategy, dispatch_access_path},
+        executor::{
+            AccessPathRuntimeStrategy, AccessPlanKind, ExecutableAccessPath, dispatch_access_path,
+            dispatch_access_plan_kind,
+        },
         executor::{ExecutionPreparation, aggregate::AggregateKind, load::LoadExecutor},
         index::{IndexCompilePolicy, compile_index_program},
-        query::plan::AccessPlannedQuery,
+        query::plan::{AccessPlannedQuery, lower_executable_access_plan},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
 };
 
 use crate::db::executor::route::{
-    FastPathOrder, RouteCapabilities, supports_pk_stream_access_path,
+    FastPathOrder, RouteCapabilities, supports_pk_stream_access_executable_path,
 };
 
 /// Iterate route-owned fast-path precedence through a shared verify+execute gate.
@@ -48,21 +51,25 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
-    /// Return whether count pushdown path shape is supported for one access path.
+    /// Return whether count pushdown is supported for one executable access path.
     pub(super) fn count_pushdown_path_shape_supported(
-        path: &crate::db::access::AccessPath<E::Key>,
+        path: &ExecutableAccessPath<'_, E::Key>,
     ) -> bool {
         let dispatched = dispatch_access_path(path);
-        let strategy: &dyn AccessPathRuntimeStrategy<E::Key> = &dispatched;
+        let strategy: &dyn AccessPathRuntimeStrategy<E::Key> = dispatched;
 
         strategy.supports_count_pushdown_shape()
     }
 
     /// Return whether count pushdown is supported for one access plan.
     pub(super) fn count_pushdown_access_shape_supported(access: &AccessPlan<E::Key>) -> bool {
-        match access {
-            AccessPlan::Path(path) => Self::count_pushdown_path_shape_supported(path),
-            AccessPlan::Union(_) | AccessPlan::Intersection(_) => false,
+        let executable = lower_executable_access_plan(access);
+
+        match dispatch_access_plan_kind(&executable) {
+            AccessPlanKind::Path(_) => executable
+                .as_path()
+                .is_some_and(Self::count_pushdown_path_shape_supported),
+            AccessPlanKind::Union | AccessPlanKind::Intersection => false,
         }
     }
 
@@ -75,10 +82,10 @@ where
             return false;
         }
 
-        let supports_pk_stream_access = plan
-            .access
+        let executable = lower_executable_access_plan(&plan.access);
+        let supports_pk_stream_access = executable
             .as_path()
-            .is_some_and(supports_pk_stream_access_path);
+            .is_some_and(supports_pk_stream_access_executable_path);
         if !supports_pk_stream_access {
             return false;
         }
@@ -93,19 +100,20 @@ where
     /// Validate routed access-path shape for PK stream fast-path execution.
     pub(in crate::db::executor) fn verify_pk_stream_fast_path_access(
         plan: &AccessPlannedQuery<E::Key>,
-    ) -> Result<&crate::db::access::AccessPath<E::Key>, InternalError> {
-        let access = plan.access.as_path().ok_or_else(|| {
+    ) -> Result<(), InternalError> {
+        let executable = lower_executable_access_plan(&plan.access);
+        let access = executable.as_path().ok_or_else(|| {
             invariant("pk stream fast-path requires direct access-path execution")
         })?;
         let dispatched = dispatch_access_path(access);
-        let strategy: &dyn AccessPathRuntimeStrategy<E::Key> = &dispatched;
+        let strategy: &dyn AccessPathRuntimeStrategy<E::Key> = dispatched;
         if !strategy.supports_pk_stream_access() {
             return Err(invariant(
                 "pk stream fast-path requires full-scan/key-range access path",
             ));
         }
 
-        Ok(access)
+        Ok(())
     }
 
     pub(super) const fn is_count_pushdown_eligible(
