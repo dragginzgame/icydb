@@ -9,6 +9,7 @@ use crate::{
         executor::aggregate::capability::{
             field_kind_supports_aggregate_ordering, field_kind_supports_numeric_aggregation,
         },
+        numeric::coerce_numeric_decimal,
         predicate::strict_value_order,
         query::plan::FieldSlot as PlannedFieldSlot,
     },
@@ -310,13 +311,7 @@ pub(in crate::db::executor) fn extract_numeric_field_decimal<E: EntityKind + Ent
     field_slot: FieldSlot,
 ) -> Result<Decimal, AggregateFieldValueError> {
     let value = extract_orderable_field_value(entity, target_field, field_slot)?;
-    if !value.supports_numeric_coercion() {
-        return Err(AggregateFieldValueError::UnsupportedFieldKind {
-            field: target_field.to_string(),
-            kind: field_slot.kind,
-        });
-    }
-    let Some(decimal) = value.to_numeric_decimal() else {
+    let Some(decimal) = coerce_numeric_decimal(&value) else {
         return Err(AggregateFieldValueError::FieldValueTypeMismatch {
             field: target_field.to_string(),
             kind: field_slot.kind,

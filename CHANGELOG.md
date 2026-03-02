@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.39.x] - 2026-03-02 - Numeric Consolidation
 
+- `0.39.1` starts runtime numeric convergence by routing projection and aggregate decimal coercion through one shared helper, so mixed numeric comparisons/arithmetic behave consistently and mixed numeric-vs-non-numeric equality now fails as an invariant error instead of silently returning false.
 - `0.39.0` consolidates numeric capability checks under shared helpers and tightens planner expression typing so numeric operators/aggregates fail early on known non-numeric fields while mixed numeric expressions still work when subtype cannot be resolved yet.
 
 See detailed breakdown:

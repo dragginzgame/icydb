@@ -6,7 +6,7 @@
 use crate::{
     db::{
         executor::load::LoadExecutor,
-        numeric::{compare_numeric_eq, compare_numeric_order},
+        numeric::{coerce_numeric_decimal, compare_numeric_eq, compare_numeric_order},
         query::builder::AggregateExpr,
         query::plan::{
             AccessPlannedQuery, FieldSlot,
@@ -268,7 +268,7 @@ fn eval_unary_expr(op: UnaryOp, value: Value) -> Result<Value, ExecutionError> {
 
     match op {
         UnaryOp::Neg => {
-            let Some(decimal) = value.to_numeric_decimal() else {
+            let Some(decimal) = coerce_numeric_decimal(&value) else {
                 return Err(ExecutionError::InvalidUnaryOperand {
                     op: unary_op_name(op).to_string(),
                     found: Box::new(value),
@@ -312,9 +312,10 @@ fn eval_numeric_binary_expr(
     left: Value,
     right: Value,
 ) -> Result<Value, ExecutionError> {
-    let (Some(left_decimal), Some(right_decimal)) =
-        (left.to_numeric_decimal(), right.to_numeric_decimal())
-    else {
+    let (Some(left_decimal), Some(right_decimal)) = (
+        coerce_numeric_decimal(&left),
+        coerce_numeric_decimal(&right),
+    ) else {
         return Err(ExecutionError::InvalidBinaryOperands {
             op: binary_op_name(op).to_string(),
             left: Box::new(left),
@@ -376,7 +377,7 @@ fn eval_equality_binary_expr(
     left: Value,
     right: Value,
 ) -> Result<Value, ExecutionError> {
-    let are_equal = if left.supports_numeric_coercion() && right.supports_numeric_coercion() {
+    let are_equal = if left.supports_numeric_coercion() || right.supports_numeric_coercion() {
         let Some(are_equal) = compare_numeric_eq(&left, &right) else {
             return Err(ExecutionError::InvalidBinaryOperands {
                 op: binary_op_name(op).to_string(),
@@ -640,6 +641,39 @@ mod tests {
     }
 
     #[test]
+    fn eval_expr_supports_numeric_equality_widening() {
+        let (_, entity) = row(12, 7, true);
+        let expr = Expr::Binary {
+            op: BinaryOp::Eq,
+            left: Box::new(Expr::Field(FieldId::new("rank"))),
+            right: Box::new(Expr::Literal(Value::Uint(7))),
+        };
+
+        let value = eval_expr::<ProjectionEvalEntity>(&expr, &entity)
+            .expect("numeric equality should widen");
+
+        assert_eq!(value, Value::Bool(true));
+    }
+
+    #[test]
+    fn eval_expr_rejects_numeric_and_non_numeric_equality_mix() {
+        let (_, entity) = row(13, 7, true);
+        let expr = Expr::Binary {
+            op: BinaryOp::Eq,
+            left: Box::new(Expr::Field(FieldId::new("rank"))),
+            right: Box::new(Expr::Field(FieldId::new("label"))),
+        };
+
+        let err = eval_expr::<ProjectionEvalEntity>(&expr, &entity)
+            .expect_err("mixed numeric/non-numeric equality should fail invariant checks");
+        assert!(matches!(
+            err,
+            crate::db::executor::load::projection::ExecutionError::InvalidBinaryOperands { op, .. }
+                if op == "eq"
+        ));
+    }
+
+    #[test]
     fn eval_expr_propagates_null_values() {
         let (_, entity) = row(3, 5, false);
         let expr = Expr::Binary {
@@ -796,6 +830,56 @@ mod tests {
             Some(Ordering::Equal),
             "grouped arithmetic projection should evaluate over grouped keys",
         );
+    }
+
+    #[test]
+    fn grouped_projection_supports_numeric_equality_widening() {
+        let group_fields = [FieldSlot::from_parts_for_test(1, "rank")];
+        let aggregate_exprs: [crate::db::query::builder::aggregate::AggregateExpr; 0] = [];
+        let grouped_row = GroupedRowView::new(
+            &[Value::Int(7)],
+            &[],
+            group_fields.as_slice(),
+            aggregate_exprs.as_slice(),
+        );
+        let expr = Expr::Binary {
+            op: BinaryOp::Eq,
+            left: Box::new(Expr::Field(FieldId::new("rank"))),
+            right: Box::new(Expr::Literal(Value::Uint(7))),
+        };
+
+        let value = eval_expr_grouped(&expr, &grouped_row)
+            .expect("grouped numeric equality should widen deterministically");
+        assert_eq!(value, Value::Bool(true));
+    }
+
+    #[test]
+    fn grouped_projection_rejects_numeric_and_non_numeric_equality_mix() {
+        let group_fields = [
+            FieldSlot::from_parts_for_test(1, "rank"),
+            FieldSlot::from_parts_for_test(2, "label"),
+        ];
+        let aggregate_exprs: [crate::db::query::builder::aggregate::AggregateExpr; 0] = [];
+        let key_values = [Value::Int(7), Value::Text("label-7".to_string())];
+        let grouped_row = GroupedRowView::new(
+            key_values.as_slice(),
+            &[],
+            group_fields.as_slice(),
+            aggregate_exprs.as_slice(),
+        );
+        let expr = Expr::Binary {
+            op: BinaryOp::Eq,
+            left: Box::new(Expr::Field(FieldId::new("rank"))),
+            right: Box::new(Expr::Field(FieldId::new("label"))),
+        };
+
+        let err = eval_expr_grouped(&expr, &grouped_row)
+            .expect_err("grouped mixed numeric/non-numeric equality should fail");
+        assert!(matches!(
+            err,
+            crate::db::executor::load::projection::ExecutionError::InvalidBinaryOperands { op, .. }
+                if op == "eq"
+        ));
     }
 
     #[test]

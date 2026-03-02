@@ -4,6 +4,7 @@
 //! Boundary: centralizes numeric field-kind domain predicates to reduce drift.
 
 use crate::model::field::FieldKind;
+use crate::types::Decimal;
 use crate::value::Value;
 use std::cmp::Ordering;
 
@@ -63,17 +64,28 @@ pub(in crate::db) const fn field_kind_supports_aggregate_numeric(kind: &FieldKin
     }
 }
 
+/// Coerce one value into decimal under the shared numeric coercion contract.
+///
+/// Returns `None` when the value is outside numeric coercion domain or cannot
+/// be represented as a decimal under current runtime numeric rules.
+#[must_use]
+pub(in crate::db) fn coerce_numeric_decimal(value: &Value) -> Option<Decimal> {
+    if !value.supports_numeric_coercion() {
+        return None;
+    }
+
+    value.to_numeric_decimal()
+}
+
 /// Compare two values under numeric-widen coercion semantics.
 ///
 /// Returns `None` when either side is outside numeric coercion domain or when
 /// conversion cannot produce a comparable numeric representation.
 #[must_use]
 pub(in crate::db) fn compare_numeric_order(left: &Value, right: &Value) -> Option<Ordering> {
-    if !left.supports_numeric_coercion() || !right.supports_numeric_coercion() {
-        return None;
-    }
-
-    left.cmp_numeric(right)
+    let left = coerce_numeric_decimal(left)?;
+    let right = coerce_numeric_decimal(right)?;
+    left.partial_cmp(&right)
 }
 
 /// Compare two values for numeric equality under numeric-widen semantics.
@@ -90,10 +102,11 @@ pub(in crate::db) fn compare_numeric_eq(left: &Value, right: &Value) -> Option<b
 mod tests {
     use crate::{
         db::numeric::{
-            compare_numeric_eq, compare_numeric_order, field_kind_supports_aggregate_numeric,
-            field_kind_supports_expr_numeric,
+            coerce_numeric_decimal, compare_numeric_eq, compare_numeric_order,
+            field_kind_supports_aggregate_numeric, field_kind_supports_expr_numeric,
         },
         model::field::FieldKind,
+        types::Int,
         value::Value,
     };
     use std::cmp::Ordering;
@@ -133,5 +146,12 @@ mod tests {
             compare_numeric_order(&Value::Text("x".to_string()), &Value::Text("x".to_string())),
             None
         );
+    }
+
+    #[test]
+    fn numeric_decimal_coercion_rejects_non_coercible_variants() {
+        assert!(coerce_numeric_decimal(&Value::Int(4)).is_some());
+        assert!(coerce_numeric_decimal(&Value::Text("x".to_string())).is_none());
+        assert!(coerce_numeric_decimal(&Value::IntBig(Int::from(4i32))).is_none());
     }
 }
