@@ -18,3 +18,12 @@ fn route_feature_budget_execution_mode_cases_stay_within_soft_delta() {
         "route execution-mode branching exceeded soft feature budget; consolidate before adding more cases"
     );
 }
+
+#[test]
+fn route_grouped_runtime_revalidation_flags_match_baseline() {
+    let flags = grouped_ordered_runtime_revalidation_flag_count_guard();
+    assert_eq!(
+        flags, ROUTE_GROUPED_RUNTIME_REVALIDATION_FLAG_BASELINE_0251,
+        "grouped ordered-route runtime revalidation flags changed; keep grouped semantics planner-owned and runtime revalidation capability-focused",
+    );
+}

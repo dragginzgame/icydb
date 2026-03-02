@@ -19,8 +19,7 @@ use crate::{
         },
         query::builder::AggregateExpr,
         query::plan::{
-            AccessPlannedQuery, DistinctExecutionStrategy, GroupedPlanStrategyHint,
-            grouped_having_compare_op_supported, grouped_plan_strategy_hint,
+            AccessPlannedQuery, GroupedPlanStrategyHint, grouped_plan_strategy_hint_for_route,
         },
     },
     traits::{EntityKind, EntityValue},
@@ -168,9 +167,13 @@ where
             None
         };
         let grouped_execution_strategy = if grouped {
+            // Planner strategy hint already captures grouped semantic policy
+            // (including HAVING operator admissibility). Route feasibility only
+            // revalidates physical/runtime capability constraints.
             let grouped_ordered_eligibility = derive_grouped_ordered_eligibility(
                 plan,
-                grouped_plan_strategy_hint(plan).unwrap_or(GroupedPlanStrategyHint::HashGroup),
+                grouped_plan_strategy_hint_for_route(plan)
+                    .unwrap_or(GroupedPlanStrategyHint::HashGroup),
                 direction,
                 capabilities.desc_physical_reverse_supported,
                 capabilities.streaming_access_shape_safe,
@@ -203,68 +206,35 @@ where
 ///
 /// Executor-owned grouped ordered-strategy eligibility matrix.
 /// This matrix revalidates planner ordered-group hints against runtime capability
-/// and grouped semantic guardrails before strategy projection.
+/// constraints before strategy projection.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[expect(clippy::struct_excessive_bools)]
 struct GroupedOrderedEligibility {
     ordered_hint: bool,
     direction_compatible: bool,
     streaming_access_shape_safe: bool,
-    aggregates_streaming_compatible: bool,
-    having_streaming_compatible: bool,
-    distinct_streaming_compatible: bool,
 }
 
 impl GroupedOrderedEligibility {
     const fn is_eligible(self) -> bool {
-        self.ordered_hint
-            && self.direction_compatible
-            && self.streaming_access_shape_safe
-            && self.aggregates_streaming_compatible
-            && self.having_streaming_compatible
-            && self.distinct_streaming_compatible
+        self.ordered_hint && self.direction_compatible && self.streaming_access_shape_safe
     }
 }
 
 // Derive one grouped ordered-strategy eligibility matrix snapshot.
-fn derive_grouped_ordered_eligibility<K>(
-    plan: &AccessPlannedQuery<K>,
+const fn derive_grouped_ordered_eligibility<K>(
+    _plan: &AccessPlannedQuery<K>,
     plan_hint: GroupedPlanStrategyHint,
     direction: Direction,
     desc_physical_reverse_supported: bool,
     streaming_access_shape_safe: bool,
 ) -> GroupedOrderedEligibility {
-    let grouped = plan.grouped_plan();
-    let aggregates_streaming_compatible = grouped.is_some_and(|grouped| {
-        grouped
-            .group
-            .aggregates
-            .iter()
-            .all(crate::db::query::plan::GroupAggregateSpec::streaming_compatible_v1)
-    });
-    let having_streaming_compatible = grouped.is_none_or(|grouped| {
-        grouped.having.as_ref().is_none_or(|having| {
-            having
-                .clauses()
-                .iter()
-                .all(|clause| grouped_having_compare_op_supported(clause.op()))
-        })
-    });
-
     GroupedOrderedEligibility {
         ordered_hint: matches!(plan_hint, GroupedPlanStrategyHint::OrderedGroup),
         direction_compatible: !matches!(direction, Direction::Desc)
             || desc_physical_reverse_supported,
         streaming_access_shape_safe,
-        aggregates_streaming_compatible,
-        having_streaming_compatible,
-        // Query-level DISTINCT remains incompatible with grouped ordered strategy in this line.
-        distinct_streaming_compatible: matches!(
-            plan.distinct_execution_strategy(),
-            DistinctExecutionStrategy::None
-        ),
     }
 }
 
@@ -277,4 +247,16 @@ const fn grouped_execution_strategy_for_plan_hint(
     } else {
         GroupedExecutionStrategy::HashMaterialized
     }
+}
+
+#[cfg(test)]
+pub(in crate::db::executor) const fn grouped_ordered_runtime_revalidation_flag_count_guard() -> usize
+{
+    let _ = GroupedOrderedEligibility {
+        ordered_hint: false,
+        direction_compatible: false,
+        streaming_access_shape_safe: false,
+    };
+
+    3
 }

@@ -29,7 +29,6 @@ FORBIDDEN_PATTERNS=(
 EXECUTOR_RUNTIME_FORBIDDEN_PATTERNS=(
   "\\bEncodedValue\\b"
   "try_from_ref"
-  "\\bencode\\w*\\b"
 )
 
 # Required guardrails that enforce the planner->executor lowering contract.

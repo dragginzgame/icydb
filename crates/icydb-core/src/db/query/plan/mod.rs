@@ -4,7 +4,7 @@
 //! Boundary: intent/explain/planner/validator consumers import from this root only.
 
 mod access_plan;
-#[allow(dead_code)]
+#[expect(dead_code)]
 pub(crate) mod expr;
 mod group;
 mod grouped_layout;
@@ -37,9 +37,8 @@ pub(in crate::db) use semantics::global_distinct_group_spec_for_semantic_aggrega
 pub(crate) use semantics::{
     AccessPlanProjection, GroupDistinctAdmissibility, GroupDistinctPolicyReason,
     GroupedCursorPolicyViolation, GroupedPlanStrategyHint, evaluate_grouped_having_compare_v1,
-    grouped_distinct_admissibility, grouped_having_compare_op_supported,
-    grouped_plan_strategy_hint, project_access_plan, project_explain_access_path,
-    resolve_global_distinct_field_aggregate,
+    grouped_distinct_admissibility, grouped_having_compare_op_supported, project_access_plan,
+    project_explain_access_path, resolve_global_distinct_field_aggregate,
 };
 #[cfg(test)]
 pub(crate) use semantics::{
@@ -62,6 +61,20 @@ pub(in crate::db) fn grouped_cursor_policy_violation_for_continuation(
     cursor_present: bool,
 ) -> Option<GroupedCursorPolicyViolation> {
     semantics::grouped_cursor_policy_violation(grouped, cursor_present)
+}
+
+// Project grouped strategy hint for executor route strategy selection.
+pub(in crate::db) fn grouped_plan_strategy_hint_for_route<K>(
+    plan: &AccessPlannedQuery<K>,
+) -> Option<GroupedPlanStrategyHint> {
+    semantics::grouped_plan_strategy_hint(plan)
+}
+
+// Project grouped strategy hint for query explain grouping projection.
+pub(in crate::db) fn grouped_plan_strategy_hint_for_explain<K>(
+    plan: &AccessPlannedQuery<K>,
+) -> Option<GroupedPlanStrategyHint> {
+    semantics::grouped_plan_strategy_hint(plan)
 }
 
 #[cfg(test)]

@@ -9,6 +9,7 @@ use crate::db::{
         ExplainGroupAggregate, ExplainGroupField, ExplainGroupHaving, ExplainGroupHavingClause,
         ExplainGroupHavingSymbol, ExplainGroupedStrategy, ExplainGrouping,
     },
+    query::plan::{GroupedPlanStrategyHint, grouped_plan_strategy_hint_for_route},
 };
 
 #[test]
@@ -237,6 +238,14 @@ fn route_plan_grouped_wrapper_downgrades_ordered_strategy_for_unsupported_having
     let grouped_observability = route_plan
         .grouped_observability()
         .expect("grouped route should project grouped observability payload");
+    let planner_hint = grouped_plan_strategy_hint_for_route(&grouped)
+        .expect("grouped plans should project strategy hints");
+
+    assert_eq!(
+        planner_hint,
+        GroupedPlanStrategyHint::HashGroup,
+        "unsupported grouped HAVING operators should be planner-policy rejected from ordered-group hints",
+    );
 
     assert_eq!(
         grouped_observability.grouped_execution_strategy(),

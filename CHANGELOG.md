@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `0.40.1` made load routing use one shared executable access shape at runtime and added a guard test so old path-specific branching does not come back.
 - `0.40.2` unified cursor continuation handling and merged scalar/grouped load dispatch into one internal execution pipeline.
 - `0.40.3` added guard tests that lock load pipeline structure and reduced duplicate grouped cursor-policy checks by keeping that rule behind one continuation boundary.
+- `0.40.4` replaced optional load pipeline stage slots with stage-typed state structs, removed remaining grouped route semantic policy re-checks from executor feasibility in favor of planner hint authority, added runtime revalidation-surface guard coverage, and tightened grouped strategy-hint access behind explicit plan-boundary wrappers for route and explain consumers.
 
 See detailed breakdown:
 [docs/changelog/0.40.md](docs/changelog/0.40.md)

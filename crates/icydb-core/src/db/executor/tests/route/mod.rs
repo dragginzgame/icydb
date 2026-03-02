@@ -10,8 +10,9 @@ use crate::{
             route::{
                 AGGREGATE_FAST_PATH_ORDER, ContinuationMode, ExecutionMode, ExecutionModeRouteCase,
                 FastPathOrder, FieldExtremaIneligibilityReason, GroupedRouteDecisionOutcome,
-                LOAD_FAST_PATH_ORDER, MUTATION_FAST_PATH_ORDER, route_capability_flag_count_guard,
-                route_execution_mode_case_count_guard,
+                LOAD_FAST_PATH_ORDER, MUTATION_FAST_PATH_ORDER,
+                grouped_ordered_runtime_revalidation_flag_count_guard,
+                route_capability_flag_count_guard, route_execution_mode_case_count_guard,
             },
         },
         query::{
@@ -36,6 +37,7 @@ use std::ops::Bound;
 const ROUTE_FEATURE_SOFT_BUDGET_DELTA: usize = 1;
 const ROUTE_CAPABILITY_FLAG_BASELINE_0247: usize = 9;
 const ROUTE_EXECUTION_MODE_CASE_BASELINE_0246: usize = 3;
+const ROUTE_GROUPED_RUNTIME_REVALIDATION_FLAG_BASELINE_0251: usize = 3;
 
 crate::test_canister! {
     ident = RouteMatrixCanister,

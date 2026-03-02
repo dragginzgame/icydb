@@ -175,42 +175,26 @@ struct LoadAccessInputs<E: EntityKind> {
 }
 
 ///
-/// LoadPipelineState
+/// LoadAccessState
 ///
-/// Stage-owned execution artifacts for one load orchestration pass.
-/// Carries normalized context, staged payload, and optional trace/surface outputs.
+/// Access-stage execution artifacts for one load orchestration pass.
+/// Carries normalized context and one required access-stage payload.
 ///
-struct LoadPipelineState<E: EntityKind> {
+struct LoadAccessState<E: EntityKind> {
     context: LoadExecutionContext,
-    access_inputs: Option<LoadAccessInputs<E>>,
-    payload: Option<LoadExecutionPayload<E>>,
-    trace: Option<ExecutionTrace>,
+    access_inputs: LoadAccessInputs<E>,
 }
 
-impl<E: EntityKind> LoadPipelineState<E> {
-    // Build one initial pipeline state from normalized execution context.
-    const fn new(context: LoadExecutionContext) -> Self {
-        Self {
-            context,
-            access_inputs: None,
-            payload: None,
-            trace: None,
-        }
-    }
-
-    // Consume one staged access input artifact from this state.
-    fn take_access_inputs(&mut self) -> Result<LoadAccessInputs<E>, InternalError> {
-        self.access_inputs.take().ok_or_else(|| {
-            super::invariant("load pipeline access-input stage must exist before this operation")
-        })
-    }
-
-    // Consume one staged payload artifact from this state.
-    fn take_payload(&mut self) -> Result<LoadExecutionPayload<E>, InternalError> {
-        self.payload.take().ok_or_else(|| {
-            super::invariant("load pipeline payload stage must exist before this operation")
-        })
-    }
+///
+/// LoadPayloadState
+///
+/// Payload-stage execution artifacts for one load orchestration pass.
+/// Carries normalized context, one required payload, and optional trace output.
+///
+struct LoadPayloadState<E: EntityKind> {
+    context: LoadExecutionContext,
+    payload: LoadExecutionPayload<E>,
+    trace: Option<ExecutionTrace>,
 }
 
 ///
@@ -359,11 +343,11 @@ where
         cursor: LoadCursorInput,
         execution_mode: LoadExecutionMode,
     ) -> Result<LoadExecutionOutput<E>, InternalError> {
-        let mut state = Self::build_execution_context(plan, cursor, execution_mode)?;
-        state = Self::execute_access_path(state)?;
-        state = self.apply_grouping_projection(state)?;
-        state = Self::apply_paging(state)?;
-        state = Self::apply_tracing(state);
+        let state = Self::build_execution_context(plan, cursor, execution_mode)?;
+        let state = Self::execute_access_path(state);
+        let state = self.apply_grouping_projection(state)?;
+        let state = Self::apply_paging(state)?;
+        let state = Self::apply_tracing(state);
 
         Self::materialize_surface(state)
     }
@@ -373,7 +357,7 @@ where
         plan: ExecutablePlan<E>,
         cursor: LoadCursorInput,
         execution_mode: LoadExecutionMode,
-    ) -> Result<LoadPipelineState<E>, InternalError> {
+    ) -> Result<LoadAccessState<E>, InternalError> {
         execution_mode.validate()?;
         if !plan.mode().is_load() {
             return Err(super::invariant("load executor requires load plans"));
@@ -412,34 +396,32 @@ where
                 ));
             }
         };
-        let context = LoadExecutionContext::new(execution_mode);
-        let mut state = LoadPipelineState::new(context);
-        state.access_inputs = Some(LoadAccessInputs {
-            plan,
-            cursor: prepared_cursor,
-        });
-
-        Ok(state)
+        Ok(LoadAccessState {
+            context: LoadExecutionContext::new(execution_mode),
+            access_inputs: LoadAccessInputs {
+                plan,
+                cursor: prepared_cursor,
+            },
+        })
     }
 
     // Execute one canonical access path and stage payload + trace artifacts.
-    fn execute_access_path(
-        mut state: LoadPipelineState<E>,
-    ) -> Result<LoadPipelineState<E>, InternalError> {
-        // Mechanical stage boundary: assert access inputs are staged and carry forward.
-        let access_inputs = state.take_access_inputs()?;
-        state.access_inputs = Some(access_inputs);
-
-        Ok(state)
+    const fn execute_access_path(state: LoadAccessState<E>) -> LoadAccessState<E> {
+        // Mechanical stage boundary: access inputs stay normalized and stage-owned.
+        state
     }
 
     // Apply grouping/projection contracts over staged payload artifacts.
     fn apply_grouping_projection(
         &self,
-        mut state: LoadPipelineState<E>,
-    ) -> Result<LoadPipelineState<E>, InternalError> {
-        let LoadAccessInputs { plan, cursor } = state.take_access_inputs()?;
-        let (payload, trace) = match (state.context.mode.grouping, cursor) {
+        state: LoadAccessState<E>,
+    ) -> Result<LoadPayloadState<E>, InternalError> {
+        let LoadAccessState {
+            context,
+            access_inputs,
+        } = state;
+        let LoadAccessInputs { plan, cursor } = access_inputs;
+        let (payload, trace) = match (context.mode.grouping, cursor) {
             (LoadGroupingMode::Scalar, LoadPreparedCursor::Scalar(cursor)) => {
                 let (page, trace) = self.execute_scalar_path(plan, cursor)?;
                 (LoadExecutionPayload::Scalar(page), trace)
@@ -459,18 +441,17 @@ where
                 ));
             }
         };
-        state.payload = Some(payload);
-        state.trace = trace;
 
-        Ok(state)
+        Ok(LoadPayloadState {
+            context,
+            payload,
+            trace,
+        })
     }
 
     // Apply paging contracts over staged payload artifacts.
-    fn apply_paging(
-        mut state: LoadPipelineState<E>,
-    ) -> Result<LoadPipelineState<E>, InternalError> {
-        let payload = state.take_payload()?;
-        let payload = match (state.context.mode.paging, payload) {
+    fn apply_paging(mut state: LoadPayloadState<E>) -> Result<LoadPayloadState<E>, InternalError> {
+        let payload = match (state.context.mode.paging, state.payload) {
             (LoadPagingMode::Paged, payload) => payload,
             (LoadPagingMode::Unpaged, LoadExecutionPayload::Scalar(mut page)) => {
                 // Unpaged scalar execution intentionally suppresses continuation payload.
@@ -483,13 +464,13 @@ where
                 ));
             }
         };
-        state.payload = Some(payload);
+        state.payload = payload;
 
         Ok(state)
     }
 
     // Apply tracing contracts as a post-processing layer over staged artifacts.
-    const fn apply_tracing(mut state: LoadPipelineState<E>) -> LoadPipelineState<E> {
+    const fn apply_tracing(mut state: LoadPayloadState<E>) -> LoadPayloadState<E> {
         if matches!(state.context.mode.tracing, LoadTracingMode::Disabled) {
             state.trace = None;
         }
@@ -499,10 +480,9 @@ where
 
     // Materialize one finalized response surface from staged artifacts.
     fn materialize_surface(
-        mut state: LoadPipelineState<E>,
+        state: LoadPayloadState<E>,
     ) -> Result<LoadExecutionOutput<E>, InternalError> {
-        let payload = state.take_payload()?;
-        let output = match (state.context.mode.mode, payload) {
+        let output = match (state.context.mode.mode, state.payload) {
             (LoadSurfaceMode::Page, payload) => LoadExecutionOutput {
                 payload,
                 trace: state.trace,
@@ -641,17 +621,25 @@ pub(in crate::db::executor) const fn load_execute_stage_order_guard() -> [&'stat
 #[cfg(test)]
 pub(in crate::db::executor) fn load_pipeline_state_optional_slot_count_guard<E: EntityKind>()
 -> usize {
-    fn consume_state_shape<E: EntityKind>(state: LoadPipelineState<E>) {
-        let LoadPipelineState {
+    fn consume_access_state_shape<E: EntityKind>(state: LoadAccessState<E>) {
+        let LoadAccessState {
             context,
             access_inputs,
+        } = state;
+        let _ = (context, access_inputs);
+    }
+
+    fn consume_payload_state_shape<E: EntityKind>(state: LoadPayloadState<E>) {
+        let LoadPayloadState {
+            context,
             payload,
             trace,
         } = state;
-        let _ = (context, access_inputs, payload, trace);
+        let _ = (context, payload, trace);
     }
 
-    let _ = consume_state_shape::<E> as fn(LoadPipelineState<E>);
+    let _ = consume_access_state_shape::<E> as fn(LoadAccessState<E>);
+    let _ = consume_payload_state_shape::<E> as fn(LoadPayloadState<E>);
 
-    3
+    0
 }

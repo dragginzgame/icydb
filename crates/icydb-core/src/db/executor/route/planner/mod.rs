@@ -7,6 +7,9 @@ mod execution;
 mod feasibility;
 mod intent;
 
+#[cfg(test)]
+pub(in crate::db::executor) use feasibility::grouped_ordered_runtime_revalidation_flag_count_guard;
+
 use crate::{
     db::{
         access::PushdownApplicability,
