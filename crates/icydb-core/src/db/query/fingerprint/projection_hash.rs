@@ -4,6 +4,7 @@
 //! Boundary: semantic-only projection hash bytes independent from alias/explain metadata.
 
 use crate::{
+    db::numeric::coerce_numeric_decimal,
     db::query::{
         builder::aggregate::AggregateExpr,
         plan::{
@@ -56,12 +57,12 @@ fn hash_projection_field_v1(hasher: &mut Sha256, field: &ProjectionField) {
             // Field aliases are explain/display metadata and must not affect
             // projection semantic identity.
             write_tag(hasher, 0x10);
-            hash_expr_v1(hasher, expr);
+            hash_expr_v1(hasher, expr, false);
         }
     }
 }
 
-fn hash_expr_v1(hasher: &mut Sha256, expr: &Expr) {
+fn hash_expr_v1(hasher: &mut Sha256, expr: &Expr, numeric_literal_context: bool) {
     match expr {
         Expr::Field(field) => {
             write_tag(hasher, 0x20);
@@ -69,18 +70,28 @@ fn hash_expr_v1(hasher: &mut Sha256, expr: &Expr) {
         }
         Expr::Literal(value) => {
             write_tag(hasher, 0x21);
-            write_value(hasher, value);
+            if numeric_literal_context {
+                hash_numeric_literal_semantic_v1(hasher, value);
+            } else {
+                write_value(hasher, value);
+            }
         }
         Expr::Unary { op, expr } => {
             write_tag(hasher, 0x22);
             write_tag(hasher, unary_op_tag_v1(*op));
-            hash_expr_v1(hasher, expr.as_ref());
+            hash_expr_v1(
+                hasher,
+                expr.as_ref(),
+                matches!(op, UnaryOp::Neg) || numeric_literal_context,
+            );
         }
         Expr::Binary { op, left, right } => {
             write_tag(hasher, 0x23);
             write_tag(hasher, binary_op_tag_v1(*op));
-            hash_expr_v1(hasher, left.as_ref());
-            hash_expr_v1(hasher, right.as_ref());
+            let binary_numeric_literal_context =
+                numeric_literal_context || binary_op_uses_numeric_widen_semantics(*op);
+            hash_expr_v1(hasher, left.as_ref(), binary_numeric_literal_context);
+            hash_expr_v1(hasher, right.as_ref(), binary_numeric_literal_context);
         }
         Expr::Aggregate(aggregate) => {
             write_tag(hasher, 0x24);
@@ -88,9 +99,37 @@ fn hash_expr_v1(hasher: &mut Sha256, expr: &Expr) {
         }
         Expr::Alias { expr, name: _ } => {
             // Expression alias wrappers are presentation metadata only.
-            hash_expr_v1(hasher, expr.as_ref());
+            hash_expr_v1(hasher, expr.as_ref(), numeric_literal_context);
         }
     }
+}
+
+// Canonicalize numeric-coercible literal leaves when they appear under numeric
+// operators so promotion-path representation differences do not fragment identity.
+fn hash_numeric_literal_semantic_v1(hasher: &mut Sha256, value: &Value) {
+    let Some(decimal) = coerce_numeric_decimal(value) else {
+        write_value(hasher, value);
+        return;
+    };
+
+    write_tag(hasher, 0xA1);
+    write_value(hasher, &Value::Decimal(decimal));
+}
+
+const fn binary_op_uses_numeric_widen_semantics(op: BinaryOp) -> bool {
+    matches!(
+        op,
+        BinaryOp::Add
+            | BinaryOp::Sub
+            | BinaryOp::Mul
+            | BinaryOp::Div
+            | BinaryOp::Eq
+            | BinaryOp::Ne
+            | BinaryOp::Lt
+            | BinaryOp::Lte
+            | BinaryOp::Gt
+            | BinaryOp::Gte
+    )
 }
 
 fn hash_aggregate_expr_v1(hasher: &mut Sha256, aggregate: &AggregateExpr) {
@@ -185,8 +224,9 @@ mod tests {
     use crate::db::query::{
         builder::{count, sum},
         fingerprint::projection_hash::hash_projection_structural_fingerprint_v1,
-        plan::expr::{Alias, Expr, FieldId, ProjectionField, ProjectionSpec},
+        plan::expr::{Alias, BinaryOp, Expr, FieldId, ProjectionField, ProjectionSpec},
     };
+    use crate::{types::Decimal, value::Value};
     use sha2::{Digest, Sha256};
 
     fn hash_projection(spec: &ProjectionSpec) -> [u8; 32] {
@@ -253,6 +293,155 @@ mod tests {
         }]);
 
         assert_ne!(hash_projection(&sum_rank), hash_projection(&count_all));
+    }
+
+    #[test]
+    fn numeric_literal_decimal_scale_is_canonicalized_for_hash_identity() {
+        let decimal_one_scale_1 =
+            ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+                expr: Expr::Literal(Value::Decimal(Decimal::new(10, 1))),
+                alias: None,
+            }]);
+        let decimal_one_scale_2 =
+            ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+                expr: Expr::Literal(Value::Decimal(Decimal::new(100, 2))),
+                alias: None,
+            }]);
+
+        assert_eq!(
+            hash_projection(&decimal_one_scale_1),
+            hash_projection(&decimal_one_scale_2),
+            "decimal literal scale-only differences must not fragment identity",
+        );
+    }
+
+    #[test]
+    fn literal_numeric_subtype_remains_hash_significant_when_observable() {
+        let int_literal = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+            expr: Expr::Literal(Value::Int(1)),
+            alias: None,
+        }]);
+        let decimal_literal = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+            expr: Expr::Literal(Value::Decimal(Decimal::new(10, 1))),
+            alias: None,
+        }]);
+
+        assert_ne!(
+            hash_projection(&int_literal),
+            hash_projection(&decimal_literal),
+            "top-level literal subtype is observable and remains identity-significant",
+        );
+    }
+
+    #[test]
+    fn numeric_promotion_paths_do_not_fragment_hash_identity() {
+        let int_plus_int = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+            expr: Expr::Binary {
+                op: BinaryOp::Add,
+                left: Box::new(Expr::Literal(Value::Int(1))),
+                right: Box::new(Expr::Literal(Value::Int(2))),
+            },
+            alias: None,
+        }]);
+        let int_plus_decimal =
+            ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+                expr: Expr::Binary {
+                    op: BinaryOp::Add,
+                    left: Box::new(Expr::Literal(Value::Int(1))),
+                    right: Box::new(Expr::Literal(Value::Decimal(Decimal::new(20, 1)))),
+                },
+                alias: None,
+            }]);
+        let decimal_plus_int =
+            ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+                expr: Expr::Binary {
+                    op: BinaryOp::Add,
+                    left: Box::new(Expr::Literal(Value::Decimal(Decimal::new(10, 1)))),
+                    right: Box::new(Expr::Literal(Value::Int(2))),
+                },
+                alias: None,
+            }]);
+
+        let hash_int_plus_int = hash_projection(&int_plus_int);
+        let hash_int_plus_decimal = hash_projection(&int_plus_decimal);
+        let hash_decimal_plus_int = hash_projection(&decimal_plus_int);
+
+        assert_eq!(hash_int_plus_int, hash_int_plus_decimal);
+        assert_eq!(hash_int_plus_int, hash_decimal_plus_int);
+    }
+
+    #[test]
+    fn aggregate_numeric_target_field_remains_hash_significant() {
+        let sum_rank = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+            expr: Expr::Aggregate(sum("rank")),
+            alias: None,
+        }]);
+        let sum_score = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+            expr: Expr::Aggregate(sum("score")),
+            alias: None,
+        }]);
+
+        assert_ne!(
+            hash_projection(&sum_rank),
+            hash_projection(&sum_score),
+            "aggregate target-field semantic changes must invalidate identity",
+        );
+    }
+
+    #[test]
+    fn aggregate_numeric_promotion_noop_paths_stay_hash_stable() {
+        let sum_plus_int_zero =
+            ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+                expr: Expr::Binary {
+                    op: BinaryOp::Add,
+                    left: Box::new(Expr::Aggregate(sum("rank"))),
+                    right: Box::new(Expr::Literal(Value::Int(0))),
+                },
+                alias: None,
+            }]);
+        let sum_plus_decimal_zero =
+            ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+                expr: Expr::Binary {
+                    op: BinaryOp::Add,
+                    left: Box::new(Expr::Aggregate(sum("rank"))),
+                    right: Box::new(Expr::Literal(Value::Decimal(Decimal::new(0, 1)))),
+                },
+                alias: None,
+            }]);
+
+        assert_eq!(
+            hash_projection(&sum_plus_int_zero),
+            hash_projection(&sum_plus_decimal_zero),
+            "numeric no-op literal subtype differences must not fragment aggregate identity",
+        );
+    }
+
+    #[test]
+    fn distinct_numeric_promotion_noop_paths_stay_hash_stable() {
+        let sum_distinct_plus_int_zero =
+            ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+                expr: Expr::Binary {
+                    op: BinaryOp::Add,
+                    left: Box::new(Expr::Aggregate(sum("rank").distinct())),
+                    right: Box::new(Expr::Literal(Value::Int(0))),
+                },
+                alias: None,
+            }]);
+        let sum_distinct_plus_decimal_zero =
+            ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+                expr: Expr::Binary {
+                    op: BinaryOp::Add,
+                    left: Box::new(Expr::Aggregate(sum("rank").distinct())),
+                    right: Box::new(Expr::Literal(Value::Decimal(Decimal::new(0, 1)))),
+                },
+                alias: None,
+            }]);
+
+        assert_eq!(
+            hash_projection(&sum_distinct_plus_int_zero),
+            hash_projection(&sum_distinct_plus_decimal_zero),
+            "distinct numeric no-op literal subtype differences must not fragment identity",
+        );
     }
 
     #[test]

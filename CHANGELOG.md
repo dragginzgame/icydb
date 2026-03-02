@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.39.x] - 2026-03-02 - Numeric Consolidation
 
+- `0.39.3` adds numeric identity drift guards for continuation signatures and plan fingerprints, including literal/promotion stability checks (`1 + 2` vs mixed numeric literal forms), aggregate/DISTINCT no-op promotion-path checks, and alias-only continuation decode/resume stability coverage.
 - `0.39.2` consolidates numeric runtime semantics by formalizing the shared arithmetic contract (promotion/coercion/overflow/division), converging predicate/HAVING/range-bound numeric comparison paths on shared numeric compare authority, and aligning aggregate `sum/avg` plus grouped global `SUM(DISTINCT field)` arithmetic with that same contract while keeping strict index pushdown boundaries explicit.
 - `0.39.1` starts runtime numeric convergence by routing projection and aggregate decimal coercion through one shared helper, so mixed numeric comparisons/arithmetic behave consistently and mixed numeric-vs-non-numeric equality now fails as an invariant error instead of silently returning false.
 - `0.39.0` consolidates numeric capability checks under shared helpers and tightens planner expression typing so numeric operators/aggregates fail early on known non-numeric fields while mixed numeric expressions still work when subtype cannot be resolved yet.

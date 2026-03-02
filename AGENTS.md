@@ -399,6 +399,15 @@ Code is considered non-trivial if it:
 
 ---
 
+## Design Doc Versioning Rules
+
+* Do not assume or infer patch version numbers for design docs or status docs.
+* Use explicit patch numbers only when the user provides them in the current conversation.
+* If patch numbering is not explicitly provided, use neutral labels such as `next patch` / `subsequent patch` instead of `0.x.y`.
+* Do not renumber planned slices in design docs based on assumptions about upcoming releases.
+
+---
+
 ## Changelog Readability Rules
 
 * Audience split is mandatory:

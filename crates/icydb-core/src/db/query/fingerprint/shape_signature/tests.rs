@@ -13,7 +13,8 @@ use crate::{
         contracts::{CompareOp, MissingRowPolicy, Predicate},
         cursor::{
             ContinuationSignature, ContinuationToken, CursorBoundary, CursorBoundarySlot,
-            IndexRangeCursorAnchor, TokenWireError,
+            GroupedContinuationToken, IndexRangeCursorAnchor, TokenWireError,
+            prepare_grouped_cursor,
         },
         direction::Direction,
         query::{
@@ -250,6 +251,99 @@ fn continuation_signature_projection_alias_only_change_does_not_invalidate() {
 }
 
 #[test]
+fn continuation_signature_numeric_projection_alias_only_change_does_not_invalidate() {
+    let explain = scalar_explain_with_fixed_shape();
+    let numeric_projection = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+        expr: Expr::Binary {
+            op: crate::db::query::plan::expr::BinaryOp::Add,
+            left: Box::new(Expr::Field(FieldId::new("rank"))),
+            right: Box::new(Expr::Literal(Value::Int(1))),
+        },
+        alias: None,
+    }]);
+    let alias_only_numeric_projection =
+        ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+            expr: Expr::Alias {
+                expr: Box::new(Expr::Binary {
+                    op: crate::db::query::plan::expr::BinaryOp::Add,
+                    left: Box::new(Expr::Field(FieldId::new("rank"))),
+                    right: Box::new(Expr::Literal(Value::Int(1))),
+                }),
+                name: Alias::new("rank_plus_one_expr"),
+            },
+            alias: Some(Alias::new("rank_plus_one")),
+        }]);
+
+    let semantic_signature =
+        continuation_signature_with_projection(&explain, "tests::Entity", &numeric_projection);
+    let alias_signature = continuation_signature_with_projection(
+        &explain,
+        "tests::Entity",
+        &alias_only_numeric_projection,
+    );
+
+    assert_eq!(
+        semantic_signature, alias_signature,
+        "numeric projection alias wrappers must not affect continuation identity",
+    );
+}
+
+#[test]
+fn continuation_decode_remains_stable_for_alias_only_numeric_projection_changes() {
+    let explain = grouped_explain_with_fixed_shape();
+    let numeric_projection = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+        expr: Expr::Binary {
+            op: crate::db::query::plan::expr::BinaryOp::Add,
+            left: Box::new(Expr::Field(FieldId::new("rank"))),
+            right: Box::new(Expr::Literal(Value::Int(1))),
+        },
+        alias: None,
+    }]);
+    let alias_only_numeric_projection =
+        ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+            expr: Expr::Alias {
+                expr: Box::new(Expr::Binary {
+                    op: crate::db::query::plan::expr::BinaryOp::Add,
+                    left: Box::new(Expr::Field(FieldId::new("rank"))),
+                    right: Box::new(Expr::Literal(Value::Int(1))),
+                }),
+                name: Alias::new("rank_plus_one_expr"),
+            },
+            alias: Some(Alias::new("rank_plus_one")),
+        }]);
+
+    let semantic_signature =
+        continuation_signature_with_projection(&explain, "tests::Entity", &numeric_projection);
+    let alias_signature = continuation_signature_with_projection(
+        &explain,
+        "tests::Entity",
+        &alias_only_numeric_projection,
+    );
+    let token = GroupedContinuationToken::new_with_direction(
+        semantic_signature,
+        vec![Value::Uint(7)],
+        Direction::Asc,
+        0,
+    );
+    let encoded = token
+        .encode()
+        .expect("grouped continuation token should encode");
+    let decoded = prepare_grouped_cursor(
+        "tests::Entity",
+        None,
+        alias_signature,
+        0,
+        Some(encoded.as_slice()),
+    )
+    .expect("alias-only numeric projection changes must preserve decode+resume");
+
+    assert_eq!(
+        decoded.last_group_key(),
+        Some(vec![Value::Uint(7)].as_slice())
+    );
+}
+
+#[test]
 fn continuation_signature_identity_projection_remains_stable() {
     let plan: AccessPlannedQuery<Value> =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
@@ -284,6 +378,37 @@ fn continuation_signature_projection_semantic_change_invalidates() {
         continuation_signature_with_projection(&explain, "tests::Entity", &projection_tenant);
 
     assert_ne!(rank_signature, tenant_signature);
+}
+
+#[test]
+fn continuation_signature_numeric_projection_semantic_change_invalidates() {
+    let explain = scalar_explain_with_fixed_shape();
+    let projection_add_one = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+        expr: Expr::Binary {
+            op: crate::db::query::plan::expr::BinaryOp::Add,
+            left: Box::new(Expr::Field(FieldId::new("rank"))),
+            right: Box::new(Expr::Literal(Value::Int(1))),
+        },
+        alias: None,
+    }]);
+    let projection_mul_one = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+        expr: Expr::Binary {
+            op: crate::db::query::plan::expr::BinaryOp::Mul,
+            left: Box::new(Expr::Field(FieldId::new("rank"))),
+            right: Box::new(Expr::Literal(Value::Int(1))),
+        },
+        alias: None,
+    }]);
+
+    let add_signature =
+        continuation_signature_with_projection(&explain, "tests::Entity", &projection_add_one);
+    let mul_signature =
+        continuation_signature_with_projection(&explain, "tests::Entity", &projection_mul_one);
+
+    assert_ne!(
+        add_signature, mul_signature,
+        "numeric projection semantic operator changes must invalidate continuation identity",
+    );
 }
 
 #[test]

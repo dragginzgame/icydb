@@ -7,8 +7,8 @@ use crate::{
     db::{
         executor::load::LoadExecutor,
         numeric::{
-            NumericArithmeticOp, apply_numeric_arithmetic, coerce_numeric_decimal,
-            compare_numeric_eq, compare_numeric_order,
+            NumericArithmeticOp, apply_numeric_arithmetic, compare_numeric_eq,
+            compare_numeric_order,
         },
         query::builder::AggregateExpr,
         query::plan::{
@@ -271,14 +271,18 @@ fn eval_unary_expr(op: UnaryOp, value: Value) -> Result<Value, ExecutionError> {
 
     match op {
         UnaryOp::Neg => {
-            let Some(decimal) = coerce_numeric_decimal(&value) else {
+            let Some(result) = apply_numeric_arithmetic(
+                NumericArithmeticOp::Sub,
+                &Value::Decimal(Decimal::ZERO),
+                &value,
+            ) else {
                 return Err(ExecutionError::InvalidUnaryOperand {
                     op: unary_op_name(op).to_string(),
                     found: Box::new(value),
                 });
             };
 
-            Ok(Value::Decimal(Decimal::ZERO - decimal))
+            Ok(Value::Decimal(result))
         }
         UnaryOp::Not => {
             let Value::Bool(v) = value else {
