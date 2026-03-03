@@ -29,6 +29,7 @@ use crate::{
     traits::{EntityKind, EntityValue, FieldValue},
 };
 
+pub(in crate::db) use anchor::ValidatedInEnvelopeIndexRangeCursorAnchor;
 pub(crate) use boundary::{CursorBoundary, CursorBoundarySlot};
 pub(in crate::db) use boundary::{
     apply_order_direction, compare_boundary_slots, decode_pk_cursor_boundary as decode_pk_boundary,
@@ -40,7 +41,7 @@ pub(in crate::db) use order::{apply_order_spec, apply_order_spec_bounded};
 pub(in crate::db) use planned::{GroupedPlannedCursor, PlannedCursor};
 pub(in crate::db) use range_token::{
     RangeToken, cursor_anchor_from_index_key, range_token_anchor_key,
-    range_token_from_cursor_anchor, range_token_from_lowered_anchor,
+    range_token_from_lowered_anchor, range_token_from_validated_cursor_anchor,
 };
 #[expect(unreachable_pub)]
 pub use signature::ContinuationSignature;

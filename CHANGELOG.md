@@ -14,7 +14,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `0.40.4` tightened the unified load pipeline by using stage-typed state handoffs, keeping grouped policy decisions behind planner-owned wrappers, and adding fail-closed grouped DISTINCT guards plus planner-bypass tests.
 - `0.40.5` continued the load/executor cleanup by bundling page and physical stream inputs into typed request contracts, converging aggregate fast-path helper inputs, and splitting grouped route stage state into explicit ownership bundles.
 - `0.40.6` split `query::plan::semantics`, `query::intent`, and `executor::load::projection` into domain modules to reduce file size and clarify ownership, without changing behavior.
-- `0.40.7` next.
+- `0.40.7` boundary-semantics audit completed.
+- `0.40.8` placeholder entry (details pending).
 
 See detailed breakdown:
 [docs/changelog/0.40.md](docs/changelog/0.40.md)

@@ -1,4 +1,6 @@
 use super::*;
+use proptest::prelude::*;
+use std::collections::BTreeSet;
 
 #[test]
 fn load_single_field_between_equivalent_pushdown_matches_by_ids_fallback() {
@@ -391,6 +393,148 @@ fn load_composite_range_cursor_pagination_matches_unbounded_and_anchor_is_strict
         paged_row_bytes, unbounded_row_bytes,
         "concatenated paginated rows must be byte-for-byte identical to the unbounded result set"
     );
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(48))]
+
+    #[test]
+    fn load_index_range_cursor_property_matrix_preserves_union_monotonicity_and_resume_suffix(
+        codes in proptest::collection::btree_set(1u32..2000u32, 5..18),
+        start_seed in any::<u8>(),
+        span_seed in any::<u8>(),
+        limit in 1u32..6u32,
+    ) {
+        setup_pagination_test();
+
+        let sorted_codes = codes.into_iter().collect::<Vec<_>>();
+        let start = usize::from(start_seed) % sorted_codes.len();
+        let max_span = sorted_codes.len() - start;
+        let span = (usize::from(span_seed) % max_span).saturating_add(1);
+        let end = start.saturating_add(span);
+        let lower = sorted_codes[start];
+        let upper = if end < sorted_codes.len() {
+            sorted_codes[end]
+        } else {
+            sorted_codes
+                .last()
+                .copied()
+                .expect("generated code set should be non-empty")
+                .saturating_add(1)
+        };
+        prop_assume!(upper > lower);
+
+        let save = SaveExecutor::<UniqueIndexRangeEntity>::new(DB, false);
+        for (row_index, code) in sorted_codes.iter().copied().enumerate() {
+            save.insert(UniqueIndexRangeEntity {
+                id: Ulid::from_u128(31_000_000 + row_index as u128),
+                code,
+                label: format!("code-{code}"),
+            })
+            .expect("property seed row save should succeed");
+        }
+
+        let predicate = unique_code_range_predicate(lower, upper);
+        let explain = Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
+            .filter(predicate.clone())
+            .order_by("code")
+            .limit(limit)
+            .explain()
+            .expect("property matrix explain should build");
+        prop_assert!(
+            explain_contains_index_range(
+                &explain.access,
+                UNIQUE_INDEX_RANGE_INDEX_MODELS[0].name,
+                0,
+            ),
+            "property matrix case should plan an IndexRange access path",
+        );
+
+        let load = LoadExecutor::<UniqueIndexRangeEntity>::new(DB, false);
+        let unbounded_plan = Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
+            .filter(predicate.clone())
+            .order_by("code")
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("property matrix unbounded plan should build");
+        let unbounded = load
+            .execute(unbounded_plan)
+            .expect("property matrix unbounded execution should succeed");
+        let expected_ids = ids_from_items(&unbounded.0);
+
+        let build_plan = || {
+            Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
+                .filter(predicate.clone())
+                .order_by("code")
+                .limit(limit)
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("property matrix page plan should build")
+        };
+
+        let mut cursor: Option<Vec<u8>> = None;
+        let mut paged_ids = Vec::new();
+        let mut tokens = Vec::new();
+        let mut anchors = Vec::new();
+        let mut pages = 0usize;
+
+        loop {
+            pages = pages.saturating_add(1);
+            prop_assert!(
+                pages <= 64,
+                "property matrix pagination should terminate in bounded pages",
+            );
+
+            let page_plan = build_plan();
+            let planned_cursor = page_plan
+                .prepare_cursor(cursor.as_deref())
+                .expect("property matrix page cursor should plan");
+            let page = load
+                .execute_paged_with_cursor(page_plan, planned_cursor)
+                .expect("property matrix paged execution should succeed");
+
+            paged_ids.extend(ids_from_items(&page.items.0));
+
+            let Some(next_cursor) = page.next_cursor else {
+                break;
+            };
+
+            let next_cursor_bytes = encode_token(
+                &next_cursor,
+                "property matrix continuation cursor should serialize",
+            );
+            assert_anchor_monotonic(
+                &mut anchors,
+                next_cursor_bytes.as_slice(),
+                "property matrix continuation cursor should decode",
+                "property matrix index-range cursor should include a raw-key anchor",
+                "property matrix continuation anchors must advance strictly",
+            );
+            tokens.push(next_cursor_bytes.clone());
+            cursor = Some(next_cursor_bytes);
+        }
+
+        prop_assert_eq!(
+            paged_ids.as_slice(),
+            expected_ids.as_slice(),
+            "property matrix paginated union must equal unbounded full scan",
+        );
+        let unique_ids: BTreeSet<Ulid> = paged_ids.iter().copied().collect();
+        prop_assert_eq!(
+            unique_ids.len(),
+            paged_ids.len(),
+            "property matrix pagination must not emit duplicates",
+        );
+
+        assert_resume_suffixes_from_tokens(
+            &load,
+            &build_plan,
+            tokens.as_slice(),
+            expected_ids.as_slice(),
+            64,
+            "property matrix resume should preserve strict Excluded(anchor) suffix semantics",
+        );
+    }
 }
 
 #[test]

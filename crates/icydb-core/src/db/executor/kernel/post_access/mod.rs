@@ -14,6 +14,7 @@ use crate::{
 };
 use crate::{
     db::{
+        access::LoweredKey,
         cursor::{
             ContinuationSignature, ContinuationToken, CursorBoundary,
             next_cursor_for_materialized_rows as derive_next_materialized_cursor,
@@ -155,6 +156,7 @@ impl ExecutionKernel {
         rows: &[(Id<E>, E)],
         stats: &PostAccessStats,
         cursor_boundary: Option<&CursorBoundary>,
+        previous_index_range_anchor: Option<&LoweredKey>,
         direction: Direction,
         signature: ContinuationSignature,
     ) -> Result<Option<ContinuationToken>, InternalError>
@@ -168,6 +170,7 @@ impl ExecutionKernel {
             rows,
             stats.rows_after_cursor,
             cursor_boundary,
+            previous_index_range_anchor,
             direction,
             signature,
         )

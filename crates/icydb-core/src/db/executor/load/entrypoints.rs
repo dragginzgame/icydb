@@ -136,13 +136,13 @@ impl LoadExecutionMode {
 
 // Cursor variant input contract for unified load entrypoint dispatch.
 enum LoadCursorInput {
-    Scalar(PlannedCursor),
+    Scalar(Box<PlannedCursor>),
     Grouped(GroupedPlannedCursor),
 }
 
 // Normalized cursor contract carried by the staged load pipeline.
 enum LoadPreparedCursor {
-    Scalar(PlannedCursor),
+    Scalar(Box<PlannedCursor>),
     Grouped(GroupedPlannedCursor),
 }
 
@@ -276,7 +276,7 @@ where
     pub(crate) fn execute(&self, plan: ExecutablePlan<E>) -> Result<Response<E>, InternalError> {
         let output = self.execute_load(
             plan,
-            LoadCursorInput::Scalar(PlannedCursor::none()),
+            LoadCursorInput::Scalar(Box::new(PlannedCursor::none())),
             LoadExecutionMode::scalar_unpaged_rows(),
         )?;
 
@@ -293,7 +293,7 @@ where
     ) -> Result<CursorPage<E>, InternalError> {
         let output = self.execute_load(
             plan,
-            LoadCursorInput::Scalar(cursor.into()),
+            LoadCursorInput::Scalar(Box::new(cursor.into())),
             LoadExecutionMode::scalar_paged(LoadTracingMode::Disabled),
         )?;
 
@@ -308,7 +308,7 @@ where
     ) -> Result<(CursorPage<E>, Option<ExecutionTrace>), InternalError> {
         let output = self.execute_load(
             plan,
-            LoadCursorInput::Scalar(cursor.into()),
+            LoadCursorInput::Scalar(Box::new(cursor.into())),
             LoadExecutionMode::scalar_paged(LoadTracingMode::Enabled),
         )?;
 
@@ -380,7 +380,7 @@ where
 
         let prepared_cursor = match (execution_mode.grouping, cursor) {
             (LoadGroupingMode::Scalar, LoadCursorInput::Scalar(cursor)) => {
-                LoadPreparedCursor::Scalar(plan.revalidate_cursor(cursor)?)
+                LoadPreparedCursor::Scalar(Box::new(plan.revalidate_cursor(*cursor)?))
             }
             (LoadGroupingMode::Grouped, LoadCursorInput::Grouped(cursor)) => {
                 LoadPreparedCursor::Grouped(plan.revalidate_grouped_cursor(cursor)?)
@@ -423,7 +423,7 @@ where
         let LoadAccessInputs { plan, cursor } = access_inputs;
         let (payload, trace) = match (context.mode.grouping, cursor) {
             (LoadGroupingMode::Scalar, LoadPreparedCursor::Scalar(cursor)) => {
-                let (page, trace) = self.execute_scalar_path(plan, cursor)?;
+                let (page, trace) = self.execute_scalar_path(plan, *cursor)?;
                 (LoadExecutionPayload::Scalar(page), trace)
             }
             (LoadGroupingMode::Grouped, LoadPreparedCursor::Grouped(cursor)) => {

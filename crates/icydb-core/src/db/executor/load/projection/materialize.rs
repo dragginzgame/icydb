@@ -18,6 +18,24 @@ use crate::db::executor::load::projection::{
     grouped::GroupedRowView,
 };
 
+///
+/// ShapePreservingProjection
+///
+/// Marker trait for scalar projection contracts that must preserve one-to-one
+/// row identity and ordering relative to post-access materialized rows.
+///
+
+pub(in crate::db::executor::load::projection) trait ShapePreservingProjection {
+    /// Borrow canonical planner projection semantics.
+    fn as_projection_spec(&self) -> &ProjectionSpec;
+}
+
+impl ShapePreservingProjection for ProjectionSpec {
+    fn as_projection_spec(&self) -> &ProjectionSpec {
+        self
+    }
+}
+
 impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
@@ -58,12 +76,13 @@ pub(in crate::db::executor) fn evaluate_grouped_projection_values(
 }
 
 pub(in crate::db::executor::load::projection) fn project_rows_from_projection<E>(
-    projection: &ProjectionSpec,
+    projection: &impl ShapePreservingProjection,
     rows: &[(Id<E>, E)],
 ) -> Result<Vec<ProjectedRow<E>>, ExecutionError>
 where
     E: EntityKind + EntityValue,
 {
+    let projection = projection.as_projection_spec();
     let mut projected_rows = Vec::with_capacity(rows.len());
     for (id, entity) in rows {
         let mut values = Vec::with_capacity(projection.len());

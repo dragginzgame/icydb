@@ -1,12 +1,12 @@
 use crate::{
     db::{
-        access::AccessPlan,
+        access::{AccessPlan, LoweredKey},
         cursor::{
             ContinuationSignature, ContinuationToken, CursorBoundary, cursor_anchor_from_index_key,
             cursor_boundary_from_entity,
         },
         direction::Direction,
-        index::IndexKey,
+        index::{IndexKey, continuation_advanced},
         query::plan::{OrderSpec, PageSpec},
     },
     error::InternalError,
@@ -23,6 +23,7 @@ pub(in crate::db) fn next_cursor_for_materialized_rows<E>(
     rows: &[(Id<E>, E)],
     rows_after_cursor: usize,
     cursor_boundary: Option<&CursorBoundary>,
+    previous_index_range_anchor: Option<&LoweredKey>,
     direction: Direction,
     signature: ContinuationSignature,
 ) -> Result<Option<ContinuationToken>, InternalError>
@@ -63,6 +64,7 @@ where
         last_entity,
         direction,
         signature,
+        previous_index_range_anchor,
     )
     .map(Some)
 }
@@ -74,6 +76,7 @@ fn next_cursor_for_entity<E>(
     entity: &E,
     direction: Direction,
     signature: ContinuationSignature,
+    previous_index_range_anchor: Option<&LoweredKey>,
 ) -> Result<ContinuationToken, InternalError>
 where
     E: EntityKind + EntityValue,
@@ -83,6 +86,19 @@ where
         let index_key = IndexKey::new(entity, index)?.ok_or_else(|| {
             invariant("cursor row is not indexable for planned index-range access")
         })?;
+        let last_emitted_raw_key = index_key.to_raw();
+        let advanced = previous_index_range_anchor.is_none_or(|previous_anchor_raw_key| {
+            continuation_advanced(direction, &last_emitted_raw_key, previous_anchor_raw_key)
+        });
+        if !advanced {
+            return Err(invariant(
+                "index-range continuation anchor must advance strictly against previous anchor",
+            ));
+        }
+        debug_assert!(
+            advanced,
+            "index-range continuation anchor must advance strictly against previous anchor",
+        );
 
         ContinuationToken::new_index_range_with_direction(
             signature,

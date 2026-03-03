@@ -6,13 +6,14 @@
 use crate::{
     db::{
         Context,
+        access::LoweredKey,
         cursor::{ContinuationSignature, CursorBoundary},
         direction::Direction,
         executor::load::{CursorPage, LoadExecutor, PageCursor},
         executor::{BudgetedOrderedKeyStream, ExecutionKernel, OrderedKeyStream},
         predicate::PredicateProgram,
         query::plan::AccessPlannedQuery,
-        response::Response,
+        response::{ProjectedRow, Response},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -38,6 +39,7 @@ where
     pub(in crate::db::executor) scan_budget_hint: Option<usize>,
     pub(in crate::db::executor) streaming_access_shape_safe: bool,
     pub(in crate::db::executor) cursor_boundary: Option<&'a CursorBoundary>,
+    pub(in crate::db::executor) previous_index_range_anchor: Option<&'a LoweredKey>,
     pub(in crate::db::executor) direction: Direction,
     pub(in crate::db::executor) continuation_signature: ContinuationSignature,
 }
@@ -58,6 +60,7 @@ where
             scan_budget_hint,
             streaming_access_shape_safe,
             cursor_boundary,
+            previous_index_range_anchor,
             direction,
             continuation_signature,
         } = request;
@@ -94,6 +97,7 @@ where
             predicate_slots,
             &mut rows,
             cursor_boundary,
+            previous_index_range_anchor,
             direction,
             continuation_signature,
         )?;
@@ -108,6 +112,7 @@ where
         predicate_slots: Option<&PredicateProgram>,
         rows: &mut Vec<(Id<E>, E)>,
         cursor_boundary: Option<&CursorBoundary>,
+        previous_index_range_anchor: Option<&LoweredKey>,
         direction: Direction,
         continuation_signature: ContinuationSignature,
     ) -> Result<CursorPage<E>, InternalError> {
@@ -122,14 +127,44 @@ where
             rows,
             &stats,
             cursor_boundary,
+            previous_index_range_anchor,
             direction,
             continuation_signature,
         )?
         .map(PageCursor::Scalar);
         let projected_rows = Self::project_materialized_rows_if_needed(plan, rows.as_slice())?;
+        Self::validate_projection_alignment(rows.as_slice(), projected_rows.as_deref())?;
         let items = Response::from_rows_with_projection(std::mem::take(rows), projected_rows);
 
         Ok(CursorPage { items, next_cursor })
+    }
+
+    // Projection materialization must remain a pure row-wise mapping over the
+    // already-ordered post-access row domain. Any cardinality/id drift can
+    // corrupt continuation semantics, so fail closed on mismatches.
+    fn validate_projection_alignment(
+        rows: &[(Id<E>, E)],
+        projected_rows: Option<&[ProjectedRow<E>]>,
+    ) -> Result<(), InternalError> {
+        let Some(projected_rows) = projected_rows else {
+            return Ok(());
+        };
+
+        if projected_rows.len() != rows.len() {
+            return Err(invariant(
+                "projection materialization cardinality mismatch against post-access rows",
+            ));
+        }
+
+        for ((row_id, _), projected_row) in rows.iter().zip(projected_rows.iter()) {
+            if projected_row.id() != *row_id {
+                return Err(invariant(
+                    "projection materialization id alignment mismatch against post-access rows",
+                ));
+            }
+        }
+
+        Ok(())
     }
 }
 

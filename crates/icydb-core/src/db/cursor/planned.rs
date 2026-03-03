@@ -1,4 +1,4 @@
-use crate::db::cursor::{CursorBoundary, IndexRangeCursorAnchor};
+use crate::db::cursor::{CursorBoundary, ValidatedInEnvelopeIndexRangeCursorAnchor};
 use crate::value::Value;
 
 ///
@@ -10,7 +10,7 @@ use crate::value::Value;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct PlannedCursor {
     boundary: Option<CursorBoundary>,
-    index_range_anchor: Option<IndexRangeCursorAnchor>,
+    index_range_anchor: Option<ValidatedInEnvelopeIndexRangeCursorAnchor>,
     initial_offset: u32,
 }
 
@@ -27,7 +27,7 @@ impl PlannedCursor {
     #[must_use]
     pub(in crate::db) const fn new(
         boundary: CursorBoundary,
-        index_range_anchor: Option<IndexRangeCursorAnchor>,
+        index_range_anchor: Option<ValidatedInEnvelopeIndexRangeCursorAnchor>,
         initial_offset: u32,
     ) -> Self {
         Self {
@@ -43,7 +43,9 @@ impl PlannedCursor {
     }
 
     #[must_use]
-    pub(in crate::db) const fn index_range_anchor(&self) -> Option<&IndexRangeCursorAnchor> {
+    pub(in crate::db) const fn index_range_anchor(
+        &self,
+    ) -> Option<&ValidatedInEnvelopeIndexRangeCursorAnchor> {
         self.index_range_anchor.as_ref()
     }
 

@@ -2,7 +2,7 @@ use crate::{
     db::{
         cursor::{
             ContinuationSignature, CursorBoundary, CursorPlanError, GroupedContinuationToken,
-            GroupedPlannedCursor, PlannedCursor, range_token_from_cursor_anchor,
+            GroupedPlannedCursor, PlannedCursor, range_token_from_validated_cursor_anchor,
         },
         direction::Direction,
         executor::{ExecutorPlanError, RangeToken, traversal::derive_primary_scan_direction},
@@ -251,7 +251,7 @@ impl ScalarContinuationRuntime {
         let cursor_boundary = cursor.boundary().cloned();
         let index_range_token = cursor
             .index_range_anchor()
-            .map(range_token_from_cursor_anchor);
+            .map(range_token_from_validated_cursor_anchor);
 
         Self {
             cursor_boundary,

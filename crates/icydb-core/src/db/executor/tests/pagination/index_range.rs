@@ -271,6 +271,88 @@ fn load_index_pushdown_and_fallback_emit_equivalent_cursor_boundaries() {
 }
 
 #[test]
+fn load_index_range_cursor_anchor_matches_last_emitted_row_after_post_access_pipeline() {
+    setup_pagination_test();
+
+    let rows = [
+        (12_501, 7, 10, "g7-r10-a"),
+        (12_502, 7, 10, "g7-r10-b"),
+        (12_503, 7, 20, "g7-r20"),
+        (12_504, 7, 30, "g7-r30"),
+        (12_505, 8, 5, "g8-r5"),
+    ];
+    seed_pushdown_rows(&rows);
+
+    // Phase 1: execute one bounded index-range page under canonical post-access order/page phases.
+    let predicate = group_rank_range_predicate(7, 10, 40);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let page_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .order_by("rank")
+        .limit(2)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("index-range page plan should build");
+    let page = load
+        .execute_paged_with_cursor(page_plan, None)
+        .expect("index-range page should execute");
+    assert_eq!(page.items.0.len(), 2, "page should emit exactly two rows");
+
+    // Phase 2: lock continuation boundary + raw anchor to the final emitted row.
+    let emitted_cursor = page
+        .next_cursor
+        .as_ref()
+        .expect("page should emit a continuation cursor");
+    let scalar_cursor = emitted_cursor
+        .as_scalar()
+        .expect("index-range pagination must emit a scalar continuation cursor");
+    let (_, last_entity) = page
+        .items
+        .0
+        .last()
+        .expect("non-empty page must include a trailing emitted row");
+
+    let comparison_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate)
+        .order_by("rank")
+        .limit(2)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("comparison plan should build")
+        .into_inner();
+    let comparison_order = comparison_plan
+        .scalar_plan()
+        .order
+        .as_ref()
+        .expect("comparison plan should preserve order");
+    let expected_boundary =
+        crate::db::cursor::cursor_boundary_from_entity(last_entity, comparison_order);
+    assert_eq!(
+        scalar_cursor.boundary(),
+        &expected_boundary,
+        "continuation boundary must track the last emitted post-access row",
+    );
+
+    let (index_model, _, _, _) = comparison_plan
+        .access
+        .as_index_range_path()
+        .expect("comparison plan should remain on index-range access");
+    let expected_anchor = crate::db::cursor::cursor_anchor_from_index_key(
+        &crate::db::index::IndexKey::new(last_entity, index_model)
+            .expect("index key derivation should succeed")
+            .expect("last emitted row should be indexable"),
+    );
+    let emitted_anchor = scalar_cursor
+        .index_range_anchor()
+        .expect("index-range cursor should carry a raw-key anchor");
+    assert_eq!(
+        emitted_anchor.last_raw_key(),
+        expected_anchor.last_raw_key(),
+        "continuation raw-key anchor must match the last emitted row index key",
+    );
+}
+
+#[test]
 fn load_index_pushdown_and_fallback_resume_equivalently_from_shared_boundary() {
     setup_pagination_test();
 

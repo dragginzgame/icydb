@@ -1,8 +1,8 @@
-use crate::{
-    db::{access::LoweredKey, cursor::IndexRangeCursorAnchor, index::IndexKey},
-    traits::Storable,
+use crate::db::{
+    access::LoweredKey,
+    cursor::{IndexRangeCursorAnchor, ValidatedInEnvelopeIndexRangeCursorAnchor},
+    index::IndexKey,
 };
-use std::borrow::Cow;
 
 ///
 /// LogicalKeyHandle
@@ -60,9 +60,10 @@ pub(in crate::db) fn cursor_anchor_from_index_key(index_key: &IndexKey) -> Index
 
 /// Decode one continuation anchor into one executor range token.
 #[must_use]
-pub(in crate::db) fn range_token_from_cursor_anchor(anchor: &IndexRangeCursorAnchor) -> RangeToken {
-    let lowered_key = <LoweredKey as Storable>::from_bytes(Cow::Borrowed(anchor.last_raw_key()));
-    RangeToken::new(LogicalKeyHandle::from_lowered(lowered_key))
+pub(in crate::db) fn range_token_from_validated_cursor_anchor(
+    anchor: &ValidatedInEnvelopeIndexRangeCursorAnchor,
+) -> RangeToken {
+    RangeToken::new(LogicalKeyHandle::from_lowered(anchor.lowered_key().clone()))
 }
 
 /// Build one range token from one lowered anchor key.

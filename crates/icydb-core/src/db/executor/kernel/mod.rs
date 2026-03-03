@@ -187,6 +187,7 @@ impl ExecutionKernel {
             scan_budget_hint: route_plan.scan_hints.load_scan_budget_hint,
             streaming_access_shape_safe: route_plan.streaming_access_shape_safe(),
             cursor_boundary,
+            previous_index_range_anchor: inputs.stream_bindings.index_range_anchor,
             direction: route_plan.direction(),
             continuation_signature,
         })

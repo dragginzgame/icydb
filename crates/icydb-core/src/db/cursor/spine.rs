@@ -2,7 +2,7 @@ use crate::{
     db::{
         cursor::{
             ContinuationSignature, ContinuationToken, CursorBoundary, CursorPlanError,
-            IndexRangeCursorAnchor, PlannedCursor,
+            IndexRangeCursorAnchor, PlannedCursor, ValidatedInEnvelopeIndexRangeCursorAnchor,
             anchor::{
                 validate_index_range_anchor, validate_index_range_boundary_anchor_consistency,
             },
@@ -155,7 +155,9 @@ where
     let boundary = cursor.boundary().cloned().ok_or_else(|| {
         CursorPlanError::continuation_cursor_invariant("continuation cursor boundary is missing")
     })?;
-    let index_range_anchor = cursor.index_range_anchor().cloned();
+    let index_range_anchor = cursor
+        .index_range_anchor()
+        .map(ValidatedInEnvelopeIndexRangeCursorAnchor::as_unvalidated_anchor);
 
     validate_structured_cursor::<E, _>(
         boundary,
@@ -211,7 +213,7 @@ fn validate_structured_cursor<E: EntityKind, S: CursorPlanSurface<E::Key>>(
 where
     E::Key: FieldValue,
 {
-    validate_cursor_boundary_anchor_invariants::<E, S>(
+    let validated_index_range_anchor = validate_cursor_boundary_anchor_invariants::<E, S>(
         &boundary,
         index_range_anchor.as_ref(),
         actual_direction,
@@ -222,7 +224,7 @@ where
 
     Ok(PlannedCursor::new(
         boundary,
-        index_range_anchor,
+        validated_index_range_anchor,
         actual_initial_offset,
     ))
 }
@@ -238,7 +240,7 @@ fn validate_cursor_boundary_anchor_invariants<E: EntityKind, S: CursorPlanSurfac
     actual_initial_offset: u32,
     surface: &S,
     require_index_range_anchor: bool,
-) -> Result<(), CursorPlanError>
+) -> Result<Option<ValidatedInEnvelopeIndexRangeCursorAnchor>, CursorPlanError>
 where
     E::Key: FieldValue,
 {
@@ -247,7 +249,7 @@ where
 
     let expected_initial_offset = surface.initial_offset();
     validate_cursor_window_offset(expected_initial_offset, actual_initial_offset)?;
-    validate_index_range_anchor::<E>(
+    let validated_index_range_anchor = validate_index_range_anchor::<E>(
         index_range_anchor,
         surface.access(),
         actual_direction,
@@ -259,7 +261,11 @@ where
         surface.order_spec(),
         boundary,
     )?;
-    validate_index_range_boundary_anchor_consistency(index_range_anchor, surface.access(), pk_key)?;
+    validate_index_range_boundary_anchor_consistency(
+        validated_index_range_anchor.as_ref(),
+        surface.access(),
+        pk_key,
+    )?;
 
-    Ok(())
+    Ok(validated_index_range_anchor)
 }
