@@ -327,6 +327,11 @@ impl InternalError {
         )
     }
 
+    /// Construct a cursor-origin unsupported error.
+    pub(crate) fn cursor_unsupported(message: impl Into<String>) -> Self {
+        Self::new(ErrorClass::Unsupported, ErrorOrigin::Cursor, message.into())
+    }
+
     pub fn store_not_found(key: impl Into<String>) -> Self {
         let key = key.into();
 
@@ -414,24 +419,27 @@ impl InternalError {
         )
     }
 
-    /// Map plan-surface cursor failures into executor-boundary invariants.
+    /// Map cursor-plan failures into runtime taxonomy classes.
+    ///
+    /// Cursor token/version/signature/window/payload mismatches are external
+    /// input failures (`Unsupported` at cursor origin). Only explicit
+    /// continuation invariant violations remain invariant-class failures.
     pub(crate) fn from_cursor_plan_error(err: CursorPlanError) -> Self {
-        let message = match &err {
-            CursorPlanError::ContinuationCursorBoundaryArityMismatch { expected: 1, found } => {
-                Self::executor_invariant_message(format!(
-                    "pk-ordered continuation boundary must contain exactly 1 slot, found {found}"
-                ))
+        match err {
+            CursorPlanError::ContinuationCursorInvariantViolation { reason } => {
+                Self::cursor_invariant(reason)
             }
-            CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch { value: None, .. } => {
-                Self::executor_invariant_message("pk cursor slot must be present")
+            CursorPlanError::InvalidContinuationCursor { .. }
+            | CursorPlanError::InvalidContinuationCursorPayload { .. }
+            | CursorPlanError::ContinuationCursorVersionMismatch { .. }
+            | CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+            | CursorPlanError::ContinuationCursorBoundaryArityMismatch { .. }
+            | CursorPlanError::ContinuationCursorWindowMismatch { .. }
+            | CursorPlanError::ContinuationCursorBoundaryTypeMismatch { .. }
+            | CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch { .. } => {
+                Self::cursor_unsupported(err.to_string())
             }
-            CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
-                value: Some(_), ..
-            } => Self::executor_invariant_message("pk cursor slot type mismatch"),
-            _ => err.to_string(),
-        };
-
-        Self::cursor_invariant(message)
+        }
     }
 
     /// Map grouped plan failures into query-boundary invariants.
@@ -687,5 +695,164 @@ mod tests {
             err.message,
             "invalid logical plan: unknown group field 'tenant'",
         );
+    }
+
+    #[test]
+    fn cursor_plan_error_mapping_classifies_invalid_payload_as_unsupported() {
+        let err = InternalError::from_cursor_plan_error(
+            CursorPlanError::InvalidContinuationCursorPayload {
+                reason: "bad payload".to_string(),
+            },
+        );
+
+        assert_eq!(err.class, ErrorClass::Unsupported);
+        assert_eq!(err.origin, ErrorOrigin::Cursor);
+        assert!(err.message.contains("invalid continuation cursor"));
+    }
+
+    #[test]
+    fn cursor_plan_error_mapping_classifies_signature_mismatch_as_unsupported() {
+        let err = InternalError::from_cursor_plan_error(
+            CursorPlanError::ContinuationCursorSignatureMismatch {
+                entity_path: "tests::Entity",
+                expected: "aa".to_string(),
+                actual: "bb".to_string(),
+            },
+        );
+
+        assert_eq!(err.class, ErrorClass::Unsupported);
+        assert_eq!(err.origin, ErrorOrigin::Cursor);
+    }
+
+    #[test]
+    fn cursor_plan_error_mapping_keeps_invariant_violation_class() {
+        let err = InternalError::from_cursor_plan_error(
+            CursorPlanError::ContinuationCursorInvariantViolation {
+                reason: "runtime cursor contract violated".to_string(),
+            },
+        );
+
+        assert_eq!(err.class, ErrorClass::InvariantViolation);
+        assert_eq!(err.origin, ErrorOrigin::Cursor);
+        assert!(err.message.contains("runtime cursor contract violated"));
+    }
+
+    #[test]
+    fn classification_integrity_helpers_preserve_error_class() {
+        let classes = [
+            ErrorClass::Corruption,
+            ErrorClass::NotFound,
+            ErrorClass::Internal,
+            ErrorClass::Conflict,
+            ErrorClass::Unsupported,
+            ErrorClass::InvariantViolation,
+        ];
+
+        for class in classes {
+            let base = InternalError::classified(class, ErrorOrigin::Query, "base");
+            let relabeled_message = base.with_message("updated");
+            let reorigined = relabeled_message.with_origin(ErrorOrigin::Store);
+            assert_eq!(
+                reorigined.class, class,
+                "class must be preserved across helper relabeling operations",
+            );
+        }
+    }
+
+    #[test]
+    fn classification_integrity_cursor_conversion_matrix_is_restricted() {
+        fn expected_class_from_cursor_variant(err: &CursorPlanError) -> ErrorClass {
+            match err {
+                CursorPlanError::InvalidContinuationCursor { .. }
+                | CursorPlanError::InvalidContinuationCursorPayload { .. }
+                | CursorPlanError::ContinuationCursorVersionMismatch { .. }
+                | CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+                | CursorPlanError::ContinuationCursorBoundaryArityMismatch { .. }
+                | CursorPlanError::ContinuationCursorWindowMismatch { .. }
+                | CursorPlanError::ContinuationCursorBoundaryTypeMismatch { .. }
+                | CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch { .. } => {
+                    ErrorClass::Unsupported
+                }
+                CursorPlanError::ContinuationCursorInvariantViolation { .. } => {
+                    ErrorClass::InvariantViolation
+                }
+            }
+        }
+
+        let cases = vec![
+            CursorPlanError::InvalidContinuationCursorPayload {
+                reason: "payload".to_string(),
+            },
+            CursorPlanError::ContinuationCursorInvariantViolation {
+                reason: "invariant".to_string(),
+            },
+            CursorPlanError::ContinuationCursorVersionMismatch { version: 9 },
+            CursorPlanError::ContinuationCursorSignatureMismatch {
+                entity_path: "tests::Entity",
+                expected: "aabb".to_string(),
+                actual: "ccdd".to_string(),
+            },
+            CursorPlanError::ContinuationCursorBoundaryArityMismatch {
+                expected: 2,
+                found: 1,
+            },
+            CursorPlanError::ContinuationCursorWindowMismatch {
+                expected_offset: 10,
+                actual_offset: 2,
+            },
+            CursorPlanError::ContinuationCursorBoundaryTypeMismatch {
+                field: "rank".to_string(),
+                expected: "u64".to_string(),
+                value: crate::value::Value::Text("x".to_string()),
+            },
+            CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
+                field: "id".to_string(),
+                expected: "Ulid".to_string(),
+                value: Some(crate::value::Value::Text("x".to_string())),
+            },
+        ];
+
+        for cursor_err in cases {
+            let expected_class = expected_class_from_cursor_variant(&cursor_err);
+            let err = InternalError::from_cursor_plan_error(cursor_err);
+            assert_eq!(err.origin, ErrorOrigin::Cursor);
+            assert_eq!(
+                err.class, expected_class,
+                "cursor conversion class must remain stable for each cursor variant: {err:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn classification_integrity_access_plan_conversion_stays_invariant() {
+        let err = InternalError::from_executor_access_plan_error(AccessPlanError::InvalidKeyRange);
+
+        assert_eq!(err.class, ErrorClass::InvariantViolation);
+        assert_eq!(err.origin, ErrorOrigin::Query);
+    }
+
+    #[test]
+    fn classification_integrity_corruption_constructors_never_downgrade() {
+        let corruption_cases = [
+            InternalError::store_corruption("store"),
+            InternalError::index_corruption("index"),
+            InternalError::serialize_corruption("serialize"),
+            InternalError::identity_corruption("identity"),
+            InternalError::index_plan_index_corruption("index-plan-index"),
+            InternalError::index_plan_store_corruption("index-plan-store"),
+            InternalError::index_plan_serialize_corruption("index-plan-serialize"),
+        ];
+
+        for err in corruption_cases {
+            assert_eq!(
+                err.class,
+                ErrorClass::Corruption,
+                "corruption constructors must remain corruption-classed",
+            );
+            assert!(
+                !matches!(err.class, ErrorClass::Unsupported),
+                "corruption constructors must never downgrade to unsupported",
+            );
+        }
     }
 }

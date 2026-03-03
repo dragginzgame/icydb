@@ -160,10 +160,10 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
             load_existing_entry(index_reader, store, index, new)?
         };
 
-        // Unique validation is evaluated against the currently committed store
-        // state for the target unique value. Commit-op synthesis then applies
-        // remove-old/add-new semantics, so valid key transitions are evaluated
-        // on the correct post-transition logical ownership model.
+        // Unique validation is evaluated through the provided reader view for
+        // the target unique value. During commit-window preflight that reader
+        // can include staged prior row ops (overlay), so same-window conflicts
+        // are validated against the correct logical ownership model.
         unique::validate_unique_constraint::<E>(
             row_reader,
             index_reader,

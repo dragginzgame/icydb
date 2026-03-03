@@ -69,12 +69,25 @@ struct RecoveryIndexedEntity {
     group: u32,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+struct RecoveryUniqueEntity {
+    id: Ulid,
+    email: String,
+}
+
 static RECOVERY_INDEXED_INDEX_FIELDS: [&str; 1] = ["group"];
 static RECOVERY_INDEXED_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
     "group",
     RecoveryTestDataStore::PATH,
     &RECOVERY_INDEXED_INDEX_FIELDS,
     false,
+)];
+static RECOVERY_UNIQUE_INDEX_FIELDS: [&str; 1] = ["email"];
+static RECOVERY_UNIQUE_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
+    "email_unique",
+    RecoveryTestDataStore::PATH,
+    &RECOVERY_UNIQUE_INDEX_FIELDS,
+    true,
 )];
 static RECOVERY_INDEXED_MISSING_FIELD_INDEX_FIELDS: [&str; 1] = ["missing_group"];
 static RECOVERY_INDEXED_MISSING_FIELD_INDEX_MODEL: IndexModel = IndexModel::new(
@@ -97,6 +110,19 @@ crate::test_entity_schema! {
     canister = RecoveryTestCanister,
 }
 
+crate::test_entity_schema! {
+    ident = RecoveryUniqueEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "RecoveryUniqueEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [("id", FieldKind::Ulid), ("email", FieldKind::Text)],
+    indexes = [&RECOVERY_UNIQUE_INDEX_MODELS[0]],
+    store = RecoveryTestDataStore,
+    canister = RecoveryTestCanister,
+}
+
 static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
     EntityRuntimeHooks::new(
         RecoveryTestEntity::ENTITY_NAME,
@@ -111,6 +137,13 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         commit_schema_fingerprint_for_entity::<RecoveryIndexedEntity>,
         prepare_row_commit_for_entity::<RecoveryIndexedEntity>,
         validate_delete_strong_relations_for_source::<RecoveryIndexedEntity>,
+    ),
+    EntityRuntimeHooks::new(
+        RecoveryUniqueEntity::ENTITY_NAME,
+        RecoveryUniqueEntity::PATH,
+        commit_schema_fingerprint_for_entity::<RecoveryUniqueEntity>,
+        prepare_row_commit_for_entity::<RecoveryUniqueEntity>,
+        validate_delete_strong_relations_for_source::<RecoveryUniqueEntity>,
     ),
 ];
 
@@ -221,6 +254,9 @@ fn row_op_for_path(
         RecoveryIndexedEntity::PATH => {
             commit_schema_fingerprint_for_entity::<RecoveryIndexedEntity>()
         }
+        RecoveryUniqueEntity::PATH => {
+            commit_schema_fingerprint_for_entity::<RecoveryUniqueEntity>()
+        }
         _ => [0u8; 16],
     };
     row_op_for_path_with_schema(path, data_key, before, after, schema_fingerprint)
@@ -323,6 +359,10 @@ fn finish_commit_error_keeps_marker_for_recovery() {
         Ok(())
     })
     .expect("commit marker cleanup should succeed");
+    with_recovery_store(|store| {
+        store.with_data_mut(DataStore::clear);
+        store.with_index_mut(IndexStore::clear);
+    });
 }
 
 #[test]
@@ -887,6 +927,80 @@ fn recovery_replays_interrupted_atomic_batch_marker_and_is_idempotent() {
         indexed_ids_for(&second).expect("second index entry should remain after idempotent replay");
     assert_eq!(indexed_second_first, expected_first);
     assert_eq!(indexed_second_second, expected_second);
+}
+
+#[test]
+fn recovery_replay_interrupted_conflicting_unique_batch_fails_closed() {
+    reset_recovery_state();
+
+    let first = RecoveryUniqueEntity {
+        id: Ulid::from_u128(911),
+        email: "dup@example.com".to_string(),
+    };
+    let second = RecoveryUniqueEntity {
+        id: Ulid::from_u128(912),
+        email: "dup@example.com".to_string(),
+    };
+
+    let first_key = DataKey::try_new::<RecoveryUniqueEntity>(first.id)
+        .expect("first unique data key should build")
+        .to_raw()
+        .expect("first unique data key should encode");
+    let second_key = DataKey::try_new::<RecoveryUniqueEntity>(second.id)
+        .expect("second unique data key should build")
+        .to_raw()
+        .expect("second unique data key should encode");
+    let first_row = serialize(&first).expect("first unique row serialization should succeed");
+    let second_row = serialize(&second).expect("second unique row serialization should succeed");
+
+    // Simulate interrupted atomic marker persistence for two writes that conflict
+    // on one unique secondary index value.
+    let marker = CommitMarker::new(vec![
+        row_op_for_path_with_schema(
+            RecoveryUniqueEntity::PATH,
+            first_key.as_bytes().to_vec(),
+            None,
+            Some(first_row),
+            commit_schema_fingerprint_for_entity::<RecoveryUniqueEntity>(),
+        ),
+        row_op_for_path_with_schema(
+            RecoveryUniqueEntity::PATH,
+            second_key.as_bytes().to_vec(),
+            None,
+            Some(second_row),
+            commit_schema_fingerprint_for_entity::<RecoveryUniqueEntity>(),
+        ),
+    ])
+    .expect("conflicting unique marker creation should succeed");
+    begin_commit(marker).expect("begin_commit should persist conflicting unique marker");
+
+    let err = ensure_recovered(&DB)
+        .expect_err("recovery should fail closed on conflicting unique replay marker");
+    assert_eq!(err.class, ErrorClass::Conflict);
+    assert_eq!(err.origin, ErrorOrigin::Recovery);
+    assert!(
+        commit_marker_present().expect("commit marker check should succeed"),
+        "failed unique replay must keep marker persisted for retry",
+    );
+    assert!(
+        index_key_bytes_snapshot().is_empty(),
+        "failed rebuild must not leave partially rebuilt unique index state",
+    );
+
+    let retry_err = ensure_recovered(&DB)
+        .expect_err("repeated recovery attempts should remain fail-closed until marker is fixed");
+    assert_eq!(retry_err.class, ErrorClass::Conflict);
+    assert_eq!(retry_err.origin, ErrorOrigin::Recovery);
+    assert!(
+        commit_marker_present().expect("commit marker check should succeed"),
+        "retry failure must keep marker persisted",
+    );
+
+    store::with_commit_store(|store| {
+        store.clear_infallible();
+        Ok(())
+    })
+    .expect("commit marker cleanup should succeed");
 }
 
 #[expect(clippy::too_many_lines)]

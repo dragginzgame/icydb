@@ -101,6 +101,29 @@ fn mixed_component_value(seed: u64, slot: u8) -> Value {
     }
 }
 
+fn slot_min_value(slot: usize) -> Value {
+    match slot {
+        1 => Value::Text(String::new()),
+        0 | 2 => Value::Int(i64::MIN),
+        _ => unreachable!("prefix property slot must be in [0, 2]"),
+    }
+}
+
+fn slot_max_value(slot: usize) -> Value {
+    match slot {
+        1 => Value::Text("zz".to_string()),
+        0 | 2 => Value::Int(i64::MAX),
+        _ => unreachable!("prefix property slot must be in [0, 2]"),
+    }
+}
+
+fn prefix_matches(candidate: &[Value], prefix: &[Value]) -> bool {
+    candidate
+        .iter()
+        .zip(prefix.iter())
+        .all(|(candidate_value, prefix_value)| candidate_value == prefix_value)
+}
+
 fn len_offset() -> usize {
     KEY_KIND_TAG_SIZE + IndexName::STORED_SIZE_USIZE
 }
@@ -771,6 +794,126 @@ fn index_key_pk_terminal_tie_break_and_prefix_visibility() {
     hits.sort();
 
     assert_eq!(hits.len(), 2);
+}
+
+#[test]
+fn index_key_prefix_lowering_matches_direct_prefix_membership_property() {
+    let mut seed = 0x0D15_EA5E_BAAD_F00D_u64;
+    let index_len = 3usize;
+
+    for case_idx in 0..512 {
+        // Phase 1: generate a random prefix and one random full candidate key.
+        let prefix_len = usize::try_from(next_random_u64(&mut seed) % 4).unwrap_or(0);
+        let prefix_values = (0..prefix_len)
+            .map(|slot| {
+                mixed_component_value(
+                    next_random_u64(&mut seed),
+                    u8::try_from(slot).expect("prefix slot index must fit in u8"),
+                )
+            })
+            .collect::<Vec<_>>();
+        let candidate_values = (0..index_len)
+            .map(|slot| {
+                mixed_component_value(
+                    next_random_u64(&mut seed),
+                    u8::try_from(slot).expect("candidate slot index must fit in u8"),
+                )
+            })
+            .collect::<Vec<_>>();
+        let prefix_components = prefix_values
+            .iter()
+            .map(encode_component)
+            .collect::<Vec<_>>();
+        let (lower, upper) =
+            IndexKey::bounds_for_prefix(&index_id(), index_len, &prefix_components);
+        let lower_raw = lower.to_raw();
+        let upper_raw = upper.to_raw();
+
+        let pk_lo = u8::try_from(next_random_u64(&mut seed) & 0xFF).unwrap_or(0);
+        let pk_hi = u8::try_from((next_random_u64(&mut seed) >> 8) & 0xFF).unwrap_or(0);
+        let candidate_key = key_with(
+            IndexKeyKind::User,
+            index_id(),
+            candidate_values
+                .iter()
+                .map(encode_component)
+                .collect::<Vec<_>>(),
+            vec![pk_lo, pk_hi],
+        );
+        let candidate_raw = candidate_key.to_raw();
+        let lowered_contains = candidate_raw >= lower_raw && candidate_raw <= upper_raw;
+        let direct_contains = prefix_matches(&candidate_values, &prefix_values);
+        assert_eq!(
+            lowered_contains, direct_contains,
+            "prefix lowering must match direct prefix membership (case={case_idx}, prefix_len={prefix_len})"
+        );
+
+        // Phase 2: check explicit edge candidates at suffix extremes.
+        let mut min_edge_values = prefix_values.clone();
+        let mut max_edge_values = prefix_values.clone();
+        for slot in prefix_len..index_len {
+            min_edge_values.push(slot_min_value(slot));
+            max_edge_values.push(slot_max_value(slot));
+        }
+
+        let min_edge_key = key_with(
+            IndexKeyKind::User,
+            index_id(),
+            min_edge_values
+                .iter()
+                .map(encode_component)
+                .collect::<Vec<_>>(),
+            vec![0x00],
+        );
+        let max_edge_key = key_with(
+            IndexKeyKind::User,
+            index_id(),
+            max_edge_values
+                .iter()
+                .map(encode_component)
+                .collect::<Vec<_>>(),
+            vec![0xFF],
+        );
+        let min_edge_raw = min_edge_key.to_raw();
+        let max_edge_raw = max_edge_key.to_raw();
+        assert!(
+            min_edge_raw >= lower_raw && min_edge_raw <= upper_raw,
+            "lowered bounds must include minimum suffix edge (case={case_idx}, prefix_len={prefix_len})",
+        );
+        assert!(
+            max_edge_raw >= lower_raw && max_edge_raw <= upper_raw,
+            "lowered bounds must include maximum suffix edge (case={case_idx}, prefix_len={prefix_len})",
+        );
+
+        // Phase 3: verify at least one strict non-matching prefix sample is excluded.
+        if prefix_len > 0 {
+            let mut outside_values = min_edge_values.clone();
+            outside_values[0] = if outside_values[0] == slot_min_value(0) {
+                slot_max_value(0)
+            } else {
+                slot_min_value(0)
+            };
+            assert_ne!(
+                outside_values[0], prefix_values[0],
+                "outside sample must mutate first prefix component",
+            );
+            let outside_key = key_with(
+                IndexKeyKind::User,
+                index_id(),
+                outside_values
+                    .iter()
+                    .map(encode_component)
+                    .collect::<Vec<_>>(),
+                vec![0x7F],
+            );
+            let outside_raw = outside_key.to_raw();
+            let lowered_contains_outside = outside_raw >= lower_raw && outside_raw <= upper_raw;
+            assert!(
+                !lowered_contains_outside,
+                "lowered bounds must exclude keys outside the prefix domain (case={case_idx}, prefix_len={prefix_len})",
+            );
+        }
+    }
 }
 
 fn in_range(

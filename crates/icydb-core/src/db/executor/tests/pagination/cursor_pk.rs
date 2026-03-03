@@ -1169,7 +1169,7 @@ fn load_cursor_pagination_pk_fast_path_scan_accounting_tracks_access_candidates(
 }
 
 #[test]
-fn load_cursor_pagination_pk_order_missing_slot_is_invariant_violation() {
+fn load_cursor_pagination_pk_order_missing_slot_is_unsupported() {
     setup_pagination_test();
 
     let save = SaveExecutor::<SimpleEntity>::new(DB, false);
@@ -1195,25 +1195,26 @@ fn load_cursor_pagination_pk_order_missing_slot_is_invariant_violation() {
                 slots: vec![CursorBoundarySlot::Missing],
             }),
         )
-        .expect_err("missing pk slot should be rejected by executor invariants");
+        .expect_err("missing pk slot should be rejected as unsupported cursor input");
     assert_eq!(
         err.class,
-        ErrorClass::InvariantViolation,
-        "missing pk slot should classify as invariant violation"
+        ErrorClass::Unsupported,
+        "missing pk slot should classify as unsupported"
     );
     assert_eq!(
         err.origin,
         ErrorOrigin::Cursor,
-        "missing pk slot should originate from cursor invariant checks"
+        "missing pk slot should originate from cursor validation checks"
     );
     assert!(
-        err.message.contains("pk cursor slot must be present"),
-        "missing pk slot should return a clear invariant message: {err:?}"
+        err.message
+            .contains("continuation cursor primary key type mismatch"),
+        "missing pk slot should return a clear cursor mismatch message: {err:?}"
     );
 }
 
 #[test]
-fn load_cursor_pagination_pk_order_type_mismatch_is_invariant_violation() {
+fn load_cursor_pagination_pk_order_type_mismatch_is_unsupported() {
     setup_pagination_test();
 
     let save = SaveExecutor::<SimpleEntity>::new(DB, false);
@@ -1241,25 +1242,26 @@ fn load_cursor_pagination_pk_order_type_mismatch_is_invariant_violation() {
                 ))],
             }),
         )
-        .expect_err("pk slot type mismatch should be rejected by executor invariants");
+        .expect_err("pk slot type mismatch should be rejected as unsupported cursor input");
     assert_eq!(
         err.class,
-        ErrorClass::InvariantViolation,
-        "pk slot mismatch should classify as invariant violation"
+        ErrorClass::Unsupported,
+        "pk slot mismatch should classify as unsupported"
     );
     assert_eq!(
         err.origin,
         ErrorOrigin::Cursor,
-        "pk slot mismatch should originate from cursor invariant checks"
+        "pk slot mismatch should originate from cursor validation checks"
     );
     assert!(
-        err.message.contains("pk cursor slot type mismatch"),
-        "pk slot mismatch should return a clear invariant message: {err:?}"
+        err.message
+            .contains("continuation cursor primary key type mismatch"),
+        "pk slot mismatch should return a clear cursor mismatch message: {err:?}"
     );
 }
 
 #[test]
-fn load_cursor_pagination_pk_order_arity_mismatch_is_invariant_violation() {
+fn load_cursor_pagination_pk_order_arity_mismatch_is_unsupported() {
     setup_pagination_test();
 
     let save = SaveExecutor::<SimpleEntity>::new(DB, false);
@@ -1288,21 +1290,21 @@ fn load_cursor_pagination_pk_order_arity_mismatch_is_invariant_violation() {
                 ],
             }),
         )
-        .expect_err("pk slot arity mismatch should be rejected by executor invariants");
+        .expect_err("pk slot arity mismatch should be rejected as unsupported cursor input");
     assert_eq!(
         err.class,
-        ErrorClass::InvariantViolation,
-        "pk slot arity mismatch should classify as invariant violation"
+        ErrorClass::Unsupported,
+        "pk slot arity mismatch should classify as unsupported"
     );
     assert_eq!(
         err.origin,
         ErrorOrigin::Cursor,
-        "pk slot arity mismatch should originate from cursor invariant checks"
+        "pk slot arity mismatch should originate from cursor validation checks"
     );
     assert!(
         err.message
-            .contains("pk-ordered continuation boundary must contain exactly 1 slot"),
-        "pk slot arity mismatch should return a clear invariant message: {err:?}"
+            .contains("continuation cursor boundary arity mismatch"),
+        "pk slot arity mismatch should return a clear cursor mismatch message: {err:?}"
     );
 }
 

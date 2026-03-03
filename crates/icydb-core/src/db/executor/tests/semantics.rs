@@ -1774,6 +1774,209 @@ fn recovery_replays_reverse_relation_index_mutations() {
     );
 }
 
+#[expect(clippy::too_many_lines)]
+#[test]
+fn recovery_startup_rebuild_drops_orphan_reverse_relation_entries() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_relation_stores();
+
+    // Phase 1: seed two valid targets and two source refs to build two reverse entries.
+    let target_live = Ulid::from_u128(9_410);
+    let target_orphan = Ulid::from_u128(9_411);
+    let source_live = Ulid::from_u128(9_412);
+    let source_orphan = Ulid::from_u128(9_413);
+    let target_save = SaveExecutor::<RelationTargetEntity>::new(REL_DB, false);
+    target_save
+        .insert(RelationTargetEntity { id: target_live })
+        .expect("live target save should succeed");
+    target_save
+        .insert(RelationTargetEntity { id: target_orphan })
+        .expect("orphan target save should succeed");
+
+    let source_save = SaveExecutor::<RelationSourceEntity>::new(REL_DB, false);
+    source_save
+        .insert(RelationSourceEntity {
+            id: source_live,
+            target: target_live,
+        })
+        .expect("live source save should succeed");
+    source_save
+        .insert(RelationSourceEntity {
+            id: source_orphan,
+            target: target_orphan,
+        })
+        .expect("orphan source save should succeed");
+
+    // Phase 2: simulate stale reverse-index drift by removing one source row directly.
+    let orphan_source_key = DataKey::try_new::<RelationSourceEntity>(source_orphan)
+        .expect("orphan source key should build")
+        .to_raw()
+        .expect("orphan source key should encode");
+    REL_DB
+        .with_store_registry(|reg| {
+            reg.try_get_store(RelationSourceStore::PATH).map(|store| {
+                let removed =
+                    store.with_data_mut(|data_store| data_store.remove(&orphan_source_key));
+                assert!(
+                    removed.is_some(),
+                    "orphan source row should exist before direct data-store removal",
+                );
+            })
+        })
+        .expect("relation source store access should succeed");
+
+    let reverse_rows_before_recovery = REL_DB
+        .with_store_registry(|reg| {
+            reg.try_get_store(RelationTargetStore::PATH)
+                .map(|store| store.with_index(IndexStore::len))
+        })
+        .expect("target index store access should succeed");
+    assert_eq!(
+        reverse_rows_before_recovery, 2,
+        "stale reverse entry should remain until startup rebuild runs",
+    );
+
+    // Phase 3: force startup recovery rebuild and assert stale reverse entry is purged.
+    let marker = CommitMarker::new(Vec::new()).expect("marker creation should succeed");
+    begin_commit(marker).expect("begin_commit should persist marker");
+    ensure_recovered(&REL_DB).expect("startup recovery rebuild should succeed");
+    assert!(
+        !commit_marker_present().expect("commit marker check should succeed"),
+        "commit marker should be cleared after startup recovery rebuild",
+    );
+
+    let reverse_rows_after_recovery = REL_DB
+        .with_store_registry(|reg| {
+            reg.try_get_store(RelationTargetStore::PATH)
+                .map(|store| store.with_index(IndexStore::len))
+        })
+        .expect("target index store access should succeed");
+    assert_eq!(
+        reverse_rows_after_recovery, 1,
+        "startup rebuild should drop orphan reverse entries and keep live ones",
+    );
+
+    let delete_orphan_target = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
+        .delete()
+        .by_id(target_orphan)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("orphan target delete plan should build");
+    let deleted_orphan_target = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+        .execute(delete_orphan_target)
+        .expect("orphan target should be deletable after startup rebuild");
+    assert_eq!(
+        deleted_orphan_target.0.len(),
+        1,
+        "orphan target should delete after stale reverse entry is purged",
+    );
+
+    let delete_live_target = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
+        .delete()
+        .by_id(target_live)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("live target delete plan should build");
+    let err = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+        .execute(delete_live_target)
+        .expect_err("live target should remain protected by surviving relation");
+    assert_eq!(
+        err.class,
+        crate::error::ErrorClass::Unsupported,
+        "blocked strong-relation delete should classify as unsupported",
+    );
+    assert_eq!(
+        err.origin,
+        crate::error::ErrorOrigin::Executor,
+        "blocked strong-relation delete should originate from executor validation",
+    );
+    assert!(
+        err.message.contains("delete blocked by strong relation"),
+        "unexpected error: {err:?}",
+    );
+}
+
+#[test]
+fn recovery_startup_rebuild_restores_missing_reverse_relation_entry() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_relation_stores();
+
+    // Phase 1: seed one valid strong relation so forward+reverse state starts consistent.
+    let target_id = Ulid::from_u128(9_420);
+    let source_id = Ulid::from_u128(9_421);
+    SaveExecutor::<RelationTargetEntity>::new(REL_DB, false)
+        .insert(RelationTargetEntity { id: target_id })
+        .expect("target save should succeed");
+    SaveExecutor::<RelationSourceEntity>::new(REL_DB, false)
+        .insert(RelationSourceEntity {
+            id: source_id,
+            target: target_id,
+        })
+        .expect("source save should succeed");
+
+    // Phase 2: simulate partial-commit drift by removing reverse index state only.
+    REL_DB
+        .with_store_registry(|reg| {
+            reg.try_get_store(RelationTargetStore::PATH)
+                .map(|store| store.with_index_mut(IndexStore::clear))
+        })
+        .expect("target index store access should succeed");
+    let reverse_rows_before_recovery = REL_DB
+        .with_store_registry(|reg| {
+            reg.try_get_store(RelationTargetStore::PATH)
+                .map(|store| store.with_index(IndexStore::len))
+        })
+        .expect("target index store access should succeed");
+    assert_eq!(
+        reverse_rows_before_recovery, 0,
+        "simulated partial-commit state should have missing reverse entry",
+    );
+
+    // Phase 3: force startup recovery rebuild and verify reverse symmetry is restored.
+    let marker = CommitMarker::new(Vec::new()).expect("marker creation should succeed");
+    begin_commit(marker).expect("begin_commit should persist marker");
+    ensure_recovered(&REL_DB).expect("startup recovery rebuild should succeed");
+    assert!(
+        !commit_marker_present().expect("commit marker check should succeed"),
+        "commit marker should be cleared after startup recovery rebuild",
+    );
+
+    let reverse_rows_after_recovery = REL_DB
+        .with_store_registry(|reg| {
+            reg.try_get_store(RelationTargetStore::PATH)
+                .map(|store| store.with_index(IndexStore::len))
+        })
+        .expect("target index store access should succeed");
+    assert_eq!(
+        reverse_rows_after_recovery, 1,
+        "startup rebuild should restore missing reverse entry from authoritative source row",
+    );
+
+    let delete_target = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
+        .delete()
+        .by_id(target_id)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("target delete plan should build");
+    let err = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+        .execute(delete_target)
+        .expect_err("restored reverse entry should block target delete");
+    assert_eq!(
+        err.class,
+        crate::error::ErrorClass::Unsupported,
+        "blocked strong-relation delete should classify as unsupported",
+    );
+    assert_eq!(
+        err.origin,
+        crate::error::ErrorOrigin::Executor,
+        "blocked strong-relation delete should originate from executor validation",
+    );
+    assert!(
+        err.message.contains("delete blocked by strong relation"),
+        "unexpected error: {err:?}",
+    );
+}
+
 #[test]
 #[expect(clippy::too_many_lines)]
 fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {

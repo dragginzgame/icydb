@@ -1,5 +1,6 @@
 //! Module: index::plan::unique
-//! Responsibility: preflight unique-constraint validation against committed state.
+//! Responsibility: preflight unique-constraint validation against the active
+//! planner reader view (committed state or preflight overlay).
 //! Does not own: commit-op encoding or apply-time writes.
 //! Boundary: internal helper for index planning.
 
@@ -25,8 +26,10 @@ use std::{cell::RefCell, collections::BTreeSet, ops::Bound, thread::LocalKey};
 /// - Index corruption (multiple existing keys for a unique value)
 /// - Uniqueness violations (conflicting key ownership)
 ///
-/// Validation is performed against the current logical store view before
-/// commit-op synthesis. It allows self-ownership (entry contains `new_key`)
+/// Validation is performed against the active preflight reader view before
+/// commit-op synthesis. In commit-window preflight this reader view can include
+/// staged prior row ops (overlay), so same-window conflicts are detected
+/// deterministically. The check allows self-ownership (entry contains `new_key`)
 /// and rejects only conflicting ownership.
 #[expect(clippy::too_many_lines)]
 pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
