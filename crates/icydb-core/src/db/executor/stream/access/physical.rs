@@ -33,25 +33,49 @@ enum KeyOrderState {
     Unordered,
 }
 
+///
+/// PhysicalStreamRequest
+///
+/// Canonical request envelope for one physical key-stream resolution attempt.
+/// Bundles lowered spec constraints, traversal direction, and execution hints
+/// so the physical resolver boundary does not rely on loose optional args.
+///
+
+pub(super) struct PhysicalStreamRequest<'ctx, 'a, E>
+where
+    E: EntityKind + EntityValue,
+{
+    pub(super) ctx: &'a Context<'ctx, E>,
+    pub(super) index_prefix_spec: Option<&'a LoweredIndexPrefixSpec>,
+    pub(super) index_range_spec: Option<&'a LoweredIndexRangeSpec>,
+    pub(super) index_range_anchor: Option<&'a LoweredKey>,
+    pub(super) direction: Direction,
+    pub(super) physical_fetch_hint: Option<usize>,
+    pub(super) index_predicate_execution: Option<IndexPredicateExecution<'a>>,
+}
+
 impl<K> ExecutableAccessPath<'_, K> {
     // Physical access lowering for one executable access path.
     // All store/index traversal must route through `PrimaryScan`/`IndexScan`.
     /// Build an ordered key stream for this access path.
-    #[expect(clippy::too_many_arguments)]
     pub(super) fn resolve_physical_key_stream<E>(
         &self,
-        ctx: &Context<'_, E>,
-        index_prefix_spec: Option<&LoweredIndexPrefixSpec>,
-        index_range_spec: Option<&LoweredIndexRangeSpec>,
-        index_range_anchor: Option<&LoweredKey>,
-        direction: Direction,
-        physical_fetch_hint: Option<usize>,
-        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
+        request: PhysicalStreamRequest<'_, '_, E>,
     ) -> Result<OrderedKeyStreamBox, InternalError>
     where
         E: EntityKind<Key = K> + EntityValue,
         K: Copy + Ord,
     {
+        let PhysicalStreamRequest {
+            ctx,
+            index_prefix_spec,
+            index_range_spec,
+            index_range_anchor,
+            direction,
+            physical_fetch_hint,
+            index_predicate_execution,
+        } = request;
+
         // Only apply bounded physical scans where key-stream semantics remain
         // equivalent without requiring full-set normalization.
         let primary_scan_fetch_hint =

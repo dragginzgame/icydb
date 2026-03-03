@@ -33,7 +33,7 @@ where
     ) -> (GroupedCursorPage, Option<ExecutionTrace>) {
         let rows_returned = folded.page.rows.len();
         Self::finalize_path_outcome(
-            &mut route.execution_trace,
+            &mut route.execution_context.execution_trace,
             folded.optimization,
             folded.rows_scanned,
             rows_returned,
@@ -51,7 +51,7 @@ where
             );
         }
 
-        (folded.page, route.execution_trace)
+        (folded.page, route.execution_context.execution_trace)
     }
 
     // Evaluate grouped projection semantics for each grouped row while preserving

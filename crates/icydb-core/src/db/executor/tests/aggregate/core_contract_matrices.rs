@@ -1220,3 +1220,89 @@ fn grouped_having_unsupported_operator_is_executor_invariant_only_when_planner_i
         "bypassed grouped HAVING operator should fail with executor invariant taxonomy: {err:?}",
     );
 }
+
+#[test]
+fn grouped_global_distinct_unsupported_kind_is_executor_invariant_only_when_planner_is_bypassed() {
+    seed_pushdown_entities(&[(8_1221, 7, 10), (8_1222, 7, 20), (8_1223, 7, 30)]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let grouped = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore)
+        .into_grouped(crate::db::query::plan::GroupSpec {
+            group_fields: Vec::new(),
+            aggregates: vec![crate::db::query::plan::GroupAggregateSpec {
+                kind: crate::db::query::plan::GroupAggregateKind::Exists,
+                target_field: Some("rank".to_string()),
+                distinct: true,
+            }],
+            execution: crate::db::query::plan::GroupedExecutionConfig::unbounded(),
+        });
+    let plan = crate::db::executor::ExecutablePlan::<PushdownParityEntity>::new(grouped);
+
+    let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+        load.execute_grouped_paged_with_cursor_traced(
+            plan,
+            crate::db::cursor::GroupedPlannedCursor::none(),
+        )
+    });
+    let err = result.expect_err(
+        "bypassed global DISTINCT grouped shape with unsupported aggregate kind should fail with executor invariant",
+    );
+
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Planner);
+    assert_eq!(
+        scanned, 0,
+        "bypassed global DISTINCT unsupported aggregate kind should fail before scan-budget consumption",
+    );
+    assert!(
+        err.message
+            .contains("global DISTINCT grouped aggregate shape supports COUNT/SUM only"),
+        "bypassed global DISTINCT unsupported aggregate kind should fail with planner-policy invariant text: {err:?}",
+    );
+}
+
+#[test]
+fn grouped_scalar_distinct_policy_violation_is_executor_invariant_only_when_planner_is_bypassed() {
+    seed_pushdown_entities(&[(8_1231, 7, 10), (8_1232, 7, 20), (8_1233, 7, 30)]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let mut grouped =
+        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore)
+            .into_grouped(crate::db::query::plan::GroupSpec {
+                group_fields: vec![
+                    crate::db::query::plan::FieldSlot::resolve(
+                        <PushdownParityEntity as crate::traits::EntitySchema>::MODEL,
+                        "group",
+                    )
+                    .expect("group field should resolve for bypass fixture"),
+                ],
+                aggregates: vec![crate::db::query::plan::GroupAggregateSpec {
+                    kind: crate::db::query::plan::GroupAggregateKind::Count,
+                    target_field: None,
+                    distinct: false,
+                }],
+                execution: crate::db::query::plan::GroupedExecutionConfig::unbounded(),
+            });
+    grouped.scalar_plan_mut().distinct = true;
+    let plan = crate::db::executor::ExecutablePlan::<PushdownParityEntity>::new(grouped);
+
+    let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+        load.execute_grouped_paged_with_cursor_traced(
+            plan,
+            crate::db::cursor::GroupedPlannedCursor::none(),
+        )
+    });
+    let err = result.expect_err(
+        "bypassed grouped scalar DISTINCT policy violation should fail with executor invariant",
+    );
+
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Query);
+    assert_eq!(
+        scanned, 0,
+        "bypassed grouped scalar DISTINCT policy violation should fail before scan-budget consumption",
+    );
+    assert!(
+        err.message
+            .contains("grouped DISTINCT requires adjacency-based ordered-group eligibility proof in this release"),
+        "bypassed grouped scalar DISTINCT policy violation should fail with planner-policy invariant text: {err:?}",
+    );
+}

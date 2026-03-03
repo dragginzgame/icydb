@@ -33,23 +33,27 @@ where
         &'a self,
         route: &'a GroupedRouteStage<E>,
     ) -> Result<GroupedStreamStage<'a, E>, InternalError> {
-        let execution_preparation = ExecutionPreparation::for_plan::<E>(&route.plan);
+        let execution_preparation =
+            ExecutionPreparation::for_plan::<E>(&route.planner_payload.plan);
         let ctx = self.db.recovered_context::<E>()?;
         let execution_inputs = crate::db::executor::load::ExecutionInputs {
             ctx: &ctx,
-            plan: &route.plan,
+            plan: &route.planner_payload.plan,
             stream_bindings: AccessStreamBindings {
-                index_prefix_specs: route.index_prefix_specs.as_slice(),
-                index_range_specs: route.index_range_specs.as_slice(),
+                index_prefix_specs: route.index_specs.index_prefix_specs.as_slice(),
+                index_range_specs: route.index_specs.index_range_specs.as_slice(),
                 index_range_anchor: None,
-                direction: route.direction,
+                direction: route.execution_context.direction,
             },
             execution_preparation: &execution_preparation,
         };
-        record_grouped_plan_metrics(&route.plan.access, route.grouped_plan_metrics_strategy);
+        record_grouped_plan_metrics(
+            &route.planner_payload.plan.access,
+            route.execution_context.grouped_plan_metrics_strategy,
+        );
         let resolved = Self::resolve_execution_key_stream_without_distinct(
             &execution_inputs,
-            &route.grouped_route_plan,
+            &route.route_payload.grouped_route_plan,
             IndexCompilePolicy::ConservativeSubset,
         )?;
 
@@ -66,8 +70,9 @@ where
         mut stream: GroupedStreamStage<'_, E>,
     ) -> Result<GroupedFoldStage, InternalError> {
         // Phase 1: initialize grouped fold context, projection contracts, and reducers.
-        let mut grouped_execution_context =
-            grouped_execution_context_from_planner_config(Some(route.grouped_execution));
+        let mut grouped_execution_context = grouped_execution_context_from_planner_config(Some(
+            route.planner_payload.grouped_execution,
+        ));
         let max_groups_bound =
             usize::try_from(grouped_execution_context.config().max_groups()).unwrap_or(usize::MAX);
         let grouped_budget = grouped_budget_observability(&grouped_execution_context);
@@ -81,8 +86,12 @@ where
                 && grouped_budget.aggregate_states() >= grouped_budget.groups(),
             "grouped budget observability invariants must hold at grouped route entry",
         );
-        let aggregate_count = route.projection_layout.aggregate_positions().len();
-        let grouped_projection_spec = route.plan.projection_spec(E::MODEL);
+        let aggregate_count = route
+            .planner_payload
+            .projection_layout
+            .aggregate_positions()
+            .len();
+        let grouped_projection_spec = route.planner_payload.plan.projection_spec(E::MODEL);
         let (mut grouped_engines, mut short_circuit_keys) =
             Self::build_grouped_engines(route, &grouped_execution_context)?;
 

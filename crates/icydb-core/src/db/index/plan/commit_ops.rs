@@ -65,17 +65,10 @@ pub(super) fn build_commit_ops_for_index<E: EntityKind>(
 
         let raw_key = new_key.to_raw();
 
-        // Start from:
-        // 1. result of removal (if same key)
-        // 2. existing entry loaded from store
-        // 3. brand new entry
-        let mut entry = if let Some(existing) = touched.remove(&raw_key) {
-            existing.unwrap_or_else(|| IndexEntry::new(new_entity_key))
-        } else if let Some(existing) = new_entry {
-            existing
-        } else {
-            IndexEntry::new(new_entity_key)
-        };
+        // Start insertion from removal outcome for same-key transitions when
+        // available; otherwise use loaded entry fallback or initialize fresh.
+        let mut entry =
+            derive_initial_entry_for_insert(&mut touched, &raw_key, new_entry, new_entity_key);
 
         entry.insert(new_entity_key);
         touched.insert(raw_key, Some(entry));
@@ -119,4 +112,22 @@ pub(super) fn build_commit_ops_for_index<E: EntityKind>(
     }
 
     Ok(())
+}
+
+// Derive one insertion baseline entry under old/new key overlap semantics.
+fn derive_initial_entry_for_insert<E: EntityKind>(
+    touched: &mut BTreeMap<RawIndexKey, Option<IndexEntry<E>>>,
+    raw_key: &RawIndexKey,
+    new_entry: Option<IndexEntry<E>>,
+    new_entity_key: E::Key,
+) -> IndexEntry<E> {
+    if let Some(existing) = touched.remove(raw_key) {
+        return existing.unwrap_or_else(|| IndexEntry::new(new_entity_key));
+    }
+
+    if let Some(existing) = new_entry {
+        return existing;
+    }
+
+    IndexEntry::new(new_entity_key)
 }

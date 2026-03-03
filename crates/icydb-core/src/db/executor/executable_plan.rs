@@ -12,7 +12,10 @@ use crate::{
             LOWERED_INDEX_RANGE_SPEC_INVALID, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             lower_index_prefix_specs, lower_index_range_specs,
         },
-        query::plan::{AccessPlannedQuery, QueryMode},
+        query::plan::{
+            AccessPlannedQuery, GroupDistinctPolicyReason, QueryMode,
+            grouped_distinct_policy_violation_for_executor,
+        },
     },
     error::InternalError,
     traits::{EntityKind, FieldValue},
@@ -111,6 +114,16 @@ impl<E: EntityKind> ExecutablePlan<E> {
     #[must_use]
     pub(in crate::db) const fn is_grouped(&self) -> bool {
         self.plan.grouped_plan().is_some()
+    }
+
+    /// Return grouped DISTINCT policy violation reason for executor boundary guards.
+    #[must_use]
+    pub(in crate::db) fn grouped_distinct_policy_violation_for_executor(
+        &self,
+    ) -> Option<GroupDistinctPolicyReason> {
+        self.plan
+            .grouped_plan()
+            .and_then(grouped_distinct_policy_violation_for_executor)
     }
 
     pub(in crate::db) const fn access(&self) -> &AccessPlan<E::Key> {

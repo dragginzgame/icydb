@@ -15,7 +15,7 @@ use crate::{
             ExecutionPlan, OrderedKeyStreamBox,
             load::{
                 CursorPage, ExecutionInputs, LoadExecutor, MaterializedExecutionAttempt,
-                ResolvedExecutionKeyStream,
+                PageMaterializationRequest, ResolvedExecutionKeyStream,
             },
         },
         index::IndexCompilePolicy,
@@ -179,17 +179,17 @@ impl ExecutionKernel {
             return Ok((page, keys_scanned, post_access_rows));
         }
 
-        LoadExecutor::<E>::materialize_key_stream_into_page(
-            inputs.ctx,
-            inputs.plan,
-            inputs.execution_preparation.compiled_predicate(),
-            resolved.key_stream.as_mut(),
-            route_plan.scan_hints.load_scan_budget_hint,
-            route_plan.streaming_access_shape_safe(),
+        LoadExecutor::<E>::materialize_key_stream_into_page(PageMaterializationRequest {
+            ctx: inputs.ctx,
+            plan: inputs.plan,
+            predicate_slots: inputs.execution_preparation.compiled_predicate(),
+            key_stream: resolved.key_stream.as_mut(),
+            scan_budget_hint: route_plan.scan_hints.load_scan_budget_hint,
+            streaming_access_shape_safe: route_plan.streaming_access_shape_safe(),
             cursor_boundary,
-            route_plan.direction(),
+            direction: route_plan.direction(),
             continuation_signature,
-        )
+        })
     }
 
     // Retry index-range limit pushdown when a bounded residual-filter pass may

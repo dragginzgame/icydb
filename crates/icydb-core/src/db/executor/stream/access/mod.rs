@@ -305,15 +305,15 @@ where
     where
         E: EntityKind,
     {
-        access.resolve_physical_key_stream(
-            self,
-            constraints.prefix,
-            constraints.range,
-            constraints.anchor,
+        access.resolve_physical_key_stream(physical::PhysicalStreamRequest {
+            ctx: self,
+            index_prefix_spec: constraints.prefix,
+            index_range_spec: constraints.range,
+            index_range_anchor: constraints.anchor,
             direction,
-            hints.physical_fetch_hint,
-            hints.predicate_execution,
-        )
+            physical_fetch_hint: hints.physical_fetch_hint,
+            index_predicate_execution: hints.predicate_execution,
+        })
     }
 
     /// Resolve an access plan to rows using default ascending traversal with no anchor.

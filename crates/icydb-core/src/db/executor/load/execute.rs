@@ -74,6 +74,40 @@ pub(in crate::db::executor) struct MaterializedExecutionAttempt<E: EntityKind> {
 }
 
 ///
+/// ExecutionOutcomeMetrics
+///
+/// Finalization-time observability metrics for one materialized load execution
+/// attempt. Keeps path-outcome reporting fields grouped as one boundary payload.
+///
+
+pub(in crate::db::executor) struct ExecutionOutcomeMetrics {
+    pub(in crate::db::executor) optimization: Option<ExecutionOptimization>,
+    pub(in crate::db::executor) rows_scanned: usize,
+    pub(in crate::db::executor) post_access_rows: usize,
+    pub(in crate::db::executor) index_predicate_applied: bool,
+    pub(in crate::db::executor) index_predicate_keys_rejected: u64,
+    pub(in crate::db::executor) distinct_keys_deduped: u64,
+}
+
+impl<E: EntityKind> MaterializedExecutionAttempt<E> {
+    // Split one materialized execution attempt into response page + observability metrics.
+    pub(in crate::db::executor) fn into_page_and_metrics(
+        self,
+    ) -> (CursorPage<E>, ExecutionOutcomeMetrics) {
+        let metrics = ExecutionOutcomeMetrics {
+            optimization: self.optimization,
+            rows_scanned: self.rows_scanned,
+            post_access_rows: self.post_access_rows,
+            index_predicate_applied: self.index_predicate_applied,
+            index_predicate_keys_rejected: self.index_predicate_keys_rejected,
+            distinct_keys_deduped: self.distinct_keys_deduped,
+        };
+
+        (self.page, metrics)
+    }
+}
+
+///
 /// FastPathDecision
 ///
 /// Canonical fast-path routing decision for one execution attempt.
@@ -250,26 +284,20 @@ where
 
     // Apply shared path finalization hooks after page materialization.
     /// Finalize one execution attempt by recording path/row observability outputs.
-    #[expect(clippy::too_many_arguments)]
     pub(super) fn finalize_execution(
         page: CursorPage<E>,
-        optimization: Option<ExecutionOptimization>,
-        rows_scanned: usize,
-        post_access_rows: usize,
-        index_predicate_applied: bool,
-        index_predicate_keys_rejected: u64,
-        distinct_keys_deduped: u64,
+        metrics: ExecutionOutcomeMetrics,
         span: &mut Span<E>,
         execution_trace: &mut Option<ExecutionTrace>,
     ) -> CursorPage<E> {
         Self::finalize_path_outcome(
             execution_trace,
-            optimization,
-            rows_scanned,
-            post_access_rows,
-            index_predicate_applied,
-            index_predicate_keys_rejected,
-            distinct_keys_deduped,
+            metrics.optimization,
+            metrics.rows_scanned,
+            metrics.post_access_rows,
+            metrics.index_predicate_applied,
+            metrics.index_predicate_keys_rejected,
+            metrics.distinct_keys_deduped,
         );
         set_rows_from_len(span, page.items.0.len());
 

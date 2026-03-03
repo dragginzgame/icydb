@@ -8,7 +8,10 @@ use crate::{
         cursor::GroupedPlannedCursor,
         executor::{
             ExecutablePlan, ExecutionTrace,
-            load::{GroupedRouteStage, LoadExecutor},
+            load::{
+                GroupedExecutionContext, GroupedPlannerPayload, GroupedRoutePayload,
+                GroupedRouteStage, IndexSpecBundle, LoadExecutor,
+            },
             plan_metrics::GroupedPlanMetricsStrategy,
             validate_executor_plan,
         },
@@ -43,6 +46,9 @@ where
         debug: bool,
     ) -> Result<GroupedRouteStage<E>, InternalError> {
         validate_executor_plan::<E>(plan.as_inner())?;
+        if let Some(reason) = plan.grouped_distinct_policy_violation_for_executor() {
+            return Err(super::invariant(reason.invariant_message()));
+        }
         let grouped_handoff = grouped_executor_handoff(plan.as_inner())?;
         let grouped_execution = grouped_handoff.execution();
         let group_fields = grouped_handoff.group_fields().to_vec();
@@ -102,21 +108,27 @@ where
         let plan = plan.into_inner();
 
         Ok(GroupedRouteStage {
-            plan,
-            cursor,
-            direction,
-            continuation_signature,
-            index_prefix_specs,
-            index_range_specs,
-            grouped_execution,
-            group_fields,
-            grouped_aggregate_exprs,
-            projection_layout,
-            grouped_having,
-            grouped_route_plan,
-            grouped_plan_metrics_strategy,
-            grouped_distinct_execution_strategy,
-            execution_trace,
+            planner_payload: GroupedPlannerPayload {
+                plan,
+                grouped_execution,
+                group_fields,
+                grouped_aggregate_exprs,
+                projection_layout,
+                grouped_having,
+                grouped_distinct_execution_strategy,
+            },
+            route_payload: GroupedRoutePayload { grouped_route_plan },
+            index_specs: IndexSpecBundle {
+                index_prefix_specs,
+                index_range_specs,
+            },
+            execution_context: GroupedExecutionContext {
+                cursor,
+                direction,
+                continuation_signature,
+                grouped_plan_metrics_strategy,
+                execution_trace,
+            },
         })
     }
 }

@@ -33,7 +33,7 @@ For example: [docs/changelog/0.33.md](docs/changelog/0.33.md)
   - Date
   - High-level summary sections
   - Links to detailed notes
-- Root minor-line summary entries should use 2-3 concise bullets per release line.
+- Root minor-line summary entries must use exactly one concise bullet per patch version.
 
 ## 2.2 Detailed Minor Notes
 
@@ -85,7 +85,9 @@ Rules:
 10. Do not include internal refactor noise.
 11. Do not exceed ~15 bullets total in the root entry.
 12. If a section exceeds ~4 lines of explanation, move detail to `docs/changelog/<major>.<minor>.md`.
-13. For a root minor-line entry (`<major>.<minor>.x`), target 2-3 summary bullets.
+13. For a root minor-line entry (`<major>.<minor>.x`), use exactly one bullet per patch version listed in that minor line.
+14. Each root minor-line patch bullet must be a high-level summary sentence, not an exhaustive implementation list.
+15. If a patch bullet starts becoming a multi-clause internal inventory, shorten it and move detail to `docs/changelog/<major>.<minor>.md`.
 
 ## 3.1 Section Header Emoji Mapping
 
@@ -213,6 +215,7 @@ Bullet and detail rules:
 
 - Prefer short bullets (1-2 sentences), with inline code formatting for API/type names when relevant.
 - Bullets do not need to be single-line if additional sentence context is needed.
+- In root minor-line summaries, prefer one short sentence per patch bullet; avoid long multi-clause bullets that enumerate every internal change.
 - Avoid deep implementation detail (module paths, helper names, routing internals) unless required for migration/debugging.
 - In root `CHANGELOG.md`, avoid code examples/LoC dumps unless strictly necessary.
 - Prefer placing code examples, LoC snapshots, and fenced blocks in `docs/changelog/<major>.<minor>.md`.

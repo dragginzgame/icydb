@@ -26,17 +26,18 @@ where
         scanned_rows: &mut usize,
         filtered_rows: &mut usize,
     ) -> Result<Option<GroupedFoldStage>, InternalError> {
-        let (aggregate_kind, target_field) = match &route.grouped_distinct_execution_strategy {
-            GroupedDistinctExecutionStrategy::None => return Ok(None),
-            GroupedDistinctExecutionStrategy::GlobalDistinctFieldAggregate {
-                kind,
-                target_field,
-            } => (kind, target_field),
-        };
+        let (aggregate_kind, target_field) =
+            match &route.planner_payload.grouped_distinct_execution_strategy {
+                GroupedDistinctExecutionStrategy::None => return Ok(None),
+                GroupedDistinctExecutionStrategy::GlobalDistinctFieldAggregate {
+                    kind,
+                    target_field,
+                } => (kind, target_field),
+            };
         let compiled_predicate = stream.execution_preparation.compiled_predicate();
 
         let global_row = Self::execute_global_distinct_field_aggregate(
-            &route.plan,
+            &route.planner_payload.plan,
             &stream.ctx,
             &mut stream.resolved,
             compiled_predicate,
@@ -46,13 +47,13 @@ where
         )?;
         let page_rows = Self::page_global_distinct_grouped_row(
             global_row,
-            route.plan.scalar_plan().page.as_ref(),
+            route.planner_payload.plan.scalar_plan().page.as_ref(),
         );
         let page_rows = Self::project_grouped_rows_from_projection(
             grouped_projection_spec,
-            &route.projection_layout,
-            route.group_fields.as_slice(),
-            route.grouped_aggregate_exprs.as_slice(),
+            &route.planner_payload.projection_layout,
+            route.planner_payload.group_fields.as_slice(),
+            route.planner_payload.grouped_aggregate_exprs.as_slice(),
             page_rows,
         )?;
         let rows_scanned = stream

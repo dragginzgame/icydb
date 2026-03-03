@@ -418,10 +418,12 @@ Code is considered non-trivial if it:
 * In root `CHANGELOG.md`, avoid internal-only jargon unless required for migration/debugging; when unavoidable, add a short plain-language explanation in the same bullet.
 * In root `CHANGELOG.md`, keep each minor-line summary focused on shipped behavior and outcomes; avoid WIP/meta narration.
 * In root `CHANGELOG.md`, use exactly one bullet per patch version in each minor-line summary.
+* In root `CHANGELOG.md`, each patch bullet is a summary sentence, not a full change list.
+* In root `CHANGELOG.md`, do not chain many clauses to enumerate every internal change from that patch; move detail to `docs/changelog/0.*.md`.
 * In `docs/changelog/0.*.md`, include implementation detail, architectural rationale, and subsystem terminology needed by maintainers and domain experts.
 * In `docs/changelog/0.*.md`, prefer precision over simplification, but keep claims concrete and avoid unnecessary verbosity.
 * Never copy internal design-doc phrasing directly into changelog summaries.
-* Keep bullets short; split long bullets into multiple bullets instead of chaining many clauses.
+* Keep bullets short; in root minor-line summaries keep one concise bullet per patch, and use `docs/changelog/0.*.md` for exhaustive breakdowns.
 * Inline fenced examples are optional, not mandatory.
 * In root `CHANGELOG.md`, include at most one inline fenced example per minor version (`0.x.x` line) when it materially improves clarity.
 * In `docs/changelog/0.*.md`, include at most one inline fenced example per patch entry (`## 0.x.y`) when it materially improves clarity.

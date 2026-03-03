@@ -23,19 +23,21 @@ where
         grouped_execution_context: &ExecutionContext,
     ) -> Result<(Vec<AggregateEngine<E>>, Vec<Vec<Value>>), InternalError> {
         if matches!(
-            route.grouped_distinct_execution_strategy,
+            route.planner_payload.grouped_distinct_execution_strategy,
             GroupedDistinctExecutionStrategy::GlobalDistinctFieldAggregate { .. }
         ) {
             return Ok((Vec::new(), Vec::new()));
         }
 
         let grouped_engines = route
+            .planner_payload
             .projection_layout
             .aggregate_positions()
             .iter()
             .enumerate()
             .map(|(aggregate_index, projection_index)| {
                 let aggregate_expr = route
+                    .planner_payload
                     .grouped_aggregate_exprs
                     .get(aggregate_index)
                     .ok_or_else(|| {

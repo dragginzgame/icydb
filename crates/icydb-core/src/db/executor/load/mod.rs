@@ -54,6 +54,7 @@ pub(in crate::db::executor) use self::entrypoints::{
 pub(in crate::db::executor) use self::execute::{
     ExecutionInputs, MaterializedExecutionAttempt, ResolvedExecutionKeyStream,
 };
+pub(in crate::db::executor) use self::page::PageMaterializationRequest;
 
 ///
 /// PageCursor
@@ -164,22 +165,69 @@ pub(crate) struct LoadExecutor<E: EntityKind> {
 /// execution metadata before runtime stream resolution starts.
 ///
 
-struct GroupedRouteStage<E: EntityKind + EntityValue> {
+///
+/// GroupedPlannerPayload
+///
+/// Planner-owned grouped execution payload consumed by grouped runtime stages.
+/// Keeps logical grouped plan artifacts (projection layout, grouped fields,
+/// grouped terminals, and grouped DISTINCT/HAVING policy outputs) under one
+/// ownership boundary.
+///
+
+struct GroupedPlannerPayload<E: EntityKind + EntityValue> {
     plan: AccessPlannedQuery<E::Key>,
-    cursor: GroupedPlannedCursor,
-    direction: Direction,
-    continuation_signature: ContinuationSignature,
-    index_prefix_specs: Vec<crate::db::access::LoweredIndexPrefixSpec>,
-    index_range_specs: Vec<crate::db::access::LoweredIndexRangeSpec>,
     grouped_execution: crate::db::query::plan::GroupedExecutionConfig,
     group_fields: Vec<crate::db::query::plan::FieldSlot>,
     grouped_aggregate_exprs: Vec<crate::db::query::builder::AggregateExpr>,
     projection_layout: PlannedProjectionLayout,
     grouped_having: Option<GroupHavingSpec>,
-    grouped_route_plan: crate::db::executor::ExecutionPlan,
-    grouped_plan_metrics_strategy: GroupedPlanMetricsStrategy,
     grouped_distinct_execution_strategy: GroupedDistinctExecutionStrategy,
+}
+
+///
+/// GroupedRoutePayload
+///
+/// Route-owned grouped execution payload produced after grouped planner handoff.
+/// Keeps route-plan artifacts scoped to grouped routing and stream resolution.
+///
+
+struct GroupedRoutePayload {
+    grouped_route_plan: crate::db::executor::ExecutionPlan,
+}
+
+///
+/// IndexSpecBundle
+///
+/// Grouped execution lowered index-spec bundle used by grouped stream
+/// resolution. Keeps prefix/range specs grouped to avoid parallel vector drift.
+///
+
+struct IndexSpecBundle {
+    index_prefix_specs: Vec<crate::db::access::LoweredIndexPrefixSpec>,
+    index_range_specs: Vec<crate::db::access::LoweredIndexRangeSpec>,
+}
+
+///
+/// GroupedExecutionContext
+///
+/// Grouped runtime execution context artifacts derived at grouped route stage.
+/// Keeps cursor/runtime direction, continuation signature, trace, and grouped
+/// metrics strategy together for grouped stream/fold/output stages.
+///
+
+struct GroupedExecutionContext {
+    cursor: GroupedPlannedCursor,
+    direction: Direction,
+    continuation_signature: ContinuationSignature,
+    grouped_plan_metrics_strategy: GroupedPlanMetricsStrategy,
     execution_trace: Option<ExecutionTrace>,
+}
+
+struct GroupedRouteStage<E: EntityKind + EntityValue> {
+    planner_payload: GroupedPlannerPayload<E>,
+    route_payload: GroupedRoutePayload,
+    index_specs: IndexSpecBundle,
+    execution_context: GroupedExecutionContext,
 }
 
 ///

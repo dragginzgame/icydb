@@ -19,7 +19,7 @@ use crate::{
         },
         numeric::{NumericArithmeticOp, apply_numeric_arithmetic},
         predicate::MissingRowPolicy,
-        query::plan::AccessPlannedQuery,
+        query::plan::{AccessPlannedQuery, AggregateKind, GroupDistinctPolicyReason},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -39,12 +39,13 @@ where
         resolved: &mut ResolvedExecutionKeyStream,
         compiled_predicate: Option<&crate::db::predicate::PredicateProgram>,
         grouped_execution_context: &mut ExecutionContext,
-        aggregate_spec: (crate::db::query::plan::AggregateKind, &str),
+        aggregate_spec: (AggregateKind, &str),
         row_counters: (&mut usize, &mut usize),
     ) -> Result<GroupedRow, InternalError> {
         let (aggregate_kind, target_field) = aggregate_spec;
+        let aggregate_kind_is_sum = global_distinct_kind_is_sum(aggregate_kind)?;
         let (scanned_rows, filtered_rows) = row_counters;
-        let field_slot = if aggregate_kind.is_sum() {
+        let field_slot = if aggregate_kind_is_sum {
             Self::resolve_numeric_field_slot(target_field)?
         } else {
             Self::resolve_any_field_slot(target_field)?
@@ -95,7 +96,7 @@ where
                 continue;
             }
 
-            if aggregate_kind.is_sum() {
+            if aggregate_kind_is_sum {
                 let numeric_value =
                     extract_numeric_field_decimal(&entity, target_field, field_slot)
                         .map_err(AggregateFieldValueError::into_internal_error)?;
@@ -115,7 +116,7 @@ where
             }
         }
 
-        let aggregate_value = if aggregate_kind.is_sum() {
+        let aggregate_value = if aggregate_kind_is_sum {
             if saw_sum_value {
                 Value::Decimal(sum)
             } else {
@@ -141,5 +142,52 @@ where
         }
 
         vec![row]
+    }
+}
+
+// Validate grouped global DISTINCT aggregate kind at runtime boundary.
+// Planner should enforce this, but executor must fail-closed for bypassed shapes.
+fn global_distinct_kind_is_sum(aggregate_kind: AggregateKind) -> Result<bool, InternalError> {
+    match aggregate_kind {
+        AggregateKind::Count => Ok(false),
+        AggregateKind::Sum => Ok(true),
+        _ => Err(crate::db::executor::load::invariant(
+            GroupDistinctPolicyReason::GlobalDistinctUnsupportedAggregateKind.invariant_message(),
+        )),
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn grouped_global_distinct_kind_guard_accepts_count_and_sum() {
+        assert!(
+            !global_distinct_kind_is_sum(AggregateKind::Count)
+                .expect("COUNT should be accepted by global DISTINCT kind guard")
+        );
+        assert!(
+            global_distinct_kind_is_sum(AggregateKind::Sum)
+                .expect("SUM should be accepted by global DISTINCT kind guard")
+        );
+    }
+
+    #[test]
+    fn grouped_global_distinct_kind_guard_rejects_non_count_sum() {
+        let err = global_distinct_kind_is_sum(AggregateKind::Exists)
+            .expect_err("non COUNT/SUM global DISTINCT aggregate kind must fail closed");
+
+        assert_eq!(err.class, crate::error::ErrorClass::InvariantViolation);
+        assert_eq!(err.origin, crate::error::ErrorOrigin::Query);
+        assert!(
+            err.message
+                .contains("global DISTINCT grouped aggregate shape supports COUNT/SUM only"),
+            "global DISTINCT kind guard must expose planner-policy invariant message: {err:?}",
+        );
     }
 }

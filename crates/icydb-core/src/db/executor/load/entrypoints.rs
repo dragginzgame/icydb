@@ -564,22 +564,11 @@ where
                 continuation_signature,
                 IndexCompilePolicy::ConservativeSubset,
             )?;
-            let page = materialized.page;
-            let rows_scanned = materialized.rows_scanned;
-            let post_access_rows = materialized.post_access_rows;
-            let optimization = materialized.optimization;
-            let index_predicate_applied = materialized.index_predicate_applied;
-            let index_predicate_keys_rejected = materialized.index_predicate_keys_rejected;
-            let distinct_keys_deduped = materialized.distinct_keys_deduped;
+            let (page, metrics) = materialized.into_page_and_metrics();
 
             Ok(Self::finalize_execution(
                 page,
-                optimization,
-                rows_scanned,
-                post_access_rows,
-                index_predicate_applied,
-                index_predicate_keys_rejected,
-                distinct_keys_deduped,
+                metrics,
                 &mut span,
                 &mut execution_trace,
             ))

@@ -19,23 +19,49 @@ use crate::{
     types::Id,
 };
 
+///
+/// PageMaterializationRequest
+///
+/// Request contract for one ordered key-stream to cursor-page materialization
+/// pass. Bundles logical, physical, paging, and continuation inputs so the
+/// page materialization boundary is explicit and stable.
+///
+
+pub(in crate::db::executor) struct PageMaterializationRequest<'a, E>
+where
+    E: EntityKind + EntityValue,
+{
+    pub(in crate::db::executor) ctx: &'a Context<'a, E>,
+    pub(in crate::db::executor) plan: &'a AccessPlannedQuery<E::Key>,
+    pub(in crate::db::executor) predicate_slots: Option<&'a PredicateProgram>,
+    pub(in crate::db::executor) key_stream: &'a mut dyn OrderedKeyStream,
+    pub(in crate::db::executor) scan_budget_hint: Option<usize>,
+    pub(in crate::db::executor) streaming_access_shape_safe: bool,
+    pub(in crate::db::executor) cursor_boundary: Option<&'a CursorBoundary>,
+    pub(in crate::db::executor) direction: Direction,
+    pub(in crate::db::executor) continuation_signature: ContinuationSignature,
+}
+
 impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
     /// Run shared load phases for an already-produced ordered key stream.
-    #[expect(clippy::too_many_arguments)]
     pub(in crate::db::executor) fn materialize_key_stream_into_page(
-        ctx: &Context<'_, E>,
-        plan: &AccessPlannedQuery<E::Key>,
-        predicate_slots: Option<&PredicateProgram>,
-        key_stream: &mut dyn OrderedKeyStream,
-        scan_budget_hint: Option<usize>,
-        streaming_access_shape_safe: bool,
-        cursor_boundary: Option<&CursorBoundary>,
-        direction: Direction,
-        continuation_signature: ContinuationSignature,
+        request: PageMaterializationRequest<'_, E>,
     ) -> Result<(CursorPage<E>, usize, usize), InternalError> {
+        let PageMaterializationRequest {
+            ctx,
+            plan,
+            predicate_slots,
+            key_stream,
+            scan_budget_hint,
+            streaming_access_shape_safe,
+            cursor_boundary,
+            direction,
+            continuation_signature,
+        } = request;
+
         // Phase 1: validate scan-budget hint preconditions.
         // Bounded load scan hints are valid only for non-continuation,
         // streaming-safe access shapes where access order is final.

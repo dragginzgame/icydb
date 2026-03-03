@@ -63,6 +63,16 @@ pub(in crate::db) fn grouped_cursor_policy_violation_for_continuation(
     semantics::grouped_cursor_policy_violation(grouped, cursor_present)
 }
 
+// Return grouped DISTINCT policy violation reason for executor boundary guards.
+pub(in crate::db) const fn grouped_distinct_policy_violation_for_executor(
+    grouped: &GroupPlan,
+) -> Option<GroupDistinctPolicyReason> {
+    match grouped_distinct_admissibility(grouped.scalar.distinct, grouped.having.is_some()) {
+        GroupDistinctAdmissibility::Allowed => None,
+        GroupDistinctAdmissibility::Disallowed(reason) => Some(reason),
+    }
+}
+
 // Project grouped strategy hint for executor route strategy selection.
 pub(in crate::db) fn grouped_plan_strategy_hint_for_route<K>(
     plan: &AccessPlannedQuery<K>,

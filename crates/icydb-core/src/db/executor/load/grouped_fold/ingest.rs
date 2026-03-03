@@ -35,7 +35,7 @@ where
         let compiled_predicate = stream.execution_preparation.compiled_predicate();
 
         while let Some(key) = stream.resolved.key_stream.next_key()? {
-            let row = match route.plan.scalar_plan().consistency {
+            let row = match route.planner_payload.plan.scalar_plan().consistency {
                 MissingRowPolicy::Error => stream.ctx.read_strict(&key),
                 MissingRowPolicy::Ignore => stream.ctx.read(&key),
             };
@@ -54,6 +54,7 @@ where
             filtered_rows = filtered_rows.saturating_add(1);
 
             let group_values = route
+                .planner_payload
                 .group_fields
                 .iter()
                 .map(|field| {

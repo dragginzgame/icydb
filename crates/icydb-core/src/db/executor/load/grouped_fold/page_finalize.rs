@@ -52,9 +52,9 @@ where
             last_emitted_group_key = Some(emitted_group_key.clone());
             let projected_row = Self::project_grouped_row_from_projection(
                 grouped_projection_spec,
-                &route.projection_layout,
-                route.group_fields.as_slice(),
-                route.grouped_aggregate_exprs.as_slice(),
+                &route.planner_payload.projection_layout,
+                route.planner_payload.group_fields.as_slice(),
+                route.planner_payload.grouped_aggregate_exprs.as_slice(),
                 emitted_group_key.as_slice(),
                 aggregate_values.as_slice(),
             )?;
@@ -68,7 +68,7 @@ where
         let next_cursor = if has_more {
             last_emitted_group_key.map(|last_group_key| {
                 PageCursor::Grouped(ContinuationEngine::grouped_next_cursor_token(
-                    route.continuation_signature,
+                    route.execution_context.continuation_signature,
                     last_group_key,
                     resume_initial_offset,
                 ))

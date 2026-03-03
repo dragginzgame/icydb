@@ -22,7 +22,11 @@ where
     pub(super) fn grouped_pagination_window(
         route: &GroupedRouteStage<E>,
     ) -> (Option<usize>, usize, Option<usize>, u32, Option<Value>) {
-        ContinuationEngine::grouped_paging_contract(&route.plan, &route.cursor).into_parts()
+        ContinuationEngine::grouped_paging_contract(
+            &route.planner_payload.plan,
+            &route.execution_context.cursor,
+        )
+        .into_parts()
     }
 
     // Finalize grouped reducers into deterministic candidate rows before paging.
@@ -76,10 +80,10 @@ where
                     aggregate_count,
                     "grouped aggregate value alignment must preserve declared aggregate count",
                 );
-                if let Some(grouped_having) = route.grouped_having.as_ref()
+                if let Some(grouped_having) = route.planner_payload.grouped_having.as_ref()
                     && !Self::group_matches_having(
                         grouped_having,
-                        route.group_fields.as_slice(),
+                        route.planner_payload.group_fields.as_slice(),
                         &group_key_value,
                         aggregate_values.as_slice(),
                     )?

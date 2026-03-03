@@ -9,7 +9,7 @@ use crate::{
         direction::Direction,
         executor::{
             AccessPathRuntimeStrategy, AccessPlanStreamRequest, AccessStreamBindings,
-            ExecutionKernel, LoweredIndexPrefixSpec,
+            ExecutionKernel,
             aggregate::{
                 AggregateFastPathInputs, AggregateFoldMode, AggregateKind, AggregateOutput,
             },
@@ -67,34 +67,34 @@ impl ExecutionKernel {
     }
 
     /// Try one secondary-index aggregate fold attempt and preserve fast-path scan accounting.
-    #[expect(clippy::too_many_arguments)]
     pub(in crate::db::executor) fn try_fold_secondary_index_aggregate<E>(
-        ctx: &Context<'_, E>,
-        plan: &AccessPlannedQuery<E::Key>,
-        index_prefix_spec: Option<&LoweredIndexPrefixSpec>,
-        physical_fetch_hint: Option<usize>,
-        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
-        direction: Direction,
-        kind: AggregateKind,
-        fold_mode: AggregateFoldMode,
+        inputs: &AggregateFastPathInputs<'_, '_, E>,
+        probe_fetch_hint: Option<usize>,
     ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError>
     where
         E: EntityKind + EntityValue,
     {
+        let index_predicate_execution =
+            Self::aggregate_index_predicate_execution(inputs.index_predicate_program);
         let Some(fast) = LoadExecutor::<E>::try_execute_secondary_index_order_stream(
-            ctx,
-            plan,
-            index_prefix_spec,
-            physical_fetch_hint,
+            inputs.ctx,
+            inputs.logical_plan,
+            inputs.index_prefix_specs.first(),
+            probe_fetch_hint,
             index_predicate_execution,
         )?
         else {
             return Ok(None);
         };
         let (aggregate_output, rows_scanned) = Self::fold_aggregate_from_fast_path_result(
-            ctx, plan, direction, kind, fold_mode, fast,
+            inputs.ctx,
+            inputs.logical_plan,
+            inputs.direction,
+            inputs.kind,
+            inputs.fold_mode,
+            fast,
         )?;
-        if let Some(fetch) = physical_fetch_hint {
+        if let Some(fetch) = probe_fetch_hint {
             debug_assert!(
                 rows_scanned <= fetch,
                 "secondary extrema probe rows_scanned must not exceed bounded fetch",
@@ -179,13 +179,7 @@ impl ExecutionKernel {
                 inputs.kind,
                 inputs.fold_mode,
             ),
-            FastPathOrder::SecondaryPrefix => Self::try_execute_index_prefix_aggregate(
-                inputs.ctx,
-                inputs,
-                inputs.direction,
-                inputs.kind,
-                inputs.fold_mode,
-            ),
+            FastPathOrder::SecondaryPrefix => Self::try_execute_index_prefix_aggregate(inputs),
             FastPathOrder::PrimaryScan => Self::try_execute_primary_scan_aggregate(
                 inputs.ctx,
                 inputs.logical_plan,
@@ -302,11 +296,7 @@ impl ExecutionKernel {
     // Resolve aggregate terminals directly for index-prefix access plans when
     // canonical secondary ordering is pushdown-eligible.
     fn try_execute_index_prefix_aggregate<E>(
-        ctx: &Context<'_, E>,
         inputs: &AggregateFastPathInputs<'_, '_, E>,
-        direction: Direction,
-        kind: AggregateKind,
-        fold_mode: AggregateFoldMode,
     ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError>
     where
         E: EntityKind + EntityValue,
@@ -318,25 +308,15 @@ impl ExecutionKernel {
             .scan_hints
             .physical_fetch_hint
             .or_else(|| inputs.route_plan.secondary_extrema_probe_fetch_hint());
-        let index_predicate_execution =
-            Self::aggregate_index_predicate_execution(inputs.index_predicate_program);
-        let Some((probe_output, probe_rows_scanned)) = Self::try_fold_secondary_index_aggregate(
-            ctx,
-            inputs.logical_plan,
-            inputs.index_prefix_specs.first(),
-            probe_fetch_hint,
-            index_predicate_execution,
-            direction,
-            kind,
-            fold_mode,
-        )?
+        let Some((probe_output, probe_rows_scanned)) =
+            Self::try_fold_secondary_index_aggregate(inputs, probe_fetch_hint)?
         else {
             return Ok(None);
         };
 
         if !Self::secondary_extrema_probe_requires_fallback(
             inputs.logical_plan.scalar_plan().consistency,
-            kind,
+            inputs.kind,
             probe_fetch_hint,
             &probe_output,
             probe_rows_scanned,
@@ -347,17 +327,8 @@ impl ExecutionKernel {
         // Ignore + bounded secondary probe can under-fetch when leading index
         // entries are stale. Retry unbounded to preserve terminal correctness.
         let Some((aggregate_output, fallback_rows_scanned)) =
-            Self::try_fold_secondary_index_aggregate(
-                ctx,
-                inputs.logical_plan,
-                inputs.index_prefix_specs.first(),
-                // Keep native index traversal order for fallback retries.
-                Some(usize::MAX),
-                index_predicate_execution,
-                direction,
-                kind,
-                fold_mode,
-            )?
+            // Keep native index traversal order for fallback retries.
+            Self::try_fold_secondary_index_aggregate(inputs, Some(usize::MAX))?
         else {
             return Ok(None);
         };
