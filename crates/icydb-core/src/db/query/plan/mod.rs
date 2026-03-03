@@ -28,7 +28,7 @@ pub(in crate::db) use group::{
 pub(in crate::db) use grouped_layout::validate_grouped_projection_layout;
 pub use model::OrderDirection;
 pub(crate) use model::{AggregateKind, DeleteSpec, DistinctExecutionStrategy, LoadSpec, QueryMode};
-pub(in crate::db) use model::{ContinuationPolicy, PlannerRouteProfile};
+pub(in crate::db) use model::{ContinuationPolicy, ExecutionShapeSignature, PlannerRouteProfile};
 pub(crate) use model::{
     DeleteLimitSpec, FieldSlot, GroupAggregateSpec, GroupHavingClause, GroupHavingSpec,
     GroupHavingSymbol, GroupPlan, GroupSpec, GroupedExecutionConfig, LogicalPlan, OrderSpec,

@@ -17,6 +17,7 @@
 
 mod apply;
 mod guard;
+mod hooks;
 mod marker;
 mod memory;
 mod prepare;
@@ -40,6 +41,10 @@ use std::fmt::Display;
 /// Re-exports
 ///
 pub(in crate::db) use guard::{CommitApplyGuard, CommitGuard, begin_commit, finish_commit};
+pub use hooks::EntityRuntimeHooks;
+pub(in crate::db) use hooks::{
+    has_runtime_hooks, resolve_runtime_hook_by_name, resolve_runtime_hook_by_path,
+};
 pub(in crate::db) use marker::CommitRowOp;
 pub(in crate::db) use marker::{
     CommitIndexOp, CommitMarker, CommitSchemaFingerprint, MAX_COMMIT_BYTES,

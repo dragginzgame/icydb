@@ -500,7 +500,8 @@ where
         let scalar_runtime = ContinuationEngine::scalar_runtime(cursor);
         let cursor_boundary = scalar_runtime.cursor_boundary();
         let index_range_token = scalar_runtime.index_range_token();
-        let continuation_signature = plan.continuation_signature();
+        let execution_shape_signature = plan.execution_shape_signature();
+        let continuation_signature = execution_shape_signature.continuation_signature();
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
         let logical_plan = plan.into_inner();

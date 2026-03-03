@@ -100,7 +100,8 @@ where
         let continuation_applied = !cursor.is_empty();
         let execution_trace =
             debug.then(|| ExecutionTrace::new(plan.access(), direction, continuation_applied));
-        let continuation_signature = plan.continuation_signature();
+        let execution_shape_signature = plan.execution_shape_signature();
+        let continuation_signature = execution_shape_signature.continuation_signature();
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
         let plan = plan.into_inner();

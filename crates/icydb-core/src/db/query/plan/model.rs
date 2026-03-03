@@ -4,8 +4,11 @@
 //! Boundary: data-only types shared by plan builder/semantics/validation layers.
 
 use crate::{
-    db::predicate::{CompareOp, MissingRowPolicy, PredicateExecutionModel},
-    db::query::plan::semantics::LogicalPushdownEligibility,
+    db::{
+        cursor::ContinuationSignature,
+        predicate::{CompareOp, MissingRowPolicy, PredicateExecutionModel},
+        query::plan::semantics::LogicalPushdownEligibility,
+    },
     value::Value,
 };
 
@@ -185,6 +188,35 @@ impl ContinuationPolicy {
     #[must_use]
     pub(in crate::db) const fn is_grouped_safe(self) -> bool {
         self.is_grouped_safe
+    }
+}
+
+///
+/// ExecutionShapeSignature
+///
+/// Immutable planner-projected semantic shape signature contract.
+/// Continuation transport encodes this contract; route/load consume it as a
+/// read-only execution identity boundary without re-deriving semantics.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct ExecutionShapeSignature {
+    continuation_signature: ContinuationSignature,
+}
+
+impl ExecutionShapeSignature {
+    /// Construct one immutable execution-shape signature contract.
+    #[must_use]
+    pub(in crate::db) const fn new(continuation_signature: ContinuationSignature) -> Self {
+        Self {
+            continuation_signature,
+        }
+    }
+
+    /// Borrow the canonical continuation signature for this execution shape.
+    #[must_use]
+    pub(in crate::db) const fn continuation_signature(self) -> ContinuationSignature {
+        self.continuation_signature
     }
 }
 

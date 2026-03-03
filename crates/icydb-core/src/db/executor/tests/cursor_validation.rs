@@ -431,6 +431,45 @@ fn load_cursor_accepts_matching_offset_window_at_plan_time() {
 }
 
 #[test]
+fn executable_plan_execution_shape_signature_contract_is_stable_and_shape_sensitive() {
+    // Phase 1: derive one executable plan shape signature from canonical planner semantics.
+    let plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
+        .order_by("rank")
+        .limit(1)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("plan should build");
+    let shape_signature = plan.execution_shape_signature();
+
+    assert_eq!(
+        shape_signature.continuation_signature(),
+        plan.continuation_signature(),
+        "executable continuation signatures must read from immutable execution-shape contract",
+    );
+    assert_eq!(
+        shape_signature,
+        plan.execution_shape_signature(),
+        "execution-shape signatures must be stable across repeated reads",
+    );
+
+    // Phase 2: semantic shape drift must produce a distinct execution-shape signature.
+    let drifted_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
+        .order_by("label")
+        .limit(1)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("drifted plan should build");
+
+    assert_ne!(
+        shape_signature.continuation_signature(),
+        drifted_plan
+            .execution_shape_signature()
+            .continuation_signature(),
+        "execution-shape signature must invalidate when planner shape changes",
+    );
+}
+
+#[test]
 fn grouped_cursor_rejects_cross_shape_resume_token_and_encoded_bytes_differ() {
     let grouped_by_group = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .group_by("group")

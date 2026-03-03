@@ -2,14 +2,15 @@ use crate::{
     db::{
         access::AccessPlan,
         query::plan::{
-            AccessPlannedQuery, ContinuationPolicy, DistinctExecutionStrategy, GroupPlan,
-            LogicalPlan, PlannerRouteProfile, QueryMode, ScalarPlan,
-            derive_logical_pushdown_eligibility, expr::ProjectionSpec,
+            AccessPlannedQuery, ContinuationPolicy, DistinctExecutionStrategy,
+            ExecutionShapeSignature, GroupPlan, LogicalPlan, PlannerRouteProfile, QueryMode,
+            ScalarPlan, derive_logical_pushdown_eligibility, expr::ProjectionSpec,
             grouped_cursor_policy_violation_for_continuation, lower_projection_identity,
             lower_projection_intent,
         },
     },
     model::entity::EntityModel,
+    traits::FieldValue,
 };
 
 impl QueryMode {
@@ -116,6 +117,18 @@ impl<K> AccessPlannedQuery<K> {
             derive_continuation_policy_validated(self),
             derive_logical_pushdown_eligibility(model, self),
         )
+    }
+
+    /// Build one immutable execution-shape signature contract for runtime layers.
+    #[must_use]
+    pub(in crate::db) fn execution_shape_signature(
+        &self,
+        entity_path: &'static str,
+    ) -> ExecutionShapeSignature
+    where
+        K: FieldValue,
+    {
+        ExecutionShapeSignature::new(self.continuation_signature(entity_path))
     }
 
     /// Borrow scalar semantic fields mutably across logical variants.

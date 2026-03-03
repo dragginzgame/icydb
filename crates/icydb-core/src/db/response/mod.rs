@@ -2,6 +2,7 @@
 //! Responsibility: materialized query/write response payload contracts.
 //! Does not own: execution routing, planning policy, or cursor token protocol.
 //! Boundary: Tier-2 db API DTO surface returned by session execution.
+mod grouped;
 mod paged;
 
 use crate::{
@@ -13,6 +14,7 @@ use crate::{
 use thiserror::Error as ThisError;
 
 // re-exports
+pub use grouped::{GroupedRow, PagedGroupedExecution, PagedGroupedExecutionWithTrace};
 pub use paged::{PagedLoadExecution, PagedLoadExecutionWithTrace};
 
 ///

@@ -27,30 +27,29 @@ pub(in crate::db) mod relation;
 use crate::{
     db::{
         commit::{
-            CommitRowOp, CommitSchemaFingerprint, PreparedRowCommitOp,
-            commit_schema_fingerprint_for_entity, ensure_recovered, prepare_row_commit_for_entity,
+            CommitRowOp, PreparedRowCommitOp, ensure_recovered,
             rebuild_secondary_indexes_from_rows, replay_commit_marker_row_ops,
         },
         data::RawDataKey,
         executor::Context,
-        relation::StrongRelationDeleteValidateFn,
     },
     error::InternalError,
-    traits::{CanisterKind, EntityIdentity, EntityKind, EntityValue},
-    value::Value,
+    traits::{CanisterKind, EntityKind, EntityValue},
 };
 use std::{collections::BTreeSet, marker::PhantomData, thread::LocalKey};
 
 pub use codec::cursor::{decode_cursor, encode_cursor};
+pub use commit::EntityRuntimeHooks;
 pub use data::DataStore;
 pub(crate) use data::StorageKey;
 pub use diagnostics::StorageReport;
 pub use executor::{ExecutionAccessPathVariant, ExecutionOptimization, ExecutionTrace};
 pub use identity::{EntityName, IndexName};
 pub use index::IndexStore;
-pub use predicate::MissingRowPolicy;
-pub use predicate::ValidateError;
-pub use predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature};
+pub use predicate::{
+    CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate, UnsupportedQueryFeature,
+    ValidateError,
+};
 pub use query::{
     builder::{
         AggregateExpr, FieldRef, count, count_by, exists, first, last, max, max_by, min, min_by,
@@ -70,149 +69,11 @@ pub use query::{
 pub use registry::StoreRegistry;
 pub use relation::validate_delete_strong_relations_for_source;
 pub use response::{
-    PagedLoadExecution, PagedLoadExecutionWithTrace, ProjectedRow, Response, ResponseError, Row,
-    WriteBatchResponse, WriteResponse,
+    GroupedRow, PagedGroupedExecution, PagedGroupedExecutionWithTrace, PagedLoadExecution,
+    PagedLoadExecutionWithTrace, ProjectedRow, Response, ResponseError, Row, WriteBatchResponse,
+    WriteResponse,
 };
 pub use session::DbSession;
-
-///
-/// GroupedRow
-///
-/// One grouped result row: ordered grouping key values plus ordered aggregate outputs.
-/// Group/aggregate vectors preserve query declaration order.
-///
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct GroupedRow {
-    group_key: Vec<Value>,
-    aggregate_values: Vec<Value>,
-}
-
-impl GroupedRow {
-    /// Construct one grouped row payload.
-    #[must_use]
-    pub const fn new(group_key: Vec<Value>, aggregate_values: Vec<Value>) -> Self {
-        Self {
-            group_key,
-            aggregate_values,
-        }
-    }
-
-    /// Borrow grouped key values.
-    #[must_use]
-    pub const fn group_key(&self) -> &[Value] {
-        self.group_key.as_slice()
-    }
-
-    /// Borrow aggregate output values.
-    #[must_use]
-    pub const fn aggregate_values(&self) -> &[Value] {
-        self.aggregate_values.as_slice()
-    }
-}
-
-///
-/// PagedGroupedExecution
-///
-/// Cursor-paged grouped execution payload with optional grouped continuation cursor bytes.
-///
-#[derive(Debug)]
-pub struct PagedGroupedExecution {
-    rows: Vec<GroupedRow>,
-    continuation_cursor: Option<Vec<u8>>,
-}
-
-impl PagedGroupedExecution {
-    /// Construct one grouped paged execution payload.
-    #[must_use]
-    pub const fn new(rows: Vec<GroupedRow>, continuation_cursor: Option<Vec<u8>>) -> Self {
-        Self {
-            rows,
-            continuation_cursor,
-        }
-    }
-
-    /// Borrow grouped rows.
-    #[must_use]
-    pub const fn rows(&self) -> &[GroupedRow] {
-        self.rows.as_slice()
-    }
-
-    /// Borrow optional continuation cursor bytes.
-    #[must_use]
-    pub fn continuation_cursor(&self) -> Option<&[u8]> {
-        self.continuation_cursor.as_deref()
-    }
-
-    /// Consume into grouped rows and continuation cursor bytes.
-    #[must_use]
-    pub fn into_parts(self) -> (Vec<GroupedRow>, Option<Vec<u8>>) {
-        (self.rows, self.continuation_cursor)
-    }
-}
-
-///
-/// PagedGroupedExecutionWithTrace
-///
-/// Cursor-paged grouped execution payload plus optional route/execution trace.
-///
-#[derive(Debug)]
-pub struct PagedGroupedExecutionWithTrace {
-    execution: PagedGroupedExecution,
-    execution_trace: Option<ExecutionTrace>,
-}
-
-impl PagedGroupedExecutionWithTrace {
-    /// Construct one traced grouped paged execution payload.
-    #[must_use]
-    pub const fn new(
-        rows: Vec<GroupedRow>,
-        continuation_cursor: Option<Vec<u8>>,
-        execution_trace: Option<ExecutionTrace>,
-    ) -> Self {
-        Self {
-            execution: PagedGroupedExecution::new(rows, continuation_cursor),
-            execution_trace,
-        }
-    }
-
-    /// Borrow grouped execution payload.
-    #[must_use]
-    pub const fn execution(&self) -> &PagedGroupedExecution {
-        &self.execution
-    }
-
-    /// Borrow grouped rows.
-    #[must_use]
-    pub const fn rows(&self) -> &[GroupedRow] {
-        self.execution.rows()
-    }
-
-    /// Borrow optional continuation cursor bytes.
-    #[must_use]
-    pub fn continuation_cursor(&self) -> Option<&[u8]> {
-        self.execution.continuation_cursor()
-    }
-
-    /// Borrow optional execution trace details.
-    #[must_use]
-    pub const fn execution_trace(&self) -> Option<&ExecutionTrace> {
-        self.execution_trace.as_ref()
-    }
-
-    /// Consume payload and drop trace details.
-    #[must_use]
-    pub fn into_execution(self) -> PagedGroupedExecution {
-        self.execution
-    }
-
-    /// Consume into grouped rows, continuation cursor bytes, and optional trace.
-    #[must_use]
-    pub fn into_parts(self) -> (Vec<GroupedRow>, Option<Vec<u8>>, Option<ExecutionTrace>) {
-        let (rows, continuation_cursor) = self.execution.into_parts();
-
-        (rows, continuation_cursor, self.execution_trace)
-    }
-}
 
 ///
 /// Db
@@ -324,71 +185,11 @@ impl<C: CanisterKind> Db<C> {
     }
 }
 
-///
-/// EntityRuntimeHooks
-///
-/// Per-entity runtime callbacks used for commit preparation and delete-side
-/// strong relation validation.
-///
-
-pub struct EntityRuntimeHooks<C: CanisterKind> {
-    pub(crate) entity_name: &'static str,
-    pub(crate) entity_path: &'static str,
-    pub(in crate::db) commit_schema_fingerprint: fn() -> CommitSchemaFingerprint,
-    pub(in crate::db) prepare_row_commit:
-        fn(&Db<C>, &CommitRowOp) -> Result<PreparedRowCommitOp, InternalError>,
-    pub(crate) validate_delete_strong_relations: StrongRelationDeleteValidateFn<C>,
-}
-
-impl<C: CanisterKind> EntityRuntimeHooks<C> {
-    #[must_use]
-    /// Build one runtime hook contract for a concrete runtime entity.
-    pub(in crate::db) const fn new(
-        entity_name: &'static str,
-        entity_path: &'static str,
-        commit_schema_fingerprint: fn() -> CommitSchemaFingerprint,
-        prepare_row_commit: fn(&Db<C>, &CommitRowOp) -> Result<PreparedRowCommitOp, InternalError>,
-        validate_delete_strong_relations: StrongRelationDeleteValidateFn<C>,
-    ) -> Self {
-        Self {
-            entity_name,
-            entity_path,
-            commit_schema_fingerprint,
-            prepare_row_commit,
-            validate_delete_strong_relations,
-        }
-    }
-
-    #[must_use]
-    /// Build runtime hooks from one entity type and delete-validation callback.
-    pub const fn for_entity<E>(
-        validate_delete_strong_relations: StrongRelationDeleteValidateFn<C>,
-    ) -> Self
-    where
-        E: EntityKind<Canister = C> + EntityValue,
-    {
-        Self::new(
-            <E as EntityIdentity>::ENTITY_NAME,
-            E::PATH,
-            commit_schema_fingerprint_for_runtime_entity::<E>,
-            prepare_row_commit_for_entity::<E>,
-            validate_delete_strong_relations,
-        )
-    }
-}
-
-fn commit_schema_fingerprint_for_runtime_entity<E>() -> CommitSchemaFingerprint
-where
-    E: EntityKind,
-{
-    commit_schema_fingerprint_for_entity::<E>()
-}
-
 impl<C: CanisterKind> Db<C> {
     #[must_use]
     /// Return whether this db has any registered runtime hook callbacks.
     pub(crate) const fn has_runtime_hooks(&self) -> bool {
-        !self.entity_runtime_hooks.is_empty()
+        commit::has_runtime_hooks(self.entity_runtime_hooks)
     }
 
     // Resolve exactly one runtime hook for a persisted entity name.
@@ -397,26 +198,7 @@ impl<C: CanisterKind> Db<C> {
         &self,
         entity_name: &str,
     ) -> Result<&EntityRuntimeHooks<C>, InternalError> {
-        let mut matched = None;
-        for hooks in self.entity_runtime_hooks {
-            if hooks.entity_name != entity_name {
-                continue;
-            }
-
-            if matched.is_some() {
-                return Err(InternalError::store_invariant(format!(
-                    "duplicate runtime hooks for entity name '{entity_name}'"
-                )));
-            }
-
-            matched = Some(hooks);
-        }
-
-        matched.ok_or_else(|| {
-            InternalError::store_unsupported(format!(
-                "unsupported entity name in data store: '{entity_name}'"
-            ))
-        })
+        commit::resolve_runtime_hook_by_name(self.entity_runtime_hooks, entity_name)
     }
 
     // Resolve exactly one runtime hook for a persisted entity path.
@@ -425,22 +207,7 @@ impl<C: CanisterKind> Db<C> {
         &self,
         entity_path: &str,
     ) -> Result<&EntityRuntimeHooks<C>, InternalError> {
-        let mut matched = None;
-        for hooks in self.entity_runtime_hooks {
-            if hooks.entity_path != entity_path {
-                continue;
-            }
-
-            if matched.is_some() {
-                return Err(InternalError::store_invariant(format!(
-                    "duplicate runtime hooks for entity path '{entity_path}'"
-                )));
-            }
-
-            matched = Some(hooks);
-        }
-
-        matched.ok_or_else(|| InternalError::unsupported_entity_path(entity_path))
+        commit::resolve_runtime_hook_by_path(self.entity_runtime_hooks, entity_path)
     }
 }
 

@@ -43,7 +43,6 @@ impl From<StoreRegistryError> for InternalError {
 
 ///
 /// StoreHandle
-///
 /// Bound pair of row and index stores for one schema `Store` path.
 ///
 
@@ -98,7 +97,6 @@ impl StoreHandle {
 
 ///
 /// StoreRegistry
-///
 /// Thread-local registry for both row and index stores.
 ///
 
@@ -152,6 +150,7 @@ impl StoreRegistry {
         }
 
         self.stores.insert(name, StoreHandle::new(data, index));
+
         Ok(())
     }
 
@@ -163,6 +162,10 @@ impl StoreRegistry {
             .ok_or_else(|| StoreRegistryError::StoreNotFound(path.to_string()).into())
     }
 }
+
+///
+/// TESTS
+///
 
 #[cfg(test)]
 mod tests {
