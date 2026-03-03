@@ -22,32 +22,11 @@ use crate::{
 };
 
 ///
-/// LoadGroupingMode
-///
-/// Grouping contract for one load orchestration request.
-///
-#[derive(Clone, Copy)]
-enum LoadGroupingMode {
-    Scalar,
-    Grouped,
-}
-
-///
-/// LoadPagingMode
-///
-/// Pagination contract for one load orchestration request.
-///
-#[derive(Clone, Copy)]
-enum LoadPagingMode {
-    Unpaged,
-    Paged,
-}
-
-///
 /// LoadTracingMode
 ///
 /// Trace emission contract for one load orchestration request.
 ///
+
 #[derive(Clone, Copy)]
 enum LoadTracingMode {
     Disabled,
@@ -55,81 +34,68 @@ enum LoadTracingMode {
 }
 
 ///
-/// LoadSurfaceMode
+/// LoadMode
 ///
-/// Response-surface contract for one load orchestration request.
+/// Canonical load pipeline mode selected before staged execution starts.
+/// This is the single mode-selection boundary for load orchestration.
 ///
+
 #[derive(Clone, Copy)]
-enum LoadSurfaceMode {
-    Rows,
-    Page,
+enum LoadMode {
+    ScalarRows,
+    ScalarPage,
+    GroupedPage,
 }
 
 ///
 /// LoadExecutionMode
 ///
 /// Unified load entrypoint mode bundle used by `execute_load`.
-/// Encodes grouping, pagination, tracing, and response-surface contracts.
+/// Encodes one canonical load mode plus tracing contract.
 ///
+
 #[derive(Clone, Copy)]
 struct LoadExecutionMode {
-    grouping: LoadGroupingMode,
-    paging: LoadPagingMode,
+    mode: LoadMode,
     tracing: LoadTracingMode,
-    mode: LoadSurfaceMode,
 }
 
 impl LoadExecutionMode {
     // Build one scalar unpaged rows mode contract.
     const fn scalar_unpaged_rows() -> Self {
         Self {
-            grouping: LoadGroupingMode::Scalar,
-            paging: LoadPagingMode::Unpaged,
+            mode: LoadMode::ScalarRows,
             tracing: LoadTracingMode::Disabled,
-            mode: LoadSurfaceMode::Rows,
         }
     }
 
     // Build one scalar paged mode contract with configurable tracing.
     const fn scalar_paged(tracing: LoadTracingMode) -> Self {
         Self {
-            grouping: LoadGroupingMode::Scalar,
-            paging: LoadPagingMode::Paged,
+            mode: LoadMode::ScalarPage,
             tracing,
-            mode: LoadSurfaceMode::Page,
         }
     }
 
     // Build one grouped paged mode contract with configurable tracing.
     const fn grouped_paged(tracing: LoadTracingMode) -> Self {
         Self {
-            grouping: LoadGroupingMode::Grouped,
-            paging: LoadPagingMode::Paged,
+            mode: LoadMode::GroupedPage,
             tracing,
-            mode: LoadSurfaceMode::Page,
         }
     }
 
     // Validate one mode tuple so wrappers cannot silently drift.
     fn validate(self) -> Result<(), InternalError> {
-        let valid = matches!(
-            (self.grouping, self.paging, self.mode),
-            (
-                LoadGroupingMode::Scalar,
-                LoadPagingMode::Unpaged,
-                LoadSurfaceMode::Rows
-            ) | (
-                LoadGroupingMode::Scalar | LoadGroupingMode::Grouped,
-                LoadPagingMode::Paged,
-                LoadSurfaceMode::Page,
-            )
-        );
-        if valid {
-            Ok(())
-        } else {
+        if matches!(
+            (self.mode, self.tracing),
+            (LoadMode::ScalarRows, LoadTracingMode::Enabled)
+        ) {
             Err(super::invariant(
-                "invalid load execution mode tuple for entrypoint orchestration",
+                "scalar rows load mode must not request tracing output",
             ))
+        } else {
+            Ok(())
         }
     }
 }
@@ -152,6 +118,7 @@ enum LoadPreparedCursor {
 /// Canonical execution artifacts normalized before staged orchestration.
 /// Owns immutable mode contracts consumed by pipeline stages.
 ///
+
 struct LoadExecutionContext {
     mode: LoadExecutionMode,
 }
@@ -180,6 +147,7 @@ struct LoadAccessInputs<E: EntityKind> {
 /// Access-stage execution artifacts for one load orchestration pass.
 /// Carries normalized context and one required access-stage payload.
 ///
+
 struct LoadAccessState<E: EntityKind> {
     context: LoadExecutionContext,
     access_inputs: LoadAccessInputs<E>,
@@ -191,6 +159,7 @@ struct LoadAccessState<E: EntityKind> {
 /// Payload-stage execution artifacts for one load orchestration pass.
 /// Carries normalized context, one required payload, and optional trace output.
 ///
+
 struct LoadPayloadState<E: EntityKind> {
     context: LoadExecutionContext,
     payload: LoadExecutionPayload<E>,
@@ -202,6 +171,7 @@ struct LoadPayloadState<E: EntityKind> {
 ///
 /// Canonical payload envelope produced by one load orchestration pass.
 ///
+
 enum LoadExecutionPayload<E: EntityKind> {
     Scalar(CursorPage<E>),
     Grouped(GroupedCursorPage),
@@ -213,6 +183,7 @@ enum LoadExecutionPayload<E: EntityKind> {
 /// Canonical output contract produced by one load orchestration pass.
 /// Keeps payload and optional trace on one shared boundary.
 ///
+
 struct LoadExecutionOutput<E: EntityKind> {
     payload: LoadExecutionPayload<E>,
     trace: Option<ExecutionTrace>,
@@ -364,33 +335,34 @@ where
         }
 
         let grouped_plan = plan.is_grouped();
-        match (execution_mode.grouping, grouped_plan) {
-            (LoadGroupingMode::Scalar, false) | (LoadGroupingMode::Grouped, true) => {}
-            (LoadGroupingMode::Scalar, true) => {
+        match (execution_mode.mode, grouped_plan) {
+            (LoadMode::ScalarRows | LoadMode::ScalarPage, false)
+            | (LoadMode::GroupedPage, true) => {}
+            (LoadMode::ScalarRows | LoadMode::ScalarPage, true) => {
                 return Err(super::invariant(
                     "grouped plans require grouped load execution mode",
                 ));
             }
-            (LoadGroupingMode::Grouped, false) => {
+            (LoadMode::GroupedPage, false) => {
                 return Err(super::invariant(
                     "grouped load execution mode requires grouped logical plans",
                 ));
             }
         }
 
-        let prepared_cursor = match (execution_mode.grouping, cursor) {
-            (LoadGroupingMode::Scalar, LoadCursorInput::Scalar(cursor)) => {
+        let prepared_cursor = match (execution_mode.mode, cursor) {
+            (LoadMode::ScalarRows | LoadMode::ScalarPage, LoadCursorInput::Scalar(cursor)) => {
                 LoadPreparedCursor::Scalar(Box::new(plan.revalidate_cursor(*cursor)?))
             }
-            (LoadGroupingMode::Grouped, LoadCursorInput::Grouped(cursor)) => {
+            (LoadMode::GroupedPage, LoadCursorInput::Grouped(cursor)) => {
                 LoadPreparedCursor::Grouped(plan.revalidate_grouped_cursor(cursor)?)
             }
-            (LoadGroupingMode::Scalar, LoadCursorInput::Grouped(_)) => {
+            (LoadMode::ScalarRows | LoadMode::ScalarPage, LoadCursorInput::Grouped(_)) => {
                 return Err(super::invariant(
                     "scalar load execution mode requires scalar cursor input",
                 ));
             }
-            (LoadGroupingMode::Grouped, LoadCursorInput::Scalar(_)) => {
+            (LoadMode::GroupedPage, LoadCursorInput::Scalar(_)) => {
                 return Err(super::invariant(
                     "grouped load execution mode requires grouped cursor input",
                 ));
@@ -421,21 +393,21 @@ where
             access_inputs,
         } = state;
         let LoadAccessInputs { plan, cursor } = access_inputs;
-        let (payload, trace) = match (context.mode.grouping, cursor) {
-            (LoadGroupingMode::Scalar, LoadPreparedCursor::Scalar(cursor)) => {
+        let (payload, trace) = match (context.mode.mode, cursor) {
+            (LoadMode::ScalarRows | LoadMode::ScalarPage, LoadPreparedCursor::Scalar(cursor)) => {
                 let (page, trace) = self.execute_scalar_path(plan, *cursor)?;
                 (LoadExecutionPayload::Scalar(page), trace)
             }
-            (LoadGroupingMode::Grouped, LoadPreparedCursor::Grouped(cursor)) => {
+            (LoadMode::GroupedPage, LoadPreparedCursor::Grouped(cursor)) => {
                 let (page, trace) = self.execute_grouped_path(plan, cursor)?;
                 (LoadExecutionPayload::Grouped(page), trace)
             }
-            (LoadGroupingMode::Scalar, LoadPreparedCursor::Grouped(_)) => {
+            (LoadMode::ScalarRows | LoadMode::ScalarPage, LoadPreparedCursor::Grouped(_)) => {
                 return Err(super::invariant(
                     "scalar load execution mode must not carry grouped cursor inputs",
                 ));
             }
-            (LoadGroupingMode::Grouped, LoadPreparedCursor::Scalar(_)) => {
+            (LoadMode::GroupedPage, LoadPreparedCursor::Scalar(_)) => {
                 return Err(super::invariant(
                     "grouped load execution mode must not carry scalar cursor inputs",
                 ));
@@ -451,14 +423,14 @@ where
 
     // Apply paging contracts over staged payload artifacts.
     fn apply_paging(mut state: LoadPayloadState<E>) -> Result<LoadPayloadState<E>, InternalError> {
-        let payload = match (state.context.mode.paging, state.payload) {
-            (LoadPagingMode::Paged, payload) => payload,
-            (LoadPagingMode::Unpaged, LoadExecutionPayload::Scalar(mut page)) => {
+        let payload = match (state.context.mode.mode, state.payload) {
+            (LoadMode::ScalarPage | LoadMode::GroupedPage, payload) => payload,
+            (LoadMode::ScalarRows, LoadExecutionPayload::Scalar(mut page)) => {
                 // Unpaged scalar execution intentionally suppresses continuation payload.
                 page.next_cursor = None;
                 LoadExecutionPayload::Scalar(page)
             }
-            (LoadPagingMode::Unpaged, LoadExecutionPayload::Grouped(_)) => {
+            (LoadMode::ScalarRows, LoadExecutionPayload::Grouped(_)) => {
                 return Err(super::invariant(
                     "unpaged load execution mode must not carry grouped payload",
                 ));
@@ -483,17 +455,31 @@ where
         state: LoadPayloadState<E>,
     ) -> Result<LoadExecutionOutput<E>, InternalError> {
         let output = match (state.context.mode.mode, state.payload) {
-            (LoadSurfaceMode::Page, payload) => LoadExecutionOutput {
-                payload,
+            (LoadMode::ScalarPage, LoadExecutionPayload::Scalar(page)) => LoadExecutionOutput {
+                payload: LoadExecutionPayload::Scalar(page),
                 trace: state.trace,
             },
-            (LoadSurfaceMode::Rows, LoadExecutionPayload::Scalar(page)) => LoadExecutionOutput {
+            (LoadMode::GroupedPage, LoadExecutionPayload::Grouped(page)) => LoadExecutionOutput {
+                payload: LoadExecutionPayload::Grouped(page),
+                trace: state.trace,
+            },
+            (LoadMode::ScalarRows, LoadExecutionPayload::Scalar(page)) => LoadExecutionOutput {
                 payload: LoadExecutionPayload::Scalar(page),
                 trace: None,
             },
-            (LoadSurfaceMode::Rows, LoadExecutionPayload::Grouped(_)) => {
+            (LoadMode::ScalarRows, LoadExecutionPayload::Grouped(_)) => {
                 return Err(super::invariant(
                     "rows load surface mode must not carry grouped payload",
+                ));
+            }
+            (LoadMode::ScalarPage, LoadExecutionPayload::Grouped(_)) => {
+                return Err(super::invariant(
+                    "scalar page load mode must not carry grouped payload",
+                ));
+            }
+            (LoadMode::GroupedPage, LoadExecutionPayload::Scalar(_)) => {
+                return Err(super::invariant(
+                    "grouped page load mode must not carry scalar payload",
                 ));
             }
         };
@@ -518,12 +504,8 @@ where
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
         let logical_plan = plan.into_inner();
-        let route_plan = Self::build_execution_route_plan_for_load(
-            &logical_plan,
-            cursor_boundary,
-            index_range_token,
-            None,
-        )?;
+        let route_plan =
+            Self::build_execution_route_plan_for_load(&logical_plan, &scalar_runtime, None)?;
         let continuation_policy = route_plan.continuation_policy();
         let continuation_applied = crate::db::query::plan::ContinuationPolicy::continuation_applied(
             route_plan.continuation_mode(),

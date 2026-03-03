@@ -581,7 +581,7 @@ mod tests {
             predicate::SchemaInfo,
             query::{
                 builder::aggregate::{AggregateExpr, min, min_by, sum},
-                plan::{GroupAggregateKind, PlanError, SemanticPlanError, validate::ExprPlanError},
+                plan::{GroupAggregateKind, PlanError, PlanUserError, validate::ExprPlanError},
             },
         },
         model::{entity::EntityModel, field::FieldKind, index::IndexModel},
@@ -623,10 +623,10 @@ mod tests {
     fn is_expr_plan_error(err: &PlanError, predicate: impl FnOnce(&ExprPlanError) -> bool) -> bool {
         matches!(
             err,
-            PlanError::Semantic(inner)
+            PlanError::User(inner)
                 if matches!(
                     inner.as_ref(),
-                    SemanticPlanError::Expr(inner) if predicate(inner.as_ref())
+                    PlanUserError::Expr(inner) if predicate(inner.as_ref())
                 )
         )
     }

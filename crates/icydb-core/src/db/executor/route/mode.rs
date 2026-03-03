@@ -5,10 +5,9 @@
 
 use crate::{
     db::{
-        cursor::CursorBoundary,
         direction::Direction,
         executor::{
-            ExecutionKernel, RangeToken, load::LoadExecutor,
+            ExecutionKernel, continuation::ScalarContinuationRuntime, load::LoadExecutor,
             traversal::derive_primary_scan_direction,
         },
         query::builder::AggregateExpr,
@@ -45,10 +44,12 @@ where
     }
 
     pub(super) const fn derive_continuation_mode(
-        cursor_boundary: Option<&CursorBoundary>,
-        index_range_anchor: Option<&RangeToken>,
+        continuation: &ScalarContinuationRuntime,
     ) -> ContinuationMode {
-        match (cursor_boundary, index_range_anchor) {
+        match (
+            continuation.cursor_boundary(),
+            continuation.index_range_token(),
+        ) {
             (_, Some(_)) => ContinuationMode::IndexRangeAnchor,
             (Some(_), None) => ContinuationMode::CursorBoundary,
             (None, None) => ContinuationMode::Initial,
@@ -57,9 +58,10 @@ where
 
     pub(super) fn derive_route_window(
         plan: &AccessPlannedQuery<E::Key>,
-        cursor_boundary: Option<&CursorBoundary>,
+        continuation: &ScalarContinuationRuntime,
     ) -> RouteWindowPlan {
-        let effective_offset = ExecutionKernel::effective_page_offset(plan, cursor_boundary);
+        let effective_offset =
+            ExecutionKernel::effective_page_offset(plan, continuation.cursor_boundary());
         let limit = plan.scalar_plan().page.as_ref().and_then(|page| page.limit);
 
         RouteWindowPlan::new(effective_offset, limit)

@@ -40,10 +40,8 @@ pub(in crate::db) use access_contract::{
     ExecutionPathPayload,
 };
 pub(in crate::db::executor) use access_dispatcher::{
-    AccessPathKind, AccessPathRuntimeStrategy, AccessPlanKind,
-    access_plan_first_index_range_details, access_plan_is_pk_ordered_stream,
-    access_plan_metrics_kind, access_plan_supports_reverse_traversal, dispatch_access_path,
-    dispatch_access_plan_kind, is_composite_access_plan,
+    AccessPathRuntimeStrategy, access_plan_metrics_kind, derive_access_capabilities,
+    dispatch_access_path, dispatch_access_plan_kind,
 };
 pub(super) use context::*;
 pub(in crate::db::executor) use continuation::ContinuationEngine;

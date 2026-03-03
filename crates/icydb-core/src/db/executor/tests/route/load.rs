@@ -7,7 +7,9 @@ fn route_plan_load_uses_route_owned_fast_path_order() {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
     let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
-        &plan, None, None, None,
+        &plan,
+        &initial_scalar_continuation_runtime(),
+        None,
     )
     .expect("load route plan should build");
 
@@ -27,7 +29,9 @@ fn route_matrix_load_pk_desc_with_page_uses_streaming_budget_and_reverse() {
         offset: 2,
     });
     let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
-        &plan, None, None, None,
+        &plan,
+        &initial_scalar_continuation_runtime(),
+        None,
     )
     .expect("load route plan should build");
 
@@ -63,10 +67,10 @@ fn route_matrix_load_index_range_cursor_without_anchor_disables_pushdown() {
         offset: 0,
     });
     let cursor = CursorBoundary { slots: Vec::new() };
+    let continuation = ScalarContinuationRuntime::from_parts(Some(cursor), None);
     let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
         &plan,
-        Some(&cursor),
-        None,
+        &continuation,
         None,
     )
     .expect("load route plan should build");
@@ -109,7 +113,9 @@ fn route_matrix_load_index_range_residual_predicate_allows_small_window_pushdown
     });
 
     let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
-        &plan, None, None, None,
+        &plan,
+        &initial_scalar_continuation_runtime(),
+        None,
     )
     .expect("load route plan should build");
 
@@ -151,7 +157,9 @@ fn route_matrix_load_index_range_residual_predicate_large_window_disables_pushdo
     });
 
     let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
-        &plan, None, None, None,
+        &plan,
+        &initial_scalar_continuation_runtime(),
+        None,
     )
     .expect("load route plan should build");
 
@@ -172,7 +180,9 @@ fn route_matrix_load_non_pk_order_disables_scan_budget_hint() {
         offset: 2,
     });
     let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
-        &plan, None, None, None,
+        &plan,
+        &initial_scalar_continuation_runtime(),
+        None,
     )
     .expect("load route plan should build");
 
@@ -195,8 +205,7 @@ fn route_matrix_load_by_keys_desc_disables_fallback_fetch_hint_without_reverse_s
     });
     let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
         &plan,
-        None,
-        None,
+        &initial_scalar_continuation_runtime(),
         Some(4),
     )
     .expect("load route plan should build");
@@ -222,8 +231,7 @@ fn route_matrix_load_desc_reverse_support_gate_allows_and_blocks_fetch_hint() {
     let reverse_capable_route =
         LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
             &reverse_capable,
-            None,
-            None,
+            &initial_scalar_continuation_runtime(),
             Some(5),
         )
         .expect("reverse-capable load route should build");
@@ -251,8 +259,7 @@ fn route_matrix_load_desc_reverse_support_gate_allows_and_blocks_fetch_hint() {
     let reverse_blocked_route =
         LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
             &reverse_blocked,
-            None,
-            None,
+            &initial_scalar_continuation_runtime(),
             Some(5),
         )
         .expect("reverse-blocked load route should build");

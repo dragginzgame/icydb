@@ -8,11 +8,9 @@ use crate::{
         access::AccessPlan,
         direction::Direction,
         executor::{
-            AccessPathRuntimeStrategy, ExecutableAccessPath, access_plan_is_pk_ordered_stream,
-            access_plan_supports_reverse_traversal, aggregate::AggregateKind,
-            aggregate::capability::field_is_orderable, dispatch_access_path,
-            is_composite_access_plan, load::LoadExecutor,
-            traversal::effective_page_offset_for_window,
+            AccessPathRuntimeStrategy, ExecutableAccessPath, aggregate::AggregateKind,
+            aggregate::capability::field_is_orderable, derive_access_capabilities,
+            dispatch_access_path, load::LoadExecutor, traversal::effective_page_offset_for_window,
         },
         query::builder::AggregateExpr,
         query::plan::{
@@ -117,8 +115,9 @@ where
 
 fn access_stream_is_pk_ordered<K>(access: &AccessPlan<K>) -> bool {
     let executable = lower_executable_access_plan(access);
+    let access_capabilities = derive_access_capabilities(&executable);
 
-    access_plan_is_pk_ordered_stream(&executable)
+    access_capabilities.all_paths_pk_ordered_stream()
 }
 
 /// Return true when bounded physical fetch hints are valid for this direction.
@@ -318,17 +317,16 @@ where
         target_field: &str,
     ) -> bool {
         let executable = plan.to_executable();
-        let Some(path) = executable.as_path() else {
+        let access_capabilities = derive_access_capabilities(&executable);
+        let Some(single_path) = access_capabilities.single_path() else {
             return false;
         };
-        let dispatched = dispatch_access_path(path);
-        let strategy: &dyn AccessPathRuntimeStrategy<E::Key> = dispatched;
         if target_field == E::MODEL.primary_key.name {
-            return strategy.supports_pk_stream_access();
+            return single_path.supports_pk_stream_access();
         }
-        strategy
+        single_path
             .index_prefix_model()
-            .or_else(|| strategy.index_range_model())
+            .or_else(|| single_path.index_range_model())
             .is_some_and(|index| {
                 index
                     .fields
@@ -351,8 +349,9 @@ where
 
     fn access_supports_reverse_traversal(access: &AccessPlan<E::Key>) -> bool {
         let executable = lower_executable_access_plan(access);
+        let access_capabilities = derive_access_capabilities(&executable);
 
-        access_plan_supports_reverse_traversal(&executable)
+        access_capabilities.all_paths_support_reverse_traversal()
     }
 
     // Composite aggregate fast-path eligibility must stay explicit:
@@ -380,8 +379,9 @@ where
 
     pub(super) fn is_composite_access_shape(access: &AccessPlan<E::Key>) -> bool {
         let executable = lower_executable_access_plan(access);
+        let access_capabilities = derive_access_capabilities(&executable);
 
-        is_composite_access_plan(&executable)
+        access_capabilities.is_composite()
     }
 
     // Route-owned shape gate for index-range limited pushdown eligibility.
@@ -389,14 +389,15 @@ where
         plan: &AccessPlannedQuery<E::Key>,
     ) -> bool {
         let executable = plan.to_executable();
-        let Some(path) = executable.as_path() else {
+        let access_capabilities = derive_access_capabilities(&executable);
+        let Some(single_path) = access_capabilities.single_path() else {
             return false;
         };
-        let dispatched = dispatch_access_path(path);
-        let strategy: &dyn AccessPathRuntimeStrategy<E::Key> = dispatched;
-        let Some((index, prefix_len)) = strategy.index_range_details() else {
+        let Some(details) = single_path.index_range_details() else {
             return false;
         };
+        let index = details.index();
+        let prefix_len = details.slot_arity();
         let index_fields = index.fields;
 
         if let Some(order) = plan.scalar_plan().order.as_ref()

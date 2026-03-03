@@ -1300,10 +1300,10 @@ fn grouped_field_target_min_by_is_rejected_in_grouped_v1() {
             QueryError::Plan(plan_err)
                 if matches!(
                     plan_err.as_ref(),
-                    crate::db::query::plan::PlanError::Semantic(inner)
+                    crate::db::query::plan::PlanError::Policy(inner)
                         if matches!(
                             inner.as_ref(),
-                            crate::db::query::plan::SemanticPlanError::Group(group_err)
+                            crate::db::query::plan::PlanPolicyError::Group(group_err)
                                 if matches!(
                                     group_err.as_ref(),
                                     crate::db::query::plan::GroupPlanError::FieldTargetAggregatesUnsupported { .. }
@@ -1333,10 +1333,10 @@ fn grouped_field_target_max_by_is_rejected_in_grouped_v1() {
             QueryError::Plan(plan_err)
                 if matches!(
                     plan_err.as_ref(),
-                    crate::db::query::plan::PlanError::Semantic(inner)
+                    crate::db::query::plan::PlanError::Policy(inner)
                         if matches!(
                             inner.as_ref(),
-                            crate::db::query::plan::SemanticPlanError::Group(group_err)
+                            crate::db::query::plan::PlanPolicyError::Group(group_err)
                                 if matches!(
                                     group_err.as_ref(),
                                     crate::db::query::plan::GroupPlanError::FieldTargetAggregatesUnsupported { .. }
@@ -1554,10 +1554,10 @@ fn invalid_order_field_remains_plan_error_not_execute_error() {
     assert!(
         matches!(
             *plan_err,
-            crate::db::query::plan::PlanError::Semantic(ref inner)
+            crate::db::query::plan::PlanError::User(ref inner)
                 if matches!(
                     inner.as_ref(),
-                    crate::db::query::plan::SemanticPlanError::Order(inner)
+                    crate::db::query::plan::PlanUserError::Order(inner)
                         if matches!(
                             inner.as_ref(),
                             crate::db::query::plan::validate::OrderPlanError::UnknownField { field }

@@ -1162,8 +1162,7 @@ fn route_matrix_aggregate_strict_compile_uncertainty_forces_materialized_executi
 
     let load_route = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
         &strict_uncertain,
-        None,
-        None,
+        &initial_scalar_continuation_runtime(),
         None,
     )
     .expect("load route plan should build for strict/subset parity boundary shape");
@@ -1218,8 +1217,7 @@ fn route_matrix_strict_vs_subset_decision_logs_are_stable() {
         );
     let load_route = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
         &strict_uncertain,
-        None,
-        None,
+        &initial_scalar_continuation_runtime(),
         None,
     )
     .expect("load route plan should build for strict/subset log shape");

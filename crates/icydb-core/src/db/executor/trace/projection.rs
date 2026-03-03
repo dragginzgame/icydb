@@ -7,10 +7,7 @@ use crate::db::{
     access::AccessPlan,
     direction::Direction,
     executor::route::order_direction_from_direction,
-    executor::{
-        AccessPathKind, AccessPlanKind, dispatch_access_plan_kind,
-        trace::ExecutionAccessPathVariant,
-    },
+    executor::{dispatch_access_plan_kind, trace::ExecutionAccessPathVariant},
     query::plan::{OrderDirection, lower_executable_access_plan},
 };
 
@@ -18,18 +15,7 @@ use crate::db::{
 pub(super) fn access_path_variant<K>(access: &AccessPlan<K>) -> ExecutionAccessPathVariant {
     let executable = lower_executable_access_plan(access);
 
-    match dispatch_access_plan_kind(&executable) {
-        AccessPlanKind::Path(kind) => match kind {
-            AccessPathKind::ByKey => ExecutionAccessPathVariant::ByKey,
-            AccessPathKind::ByKeys => ExecutionAccessPathVariant::ByKeys,
-            AccessPathKind::KeyRange => ExecutionAccessPathVariant::KeyRange,
-            AccessPathKind::IndexPrefix => ExecutionAccessPathVariant::IndexPrefix,
-            AccessPathKind::IndexRange => ExecutionAccessPathVariant::IndexRange,
-            AccessPathKind::FullScan => ExecutionAccessPathVariant::FullScan,
-        },
-        AccessPlanKind::Union => ExecutionAccessPathVariant::Union,
-        AccessPlanKind::Intersection => ExecutionAccessPathVariant::Intersection,
-    }
+    dispatch_access_plan_kind(&executable).execution_access_path_variant()
 }
 
 /// Project runtime direction into trace-level order direction.

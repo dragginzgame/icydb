@@ -10,6 +10,7 @@ use crate::{
                 GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupPlanError, GroupSpec,
                 GroupedCursorPolicyViolation, GroupedDistinctExecutionStrategy,
                 GroupedExecutionConfig, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
+                PlanPolicyError, PlanUserError,
                 expr::{Alias, BinaryOp, Expr, FieldId, ProjectionField, ProjectionSpec},
                 global_distinct_field_aggregate_admissibility,
                 global_distinct_group_spec_for_semantic_aggregate,
@@ -135,39 +136,37 @@ fn grouped_spec_for_projection_expr_tests(group_fields: Vec<&str>) -> GroupSpec 
 }
 
 fn is_group_plan_error(err: &PlanError, predicate: impl FnOnce(&GroupPlanError) -> bool) -> bool {
-    matches!(
-        err,
-        PlanError::Semantic(inner)
-            if matches!(
-                inner.as_ref(),
-                crate::db::query::plan::SemanticPlanError::Group(inner)
-                    if predicate(inner.as_ref())
-            )
-    )
+    match err {
+        PlanError::User(inner) => match inner.as_ref() {
+            PlanUserError::Group(inner) => predicate(inner.as_ref()),
+            _ => false,
+        },
+        PlanError::Policy(inner) => match inner.as_ref() {
+            PlanPolicyError::Group(inner) => predicate(inner.as_ref()),
+            PlanPolicyError::Policy(_) => false,
+        },
+        PlanError::Cursor(_) => false,
+    }
 }
 
 fn is_policy_plan_error(err: &PlanError, predicate: impl FnOnce(&PolicyPlanError) -> bool) -> bool {
-    matches!(
-        err,
-        PlanError::Semantic(inner)
-            if matches!(
-                inner.as_ref(),
-                crate::db::query::plan::SemanticPlanError::Policy(inner)
-                    if predicate(inner.as_ref())
-            )
-    )
+    match err {
+        PlanError::Policy(inner) => match inner.as_ref() {
+            PlanPolicyError::Policy(inner) => predicate(inner.as_ref()),
+            PlanPolicyError::Group(_) => false,
+        },
+        PlanError::User(_) | PlanError::Cursor(_) => false,
+    }
 }
 
 fn is_expr_plan_error(err: &PlanError, predicate: impl FnOnce(&ExprPlanError) -> bool) -> bool {
-    matches!(
-        err,
-        PlanError::Semantic(inner)
-            if matches!(
-                inner.as_ref(),
-                crate::db::query::plan::SemanticPlanError::Expr(inner)
-                    if predicate(inner.as_ref())
-            )
-    )
+    match err {
+        PlanError::User(inner) => match inner.as_ref() {
+            PlanUserError::Expr(inner) => predicate(inner.as_ref()),
+            _ => false,
+        },
+        PlanError::Policy(_) | PlanError::Cursor(_) => false,
+    }
 }
 
 #[test]
@@ -607,6 +606,84 @@ fn grouped_plan_accepts_order_prefix_aligned_with_group_keys_when_limited() {
     validate_group_query_semantics(&schema, model, &grouped).expect(
         "grouped order should be accepted when grouped keys lead ORDER BY and LIMIT is explicit",
     );
+}
+
+#[test]
+fn grouped_plan_having_order_limit_composition_enforces_bounded_policy() {
+    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::from_entity_model(model).expect("valid model");
+
+    let build = |order: Option<OrderSpec>, limit: Option<u32>| {
+        grouped_plan_with_having(
+            load_plan_with_order_distinct_and_limit(
+                AccessPlan::path(AccessPath::FullScan),
+                order,
+                false,
+                limit,
+            ),
+            vec!["rank"],
+            vec![GroupAggregateSpec {
+                kind: GroupAggregateKind::Count,
+                target_field: None,
+                distinct: false,
+            }],
+            Some(GroupHavingSpec {
+                clauses: vec![GroupHavingClause {
+                    symbol: GroupHavingSymbol::AggregateIndex(0),
+                    op: CompareOp::Gt,
+                    value: Value::Uint(0),
+                }],
+            }),
+        )
+    };
+
+    // Accepted shape: grouped HAVING + grouped-key-aligned ORDER + explicit LIMIT.
+    let accepted = build(
+        Some(OrderSpec {
+            fields: vec![
+                ("rank".to_string(), OrderDirection::Asc),
+                ("id".to_string(), OrderDirection::Asc),
+            ],
+        }),
+        Some(1),
+    );
+    validate_group_query_semantics(&schema, model, &accepted).expect(
+        "grouped HAVING + ORDER should be accepted when ORDER prefix is aligned and LIMIT is explicit",
+    );
+
+    // Rejected shape: grouped HAVING + ORDER without LIMIT.
+    let missing_limit = build(
+        Some(OrderSpec {
+            fields: vec![
+                ("rank".to_string(), OrderDirection::Asc),
+                ("id".to_string(), OrderDirection::Asc),
+            ],
+        }),
+        None,
+    );
+    let err = validate_group_query_semantics(&schema, model, &missing_limit)
+        .expect_err("grouped HAVING + ORDER without LIMIT should fail");
+    assert!(is_group_plan_error(&err, |inner| matches!(
+        inner,
+        GroupPlanError::OrderRequiresLimit
+    )));
+
+    // Rejected shape: grouped HAVING + LIMIT but ORDER prefix not aligned with grouped keys.
+    let prefix_mismatch = build(
+        Some(OrderSpec {
+            fields: vec![
+                ("tag".to_string(), OrderDirection::Asc),
+                ("id".to_string(), OrderDirection::Asc),
+            ],
+        }),
+        Some(1),
+    );
+    let err = validate_group_query_semantics(&schema, model, &prefix_mismatch)
+        .expect_err("grouped HAVING + misaligned ORDER should fail");
+    assert!(is_group_plan_error(&err, |inner| matches!(
+        inner,
+        GroupPlanError::OrderPrefixNotAlignedWithGroupKeys
+    )));
 }
 
 #[test]

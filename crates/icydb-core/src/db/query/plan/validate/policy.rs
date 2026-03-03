@@ -10,6 +10,110 @@ use crate::{
     model::entity::EntityModel,
 };
 
+///
+/// PlanShapePolicyContext
+///
+/// Pure policy context for logical plan-shape validation.
+/// Encodes only plan-shape facts used by `PolicyPlanError` feasibility rules.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[expect(clippy::struct_excessive_bools)]
+struct PlanShapePolicyContext {
+    is_delete_mode: bool,
+    grouped: bool,
+    has_order: bool,
+    has_page: bool,
+    has_delete_limit: bool,
+}
+
+impl PlanShapePolicyContext {
+    #[must_use]
+    #[expect(clippy::fn_params_excessive_bools)]
+    const fn new(
+        is_delete_mode: bool,
+        grouped: bool,
+        has_order: bool,
+        has_page: bool,
+        has_delete_limit: bool,
+    ) -> Self {
+        Self {
+            is_delete_mode,
+            grouped,
+            has_order,
+            has_page,
+            has_delete_limit,
+        }
+    }
+}
+
+///
+/// PlanShapePolicyRule
+///
+/// Declarative policy rule for logical plan-shape validation.
+/// Rules are evaluated in order and first violation maps to one policy error.
+///
+
+#[derive(Clone, Copy)]
+struct PlanShapePolicyRule {
+    reason: PolicyPlanError,
+    violated: fn(PlanShapePolicyContext) -> bool,
+}
+
+impl PlanShapePolicyRule {
+    #[must_use]
+    const fn new(reason: PolicyPlanError, violated: fn(PlanShapePolicyContext) -> bool) -> Self {
+        Self { reason, violated }
+    }
+}
+
+const PLAN_SHAPE_POLICY_RULES: &[PlanShapePolicyRule] = &[
+    PlanShapePolicyRule::new(
+        PolicyPlanError::DeleteLimitRequiresOrder,
+        plan_shape_delete_limit_requires_order_violated,
+    ),
+    PlanShapePolicyRule::new(
+        PolicyPlanError::DeletePlanWithPagination,
+        plan_shape_delete_with_pagination_violated,
+    ),
+    PlanShapePolicyRule::new(
+        PolicyPlanError::LoadPlanWithDeleteLimit,
+        plan_shape_load_with_delete_limit_violated,
+    ),
+    PlanShapePolicyRule::new(
+        PolicyPlanError::UnorderedPagination,
+        plan_shape_unordered_scalar_load_pagination_violated,
+    ),
+];
+
+const fn plan_shape_delete_limit_requires_order_violated(ctx: PlanShapePolicyContext) -> bool {
+    ctx.has_delete_limit && !ctx.has_order
+}
+
+const fn plan_shape_delete_with_pagination_violated(ctx: PlanShapePolicyContext) -> bool {
+    ctx.is_delete_mode && ctx.has_page
+}
+
+const fn plan_shape_load_with_delete_limit_violated(ctx: PlanShapePolicyContext) -> bool {
+    !ctx.is_delete_mode && ctx.has_delete_limit
+}
+
+// GROUP BY v1 uses canonical grouped key ordering when ORDER BY is omitted,
+// so grouped pagination remains deterministic without an explicit sort clause.
+const fn plan_shape_unordered_scalar_load_pagination_violated(ctx: PlanShapePolicyContext) -> bool {
+    !ctx.is_delete_mode && ctx.has_page && !ctx.has_order && !ctx.grouped
+}
+
+fn first_plan_shape_policy_violation(ctx: PlanShapePolicyContext) -> Option<PolicyPlanError> {
+    for rule in PLAN_SHAPE_POLICY_RULES {
+        if (rule.violated)(ctx) {
+            return Some(rule.reason);
+        }
+    }
+
+    None
+}
+
 // ORDER validation ownership contract:
 // - This module owns ORDER semantic validation (field existence/orderability/tie-break).
 // - ORDER canonicalization (primary-key tie-break insertion) is performed at the
@@ -172,28 +276,15 @@ pub(crate) fn validate_plan_shape(plan: &LogicalPlan) -> Result<(), PolicyPlanEr
     };
     validate_order_shape(plan.order.as_ref())?;
 
-    let has_order = has_explicit_order(plan.order.as_ref());
-    if plan.delete_limit.is_some() && !has_order {
-        return Err(PolicyPlanError::DeleteLimitRequiresOrder);
-    }
-
-    match plan.mode {
-        QueryMode::Delete(_) => {
-            if plan.page.is_some() {
-                return Err(PolicyPlanError::DeletePlanWithPagination);
-            }
-        }
-        QueryMode::Load(_) => {
-            if plan.delete_limit.is_some() {
-                return Err(PolicyPlanError::LoadPlanWithDeleteLimit);
-            }
-            // GROUP BY v1 uses canonical grouped key ordering when ORDER BY is
-            // omitted, so grouped pagination remains deterministic without an
-            // explicit sort clause.
-            if plan.page.is_some() && !has_order && !grouped {
-                return Err(PolicyPlanError::UnorderedPagination);
-            }
-        }
+    let context = PlanShapePolicyContext::new(
+        matches!(plan.mode, QueryMode::Delete(_)),
+        grouped,
+        has_explicit_order(plan.order.as_ref()),
+        plan.page.is_some(),
+        plan.delete_limit.is_some(),
+    );
+    if let Some(reason) = first_plan_shape_policy_violation(context) {
+        return Err(reason);
     }
 
     Ok(())

@@ -6,6 +6,7 @@ use crate::{
         direction::Direction,
         executor::{
             aggregate::{AggregateFoldMode, AggregateKind},
+            continuation::ScalarContinuationRuntime,
             load::LoadExecutor,
             route::{
                 AGGREGATE_FAST_PATH_ORDER, ContinuationMode, ExecutionMode, ExecutionModeRouteCase,
@@ -123,6 +124,10 @@ fn grouped_field_slots(fields: &[&str]) -> Vec<FieldSlot> {
         .iter()
         .map(|field| grouped_field_slot(field))
         .collect()
+}
+
+fn initial_scalar_continuation_runtime() -> ScalarContinuationRuntime {
+    ScalarContinuationRuntime::initial()
 }
 
 mod aggregate;

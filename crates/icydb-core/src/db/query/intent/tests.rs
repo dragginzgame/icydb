@@ -35,76 +35,77 @@ fn query_error_is_group_plan_error(
     err: &QueryError,
     predicate: impl FnOnce(&crate::db::query::plan::validate::GroupPlanError) -> bool,
 ) -> bool {
-    matches!(
-        err,
-        QueryError::Plan(plan_err)
-            if matches!(
-                plan_err.as_ref(),
-                crate::db::query::plan::PlanError::Semantic(inner)
-                    if matches!(
-                        inner.as_ref(),
-                        crate::db::query::plan::SemanticPlanError::Group(inner)
-                            if predicate(inner.as_ref())
-                    )
-            )
-    )
+    let QueryError::Plan(plan_err) = err else {
+        return false;
+    };
+
+    match plan_err.as_ref() {
+        crate::db::query::plan::PlanError::User(inner) => match inner.as_ref() {
+            crate::db::query::plan::PlanUserError::Group(inner) => predicate(inner.as_ref()),
+            _ => false,
+        },
+        crate::db::query::plan::PlanError::Policy(inner) => match inner.as_ref() {
+            crate::db::query::plan::PlanPolicyError::Group(inner) => predicate(inner.as_ref()),
+            crate::db::query::plan::PlanPolicyError::Policy(_) => false,
+        },
+        crate::db::query::plan::PlanError::Cursor(_) => false,
+    }
 }
 
 fn query_error_is_policy_plan_error(
     err: &QueryError,
     predicate: impl FnOnce(&crate::db::query::plan::validate::PolicyPlanError) -> bool,
 ) -> bool {
-    matches!(
-        err,
-        QueryError::Plan(plan_err)
-            if matches!(
-                plan_err.as_ref(),
-                crate::db::query::plan::PlanError::Semantic(inner)
-                    if matches!(
-                        inner.as_ref(),
-                        crate::db::query::plan::SemanticPlanError::Policy(inner)
-                            if predicate(inner.as_ref())
-                    )
-            )
-    )
+    let QueryError::Plan(plan_err) = err else {
+        return false;
+    };
+
+    match plan_err.as_ref() {
+        crate::db::query::plan::PlanError::Policy(inner) => match inner.as_ref() {
+            crate::db::query::plan::PlanPolicyError::Policy(inner) => predicate(inner.as_ref()),
+            crate::db::query::plan::PlanPolicyError::Group(_) => false,
+        },
+        crate::db::query::plan::PlanError::User(_)
+        | crate::db::query::plan::PlanError::Cursor(_) => false,
+    }
 }
 
 fn query_error_is_order_plan_error(
     err: &QueryError,
     predicate: impl FnOnce(&crate::db::query::plan::validate::OrderPlanError) -> bool,
 ) -> bool {
-    matches!(
-        err,
-        QueryError::Plan(plan_err)
-            if matches!(
-                plan_err.as_ref(),
-                crate::db::query::plan::PlanError::Semantic(inner)
-                    if matches!(
-                        inner.as_ref(),
-                        crate::db::query::plan::SemanticPlanError::Order(inner)
-                            if predicate(inner.as_ref())
-                    )
-            )
-    )
+    let QueryError::Plan(plan_err) = err else {
+        return false;
+    };
+
+    match plan_err.as_ref() {
+        crate::db::query::plan::PlanError::User(inner) => match inner.as_ref() {
+            crate::db::query::plan::PlanUserError::Order(inner) => predicate(inner.as_ref()),
+            _ => false,
+        },
+        crate::db::query::plan::PlanError::Policy(_)
+        | crate::db::query::plan::PlanError::Cursor(_) => false,
+    }
 }
 
 fn query_error_is_predicate_validation_error(
     err: &QueryError,
     predicate: impl FnOnce(&crate::db::contracts::ValidateError) -> bool,
 ) -> bool {
-    matches!(
-        err,
-        QueryError::Plan(plan_err)
-            if matches!(
-                plan_err.as_ref(),
-                crate::db::query::plan::PlanError::Semantic(inner)
-                    if matches!(
-                        inner.as_ref(),
-                        crate::db::query::plan::SemanticPlanError::PredicateInvalid(inner)
-                            if predicate(inner.as_ref())
-                    )
-            )
-    )
+    let QueryError::Plan(plan_err) = err else {
+        return false;
+    };
+
+    match plan_err.as_ref() {
+        crate::db::query::plan::PlanError::User(inner) => match inner.as_ref() {
+            crate::db::query::plan::PlanUserError::PredicateInvalid(inner) => {
+                predicate(inner.as_ref())
+            }
+            _ => false,
+        },
+        crate::db::query::plan::PlanError::Policy(_)
+        | crate::db::query::plan::PlanError::Cursor(_) => false,
+    }
 }
 
 // Test-only entity to compare typed vs model planning without schema macros.

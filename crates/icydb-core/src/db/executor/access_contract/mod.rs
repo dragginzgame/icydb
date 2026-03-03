@@ -201,6 +201,7 @@ impl<'a, K> ExecutableAccessPath<'a, K> {
     }
 
     /// Return true when this path can use primary-key stream fast-path access.
+    /// This indicates access-shape feasibility, not output-order guarantees.
     #[must_use]
     pub(in crate::db) const fn supports_pk_stream_access(&self) -> bool {
         matches!(
@@ -241,6 +242,7 @@ impl<'a, K> ExecutableAccessPath<'a, K> {
     }
 
     /// Return true when this path preserves PK stream ordering.
+    /// This indicates output-order guarantees, not fast-path access feasibility.
     #[must_use]
     #[expect(clippy::unused_self)]
     pub(in crate::db) const fn is_pk_ordered_stream(&self) -> bool {

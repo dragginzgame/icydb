@@ -5,11 +5,10 @@
 
 use crate::{
     db::{
-        cursor::CursorBoundary,
         direction::Direction,
         executor::{
-            RangeToken,
             aggregate::AggregateKind,
+            continuation::ScalarContinuationRuntime,
             load::LoadExecutor,
             route::{
                 ContinuationMode, GroupedExecutionStrategy, RouteWindowPlan, ScanHintPlan,
@@ -24,21 +23,198 @@ use crate::{
     traits::{EntityKind, EntityValue},
 };
 
+///
+/// IndexRangeLimitGateReason
+///
+/// Route-owned reasons why index-range limit pushdown derivation is skipped.
+/// Keeps feasibility policy explicit and additive as route rules evolve.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum IndexRangeLimitGateReason {
+    CountTerminalIntent,
+    GroupedIntent,
+}
+
+///
+/// IndexRangeLimitGateContext
+///
+/// Minimal policy context for index-range limit pushdown pre-gates.
+/// This context is intentionally pure and independent from execution mechanics.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct IndexRangeLimitGateContext {
+    count_terminal: bool,
+    grouped: bool,
+}
+
+impl IndexRangeLimitGateContext {
+    #[must_use]
+    const fn new(count_terminal: bool, grouped: bool) -> Self {
+        Self {
+            count_terminal,
+            grouped,
+        }
+    }
+}
+
+///
+/// IndexRangeLimitFeasibilityRule
+///
+/// Declarative feasibility rule for index-range pushdown pre-gates.
+/// Rules are evaluated in order, and first violation short-circuits derivation.
+///
+
+#[derive(Clone, Copy)]
+struct IndexRangeLimitFeasibilityRule {
+    reason: IndexRangeLimitGateReason,
+    violated: fn(IndexRangeLimitGateContext) -> bool,
+}
+
+impl IndexRangeLimitFeasibilityRule {
+    #[must_use]
+    const fn new(
+        reason: IndexRangeLimitGateReason,
+        violated: fn(IndexRangeLimitGateContext) -> bool,
+    ) -> Self {
+        Self { reason, violated }
+    }
+}
+
+const INDEX_RANGE_LIMIT_FEASIBILITY_RULES: &[IndexRangeLimitFeasibilityRule] = &[
+    IndexRangeLimitFeasibilityRule::new(
+        IndexRangeLimitGateReason::CountTerminalIntent,
+        index_range_limit_gate_count_terminal_violated,
+    ),
+    IndexRangeLimitFeasibilityRule::new(
+        IndexRangeLimitGateReason::GroupedIntent,
+        index_range_limit_gate_grouped_violated,
+    ),
+];
+
+const fn index_range_limit_gate_count_terminal_violated(ctx: IndexRangeLimitGateContext) -> bool {
+    ctx.count_terminal
+}
+
+const fn index_range_limit_gate_grouped_violated(ctx: IndexRangeLimitGateContext) -> bool {
+    ctx.grouped
+}
+
+fn index_range_limit_gate_rejection(
+    ctx: IndexRangeLimitGateContext,
+) -> Option<IndexRangeLimitGateReason> {
+    for rule in INDEX_RANGE_LIMIT_FEASIBILITY_RULES {
+        if (rule.violated)(ctx) {
+            return Some(rule.reason);
+        }
+    }
+
+    None
+}
+
+///
+/// LoadScanHintGateReason
+///
+/// Route-owned reasons why load-bound scan hints are suppressed.
+/// Applies to load probe fetch hints and load scan-budget hints uniformly.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LoadScanHintGateReason {
+    AggregateIntent,
+    GroupedIntent,
+}
+
+///
+/// LoadScanHintGateContext
+///
+/// Pure policy context for load-bound scan hint eligibility.
+/// This remains independent from hint derivation mechanics.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct LoadScanHintGateContext {
+    has_aggregate: bool,
+    grouped: bool,
+}
+
+impl LoadScanHintGateContext {
+    #[must_use]
+    const fn new(has_aggregate: bool, grouped: bool) -> Self {
+        Self {
+            has_aggregate,
+            grouped,
+        }
+    }
+}
+
+///
+/// LoadScanHintFeasibilityRule
+///
+/// Declarative feasibility rule for load-bound scan hints.
+/// Rules are evaluated in order, and first violation short-circuits hint derivation.
+///
+
+#[derive(Clone, Copy)]
+struct LoadScanHintFeasibilityRule {
+    reason: LoadScanHintGateReason,
+    violated: fn(LoadScanHintGateContext) -> bool,
+}
+
+impl LoadScanHintFeasibilityRule {
+    #[must_use]
+    const fn new(
+        reason: LoadScanHintGateReason,
+        violated: fn(LoadScanHintGateContext) -> bool,
+    ) -> Self {
+        Self { reason, violated }
+    }
+}
+
+const LOAD_SCAN_HINT_FEASIBILITY_RULES: &[LoadScanHintFeasibilityRule] = &[
+    LoadScanHintFeasibilityRule::new(
+        LoadScanHintGateReason::AggregateIntent,
+        load_scan_hint_gate_aggregate_intent_violated,
+    ),
+    LoadScanHintFeasibilityRule::new(
+        LoadScanHintGateReason::GroupedIntent,
+        load_scan_hint_gate_grouped_intent_violated,
+    ),
+];
+
+const fn load_scan_hint_gate_aggregate_intent_violated(ctx: LoadScanHintGateContext) -> bool {
+    ctx.has_aggregate
+}
+
+const fn load_scan_hint_gate_grouped_intent_violated(ctx: LoadScanHintGateContext) -> bool {
+    ctx.grouped
+}
+
+fn load_scan_hint_gate_rejection(ctx: LoadScanHintGateContext) -> Option<LoadScanHintGateReason> {
+    for rule in LOAD_SCAN_HINT_FEASIBILITY_RULES {
+        if (rule.violated)(ctx) {
+            return Some(rule.reason);
+        }
+    }
+
+    None
+}
+
 impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
     pub(in crate::db::executor::route::planner) fn derive_route_feasibility_stage(
         plan: &AccessPlannedQuery<E::Key>,
-        cursor_boundary: Option<&CursorBoundary>,
-        index_range_anchor: Option<&RangeToken>,
+        continuation: &ScalarContinuationRuntime,
         probe_fetch_hint: Option<usize>,
         planner_route_profile: &PlannerRouteProfile,
         intent_stage: &RouteIntentStage,
     ) -> RouteFeasibilityStage {
-        let continuation_mode = Self::derive_continuation_mode(cursor_boundary, index_range_anchor);
+        let continuation_mode = Self::derive_continuation_mode(continuation);
         let continuation_policy = *planner_route_profile.continuation_policy();
-        let route_window = Self::derive_route_window(plan, cursor_boundary);
+        let route_window = Self::derive_route_window(plan, continuation);
         let derivation = Self::derive_route_derivation_context(
             plan,
             intent_stage,
@@ -49,10 +225,14 @@ where
         );
         let kind = intent_stage.kind();
         let count_terminal = kind.is_some_and(AggregateKind::is_count);
+        let index_range_limit_gate =
+            IndexRangeLimitGateContext::new(count_terminal, intent_stage.grouped);
+        let index_range_limit_gate_rejection =
+            index_range_limit_gate_rejection(index_range_limit_gate);
 
         // COUNT fold-mode discipline: non-count pushdowns must not route COUNT
         // through non-COUNT streaming fast paths.
-        let index_range_limit_spec = if count_terminal || intent_stage.grouped {
+        let index_range_limit_spec = if index_range_limit_gate_rejection.is_some() {
             None
         } else {
             Self::assess_index_range_limit_pushdown(
@@ -161,6 +341,8 @@ where
         let count_pushdown_eligible = kind.is_some_and(|aggregate_kind| {
             Self::is_count_pushdown_eligible(aggregate_kind, capabilities)
         });
+        let load_scan_hint_gate = LoadScanHintGateContext::new(kind.is_some(), grouped);
+        let load_scan_hint_gate_rejection = load_scan_hint_gate_rejection(load_scan_hint_gate);
 
         // Aggregate probes must not assume DESC physical reverse traversal
         // when the access shape cannot emit descending order natively.
@@ -178,14 +360,17 @@ where
             .filter(|aggregate_kind| aggregate_kind.is_extrema())
             .and(aggregate_physical_fetch_hint);
 
-        let physical_fetch_hint = if kind.is_some() {
-            aggregate_physical_fetch_hint
-        } else if grouped {
+        let load_physical_fetch_hint = if load_scan_hint_gate_rejection.is_some() {
             None
         } else {
             probe_fetch_hint
         };
-        let load_scan_budget_hint = if kind.is_none() && !grouped {
+        let physical_fetch_hint = if kind.is_some() {
+            aggregate_physical_fetch_hint
+        } else {
+            load_physical_fetch_hint
+        };
+        let load_scan_budget_hint = if load_scan_hint_gate_rejection.is_none() {
             Self::load_scan_budget_hint(
                 continuation_policy,
                 continuation_mode,

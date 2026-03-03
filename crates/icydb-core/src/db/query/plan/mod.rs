@@ -50,8 +50,6 @@ pub(crate) use semantics::{
 #[cfg(test)]
 pub(crate) use validate::GroupPlanError;
 pub use validate::PlanError;
-#[cfg(test)]
-pub(crate) use validate::SemanticPlanError;
 pub(crate) use validate::{
     CursorOrderPlanShapeError, CursorPagingPolicyError, FluentLoadPolicyViolation,
     IntentKeyAccessKind, IntentKeyAccessPolicyViolation, PolicyPlanError, has_explicit_order,
@@ -60,6 +58,8 @@ pub(crate) use validate::{
     validate_fluent_paged_mode, validate_group_query_semantics, validate_intent_key_access_policy,
     validate_intent_plan_shape, validate_order_shape, validate_query_semantics,
 };
+#[cfg(test)]
+pub(crate) use validate::{PlanPolicyError, PlanUserError};
 
 pub(in crate::db) fn grouped_cursor_policy_violation_for_continuation(
     grouped: &GroupPlan,

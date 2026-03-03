@@ -10,10 +10,7 @@ use crate::{
             SecondaryOrderPushdownRejection,
         },
         direction::Direction,
-        executor::{
-            AccessPathRuntimeStrategy, access_plan_first_index_range_details, dispatch_access_path,
-            route::direction_from_order,
-        },
+        executor::{derive_access_capabilities, route::direction_from_order},
         query::plan::{
             AccessPlannedQuery, OrderDirection, ScalarPlan, lower_executable_access_plan,
         },
@@ -152,12 +149,13 @@ pub(in crate::db) fn assess_secondary_order_pushdown_from_parts<K>(
     }
 
     let executable_plan = lower_executable_access_plan(access_plan);
-    let Some(executable_path) = executable_plan.as_path() else {
-        if let Some((index, prefix_len)) = access_plan_first_index_range_details(&executable_plan) {
+    let access_capabilities = derive_access_capabilities(&executable_plan);
+    let Some(single_path) = access_capabilities.single_path() else {
+        if let Some(details) = access_capabilities.first_index_range_details() {
             return SecondaryOrderPushdownEligibility::Rejected(
                 SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                    index: index.name,
-                    prefix_len,
+                    index: details.index().name,
+                    prefix_len: details.slot_arity(),
                 },
             );
         }
@@ -166,9 +164,9 @@ pub(in crate::db) fn assess_secondary_order_pushdown_from_parts<K>(
             SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix,
         );
     };
-    let dispatched = dispatch_access_path(executable_path);
-    let strategy: &dyn AccessPathRuntimeStrategy<K> = dispatched;
-    if let Some((index, prefix_len)) = strategy.index_prefix_details() {
+    if let Some(details) = single_path.index_prefix_details() {
+        let index = details.index();
+        let prefix_len = details.slot_arity();
         if prefix_len > index.fields.len() {
             return SecondaryOrderPushdownEligibility::Rejected(
                 SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
@@ -186,11 +184,11 @@ pub(in crate::db) fn assess_secondary_order_pushdown_from_parts<K>(
             prefix_len,
         );
     }
-    if let Some((index, prefix_len)) = strategy.index_range_details() {
+    if let Some(details) = single_path.index_range_details() {
         return SecondaryOrderPushdownEligibility::Rejected(
             SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                index: index.name,
-                prefix_len,
+                index: details.index().name,
+                prefix_len: details.slot_arity(),
             },
         );
     }

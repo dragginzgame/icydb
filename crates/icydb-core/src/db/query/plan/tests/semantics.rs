@@ -9,7 +9,7 @@ use crate::{
             },
             plan::{
                 AccessPlannedQuery, DeleteLimitSpec, DistinctExecutionStrategy, LogicalPlan,
-                OrderDirection, OrderSpec, PageSpec, SemanticPlanError,
+                OrderDirection, OrderSpec, PageSpec, PlanPolicyError, PlanUserError,
             },
         },
     },
@@ -75,9 +75,9 @@ fn plan_rejects_unorderable_field() {
     };
 
     let err = validate_query_semantics(&schema, model, &plan).expect_err("unorderable field");
-    assert!(matches!(err, PlanError::Semantic(inner) if matches!(
+    assert!(matches!(err, PlanError::User(inner) if matches!(
         inner.as_ref(),
-        SemanticPlanError::Order(inner)
+        PlanUserError::Order(inner)
             if matches!(inner.as_ref(), OrderPlanError::UnorderableField { .. })
     )));
 }
@@ -107,9 +107,9 @@ fn plan_rejects_duplicate_non_primary_order_field() {
 
     let err = validate_query_semantics(&schema, model, &plan)
         .expect_err("duplicate non-primary order field must fail");
-    assert!(matches!(err, PlanError::Semantic(inner) if matches!(
+    assert!(matches!(err, PlanError::User(inner) if matches!(
         inner.as_ref(),
-        SemanticPlanError::Order(inner)
+        PlanUserError::Order(inner)
             if matches!(
                 inner.as_ref(),
                 OrderPlanError::DuplicateOrderField { field } if field == "rank"
@@ -138,9 +138,9 @@ fn plan_rejects_index_prefix_too_long() {
     };
 
     let err = validate_query_semantics(&schema, model, &plan).expect_err("index prefix too long");
-    assert!(matches!(err, PlanError::Semantic(inner) if matches!(
+    assert!(matches!(err, PlanError::User(inner) if matches!(
         inner.as_ref(),
-        SemanticPlanError::Access(inner)
+        PlanUserError::Access(inner)
             if matches!(inner.as_ref(), AccessPlanError::IndexPrefixTooLong { .. })
     )));
 }
@@ -166,9 +166,9 @@ fn plan_rejects_empty_index_prefix() {
     };
 
     let err = validate_query_semantics(&schema, model, &plan).expect_err("index prefix empty");
-    assert!(matches!(err, PlanError::Semantic(inner) if matches!(
+    assert!(matches!(err, PlanError::User(inner) if matches!(
         inner.as_ref(),
-        SemanticPlanError::Access(inner)
+        PlanUserError::Access(inner)
             if matches!(inner.as_ref(), AccessPlanError::IndexPrefixEmpty)
     )));
 }
@@ -211,9 +211,9 @@ fn plan_rejects_empty_order_spec() {
     };
 
     let err = validate_query_semantics(&schema, model, &plan).expect_err("empty order must fail");
-    assert!(matches!(err, PlanError::Semantic(inner) if matches!(
+    assert!(matches!(err, PlanError::Policy(inner) if matches!(
         inner.as_ref(),
-        SemanticPlanError::Policy(inner)
+        PlanPolicyError::Policy(inner)
             if matches!(inner.as_ref(), PolicyPlanError::EmptyOrderSpec)
     )));
 }
@@ -237,9 +237,9 @@ fn delete_limit_requires_order() {
 
     let err = validate_query_semantics(&schema, model, &plan)
         .expect_err("delete limit without order must fail");
-    assert!(matches!(err, PlanError::Semantic(inner) if matches!(
+    assert!(matches!(err, PlanError::Policy(inner) if matches!(
         inner.as_ref(),
-        SemanticPlanError::Policy(inner)
+        PlanPolicyError::Policy(inner)
             if matches!(inner.as_ref(), PolicyPlanError::DeleteLimitRequiresOrder)
     )));
 }
@@ -321,9 +321,9 @@ fn delete_plan_rejects_pagination() {
 
     let err = validate_query_semantics(&schema, model, &plan)
         .expect_err("delete plans must not carry pagination");
-    assert!(matches!(err, PlanError::Semantic(inner) if matches!(
+    assert!(matches!(err, PlanError::Policy(inner) if matches!(
         inner.as_ref(),
-        SemanticPlanError::Policy(inner)
+        PlanPolicyError::Policy(inner)
             if matches!(inner.as_ref(), PolicyPlanError::DeletePlanWithPagination)
     )));
 }
@@ -349,9 +349,9 @@ fn load_plan_rejects_delete_limit() {
 
     let err = validate_query_semantics(&schema, model, &plan)
         .expect_err("load plans must not carry delete limits");
-    assert!(matches!(err, PlanError::Semantic(inner) if matches!(
+    assert!(matches!(err, PlanError::Policy(inner) if matches!(
         inner.as_ref(),
-        SemanticPlanError::Policy(inner)
+        PlanPolicyError::Policy(inner)
             if matches!(inner.as_ref(), PolicyPlanError::LoadPlanWithDeleteLimit)
     )));
 }
@@ -378,9 +378,9 @@ fn plan_rejects_unordered_pagination() {
 
     let err = validate_query_semantics(&schema, model, &plan)
         .expect_err("pagination without ordering must be rejected");
-    assert!(matches!(err, PlanError::Semantic(inner) if matches!(
+    assert!(matches!(err, PlanError::Policy(inner) if matches!(
         inner.as_ref(),
-        SemanticPlanError::Policy(inner)
+        PlanPolicyError::Policy(inner)
             if matches!(inner.as_ref(), PolicyPlanError::UnorderedPagination)
     )));
 }
@@ -430,9 +430,9 @@ fn plan_rejects_order_without_terminal_primary_key_tie_break() {
     };
 
     let err = validate_query_semantics(&schema, model, &plan).expect_err("missing PK tie-break");
-    assert!(matches!(err, PlanError::Semantic(inner) if matches!(
+    assert!(matches!(err, PlanError::User(inner) if matches!(
         inner.as_ref(),
-        SemanticPlanError::Order(inner)
+        PlanUserError::Order(inner)
             if matches!(inner.as_ref(), OrderPlanError::MissingPrimaryKeyTieBreak { .. })
     )));
 }

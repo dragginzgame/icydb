@@ -30,28 +30,33 @@ pub(crate) use policy::{
 /// PlanError
 ///
 /// Root plan validation taxonomy split by domain axis.
-/// Semantic failures are grouped under `SemanticPlanError`.
+/// User-shape failures are grouped under `PlanUserError`.
+/// Policy/capability failures are grouped under `PlanPolicyError`.
 /// Cursor continuation failures remain in `CursorPlanError`.
 ///
 
 #[derive(Debug, ThisError)]
 pub enum PlanError {
     #[error("{0}")]
-    Semantic(Box<SemanticPlanError>),
+    User(Box<PlanUserError>),
+
+    #[error("{0}")]
+    Policy(Box<PlanPolicyError>),
 
     #[error("{0}")]
     Cursor(Box<CursorPlanError>),
 }
 
 ///
-/// SemanticPlanError
+/// PlanUserError
 ///
-/// Planner semantic validation failures independent of continuation cursors.
-/// This axis intentionally excludes runtime routing/execution policy state.
+/// Planner user-shape validation failures independent of continuation cursors.
+/// This axis intentionally excludes runtime routing/execution policy state and
+/// release-gating capability decisions.
 ///
 
 #[derive(Debug, ThisError)]
-pub enum SemanticPlanError {
+pub enum PlanUserError {
     #[error("predicate validation failed: {0}")]
     PredicateInvalid(Box<ValidateError>),
 
@@ -62,13 +67,27 @@ pub enum SemanticPlanError {
     Access(Box<AccessPlanError>),
 
     #[error("{0}")]
-    Policy(Box<PolicyPlanError>),
-
-    #[error("{0}")]
     Group(Box<GroupPlanError>),
 
     #[error("{0}")]
     Expr(Box<ExprPlanError>),
+}
+
+///
+/// PlanPolicyError
+///
+/// Planner policy/capability validation failures.
+/// This axis captures query-shape constraints that are valid syntactically but
+/// not supported by the current execution policy surface.
+///
+
+#[derive(Debug, ThisError)]
+pub enum PlanPolicyError {
+    #[error("{0}")]
+    Policy(Box<PolicyPlanError>),
+
+    #[error("{0}")]
+    Group(Box<GroupPlanError>),
 }
 
 ///
@@ -351,25 +370,25 @@ pub(crate) enum FluentLoadPolicyViolation {
 
 impl From<ValidateError> for PlanError {
     fn from(err: ValidateError) -> Self {
-        Self::from(SemanticPlanError::from(err))
+        Self::from(PlanUserError::from(err))
     }
 }
 
 impl From<OrderPlanError> for PlanError {
     fn from(err: OrderPlanError) -> Self {
-        Self::from(SemanticPlanError::from(err))
+        Self::from(PlanUserError::from(err))
     }
 }
 
 impl From<AccessPlanError> for PlanError {
     fn from(err: AccessPlanError) -> Self {
-        Self::from(SemanticPlanError::from(err))
+        Self::from(PlanUserError::from(err))
     }
 }
 
 impl From<PolicyPlanError> for PlanError {
     fn from(err: PolicyPlanError) -> Self {
-        Self::from(SemanticPlanError::from(err))
+        Self::from(PlanPolicyError::from(err))
     }
 }
 
@@ -381,54 +400,90 @@ impl From<CursorPlanError> for PlanError {
 
 impl From<GroupPlanError> for PlanError {
     fn from(err: GroupPlanError) -> Self {
-        Self::from(SemanticPlanError::from(err))
+        if err.belongs_to_policy_axis() {
+            return Self::from(PlanPolicyError::from(err));
+        }
+
+        Self::from(PlanUserError::from(err))
     }
 }
 
 impl From<ExprPlanError> for PlanError {
     fn from(err: ExprPlanError) -> Self {
-        Self::from(SemanticPlanError::from(err))
+        Self::from(PlanUserError::from(err))
     }
 }
 
-impl From<SemanticPlanError> for PlanError {
-    fn from(err: SemanticPlanError) -> Self {
-        Self::Semantic(Box::new(err))
+impl From<PlanUserError> for PlanError {
+    fn from(err: PlanUserError) -> Self {
+        Self::User(Box::new(err))
     }
 }
 
-impl From<ValidateError> for SemanticPlanError {
+impl From<PlanPolicyError> for PlanError {
+    fn from(err: PlanPolicyError) -> Self {
+        Self::Policy(Box::new(err))
+    }
+}
+
+impl From<ValidateError> for PlanUserError {
     fn from(err: ValidateError) -> Self {
         Self::PredicateInvalid(Box::new(err))
     }
 }
 
-impl From<OrderPlanError> for SemanticPlanError {
+impl From<OrderPlanError> for PlanUserError {
     fn from(err: OrderPlanError) -> Self {
         Self::Order(Box::new(err))
     }
 }
 
-impl From<AccessPlanError> for SemanticPlanError {
+impl From<AccessPlanError> for PlanUserError {
     fn from(err: AccessPlanError) -> Self {
         Self::Access(Box::new(err))
     }
 }
 
-impl From<PolicyPlanError> for SemanticPlanError {
-    fn from(err: PolicyPlanError) -> Self {
-        Self::Policy(Box::new(err))
-    }
-}
-
-impl From<GroupPlanError> for SemanticPlanError {
+impl From<GroupPlanError> for PlanUserError {
     fn from(err: GroupPlanError) -> Self {
         Self::Group(Box::new(err))
     }
 }
 
-impl From<ExprPlanError> for SemanticPlanError {
+impl From<ExprPlanError> for PlanUserError {
     fn from(err: ExprPlanError) -> Self {
         Self::Expr(Box::new(err))
+    }
+}
+
+impl From<PolicyPlanError> for PlanPolicyError {
+    fn from(err: PolicyPlanError) -> Self {
+        Self::Policy(Box::new(err))
+    }
+}
+
+impl From<GroupPlanError> for PlanPolicyError {
+    fn from(err: GroupPlanError) -> Self {
+        Self::Group(Box::new(err))
+    }
+}
+
+impl GroupPlanError {
+    // Group-plan variants that represent release-gating/capability constraints
+    // are classified under the policy axis to keep user-shape and policy
+    // domains separated at the top-level `PlanError`.
+    const fn belongs_to_policy_axis(&self) -> bool {
+        matches!(
+            self,
+            Self::GlobalDistinctAggregateShapeUnsupported
+                | Self::DistinctAdjacencyEligibilityRequired
+                | Self::OrderPrefixNotAlignedWithGroupKeys
+                | Self::OrderRequiresLimit
+                | Self::DistinctHavingUnsupported
+                | Self::HavingUnsupportedCompareOp { .. }
+                | Self::DistinctAggregateKindUnsupported { .. }
+                | Self::DistinctAggregateFieldTargetUnsupported { .. }
+                | Self::FieldTargetAggregatesUnsupported { .. }
+        )
     }
 }

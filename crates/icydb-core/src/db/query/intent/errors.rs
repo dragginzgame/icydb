@@ -182,3 +182,64 @@ impl From<FluentLoadPolicyViolation> for IntentError {
         }
     }
 }
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::ErrorOrigin;
+
+    fn assert_execute_variant_for_class(err: &QueryExecuteError, class: ErrorClass) {
+        match class {
+            ErrorClass::Corruption => assert!(matches!(err, QueryExecuteError::Corruption(_))),
+            ErrorClass::InvariantViolation => {
+                assert!(matches!(err, QueryExecuteError::InvariantViolation(_)));
+            }
+            ErrorClass::Conflict => assert!(matches!(err, QueryExecuteError::Conflict(_))),
+            ErrorClass::NotFound => assert!(matches!(err, QueryExecuteError::NotFound(_))),
+            ErrorClass::Unsupported => assert!(matches!(err, QueryExecuteError::Unsupported(_))),
+            ErrorClass::Internal => assert!(matches!(err, QueryExecuteError::Internal(_))),
+        }
+    }
+
+    #[test]
+    fn query_execute_error_from_internal_preserves_class_and_origin_matrix() {
+        let cases = [
+            (ErrorClass::Corruption, ErrorOrigin::Store),
+            (ErrorClass::InvariantViolation, ErrorOrigin::Query),
+            (ErrorClass::Conflict, ErrorOrigin::Executor),
+            (ErrorClass::NotFound, ErrorOrigin::Identity),
+            (ErrorClass::Unsupported, ErrorOrigin::Cursor),
+            (ErrorClass::Internal, ErrorOrigin::Serialize),
+        ];
+
+        for (class, origin) in cases {
+            let internal = InternalError::classified(class, origin, "matrix");
+            let mapped = QueryExecuteError::from(internal);
+
+            assert_execute_variant_for_class(&mapped, class);
+            assert_eq!(mapped.as_internal().class, class);
+            assert_eq!(mapped.as_internal().origin, origin);
+        }
+    }
+
+    #[test]
+    fn planner_internal_mapping_preserves_runtime_class_and_origin() {
+        let planner_internal = PlannerError::Internal(Box::new(InternalError::classified(
+            ErrorClass::Unsupported,
+            ErrorOrigin::Cursor,
+            "cursor payload mismatch",
+        )));
+        let query_err = QueryError::from(planner_internal);
+
+        assert!(matches!(
+            query_err,
+            QueryError::Execute(QueryExecuteError::Unsupported(inner))
+                if inner.class == ErrorClass::Unsupported
+                    && inner.origin == ErrorOrigin::Cursor
+        ));
+    }
+}

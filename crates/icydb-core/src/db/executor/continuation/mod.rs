@@ -247,6 +247,28 @@ pub(in crate::db::executor) struct ScalarContinuationRuntime {
 }
 
 impl ScalarContinuationRuntime {
+    /// Construct one empty scalar continuation runtime for initial executions.
+    #[must_use]
+    pub(in crate::db::executor) const fn initial() -> Self {
+        Self {
+            cursor_boundary: None,
+            index_range_token: None,
+        }
+    }
+
+    /// Construct one scalar continuation runtime from explicit boundary/token parts.
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db::executor) const fn from_parts(
+        cursor_boundary: Option<CursorBoundary>,
+        index_range_token: Option<RangeToken>,
+    ) -> Self {
+        Self {
+            cursor_boundary,
+            index_range_token,
+        }
+    }
+
     /// Build one scalar runtime cursor binding bundle from one planned cursor.
     #[must_use]
     pub(in crate::db::executor) fn new(cursor: PlannedCursor) -> Self {

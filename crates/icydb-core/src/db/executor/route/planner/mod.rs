@@ -13,12 +13,12 @@ pub(in crate::db::executor) use feasibility::grouped_ordered_runtime_revalidatio
 use crate::{
     db::{
         access::PushdownApplicability,
-        cursor::CursorBoundary,
         direction::Direction,
         executor::{
-            Context, ExecutionPlan, ExecutionPreparation, OrderedKeyStreamBox, RangeToken,
+            Context, ExecutionPlan, ExecutionPreparation, OrderedKeyStreamBox,
             aggregate::{AggregateFoldMode, AggregateKind},
             compute_page_window,
+            continuation::ScalarContinuationRuntime,
             load::LoadExecutor,
         },
         query::builder::AggregateExpr,
@@ -230,16 +230,14 @@ where
     /// Build canonical execution routing for load execution.
     pub(in crate::db::executor) fn build_execution_route_plan_for_load(
         plan: &AccessPlannedQuery<E::Key>,
-        cursor_boundary: Option<&CursorBoundary>,
-        index_range_anchor: Option<&RangeToken>,
+        continuation: &ScalarContinuationRuntime,
         probe_fetch_hint: Option<usize>,
     ) -> Result<ExecutionPlan, InternalError> {
-        Self::validate_pk_fast_path_boundary_if_applicable(plan, cursor_boundary)?;
+        Self::validate_pk_fast_path_boundary_if_applicable(plan, continuation.cursor_boundary())?;
 
         Ok(Self::build_execution_route_plan(
             plan,
-            cursor_boundary,
-            index_range_anchor,
+            continuation,
             probe_fetch_hint,
             RouteIntent::Load,
         ))
@@ -288,10 +286,11 @@ where
         aggregate: AggregateExpr,
         execution_preparation: &ExecutionPreparation,
     ) -> ExecutionPlan {
+        let continuation = ScalarContinuationRuntime::initial();
+
         Self::build_execution_route_plan(
             plan,
-            None,
-            None,
+            &continuation,
             None,
             RouteIntent::Aggregate {
                 aggregate,
@@ -308,11 +307,11 @@ where
         grouped: GroupedExecutorHandoff<'_, E::Key>,
     ) -> ExecutionPlan {
         let execution_preparation = ExecutionPreparation::for_plan::<E>(grouped.base());
+        let continuation = ScalarContinuationRuntime::initial();
 
         Self::build_execution_route_plan(
             grouped.base(),
-            None,
-            None,
+            &continuation,
             None,
             RouteIntent::AggregateGrouped {
                 grouped_plan_strategy_hint: grouped.grouped_plan_strategy_hint(),
@@ -327,8 +326,7 @@ where
     // Shared route gate for load + aggregate execution.
     fn build_execution_route_plan(
         plan: &AccessPlannedQuery<E::Key>,
-        cursor_boundary: Option<&CursorBoundary>,
-        index_range_anchor: Option<&RangeToken>,
+        continuation: &ScalarContinuationRuntime,
         probe_fetch_hint: Option<usize>,
         intent: RouteIntent,
     ) -> ExecutionRoutePlan {
@@ -341,8 +339,7 @@ where
         // Phase 3: derive continuation/window/capability feasibility.
         let feasibility_stage = Self::derive_route_feasibility_stage(
             plan,
-            cursor_boundary,
-            index_range_anchor,
+            continuation,
             probe_fetch_hint,
             &planner_route_profile,
             &intent_stage,

@@ -449,11 +449,17 @@ impl InternalError {
     #[cfg(test)]
     pub(crate) fn from_group_plan_error(err: PlanError) -> Self {
         let message = match &err {
-            PlanError::Semantic(inner) => match inner.as_ref() {
-                crate::db::query::plan::SemanticPlanError::Group(inner) => {
+            PlanError::User(inner) => match inner.as_ref() {
+                crate::db::query::plan::PlanUserError::Group(inner) => {
                     format!("invalid logical plan: {inner}")
                 }
                 _ => err.to_string(),
+            },
+            PlanError::Policy(inner) => match inner.as_ref() {
+                crate::db::query::plan::PlanPolicyError::Group(inner) => {
+                    format!("invalid logical plan: {inner}")
+                }
+                crate::db::query::plan::PlanPolicyError::Policy(_) => err.to_string(),
             },
             PlanError::Cursor(_) => err.to_string(),
         };

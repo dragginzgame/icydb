@@ -1,6 +1,8 @@
 use crate::db::{
-    access::{AccessPath, AccessPlan},
-    query::plan::{AccessPlannedQuery, FieldSlot, GroupAggregateSpec, OrderSpec},
+    access::AccessPlan,
+    query::plan::{
+        AccessPlannedQuery, FieldSlot, GroupAggregateSpec, OrderSpec, lower_executable_access_plan,
+    },
 };
 
 ///
@@ -75,26 +77,22 @@ fn grouped_access_path_proves_group_order<K>(
     group_fields: &[FieldSlot],
     access: &AccessPlan<K>,
 ) -> bool {
-    match access {
-        AccessPlan::Path(path) => match path.as_ref() {
-            AccessPath::IndexPrefix { index, values } => {
-                let prefix_len = values.len();
-                let required_end = prefix_len.saturating_add(group_fields.len());
-                if required_end > index.fields.len() {
-                    return false;
-                }
-
-                group_fields
-                    .iter()
-                    .zip(index.fields[prefix_len..required_end].iter())
-                    .all(|(group_field, index_field)| group_field.field() == *index_field)
-            }
-            AccessPath::ByKey(_)
-            | AccessPath::ByKeys(_)
-            | AccessPath::KeyRange { .. }
-            | AccessPath::IndexRange { .. }
-            | AccessPath::FullScan => false,
-        },
-        AccessPlan::Union(_) | AccessPlan::Intersection(_) => false,
+    // Derive grouped-order evidence from the normalized executable access contract so
+    // planner strategy hints do not branch on raw AccessPath variants directly.
+    let executable = lower_executable_access_plan(access);
+    let Some(path) = executable.as_path() else {
+        return false;
+    };
+    let Some((index, prefix_len)) = path.index_prefix_details() else {
+        return false;
+    };
+    let required_end = prefix_len.saturating_add(group_fields.len());
+    if required_end > index.fields.len() {
+        return false;
     }
+
+    group_fields
+        .iter()
+        .zip(index.fields[prefix_len..required_end].iter())
+        .all(|(group_field, index_field)| group_field.field() == *index_field)
 }

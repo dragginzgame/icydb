@@ -2,7 +2,7 @@
         test build check clippy fmt fmt-check clean install-dev \
         test-watch all ensure-clean security-check check-versioning \
         ensure-hooks install-hooks check-index-range-spec-invariants \
-        check-invariants
+        check-architecture-text-scan-invariants check-invariants
 
 # in case we need this
 CARGO_ENV :=
@@ -163,9 +163,13 @@ check-index-range-spec-invariants:
 check-layer-authority-invariants:
 	bash scripts/ci/check-layer-authority-invariants.sh
 
+check-architecture-text-scan-invariants:
+	bash scripts/ci/check-architecture-text-scan-invariants.sh
+
 check-invariants:
 	bash scripts/ci/check-index-range-spec-invariants.sh
 	bash scripts/ci/check-layer-authority-invariants.sh
+	bash scripts/ci/check-architecture-text-scan-invariants.sh
 	bash scripts/ci/check-memory-id-invariants.sh
 	bash scripts/ci/check-field-projection-invariants.sh
 
