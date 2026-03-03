@@ -30,9 +30,9 @@ pub use model::OrderDirection;
 pub(crate) use model::{AggregateKind, DeleteSpec, DistinctExecutionStrategy, LoadSpec, QueryMode};
 pub(in crate::db) use model::{ContinuationPolicy, PlannerRouteProfile};
 pub(crate) use model::{
-    DeleteLimitSpec, FieldSlot, GroupAggregateKind, GroupAggregateSpec, GroupHavingClause,
-    GroupHavingSpec, GroupHavingSymbol, GroupPlan, GroupSpec, GroupedExecutionConfig, LogicalPlan,
-    OrderSpec, PageSpec, ScalarPlan,
+    DeleteLimitSpec, FieldSlot, GroupAggregateSpec, GroupHavingClause, GroupHavingSpec,
+    GroupHavingSymbol, GroupPlan, GroupSpec, GroupedExecutionConfig, LogicalPlan, OrderSpec,
+    PageSpec, ScalarPlan,
 };
 pub(crate) use planner::{PlannerError, plan_access};
 pub(crate) use projection::{lower_projection_identity, lower_projection_intent};
@@ -42,6 +42,9 @@ pub(crate) use semantics::{
     GroupedCursorPolicyViolation, GroupedPlanStrategyHint, evaluate_grouped_having_compare_v1,
     grouped_distinct_admissibility, grouped_having_compare_op_supported, project_access_plan,
     project_explain_access_path, resolve_global_distinct_field_aggregate,
+};
+pub(in crate::db) use semantics::{
+    LogicalPushdownEligibility, derive_logical_pushdown_eligibility,
 };
 #[cfg(test)]
 pub(crate) use semantics::{

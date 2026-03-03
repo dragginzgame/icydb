@@ -1,7 +1,7 @@
 use crate::{
     db::{
         access::{AccessPath, AccessPlan, AccessPlanError},
-        contracts::{MissingRowPolicy, SchemaInfo},
+        predicate::{MissingRowPolicy, SchemaInfo},
         query::{
             intent::{DeleteSpec, LoadSpec, QueryMode},
             plan::validate::{

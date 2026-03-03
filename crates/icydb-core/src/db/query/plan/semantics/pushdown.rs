@@ -1,0 +1,90 @@
+use crate::{
+    db::query::plan::{AccessPlannedQuery, ScalarPlan},
+    model::entity::EntityModel,
+};
+
+///
+/// LogicalPushdownEligibility
+///
+/// Planner-owned logical pushdown contract projected once from validated
+/// query semantics. Route/executor layers combine this contract with runtime
+/// access capabilities and must not re-derive logical shape rules.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct LogicalPushdownEligibility {
+    secondary_order_allowed: bool,
+    grouped_aggregate_allowed: bool,
+    requires_full_materialization: bool,
+}
+
+impl LogicalPushdownEligibility {
+    /// Construct one planner-owned logical pushdown contract.
+    #[must_use]
+    pub(in crate::db) const fn new(
+        secondary_order_allowed: bool,
+        grouped_aggregate_allowed: bool,
+        requires_full_materialization: bool,
+    ) -> Self {
+        Self {
+            secondary_order_allowed,
+            grouped_aggregate_allowed,
+            requires_full_materialization,
+        }
+    }
+
+    /// Return true when logical secondary ORDER BY pushdown is admissible.
+    #[must_use]
+    pub(in crate::db) const fn secondary_order_allowed(self) -> bool {
+        self.secondary_order_allowed
+    }
+
+    /// Return true when grouped aggregate pushdown semantics are admissible.
+    #[must_use]
+    pub(in crate::db) const fn grouped_aggregate_allowed(self) -> bool {
+        self.grouped_aggregate_allowed
+    }
+
+    /// Return true when logical semantics force full materialization.
+    #[must_use]
+    pub(in crate::db) const fn requires_full_materialization(self) -> bool {
+        self.requires_full_materialization
+    }
+}
+
+/// Derive planner-owned logical pushdown eligibility from validated semantics.
+#[must_use]
+pub(in crate::db) fn derive_logical_pushdown_eligibility<K>(
+    model: &EntityModel,
+    plan: &AccessPlannedQuery<K>,
+) -> LogicalPushdownEligibility {
+    LogicalPushdownEligibility::new(
+        secondary_order_logically_allowed(model, plan.scalar_plan()),
+        plan.grouped_plan().is_some(),
+        false,
+    )
+}
+
+fn secondary_order_logically_allowed(model: &EntityModel, scalar: &ScalarPlan) -> bool {
+    let Some(order) = scalar.order.as_ref() else {
+        return false;
+    };
+    if order.fields.is_empty() {
+        return false;
+    }
+    let Some((last_field, expected_direction)) = order.fields.last() else {
+        return false;
+    };
+    if last_field != model.primary_key.name {
+        return false;
+    }
+    if order
+        .fields
+        .iter()
+        .any(|(_, direction)| *direction != *expected_direction)
+    {
+        return false;
+    }
+
+    true
+}

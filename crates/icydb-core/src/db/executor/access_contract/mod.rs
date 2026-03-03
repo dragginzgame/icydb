@@ -200,70 +200,6 @@ impl<'a, K> ExecutableAccessPath<'a, K> {
         self.requires_decoded_id
     }
 
-    /// Return true when this path can use primary-key stream fast-path access.
-    /// This indicates access-shape feasibility, not output-order guarantees.
-    #[must_use]
-    pub(in crate::db) const fn supports_pk_stream_access(&self) -> bool {
-        matches!(
-            self.kind(),
-            ExecutionPathKind::KeyRange | ExecutionPathKind::FullScan
-        )
-    }
-
-    /// Return true when this path supports count pushdown shape.
-    #[must_use]
-    pub(in crate::db) const fn supports_count_pushdown_shape(&self) -> bool {
-        matches!(
-            self.kind(),
-            ExecutionPathKind::KeyRange | ExecutionPathKind::FullScan
-        )
-    }
-
-    /// Return true when this path supports primary-scan fetch hints.
-    #[must_use]
-    pub(in crate::db) const fn supports_primary_scan_fetch_hint(&self) -> bool {
-        matches!(
-            self.kind(),
-            ExecutionPathKind::ByKey | ExecutionPathKind::KeyRange | ExecutionPathKind::FullScan
-        )
-    }
-
-    /// Return true when this path supports reverse traversal.
-    #[must_use]
-    pub(in crate::db) const fn supports_reverse_traversal(&self) -> bool {
-        matches!(
-            self.kind(),
-            ExecutionPathKind::ByKey
-                | ExecutionPathKind::KeyRange
-                | ExecutionPathKind::IndexPrefix
-                | ExecutionPathKind::IndexRange
-                | ExecutionPathKind::FullScan
-        )
-    }
-
-    /// Return true when this path preserves PK stream ordering.
-    /// This indicates output-order guarantees, not fast-path access feasibility.
-    #[must_use]
-    #[expect(clippy::unused_self)]
-    pub(in crate::db) const fn is_pk_ordered_stream(&self) -> bool {
-        true
-    }
-
-    /// Return true when this path is direct key access (`ByKey` / `ByKeys`).
-    #[must_use]
-    pub(in crate::db) const fn is_key_direct_access(&self) -> bool {
-        matches!(
-            self.payload,
-            ExecutionPathPayload::ByKey(_) | ExecutionPathPayload::ByKeys(_)
-        )
-    }
-
-    /// Return true when this path is an empty `ByKeys`.
-    #[must_use]
-    pub(in crate::db) const fn is_by_keys_empty(&self) -> bool {
-        matches!(self.payload, ExecutionPathPayload::ByKeys(keys) if keys.is_empty())
-    }
-
     /// Borrow semantic index-range bounds required for cursor envelope validation.
     #[must_use]
     pub(in crate::db) const fn index_range_semantic_bounds(
@@ -303,28 +239,6 @@ impl<'a, K> ExecutableAccessPath<'a, K> {
             | ExecutionBounds::PrimaryKeyRange
             | ExecutionBounds::IndexPrefix { .. } => None,
         }
-    }
-
-    /// Borrow index fields used to build predicate slot maps when index-backed.
-    #[must_use]
-    pub(in crate::db) const fn index_fields_for_slot_map(&self) -> Option<&'static [&'static str]> {
-        match self.bounds {
-            ExecutionBounds::IndexPrefix { index, .. }
-            | ExecutionBounds::IndexRange { index, .. } => Some(index.fields),
-            ExecutionBounds::Unbounded | ExecutionBounds::PrimaryKeyRange => None,
-        }
-    }
-
-    /// Return true when this path consumes one lowered index-prefix spec.
-    #[must_use]
-    pub(in crate::db) const fn consumes_index_prefix_spec(&self) -> bool {
-        matches!(self.bounds, ExecutionBounds::IndexPrefix { .. })
-    }
-
-    /// Return true when this path consumes one lowered index-range spec.
-    #[must_use]
-    pub(in crate::db) const fn consumes_index_range_spec(&self) -> bool {
-        matches!(self.bounds, ExecutionBounds::IndexRange { .. })
     }
 }
 

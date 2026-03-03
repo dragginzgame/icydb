@@ -92,7 +92,7 @@ mod tests {
     use std::ops::Bound;
 
     use crate::db::access::AccessPath;
-    use crate::db::contracts::{MissingRowPolicy, Predicate};
+    use crate::db::predicate::{MissingRowPolicy, Predicate};
     use crate::db::query::fingerprint::hash_parts;
     use crate::db::query::intent::{DeleteSpec, KeyAccess, LoadSpec, access_plan_from_keys_value};
     use crate::db::query::plan::expr::{
@@ -125,6 +125,29 @@ mod tests {
         super::PlanFingerprint(out)
     }
 
+    fn full_scan_query() -> AccessPlannedQuery<Value> {
+        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+    }
+
+    fn index_prefix_query(index: IndexModel, values: Vec<Value>) -> AccessPlannedQuery<Value> {
+        AccessPlannedQuery::new(
+            AccessPath::IndexPrefix { index, values },
+            MissingRowPolicy::Ignore,
+        )
+    }
+
+    fn index_range_query(
+        index: IndexModel,
+        prefix: Vec<Value>,
+        lower: Bound<Value>,
+        upper: Bound<Value>,
+    ) -> AccessPlannedQuery<Value> {
+        AccessPlannedQuery::new(
+            AccessPath::index_range(index, prefix, lower, upper),
+            MissingRowPolicy::Ignore,
+        )
+    }
+
     #[test]
     fn fingerprint_is_deterministic_for_equivalent_predicates() {
         let id = Ulid::default();
@@ -138,12 +161,10 @@ mod tests {
             FieldRef::new("id").eq(id),
         ]);
 
-        let mut plan_a: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+        let mut plan_a: AccessPlannedQuery<Value> = full_scan_query();
         plan_a.scalar_plan_mut().predicate = Some(predicate_a);
 
-        let mut plan_b: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+        let mut plan_b: AccessPlannedQuery<Value> = full_scan_query();
         plan_b.scalar_plan_mut().predicate = Some(predicate_b);
 
         assert_eq!(plan_a.fingerprint(), plan_b.fingerprint());
@@ -201,30 +222,18 @@ mod tests {
             false,
         );
 
-        let plan_a: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
-            AccessPath::IndexPrefix {
-                index: INDEX_A,
-                values: vec![Value::Text("alpha".to_string())],
-            },
-            MissingRowPolicy::Ignore,
-        );
-        let plan_b: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
-            AccessPath::IndexPrefix {
-                index: INDEX_B,
-                values: vec![Value::Text("alpha".to_string())],
-            },
-            MissingRowPolicy::Ignore,
-        );
+        let plan_a: AccessPlannedQuery<Value> =
+            index_prefix_query(INDEX_A, vec![Value::Text("alpha".to_string())]);
+        let plan_b: AccessPlannedQuery<Value> =
+            index_prefix_query(INDEX_B, vec![Value::Text("alpha".to_string())]);
 
         assert_ne!(plan_a.fingerprint(), plan_b.fingerprint());
     }
 
     #[test]
     fn fingerprint_changes_with_pagination() {
-        let mut plan_a: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
-        let mut plan_b: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+        let mut plan_a: AccessPlannedQuery<Value> = full_scan_query();
+        let mut plan_b: AccessPlannedQuery<Value> = full_scan_query();
         plan_a.scalar_plan_mut().page = Some(PageSpec {
             limit: Some(10),
             offset: 0,
@@ -239,10 +248,8 @@ mod tests {
 
     #[test]
     fn fingerprint_changes_with_delete_limit() {
-        let mut plan_a: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
-        let mut plan_b: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+        let mut plan_a: AccessPlannedQuery<Value> = full_scan_query();
+        let mut plan_b: AccessPlannedQuery<Value> = full_scan_query();
         plan_a.scalar_plan_mut().mode = QueryMode::Delete(DeleteSpec::new());
         plan_b.scalar_plan_mut().mode = QueryMode::Delete(DeleteSpec::new());
         plan_a.scalar_plan_mut().delete_limit = Some(DeleteLimitSpec { max_rows: 2 });
@@ -253,10 +260,8 @@ mod tests {
 
     #[test]
     fn fingerprint_changes_with_distinct_flag() {
-        let plan_a: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
-        let mut plan_b: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+        let plan_a: AccessPlannedQuery<Value> = full_scan_query();
+        let mut plan_b: AccessPlannedQuery<Value> = full_scan_query();
         plan_b.scalar_plan_mut().distinct = true;
 
         assert_ne!(plan_a.fingerprint(), plan_b.fingerprint());
@@ -264,8 +269,7 @@ mod tests {
 
     #[test]
     fn fingerprint_numeric_projection_alias_only_change_does_not_invalidate() {
-        let plan: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+        let plan: AccessPlannedQuery<Value> = full_scan_query();
         let numeric_projection =
             ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
                 expr: Expr::Binary {
@@ -299,8 +303,7 @@ mod tests {
 
     #[test]
     fn fingerprint_numeric_projection_semantic_change_invalidates() {
-        let plan: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+        let plan: AccessPlannedQuery<Value> = full_scan_query();
         let projection_add_one =
             ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
                 expr: Expr::Binary {
@@ -331,8 +334,7 @@ mod tests {
 
     #[test]
     fn fingerprint_numeric_literal_decimal_scale_is_canonicalized() {
-        let plan: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+        let plan: AccessPlannedQuery<Value> = full_scan_query();
         let decimal_one_scale_1 =
             ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
                 expr: Expr::Literal(Value::Decimal(Decimal::new(10, 1))),
@@ -353,8 +355,7 @@ mod tests {
 
     #[test]
     fn fingerprint_literal_numeric_subtype_remains_significant_when_observable() {
-        let plan: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+        let plan: AccessPlannedQuery<Value> = full_scan_query();
         let int_literal = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
             expr: Expr::Literal(Value::Int(1)),
             alias: None,
@@ -373,8 +374,7 @@ mod tests {
 
     #[test]
     fn fingerprint_numeric_promotion_paths_do_not_fragment() {
-        let plan: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+        let plan: AccessPlannedQuery<Value> = full_scan_query();
         let int_plus_int = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
             expr: Expr::Binary {
                 op: BinaryOp::Add,
@@ -412,8 +412,7 @@ mod tests {
 
     #[test]
     fn fingerprint_aggregate_numeric_target_field_remains_significant() {
-        let plan: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+        let plan: AccessPlannedQuery<Value> = full_scan_query();
         let sum_rank = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
             expr: Expr::Aggregate(sum("rank")),
             alias: None,
@@ -432,8 +431,7 @@ mod tests {
 
     #[test]
     fn fingerprint_distinct_numeric_noop_paths_stay_stable() {
-        let plan: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+        let plan: AccessPlannedQuery<Value> = full_scan_query();
         let sum_distinct_plus_int_zero =
             ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
                 expr: Expr::Binary {
@@ -462,8 +460,7 @@ mod tests {
 
     #[test]
     fn fingerprint_is_stable_for_full_scan() {
-        let plan: AccessPlannedQuery<Value> =
-            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+        let plan: AccessPlannedQuery<Value> = full_scan_query();
         let fingerprint_a = plan.fingerprint();
         let fingerprint_b = plan.fingerprint();
         assert_eq!(fingerprint_a, fingerprint_b);
@@ -479,23 +476,17 @@ mod tests {
             false,
         );
 
-        let plan_a: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
-            AccessPath::index_range(
-                INDEX,
-                vec![Value::Uint(7)],
-                Bound::Included(Value::Uint(100)),
-                Bound::Excluded(Value::Uint(200)),
-            ),
-            MissingRowPolicy::Ignore,
+        let plan_a: AccessPlannedQuery<Value> = index_range_query(
+            INDEX,
+            vec![Value::Uint(7)],
+            Bound::Included(Value::Uint(100)),
+            Bound::Excluded(Value::Uint(200)),
         );
-        let plan_b: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
-            AccessPath::index_range(
-                INDEX,
-                vec![Value::Uint(7)],
-                Bound::Included(Value::Uint(100)),
-                Bound::Excluded(Value::Uint(200)),
-            ),
-            MissingRowPolicy::Ignore,
+        let plan_b: AccessPlannedQuery<Value> = index_range_query(
+            INDEX,
+            vec![Value::Uint(7)],
+            Bound::Included(Value::Uint(100)),
+            Bound::Excluded(Value::Uint(200)),
         );
 
         assert_eq!(plan_a.fingerprint(), plan_b.fingerprint());
@@ -511,23 +502,17 @@ mod tests {
             false,
         );
 
-        let plan_included: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
-            AccessPath::index_range(
-                INDEX,
-                vec![Value::Uint(7)],
-                Bound::Included(Value::Uint(100)),
-                Bound::Excluded(Value::Uint(200)),
-            ),
-            MissingRowPolicy::Ignore,
+        let plan_included: AccessPlannedQuery<Value> = index_range_query(
+            INDEX,
+            vec![Value::Uint(7)],
+            Bound::Included(Value::Uint(100)),
+            Bound::Excluded(Value::Uint(200)),
         );
-        let plan_excluded: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
-            AccessPath::index_range(
-                INDEX,
-                vec![Value::Uint(7)],
-                Bound::Excluded(Value::Uint(100)),
-                Bound::Excluded(Value::Uint(200)),
-            ),
-            MissingRowPolicy::Ignore,
+        let plan_excluded: AccessPlannedQuery<Value> = index_range_query(
+            INDEX,
+            vec![Value::Uint(7)],
+            Bound::Excluded(Value::Uint(100)),
+            Bound::Excluded(Value::Uint(200)),
         );
 
         assert_ne!(plan_included.fingerprint(), plan_excluded.fingerprint());
@@ -543,23 +528,17 @@ mod tests {
             false,
         );
 
-        let plan_low_100: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
-            AccessPath::index_range(
-                INDEX,
-                vec![Value::Uint(7)],
-                Bound::Included(Value::Uint(100)),
-                Bound::Excluded(Value::Uint(200)),
-            ),
-            MissingRowPolicy::Ignore,
+        let plan_low_100: AccessPlannedQuery<Value> = index_range_query(
+            INDEX,
+            vec![Value::Uint(7)],
+            Bound::Included(Value::Uint(100)),
+            Bound::Excluded(Value::Uint(200)),
         );
-        let plan_low_101: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
-            AccessPath::index_range(
-                INDEX,
-                vec![Value::Uint(7)],
-                Bound::Included(Value::Uint(101)),
-                Bound::Excluded(Value::Uint(200)),
-            ),
-            MissingRowPolicy::Ignore,
+        let plan_low_101: AccessPlannedQuery<Value> = index_range_query(
+            INDEX,
+            vec![Value::Uint(7)],
+            Bound::Included(Value::Uint(101)),
+            Bound::Excluded(Value::Uint(200)),
         );
 
         assert_ne!(plan_low_100.fingerprint(), plan_low_101.fingerprint());

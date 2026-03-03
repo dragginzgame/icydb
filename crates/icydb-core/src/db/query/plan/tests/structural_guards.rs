@@ -2,8 +2,8 @@ use super::PlanModelEntity;
 use crate::{
     db::{
         access::AccessPath,
-        contracts::MissingRowPolicy,
         executor::{ExecutablePlan, LoadExecutor},
+        predicate::MissingRowPolicy,
         query::plan::{
             AccessPlannedQuery, AggregateKind, DistinctExecutionStrategy, FieldSlot,
             GroupAggregateSpec, GroupDistinctPolicyReason, GroupHavingSpec, GroupSpec,

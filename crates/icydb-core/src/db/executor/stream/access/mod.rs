@@ -19,9 +19,8 @@ use crate::{
         direction::Direction,
         executor::LoweredKey,
         executor::{
-            AccessPathRuntimeStrategy, Context, ExecutableAccessNode, ExecutableAccessPath,
-            ExecutableAccessPlan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
-            dispatch_access_path,
+            Context, ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan,
+            LoweredIndexPrefixSpec, LoweredIndexRangeSpec, derive_access_path_capabilities,
             stream::key::{
                 IntersectOrderedKeyStream, KeyOrderComparator, MergeOrderedKeyStream,
                 OrderedKeyStreamBox, VecOrderedKeyStream,
@@ -453,10 +452,9 @@ impl AccessPlanStreamResolver {
         path: &ExecutableAccessPath<'_, K>,
         index_prefix_spec: Option<&LoweredIndexPrefixSpec>,
     ) -> Result<(), InternalError> {
-        let dispatched = dispatch_access_path(path);
-        let strategy: &dyn AccessPathRuntimeStrategy<K> = dispatched;
+        let path_capabilities = derive_access_path_capabilities(path);
         if let Some(spec) = index_prefix_spec
-            && let Some(index) = strategy.index_prefix_model()
+            && let Some(index) = path_capabilities.index_prefix_model()
             && spec.index() != &index
         {
             return Err(invariant(
@@ -472,10 +470,9 @@ impl AccessPlanStreamResolver {
         path: &ExecutableAccessPath<'_, K>,
         index_range_spec: Option<&LoweredIndexRangeSpec>,
     ) -> Result<(), InternalError> {
-        let dispatched = dispatch_access_path(path);
-        let strategy: &dyn AccessPathRuntimeStrategy<K> = dispatched;
+        let path_capabilities = derive_access_path_capabilities(path);
         if let Some(spec) = index_range_spec
-            && let Some(index) = strategy.index_range_model()
+            && let Some(index) = path_capabilities.index_range_model()
             && spec.index() != &index
         {
             return Err(invariant(
@@ -554,14 +551,13 @@ impl AccessPlanStreamResolver {
     {
         match access.node() {
             ExecutableAccessNode::Path(path) => {
-                let dispatched = dispatch_access_path(path);
-                let strategy: &dyn AccessPathRuntimeStrategy<K> = dispatched;
-                let index_prefix_spec = if strategy.consumes_index_prefix_spec() {
+                let path_capabilities = derive_access_path_capabilities(path);
+                let index_prefix_spec = if path_capabilities.consumes_index_prefix_spec() {
                     spec_cursor.next_index_prefix_spec()
                 } else {
                     None
                 };
-                let index_range_spec = if strategy.consumes_index_range_spec() {
+                let index_range_spec = if path_capabilities.consumes_index_range_spec() {
                     spec_cursor.next_index_range_spec()
                 } else {
                     None

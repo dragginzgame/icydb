@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        executor::{AccessPathRuntimeStrategy, ExecutableAccessPlan, dispatch_access_path},
+        executor::{ExecutableAccessPlan, derive_access_path_capabilities},
         index::{IndexCompilePolicy, IndexPredicateProgram, compile_index_program},
         predicate::PredicateProgram,
         query::plan::AccessPlannedQuery,
@@ -87,9 +87,8 @@ where
     E: EntityKind + EntityValue,
 {
     let path = access.as_path()?;
-    let dispatched = dispatch_access_path(path);
-    let strategy: &dyn AccessPathRuntimeStrategy<E::Key> = dispatched;
-    let index_fields = strategy.index_fields_for_slot_map()?;
+    let path_capabilities = derive_access_path_capabilities(path);
+    let index_fields = path_capabilities.index_fields_for_slot_map()?;
 
     let mut slots = Vec::with_capacity(index_fields.len());
     for field_name in index_fields {

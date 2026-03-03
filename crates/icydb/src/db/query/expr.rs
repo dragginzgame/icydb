@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 /// - schema-visible
 /// - safe across API boundaries
 ///
-/// No planner hints, no legacy semantics, no overloaded operators.
+/// No planner hints, no implicit semantics, no overloaded operators.
 /// Any new Predicate variant must be explicitly reviewed for exposure here.
 ///
 

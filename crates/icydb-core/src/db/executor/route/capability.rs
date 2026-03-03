@@ -8,9 +8,10 @@ use crate::{
         access::AccessPlan,
         direction::Direction,
         executor::{
-            AccessPathRuntimeStrategy, ExecutableAccessPath, aggregate::AggregateKind,
+            ExecutableAccessPath, aggregate::AggregateKind,
             aggregate::capability::field_is_orderable, derive_access_capabilities,
-            dispatch_access_path, load::LoadExecutor, traversal::effective_page_offset_for_window,
+            derive_access_path_capabilities, load::LoadExecutor,
+            traversal::effective_page_offset_for_window,
         },
         query::builder::AggregateExpr,
         query::plan::{
@@ -27,23 +28,18 @@ use crate::db::executor::route::{
 
 /// Return true when this executable access path is eligible for PK stream fast-path execution.
 #[must_use]
-pub(in crate::db::executor) fn supports_pk_stream_access_executable_path<K>(
+pub(in crate::db::executor) const fn supports_pk_stream_access_executable_path<K>(
     path: &ExecutableAccessPath<'_, K>,
 ) -> bool {
-    let dispatched = dispatch_access_path(path);
-    let strategy: &dyn AccessPathRuntimeStrategy<K> = dispatched;
-
-    strategy.supports_pk_stream_access()
+    derive_access_path_capabilities(path).supports_pk_stream_access()
 }
 
 /// Return bounded primary-scan fetch hints for executable path mechanics only.
-pub(in crate::db::executor) fn primary_scan_fetch_hint_for_executable_access_path<K>(
+pub(in crate::db::executor) const fn primary_scan_fetch_hint_for_executable_access_path<K>(
     path: &ExecutableAccessPath<'_, K>,
     physical_fetch_hint: Option<usize>,
 ) -> Option<usize> {
-    let dispatched = dispatch_access_path(path);
-    let strategy: &dyn AccessPathRuntimeStrategy<K> = dispatched;
-    if strategy.supports_primary_scan_fetch_hint() {
+    if derive_access_path_capabilities(path).supports_primary_scan_fetch_hint() {
         physical_fetch_hint
     } else {
         None

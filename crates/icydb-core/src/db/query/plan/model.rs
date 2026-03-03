@@ -5,6 +5,7 @@
 
 use crate::{
     db::predicate::{CompareOp, MissingRowPolicy, PredicateExecutionModel},
+    db::query::plan::semantics::LogicalPushdownEligibility,
     value::Value,
 };
 
@@ -109,14 +110,19 @@ impl DistinctExecutionStrategy {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct PlannerRouteProfile {
     continuation_policy: ContinuationPolicy,
+    logical_pushdown_eligibility: LogicalPushdownEligibility,
 }
 
 impl PlannerRouteProfile {
     /// Construct one planner-projected route profile.
     #[must_use]
-    pub(in crate::db) const fn new(continuation_policy: ContinuationPolicy) -> Self {
+    pub(in crate::db) const fn new(
+        continuation_policy: ContinuationPolicy,
+        logical_pushdown_eligibility: LogicalPushdownEligibility,
+    ) -> Self {
         Self {
             continuation_policy,
+            logical_pushdown_eligibility,
         }
     }
 
@@ -124,6 +130,12 @@ impl PlannerRouteProfile {
     #[must_use]
     pub(in crate::db) const fn continuation_policy(&self) -> &ContinuationPolicy {
         &self.continuation_policy
+    }
+
+    /// Borrow planner-owned logical pushdown eligibility contract.
+    #[must_use]
+    pub(in crate::db) const fn logical_pushdown_eligibility(&self) -> LogicalPushdownEligibility {
+        self.logical_pushdown_eligibility
     }
 }
 
@@ -206,9 +218,6 @@ pub enum AggregateKind {
     First,
     Last,
 }
-
-/// Compatibility alias for grouped planning callsites.
-pub(crate) type GroupAggregateKind = AggregateKind;
 
 ///
 /// GroupAggregateSpec

@@ -1,11 +1,10 @@
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},
-        contracts::{CompareOp, MissingRowPolicy, Predicate},
         cursor::CursorBoundary,
         direction::Direction,
         executor::{
-            aggregate::{AggregateFoldMode, AggregateKind},
+            aggregate::AggregateFoldMode,
             continuation::ScalarContinuationRuntime,
             load::LoadExecutor,
             route::{
@@ -16,10 +15,11 @@ use crate::{
                 route_capability_flag_count_guard, route_execution_mode_case_count_guard,
             },
         },
+        predicate::{CompareOp, MissingRowPolicy, Predicate},
         query::{
             intent::{DeleteSpec, QueryMode},
             plan::{
-                AccessPlannedQuery, FieldSlot, GroupAggregateKind, GroupAggregateSpec,
+                AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec,
                 GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupSpec,
                 GroupedExecutionConfig, OrderDirection, OrderSpec, PageSpec,
                 grouped_executor_handoff,

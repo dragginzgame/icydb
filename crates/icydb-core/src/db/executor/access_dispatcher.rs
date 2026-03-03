@@ -5,8 +5,8 @@
 
 use crate::{
     db::executor::{
-        ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan,
-        trace::ExecutionAccessPathVariant,
+        ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan, ExecutionBounds,
+        ExecutionPathKind, ExecutionPathPayload, trace::ExecutionAccessPathVariant,
     },
     model::index::IndexModel,
     obs::sink::PlanKind,
@@ -154,16 +154,24 @@ impl AccessPlanKind {
 /// SinglePathAccessCapabilities
 ///
 /// Runtime capability snapshot for one executable access path.
-/// This projects strategy methods into immutable data so route planners can
-/// consume one descriptor instead of re-deriving path capabilities ad hoc.
+/// This projects one passive execution descriptor into immutable capability
+/// data so route/load/stream helpers consume one authority surface.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[expect(clippy::struct_excessive_bools)]
 pub(in crate::db::executor) struct SinglePathAccessCapabilities {
+    kind: AccessPathKind,
     stream: SinglePathStreamCapabilities,
     pushdown: SinglePathPushdownCapabilities,
+    supports_primary_scan_fetch_hint: bool,
+    is_key_direct_access: bool,
+    is_by_keys_empty: bool,
     index_prefix_details: Option<IndexShapeDetails>,
     index_range_details: Option<IndexShapeDetails>,
+    index_fields_for_slot_map: Option<&'static [&'static str]>,
+    consumes_index_prefix_spec: bool,
+    consumes_index_range_spec: bool,
 }
 
 ///
@@ -193,6 +201,11 @@ struct SinglePathPushdownCapabilities {
 }
 
 impl SinglePathAccessCapabilities {
+    #[must_use]
+    pub(in crate::db::executor) const fn kind(&self) -> AccessPathKind {
+        self.kind
+    }
+
     /// Return true when this path can drive fast-path PK stream access directly.
     /// This does not imply the emitted stream is guaranteed PK-ordered.
     #[must_use]
@@ -206,6 +219,11 @@ impl SinglePathAccessCapabilities {
     }
 
     #[must_use]
+    pub(in crate::db::executor) const fn supports_primary_scan_fetch_hint(&self) -> bool {
+        self.supports_primary_scan_fetch_hint
+    }
+
+    #[must_use]
     pub(in crate::db::executor) const fn supports_reverse_traversal(&self) -> bool {
         self.stream.supports_reverse_traversal
     }
@@ -215,6 +233,16 @@ impl SinglePathAccessCapabilities {
     #[must_use]
     pub(in crate::db::executor) const fn is_pk_ordered_stream(&self) -> bool {
         self.stream.is_pk_ordered_stream
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn is_key_direct_access(&self) -> bool {
+        self.is_key_direct_access
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn is_by_keys_empty(&self) -> bool {
+        self.is_by_keys_empty
     }
 
     #[must_use]
@@ -241,6 +269,23 @@ impl SinglePathAccessCapabilities {
             Some(details) => Some(details.index()),
             None => None,
         }
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn index_fields_for_slot_map(
+        &self,
+    ) -> Option<&'static [&'static str]> {
+        self.index_fields_for_slot_map
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn consumes_index_prefix_spec(&self) -> bool {
+        self.consumes_index_prefix_spec
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn consumes_index_range_spec(&self) -> bool {
+        self.consumes_index_range_spec
     }
 }
 
@@ -325,146 +370,114 @@ impl AccessCapabilities {
     }
 }
 
-///
-/// AccessPathRuntimeStrategy
-///
-/// Runtime capability surface for one executable access path.
-///
-
-pub(in crate::db::executor) trait AccessPathRuntimeStrategy<K> {
-    fn kind(&self) -> AccessPathKind;
-
-    /// Return true when this path can drive PK stream access directly.
-    /// This does not imply PK-order guarantees in the emitted stream.
-    fn supports_pk_stream_access(&self) -> bool;
-
-    fn supports_count_pushdown_shape(&self) -> bool;
-
-    fn supports_primary_scan_fetch_hint(&self) -> bool;
-
-    fn supports_reverse_traversal(&self) -> bool;
-
-    /// Return true when this path guarantees PK-ordered stream output.
-    /// This does not imply PK stream fast-path access is available.
-    fn is_pk_ordered_stream(&self) -> bool;
-
-    fn is_key_direct_access(&self) -> bool;
-
-    fn is_by_keys_empty(&self) -> bool;
-
-    fn index_prefix_model(&self) -> Option<IndexModel>;
-
-    fn index_range_model(&self) -> Option<IndexModel>;
-
-    fn index_prefix_details(&self) -> Option<(IndexModel, usize)>;
-
-    fn index_range_details(&self) -> Option<(IndexModel, usize)>;
-
-    fn index_fields_for_slot_map(&self) -> Option<&'static [&'static str]>;
-
-    fn consumes_index_prefix_spec(&self) -> bool;
-
-    fn consumes_index_range_spec(&self) -> bool;
+const fn derive_access_path_kind_from_execution_kind(kind: ExecutionPathKind) -> AccessPathKind {
+    match kind {
+        ExecutionPathKind::ByKey => AccessPathKind::ByKey,
+        ExecutionPathKind::ByKeys => AccessPathKind::ByKeys,
+        ExecutionPathKind::KeyRange => AccessPathKind::KeyRange,
+        ExecutionPathKind::IndexPrefix => AccessPathKind::IndexPrefix,
+        ExecutionPathKind::IndexRange => AccessPathKind::IndexRange,
+        ExecutionPathKind::FullScan => AccessPathKind::FullScan,
+    }
 }
 
-impl<K> AccessPathRuntimeStrategy<K> for ExecutableAccessPath<'_, K> {
-    fn kind(&self) -> AccessPathKind {
-        match self.kind() {
-            crate::db::executor::ExecutionPathKind::ByKey => AccessPathKind::ByKey,
-            crate::db::executor::ExecutionPathKind::ByKeys => AccessPathKind::ByKeys,
-            crate::db::executor::ExecutionPathKind::KeyRange => AccessPathKind::KeyRange,
-            crate::db::executor::ExecutionPathKind::IndexPrefix => AccessPathKind::IndexPrefix,
-            crate::db::executor::ExecutionPathKind::IndexRange => AccessPathKind::IndexRange,
-            crate::db::executor::ExecutionPathKind::FullScan => AccessPathKind::FullScan,
+const fn supports_pk_stream_access(kind: AccessPathKind) -> bool {
+    matches!(kind, AccessPathKind::KeyRange | AccessPathKind::FullScan)
+}
+
+const fn supports_count_pushdown_shape(kind: AccessPathKind) -> bool {
+    matches!(kind, AccessPathKind::KeyRange | AccessPathKind::FullScan)
+}
+
+const fn supports_primary_scan_fetch_hint(kind: AccessPathKind) -> bool {
+    matches!(
+        kind,
+        AccessPathKind::ByKey | AccessPathKind::KeyRange | AccessPathKind::FullScan
+    )
+}
+
+const fn supports_reverse_traversal(kind: AccessPathKind) -> bool {
+    matches!(
+        kind,
+        AccessPathKind::ByKey
+            | AccessPathKind::KeyRange
+            | AccessPathKind::IndexPrefix
+            | AccessPathKind::IndexRange
+            | AccessPathKind::FullScan
+    )
+}
+
+const fn is_pk_ordered_stream() -> bool {
+    true
+}
+
+const fn is_key_direct_access(kind: AccessPathKind) -> bool {
+    matches!(kind, AccessPathKind::ByKey | AccessPathKind::ByKeys)
+}
+
+const fn is_by_keys_empty_from_payload<K>(payload: &ExecutionPathPayload<'_, K>) -> bool {
+    matches!(payload, ExecutionPathPayload::ByKeys(keys) if keys.is_empty())
+}
+
+const fn index_prefix_details_from_bounds(bounds: ExecutionBounds) -> Option<IndexShapeDetails> {
+    match bounds {
+        ExecutionBounds::IndexPrefix { index, prefix_len } => {
+            Some(IndexShapeDetails::new(index, prefix_len))
         }
-    }
-
-    fn supports_pk_stream_access(&self) -> bool {
-        self.supports_pk_stream_access()
-    }
-
-    fn supports_count_pushdown_shape(&self) -> bool {
-        self.supports_count_pushdown_shape()
-    }
-
-    fn supports_primary_scan_fetch_hint(&self) -> bool {
-        self.supports_primary_scan_fetch_hint()
-    }
-
-    fn supports_reverse_traversal(&self) -> bool {
-        self.supports_reverse_traversal()
-    }
-
-    fn is_pk_ordered_stream(&self) -> bool {
-        self.is_pk_ordered_stream()
-    }
-
-    fn is_key_direct_access(&self) -> bool {
-        self.is_key_direct_access()
-    }
-
-    fn is_by_keys_empty(&self) -> bool {
-        self.is_by_keys_empty()
-    }
-
-    fn index_prefix_model(&self) -> Option<IndexModel> {
-        self.index_prefix_details().map(|(index, _)| index)
-    }
-
-    fn index_range_model(&self) -> Option<IndexModel> {
-        self.index_range_details().map(|(index, _)| index)
-    }
-
-    fn index_prefix_details(&self) -> Option<(IndexModel, usize)> {
-        self.index_prefix_details()
-    }
-
-    fn index_range_details(&self) -> Option<(IndexModel, usize)> {
-        self.index_range_details()
-    }
-
-    fn index_fields_for_slot_map(&self) -> Option<&'static [&'static str]> {
-        self.index_fields_for_slot_map()
-    }
-
-    fn consumes_index_prefix_spec(&self) -> bool {
-        self.consumes_index_prefix_spec()
-    }
-
-    fn consumes_index_range_spec(&self) -> bool {
-        self.consumes_index_range_spec()
+        ExecutionBounds::Unbounded
+        | ExecutionBounds::PrimaryKeyRange
+        | ExecutionBounds::IndexRange { .. } => None,
     }
 }
 
-/// Dispatch one executable access path into a runtime strategy carrier.
+const fn index_range_details_from_bounds(bounds: ExecutionBounds) -> Option<IndexShapeDetails> {
+    match bounds {
+        ExecutionBounds::IndexRange { index, prefix_len } => {
+            Some(IndexShapeDetails::new(index, prefix_len))
+        }
+        ExecutionBounds::Unbounded
+        | ExecutionBounds::PrimaryKeyRange
+        | ExecutionBounds::IndexPrefix { .. } => None,
+    }
+}
+
+const fn index_fields_for_slot_map_from_bounds(
+    bounds: ExecutionBounds,
+) -> Option<&'static [&'static str]> {
+    match bounds {
+        ExecutionBounds::IndexPrefix { index, .. } | ExecutionBounds::IndexRange { index, .. } => {
+            Some(index.fields)
+        }
+        ExecutionBounds::Unbounded | ExecutionBounds::PrimaryKeyRange => None,
+    }
+}
+
+/// Derive immutable runtime capabilities for one executable access path.
 #[must_use]
-pub(in crate::db::executor) const fn dispatch_access_path<'a, K>(
-    path: &'a ExecutableAccessPath<'a, K>,
-) -> &'a ExecutableAccessPath<'a, K> {
-    path
-}
-
-fn derive_single_path_access_capabilities<K>(
+pub(in crate::db::executor) const fn derive_access_path_capabilities<K>(
     path: &ExecutableAccessPath<'_, K>,
 ) -> SinglePathAccessCapabilities {
-    let dispatched = dispatch_access_path(path);
-    let strategy: &dyn AccessPathRuntimeStrategy<K> = dispatched;
+    let kind = derive_access_path_kind_from_execution_kind(path.kind());
+    let bounds = path.bounds();
 
     SinglePathAccessCapabilities {
+        kind,
         stream: SinglePathStreamCapabilities {
-            supports_pk_stream_access: strategy.supports_pk_stream_access(),
-            supports_reverse_traversal: strategy.supports_reverse_traversal(),
-            is_pk_ordered_stream: strategy.is_pk_ordered_stream(),
+            supports_pk_stream_access: supports_pk_stream_access(kind),
+            supports_reverse_traversal: supports_reverse_traversal(kind),
+            is_pk_ordered_stream: is_pk_ordered_stream(),
         },
         pushdown: SinglePathPushdownCapabilities {
-            supports_count_pushdown_shape: strategy.supports_count_pushdown_shape(),
+            supports_count_pushdown_shape: supports_count_pushdown_shape(kind),
         },
-        index_prefix_details: strategy
-            .index_prefix_details()
-            .map(|(index, slot_arity)| IndexShapeDetails::new(index, slot_arity)),
-        index_range_details: strategy
-            .index_range_details()
-            .map(|(index, slot_arity)| IndexShapeDetails::new(index, slot_arity)),
+        supports_primary_scan_fetch_hint: supports_primary_scan_fetch_hint(kind),
+        is_key_direct_access: is_key_direct_access(kind),
+        is_by_keys_empty: is_by_keys_empty_from_payload(path.payload()),
+        index_prefix_details: index_prefix_details_from_bounds(bounds),
+        index_range_details: index_range_details_from_bounds(bounds),
+        index_fields_for_slot_map: index_fields_for_slot_map_from_bounds(bounds),
+        consumes_index_prefix_spec: matches!(bounds, ExecutionBounds::IndexPrefix { .. }),
+        consumes_index_range_spec: matches!(bounds, ExecutionBounds::IndexRange { .. }),
     }
 }
 
@@ -473,7 +486,7 @@ fn access_plan_first_index_range_details_internal<K>(
 ) -> Option<IndexShapeDetails> {
     match access.node() {
         ExecutableAccessNode::Path(path) => {
-            let capabilities = derive_single_path_access_capabilities(path);
+            let capabilities = derive_access_path_capabilities(path);
             capabilities.index_range_details()
         }
         ExecutableAccessNode::Union(children) | ExecutableAccessNode::Intersection(children) => {
@@ -489,7 +502,7 @@ fn access_plan_supports_reverse_traversal_internal<K>(
 ) -> bool {
     match access.node() {
         ExecutableAccessNode::Path(path) => {
-            let capabilities = derive_single_path_access_capabilities(path);
+            let capabilities = derive_access_path_capabilities(path);
             capabilities.supports_reverse_traversal()
         }
         ExecutableAccessNode::Union(children) | ExecutableAccessNode::Intersection(children) => {
@@ -503,7 +516,7 @@ fn access_plan_supports_reverse_traversal_internal<K>(
 fn access_plan_is_pk_ordered_stream_internal<K>(access: &ExecutableAccessPlan<'_, K>) -> bool {
     match access.node() {
         ExecutableAccessNode::Path(path) => {
-            let capabilities = derive_single_path_access_capabilities(path);
+            let capabilities = derive_access_path_capabilities(path);
             capabilities.is_pk_ordered_stream()
         }
         ExecutableAccessNode::Union(children) | ExecutableAccessNode::Intersection(children) => {
@@ -525,7 +538,7 @@ pub(in crate::db::executor) fn derive_access_capabilities<K>(
         "access invariant: ordered scan families must preserve strict resume support",
     );
     let single_path = match access.node() {
-        ExecutableAccessNode::Path(path) => Some(derive_single_path_access_capabilities(path)),
+        ExecutableAccessNode::Path(path) => Some(derive_access_path_capabilities(path)),
         ExecutableAccessNode::Union(_) | ExecutableAccessNode::Intersection(_) => None,
     };
 
@@ -542,15 +555,12 @@ pub(in crate::db::executor) fn derive_access_capabilities<K>(
 
 /// Dispatch one executable access plan into its plan-kind discriminant.
 #[must_use]
-pub(in crate::db::executor) fn dispatch_access_plan_kind<K>(
+pub(in crate::db::executor) const fn dispatch_access_plan_kind<K>(
     access: &ExecutableAccessPlan<'_, K>,
 ) -> AccessPlanKind {
     match access.node() {
         ExecutableAccessNode::Path(path) => {
-            let dispatched = dispatch_access_path(path);
-            let strategy: &dyn AccessPathRuntimeStrategy<K> = dispatched;
-
-            AccessPlanKind::Path(strategy.kind())
+            AccessPlanKind::Path(derive_access_path_capabilities(path).kind())
         }
         ExecutableAccessNode::Union(_) => AccessPlanKind::Union,
         ExecutableAccessNode::Intersection(_) => AccessPlanKind::Intersection,
@@ -559,7 +569,7 @@ pub(in crate::db::executor) fn dispatch_access_plan_kind<K>(
 
 /// Map one executable access plan to coarse plan-kind metrics.
 #[must_use]
-pub(in crate::db::executor) fn access_plan_metrics_kind<K>(
+pub(in crate::db::executor) const fn access_plan_metrics_kind<K>(
     access: &ExecutableAccessPlan<'_, K>,
 ) -> PlanKind {
     dispatch_access_plan_kind(access).metrics_kind()

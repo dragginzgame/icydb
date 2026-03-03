@@ -17,7 +17,8 @@ use crate::{
         },
         query::builder::AggregateExpr,
         query::plan::{
-            AccessPlannedQuery, ContinuationPolicy, GroupedPlanStrategyHint, PlannerRouteProfile,
+            AccessPlannedQuery, ContinuationPolicy, GroupedPlanStrategyHint,
+            LogicalPushdownEligibility, PlannerRouteProfile,
         },
     },
     traits::{EntityKind, EntityValue},
@@ -219,6 +220,7 @@ where
             plan,
             intent_stage,
             continuation_policy,
+            planner_route_profile.logical_pushdown_eligibility(),
             continuation_mode,
             route_window,
             probe_fetch_hint,
@@ -320,6 +322,7 @@ where
         plan: &AccessPlannedQuery<E::Key>,
         intent_stage: &RouteIntentStage,
         continuation_policy: ContinuationPolicy,
+        logical_pushdown_eligibility: LogicalPushdownEligibility,
         continuation_mode: ContinuationMode,
         route_window: RouteWindowPlan,
         probe_fetch_hint: Option<usize>,
@@ -328,9 +331,10 @@ where
         let grouped = intent_stage.grouped;
         let grouped_plan_strategy_hint = intent_stage.grouped_plan_strategy_hint;
         let secondary_pushdown_applicability =
-            crate::db::executor::route::derive_secondary_pushdown_applicability_validated(
+            crate::db::executor::route::derive_secondary_pushdown_applicability_from_contract(
                 E::MODEL,
                 plan,
+                logical_pushdown_eligibility,
             );
         let direction = aggregate_expr.map_or_else(
             || Self::derive_load_route_direction(plan),
@@ -384,6 +388,10 @@ where
             debug_assert!(
                 grouped_plan_strategy_hint.is_some(),
                 "route invariant: grouped feasibility derivation requires planner-projected grouped strategy hint",
+            );
+            debug_assert!(
+                logical_pushdown_eligibility.grouped_aggregate_allowed(),
+                "route invariant: grouped feasibility derivation requires planner-projected grouped aggregate eligibility",
             );
             let planner_grouped_strategy_hint =
                 grouped_plan_strategy_hint.unwrap_or(GroupedPlanStrategyHint::HashGroup);

@@ -146,7 +146,7 @@ pub(in crate::db::query::plan::semantics) fn grouped_having_streaming_compatible
 #[cfg(test)]
 mod tests {
     use crate::{
-        db::{contracts::CompareOp, query::plan::semantics::evaluate_grouped_having_compare_v1},
+        db::{predicate::CompareOp, query::plan::semantics::evaluate_grouped_having_compare_v1},
         value::Value,
     };
 

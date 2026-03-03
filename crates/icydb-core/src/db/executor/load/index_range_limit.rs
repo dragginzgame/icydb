@@ -8,8 +8,8 @@ use crate::{
         Context,
         direction::Direction,
         executor::{
-            AccessExecutionDescriptor, AccessPathRuntimeStrategy, AccessStreamBindings,
-            ExecutionOptimization, LoweredIndexRangeSpec, RangeToken, dispatch_access_path,
+            AccessExecutionDescriptor, AccessStreamBindings, ExecutionOptimization,
+            LoweredIndexRangeSpec, RangeToken, derive_access_path_capabilities,
             load::{FastPathKeyResult, LoadExecutor},
             range_token_anchor_key,
         },
@@ -39,9 +39,8 @@ where
         let Some(executable_path) = executable_access.as_path() else {
             return Ok(None);
         };
-        let dispatched = dispatch_access_path(executable_path);
-        let strategy: &dyn AccessPathRuntimeStrategy<E::Key> = dispatched;
-        let Some(index) = strategy.index_range_model() else {
+        let path_capabilities = derive_access_path_capabilities(executable_path);
+        let Some(index) = path_capabilities.index_range_model() else {
             return Ok(None);
         };
         let Some(index_range_spec) = index_range_spec else {

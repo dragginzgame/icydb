@@ -13,14 +13,12 @@ pub(in crate::db::cursor::token) const MAX_GROUPED_CONTINUATION_TOKEN_BYTES: usi
 ///
 /// CursorTokenVersion
 ///
-/// Wire-level cursor token version owned by the cursor protocol boundary.
-/// This keeps version parsing and compatibility behavior centralized.
+/// Wire-level scalar cursor token version owned by the cursor protocol boundary.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::cursor::token) enum CursorTokenVersion {
     V1,
-    V2,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -56,13 +54,11 @@ impl GroupedCursorTokenVersion {
 
 impl CursorTokenVersion {
     const V1_TAG: u8 = 1;
-    const V2_TAG: u8 = 2;
 
     // Decode one raw wire version into the protocol enum.
     pub(in crate::db::cursor::token) const fn decode(raw: u8) -> Option<Self> {
         match raw {
             Self::V1_TAG => Some(Self::V1),
-            Self::V2_TAG => Some(Self::V2),
             _ => None,
         }
     }
@@ -71,19 +67,6 @@ impl CursorTokenVersion {
     pub(in crate::db::cursor::token) const fn encode(self) -> u8 {
         match self {
             Self::V1 => Self::V1_TAG,
-            Self::V2 => Self::V2_TAG,
-        }
-    }
-
-    // Apply version compatibility behavior for initial offset.
-    // V1 tokens did not carry offset and must decode as zero.
-    pub(in crate::db::cursor::token) const fn decode_initial_offset(
-        self,
-        wire_initial_offset: u32,
-    ) -> u32 {
-        match self {
-            Self::V1 => 0,
-            Self::V2 => wire_initial_offset,
         }
     }
 }

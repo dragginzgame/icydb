@@ -1,10 +1,10 @@
 use super::*;
 use crate::db::access::{AccessPath, AccessPlan};
-use crate::db::contracts::{CompareOp, MissingRowPolicy, Predicate};
+use crate::db::predicate::{CompareOp, MissingRowPolicy, Predicate};
 use crate::db::query::builder::field::FieldRef;
 use crate::db::query::intent::{KeyAccess, LoadSpec, QueryMode, access_plan_from_keys_value};
 use crate::db::query::plan::{
-    AccessPlannedQuery, FieldSlot, GroupAggregateKind, GroupAggregateSpec, GroupHavingClause,
+    AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec, GroupHavingClause,
     GroupHavingSpec, GroupHavingSymbol, GroupSpec, GroupedExecutionConfig, LogicalPlan,
     OrderDirection, OrderSpec,
 };
@@ -122,7 +122,7 @@ fn explain_reports_deterministic_index_choice() {
             index: chosen,
             values: vec![Value::Text("alpha".to_string())],
         },
-        crate::db::contracts::MissingRowPolicy::Ignore,
+        crate::db::predicate::MissingRowPolicy::Ignore,
     );
 
     let explain = plan.explain();
@@ -150,7 +150,7 @@ fn explain_grouped_strategy_defaults_to_hash_group_for_full_scan_shapes() {
                     .expect("group field should resolve"),
             ],
             aggregates: vec![GroupAggregateSpec {
-                kind: GroupAggregateKind::Count,
+                kind: AggregateKind::Count,
                 target_field: None,
                 distinct: false,
             }],
@@ -182,7 +182,7 @@ fn explain_grouped_strategy_reports_ordered_group_for_aligned_index_prefix_shape
                 .expect("group field should resolve"),
         ],
         aggregates: vec![GroupAggregateSpec {
-            kind: GroupAggregateKind::Count,
+            kind: AggregateKind::Count,
             target_field: None,
             distinct: false,
         }],
@@ -214,7 +214,7 @@ fn explain_grouped_strategy_downgrades_to_hash_for_residual_predicate_shapes() {
                 .expect("group field should resolve"),
         ],
         aggregates: vec![GroupAggregateSpec {
-            kind: GroupAggregateKind::Count,
+            kind: AggregateKind::Count,
             target_field: None,
             distinct: false,
         }],
@@ -251,7 +251,7 @@ fn explain_grouped_strategy_downgrades_to_hash_for_unsupported_having_operator()
                     .expect("group field should resolve"),
             ],
             aggregates: vec![GroupAggregateSpec {
-                kind: GroupAggregateKind::Count,
+                kind: AggregateKind::Count,
                 target_field: None,
                 distinct: false,
             }],
@@ -292,7 +292,7 @@ fn explain_grouped_strategy_keeps_ordered_group_for_supported_having_operator() 
                     .expect("group field should resolve"),
             ],
             aggregates: vec![GroupAggregateSpec {
-                kind: GroupAggregateKind::Count,
+                kind: AggregateKind::Count,
                 target_field: None,
                 distinct: false,
             }],
@@ -327,7 +327,7 @@ fn explain_grouped_having_projection_is_reported() {
                         .expect("group field should resolve"),
                 ],
                 aggregates: vec![GroupAggregateSpec {
-                    kind: GroupAggregateKind::Count,
+                    kind: AggregateKind::Count,
                     target_field: None,
                     distinct: false,
                 }],
@@ -360,7 +360,7 @@ fn explain_grouped_distinct_aggregate_projection_is_reported() {
                     .expect("group field should resolve"),
             ],
             aggregates: vec![GroupAggregateSpec {
-                kind: GroupAggregateKind::Count,
+                kind: AggregateKind::Count,
                 target_field: None,
                 distinct: true,
             }],
@@ -394,7 +394,7 @@ fn explain_grouped_ordered_having_projection_shape_is_frozen() {
         GroupSpec {
             group_fields: vec![group_field.clone()],
             aggregates: vec![GroupAggregateSpec {
-                kind: GroupAggregateKind::Count,
+                kind: AggregateKind::Count,
                 target_field: None,
                 distinct: false,
             }],
@@ -418,7 +418,7 @@ fn explain_grouped_ordered_having_projection_shape_is_frozen() {
                 field: group_field.field().to_string(),
             }],
             aggregates: vec![ExplainGroupAggregate {
-                kind: GroupAggregateKind::Count,
+                kind: AggregateKind::Count,
                 target_field: None,
                 distinct: false,
             }],
@@ -444,7 +444,7 @@ fn explain_grouped_hash_distinct_projection_shape_is_frozen() {
         .into_grouped(GroupSpec {
             group_fields: vec![group_field.clone()],
             aggregates: vec![GroupAggregateSpec {
-                kind: GroupAggregateKind::Count,
+                kind: AggregateKind::Count,
                 target_field: None,
                 distinct: true,
             }],
@@ -460,7 +460,7 @@ fn explain_grouped_hash_distinct_projection_shape_is_frozen() {
                 field: group_field.field().to_string(),
             }],
             aggregates: vec![ExplainGroupAggregate {
-                kind: GroupAggregateKind::Count,
+                kind: AggregateKind::Count,
                 target_field: None,
                 distinct: true,
             }],
@@ -478,7 +478,7 @@ fn explain_global_distinct_sum_projection_is_reported() {
         .into_grouped(GroupSpec {
             group_fields: Vec::new(),
             aggregates: vec![GroupAggregateSpec {
-                kind: GroupAggregateKind::Sum,
+                kind: AggregateKind::Sum,
                 target_field: Some("rank".to_string()),
                 distinct: true,
             }],
@@ -491,7 +491,7 @@ fn explain_global_distinct_sum_projection_is_reported() {
             strategy: crate::db::query::explain::ExplainGroupedStrategy::HashGroup,
             group_fields: Vec::new(),
             aggregates: vec![crate::db::query::explain::ExplainGroupAggregate {
-                kind: GroupAggregateKind::Sum,
+                kind: AggregateKind::Sum,
                 target_field: Some("rank".to_string()),
                 distinct: true,
             }],

@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        access::{AccessPath, AccessPlan, SemanticIndexRangeSpec, normalize_access_plan_value},
+        access::{AccessPlan, SemanticIndexRangeSpec, normalize_access_plan_value},
         predicate::{
             CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo, literal_matches_type,
             normalize as normalize_predicate,
@@ -89,9 +89,7 @@ fn plan_predicate(
         | Predicate::TextContainsCi { .. } => AccessPlan::full_scan(),
         Predicate::And(children) => {
             if let Some(range_spec) = range::index_range_from_and(model, schema, children) {
-                return Ok(AccessPlan::path(AccessPath::IndexRange {
-                    spec: range_spec,
-                }));
+                return Ok(AccessPlan::index_range(range_spec));
             }
 
             let mut plans = children
@@ -103,7 +101,7 @@ fn plan_predicate(
             // - Range candidate extraction is resolved before child recursion.
             // - If no range candidate exists, retain equality-prefix planning.
             if let Some(prefix) = index_prefix_from_and(model, schema, children) {
-                plans.push(AccessPlan::path(prefix));
+                plans.push(prefix);
             }
 
             AccessPlan::intersection(plans)
@@ -132,7 +130,7 @@ fn plan_compare(
     if is_primary_key_model(schema, model, &cmp.field)
         && let Some(path) = plan_pk_compare(schema, model, cmp)
     {
-        return AccessPlan::path(path);
+        return path;
     }
 
     match cmp.op {
@@ -179,9 +177,7 @@ fn plan_compare(
                             upper,
                         );
 
-                        return AccessPlan::path(AccessPath::IndexRange {
-                            spec: semantic_range,
-                        });
+                        return AccessPlan::index_range(semantic_range);
                     }
                 }
             }
@@ -198,14 +194,14 @@ fn plan_pk_compare(
     schema: &SchemaInfo,
     model: &EntityModel,
     cmp: &ComparePredicate,
-) -> Option<AccessPath<Value>> {
+) -> Option<AccessPlan<Value>> {
     match cmp.op {
         CompareOp::Eq => {
             if !value_matches_pk_model(schema, model, &cmp.value) {
                 return None;
             }
 
-            Some(AccessPath::ByKey(cmp.value.clone()))
+            Some(AccessPlan::by_key(cmp.value.clone()))
         }
         CompareOp::In => {
             let Value::List(items) = &cmp.value else {
@@ -218,7 +214,7 @@ fn plan_pk_compare(
                 }
             }
             // NOTE: key order is canonicalized during access-plan normalization.
-            Some(AccessPath::ByKeys(items.clone()))
+            Some(AccessPlan::by_keys(items.clone()))
         }
         _ => {
             // NOTE: Only Eq/In comparisons can be expressed as key access paths.
@@ -251,10 +247,7 @@ fn index_prefix_for_eq(
         if index.fields.first() != Some(&field) || !index.is_field_indexable(field, CompareOp::Eq) {
             continue;
         }
-        out.push(AccessPlan::path(AccessPath::IndexPrefix {
-            index: *index,
-            values: vec![value.clone()],
-        }));
+        out.push(AccessPlan::index_prefix(*index, vec![value.clone()]));
     }
 
     if out.is_empty() { None } else { Some(out) }
@@ -264,7 +257,7 @@ fn index_prefix_from_and(
     model: &EntityModel,
     schema: &SchemaInfo,
     children: &[Predicate],
-) -> Option<AccessPath<Value>> {
+) -> Option<AccessPlan<Value>> {
     // Cache literal/schema compatibility once per equality literal so index
     // candidate selection does not repeat schema checks on every index iteration.
     let mut field_values = Vec::new();
@@ -320,10 +313,7 @@ fn index_prefix_from_and(
         }
     }
 
-    best.map(|(_, _, index, values)| AccessPath::IndexPrefix {
-        index: *index,
-        values,
-    })
+    best.map(|(_, _, index, values)| AccessPlan::index_prefix(*index, values))
 }
 
 ///
@@ -433,15 +423,15 @@ mod planner_tests {
     fn normalize_union_dedups_identical_paths() {
         let key = Value::Ulid(Ulid::from_u128(1));
         let plan = AccessPlan::Union(vec![
-            AccessPlan::path(AccessPath::ByKey(key.clone())),
-            AccessPlan::path(AccessPath::ByKey(key)),
+            AccessPlan::by_key(key.clone()),
+            AccessPlan::by_key(key),
         ]);
 
         let normalized = normalize_access_plan_value(plan);
 
         assert_eq!(
             normalized,
-            AccessPlan::path(AccessPath::ByKey(Value::Ulid(Ulid::from_u128(1))))
+            AccessPlan::by_key(Value::Ulid(Ulid::from_u128(1)))
         );
     }
 
@@ -450,8 +440,8 @@ mod planner_tests {
         let a = Value::Ulid(Ulid::from_u128(1));
         let b = Value::Ulid(Ulid::from_u128(2));
         let plan = AccessPlan::Union(vec![
-            AccessPlan::path(AccessPath::ByKey(b.clone())),
-            AccessPlan::path(AccessPath::ByKey(a.clone())),
+            AccessPlan::by_key(b.clone()),
+            AccessPlan::by_key(a.clone()),
         ]);
 
         let normalized = normalize_access_plan_value(plan);
@@ -460,23 +450,20 @@ mod planner_tests {
         };
 
         assert_eq!(children.len(), 2);
-        assert_eq!(children[0], AccessPlan::path(AccessPath::ByKey(a)));
-        assert_eq!(children[1], AccessPlan::path(AccessPath::ByKey(b)));
+        assert_eq!(children[0], AccessPlan::by_key(a));
+        assert_eq!(children[1], AccessPlan::by_key(b));
     }
 
     #[test]
     fn normalize_intersection_removes_full_scan() {
         let key = Value::Ulid(Ulid::from_u128(7));
-        let plan = AccessPlan::Intersection(vec![
-            AccessPlan::full_scan(),
-            AccessPlan::path(AccessPath::ByKey(key)),
-        ]);
+        let plan = AccessPlan::Intersection(vec![AccessPlan::full_scan(), AccessPlan::by_key(key)]);
 
         let normalized = normalize_access_plan_value(plan);
 
         assert_eq!(
             normalized,
-            AccessPlan::path(AccessPath::ByKey(Value::Ulid(Ulid::from_u128(7))))
+            AccessPlan::by_key(Value::Ulid(Ulid::from_u128(7)))
         );
     }
 
@@ -502,7 +489,7 @@ mod planner_tests {
         );
         assert_eq!(
             planner_shape,
-            AccessPlan::path(AccessPath::ByKey(Value::Ulid(key))),
+            AccessPlan::by_key(Value::Ulid(key)),
             "one-key set canonicalization should collapse to ByKey",
         );
     }

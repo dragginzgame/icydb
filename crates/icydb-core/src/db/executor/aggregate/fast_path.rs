@@ -8,12 +8,11 @@ use crate::{
         Context,
         direction::Direction,
         executor::{
-            AccessExecutionDescriptor, AccessPathRuntimeStrategy, AccessStreamBindings,
-            ExecutionKernel,
+            AccessExecutionDescriptor, AccessStreamBindings, ExecutionKernel,
             aggregate::{
                 AggregateFastPathInputs, AggregateFoldMode, AggregateKind, AggregateOutput,
             },
-            dispatch_access_path,
+            derive_access_path_capabilities,
             load::{FastPathKeyResult, LoadExecutor},
             route::{
                 FastPathOrder, RoutedKeyStreamRequest,
@@ -263,12 +262,11 @@ impl ExecutionKernel {
         let Some(executable_path) = executable_access.as_path() else {
             return Ok(None);
         };
-        let dispatched = dispatch_access_path(executable_path);
-        let strategy: &dyn AccessPathRuntimeStrategy<E::Key> = dispatched;
-        if strategy.is_by_keys_empty() {
+        let capabilities = derive_access_path_capabilities(executable_path);
+        if capabilities.is_by_keys_empty() {
             return Ok(None);
         }
-        if !strategy.is_key_direct_access() {
+        if !capabilities.is_key_direct_access() {
             return Ok(None);
         }
         if plan.scalar_plan().predicate.is_some() {
@@ -356,9 +354,7 @@ impl ExecutionKernel {
         let Some(executable_path) = executable_access.as_path() else {
             return Ok(None);
         };
-        let dispatched = dispatch_access_path(executable_path);
-        let strategy: &dyn AccessPathRuntimeStrategy<E::Key> = dispatched;
-        if !strategy.supports_count_pushdown_shape() {
+        if !derive_access_path_capabilities(executable_path).supports_count_pushdown_shape() {
             return Ok(None);
         }
 

@@ -257,7 +257,7 @@ fn load_cursor_rejects_offset_mismatch_at_plan_time() {
 }
 
 #[test]
-fn load_cursor_v1_token_rejects_non_zero_offset_plan() {
+fn load_cursor_v2_token_rejects_version_at_plan_time() {
     let plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("rank")
         .limit(1)
@@ -277,26 +277,25 @@ fn load_cursor_v1_token_rejects_non_zero_offset_plan() {
         Direction::Asc,
         2,
     );
-    let legacy_cursor = token
-        .encode_with_version_for_test(1)
-        .expect("legacy v1 cursor should encode");
+    let v2_cursor = token
+        .encode_with_version_for_test(2)
+        .expect("v2 cursor should encode");
 
     let err = plan
-        .prepare_cursor(Some(legacy_cursor.as_slice()))
-        .expect_err("v1 cursor should be rejected for non-zero offset plans");
+        .prepare_cursor(Some(v2_cursor.as_slice()))
+        .expect_err("v2 cursor should be rejected during planning");
     assert!(
         matches!(
             err,
             crate::db::executor::ExecutorPlanError::Cursor(inner)
                 if matches!(
                     inner.as_ref(),
-                    crate::db::cursor::CursorPlanError::ContinuationCursorWindowMismatch {
-                        expected_offset: 2,
-                        actual_offset: 0
+                    crate::db::cursor::CursorPlanError::ContinuationCursorVersionMismatch {
+                        version: 2
                     }
                 )
         ),
-        "legacy v1 cursors should map to offset mismatch when offset is non-zero"
+        "v2 cursor versions must be rejected as unsupported"
     );
 }
 

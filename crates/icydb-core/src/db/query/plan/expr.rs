@@ -581,7 +581,7 @@ mod tests {
             predicate::SchemaInfo,
             query::{
                 builder::aggregate::{AggregateExpr, min, min_by, sum},
-                plan::{GroupAggregateKind, PlanError, PlanUserError, validate::ExprPlanError},
+                plan::{AggregateKind, PlanError, PlanUserError, validate::ExprPlanError},
             },
         },
         model::{entity::EntityModel, field::FieldKind, index::IndexModel},
@@ -812,7 +812,7 @@ mod tests {
     fn infer_sum_aggregate_without_target_rejects_missing_target() {
         let schema = schema();
         let expr = Expr::Aggregate(AggregateExpr::from_semantic_parts(
-            GroupAggregateKind::Sum,
+            AggregateKind::Sum,
             None,
             false,
         ));
@@ -862,12 +862,12 @@ mod tests {
         let expr = Expr::Binary {
             op: BinaryOp::Eq,
             left: Box::new(Expr::Aggregate(AggregateExpr::from_semantic_parts(
-                GroupAggregateKind::Min,
+                AggregateKind::Min,
                 None,
                 false,
             ))),
             right: Box::new(Expr::Aggregate(AggregateExpr::from_semantic_parts(
-                GroupAggregateKind::Max,
+                AggregateKind::Max,
                 None,
                 false,
             ))),

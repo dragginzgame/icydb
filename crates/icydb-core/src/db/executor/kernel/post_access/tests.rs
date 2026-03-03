@@ -1,7 +1,7 @@
 use crate::db::{
     access::AccessPath,
-    contracts::Predicate,
     cursor::CursorBoundary,
+    predicate::Predicate,
     query::plan::{AccessPlannedQuery, OrderDirection, OrderSpec, PageSpec},
 };
 use crate::{db::MissingRowPolicy, model::field::FieldKind, types::Ulid};

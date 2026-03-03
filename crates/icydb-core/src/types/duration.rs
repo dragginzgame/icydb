@@ -20,7 +20,7 @@ use std::ops::{Add, AddAssign, Sub, SubAssign};
 /// Duration
 ///
 /// Stored as milliseconds.
-/// Wire format remains a bare `u64` for backward compatibility.
+/// Wire format remains a bare `u64`.
 ///
 
 #[derive(

@@ -22,7 +22,7 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 /// Timestamp
 ///
 /// Stored as Unix milliseconds.
-/// Wire format remains a bare `u64` for backward compatibility.
+/// Wire format remains a bare `u64`.
 ///
 
 #[derive(

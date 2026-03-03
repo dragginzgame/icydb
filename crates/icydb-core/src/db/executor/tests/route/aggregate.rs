@@ -65,7 +65,7 @@ fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_pat
     let grouped = base.into_grouped(GroupSpec {
         group_fields: grouped_field_slots(&["rank"]),
         aggregates: vec![GroupAggregateSpec {
-            kind: GroupAggregateKind::Count,
+            kind: AggregateKind::Count,
             target_field: None,
             distinct: false,
         }],
@@ -116,7 +116,7 @@ fn route_plan_grouped_wrapper_keeps_blocking_shape_under_tight_budget_config() {
     let grouped = base.into_grouped(GroupSpec {
         group_fields: grouped_field_slots(&["rank"]),
         aggregates: vec![GroupAggregateSpec {
-            kind: GroupAggregateKind::Count,
+            kind: AggregateKind::Count,
             target_field: None,
             distinct: false,
         }],
@@ -170,7 +170,7 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_index_prefix_sh
     .into_grouped(GroupSpec {
         group_fields: grouped_field_slots(&["rank"]),
         aggregates: vec![GroupAggregateSpec {
-            kind: GroupAggregateKind::Count,
+            kind: AggregateKind::Count,
             target_field: None,
             distinct: false,
         }],
@@ -208,7 +208,7 @@ fn route_plan_grouped_wrapper_downgrades_ordered_strategy_when_residual_predicat
     .into_grouped(GroupSpec {
         group_fields: grouped_field_slots(&["rank"]),
         aggregates: vec![GroupAggregateSpec {
-            kind: GroupAggregateKind::Count,
+            kind: AggregateKind::Count,
             target_field: None,
             distinct: false,
         }],
@@ -244,7 +244,7 @@ fn route_plan_grouped_wrapper_downgrades_ordered_strategy_for_unsupported_having
         GroupSpec {
             group_fields: grouped_field_slots(&["rank"]),
             aggregates: vec![GroupAggregateSpec {
-                kind: GroupAggregateKind::Count,
+                kind: AggregateKind::Count,
                 target_field: None,
                 distinct: false,
             }],
@@ -285,12 +285,12 @@ fn route_plan_grouped_wrapper_downgrades_ordered_strategy_for_unsupported_having
 #[test]
 fn route_plan_grouped_wrapper_preserves_kind_matrix_in_query_handoff() {
     let kind_cases = [
-        GroupAggregateKind::Count,
-        GroupAggregateKind::Exists,
-        GroupAggregateKind::Min,
-        GroupAggregateKind::Max,
-        GroupAggregateKind::First,
-        GroupAggregateKind::Last,
+        AggregateKind::Count,
+        AggregateKind::Exists,
+        AggregateKind::Min,
+        AggregateKind::Max,
+        AggregateKind::First,
+        AggregateKind::Last,
     ];
     let grouped = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore)
         .into_grouped(GroupSpec {
@@ -330,7 +330,7 @@ fn route_plan_grouped_wrapper_preserves_target_field_in_query_handoff() {
         .into_grouped(GroupSpec {
             group_fields: grouped_field_slots(&["rank", "label"]),
             aggregates: vec![GroupAggregateSpec {
-                kind: GroupAggregateKind::Max,
+                kind: AggregateKind::Max,
                 target_field: Some("rank".to_string()),
                 distinct: false,
             }],
@@ -357,14 +357,14 @@ fn route_plan_grouped_wrapper_preserves_target_field_in_query_handoff() {
 #[test]
 fn route_plan_grouped_wrapper_preserves_supported_target_field_matrix_in_query_handoff() {
     let grouped_cases = [
-        (GroupAggregateKind::Count, None),
-        (GroupAggregateKind::Exists, None),
-        (GroupAggregateKind::Min, None),
-        (GroupAggregateKind::Min, Some("rank")),
-        (GroupAggregateKind::Max, None),
-        (GroupAggregateKind::Max, Some("label")),
-        (GroupAggregateKind::First, None),
-        (GroupAggregateKind::Last, None),
+        (AggregateKind::Count, None),
+        (AggregateKind::Exists, None),
+        (AggregateKind::Min, None),
+        (AggregateKind::Min, Some("rank")),
+        (AggregateKind::Max, None),
+        (AggregateKind::Max, Some("label")),
+        (AggregateKind::First, None),
+        (AggregateKind::Last, None),
     ];
     let grouped = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore)
         .into_grouped(GroupSpec {
@@ -400,7 +400,7 @@ fn route_plan_grouped_wrapper_observability_vector_is_frozen() {
         .into_grouped(GroupSpec {
             group_fields: grouped_field_slots(&["rank"]),
             aggregates: vec![GroupAggregateSpec {
-                kind: GroupAggregateKind::Count,
+                kind: AggregateKind::Count,
                 target_field: None,
                 distinct: false,
             }],
@@ -446,7 +446,7 @@ fn grouped_policy_snapshot_matrix_remains_consistent_across_planner_handoff_and_
     .into_grouped(GroupSpec {
         group_fields: grouped_field_slots(&["rank"]),
         aggregates: vec![GroupAggregateSpec {
-            kind: GroupAggregateKind::Count,
+            kind: AggregateKind::Count,
             target_field: None,
             distinct: false,
         }],
@@ -474,7 +474,7 @@ fn grouped_policy_snapshot_matrix_remains_consistent_across_planner_handoff_and_
         GroupSpec {
             group_fields: grouped_field_slots(&["rank"]),
             aggregates: vec![GroupAggregateSpec {
-                kind: GroupAggregateKind::Count,
+                kind: AggregateKind::Count,
                 target_field: None,
                 distinct: false,
             }],
@@ -504,7 +504,7 @@ fn grouped_policy_snapshot_matrix_remains_consistent_across_planner_handoff_and_
             .into_grouped(GroupSpec {
                 group_fields: grouped_field_slots(&["rank"]),
                 aggregates: vec![GroupAggregateSpec {
-                    kind: GroupAggregateKind::Count,
+                    kind: AggregateKind::Count,
                     target_field: None,
                     distinct: false,
                 }],
@@ -536,7 +536,7 @@ fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
         GroupSpec {
             group_fields: vec![group_field.clone()],
             aggregates: vec![GroupAggregateSpec {
-                kind: GroupAggregateKind::Count,
+                kind: AggregateKind::Count,
                 target_field: None,
                 distinct: false,
             }],
@@ -561,7 +561,7 @@ fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
                 field: group_field.field().to_string(),
             }],
             aggregates: vec![ExplainGroupAggregate {
-                kind: GroupAggregateKind::Count,
+                kind: AggregateKind::Count,
                 target_field: None,
                 distinct: false,
             }],

@@ -6,7 +6,7 @@ mod structural_guards;
 
 use crate::{
     db::access::{AccessPath, AccessPlan},
-    db::contracts::{CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo},
+    db::predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo},
     db::query::plan::plan_access,
     model::{entity::EntityModel, field::FieldKind, index::IndexModel},
     traits::EntitySchema,

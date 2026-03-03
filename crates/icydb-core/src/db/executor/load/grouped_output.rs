@@ -55,7 +55,7 @@ where
     }
 
     // Evaluate grouped projection semantics for each grouped row while preserving
-    // legacy grouped response shape at the public boundary.
+    // grouped response contract at the public boundary.
     pub(super) fn project_grouped_rows_from_projection(
         projection: &ProjectionSpec,
         projection_layout: &PlannedProjectionLayout,
@@ -78,8 +78,8 @@ where
         Ok(projected_rows)
     }
 
-    // Evaluate one grouped projection expression row and convert it back into
-    // legacy grouped `(group_key, aggregate_values)` payload vectors.
+    // Evaluate one grouped projection expression row and convert it into
+    // grouped `(group_key, aggregate_values)` payload vectors.
     pub(super) fn project_grouped_row_from_projection(
         projection: &ProjectionSpec,
         projection_layout: &PlannedProjectionLayout,

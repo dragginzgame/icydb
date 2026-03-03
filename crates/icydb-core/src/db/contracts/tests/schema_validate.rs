@@ -1,5 +1,5 @@
 use crate::{
-    db::contracts::{SchemaInfo, ValidateError},
+    db::predicate::{SchemaInfo, ValidateError},
     model::{
         field::{FieldKind, FieldModel},
         index::IndexModel,

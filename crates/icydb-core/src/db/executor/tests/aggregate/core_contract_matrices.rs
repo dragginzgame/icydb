@@ -1189,7 +1189,7 @@ fn grouped_having_unsupported_operator_is_executor_invariant_only_when_planner_i
                     .expect("group field should resolve for bypass fixture"),
                 ],
                 aggregates: vec![crate::db::query::plan::GroupAggregateSpec {
-                    kind: crate::db::query::plan::GroupAggregateKind::Count,
+                    kind: crate::db::query::plan::AggregateKind::Count,
                     target_field: None,
                     distinct: false,
                 }],
@@ -1229,7 +1229,7 @@ fn grouped_global_distinct_unsupported_kind_is_executor_invariant_only_when_plan
         .into_grouped(crate::db::query::plan::GroupSpec {
             group_fields: Vec::new(),
             aggregates: vec![crate::db::query::plan::GroupAggregateSpec {
-                kind: crate::db::query::plan::GroupAggregateKind::Exists,
+                kind: crate::db::query::plan::AggregateKind::Exists,
                 target_field: Some("rank".to_string()),
                 distinct: true,
             }],
@@ -1275,7 +1275,7 @@ fn grouped_scalar_distinct_policy_violation_is_executor_invariant_only_when_plan
                     .expect("group field should resolve for bypass fixture"),
                 ],
                 aggregates: vec![crate::db::query::plan::GroupAggregateSpec {
-                    kind: crate::db::query::plan::GroupAggregateKind::Count,
+                    kind: crate::db::query::plan::AggregateKind::Count,
                     target_field: None,
                     distinct: false,
                 }],

@@ -7,8 +7,8 @@ use crate::{
     db::{
         Context,
         executor::{
-            AccessExecutionDescriptor, AccessPathRuntimeStrategy, AccessStreamBindings,
-            ExecutionOptimization, LoweredIndexPrefixSpec, dispatch_access_path,
+            AccessExecutionDescriptor, AccessStreamBindings, ExecutionOptimization,
+            LoweredIndexPrefixSpec, derive_access_path_capabilities,
             load::{FastPathKeyResult, LoadExecutor},
             traversal::derive_secondary_order_scan_direction,
         },
@@ -36,9 +36,8 @@ where
         let Some(executable_path) = executable_access.as_path() else {
             return Ok(None);
         };
-        let dispatched = dispatch_access_path(executable_path);
-        let strategy: &dyn AccessPathRuntimeStrategy<E::Key> = dispatched;
-        let Some(index) = strategy.index_prefix_model() else {
+        let path_capabilities = derive_access_path_capabilities(executable_path);
+        let Some(index) = path_capabilities.index_prefix_model() else {
             return Ok(None);
         };
         let Some(index_prefix_spec) = index_prefix_spec else {

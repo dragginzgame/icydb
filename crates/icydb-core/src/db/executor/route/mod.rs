@@ -26,11 +26,7 @@ pub(in crate::db::executor) use fast_path::try_first_verified_fast_path_hit;
 pub(super) use guard::*;
 #[cfg(test)]
 pub(in crate::db::executor) use planner::grouped_ordered_runtime_revalidation_flag_count_guard;
-pub(in crate::db) use pushdown::derive_secondary_pushdown_applicability_validated;
-#[cfg(test)]
-pub(in crate::db) use pushdown::{
-    assess_secondary_order_pushdown, assess_secondary_order_pushdown_if_applicable,
-};
+pub(in crate::db) use pushdown::derive_secondary_pushdown_applicability_from_contract;
 pub(in crate::db::executor) use semantics::{
     aggregate_bounded_probe_fetch_hint, aggregate_extrema_direction,
     aggregate_materialized_fold_direction, aggregate_supports_bounded_probe_hint,

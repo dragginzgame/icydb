@@ -10,19 +10,19 @@ use super::continuation_signature_with_projection;
 use crate::{
     db::{
         access::AccessPath,
-        contracts::{CompareOp, MissingRowPolicy, Predicate},
         cursor::{
             ContinuationSignature, ContinuationToken, CursorBoundary, CursorBoundarySlot,
             GroupedContinuationToken, IndexRangeCursorAnchor, TokenWireError,
             prepare_grouped_cursor,
         },
         direction::Direction,
+        predicate::{CompareOp, MissingRowPolicy, Predicate},
         query::{
             builder::field::FieldRef,
             intent::{KeyAccess, LoadSpec, QueryMode, access_plan_from_keys_value},
             plan::OrderDirection,
             plan::{
-                AccessPlannedQuery, FieldSlot, GroupAggregateKind, GroupAggregateSpec,
+                AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec,
                 GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupSpec,
                 GroupedExecutionConfig, LogicalPlan, OrderSpec, PageSpec,
                 expr::{Alias, Expr, FieldId, ProjectionField, ProjectionSpec},
@@ -64,7 +64,7 @@ fn grouped_explain_with_fixed_shape() -> crate::db::query::explain::ExplainPlan 
         .into_grouped(GroupSpec {
             group_fields: vec![FieldSlot::from_parts_for_test(1, "rank")],
             aggregates: vec![GroupAggregateSpec {
-                kind: GroupAggregateKind::Count,
+                kind: AggregateKind::Count,
                 target_field: None,
                 distinct: false,
             }],
@@ -454,7 +454,7 @@ fn signature_changes_when_group_fields_change() {
                     FieldSlot::from_parts_for_test(2, "phase"),
                 ],
                 aggregates: vec![GroupAggregateSpec {
-                    kind: GroupAggregateKind::Count,
+                    kind: AggregateKind::Count,
                     target_field: None,
                     distinct: false,
                 }],
@@ -468,7 +468,7 @@ fn signature_changes_when_group_fields_change() {
                     FieldSlot::from_parts_for_test(2, "region"),
                 ],
                 aggregates: vec![GroupAggregateSpec {
-                    kind: GroupAggregateKind::Count,
+                    kind: AggregateKind::Count,
                     target_field: None,
                     distinct: false,
                 }],
@@ -488,7 +488,7 @@ fn signature_changes_when_group_aggregate_spec_changes() {
             .into_grouped(GroupSpec {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
                 aggregates: vec![GroupAggregateSpec {
-                    kind: GroupAggregateKind::Count,
+                    kind: AggregateKind::Count,
                     target_field: None,
                     distinct: false,
                 }],
@@ -499,7 +499,7 @@ fn signature_changes_when_group_aggregate_spec_changes() {
             .into_grouped(GroupSpec {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
                 aggregates: vec![GroupAggregateSpec {
-                    kind: GroupAggregateKind::Max,
+                    kind: AggregateKind::Max,
                     target_field: Some("rank".to_string()),
                     distinct: false,
                 }],
@@ -519,7 +519,7 @@ fn signature_changes_when_group_aggregate_target_field_changes() {
             .into_grouped(GroupSpec {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
                 aggregates: vec![GroupAggregateSpec {
-                    kind: GroupAggregateKind::Max,
+                    kind: AggregateKind::Max,
                     target_field: Some("rank".to_string()),
                     distinct: false,
                 }],
@@ -530,7 +530,7 @@ fn signature_changes_when_group_aggregate_target_field_changes() {
             .into_grouped(GroupSpec {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
                 aggregates: vec![GroupAggregateSpec {
-                    kind: GroupAggregateKind::Max,
+                    kind: AggregateKind::Max,
                     target_field: Some("score".to_string()),
                     distinct: false,
                 }],
@@ -550,7 +550,7 @@ fn signature_changes_when_group_aggregate_distinct_changes() {
             .into_grouped(GroupSpec {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
                 aggregates: vec![GroupAggregateSpec {
-                    kind: GroupAggregateKind::Count,
+                    kind: AggregateKind::Count,
                     target_field: None,
                     distinct: false,
                 }],
@@ -561,7 +561,7 @@ fn signature_changes_when_group_aggregate_distinct_changes() {
             .into_grouped(GroupSpec {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
                 aggregates: vec![GroupAggregateSpec {
-                    kind: GroupAggregateKind::Count,
+                    kind: AggregateKind::Count,
                     target_field: None,
                     distinct: true,
                 }],
@@ -581,7 +581,7 @@ fn signature_changes_between_sum_and_sum_distinct_grouped_shapes() {
             .into_grouped(GroupSpec {
                 group_fields: Vec::new(),
                 aggregates: vec![GroupAggregateSpec {
-                    kind: GroupAggregateKind::Sum,
+                    kind: AggregateKind::Sum,
                     target_field: Some("rank".to_string()),
                     distinct: false,
                 }],
@@ -592,7 +592,7 @@ fn signature_changes_between_sum_and_sum_distinct_grouped_shapes() {
             .into_grouped(GroupSpec {
                 group_fields: Vec::new(),
                 aggregates: vec![GroupAggregateSpec {
-                    kind: GroupAggregateKind::Sum,
+                    kind: AggregateKind::Sum,
                     target_field: Some("rank".to_string()),
                     distinct: true,
                 }],
@@ -615,7 +615,7 @@ fn signature_changes_when_group_field_order_changes() {
                     FieldSlot::from_parts_for_test(2, "phase"),
                 ],
                 aggregates: vec![GroupAggregateSpec {
-                    kind: GroupAggregateKind::Count,
+                    kind: AggregateKind::Count,
                     target_field: None,
                     distinct: false,
                 }],
@@ -629,7 +629,7 @@ fn signature_changes_when_group_field_order_changes() {
                     FieldSlot::from_parts_for_test(1, "tenant"),
                 ],
                 aggregates: vec![GroupAggregateSpec {
-                    kind: GroupAggregateKind::Count,
+                    kind: AggregateKind::Count,
                     target_field: None,
                     distinct: false,
                 }],
@@ -650,12 +650,12 @@ fn signature_changes_when_group_aggregate_order_changes() {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
                 aggregates: vec![
                     GroupAggregateSpec {
-                        kind: GroupAggregateKind::Count,
+                        kind: AggregateKind::Count,
                         target_field: None,
                         distinct: false,
                     },
                     GroupAggregateSpec {
-                        kind: GroupAggregateKind::Max,
+                        kind: AggregateKind::Max,
                         target_field: Some("rank".to_string()),
                         distinct: false,
                     },
@@ -668,12 +668,12 @@ fn signature_changes_when_group_aggregate_order_changes() {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
                 aggregates: vec![
                     GroupAggregateSpec {
-                        kind: GroupAggregateKind::Max,
+                        kind: AggregateKind::Max,
                         target_field: Some("rank".to_string()),
                         distinct: false,
                     },
                     GroupAggregateSpec {
-                        kind: GroupAggregateKind::Count,
+                        kind: AggregateKind::Count,
                         target_field: None,
                         distinct: false,
                     },
@@ -696,7 +696,7 @@ fn signature_changes_between_scalar_and_grouped_shape() {
             .into_grouped(GroupSpec {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
                 aggregates: vec![GroupAggregateSpec {
-                    kind: GroupAggregateKind::Count,
+                    kind: AggregateKind::Count,
                     target_field: None,
                     distinct: false,
                 }],
@@ -716,7 +716,7 @@ fn signature_changes_when_grouped_limits_change() {
             .into_grouped(GroupSpec {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
                 aggregates: vec![GroupAggregateSpec {
-                    kind: GroupAggregateKind::Count,
+                    kind: AggregateKind::Count,
                     target_field: None,
                     distinct: false,
                 }],
@@ -727,7 +727,7 @@ fn signature_changes_when_grouped_limits_change() {
             .into_grouped(GroupSpec {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
                 aggregates: vec![GroupAggregateSpec {
-                    kind: GroupAggregateKind::Count,
+                    kind: AggregateKind::Count,
                     target_field: None,
                     distinct: false,
                 }],
@@ -748,7 +748,7 @@ fn signature_changes_when_grouped_having_changes() {
                 GroupSpec {
                     group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
                     aggregates: vec![GroupAggregateSpec {
-                        kind: GroupAggregateKind::Count,
+                        kind: AggregateKind::Count,
                         target_field: None,
                         distinct: false,
                     }],
@@ -768,7 +768,7 @@ fn signature_changes_when_grouped_having_changes() {
                 GroupSpec {
                     group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
                     aggregates: vec![GroupAggregateSpec {
-                        kind: GroupAggregateKind::Count,
+                        kind: AggregateKind::Count,
                         target_field: None,
                         distinct: false,
                     }],
@@ -797,7 +797,7 @@ fn signature_snapshot_grouped_having_shape_is_stable() {
                 GroupSpec {
                     group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
                     aggregates: vec![GroupAggregateSpec {
-                        kind: GroupAggregateKind::Count,
+                        kind: AggregateKind::Count,
                         target_field: None,
                         distinct: false,
                     }],
@@ -827,7 +827,7 @@ fn signature_snapshot_grouped_distinct_shape_is_stable() {
             .into_grouped(GroupSpec {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
                 aggregates: vec![GroupAggregateSpec {
-                    kind: GroupAggregateKind::Count,
+                    kind: AggregateKind::Count,
                     target_field: None,
                     distinct: true,
                 }],
@@ -849,7 +849,7 @@ fn signature_snapshot_global_distinct_sum_shape_is_stable() {
             .into_grouped(GroupSpec {
                 group_fields: Vec::new(),
                 aggregates: vec![GroupAggregateSpec {
-                    kind: GroupAggregateKind::Sum,
+                    kind: AggregateKind::Sum,
                     target_field: Some("rank".to_string()),
                     distinct: true,
                 }],
@@ -876,7 +876,7 @@ fn signature_snapshot_ordered_group_hint_shape_is_stable() {
     .into_grouped(GroupSpec {
         group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
         aggregates: vec![GroupAggregateSpec {
-            kind: GroupAggregateKind::Count,
+            kind: AggregateKind::Count,
             target_field: None,
             distinct: false,
         }],
@@ -938,21 +938,16 @@ fn continuation_token_decode_rejects_unknown_version() {
 }
 
 #[test]
-fn continuation_token_v1_decodes_initial_offset_as_zero() {
+fn continuation_token_decode_rejects_v2_version() {
     let boundary = CursorBoundary {
         slots: vec![CursorBoundarySlot::Present(Value::Uint(1))],
     };
     let signature = ContinuationSignature::from_bytes([4u8; 32]);
     let token = ContinuationToken::new_with_direction(signature, boundary, Direction::Desc, 11);
     let encoded = token
-        .encode_with_version_for_test(1)
-        .expect("v1 wire token should encode");
+        .encode_with_version_for_test(2)
+        .expect("v2-version wire token should encode");
 
-    let decoded = ContinuationToken::decode(&encoded).expect("v1 wire token should decode");
-    assert_eq!(
-        decoded.initial_offset(),
-        0,
-        "v1 must decode with zero offset"
-    );
-    assert_eq!(decoded.direction(), Direction::Desc);
+    let err = ContinuationToken::decode(&encoded).expect_err("v2-version token must fail");
+    assert_eq!(err, TokenWireError::UnsupportedVersion { version: 2 });
 }

@@ -5,7 +5,6 @@ use crate::{
             CommitRowOp, commit_marker_present, commit_schema_fingerprint_for_entity,
             ensure_recovered, init_commit_store_for_tests,
         },
-        contracts::MissingRowPolicy,
         data::{DataKey, DataStore, RawRow},
         executor::{
             DeleteExecutor, SaveExecutor,
@@ -14,6 +13,7 @@ use crate::{
             },
         },
         index::IndexStore,
+        predicate::MissingRowPolicy,
         query::intent::Query,
         registry::StoreRegistry,
         relation::validate_save_strong_relations,

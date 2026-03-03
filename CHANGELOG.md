@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `0.40.10` completes the error taxonomy and index-integrity audit slice by tightening cursor error classification and adding crash/recovery guards for unique constraints, reverse indexes, and prefix-range key bounds.
 - `0.40.11` upgrades layer auditing from import-direction checks to semantic authority checks, adds forward-vs-replay state-equivalence coverage, and adds grouped planner/handoff/route policy snapshot guards.
 - `0.40.12` records the complexity-accretion v2 rerun with risk still at `6/10`: runtime `.as_inner()` calls are now zero and access-path fan-out remains lower, but continuation spread and planner/route/load branch pressure remain the main complexity risks.
+- `0.40.13` finalizes the highest-ROI complexity-accretion v2 follow-ups by formalizing planner-to-route pushdown contracts, centralizing access-capability evaluation, and removing remaining compatibility/shim surfaces.
 
 ```text
 scripts/dev/cloc.sh (2026-03-03)

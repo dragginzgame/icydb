@@ -2,9 +2,9 @@ use super::*;
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},
-        contracts::{CompareOp, ComparePredicate},
         cursor::GroupedContinuationToken,
         direction::Direction,
+        predicate::{CompareOp, ComparePredicate},
         query::{
             builder::{FieldRef, count, count_by, exists, first, last, max, max_by, min, sum},
             expr::FilterExpr,
@@ -90,7 +90,7 @@ fn query_error_is_order_plan_error(
 
 fn query_error_is_predicate_validation_error(
     err: &QueryError,
-    predicate: impl FnOnce(&crate::db::contracts::ValidateError) -> bool,
+    predicate: impl FnOnce(&crate::db::predicate::ValidateError) -> bool,
 ) -> bool {
     let QueryError::Plan(plan_err) = err else {
         return false;
@@ -1231,7 +1231,7 @@ fn build_plan_model_rejects_map_field_predicates_before_planning() {
             "attributes",
             CompareOp::Eq,
             Value::Map(Vec::new()),
-            crate::db::contracts::CoercionId::Strict,
+            crate::db::predicate::CoercionId::Strict,
         )),
     );
 
@@ -1241,8 +1241,8 @@ fn build_plan_model_rejects_map_field_predicates_before_planning() {
     assert!(query_error_is_predicate_validation_error(&err, |inner| {
         matches!(
             inner,
-            crate::db::contracts::ValidateError::UnsupportedQueryFeature(
-                crate::db::contracts::UnsupportedQueryFeature::MapPredicate { field }
+            crate::db::predicate::ValidateError::UnsupportedQueryFeature(
+                crate::db::predicate::UnsupportedQueryFeature::MapPredicate { field }
             ) if field == "attributes"
         )
     }));
@@ -1254,7 +1254,7 @@ fn filter_expr_resolves_loose_enum_stage_filters() {
         "stage",
         CompareOp::Eq,
         Value::Enum(ValueEnum::loose("Active")),
-        crate::db::contracts::CoercionId::Strict,
+        crate::db::predicate::CoercionId::Strict,
     ));
 
     let intent = QueryModel::<Ulid>::new(&ENUM_PLAN_MODEL, MissingRowPolicy::Ignore)
@@ -1277,7 +1277,7 @@ fn filter_expr_rejects_wrong_strict_enum_path() {
         "stage",
         CompareOp::Eq,
         Value::Enum(ValueEnum::new("Active", Some("wrong::Stage"))),
-        crate::db::contracts::CoercionId::Strict,
+        crate::db::predicate::CoercionId::Strict,
     ));
 
     let err = QueryModel::<Ulid>::new(&ENUM_PLAN_MODEL, MissingRowPolicy::Ignore)
@@ -1285,7 +1285,7 @@ fn filter_expr_rejects_wrong_strict_enum_path() {
         .expect_err("strict enum with wrong path should fail");
     assert!(matches!(
         err,
-        QueryError::Validate(crate::db::contracts::ValidateError::InvalidLiteral {
+        QueryError::Validate(crate::db::predicate::ValidateError::InvalidLiteral {
             field,
             ..
         }) if field == "stage"
@@ -1298,7 +1298,7 @@ fn direct_stage_filter_resolves_loose_enum_path() {
         "stage",
         CompareOp::Eq,
         Value::Enum(ValueEnum::loose("Draft")),
-        crate::db::contracts::CoercionId::Strict,
+        crate::db::predicate::CoercionId::Strict,
     ));
 
     let plan = QueryModel::<Ulid>::new(&ENUM_PLAN_MODEL, MissingRowPolicy::Ignore)

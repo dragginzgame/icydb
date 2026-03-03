@@ -58,7 +58,7 @@ fn prepare_row_commit_for_entity_impl<E: EntityKind + EntityValue>(
             op.entity_path
         )));
     }
-    // No legacy-fingerprint fallback is allowed: replay must match exactly.
+    // No fingerprint fallback is allowed: replay must match exactly.
     let expected_schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
     if op.schema_fingerprint != expected_schema_fingerprint {
         return Err(InternalError::store_unsupported(format!(

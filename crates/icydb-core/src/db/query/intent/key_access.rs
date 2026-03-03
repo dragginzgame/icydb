@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        access::{AccessPath, AccessPlan, AccessPlanError, normalize_access_plan_value},
+        access::{AccessPlan, AccessPlanError, normalize_access_plan_value},
         query::plan::PlanError,
     },
     model::entity::EntityModel,
@@ -49,10 +49,10 @@ where
 {
     // Phase 1: map typed keys into model-level Value access paths.
     let plan = match access {
-        KeyAccess::Single(key) => AccessPlan::path(AccessPath::ByKey(key.to_value())),
+        KeyAccess::Single(key) => AccessPlan::by_key(key.to_value()),
         KeyAccess::Many(keys) => {
             let values = keys.iter().map(FieldValue::to_value).collect();
-            AccessPlan::path(AccessPath::ByKeys(values))
+            AccessPlan::by_keys(values)
         }
     };
 
@@ -87,51 +87,6 @@ impl AccessPlan<Value> {
         self,
         model: &EntityModel,
     ) -> Result<AccessPlan<E::Key>, PlanError> {
-        match self {
-            Self::Path(path) => Ok(AccessPlan::path(path.into_executable::<E>(model)?)),
-            Self::Union(children) => {
-                let mut out = Vec::with_capacity(children.len());
-                for child in children {
-                    out.push(child.into_executable::<E>(model)?);
-                }
-
-                Ok(AccessPlan::union(out))
-            }
-            Self::Intersection(children) => {
-                let mut out = Vec::with_capacity(children.len());
-                for child in children {
-                    out.push(child.into_executable::<E>(model)?);
-                }
-
-                Ok(AccessPlan::intersection(out))
-            }
-        }
-    }
-}
-
-impl AccessPath<Value> {
-    /// Convert one model-level access path into a typed executable access path.
-    pub(crate) fn into_executable<E: EntityKind>(
-        self,
-        model: &EntityModel,
-    ) -> Result<AccessPath<E::Key>, PlanError> {
-        match self {
-            Self::ByKey(key) => Ok(AccessPath::ByKey(coerce_entity_key::<E>(model, &key)?)),
-            Self::ByKeys(keys) => {
-                let mut out = Vec::with_capacity(keys.len());
-                for key in keys {
-                    out.push(coerce_entity_key::<E>(model, &key)?);
-                }
-
-                Ok(AccessPath::ByKeys(out))
-            }
-            Self::KeyRange { start, end } => Ok(AccessPath::KeyRange {
-                start: coerce_entity_key::<E>(model, &start)?,
-                end: coerce_entity_key::<E>(model, &end)?,
-            }),
-            Self::IndexPrefix { index, values } => Ok(AccessPath::IndexPrefix { index, values }),
-            Self::IndexRange { spec } => Ok(AccessPath::IndexRange { spec }),
-            Self::FullScan => Ok(AccessPath::FullScan),
-        }
+        self.map_keys(|key| coerce_entity_key::<E>(model, &key))
     }
 }

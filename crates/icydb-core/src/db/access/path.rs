@@ -183,4 +183,29 @@ impl<K> AccessPath<K> {
             _ => None,
         }
     }
+
+    /// Map the key payload of this access path while preserving structural shape.
+    pub(crate) fn map_keys<T, E, F>(self, mut map_key: F) -> Result<AccessPath<T>, E>
+    where
+        F: FnMut(K) -> Result<T, E>,
+    {
+        match self {
+            Self::ByKey(key) => Ok(AccessPath::ByKey(map_key(key)?)),
+            Self::ByKeys(keys) => {
+                let mut mapped = Vec::with_capacity(keys.len());
+                for key in keys {
+                    mapped.push(map_key(key)?);
+                }
+
+                Ok(AccessPath::ByKeys(mapped))
+            }
+            Self::KeyRange { start, end } => Ok(AccessPath::KeyRange {
+                start: map_key(start)?,
+                end: map_key(end)?,
+            }),
+            Self::IndexPrefix { index, values } => Ok(AccessPath::IndexPrefix { index, values }),
+            Self::IndexRange { spec } => Ok(AccessPath::IndexRange { spec }),
+            Self::FullScan => Ok(AccessPath::FullScan),
+        }
+    }
 }

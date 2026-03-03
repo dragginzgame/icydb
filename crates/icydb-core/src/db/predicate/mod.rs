@@ -22,10 +22,6 @@ pub(crate) use coercion::CoercionSpec;
 pub(in crate::db) use coercion::supports_coercion;
 pub(crate) use model::PredicateExecutionModel;
 pub(in crate::db) use normalize::{normalize, normalize_enum_literals};
-#[cfg(test)]
-pub(crate) use schema::FieldType;
-#[cfg(test)]
-pub(crate) use schema::ScalarType;
 pub(crate) use schema::{
     SchemaInfo, literal_matches_type, reject_unsupported_query_features, validate,
 };

@@ -6,8 +6,8 @@
 use crate::{
     db::{
         access::AccessPlan,
-        executor::{AccessPathRuntimeStrategy, derive_access_capabilities, dispatch_access_path},
         executor::{ExecutionPreparation, aggregate::AggregateKind, load::LoadExecutor},
+        executor::{derive_access_capabilities, derive_access_path_capabilities},
         index::{IndexCompilePolicy, compile_index_program},
         query::plan::{AccessPlannedQuery, lower_executable_access_plan},
     },
@@ -103,12 +103,10 @@ where
         let access = executable.as_path().ok_or_else(|| {
             invariant("pk stream fast-path requires direct access-path execution")
         })?;
-        let dispatched = dispatch_access_path(access);
-        let strategy: &dyn AccessPathRuntimeStrategy<E::Key> = dispatched;
         debug_assert_eq!(
-            strategy.supports_pk_stream_access(),
+            derive_access_path_capabilities(access).supports_pk_stream_access(),
             single_path.supports_pk_stream_access(),
-            "route invariant: descriptor and strategy pk-stream capability must stay aligned",
+            "route invariant: descriptor and path capability snapshots must stay aligned",
         );
 
         Ok(())

@@ -9,6 +9,7 @@ mod group_having;
 mod group_model;
 mod grouped_strategy;
 mod logical;
+mod pushdown;
 
 pub(crate) use access_projection::{
     AccessPlanProjection, project_access_plan, project_explain_access_path,
@@ -29,3 +30,4 @@ pub(crate) use group_having::{
 };
 pub(crate) use grouped_strategy::GroupedPlanStrategyHint;
 pub(in crate::db::query::plan) use grouped_strategy::grouped_plan_strategy_hint;
+pub(in crate::db) use pushdown::{LogicalPushdownEligibility, derive_logical_pushdown_eligibility};

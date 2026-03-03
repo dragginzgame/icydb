@@ -6,13 +6,14 @@
 use crate::{
     db::{
         access::{
-            AccessPlan, PushdownApplicability, SecondaryOrderPushdownEligibility,
+            PushdownApplicability, SecondaryOrderPushdownEligibility,
             SecondaryOrderPushdownRejection,
         },
         direction::Direction,
         executor::{derive_access_capabilities, route::direction_from_order},
         query::plan::{
-            AccessPlannedQuery, OrderDirection, ScalarPlan, lower_executable_access_plan,
+            AccessPlannedQuery, LogicalPushdownEligibility, OrderDirection, ScalarPlan,
+            lower_executable_access_plan,
         },
     },
     model::entity::EntityModel,
@@ -25,18 +26,6 @@ fn order_fields_as_direction_refs(
         .iter()
         .map(|(field, direction)| (field.as_str(), direction_from_order(*direction)))
         .collect()
-}
-
-fn applicability_from_eligibility(
-    eligibility: SecondaryOrderPushdownEligibility,
-) -> PushdownApplicability {
-    match eligibility {
-        SecondaryOrderPushdownEligibility::Rejected(
-            SecondaryOrderPushdownRejection::NoOrderBy
-            | SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix,
-        ) => PushdownApplicability::NotApplicable,
-        other => PushdownApplicability::Applicable(other),
-    }
 }
 
 // Core matcher for secondary ORDER BY pushdown eligibility.
@@ -127,103 +116,102 @@ fn assess_secondary_order_pushdown_for_applicable_shape(
     match_secondary_order_pushdown_core(model, order_fields, index_name, index_fields, prefix_len)
 }
 
-/// Evaluate the secondary-index ORDER BY pushdown matrix from logical+access parts.
-pub(in crate::db) fn assess_secondary_order_pushdown_from_parts<K>(
+fn validated_secondary_order_fields_for_contract<'a>(
     model: &EntityModel,
-    logical: &ScalarPlan,
-    access_plan: &AccessPlan<K>,
-) -> SecondaryOrderPushdownEligibility {
+    logical: &'a ScalarPlan,
+    logical_pushdown_eligibility: LogicalPushdownEligibility,
+) -> Option<Vec<(&'a str, Direction)>> {
+    if !logical_pushdown_eligibility.secondary_order_allowed()
+        || logical_pushdown_eligibility.requires_full_materialization()
+    {
+        return None;
+    }
+
     let order_fields = logical
         .order
         .as_ref()
-        .map(|order| order_fields_as_direction_refs(&order.fields));
-    let Some(order_fields) = order_fields.as_deref() else {
-        return SecondaryOrderPushdownEligibility::Rejected(
-            SecondaryOrderPushdownRejection::NoOrderBy,
-        );
-    };
-    if order_fields.is_empty() {
-        return SecondaryOrderPushdownEligibility::Rejected(
-            SecondaryOrderPushdownRejection::NoOrderBy,
-        );
-    }
+        .map(|order| order_fields_as_direction_refs(&order.fields))?;
 
-    let executable_plan = lower_executable_access_plan(access_plan);
+    debug_assert!(
+        !order_fields.is_empty(),
+        "planner-pushed secondary-order eligibility requires at least one ORDER BY field",
+    );
+    let (last_field, expected_direction) = order_fields.last()?;
+    debug_assert_eq!(
+        *last_field, model.primary_key.name,
+        "planner-pushed secondary-order eligibility requires primary-key tie-break field",
+    );
+    debug_assert!(
+        order_fields
+            .iter()
+            .all(|(_, direction)| *direction == *expected_direction),
+        "planner-pushed secondary-order eligibility requires one uniform ORDER BY direction",
+    );
+
+    Some(order_fields)
+}
+
+/// Derive route pushdown applicability from planner-owned logical eligibility and
+/// route-owned access capabilities. Route must not re-derive logical shape policy.
+pub(in crate::db) fn derive_secondary_pushdown_applicability_from_contract<K>(
+    model: &EntityModel,
+    plan: &AccessPlannedQuery<K>,
+    logical_pushdown_eligibility: LogicalPushdownEligibility,
+) -> PushdownApplicability {
+    let Some(order_fields) = validated_secondary_order_fields_for_contract(
+        model,
+        plan.scalar_plan(),
+        logical_pushdown_eligibility,
+    ) else {
+        return PushdownApplicability::NotApplicable;
+    };
+
+    let executable_plan = lower_executable_access_plan(&plan.access);
     let access_capabilities = derive_access_capabilities(&executable_plan);
     let Some(single_path) = access_capabilities.single_path() else {
         if let Some(details) = access_capabilities.first_index_range_details() {
-            return SecondaryOrderPushdownEligibility::Rejected(
+            return PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Rejected(
                 SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
                     index: details.index().name,
                     prefix_len: details.slot_arity(),
                 },
-            );
+            ));
         }
 
-        return SecondaryOrderPushdownEligibility::Rejected(
-            SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix,
-        );
+        return PushdownApplicability::NotApplicable;
     };
+
     if let Some(details) = single_path.index_prefix_details() {
         let index = details.index();
         let prefix_len = details.slot_arity();
         if prefix_len > index.fields.len() {
-            return SecondaryOrderPushdownEligibility::Rejected(
+            return PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Rejected(
                 SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
                     prefix_len,
                     index_field_len: index.fields.len(),
                 },
-            );
+            ));
         }
 
-        return assess_secondary_order_pushdown_for_applicable_shape(
-            model,
-            order_fields,
-            index.name,
-            index.fields,
-            prefix_len,
+        return PushdownApplicability::Applicable(
+            assess_secondary_order_pushdown_for_applicable_shape(
+                model,
+                &order_fields,
+                index.name,
+                index.fields,
+                prefix_len,
+            ),
         );
     }
+
     if let Some(details) = single_path.index_range_details() {
-        return SecondaryOrderPushdownEligibility::Rejected(
+        return PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Rejected(
             SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
                 index: details.index().name,
                 prefix_len: details.slot_arity(),
             },
-        );
+        ));
     }
 
-    SecondaryOrderPushdownEligibility::Rejected(
-        SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix,
-    )
-}
-
-/// Evaluate the secondary-index ORDER BY pushdown matrix for one plan.
-pub(in crate::db) fn assess_secondary_order_pushdown<K>(
-    model: &EntityModel,
-    plan: &AccessPlannedQuery<K>,
-) -> SecondaryOrderPushdownEligibility {
-    assess_secondary_order_pushdown_from_parts(model, plan.scalar_plan(), &plan.access)
-}
-
-/// Derive pushdown applicability from one plan already validated by planner semantics.
-pub(in crate::db) fn derive_secondary_pushdown_applicability_validated<K>(
-    model: &EntityModel,
-    plan: &AccessPlannedQuery<K>,
-) -> PushdownApplicability {
-    let logical = plan.scalar_plan();
-    debug_assert!(
-        !matches!(logical.order.as_ref(), Some(order) if order.fields.is_empty()),
-        "validated plan must not contain an empty ORDER BY specification",
-    );
-
-    applicability_from_eligibility(assess_secondary_order_pushdown(model, plan))
-}
-
-#[cfg(test)]
-pub(in crate::db) fn assess_secondary_order_pushdown_if_applicable<K>(
-    model: &EntityModel,
-    plan: &AccessPlannedQuery<K>,
-) -> PushdownApplicability {
-    derive_secondary_pushdown_applicability_validated(model, plan)
+    PushdownApplicability::NotApplicable
 }

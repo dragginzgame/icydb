@@ -1,5 +1,5 @@
 //! Module: commit::guard
-//! Responsibility: enforce commit-window marker lifecycle and transitional rollback guards.
+//! Responsibility: enforce commit-window marker lifecycle and rollback guards.
 //! Does not own: mutation planning, marker payload semantics, or recovery orchestration.
 //! Boundary: executor::mutation -> commit::guard -> commit::store (one-way).
 
@@ -17,7 +17,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 ///
 /// Executor-internal guard for the commit-marker apply phase.
 ///
-/// This guard is strictly transitional infrastructure:
+/// This guard is strictly best-effort infrastructure:
 /// - Durable atomicity is owned by commit markers + recovery replay.
 /// - Rollback closures here are best-effort, in-process cleanup only.
 /// - This type does not provide transactional semantics or durable undo.
@@ -68,7 +68,7 @@ impl CommitApplyGuard {
             return;
         }
 
-        // Transitional cleanup only:
+        // Best-effort cleanup only:
         // - reverse order to mirror write application
         // - never unwind past this boundary
         while let Some(rollback) = self.rollbacks.pop() {
@@ -126,7 +126,7 @@ pub(crate) fn begin_commit(marker: CommitMarker) -> Result<CommitGuard, Internal
 ///
 /// The apply closure performs mechanical marker application only.
 /// Any in-process rollback guard used by the closure is non-authoritative
-/// transitional cleanup; durable authority remains the commit marker protocol.
+/// cleanup; durable authority remains the commit marker protocol.
 ///
 /// Durability rule:
 /// - `Ok(())` => marker is cleared.

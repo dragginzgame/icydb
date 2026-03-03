@@ -2,12 +2,12 @@ use crate::{
     db::{
         Db,
         access::{AccessPath, AccessPlan},
-        contracts::MissingRowPolicy,
         direction::Direction,
         executor::{
             Context, IndexStreamConstraints, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             StreamExecutionHints,
         },
+        predicate::MissingRowPolicy,
         registry::StoreRegistry,
     },
     model::{field::FieldKind, index::IndexModel},

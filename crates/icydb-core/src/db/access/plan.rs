@@ -3,7 +3,11 @@
 //! Does not own: schema validation or raw-bound lowering.
 //! Boundary: query planner emits these plans for executor routing.
 
-use crate::db::access::{AccessPath, IndexRangePathRef};
+use crate::{
+    db::access::{AccessPath, IndexRangePathRef, SemanticIndexRangeSpec},
+    model::index::IndexModel,
+    value::Value,
+};
 
 ///
 /// AccessPlan
@@ -22,6 +26,30 @@ impl<K> AccessPlan<K> {
     #[must_use]
     pub(crate) fn path(path: AccessPath<K>) -> Self {
         Self::Path(Box::new(path))
+    }
+
+    /// Construct a single-key access plan.
+    #[must_use]
+    pub(crate) fn by_key(key: K) -> Self {
+        Self::path(AccessPath::ByKey(key))
+    }
+
+    /// Construct a multi-key access plan.
+    #[must_use]
+    pub(crate) fn by_keys(keys: Vec<K>) -> Self {
+        Self::path(AccessPath::ByKeys(keys))
+    }
+
+    /// Construct an index-prefix access plan.
+    #[must_use]
+    pub(crate) fn index_prefix(index: IndexModel, values: Vec<Value>) -> Self {
+        Self::path(AccessPath::IndexPrefix { index, values })
+    }
+
+    /// Construct an index-range access plan from one semantic range descriptor.
+    #[must_use]
+    pub(crate) fn index_range(spec: SemanticIndexRangeSpec) -> Self {
+        Self::path(AccessPath::IndexRange { spec })
     }
 
     /// Construct a plan that forces a full scan.
@@ -83,6 +111,14 @@ impl<K> AccessPlan<K> {
         self.as_path().and_then(AccessPath::as_index_range)
     }
 
+    /// Map key payloads across this access tree while preserving structural shape.
+    pub(crate) fn map_keys<T, E, F>(self, mut map_key: F) -> Result<AccessPlan<T>, E>
+    where
+        F: FnMut(K) -> Result<T, E>,
+    {
+        self.map_keys_with(&mut map_key)
+    }
+
     // Collapse an already-flattened composite node into canonical arity form.
     fn collapse_canonical_composite(mut children: Vec<Self>, is_union: bool) -> Self {
         if children.is_empty() {
@@ -120,6 +156,32 @@ impl<K> AccessPlan<K> {
                 }
             }
             other => out.push(other),
+        }
+    }
+
+    // Shared recursive mapper so one mutable key-mapping closure can be reused.
+    fn map_keys_with<T, E, F>(self, map_key: &mut F) -> Result<AccessPlan<T>, E>
+    where
+        F: FnMut(K) -> Result<T, E>,
+    {
+        match self {
+            Self::Path(path) => Ok(AccessPlan::path(path.map_keys(map_key)?)),
+            Self::Union(children) => {
+                let mut out = Vec::with_capacity(children.len());
+                for child in children {
+                    out.push(child.map_keys_with(map_key)?);
+                }
+
+                Ok(AccessPlan::union(out))
+            }
+            Self::Intersection(children) => {
+                let mut out = Vec::with_capacity(children.len());
+                for child in children {
+                    out.push(child.map_keys_with(map_key)?);
+                }
+
+                Ok(AccessPlan::intersection(out))
+            }
         }
     }
 }
@@ -245,26 +307,22 @@ pub enum SecondaryOrderPushdownRejection {
 
 #[cfg(test)]
 mod tests {
-    use crate::db::access::{AccessPath, AccessPlan};
+    use crate::db::access::AccessPlan;
 
     #[test]
     fn union_constructor_flattens_and_collapses_single_child() {
         let plan: AccessPlan<u64> =
-            AccessPlan::union(vec![AccessPlan::union(vec![AccessPlan::path(
-                AccessPath::ByKey(7),
-            )])]);
+            AccessPlan::union(vec![AccessPlan::union(vec![AccessPlan::by_key(7)])]);
 
-        assert_eq!(plan, AccessPlan::path(AccessPath::ByKey(7)));
+        assert_eq!(plan, AccessPlan::by_key(7));
     }
 
     #[test]
     fn intersection_constructor_flattens_and_collapses_single_child() {
         let plan: AccessPlan<u64> =
-            AccessPlan::intersection(vec![AccessPlan::intersection(vec![AccessPlan::path(
-                AccessPath::ByKey(9),
-            )])]);
+            AccessPlan::intersection(vec![AccessPlan::intersection(vec![AccessPlan::by_key(9)])]);
 
-        assert_eq!(plan, AccessPlan::path(AccessPath::ByKey(9)));
+        assert_eq!(plan, AccessPlan::by_key(9));
     }
 
     #[test]
