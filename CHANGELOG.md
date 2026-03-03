@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `0.40.2` unified cursor continuation handling and merged scalar/grouped load dispatch into one internal execution pipeline.
 - `0.40.3` added guard tests that lock load pipeline structure and reduced duplicate grouped cursor-policy checks by keeping that rule behind one continuation boundary.
 - `0.40.4` tightened the unified load pipeline by using stage-typed state handoffs, keeping grouped policy decisions behind planner-owned wrappers, and adding fail-closed grouped DISTINCT guards plus planner-bypass tests.
+- `0.40.5` continued the load/executor cleanup by bundling page and physical stream inputs into typed request contracts, converging aggregate fast-path helper inputs, and splitting grouped route stage state into explicit ownership bundles.
+- `0.40.6` next.
 
 See detailed breakdown:
 [docs/changelog/0.40.md](docs/changelog/0.40.md)
