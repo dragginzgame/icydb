@@ -8,7 +8,7 @@ use crate::{
         Context,
         direction::Direction,
         executor::{
-            AccessPathRuntimeStrategy, AccessPlanStreamRequest, AccessStreamBindings,
+            AccessExecutionDescriptor, AccessPathRuntimeStrategy, AccessStreamBindings,
             ExecutionKernel,
             aggregate::{
                 AggregateFastPathInputs, AggregateFoldMode, AggregateKind, AggregateOutput,
@@ -23,7 +23,7 @@ use crate::{
         },
         index::predicate::IndexPredicateExecution,
         predicate::MissingRowPolicy,
-        query::plan::{AccessPlannedQuery, lower_executable_access_path},
+        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -259,11 +259,11 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
-        let Some(path) = plan.access.as_path() else {
+        let executable_access = plan.to_executable();
+        let Some(executable_path) = executable_access.as_path() else {
             return Ok(None);
         };
-        let executable_path = lower_executable_access_path(path);
-        let dispatched = dispatch_access_path(&executable_path);
+        let dispatched = dispatch_access_path(executable_path);
         let strategy: &dyn AccessPathRuntimeStrategy<E::Key> = dispatched;
         if strategy.is_by_keys_empty() {
             return Ok(None);
@@ -275,8 +275,8 @@ impl ExecutionKernel {
             return Ok(None);
         }
 
-        let stream_request = AccessPlanStreamRequest::from_bindings(
-            &plan.access,
+        let descriptor = AccessExecutionDescriptor::from_executable_bindings(
+            executable_access,
             AccessStreamBindings::no_index(direction),
             None,
             None,
@@ -287,7 +287,7 @@ impl ExecutionKernel {
             direction,
             kind,
             fold_mode,
-            RoutedKeyStreamRequest::AccessPlan(stream_request),
+            RoutedKeyStreamRequest::AccessDescriptor(descriptor),
         )?;
 
         Ok(Some((aggregate_output, keys_scanned)))
@@ -352,11 +352,11 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
-        let Some(path) = plan.access.as_path() else {
+        let executable_access = plan.to_executable();
+        let Some(executable_path) = executable_access.as_path() else {
             return Ok(None);
         };
-        let executable_path = lower_executable_access_path(path);
-        let dispatched = dispatch_access_path(&executable_path);
+        let dispatched = dispatch_access_path(executable_path);
         let strategy: &dyn AccessPathRuntimeStrategy<E::Key> = dispatched;
         if !strategy.supports_count_pushdown_shape() {
             return Ok(None);
@@ -368,12 +368,14 @@ impl ExecutionKernel {
             direction,
             kind,
             fold_mode,
-            RoutedKeyStreamRequest::AccessPlan(AccessPlanStreamRequest::from_bindings(
-                &plan.access,
-                AccessStreamBindings::no_index(direction),
-                physical_fetch_hint,
-                None,
-            )),
+            RoutedKeyStreamRequest::AccessDescriptor(
+                AccessExecutionDescriptor::from_executable_bindings(
+                    executable_access,
+                    AccessStreamBindings::no_index(direction),
+                    physical_fetch_hint,
+                    None,
+                ),
+            ),
         )?;
 
         Ok(Some((aggregate_output, keys_scanned)))
@@ -423,7 +425,7 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
-        let stream_request = AccessPlanStreamRequest::from_bindings(
+        let descriptor = AccessExecutionDescriptor::from_bindings(
             &inputs.logical_plan.access,
             AccessStreamBindings::new(
                 inputs.index_prefix_specs,
@@ -440,7 +442,7 @@ impl ExecutionKernel {
             inputs.direction,
             inputs.kind,
             inputs.fold_mode,
-            RoutedKeyStreamRequest::AccessPlan(stream_request),
+            RoutedKeyStreamRequest::AccessDescriptor(descriptor),
         )?;
 
         Ok(Some((aggregate_output, keys_scanned)))

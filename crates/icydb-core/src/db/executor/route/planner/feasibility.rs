@@ -5,7 +5,6 @@
 
 use crate::{
     db::{
-        access::PushdownApplicability,
         cursor::CursorBoundary,
         direction::Direction,
         executor::{
@@ -19,7 +18,7 @@ use crate::{
         },
         query::builder::AggregateExpr,
         query::plan::{
-            AccessPlannedQuery, GroupedPlanStrategyHint, grouped_plan_strategy_hint_for_plan,
+            AccessPlannedQuery, ContinuationPolicy, GroupedPlanStrategyHint, PlannerRouteProfile,
         },
     },
     traits::{EntityKind, EntityValue},
@@ -34,19 +33,20 @@ where
         cursor_boundary: Option<&CursorBoundary>,
         index_range_anchor: Option<&RangeToken>,
         probe_fetch_hint: Option<usize>,
+        planner_route_profile: &PlannerRouteProfile,
         intent_stage: &RouteIntentStage,
     ) -> RouteFeasibilityStage {
         let continuation_mode = Self::derive_continuation_mode(cursor_boundary, index_range_anchor);
+        let continuation_policy = *planner_route_profile.continuation_policy();
         let route_window = Self::derive_route_window(plan, cursor_boundary);
-        let secondary_pushdown_applicability = Self::derive_secondary_pushdown_applicability(plan);
         let derivation = Self::derive_route_derivation_context(
             plan,
-            intent_stage.aggregate_expr.as_ref(),
-            intent_stage.grouped,
+            intent_stage,
+            continuation_policy,
             continuation_mode,
             route_window,
             probe_fetch_hint,
-            secondary_pushdown_applicability,
+            planner_route_profile,
         );
         let kind = intent_stage.kind();
         let count_terminal = kind.is_some_and(AggregateKind::is_count);
@@ -58,8 +58,8 @@ where
         } else {
             Self::assess_index_range_limit_pushdown(
                 plan,
-                cursor_boundary,
-                index_range_anchor,
+                continuation_policy,
+                continuation_mode,
                 route_window,
                 derivation.scan_hints.physical_fetch_hint,
                 derivation.capabilities,
@@ -95,7 +95,8 @@ where
         );
         debug_assert!(
             derivation.scan_hints.load_scan_budget_hint.is_none()
-                || cursor_boundary.is_none() && derivation.capabilities.streaming_access_shape_safe,
+                || continuation_policy
+                    .allows_load_scan_budget_hint(continuation_mode, derivation.capabilities),
             "route invariant: load scan-budget hints require non-continuation streaming-safe shape",
         );
         debug_assert!(
@@ -105,9 +106,26 @@ where
                     && index_range_limit_spec.is_none(),
             "route invariant: grouped intent must not derive load/aggregate scan hints or index-range pushdown specs",
         );
+        debug_assert_eq!(
+            ContinuationPolicy::continuation_applied(continuation_mode),
+            !matches!(continuation_mode, ContinuationMode::Initial),
+            "route invariant: continuation policy and continuation mode must classify continuation activation identically",
+        );
+        debug_assert!(
+            !ContinuationPolicy::continuation_applied(continuation_mode)
+                || continuation_policy.requires_strict_advance(),
+            "route invariant: continuation executions must require strict advancement",
+        );
+        debug_assert!(
+            !intent_stage.grouped
+                || !ContinuationPolicy::continuation_applied(continuation_mode)
+                || continuation_policy.is_grouped_safe(),
+            "route invariant: grouped continuation executions must satisfy planner-projected continuation policy safety",
+        );
 
         RouteFeasibilityStage {
             continuation_mode,
+            continuation_policy,
             route_window,
             derivation,
             index_range_limit_spec,
@@ -121,13 +139,19 @@ where
 
     pub(in crate::db::executor::route::planner) fn derive_route_derivation_context(
         plan: &AccessPlannedQuery<E::Key>,
-        aggregate_expr: Option<&AggregateExpr>,
-        grouped: bool,
+        intent_stage: &RouteIntentStage,
+        continuation_policy: ContinuationPolicy,
         continuation_mode: ContinuationMode,
         route_window: RouteWindowPlan,
         probe_fetch_hint: Option<usize>,
-        secondary_pushdown_applicability: PushdownApplicability,
+        planner_route_profile: &PlannerRouteProfile,
     ) -> RouteDerivationContext {
+        let aggregate_expr = intent_stage.aggregate_expr.as_ref();
+        let grouped = intent_stage.grouped;
+        let grouped_plan_strategy_hint = intent_stage.grouped_plan_strategy_hint;
+        let secondary_pushdown_applicability = planner_route_profile
+            .secondary_pushdown_applicability()
+            .clone();
         let direction = aggregate_expr.map_or_else(
             || Self::derive_load_route_direction(plan),
             |aggregate| Self::derive_aggregate_route_direction(plan, aggregate),
@@ -162,18 +186,29 @@ where
             probe_fetch_hint
         };
         let load_scan_budget_hint = if kind.is_none() && !grouped {
-            Self::load_scan_budget_hint(continuation_mode, route_window, capabilities)
+            Self::load_scan_budget_hint(
+                continuation_policy,
+                continuation_mode,
+                route_window,
+                capabilities,
+            )
         } else {
             None
         };
         let grouped_execution_strategy = if grouped {
+            debug_assert!(
+                grouped_plan_strategy_hint.is_some(),
+                "route invariant: grouped feasibility derivation requires planner-projected grouped strategy hint",
+            );
+            let planner_grouped_strategy_hint =
+                grouped_plan_strategy_hint.unwrap_or(GroupedPlanStrategyHint::HashGroup);
+
             // Planner strategy hint already captures grouped semantic policy
             // (including HAVING operator admissibility). Route feasibility only
             // revalidates physical/runtime capability constraints.
             let grouped_ordered_eligibility = derive_grouped_ordered_eligibility(
                 plan,
-                grouped_plan_strategy_hint_for_plan(plan)
-                    .unwrap_or(GroupedPlanStrategyHint::HashGroup),
+                planner_grouped_strategy_hint,
                 direction,
                 capabilities.desc_physical_reverse_supported,
                 capabilities.streaming_access_shape_safe,

@@ -5,14 +5,13 @@
 
 use crate::{
     db::{
-        access::{AccessPlan, PushdownApplicability},
+        access::AccessPlan,
         direction::Direction,
         executor::{
             AccessPathRuntimeStrategy, ExecutableAccessPath, access_plan_is_pk_ordered_stream,
             access_plan_supports_reverse_traversal, aggregate::AggregateKind,
             aggregate::capability::field_is_orderable, dispatch_access_path,
             is_composite_access_plan, load::LoadExecutor,
-            route::derive_secondary_pushdown_applicability_validated,
             traversal::effective_page_offset_for_window,
         },
         query::builder::AggregateExpr,
@@ -149,13 +148,6 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
-    // Route-owned bridge for validated secondary ORDER BY pushdown applicability.
-    pub(in crate::db::executor::route) fn derive_secondary_pushdown_applicability(
-        plan: &AccessPlannedQuery<E::Key>,
-    ) -> PushdownApplicability {
-        derive_secondary_pushdown_applicability_validated(E::MODEL, plan)
-    }
-
     /// Derive one canonical route capability snapshot for a plan + direction.
     pub(in crate::db::executor::route) fn derive_route_capabilities(
         plan: &AccessPlannedQuery<E::Key>,

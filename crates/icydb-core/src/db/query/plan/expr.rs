@@ -581,7 +581,7 @@ mod tests {
             predicate::SchemaInfo,
             query::{
                 builder::aggregate::{AggregateExpr, min, min_by, sum},
-                plan::{GroupAggregateKind, validate::ExprPlanError},
+                plan::{GroupAggregateKind, PlanError, SemanticPlanError, validate::ExprPlanError},
             },
         },
         model::{entity::EntityModel, field::FieldKind, index::IndexModel},
@@ -618,6 +618,17 @@ mod tests {
         let model: &'static EntityModel =
             <ExprInferenceEntity as crate::traits::EntitySchema>::MODEL;
         SchemaInfo::from_entity_model(model).expect("schema should validate")
+    }
+
+    fn is_expr_plan_error(err: &PlanError, predicate: impl FnOnce(&ExprPlanError) -> bool) -> bool {
+        matches!(
+            err,
+            PlanError::Semantic(inner)
+                if matches!(
+                    inner.as_ref(),
+                    SemanticPlanError::Expr(inner) if predicate(inner.as_ref())
+                )
+        )
     }
 
     #[test]
@@ -672,10 +683,9 @@ mod tests {
 
         let err = infer_expr_type(&expr, &schema)
             .expect_err("numeric operators must reject schema-known non-numeric fields");
-        assert!(matches!(
-            err,
-            crate::db::query::plan::PlanError::Expr(inner)
-                if matches!(inner.as_ref(), ExprPlanError::InvalidBinaryOperands { op, .. } if op == "add")
+        assert!(is_expr_plan_error(
+            &err,
+            |inner| matches!(inner, ExprPlanError::InvalidBinaryOperands { op, .. } if op == "add")
         ));
     }
 
@@ -690,10 +700,9 @@ mod tests {
 
         let err = infer_expr_type(&expr, &schema)
             .expect_err("numeric operators must reject schema-known bool fields");
-        assert!(matches!(
-            err,
-            crate::db::query::plan::PlanError::Expr(inner)
-                if matches!(inner.as_ref(), ExprPlanError::InvalidBinaryOperands { op, .. } if op == "add")
+        assert!(is_expr_plan_error(
+            &err,
+            |inner| matches!(inner, ExprPlanError::InvalidBinaryOperands { op, .. } if op == "add")
         ));
     }
 
@@ -708,10 +717,9 @@ mod tests {
 
         let err = infer_expr_type(&expr, &schema)
             .expect_err("numeric operators must reject schema-known date fields");
-        assert!(matches!(
-            err,
-            crate::db::query::plan::PlanError::Expr(inner)
-                if matches!(inner.as_ref(), ExprPlanError::InvalidBinaryOperands { op, .. } if op == "add")
+        assert!(is_expr_plan_error(
+            &err,
+            |inner| matches!(inner, ExprPlanError::InvalidBinaryOperands { op, .. } if op == "add")
         ));
     }
 
@@ -726,10 +734,9 @@ mod tests {
 
         let err = infer_expr_type(&expr, &schema)
             .expect_err("numeric operators must reject non-numeric literal operands");
-        assert!(matches!(
-            err,
-            crate::db::query::plan::PlanError::Expr(inner)
-                if matches!(inner.as_ref(), ExprPlanError::InvalidBinaryOperands { op, .. } if op == "add")
+        assert!(is_expr_plan_error(
+            &err,
+            |inner| matches!(inner, ExprPlanError::InvalidBinaryOperands { op, .. } if op == "add")
         ));
     }
 
@@ -761,10 +768,9 @@ mod tests {
 
         let err = infer_expr_type(&expr, &schema)
             .expect_err("unknown type does not imply numeric eligibility");
-        assert!(matches!(
-            err,
-            crate::db::query::plan::PlanError::Expr(inner)
-                if matches!(inner.as_ref(), ExprPlanError::InvalidBinaryOperands { op, .. } if op == "add")
+        assert!(is_expr_plan_error(
+            &err,
+            |inner| matches!(inner, ExprPlanError::InvalidBinaryOperands { op, .. } if op == "add")
         ));
     }
 
@@ -774,10 +780,9 @@ mod tests {
         let expr = Expr::Aggregate(sum("flag"));
 
         let err = infer_expr_type(&expr, &schema).expect_err("sum over bool should fail");
-        assert!(matches!(
-            err,
-            crate::db::query::plan::PlanError::Expr(inner)
-                if matches!(inner.as_ref(), ExprPlanError::NonNumericAggregateTarget { field, .. } if field == "flag")
+        assert!(is_expr_plan_error(
+            &err,
+            |inner| matches!(inner, ExprPlanError::NonNumericAggregateTarget { field, .. } if field == "flag")
         ));
     }
 
@@ -797,10 +802,9 @@ mod tests {
         let expr = Expr::Aggregate(sum("label"));
 
         let err = infer_expr_type(&expr, &schema).expect_err("sum over text should fail");
-        assert!(matches!(
-            err,
-            crate::db::query::plan::PlanError::Expr(inner)
-                if matches!(inner.as_ref(), ExprPlanError::NonNumericAggregateTarget { field, .. } if field == "label")
+        assert!(is_expr_plan_error(
+            &err,
+            |inner| matches!(inner, ExprPlanError::NonNumericAggregateTarget { field, .. } if field == "label")
         ));
     }
 
@@ -814,10 +818,9 @@ mod tests {
         ));
 
         let err = infer_expr_type(&expr, &schema).expect_err("sum without target should fail");
-        assert!(matches!(
-            err,
-            crate::db::query::plan::PlanError::Expr(inner)
-                if matches!(inner.as_ref(), ExprPlanError::AggregateTargetRequired { kind } if kind == "sum")
+        assert!(is_expr_plan_error(
+            &err,
+            |inner| matches!(inner, ExprPlanError::AggregateTargetRequired { kind } if kind == "sum")
         ));
     }
 
@@ -830,10 +833,9 @@ mod tests {
         };
 
         let err = infer_expr_type(&expr, &schema).expect_err("not over numeric field should fail");
-        assert!(matches!(
-            err,
-            crate::db::query::plan::PlanError::Expr(inner)
-                if matches!(inner.as_ref(), ExprPlanError::InvalidUnaryOperand { op, .. } if op == "not")
+        assert!(is_expr_plan_error(
+            &err,
+            |inner| matches!(inner, ExprPlanError::InvalidUnaryOperand { op, .. } if op == "not")
         ));
     }
 
@@ -848,10 +850,9 @@ mod tests {
 
         let err = infer_expr_type(&expr, &schema)
             .expect_err("numeric/text comparison should fail deterministic type inference");
-        assert!(matches!(
-            err,
-            crate::db::query::plan::PlanError::Expr(inner)
-                if matches!(inner.as_ref(), ExprPlanError::InvalidBinaryOperands { op, .. } if op == "eq")
+        assert!(is_expr_plan_error(
+            &err,
+            |inner| matches!(inner, ExprPlanError::InvalidBinaryOperands { op, .. } if op == "eq")
         ));
     }
 
@@ -874,10 +875,9 @@ mod tests {
 
         let err = infer_expr_type(&expr, &schema)
             .expect_err("unknown aggregate operand comparison should fail closed");
-        assert!(matches!(
-            err,
-            crate::db::query::plan::PlanError::Expr(inner)
-                if matches!(inner.as_ref(), ExprPlanError::InvalidBinaryOperands { op, .. } if op == "eq")
+        assert!(is_expr_plan_error(
+            &err,
+            |inner| matches!(inner, ExprPlanError::InvalidBinaryOperands { op, .. } if op == "eq")
         ));
     }
 }

@@ -4,7 +4,10 @@
 //! Boundary: data-only types shared by plan builder/semantics/validation layers.
 
 use crate::{
-    db::predicate::{CompareOp, MissingRowPolicy, PredicateExecutionModel},
+    db::{
+        access::PushdownApplicability,
+        predicate::{CompareOp, MissingRowPolicy, PredicateExecutionModel},
+    },
     value::Value,
 };
 
@@ -96,6 +99,95 @@ impl DistinctExecutionStrategy {
     #[must_use]
     pub(crate) const fn is_enabled(self) -> bool {
         !matches!(self, Self::None)
+    }
+}
+
+///
+/// PlannerRouteProfile
+///
+/// Planner-projected route profile consumed by executor route planning.
+/// Carries semantic applicability decisions that must not be recomputed in
+/// route/load orchestration layers.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct PlannerRouteProfile {
+    secondary_pushdown_applicability: PushdownApplicability,
+    continuation_policy: ContinuationPolicy,
+}
+
+impl PlannerRouteProfile {
+    /// Construct one planner-projected route profile.
+    #[must_use]
+    pub(in crate::db) const fn new(
+        secondary_pushdown_applicability: PushdownApplicability,
+        continuation_policy: ContinuationPolicy,
+    ) -> Self {
+        Self {
+            secondary_pushdown_applicability,
+            continuation_policy,
+        }
+    }
+
+    /// Borrow planner-projected secondary ORDER BY pushdown applicability.
+    #[must_use]
+    pub(in crate::db) const fn secondary_pushdown_applicability(&self) -> &PushdownApplicability {
+        &self.secondary_pushdown_applicability
+    }
+
+    /// Borrow planner-projected continuation policy contract.
+    #[must_use]
+    pub(in crate::db) const fn continuation_policy(&self) -> &ContinuationPolicy {
+        &self.continuation_policy
+    }
+}
+
+///
+/// ContinuationPolicy
+///
+/// Planner-projected continuation contract carried into route/executor layers.
+/// This contract captures static continuation invariants and must not be
+/// rederived by route/load orchestration code.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct ContinuationPolicy {
+    requires_anchor: bool,
+    requires_strict_advance: bool,
+    is_grouped_safe: bool,
+}
+
+impl ContinuationPolicy {
+    /// Construct one planner-projected continuation policy contract.
+    #[must_use]
+    pub(in crate::db) const fn new(
+        requires_anchor: bool,
+        requires_strict_advance: bool,
+        is_grouped_safe: bool,
+    ) -> Self {
+        Self {
+            requires_anchor,
+            requires_strict_advance,
+            is_grouped_safe,
+        }
+    }
+
+    /// Return true when continuation resume paths require an anchor boundary.
+    #[must_use]
+    pub(in crate::db) const fn requires_anchor(self) -> bool {
+        self.requires_anchor
+    }
+
+    /// Return true when continuation resume paths require strict advancement.
+    #[must_use]
+    pub(in crate::db) const fn requires_strict_advance(self) -> bool {
+        self.requires_strict_advance
+    }
+
+    /// Return true when grouped continuation usage is semantically safe.
+    #[must_use]
+    pub(in crate::db) const fn is_grouped_safe(self) -> bool {
+        self.is_grouped_safe
     }
 }
 

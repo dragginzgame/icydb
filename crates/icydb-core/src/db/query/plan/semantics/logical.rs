@@ -1,9 +1,12 @@
 use crate::{
     db::{
         access::AccessPlan,
+        executor::route::derive_secondary_pushdown_applicability_validated,
         query::plan::{
-            AccessPlannedQuery, DistinctExecutionStrategy, GroupPlan, LogicalPlan, QueryMode,
-            ScalarPlan, expr::ProjectionSpec, lower_projection_identity, lower_projection_intent,
+            AccessPlannedQuery, ContinuationPolicy, DistinctExecutionStrategy, GroupPlan,
+            LogicalPlan, PlannerRouteProfile, QueryMode, ScalarPlan, expr::ProjectionSpec,
+            grouped_cursor_policy_violation_for_continuation, lower_projection_identity,
+            lower_projection_intent,
         },
     },
     model::entity::EntityModel,
@@ -106,6 +109,15 @@ impl<K> AccessPlannedQuery<K> {
         }
     }
 
+    /// Project one planner-owned route profile for executor route planning.
+    #[must_use]
+    pub(in crate::db) fn planner_route_profile(&self, model: &EntityModel) -> PlannerRouteProfile {
+        PlannerRouteProfile::new(
+            derive_secondary_pushdown_applicability_validated(model, self),
+            derive_continuation_policy_validated(self),
+        )
+    }
+
     /// Borrow scalar semantic fields mutably across logical variants.
     #[must_use]
     #[cfg(test)]
@@ -130,4 +142,16 @@ impl<K> AccessPlannedQuery<K> {
 
 const fn access_shape_requires_distinct_materialization<K>(access: &AccessPlan<K>) -> bool {
     matches!(access, AccessPlan::Union(_) | AccessPlan::Intersection(_))
+}
+
+fn derive_continuation_policy_validated<K>(plan: &AccessPlannedQuery<K>) -> ContinuationPolicy {
+    let is_grouped_safe = plan.grouped_plan().is_none_or(|grouped| {
+        grouped_cursor_policy_violation_for_continuation(grouped, true).is_none()
+    });
+
+    ContinuationPolicy::new(
+        true, // Continuation resume windows require anchor semantics for pushdown-safe replay.
+        true, // Continuation resumes must advance strictly to prevent replay/regression loops.
+        is_grouped_safe,
+    )
 }

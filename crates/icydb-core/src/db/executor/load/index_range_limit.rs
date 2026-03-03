@@ -8,13 +8,13 @@ use crate::{
         Context,
         direction::Direction,
         executor::{
-            AccessPathRuntimeStrategy, AccessPlanStreamRequest, AccessStreamBindings,
+            AccessExecutionDescriptor, AccessPathRuntimeStrategy, AccessStreamBindings,
             ExecutionOptimization, LoweredIndexRangeSpec, RangeToken, dispatch_access_path,
             load::{FastPathKeyResult, LoadExecutor},
             range_token_anchor_key,
         },
         index::predicate::IndexPredicateExecution,
-        query::plan::{AccessPlannedQuery, lower_executable_access_path},
+        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -35,11 +35,11 @@ where
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
         // Phase 1: verify access-path and executable spec materialization invariants.
-        let Some(path) = plan.access.as_path() else {
+        let executable_access = plan.to_executable();
+        let Some(executable_path) = executable_access.as_path() else {
             return Ok(None);
         };
-        let executable_path = lower_executable_access_path(path);
-        let dispatched = dispatch_access_path(&executable_path);
+        let dispatched = dispatch_access_path(executable_path);
         let strategy: &dyn AccessPathRuntimeStrategy<E::Key> = dispatched;
         let Some(index) = strategy.index_range_model() else {
             return Ok(None);
@@ -56,8 +56,8 @@ where
         );
 
         // Phase 2: bind range/anchor inputs and execute through shared fast-stream helper.
-        let stream_request = AccessPlanStreamRequest::from_bindings(
-            &plan.access,
+        let descriptor = AccessExecutionDescriptor::from_executable_bindings(
+            executable_access,
             AccessStreamBindings::with_index_range(
                 index_range_spec,
                 index_range_anchor.map(range_token_anchor_key),
@@ -69,7 +69,7 @@ where
 
         Ok(Some(Self::execute_fast_stream_request(
             ctx,
-            stream_request,
+            descriptor,
             ExecutionOptimization::IndexRangeLimitPushdown,
         )?))
     }

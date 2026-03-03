@@ -3,11 +3,7 @@
 //! Does not own: schema validation or raw-bound lowering.
 //! Boundary: query planner emits these plans for executor routing.
 
-use crate::{
-    db::access::{AccessPath, IndexRangePathRef},
-    model::index::IndexModel,
-    value::Value,
-};
+use crate::db::access::{AccessPath, IndexRangePathRef};
 
 ///
 /// AccessPlan
@@ -79,12 +75,6 @@ impl<K> AccessPlan<K> {
     #[must_use]
     pub(crate) const fn is_single_full_scan(&self) -> bool {
         matches!(self, Self::Path(path) if path.is_full_scan())
-    }
-
-    /// Borrow index-prefix access details when this is a single IndexPrefix path.
-    #[must_use]
-    pub(crate) fn as_index_prefix_path(&self) -> Option<(&IndexModel, &[Value])> {
-        self.as_path().and_then(AccessPath::as_index_prefix)
     }
 
     /// Borrow index-range access details when this is a single IndexRange path.

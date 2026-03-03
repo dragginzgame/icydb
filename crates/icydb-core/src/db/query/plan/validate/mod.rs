@@ -29,14 +29,29 @@ pub(crate) use policy::{
 ///
 /// PlanError
 ///
-/// Executor-visible validation failures for logical plans.
-///
-/// These errors indicate that a plan cannot be safely executed against the
-/// current schema or entity definition. They are *not* planner bugs.
+/// Root plan validation taxonomy split by domain axis.
+/// Semantic failures are grouped under `SemanticPlanError`.
+/// Cursor continuation failures remain in `CursorPlanError`.
 ///
 
 #[derive(Debug, ThisError)]
 pub enum PlanError {
+    #[error("{0}")]
+    Semantic(Box<SemanticPlanError>),
+
+    #[error("{0}")]
+    Cursor(Box<CursorPlanError>),
+}
+
+///
+/// SemanticPlanError
+///
+/// Planner semantic validation failures independent of continuation cursors.
+/// This axis intentionally excludes runtime routing/execution policy state.
+///
+
+#[derive(Debug, ThisError)]
+pub enum SemanticPlanError {
     #[error("predicate validation failed: {0}")]
     PredicateInvalid(Box<ValidateError>),
 
@@ -48,9 +63,6 @@ pub enum PlanError {
 
     #[error("{0}")]
     Policy(Box<PolicyPlanError>),
-
-    #[error("{0}")]
-    Cursor(Box<CursorPlanError>),
 
     #[error("{0}")]
     Group(Box<GroupPlanError>),
@@ -339,25 +351,25 @@ pub(crate) enum FluentLoadPolicyViolation {
 
 impl From<ValidateError> for PlanError {
     fn from(err: ValidateError) -> Self {
-        Self::PredicateInvalid(Box::new(err))
+        Self::from(SemanticPlanError::from(err))
     }
 }
 
 impl From<OrderPlanError> for PlanError {
     fn from(err: OrderPlanError) -> Self {
-        Self::Order(Box::new(err))
+        Self::from(SemanticPlanError::from(err))
     }
 }
 
 impl From<AccessPlanError> for PlanError {
     fn from(err: AccessPlanError) -> Self {
-        Self::Access(Box::new(err))
+        Self::from(SemanticPlanError::from(err))
     }
 }
 
 impl From<PolicyPlanError> for PlanError {
     fn from(err: PolicyPlanError) -> Self {
-        Self::Policy(Box::new(err))
+        Self::from(SemanticPlanError::from(err))
     }
 }
 
@@ -369,11 +381,53 @@ impl From<CursorPlanError> for PlanError {
 
 impl From<GroupPlanError> for PlanError {
     fn from(err: GroupPlanError) -> Self {
-        Self::Group(Box::new(err))
+        Self::from(SemanticPlanError::from(err))
     }
 }
 
 impl From<ExprPlanError> for PlanError {
+    fn from(err: ExprPlanError) -> Self {
+        Self::from(SemanticPlanError::from(err))
+    }
+}
+
+impl From<SemanticPlanError> for PlanError {
+    fn from(err: SemanticPlanError) -> Self {
+        Self::Semantic(Box::new(err))
+    }
+}
+
+impl From<ValidateError> for SemanticPlanError {
+    fn from(err: ValidateError) -> Self {
+        Self::PredicateInvalid(Box::new(err))
+    }
+}
+
+impl From<OrderPlanError> for SemanticPlanError {
+    fn from(err: OrderPlanError) -> Self {
+        Self::Order(Box::new(err))
+    }
+}
+
+impl From<AccessPlanError> for SemanticPlanError {
+    fn from(err: AccessPlanError) -> Self {
+        Self::Access(Box::new(err))
+    }
+}
+
+impl From<PolicyPlanError> for SemanticPlanError {
+    fn from(err: PolicyPlanError) -> Self {
+        Self::Policy(Box::new(err))
+    }
+}
+
+impl From<GroupPlanError> for SemanticPlanError {
+    fn from(err: GroupPlanError) -> Self {
+        Self::Group(Box::new(err))
+    }
+}
+
+impl From<ExprPlanError> for SemanticPlanError {
     fn from(err: ExprPlanError) -> Self {
         Self::Expr(Box::new(err))
     }

@@ -25,6 +25,7 @@ where
             RouteIntent::Load => RouteIntentStage {
                 aggregate_expr: None,
                 grouped: false,
+                grouped_plan_strategy_hint: None,
                 fast_path_order: &LOAD_FAST_PATH_ORDER,
                 aggregate_force_materialized_due_to_predicate_uncertainty: false,
             },
@@ -34,14 +35,17 @@ where
             } => RouteIntentStage {
                 aggregate_expr: Some(aggregate),
                 grouped: false,
+                grouped_plan_strategy_hint: None,
                 fast_path_order: &AGGREGATE_FAST_PATH_ORDER,
                 aggregate_force_materialized_due_to_predicate_uncertainty,
             },
             RouteIntent::AggregateGrouped {
+                grouped_plan_strategy_hint,
                 aggregate_force_materialized_due_to_predicate_uncertainty,
             } => RouteIntentStage {
                 aggregate_expr: None,
                 grouped: true,
+                grouped_plan_strategy_hint: Some(grouped_plan_strategy_hint),
                 fast_path_order: &GROUPED_AGGREGATE_FAST_PATH_ORDER,
                 aggregate_force_materialized_due_to_predicate_uncertainty,
             },
@@ -62,6 +66,10 @@ where
         debug_assert!(
             !stage.grouped || stage.aggregate_expr.is_none() && stage.fast_path_order.is_empty(),
             "route invariant: grouped intent must not carry scalar aggregate specs or fast-path routes",
+        );
+        debug_assert!(
+            stage.grouped == stage.grouped_plan_strategy_hint.is_some(),
+            "route invariant: grouped intents must carry planner grouped-strategy hints, scalar intents must not",
         );
 
         stage

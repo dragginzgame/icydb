@@ -523,9 +523,21 @@ where
             index_range_token,
             None,
         )?;
-        let continuation_applied = !matches!(
+        let continuation_policy = route_plan.continuation_policy();
+        let continuation_applied = crate::db::query::plan::ContinuationPolicy::continuation_applied(
             route_plan.continuation_mode(),
-            crate::db::executor::route::ContinuationMode::Initial
+        );
+        debug_assert_eq!(
+            continuation_applied,
+            !matches!(
+                route_plan.continuation_mode(),
+                crate::db::executor::route::ContinuationMode::Initial
+            ),
+            "route invariant: continuation policy and continuation mode must remain equivalent",
+        );
+        debug_assert!(
+            !continuation_applied || continuation_policy.requires_strict_advance(),
+            "route invariant: continuation executions must enforce strict advancement policy",
         );
         let direction = route_plan.direction();
         debug_assert_eq!(

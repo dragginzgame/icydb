@@ -8,7 +8,7 @@ use crate::{
         executor::{ExecutorPlanError, RangeToken, traversal::derive_primary_scan_direction},
         query::plan::{
             AccessPlannedQuery, GroupedCursorPolicyViolation,
-            grouped_cursor_policy_violation_for_continuation, lower_executable_access_path,
+            grouped_cursor_policy_violation_for_continuation,
         },
     },
     error::InternalError,
@@ -48,8 +48,9 @@ impl ContinuationEngine {
         }
 
         let direction = derive_primary_scan_direction(plan.scalar_plan().order.as_ref());
+        let executable_access = plan.to_executable();
         crate::db::cursor::prepare_cursor::<E>(
-            plan.access.as_path().map(lower_executable_access_path),
+            executable_access.as_path().copied(),
             plan.scalar_plan().order.as_ref(),
             direction,
             continuation_signature,
@@ -75,8 +76,9 @@ impl ContinuationEngine {
         }
 
         let direction = derive_primary_scan_direction(plan.scalar_plan().order.as_ref());
+        let executable_access = plan.to_executable();
         crate::db::cursor::revalidate_cursor::<E>(
-            plan.access.as_path().map(lower_executable_access_path),
+            executable_access.as_path().copied(),
             plan.scalar_plan().order.as_ref(),
             direction,
             Self::initial_page_offset(plan),

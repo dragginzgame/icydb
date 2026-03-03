@@ -5,11 +5,10 @@
 
 use crate::{
     db::{
-        cursor::CursorBoundary,
         direction::Direction,
-        executor::{ExecutionKernel, RangeToken, load::LoadExecutor},
+        executor::{ExecutionKernel, load::LoadExecutor},
         query::builder::AggregateExpr,
-        query::plan::{AccessPlannedQuery, DistinctExecutionStrategy},
+        query::plan::{AccessPlannedQuery, ContinuationPolicy, DistinctExecutionStrategy},
     },
     traits::{EntityKind, EntityValue},
 };
@@ -28,8 +27,8 @@ where
     // the bounded fetch spec when all eligibility gates pass.
     pub(super) fn assess_index_range_limit_pushdown(
         plan: &AccessPlannedQuery<E::Key>,
-        cursor_boundary: Option<&CursorBoundary>,
-        index_range_anchor: Option<&RangeToken>,
+        continuation_policy: ContinuationPolicy,
+        continuation_mode: ContinuationMode,
         route_window: RouteWindowPlan,
         probe_fetch_hint: Option<usize>,
         capabilities: RouteCapabilities,
@@ -37,7 +36,7 @@ where
         if !capabilities.index_range_limit_pushdown_shape_eligible {
             return None;
         }
-        if cursor_boundary.is_some() && index_range_anchor.is_none() {
+        if !continuation_policy.allows_index_range_limit_pushdown(continuation_mode) {
             return None;
         }
         if let Some(fetch) = probe_fetch_hint {
@@ -68,17 +67,12 @@ where
 
     // Shared load-page scan-budget hint gate.
     pub(super) const fn load_scan_budget_hint(
+        continuation_policy: ContinuationPolicy,
         continuation_mode: ContinuationMode,
         route_window: RouteWindowPlan,
         capabilities: RouteCapabilities,
     ) -> Option<usize> {
-        match continuation_mode {
-            ContinuationMode::Initial => {}
-            ContinuationMode::CursorBoundary | ContinuationMode::IndexRangeAnchor => {
-                return None;
-            }
-        }
-        if !capabilities.streaming_access_shape_safe {
+        if !continuation_policy.allows_load_scan_budget_hint(continuation_mode, capabilities) {
             return None;
         }
 

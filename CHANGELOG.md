@@ -15,7 +15,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `0.40.5` continued the load/executor cleanup by bundling page and physical stream inputs into typed request contracts, converging aggregate fast-path helper inputs, and splitting grouped route stage state into explicit ownership bundles.
 - `0.40.6` split `query::plan::semantics`, `query::intent`, and `executor::load::projection` into domain modules to reduce file size and clarify ownership, without changing behavior.
 - `0.40.7` boundary-semantics audit completed.
-- `0.40.8` placeholder entry (details pending).
+- `0.40.8` complexity-accretion audit reduced planner/route/load branch pressure by centralizing continuation and pushdown policy decisions, isolating runtime access execution behind one descriptor contract, and narrowing plan errors to semantic vs cursor domains.
+- `0.40.9` placeholder entry (details pending).
 
 See detailed breakdown:
 [docs/changelog/0.40.md](docs/changelog/0.40.md)

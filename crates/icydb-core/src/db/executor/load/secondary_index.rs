@@ -7,8 +7,8 @@ use crate::{
     db::{
         Context,
         executor::{
-            AccessPlanStreamRequest, AccessStreamBindings, ExecutionOptimization,
-            LoweredIndexPrefixSpec,
+            AccessExecutionDescriptor, AccessPathRuntimeStrategy, AccessStreamBindings,
+            ExecutionOptimization, LoweredIndexPrefixSpec, dispatch_access_path,
             load::{FastPathKeyResult, LoadExecutor},
             traversal::derive_secondary_order_scan_direction,
         },
@@ -32,7 +32,13 @@ where
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
         // Phase 1: verify access-path/spec invariants for index-prefix execution.
-        let Some((index, _)) = plan.access.as_index_prefix_path() else {
+        let executable_access = plan.to_executable();
+        let Some(executable_path) = executable_access.as_path() else {
+            return Ok(None);
+        };
+        let dispatched = dispatch_access_path(executable_path);
+        let strategy: &dyn AccessPathRuntimeStrategy<E::Key> = dispatched;
+        let Some(index) = strategy.index_prefix_model() else {
             return Ok(None);
         };
         let Some(index_prefix_spec) = index_prefix_spec else {
@@ -42,15 +48,15 @@ where
         };
         debug_assert_eq!(
             index_prefix_spec.index(),
-            index,
+            &index,
             "secondary fast-path spec/index alignment must be validated by resolver",
         );
         let stream_direction =
             derive_secondary_order_scan_direction(plan.scalar_plan().order.as_ref());
 
         // Phase 2: bind execution inputs and run the shared fast-stream boundary.
-        let stream_request = AccessPlanStreamRequest::from_bindings(
-            &plan.access,
+        let descriptor = AccessExecutionDescriptor::from_executable_bindings(
+            executable_access,
             AccessStreamBindings::with_index_prefix(index_prefix_spec, stream_direction),
             probe_fetch_hint,
             index_predicate_execution,
@@ -58,7 +64,7 @@ where
 
         let fast = Self::execute_fast_stream_request(
             ctx,
-            stream_request,
+            descriptor,
             ExecutionOptimization::SecondaryOrderPushdown,
         )?;
 

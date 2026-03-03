@@ -208,32 +208,48 @@ impl<'a> AccessStreamBindings<'a> {
 }
 
 ///
-/// AccessPlanStreamRequest
+/// AccessExecutionDescriptor
 ///
-/// Canonical request payload for access-plan key-stream production.
-/// Bundles access path, lowered specs, and traversal controls so call sites
-/// do not pass ordering and spec parameters as loose arguments.
+/// Canonical runtime access descriptor for key-stream production.
+/// Route/executor layers consume this descriptor instead of raw structural
+/// `AccessPlan` variants.
 ///
 
-pub(in crate::db::executor) struct AccessPlanStreamRequest<'a, K> {
-    pub(in crate::db::executor) access: &'a AccessPlan<K>,
+pub(in crate::db::executor) struct AccessExecutionDescriptor<'a, K> {
+    pub(in crate::db::executor) executable_access: ExecutableAccessPlan<'a, K>,
     pub(in crate::db::executor) bindings: AccessStreamBindings<'a>,
     pub(in crate::db::executor) key_comparator: KeyOrderComparator,
     pub(in crate::db::executor) physical_fetch_hint: Option<usize>,
     pub(in crate::db::executor) index_predicate_execution: Option<IndexPredicateExecution<'a>>,
 }
 
-impl<'a, K> AccessPlanStreamRequest<'a, K> {
-    /// Build one canonical access-plan stream request from shared bindings.
+impl<'a, K> AccessExecutionDescriptor<'a, K> {
+    /// Build one canonical runtime descriptor from one structural access plan.
     #[must_use]
-    pub(in crate::db::executor) const fn from_bindings(
+    pub(in crate::db::executor) fn from_bindings(
         access: &'a AccessPlan<K>,
         bindings: AccessStreamBindings<'a>,
         physical_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'a>>,
     ) -> Self {
+        Self::from_executable_bindings(
+            lower_executable_access_plan(access),
+            bindings,
+            physical_fetch_hint,
+            index_predicate_execution,
+        )
+    }
+
+    /// Build one canonical runtime descriptor from one executable access plan.
+    #[must_use]
+    pub(in crate::db::executor) const fn from_executable_bindings(
+        executable_access: ExecutableAccessPlan<'a, K>,
+        bindings: AccessStreamBindings<'a>,
+        physical_fetch_hint: Option<usize>,
+        index_predicate_execution: Option<IndexPredicateExecution<'a>>,
+    ) -> Self {
         Self {
-            access,
+            executable_access,
             bindings,
             key_comparator: KeyOrderComparator::from_direction(bindings.direction),
             physical_fetch_hint,
@@ -339,9 +355,9 @@ where
 
     /// Resolve an access plan to an ordered key stream while consuming lowered specs
     /// in traversal order, including optional index-range pagination anchor.
-    pub(in crate::db::executor) fn ordered_key_stream_from_access_plan_with_index_range_anchor(
+    pub(in crate::db::executor) fn ordered_key_stream_from_access_descriptor(
         &self,
-        request: AccessPlanStreamRequest<'_, E::Key>,
+        request: AccessExecutionDescriptor<'_, E::Key>,
     ) -> Result<OrderedKeyStreamBox, InternalError>
     where
         E: EntityKind,
@@ -356,10 +372,9 @@ where
             physical_fetch_hint: request.physical_fetch_hint,
             index_predicate_execution: request.index_predicate_execution,
         };
-        let executable_access = lower_executable_access_plan(request.access);
         let mut spec_cursor = inputs.spec_cursor();
         let key_stream = AccessPlanStreamResolver::produce_key_stream(
-            &executable_access,
+            &request.executable_access,
             &inputs,
             &mut spec_cursor,
         )?;
@@ -387,15 +402,8 @@ where
             index_range_anchor,
             direction,
         };
-        let request = AccessPlanStreamRequest {
-            access,
-            bindings,
-            key_comparator: KeyOrderComparator::from_direction(direction),
-            physical_fetch_hint: None,
-            index_predicate_execution: None,
-        };
-        let mut key_stream =
-            self.ordered_key_stream_from_access_plan_with_index_range_anchor(request)?;
+        let descriptor = AccessExecutionDescriptor::from_bindings(access, bindings, None, None);
+        let mut key_stream = self.ordered_key_stream_from_access_descriptor(descriptor)?;
 
         self.rows_from_ordered_key_stream(key_stream.as_mut(), consistency)
     }

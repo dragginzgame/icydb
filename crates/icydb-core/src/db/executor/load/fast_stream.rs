@@ -7,7 +7,7 @@ use crate::{
     db::{
         Context,
         executor::{
-            AccessPlanStreamRequest, ExecutionOptimization,
+            AccessExecutionDescriptor, ExecutionOptimization,
             load::{FastPathKeyResult, LoadExecutor},
             route::RoutedKeyStreamRequest,
         },
@@ -29,13 +29,13 @@ where
     /// Fast-path streams must expose an exact key-count hint for observability parity.
     pub(super) fn execute_fast_stream_request(
         ctx: &Context<'_, E>,
-        stream_request: AccessPlanStreamRequest<'_, E::Key>,
+        descriptor: AccessExecutionDescriptor<'_, E::Key>,
         optimization: ExecutionOptimization,
     ) -> Result<FastPathKeyResult, InternalError> {
         // Phase 1: resolve the ordered key stream through the routed access boundary.
         let key_stream = Self::resolve_routed_key_stream(
             ctx,
-            RoutedKeyStreamRequest::AccessPlan(stream_request),
+            RoutedKeyStreamRequest::AccessDescriptor(descriptor),
         )?;
 
         // Phase 2: enforce exact row-scan count hint required by fast-path observability.
@@ -63,7 +63,7 @@ mod tests {
             access::{AccessPath, AccessPlan},
             direction::Direction,
             executor::{
-                AccessPlanStreamRequest, AccessStreamBindings, Context, ExecutionOptimization,
+                AccessExecutionDescriptor, AccessStreamBindings, Context, ExecutionOptimization,
                 KeyOrderComparator, load::LoadExecutor,
             },
             registry::StoreRegistry,
@@ -119,8 +119,8 @@ mod tests {
             AccessPlan::path(AccessPath::ByKey(id1)),
             AccessPlan::path(AccessPath::ByKey(id2)),
         ]);
-        let request = AccessPlanStreamRequest {
-            access: &access,
+        let descriptor = AccessExecutionDescriptor {
+            executable_access: crate::db::query::plan::lower_executable_access_plan(&access),
             bindings: AccessStreamBindings {
                 index_prefix_specs: &[],
                 index_range_specs: &[],
@@ -134,7 +134,7 @@ mod tests {
 
         let Err(err) = LoadExecutor::<FastStreamInvariantEntity>::execute_fast_stream_request(
             &ctx,
-            request,
+            descriptor,
             ExecutionOptimization::PrimaryKey,
         ) else {
             panic!("fast-path execution must reject streams without exact count hints")

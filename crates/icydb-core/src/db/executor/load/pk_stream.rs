@@ -7,7 +7,7 @@ use crate::{
     db::{
         Context,
         executor::{
-            AccessPlanStreamRequest, AccessStreamBindings, ExecutionOptimization,
+            AccessExecutionDescriptor, AccessStreamBindings, ExecutionOptimization,
             load::{FastPathKeyResult, LoadExecutor},
             traversal::derive_primary_scan_direction,
         },
@@ -32,7 +32,7 @@ where
         let stream_direction = derive_primary_scan_direction(plan.scalar_plan().order.as_ref());
 
         // Phase 2: lower through the canonical access-stream resolver boundary.
-        let stream_request = AccessPlanStreamRequest::from_bindings(
+        let descriptor = AccessExecutionDescriptor::from_bindings(
             &plan.access,
             AccessStreamBindings::no_index(stream_direction),
             probe_fetch_hint,
@@ -40,7 +40,7 @@ where
         );
         Ok(Some(Self::execute_fast_stream_request(
             ctx,
-            stream_request,
+            descriptor,
             ExecutionOptimization::PrimaryKey,
         )?))
     }

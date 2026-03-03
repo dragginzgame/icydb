@@ -31,6 +31,82 @@ fn basic_model() -> &'static EntityModel {
     <PlanEntity as EntitySchema>::MODEL
 }
 
+fn query_error_is_group_plan_error(
+    err: &QueryError,
+    predicate: impl FnOnce(&crate::db::query::plan::validate::GroupPlanError) -> bool,
+) -> bool {
+    matches!(
+        err,
+        QueryError::Plan(plan_err)
+            if matches!(
+                plan_err.as_ref(),
+                crate::db::query::plan::PlanError::Semantic(inner)
+                    if matches!(
+                        inner.as_ref(),
+                        crate::db::query::plan::SemanticPlanError::Group(inner)
+                            if predicate(inner.as_ref())
+                    )
+            )
+    )
+}
+
+fn query_error_is_policy_plan_error(
+    err: &QueryError,
+    predicate: impl FnOnce(&crate::db::query::plan::validate::PolicyPlanError) -> bool,
+) -> bool {
+    matches!(
+        err,
+        QueryError::Plan(plan_err)
+            if matches!(
+                plan_err.as_ref(),
+                crate::db::query::plan::PlanError::Semantic(inner)
+                    if matches!(
+                        inner.as_ref(),
+                        crate::db::query::plan::SemanticPlanError::Policy(inner)
+                            if predicate(inner.as_ref())
+                    )
+            )
+    )
+}
+
+fn query_error_is_order_plan_error(
+    err: &QueryError,
+    predicate: impl FnOnce(&crate::db::query::plan::validate::OrderPlanError) -> bool,
+) -> bool {
+    matches!(
+        err,
+        QueryError::Plan(plan_err)
+            if matches!(
+                plan_err.as_ref(),
+                crate::db::query::plan::PlanError::Semantic(inner)
+                    if matches!(
+                        inner.as_ref(),
+                        crate::db::query::plan::SemanticPlanError::Order(inner)
+                            if predicate(inner.as_ref())
+                    )
+            )
+    )
+}
+
+fn query_error_is_predicate_validation_error(
+    err: &QueryError,
+    predicate: impl FnOnce(&crate::db::contracts::ValidateError) -> bool,
+) -> bool {
+    matches!(
+        err,
+        QueryError::Plan(plan_err)
+            if matches!(
+                plan_err.as_ref(),
+                crate::db::query::plan::PlanError::Semantic(inner)
+                    if matches!(
+                        inner.as_ref(),
+                        crate::db::query::plan::SemanticPlanError::PredicateInvalid(inner)
+                            if predicate(inner.as_ref())
+                    )
+            )
+    )
+}
+
 // Test-only entity to compare typed vs model planning without schema macros.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 struct PlanEntity {
@@ -205,18 +281,12 @@ fn load_limit_without_order_rejects_unordered_pagination() {
         .plan()
         .expect_err("limit without order must fail");
 
-    assert!(matches!(
-        err,
-        QueryError::Plan(ref plan_err)
-            if matches!(
-                **plan_err,
-                crate::db::query::plan::PlanError::Policy(ref inner)
-                    if matches!(
-                        inner.as_ref(),
-                        crate::db::query::plan::validate::PolicyPlanError::UnorderedPagination
-                    )
-            )
-    ));
+    assert!(query_error_is_policy_plan_error(&err, |inner| {
+        matches!(
+            inner,
+            crate::db::query::plan::validate::PolicyPlanError::UnorderedPagination
+        )
+    }));
 }
 
 #[test]
@@ -240,18 +310,12 @@ fn grouped_load_distinct_is_rejected_without_adjacency_eligibility() {
         .plan()
         .expect_err("grouped distinct should be rejected until adjacency eligibility exists");
 
-    assert!(matches!(
-        err,
-        QueryError::Plan(ref plan_err)
-            if matches!(
-                **plan_err,
-                crate::db::query::plan::PlanError::Group(ref inner)
-                    if matches!(
-                        inner.as_ref(),
-                        crate::db::query::plan::validate::GroupPlanError::DistinctAdjacencyEligibilityRequired
-                    )
-            )
-    ));
+    assert!(query_error_is_group_plan_error(&err, |inner| {
+        matches!(
+            inner,
+            crate::db::query::plan::validate::GroupPlanError::DistinctAdjacencyEligibilityRequired
+        )
+    }));
 }
 
 #[test]
@@ -265,18 +329,12 @@ fn grouped_load_order_prefix_mismatch_is_rejected() {
         .plan()
         .expect_err("grouped order should be rejected when group keys are not the order prefix");
 
-    assert!(matches!(
-        err,
-        QueryError::Plan(ref plan_err)
-            if matches!(
-                **plan_err,
-                crate::db::query::plan::PlanError::Group(ref inner)
-                    if matches!(
-                        inner.as_ref(),
-                        crate::db::query::plan::validate::GroupPlanError::OrderPrefixNotAlignedWithGroupKeys
-                    )
-            )
-    ));
+    assert!(query_error_is_group_plan_error(&err, |inner| {
+        matches!(
+            inner,
+            crate::db::query::plan::validate::GroupPlanError::OrderPrefixNotAlignedWithGroupKeys
+        )
+    }));
 }
 
 #[test]
@@ -301,18 +359,12 @@ fn grouped_load_order_without_limit_is_rejected() {
         .plan()
         .expect_err("grouped order should reject missing LIMIT");
 
-    assert!(matches!(
-        err,
-        QueryError::Plan(ref plan_err)
-            if matches!(
-                **plan_err,
-                crate::db::query::plan::PlanError::Group(ref inner)
-                    if matches!(
-                        inner.as_ref(),
-                        crate::db::query::plan::validate::GroupPlanError::OrderRequiresLimit
-                    )
-            )
-    ));
+    assert!(query_error_is_group_plan_error(&err, |inner| {
+        matches!(
+            inner,
+            crate::db::query::plan::validate::GroupPlanError::OrderRequiresLimit
+        )
+    }));
 }
 
 #[test]
@@ -709,18 +761,12 @@ fn grouped_global_distinct_mixed_terminal_shape_without_group_by_is_rejected() {
             "global grouped distinct without group keys should reject mixed aggregate shape",
         );
 
-    assert!(matches!(
-        err,
-        QueryError::Plan(ref plan_err)
-            if matches!(
-                **plan_err,
-                crate::db::query::plan::PlanError::Group(ref inner)
-                    if matches!(
-                        inner.as_ref(),
-                        crate::db::query::plan::validate::GroupPlanError::GlobalDistinctAggregateShapeUnsupported
-                    )
-            )
-    ));
+    assert!(query_error_is_group_plan_error(&err, |inner| {
+        matches!(
+            inner,
+            crate::db::query::plan::validate::GroupPlanError::GlobalDistinctAggregateShapeUnsupported
+        )
+    }));
 }
 
 #[test]
@@ -732,19 +778,13 @@ fn grouped_aggregate_builder_rejects_distinct_for_unsupported_kind() {
         .plan()
         .expect_err("grouped distinct exists should remain rejected");
 
-    assert!(matches!(
-        err,
-        QueryError::Plan(ref plan_err)
-            if matches!(
-                **plan_err,
-                crate::db::query::plan::PlanError::Group(ref inner)
-                    if matches!(
-                        inner.as_ref(),
-                        crate::db::query::plan::validate::GroupPlanError::DistinctAggregateKindUnsupported { index, kind }
-                            if *index == 0 && kind == "Exists"
-                    )
-            )
-    ));
+    assert!(query_error_is_group_plan_error(&err, |inner| {
+        matches!(
+            inner,
+            crate::db::query::plan::validate::GroupPlanError::DistinctAggregateKindUnsupported { index, kind }
+                if *index == 0 && kind == "Exists"
+        )
+    }));
 }
 
 #[test]
@@ -756,19 +796,13 @@ fn grouped_aggregate_builder_rejects_field_target_terminal_in_grouped_v1() {
         .plan()
         .expect_err("grouped max(field) should remain unsupported in grouped v1");
 
-    assert!(matches!(
-        err,
-        QueryError::Plan(ref plan_err)
-            if matches!(
-                **plan_err,
-                crate::db::query::plan::PlanError::Group(ref inner)
-                    if matches!(
-                        inner.as_ref(),
-                        crate::db::query::plan::validate::GroupPlanError::FieldTargetAggregatesUnsupported { index, kind, field }
-                            if *index == 0 && kind == "Max" && field == "name"
-                    )
-            )
-    ));
+    assert!(query_error_is_group_plan_error(&err, |inner| {
+        matches!(
+            inner,
+            crate::db::query::plan::validate::GroupPlanError::FieldTargetAggregatesUnsupported { index, kind, field }
+                if *index == 0 && kind == "Max" && field == "name"
+        )
+    }));
 }
 
 #[test]
@@ -778,19 +812,13 @@ fn grouped_aggregate_builder_rejects_global_distinct_sum_on_non_numeric_target()
         .plan()
         .expect_err("global sum(distinct non-numeric field) should fail");
 
-    assert!(matches!(
-        err,
-        QueryError::Plan(ref plan_err)
-            if matches!(
-                **plan_err,
-                crate::db::query::plan::PlanError::Group(ref inner)
-                    if matches!(
-                        inner.as_ref(),
-                        crate::db::query::plan::validate::GroupPlanError::GlobalDistinctSumTargetNotNumeric { index, field }
-                            if *index == 0 && field == "name"
-                    )
-            )
-    ));
+    assert!(query_error_is_group_plan_error(&err, |inner| {
+        matches!(
+            inner,
+            crate::db::query::plan::validate::GroupPlanError::GlobalDistinctSumTargetNotNumeric { index, field }
+                if *index == 0 && field == "name"
+        )
+    }));
 }
 
 #[test]
@@ -817,18 +845,12 @@ fn grouped_having_with_distinct_is_rejected() {
         .plan()
         .expect_err("grouped having with distinct should be rejected in this release");
 
-    assert!(matches!(
-        err,
-        QueryError::Plan(ref plan_err)
-            if matches!(
-                **plan_err,
-                crate::db::query::plan::PlanError::Group(ref inner)
-                    if matches!(
-                        inner.as_ref(),
-                        crate::db::query::plan::validate::GroupPlanError::DistinctHavingUnsupported
-                    )
-            )
-    ));
+    assert!(query_error_is_group_plan_error(&err, |inner| {
+        matches!(
+            inner,
+            crate::db::query::plan::validate::GroupPlanError::DistinctHavingUnsupported
+        )
+    }));
 }
 
 #[test]
@@ -846,18 +868,12 @@ fn grouped_having_with_distinct_is_rejected_for_ordered_eligible_shape() {
             "grouped having with distinct should be rejected even when grouped order prefix is aligned",
         );
 
-    assert!(matches!(
-        err,
-        QueryError::Plan(ref plan_err)
-            if matches!(
-                **plan_err,
-                crate::db::query::plan::PlanError::Group(ref inner)
-                    if matches!(
-                        inner.as_ref(),
-                        crate::db::query::plan::validate::GroupPlanError::DistinctHavingUnsupported
-                    )
-            )
-    ));
+    assert!(query_error_is_group_plan_error(&err, |inner| {
+        matches!(
+            inner,
+            crate::db::query::plan::validate::GroupPlanError::DistinctHavingUnsupported
+        )
+    }));
 }
 
 #[test]
@@ -869,19 +885,13 @@ fn load_rejects_duplicate_non_primary_order_field() {
         .plan()
         .expect_err("duplicate non-primary order field must fail");
 
-    assert!(matches!(
-        err,
-        QueryError::Plan(ref plan_err)
-            if matches!(
-                **plan_err,
-                crate::db::query::plan::PlanError::Order(ref inner)
-                    if matches!(
-                        inner.as_ref(),
-                        crate::db::query::plan::validate::OrderPlanError::DuplicateOrderField { field }
-                            if field == "name"
-                    )
-            )
-    ));
+    assert!(query_error_is_order_plan_error(&err, |inner| {
+        matches!(
+            inner,
+            crate::db::query::plan::validate::OrderPlanError::DuplicateOrderField { field }
+                if field == "name"
+        )
+    }));
 }
 
 #[test]
@@ -891,18 +901,12 @@ fn load_offset_without_order_rejects_unordered_pagination() {
         .plan()
         .expect_err("offset without order must fail");
 
-    assert!(matches!(
-        err,
-        QueryError::Plan(ref plan_err)
-            if matches!(
-                **plan_err,
-                crate::db::query::plan::PlanError::Policy(ref inner)
-                    if matches!(
-                        inner.as_ref(),
-                        crate::db::query::plan::validate::PolicyPlanError::UnorderedPagination
-                    )
-            )
-    ));
+    assert!(query_error_is_policy_plan_error(&err, |inner| {
+        matches!(
+            inner,
+            crate::db::query::plan::validate::PolicyPlanError::UnorderedPagination
+        )
+    }));
 }
 
 #[test]
@@ -913,18 +917,12 @@ fn load_limit_and_offset_without_order_rejects_unordered_pagination() {
         .plan()
         .expect_err("limit+offset without order must fail");
 
-    assert!(matches!(
-        err,
-        QueryError::Plan(ref plan_err)
-            if matches!(
-                **plan_err,
-                crate::db::query::plan::PlanError::Policy(ref inner)
-                    if matches!(
-                        inner.as_ref(),
-                        crate::db::query::plan::validate::PolicyPlanError::UnorderedPagination
-                    )
-            )
-    ));
+    assert!(query_error_is_policy_plan_error(&err, |inner| {
+        matches!(
+            inner,
+            crate::db::query::plan::validate::PolicyPlanError::UnorderedPagination
+        )
+    }));
 }
 
 #[test]
@@ -1239,22 +1237,14 @@ fn build_plan_model_rejects_map_field_predicates_before_planning() {
     let err = intent
         .build_plan_model()
         .expect_err("map field predicates must be rejected before planning");
-    assert!(matches!(
-        err,
-        QueryError::Plan(ref plan_err)
-            if matches!(
-                **plan_err,
-                crate::db::query::plan::PlanError::PredicateInvalid(ref inner)
-                    if matches!(
-                        inner.as_ref(),
-                        crate::db::contracts::ValidateError::UnsupportedQueryFeature(
-                            crate::db::contracts::UnsupportedQueryFeature::MapPredicate {
-                                field
-                            }
-                        ) if field == "attributes"
-                    )
-            )
-    ));
+    assert!(query_error_is_predicate_validation_error(&err, |inner| {
+        matches!(
+            inner,
+            crate::db::contracts::ValidateError::UnsupportedQueryFeature(
+                crate::db::contracts::UnsupportedQueryFeature::MapPredicate { field }
+            ) if field == "attributes"
+        )
+    }));
 }
 
 #[test]

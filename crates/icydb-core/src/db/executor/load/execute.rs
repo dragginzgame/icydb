@@ -9,7 +9,7 @@ use crate::{
         executor::load::{CursorPage, FastPathKeyResult, LoadExecutor},
         executor::plan_metrics::set_rows_from_len,
         executor::{
-            AccessPlanStreamRequest, AccessStreamBindings, ExecutionOptimization, ExecutionPlan,
+            AccessExecutionDescriptor, AccessStreamBindings, ExecutionOptimization, ExecutionPlan,
             ExecutionPreparation, ExecutionTrace, OrderedKeyStreamBox,
             range_token_from_lowered_anchor,
             route::{
@@ -174,7 +174,7 @@ where
                 // Phase 2: resolve canonical fallback access stream.
                 let fallback_fetch_hint =
                     route_plan.fallback_physical_fetch_hint(inputs.stream_bindings.direction);
-                let stream_request = AccessPlanStreamRequest::from_bindings(
+                let descriptor = AccessExecutionDescriptor::from_bindings(
                     &inputs.plan.access,
                     inputs.stream_bindings,
                     fallback_fetch_hint,
@@ -182,7 +182,7 @@ where
                 );
                 let key_stream = Self::resolve_routed_key_stream(
                     inputs.ctx,
-                    RoutedKeyStreamRequest::AccessPlan(stream_request),
+                    RoutedKeyStreamRequest::AccessDescriptor(descriptor),
                 )?;
 
                 ResolvedExecutionKeyStream {

@@ -22,7 +22,10 @@ use crate::{
             load::LoadExecutor,
         },
         query::builder::AggregateExpr,
-        query::plan::{AccessPlannedQuery, GroupedExecutorHandoff},
+        query::plan::{
+            AccessPlannedQuery, ContinuationPolicy, GroupedExecutorHandoff,
+            GroupedPlanStrategyHint, PlannerRouteProfile,
+        },
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -68,6 +71,8 @@ pub(in crate::db::executor::route::planner) struct RouteDerivationContext {
 pub(in crate::db::executor::route::planner) struct RouteIntentStage {
     pub(in crate::db::executor::route::planner) aggregate_expr: Option<AggregateExpr>,
     pub(in crate::db::executor::route::planner) grouped: bool,
+    pub(in crate::db::executor::route::planner) grouped_plan_strategy_hint:
+        Option<GroupedPlanStrategyHint>,
     pub(in crate::db::executor::route::planner) fast_path_order: &'static [FastPathOrder],
     pub(in crate::db::executor::route::planner) aggregate_force_materialized_due_to_predicate_uncertainty:
         bool,
@@ -90,6 +95,7 @@ impl RouteIntentStage {
 
 pub(in crate::db::executor::route::planner) struct RouteFeasibilityStage {
     pub(in crate::db::executor::route::planner) continuation_mode: ContinuationMode,
+    pub(in crate::db::executor::route::planner) continuation_policy: ContinuationPolicy,
     pub(in crate::db::executor::route::planner) route_window: RouteWindowPlan,
     pub(in crate::db::executor::route::planner) derivation: RouteDerivationContext,
     pub(in crate::db::executor::route::planner) index_range_limit_spec: Option<IndexRangeLimitSpec>,
@@ -141,6 +147,7 @@ impl ExecutionRoutePlan {
         Self {
             direction: Direction::Asc,
             continuation_mode: ContinuationMode::Initial,
+            continuation_policy: ContinuationPolicy::new(true, true, true),
             window: RouteWindowPlan {
                 effective_offset: 0,
                 limit: None,
@@ -214,8 +221,8 @@ where
         request: crate::db::executor::route::RoutedKeyStreamRequest<'_, E::Key>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
         match request {
-            crate::db::executor::route::RoutedKeyStreamRequest::AccessPlan(stream_request) => {
-                ctx.ordered_key_stream_from_access_plan_with_index_range_anchor(stream_request)
+            crate::db::executor::route::RoutedKeyStreamRequest::AccessDescriptor(descriptor) => {
+                ctx.ordered_key_stream_from_access_descriptor(descriptor)
             }
         }
     }
@@ -308,6 +315,7 @@ where
             None,
             None,
             RouteIntent::AggregateGrouped {
+                grouped_plan_strategy_hint: grouped.grouped_plan_strategy_hint(),
                 aggregate_force_materialized_due_to_predicate_uncertainty:
                     Self::aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
                         &execution_preparation,
@@ -324,23 +332,32 @@ where
         probe_fetch_hint: Option<usize>,
         intent: RouteIntent,
     ) -> ExecutionRoutePlan {
-        // Phase 1: normalize route intent into one immutable intent stage.
+        // Phase 1: project one planner-owned route profile consumed by route derivation.
+        let planner_route_profile = Self::derive_planner_route_profile(plan);
+
+        // Phase 2: normalize route intent into one immutable intent stage.
         let intent_stage = Self::derive_route_intent_stage(intent);
 
-        // Phase 2: derive continuation/window/capability feasibility.
+        // Phase 3: derive continuation/window/capability feasibility.
         let feasibility_stage = Self::derive_route_feasibility_stage(
             plan,
             cursor_boundary,
             index_range_anchor,
             probe_fetch_hint,
+            &planner_route_profile,
             &intent_stage,
         );
 
-        // Phase 3: resolve execution mode and fold-mode from feasibility + intent.
+        // Phase 4: resolve execution mode and fold-mode from feasibility + intent.
         let execution_stage = Self::derive_route_execution_stage(&intent_stage, &feasibility_stage);
 
-        // Phase 4: assemble the final immutable route contract.
+        // Phase 5: assemble the final immutable route contract.
         Self::assemble_execution_route_plan(intent_stage, feasibility_stage, execution_stage)
+    }
+
+    // Build one planner-projected route profile from one validated access plan.
+    fn derive_planner_route_profile(plan: &AccessPlannedQuery<E::Key>) -> PlannerRouteProfile {
+        plan.planner_route_profile(E::MODEL)
     }
 
     fn assemble_execution_route_plan(
@@ -350,6 +367,7 @@ where
     ) -> ExecutionRoutePlan {
         let RouteFeasibilityStage {
             continuation_mode,
+            continuation_policy,
             route_window,
             derivation,
             index_range_limit_spec: _,
@@ -359,6 +377,7 @@ where
         ExecutionRoutePlan {
             direction: derivation.direction,
             continuation_mode,
+            continuation_policy,
             window: route_window,
             execution_mode: execution_stage.execution_mode,
             execution_mode_case: execution_stage.execution_mode_case,

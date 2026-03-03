@@ -30,4 +30,3 @@ Run scope: all recurring audit definitions under `docs/audits/recurring/` execut
 - `cargo test -p icydb-core grouped_plan_rejects_order_without_limit -- --nocapture` -> PASS
 - `cargo test -p icydb-core anchor_containment_guard_rejects_out_of_envelope_anchor -- --nocapture` -> PASS
 - `cargo test -p icydb-core recovery_replay_is_idempotent -- --nocapture` -> PASS
-

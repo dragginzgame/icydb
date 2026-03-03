@@ -134,6 +134,42 @@ fn grouped_spec_for_projection_expr_tests(group_fields: Vec<&str>) -> GroupSpec 
     }
 }
 
+fn is_group_plan_error(err: &PlanError, predicate: impl FnOnce(&GroupPlanError) -> bool) -> bool {
+    matches!(
+        err,
+        PlanError::Semantic(inner)
+            if matches!(
+                inner.as_ref(),
+                crate::db::query::plan::SemanticPlanError::Group(inner)
+                    if predicate(inner.as_ref())
+            )
+    )
+}
+
+fn is_policy_plan_error(err: &PlanError, predicate: impl FnOnce(&PolicyPlanError) -> bool) -> bool {
+    matches!(
+        err,
+        PlanError::Semantic(inner)
+            if matches!(
+                inner.as_ref(),
+                crate::db::query::plan::SemanticPlanError::Policy(inner)
+                    if predicate(inner.as_ref())
+            )
+    )
+}
+
+fn is_expr_plan_error(err: &PlanError, predicate: impl FnOnce(&ExprPlanError) -> bool) -> bool {
+    matches!(
+        err,
+        PlanError::Semantic(inner)
+            if matches!(
+                inner.as_ref(),
+                crate::db::query::plan::SemanticPlanError::Expr(inner)
+                    if predicate(inner.as_ref())
+            )
+    )
+}
+
 #[test]
 fn grouped_plan_rejects_empty_group_fields() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
@@ -150,8 +186,8 @@ fn grouped_plan_rejects_empty_group_fields() {
 
     let err = validate_group_query_semantics(&schema, model, &grouped)
         .expect_err("empty group-fields spec must fail");
-    assert!(matches!(err, PlanError::Group(inner) if matches!(
-        inner.as_ref(),
+    assert!(is_group_plan_error(&err, |inner| matches!(
+        inner,
         GroupPlanError::EmptyGroupFields
     )));
 }
@@ -327,8 +363,8 @@ fn grouped_plan_rejects_global_distinct_sum_non_numeric_target() {
 
     let err = validate_group_query_semantics(&schema, model, &grouped)
         .expect_err("global grouped sum(distinct non-numeric) should fail");
-    assert!(matches!(err, PlanError::Group(inner) if matches!(
-        inner.as_ref(),
+    assert!(is_group_plan_error(&err, |inner| matches!(
+        inner,
         GroupPlanError::GlobalDistinctSumTargetNotNumeric { index, field }
             if *index == 0 && field == "tag"
     )));
@@ -350,8 +386,8 @@ fn grouped_plan_rejects_global_distinct_unsupported_kind() {
 
     let err = validate_group_query_semantics(&schema, model, &grouped)
         .expect_err("global grouped distinct should reject unsupported aggregate kinds");
-    assert!(matches!(err, PlanError::Group(inner) if matches!(
-        inner.as_ref(),
+    assert!(is_group_plan_error(&err, |inner| matches!(
+        inner,
         GroupPlanError::DistinctAggregateKindUnsupported { index, kind }
             if *index == 0 && kind == "Exists"
     )));
@@ -380,8 +416,8 @@ fn grouped_plan_rejects_global_distinct_mixed_aggregate_shape() {
 
     let err = validate_group_query_semantics(&schema, model, &grouped)
         .expect_err("global grouped distinct shape should reject mixed aggregate list");
-    assert!(matches!(err, PlanError::Group(inner) if matches!(
-        inner.as_ref(),
+    assert!(is_group_plan_error(&err, |inner| matches!(
+        inner,
         GroupPlanError::GlobalDistinctAggregateShapeUnsupported
     )));
 }
@@ -409,8 +445,8 @@ fn grouped_plan_rejects_global_distinct_shape_with_having_clause() {
 
     let err = validate_group_query_semantics(&schema, model, &grouped)
         .expect_err("global DISTINCT grouped aggregate shape must reject HAVING");
-    assert!(matches!(err, PlanError::Group(inner) if matches!(
-        inner.as_ref(),
+    assert!(is_group_plan_error(&err, |inner| matches!(
+        inner,
         GroupPlanError::GlobalDistinctAggregateShapeUnsupported
     )));
 }
@@ -431,8 +467,8 @@ fn grouped_plan_rejects_unknown_group_field() {
 
     let err = validate_group_query_semantics(&schema, model, &grouped)
         .expect_err("unknown group field must fail");
-    assert!(matches!(err, PlanError::Group(inner) if matches!(
-        inner.as_ref(),
+    assert!(is_group_plan_error(&err, |inner| matches!(
+        inner,
         GroupPlanError::UnknownGroupField { field } if field == "missing_group_field"
     )));
 }
@@ -453,8 +489,8 @@ fn grouped_plan_rejects_duplicate_group_field() {
 
     let err = validate_group_query_semantics(&schema, model, &grouped)
         .expect_err("duplicate group field must fail");
-    assert!(matches!(err, PlanError::Group(inner) if matches!(
-        inner.as_ref(),
+    assert!(is_group_plan_error(&err, |inner| matches!(
+        inner,
         GroupPlanError::DuplicateGroupField { field } if field == "rank"
     )));
 }
@@ -475,8 +511,8 @@ fn grouped_plan_rejects_distinct_without_adjacency_proof() {
 
     let err = validate_group_query_semantics(&schema, model, &grouped)
         .expect_err("grouped distinct should fail without ordered-group adjacency eligibility");
-    assert!(matches!(err, PlanError::Group(inner) if matches!(
-        inner.as_ref(),
+    assert!(is_group_plan_error(&err, |inner| matches!(
+        inner,
         GroupPlanError::DistinctAdjacencyEligibilityRequired
     )));
 }
@@ -507,8 +543,8 @@ fn grouped_plan_rejects_order_prefix_not_aligned_with_group_keys() {
 
     let err = validate_group_query_semantics(&schema, model, &grouped)
         .expect_err("grouped order should fail when grouped-key prefix is missing");
-    assert!(matches!(err, PlanError::Group(inner) if matches!(
-        inner.as_ref(),
+    assert!(is_group_plan_error(&err, |inner| matches!(
+        inner,
         GroupPlanError::OrderPrefixNotAlignedWithGroupKeys
     )));
 }
@@ -538,8 +574,8 @@ fn grouped_plan_rejects_order_without_limit() {
 
     let err = validate_group_query_semantics(&schema, model, &grouped)
         .expect_err("grouped order should fail when LIMIT is omitted");
-    assert!(matches!(err, PlanError::Group(inner) if matches!(
-        inner.as_ref(),
+    assert!(is_group_plan_error(&err, |inner| matches!(
+        inner,
         GroupPlanError::OrderRequiresLimit
     )));
 }
@@ -585,8 +621,8 @@ fn grouped_plan_rejects_empty_aggregate_spec_list() {
 
     let err = validate_group_query_semantics(&schema, model, &grouped)
         .expect_err("empty grouped aggregate list must fail");
-    assert!(matches!(err, PlanError::Group(inner) if matches!(
-        inner.as_ref(),
+    assert!(is_group_plan_error(&err, |inner| matches!(
+        inner,
         GroupPlanError::EmptyAggregates
     )));
 }
@@ -607,8 +643,8 @@ fn grouped_plan_rejects_unknown_aggregate_target_field() {
 
     let err = validate_group_query_semantics(&schema, model, &grouped)
         .expect_err("unknown grouped aggregate target field must fail");
-    assert!(matches!(err, PlanError::Group(inner) if matches!(
-        inner.as_ref(),
+    assert!(is_group_plan_error(&err, |inner| matches!(
+        inner,
         GroupPlanError::UnknownAggregateTargetField { index, field }
             if *index == 0 && field == "missing_target"
     )));
@@ -630,8 +666,8 @@ fn grouped_plan_rejects_field_target_aggregates_in_grouped_v1() {
 
     let err = validate_group_query_semantics(&schema, model, &grouped)
         .expect_err("field-target grouped terminal must fail while grouped v1 lacks support");
-    assert!(matches!(err, PlanError::Group(inner) if matches!(
-        inner.as_ref(),
+    assert!(is_group_plan_error(&err, |inner| matches!(
+        inner,
         GroupPlanError::FieldTargetAggregatesUnsupported { index, kind, field }
             if *index == 0 && kind == "Min" && field == "rank"
     )));
@@ -671,8 +707,8 @@ fn grouped_plan_rejects_distinct_exists_aggregate_terminal() {
 
     let err = validate_group_query_semantics(&schema, model, &grouped)
         .expect_err("distinct exists should be rejected until grouped distinct support expands");
-    assert!(matches!(err, PlanError::Group(inner) if matches!(
-        inner.as_ref(),
+    assert!(is_group_plan_error(&err, |inner| matches!(
+        inner,
         GroupPlanError::DistinctAggregateKindUnsupported { index, kind }
             if *index == 0 && kind == "Exists"
     )));
@@ -694,8 +730,8 @@ fn grouped_plan_rejects_distinct_field_target_aggregate_terminal() {
 
     let err = validate_group_query_semantics(&schema, model, &grouped)
         .expect_err("distinct field-target grouped terminals should remain rejected in grouped v1");
-    assert!(matches!(err, PlanError::Group(inner) if matches!(
-        inner.as_ref(),
+    assert!(is_group_plan_error(&err, |inner| matches!(
+        inner,
         GroupPlanError::DistinctAggregateFieldTargetUnsupported { index, kind, field }
             if *index == 0 && kind == "Max" && field == "rank"
     )));
@@ -724,8 +760,8 @@ fn grouped_plan_rejects_having_with_distinct() {
 
     let err = validate_group_query_semantics(&schema, model, &grouped)
         .expect_err("grouped having with distinct should be rejected");
-    assert!(matches!(err, PlanError::Group(inner) if matches!(
-        inner.as_ref(),
+    assert!(is_group_plan_error(&err, |inner| matches!(
+        inner,
         GroupPlanError::DistinctHavingUnsupported
     )));
 }
@@ -800,8 +836,8 @@ fn grouped_plan_rejects_having_group_field_outside_group_keys() {
 
     let err = validate_group_query_semantics(&schema, model, &grouped)
         .expect_err("having should reject group-field symbols not declared in group keys");
-    assert!(matches!(err, PlanError::Group(inner) if matches!(
-        inner.as_ref(),
+    assert!(is_group_plan_error(&err, |inner| matches!(
+        inner,
         GroupPlanError::HavingNonGroupFieldReference { field, .. } if field == "tag"
     )));
 }
@@ -829,8 +865,8 @@ fn grouped_plan_rejects_having_aggregate_index_out_of_bounds() {
 
     let err = validate_group_query_semantics(&schema, model, &grouped)
         .expect_err("having should reject aggregate indexes beyond declared aggregate count");
-    assert!(matches!(err, PlanError::Group(inner) if matches!(
-        inner.as_ref(),
+    assert!(is_group_plan_error(&err, |inner| matches!(
+        inner,
         GroupPlanError::HavingAggregateIndexOutOfBounds { aggregate_index, aggregate_count, .. }
             if *aggregate_index == 1 && *aggregate_count == 1
     )));
@@ -1115,8 +1151,8 @@ fn grouped_invalid_spec_does_not_change_scalar_plan_validation_outcome() {
         .expect("scalar plan validation must not require grouped spec");
     let err = validate_group_query_semantics(&schema, model, &grouped)
         .expect_err("grouped validation must enforce grouped spec");
-    assert!(matches!(err, PlanError::Group(inner) if matches!(
-        inner.as_ref(),
+    assert!(is_group_plan_error(&err, |inner| matches!(
+        inner,
         GroupPlanError::UnknownGroupField { field } if field == "missing_group_field"
     )));
 }
@@ -1142,14 +1178,14 @@ fn grouped_validation_preserves_scalar_policy_errors_on_base_plan() {
 
     let scalar_err = validate_query_semantics(&schema, model, &base)
         .expect_err("invalid scalar base plan must fail scalar policy validation");
-    assert!(matches!(scalar_err, PlanError::Policy(inner) if matches!(
-        inner.as_ref(),
+    assert!(is_policy_plan_error(&scalar_err, |inner| matches!(
+        inner,
         PolicyPlanError::LoadPlanWithDeleteLimit
     )));
     let grouped_err = validate_group_query_semantics(&schema, model, &grouped)
         .expect_err("grouped validation must preserve scalar base-plan policy failures");
-    assert!(matches!(grouped_err, PlanError::Policy(inner) if matches!(
-        inner.as_ref(),
+    assert!(is_policy_plan_error(&grouped_err, |inner| matches!(
+        inner,
         PolicyPlanError::LoadPlanWithDeleteLimit
     )));
 }
@@ -1200,8 +1236,8 @@ fn grouped_projection_expr_compatibility_rejects_non_group_field_reference() {
 
     let err = validate_group_projection_expr_compatibility_for_test(&group, &projection)
         .expect_err("grouped projection compatibility should reject non-group field references");
-    assert!(matches!(err, PlanError::Expr(inner) if matches!(
-        inner.as_ref(),
+    assert!(is_expr_plan_error(&err, |inner| matches!(
+        inner,
         ExprPlanError::GroupedProjectionReferencesNonGroupField { index } if *index == 0
     )));
 }
@@ -1220,8 +1256,8 @@ fn grouped_projection_expr_compatibility_rejects_non_group_field_in_mixed_aggreg
 
     let err = validate_group_projection_expr_compatibility_for_test(&group, &projection)
         .expect_err("mixed expressions must still reject non-group field references outside aggregate nodes");
-    assert!(matches!(err, PlanError::Expr(inner) if matches!(
-        inner.as_ref(),
+    assert!(is_expr_plan_error(&err, |inner| matches!(
+        inner,
         ExprPlanError::GroupedProjectionReferencesNonGroupField { index } if *index == 0
     )));
 }

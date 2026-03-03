@@ -170,15 +170,6 @@ impl<K> AccessPath<K> {
         matches!(self, Self::FullScan)
     }
 
-    /// Borrow index-prefix details when this path is `IndexPrefix`.
-    #[must_use]
-    pub(crate) fn as_index_prefix(&self) -> Option<(&IndexModel, &[Value])> {
-        match self {
-            Self::IndexPrefix { index, values } => Some((index, values)),
-            _ => None,
-        }
-    }
-
     /// Borrow index-range details when this path is `IndexRange`.
     #[must_use]
     pub(crate) const fn as_index_range(&self) -> Option<IndexRangePathRef<'_>> {

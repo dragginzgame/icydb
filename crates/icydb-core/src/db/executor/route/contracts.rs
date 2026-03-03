@@ -6,8 +6,9 @@
 use crate::db::{
     access::PushdownApplicability,
     direction::Direction,
-    executor::{AccessPlanStreamRequest, aggregate::AggregateFoldMode},
+    executor::{AccessExecutionDescriptor, aggregate::AggregateFoldMode},
     query::builder::AggregateExpr,
+    query::plan::{ContinuationPolicy, GroupedPlanStrategyHint},
 };
 
 ///
@@ -74,6 +75,44 @@ pub(in crate::db::executor) enum ContinuationMode {
     IndexRangeAnchor,
 }
 
+impl ContinuationPolicy {
+    /// Return true when this route run has continuation bindings applied.
+    #[must_use]
+    pub(in crate::db::executor) const fn continuation_applied(
+        continuation_mode: ContinuationMode,
+    ) -> bool {
+        !matches!(continuation_mode, ContinuationMode::Initial)
+    }
+
+    /// Return true when index-range pushdown is valid under this continuation mode.
+    #[must_use]
+    pub(in crate::db::executor::route) const fn allows_index_range_limit_pushdown(
+        self,
+        continuation_mode: ContinuationMode,
+    ) -> bool {
+        if self.requires_anchor() {
+            !matches!(continuation_mode, ContinuationMode::CursorBoundary)
+        } else {
+            true
+        }
+    }
+
+    /// Return true when load scan-budget hints are valid under this route shape.
+    #[must_use]
+    pub(in crate::db::executor::route) const fn allows_load_scan_budget_hint(
+        self,
+        continuation_mode: ContinuationMode,
+        capabilities: RouteCapabilities,
+    ) -> bool {
+        let continuation_applied = Self::continuation_applied(continuation_mode);
+        if self.requires_strict_advance() && continuation_applied {
+            return false;
+        }
+
+        !continuation_applied && capabilities.streaming_access_shape_safe
+    }
+}
+
 ///
 /// RouteWindowPlan
 ///
@@ -121,6 +160,7 @@ impl RouteWindowPlan {
 pub(in crate::db::executor) struct ExecutionRoutePlan {
     pub(in crate::db::executor) direction: Direction,
     pub(in crate::db::executor) continuation_mode: ContinuationMode,
+    pub(in crate::db::executor) continuation_policy: ContinuationPolicy,
     pub(in crate::db::executor) window: RouteWindowPlan,
     pub(in crate::db::executor) execution_mode: ExecutionMode,
     pub(in crate::db::executor) execution_mode_case: ExecutionModeRouteCase,
@@ -143,6 +183,11 @@ impl ExecutionRoutePlan {
     #[must_use]
     pub(in crate::db::executor) const fn continuation_mode(&self) -> ContinuationMode {
         self.continuation_mode
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn continuation_policy(&self) -> ContinuationPolicy {
+        self.continuation_policy
     }
 
     #[must_use]
@@ -305,7 +350,7 @@ pub(in crate::db::executor) const MUTATION_FAST_PATH_ORDER: [FastPathOrder; 0] =
 ///
 
 pub(in crate::db::executor) enum RoutedKeyStreamRequest<'a, K> {
-    AccessPlan(AccessPlanStreamRequest<'a, K>),
+    AccessDescriptor(AccessExecutionDescriptor<'a, K>),
 }
 
 ///
@@ -319,6 +364,7 @@ pub(in crate::db::executor::route) enum RouteIntent {
         aggregate_force_materialized_due_to_predicate_uncertainty: bool,
     },
     AggregateGrouped {
+        grouped_plan_strategy_hint: GroupedPlanStrategyHint,
         aggregate_force_materialized_due_to_predicate_uncertainty: bool,
     },
 }

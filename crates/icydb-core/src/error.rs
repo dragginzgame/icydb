@@ -438,8 +438,13 @@ impl InternalError {
     #[cfg(test)]
     pub(crate) fn from_group_plan_error(err: PlanError) -> Self {
         let message = match &err {
-            PlanError::Group(inner) => format!("invalid logical plan: {inner}"),
-            _ => err.to_string(),
+            PlanError::Semantic(inner) => match inner.as_ref() {
+                crate::db::query::plan::SemanticPlanError::Group(inner) => {
+                    format!("invalid logical plan: {inner}")
+                }
+                _ => err.to_string(),
+            },
+            PlanError::Cursor(_) => err.to_string(),
         };
 
         Self::planner_invariant(message)

@@ -18,7 +18,9 @@ mod tests;
 pub(crate) mod validate;
 
 pub(crate) use access_plan::AccessPlannedQuery;
-pub(in crate::db) use access_plan::{lower_executable_access_path, lower_executable_access_plan};
+#[cfg(test)]
+pub(in crate::db) use access_plan::lower_executable_access_path;
+pub(in crate::db) use access_plan::lower_executable_access_plan;
 pub(in crate::db) use group::{
     GroupedDistinctExecutionStrategy, GroupedExecutorHandoff, PlannedProjectionLayout,
     grouped_executor_handoff,
@@ -26,6 +28,7 @@ pub(in crate::db) use group::{
 pub(in crate::db) use grouped_layout::validate_grouped_projection_layout;
 pub use model::OrderDirection;
 pub(crate) use model::{AggregateKind, DeleteSpec, DistinctExecutionStrategy, LoadSpec, QueryMode};
+pub(in crate::db) use model::{ContinuationPolicy, PlannerRouteProfile};
 pub(crate) use model::{
     DeleteLimitSpec, FieldSlot, GroupAggregateKind, GroupAggregateSpec, GroupHavingClause,
     GroupHavingSpec, GroupHavingSymbol, GroupPlan, GroupSpec, GroupedExecutionConfig, LogicalPlan,
@@ -47,6 +50,8 @@ pub(crate) use semantics::{
 #[cfg(test)]
 pub(crate) use validate::GroupPlanError;
 pub use validate::PlanError;
+#[cfg(test)]
+pub(crate) use validate::SemanticPlanError;
 pub(crate) use validate::{
     CursorOrderPlanShapeError, CursorPagingPolicyError, FluentLoadPolicyViolation,
     IntentKeyAccessKind, IntentKeyAccessPolicyViolation, PolicyPlanError, has_explicit_order,

@@ -8,9 +8,10 @@ use crate::{
         builder::AggregateExpr,
         plan::{
             AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec, GroupHavingSpec,
-            GroupedExecutionConfig,
+            GroupedExecutionConfig, GroupedPlanStrategyHint,
             expr::{Expr, ProjectionField, ProjectionSpec},
-            resolve_global_distinct_field_aggregate, validate_grouped_projection_layout,
+            grouped_plan_strategy_hint_for_plan, resolve_global_distinct_field_aggregate,
+            validate_grouped_projection_layout,
         },
     },
     error::InternalError,
@@ -58,6 +59,7 @@ pub(in crate::db) struct GroupedExecutorHandoff<'a, K> {
     group_fields: &'a [FieldSlot],
     aggregate_exprs: Vec<AggregateExpr>,
     projection_layout: PlannedProjectionLayout,
+    grouped_plan_strategy_hint: GroupedPlanStrategyHint,
     distinct_execution_strategy: GroupedDistinctExecutionStrategy,
     having: Option<&'a GroupHavingSpec>,
     execution: GroupedExecutionConfig,
@@ -86,6 +88,12 @@ impl<'a, K> GroupedExecutorHandoff<'a, K> {
     #[must_use]
     pub(in crate::db) const fn projection_layout(&self) -> &PlannedProjectionLayout {
         &self.projection_layout
+    }
+
+    /// Borrow grouped execution strategy hint projected by planner semantics.
+    #[must_use]
+    pub(in crate::db) const fn grouped_plan_strategy_hint(&self) -> GroupedPlanStrategyHint {
+        self.grouped_plan_strategy_hint
     }
 
     /// Borrow grouped DISTINCT execution strategy lowered by planner.
@@ -127,6 +135,10 @@ pub(in crate::db) fn grouped_executor_handoff<K>(
         grouped.group.group_fields.len(),
         aggregate_exprs.len(),
     )?;
+    let grouped_plan_strategy_hint =
+        grouped_plan_strategy_hint_for_plan(plan).ok_or_else(|| {
+            invariant("grouped executor handoff must carry grouped strategy hint for grouped plans")
+        })?;
     let distinct_execution_strategy = grouped_distinct_execution_strategy(
         grouped.group.group_fields.as_slice(),
         grouped.group.aggregates.as_slice(),
@@ -138,6 +150,7 @@ pub(in crate::db) fn grouped_executor_handoff<K>(
         group_fields: grouped.group.group_fields.as_slice(),
         aggregate_exprs,
         projection_layout,
+        grouped_plan_strategy_hint,
         distinct_execution_strategy,
         having: grouped.having.as_ref(),
         execution: grouped.group.execution,

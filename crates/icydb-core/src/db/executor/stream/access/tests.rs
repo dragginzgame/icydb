@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeSet,
     fs,
     path::{Path, PathBuf},
 };
@@ -135,5 +136,62 @@ fn executor_runtime_modules_have_no_raw_access_path_variant_matching() {
             .map(|path| path.display().to_string())
             .collect::<Vec<_>>()
             .join(", "),
+    );
+}
+
+#[test]
+fn runtime_as_inner_calls_are_limited_to_boundary_adapters() {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db");
+    let mut sources = Vec::new();
+    collect_rust_sources(source_root.as_path(), &mut sources);
+    sources.sort();
+
+    let allowed: BTreeSet<String> = [
+        "src/db/session.rs",
+        "src/db/executor/load/grouped_route.rs",
+        "src/db/executor/aggregate/mod.rs",
+        "src/db/executor/aggregate/field_extrema.rs",
+        "src/db/executor/load/entrypoints.rs",
+        "src/db/executor/aggregate/projection.rs",
+    ]
+    .into_iter()
+    .map(ToString::to_string)
+    .collect();
+    let mut actual = BTreeSet::new();
+
+    for source_path in sources {
+        if source_path
+            .components()
+            .any(|part| part.as_os_str() == "tests")
+            || source_path
+                .file_name()
+                .is_some_and(|name| name == "tests.rs")
+        {
+            continue;
+        }
+
+        let source = fs::read_to_string(&source_path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
+        let runtime_source = strip_cfg_test_items(source.as_str());
+        if !runtime_source.contains(".as_inner(") {
+            continue;
+        }
+
+        let relative = source_path
+            .strip_prefix(Path::new(env!("CARGO_MANIFEST_DIR")))
+            .unwrap_or_else(|err| {
+                panic!(
+                    "failed to compute relative source path for {}: {err}",
+                    source_path.display()
+                )
+            })
+            .to_string_lossy()
+            .replace('\\', "/");
+        actual.insert(relative);
+    }
+
+    assert_eq!(
+        actual, allowed,
+        "runtime .as_inner() call sites must remain boundary-local; update allowlist only for intentional boundary changes",
     );
 }
