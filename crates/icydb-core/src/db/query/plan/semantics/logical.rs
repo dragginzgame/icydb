@@ -1,7 +1,6 @@
 use crate::{
     db::{
         access::AccessPlan,
-        executor::route::derive_secondary_pushdown_applicability_validated,
         query::plan::{
             AccessPlannedQuery, ContinuationPolicy, DistinctExecutionStrategy, GroupPlan,
             LogicalPlan, PlannerRouteProfile, QueryMode, ScalarPlan, expr::ProjectionSpec,
@@ -111,11 +110,8 @@ impl<K> AccessPlannedQuery<K> {
 
     /// Project one planner-owned route profile for executor route planning.
     #[must_use]
-    pub(in crate::db) fn planner_route_profile(&self, model: &EntityModel) -> PlannerRouteProfile {
-        PlannerRouteProfile::new(
-            derive_secondary_pushdown_applicability_validated(model, self),
-            derive_continuation_policy_validated(self),
-        )
+    pub(in crate::db) fn planner_route_profile(&self) -> PlannerRouteProfile {
+        PlannerRouteProfile::new(derive_continuation_policy_validated(self))
     }
 
     /// Borrow scalar semantic fields mutably across logical variants.

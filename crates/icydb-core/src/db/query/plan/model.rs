@@ -4,10 +4,7 @@
 //! Boundary: data-only types shared by plan builder/semantics/validation layers.
 
 use crate::{
-    db::{
-        access::PushdownApplicability,
-        predicate::{CompareOp, MissingRowPolicy, PredicateExecutionModel},
-    },
+    db::predicate::{CompareOp, MissingRowPolicy, PredicateExecutionModel},
     value::Value,
 };
 
@@ -106,33 +103,21 @@ impl DistinctExecutionStrategy {
 /// PlannerRouteProfile
 ///
 /// Planner-projected route profile consumed by executor route planning.
-/// Carries semantic applicability decisions that must not be recomputed in
-/// route/load orchestration layers.
+/// Carries planner-owned continuation policy that route/load layers must honor.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct PlannerRouteProfile {
-    secondary_pushdown_applicability: PushdownApplicability,
     continuation_policy: ContinuationPolicy,
 }
 
 impl PlannerRouteProfile {
     /// Construct one planner-projected route profile.
     #[must_use]
-    pub(in crate::db) const fn new(
-        secondary_pushdown_applicability: PushdownApplicability,
-        continuation_policy: ContinuationPolicy,
-    ) -> Self {
+    pub(in crate::db) const fn new(continuation_policy: ContinuationPolicy) -> Self {
         Self {
-            secondary_pushdown_applicability,
             continuation_policy,
         }
-    }
-
-    /// Borrow planner-projected secondary ORDER BY pushdown applicability.
-    #[must_use]
-    pub(in crate::db) const fn secondary_pushdown_applicability(&self) -> &PushdownApplicability {
-        &self.secondary_pushdown_applicability
     }
 
     /// Borrow planner-projected continuation policy contract.

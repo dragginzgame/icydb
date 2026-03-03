@@ -13,7 +13,10 @@ use crate::{
             snapshot_row_rollback,
         },
         data::{RawDataKey, RawRow},
-        index::{IndexEntryReader, IndexStore, PrimaryRowReader, RawIndexEntry, RawIndexKey},
+        index::{
+            IndexEntryReader, IndexStore, PrimaryRowReader, RawIndexEntry, RawIndexKey,
+            key_within_envelope,
+        },
     },
     error::InternalError,
     model::index::IndexModel,
@@ -453,23 +456,7 @@ fn key_within_bounds(
     key: &RawIndexKey,
     bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
 ) -> bool {
-    lower_bound_matches(key, bounds.0) && upper_bound_matches(key, bounds.1)
-}
-
-fn lower_bound_matches(key: &RawIndexKey, bound: &Bound<RawIndexKey>) -> bool {
-    match bound {
-        Bound::Included(start) => key >= start,
-        Bound::Excluded(start) => key > start,
-        Bound::Unbounded => true,
-    }
-}
-
-fn upper_bound_matches(key: &RawIndexKey, bound: &Bound<RawIndexKey>) -> bool {
-    match bound {
-        Bound::Included(end) => key <= end,
-        Bound::Excluded(end) => key < end,
-        Bound::Unbounded => true,
-    }
+    key_within_envelope(key, bounds.0, bounds.1)
 }
 
 fn invariant(message: impl Into<String>) -> InternalError {

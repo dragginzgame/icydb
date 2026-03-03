@@ -160,8 +160,12 @@ check-versioning: security-check
 check-index-range-spec-invariants:
 	bash scripts/ci/check-index-range-spec-invariants.sh
 
+check-layer-authority-invariants:
+	bash scripts/ci/check-layer-authority-invariants.sh
+
 check-invariants:
 	bash scripts/ci/check-index-range-spec-invariants.sh
+	bash scripts/ci/check-layer-authority-invariants.sh
 	bash scripts/ci/check-memory-id-invariants.sh
 	bash scripts/ci/check-field-projection-invariants.sh
 

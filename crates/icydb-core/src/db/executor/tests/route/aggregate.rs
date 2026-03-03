@@ -9,8 +9,37 @@ use crate::db::{
         ExplainGroupAggregate, ExplainGroupField, ExplainGroupHaving, ExplainGroupHavingClause,
         ExplainGroupHavingSymbol, ExplainGroupedStrategy, ExplainGrouping,
     },
-    query::plan::{GroupedPlanStrategyHint, grouped_plan_strategy_hint_for_plan},
+    query::plan::{
+        GroupDistinctPolicyReason, GroupedPlanStrategyHint, grouped_plan_strategy_hint_for_plan,
+    },
 };
+
+// Snapshot grouped policy decisions across planner, grouped handoff, and route projection.
+fn grouped_policy_snapshot(
+    plan: &AccessPlannedQuery<Ulid>,
+) -> (
+    GroupedPlanStrategyHint,
+    Option<GroupDistinctPolicyReason>,
+    GroupedExecutionStrategy,
+    bool,
+) {
+    let planner_hint = grouped_plan_strategy_hint_for_plan(plan)
+        .expect("grouped plans should project planner hints");
+    let handoff = grouped_executor_handoff(plan).expect("grouped plans should project handoff");
+    let distinct_violation = handoff.distinct_policy_violation_for_executor();
+    let route_plan =
+        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_grouped_handoff(handoff);
+    let grouped_observability = route_plan
+        .grouped_observability()
+        .expect("grouped plans should always project grouped route observability");
+
+    (
+        planner_hint,
+        distinct_violation,
+        grouped_observability.grouped_execution_strategy(),
+        grouped_observability.eligible(),
+    )
+}
 
 #[test]
 fn route_plan_aggregate_uses_route_owned_fast_path_order() {
@@ -402,6 +431,95 @@ fn route_plan_grouped_wrapper_observability_vector_is_frozen() {
     );
 
     assert_eq!(actual, expected);
+}
+
+#[test]
+fn grouped_policy_snapshot_matrix_remains_consistent_across_planner_handoff_and_route() {
+    // Phase 1: ordered-capable grouped shape should remain fully aligned.
+    let ordered_grouped = AccessPlannedQuery::new(
+        AccessPath::<Ulid>::IndexPrefix {
+            index: ROUTE_MATRIX_INDEX_MODELS[0],
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    )
+    .into_grouped(GroupSpec {
+        group_fields: grouped_field_slots(&["rank"]),
+        aggregates: vec![GroupAggregateSpec {
+            kind: GroupAggregateKind::Count,
+            target_field: None,
+            distinct: false,
+        }],
+        execution: GroupedExecutionConfig::unbounded(),
+    });
+    assert_eq!(
+        grouped_policy_snapshot(&ordered_grouped),
+        (
+            GroupedPlanStrategyHint::OrderedGroup,
+            None,
+            GroupedExecutionStrategy::OrderedMaterialized,
+            true,
+        )
+    );
+
+    // Phase 2: grouped HAVING-policy rejection should force HashGroup across boundaries.
+    let having_rejected_grouped = AccessPlannedQuery::new(
+        AccessPath::<Ulid>::IndexPrefix {
+            index: ROUTE_MATRIX_INDEX_MODELS[0],
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    )
+    .into_grouped_with_having(
+        GroupSpec {
+            group_fields: grouped_field_slots(&["rank"]),
+            aggregates: vec![GroupAggregateSpec {
+                kind: GroupAggregateKind::Count,
+                target_field: None,
+                distinct: false,
+            }],
+            execution: GroupedExecutionConfig::unbounded(),
+        },
+        Some(GroupHavingSpec {
+            clauses: vec![GroupHavingClause {
+                symbol: GroupHavingSymbol::AggregateIndex(0),
+                op: CompareOp::In,
+                value: Value::List(vec![Value::Uint(1)]),
+            }],
+        }),
+    );
+    assert_eq!(
+        grouped_policy_snapshot(&having_rejected_grouped),
+        (
+            GroupedPlanStrategyHint::HashGroup,
+            None,
+            GroupedExecutionStrategy::HashMaterialized,
+            true,
+        )
+    );
+
+    // Phase 3: scalar DISTINCT grouped policy violations must stay planner-projected.
+    let mut scalar_distinct_grouped =
+        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore)
+            .into_grouped(GroupSpec {
+                group_fields: grouped_field_slots(&["rank"]),
+                aggregates: vec![GroupAggregateSpec {
+                    kind: GroupAggregateKind::Count,
+                    target_field: None,
+                    distinct: false,
+                }],
+                execution: GroupedExecutionConfig::unbounded(),
+            });
+    scalar_distinct_grouped.scalar_plan_mut().distinct = true;
+    assert_eq!(
+        grouped_policy_snapshot(&scalar_distinct_grouped),
+        (
+            GroupedPlanStrategyHint::HashGroup,
+            Some(GroupDistinctPolicyReason::DistinctAdjacencyEligibilityRequired),
+            GroupedExecutionStrategy::HashMaterialized,
+            true,
+        )
+    );
 }
 
 #[test]

@@ -357,7 +357,7 @@ where
 
     // Build one planner-projected route profile from one validated access plan.
     fn derive_planner_route_profile(plan: &AccessPlannedQuery<E::Key>) -> PlannerRouteProfile {
-        plan.planner_route_profile(E::MODEL)
+        plan.planner_route_profile()
     }
 
     fn assemble_execution_route_plan(

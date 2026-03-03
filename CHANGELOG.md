@@ -18,7 +18,21 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `0.40.8` complexity-accretion audit reduced planner/route/load branch pressure by centralizing continuation and pushdown policy decisions, isolating runtime access execution behind one descriptor contract, and narrowing plan errors to semantic vs cursor domains.
 - `0.40.9` completed the cursor ordering and dry consolidation audits with new ordering/continuation property tests and stricter planner-vs-executor grouped policy and cursor-error boundary guards.
 - `0.40.10` completes the error taxonomy and index-integrity audit slice by tightening cursor error classification and adding crash/recovery guards for unique constraints, reverse indexes, and prefix-range key bounds.
-- `0.40.11` is a TODO placeholder for the next audit follow-up slice.
+- `0.40.11` upgrades layer auditing from import-direction checks to semantic authority checks, adds forward-vs-replay state-equivalence coverage, and adds grouped planner/handoff/route policy snapshot guards.
+
+```text
+scripts/dev/cloc.sh (2026-03-03)
+crate                 runtime_loc     test_loc     test_%
+-------------------- ------------ ------------   --------
+icydb                        3147            0       0.0%
+icydb-build                   208            0       0.0%
+icydb-core                  46287        37120      44.5%
+icydb-derive                  418            0       0.0%
+icydb-primitives              364            0       0.0%
+icydb-schema                 1631            0       0.0%
+icydb-schema-derive          6414            0       0.0%
+icydb-schema-tests           2450           73       2.9%
+```
 
 See detailed breakdown:
 [docs/changelog/0.40.md](docs/changelog/0.40.md)

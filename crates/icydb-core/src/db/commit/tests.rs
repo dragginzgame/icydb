@@ -12,7 +12,7 @@ use crate::{
         registry::{StoreHandle, StoreRegistry},
         relation::validate_delete_strong_relations_for_source,
     },
-    error::{ErrorClass, ErrorOrigin},
+    error::{ErrorClass, ErrorOrigin, InternalError},
     model::{field::FieldKind, index::IndexModel},
     serialize::serialize,
     testing::test_memory,
@@ -22,6 +22,8 @@ use crate::{
 use icydb_derive::FieldProjection;
 use serde::{Deserialize, Serialize};
 use std::{cell::RefCell, collections::BTreeSet};
+
+type RecoveryStoreSnapshot = (Vec<(Vec<u8>, Vec<u8>)>, Vec<(Vec<u8>, Vec<u8>)>);
 
 //
 // RecoveryTestCanister
@@ -300,6 +302,222 @@ fn index_key_bytes_snapshot() -> Vec<Vec<u8>> {
     });
     keys.sort();
     keys
+}
+
+// Capture one deterministic snapshot of row-store and index-store raw bytes.
+fn recovery_store_snapshot() -> RecoveryStoreSnapshot {
+    with_recovery_store(|store| {
+        let mut data_rows = store.with_data(|data_store| {
+            data_store
+                .iter()
+                .map(|entry| {
+                    (
+                        entry.key().as_bytes().to_vec(),
+                        entry.value().as_bytes().to_vec(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        });
+        let mut index_rows = store.with_index(|index_store| {
+            index_store
+                .entries()
+                .into_iter()
+                .map(|(raw_key, raw_entry)| {
+                    (raw_key.as_bytes().to_vec(), raw_entry.as_bytes().to_vec())
+                })
+                .collect::<Vec<_>>()
+        });
+        data_rows.sort();
+        index_rows.sort();
+
+        (data_rows, index_rows)
+    })
+}
+
+// Apply prepared row operations through the forward (non-recovery) apply path.
+fn apply_row_ops_forward(row_ops: &[CommitRowOp]) -> Result<(), InternalError> {
+    for row_op in row_ops {
+        DB.prepare_row_commit_op(row_op)?.apply();
+    }
+
+    Ok(())
+}
+
+fn indexed_data_key(id: Ulid) -> RawDataKey {
+    DataKey::try_new::<RecoveryIndexedEntity>(id)
+        .expect("indexed key should build")
+        .to_raw()
+        .expect("indexed key should encode")
+}
+
+fn unique_data_key(id: Ulid) -> RawDataKey {
+    DataKey::try_new::<RecoveryUniqueEntity>(id)
+        .expect("unique key should build")
+        .to_raw()
+        .expect("unique key should encode")
+}
+
+fn indexed_row_bytes(entity: &RecoveryIndexedEntity) -> Vec<u8> {
+    serialize(entity).expect("indexed row serialization should succeed")
+}
+
+fn unique_row_bytes(entity: &RecoveryUniqueEntity) -> Vec<u8> {
+    serialize(entity).expect("unique row serialization should succeed")
+}
+
+// Build one deterministic seed snapshot used by forward/replay equivalence checks.
+fn mixed_recovery_seed_ops() -> Vec<CommitRowOp> {
+    let indexed_first_v1 = RecoveryIndexedEntity {
+        id: Ulid::from_u128(9301),
+        group: 41,
+    };
+    let indexed_second_v1 = RecoveryIndexedEntity {
+        id: Ulid::from_u128(9302),
+        group: 41,
+    };
+    let unique_first_v1 = RecoveryUniqueEntity {
+        id: Ulid::from_u128(9303),
+        email: "case-a@example.com".to_string(),
+    };
+    let unique_second_v1 = RecoveryUniqueEntity {
+        id: Ulid::from_u128(9304),
+        email: "case-b@example.com".to_string(),
+    };
+
+    vec![
+        row_op_for_path(
+            RecoveryIndexedEntity::PATH,
+            indexed_data_key(indexed_first_v1.id).as_bytes().to_vec(),
+            None,
+            Some(indexed_row_bytes(&indexed_first_v1)),
+        ),
+        row_op_for_path(
+            RecoveryIndexedEntity::PATH,
+            indexed_data_key(indexed_second_v1.id).as_bytes().to_vec(),
+            None,
+            Some(indexed_row_bytes(&indexed_second_v1)),
+        ),
+        row_op_for_path(
+            RecoveryUniqueEntity::PATH,
+            unique_data_key(unique_first_v1.id).as_bytes().to_vec(),
+            None,
+            Some(unique_row_bytes(&unique_first_v1)),
+        ),
+        row_op_for_path(
+            RecoveryUniqueEntity::PATH,
+            unique_data_key(unique_second_v1.id).as_bytes().to_vec(),
+            None,
+            Some(unique_row_bytes(&unique_second_v1)),
+        ),
+    ]
+}
+
+// Build one mixed marker sequence with one operation per key over the seeded snapshot.
+fn mixed_recovery_marker_ops() -> Vec<CommitRowOp> {
+    let indexed_first_v1 = RecoveryIndexedEntity {
+        id: Ulid::from_u128(9301),
+        group: 41,
+    };
+    let indexed_first_v2 = RecoveryIndexedEntity {
+        id: indexed_first_v1.id,
+        group: 42,
+    };
+    let indexed_second_v1 = RecoveryIndexedEntity {
+        id: Ulid::from_u128(9302),
+        group: 41,
+    };
+    let indexed_third_v1 = RecoveryIndexedEntity {
+        id: Ulid::from_u128(9305),
+        group: 42,
+    };
+    let unique_first_v1 = RecoveryUniqueEntity {
+        id: Ulid::from_u128(9303),
+        email: "case-a@example.com".to_string(),
+    };
+    let unique_first_v2 = RecoveryUniqueEntity {
+        id: unique_first_v1.id,
+        email: "case-a2@example.com".to_string(),
+    };
+    let unique_second_v1 = RecoveryUniqueEntity {
+        id: Ulid::from_u128(9304),
+        email: "case-b@example.com".to_string(),
+    };
+    let unique_third_v1 = RecoveryUniqueEntity {
+        id: Ulid::from_u128(9306),
+        email: "case-c@example.com".to_string(),
+    };
+
+    vec![
+        row_op_for_path(
+            RecoveryIndexedEntity::PATH,
+            indexed_data_key(indexed_first_v1.id).as_bytes().to_vec(),
+            Some(indexed_row_bytes(&indexed_first_v1)),
+            Some(indexed_row_bytes(&indexed_first_v2)),
+        ),
+        row_op_for_path(
+            RecoveryIndexedEntity::PATH,
+            indexed_data_key(indexed_second_v1.id).as_bytes().to_vec(),
+            Some(indexed_row_bytes(&indexed_second_v1)),
+            None,
+        ),
+        row_op_for_path(
+            RecoveryUniqueEntity::PATH,
+            unique_data_key(unique_first_v1.id).as_bytes().to_vec(),
+            Some(unique_row_bytes(&unique_first_v1)),
+            Some(unique_row_bytes(&unique_first_v2)),
+        ),
+        row_op_for_path(
+            RecoveryUniqueEntity::PATH,
+            unique_data_key(unique_second_v1.id).as_bytes().to_vec(),
+            Some(unique_row_bytes(&unique_second_v1)),
+            None,
+        ),
+        row_op_for_path(
+            RecoveryIndexedEntity::PATH,
+            indexed_data_key(indexed_third_v1.id).as_bytes().to_vec(),
+            None,
+            Some(indexed_row_bytes(&indexed_third_v1)),
+        ),
+        row_op_for_path(
+            RecoveryUniqueEntity::PATH,
+            unique_data_key(unique_third_v1.id).as_bytes().to_vec(),
+            None,
+            Some(unique_row_bytes(&unique_third_v1)),
+        ),
+    ]
+}
+
+#[test]
+fn commit_forward_apply_and_replay_preserve_identical_store_state_for_mixed_marker_sequence() {
+    let seed_ops = mixed_recovery_seed_ops();
+    let marker_ops = mixed_recovery_marker_ops();
+
+    // Phase 1: seed one shared pre-commit snapshot and apply forward marker mutations.
+    reset_recovery_state();
+    apply_row_ops_forward(seed_ops.as_slice())
+        .expect("seed state apply should succeed for mixed fixture");
+    apply_row_ops_forward(marker_ops.as_slice())
+        .expect("forward apply should succeed for deterministic mixed marker sequence");
+    let forward_snapshot = recovery_store_snapshot();
+
+    // Phase 2: replay the same marker from the same seeded snapshot and compare outcomes.
+    reset_recovery_state();
+    apply_row_ops_forward(seed_ops.as_slice())
+        .expect("seed state apply should succeed before replay marker");
+    let marker =
+        CommitMarker::new(marker_ops).expect("mixed marker sequence should build for replay path");
+    begin_commit(marker).expect("replay marker begin_commit should persist marker");
+    ensure_recovered(&DB).expect("replay marker should recover successfully");
+    let replay_snapshot = recovery_store_snapshot();
+
+    assert_eq!(
+        replay_snapshot, forward_snapshot,
+        "forward apply and replay must converge on identical data/index store state"
+    );
+    assert!(
+        !commit_marker_present().expect("commit marker presence check should succeed"),
+        "successful replay must clear the persisted marker"
+    );
 }
 
 #[test]

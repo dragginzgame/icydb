@@ -46,7 +46,6 @@ where
             continuation_mode,
             route_window,
             probe_fetch_hint,
-            planner_route_profile,
         );
         let kind = intent_stage.kind();
         let count_terminal = kind.is_some_and(AggregateKind::is_count);
@@ -144,14 +143,15 @@ where
         continuation_mode: ContinuationMode,
         route_window: RouteWindowPlan,
         probe_fetch_hint: Option<usize>,
-        planner_route_profile: &PlannerRouteProfile,
     ) -> RouteDerivationContext {
         let aggregate_expr = intent_stage.aggregate_expr.as_ref();
         let grouped = intent_stage.grouped;
         let grouped_plan_strategy_hint = intent_stage.grouped_plan_strategy_hint;
-        let secondary_pushdown_applicability = planner_route_profile
-            .secondary_pushdown_applicability()
-            .clone();
+        let secondary_pushdown_applicability =
+            crate::db::executor::route::derive_secondary_pushdown_applicability_validated(
+                E::MODEL,
+                plan,
+            );
         let direction = aggregate_expr.map_or_else(
             || Self::derive_load_route_direction(plan),
             |aggregate| Self::derive_aggregate_route_direction(plan, aggregate),

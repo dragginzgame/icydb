@@ -18,7 +18,7 @@ pub(in crate::db) use entry::{
 };
 pub(in crate::db) use envelope::{
     KeyEnvelope, anchor_within_envelope, continuation_advanced,
-    continuation_advances_from_ordering, resume_bounds_from_refs,
+    continuation_advances_from_ordering, key_within_envelope, resume_bounds_from_refs,
 };
 pub(in crate::db) use key::{EncodedValue, IndexId, IndexKey, IndexKeyKind, RawIndexKey};
 pub(in crate::db) use pk_equivalence::{PrimaryKeyEquivalenceError, primary_key_matches_value};

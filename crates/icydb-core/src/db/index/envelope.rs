@@ -107,6 +107,22 @@ pub(in crate::db) fn anchor_within_envelope<K: Ord + Clone>(
 }
 
 ///
+/// key_within_envelope
+///
+/// Validate that one key is contained by one canonical bound envelope.
+/// This centralizes inclusive/exclusive bound semantics under index authority.
+///
+#[must_use]
+pub(in crate::db) fn key_within_envelope<K: Ord + Clone>(
+    key: &K,
+    lower: &Bound<K>,
+    upper: &Bound<K>,
+) -> bool {
+    // Envelope containment is direction-agnostic; use one canonical direction.
+    KeyEnvelope::new(Direction::Asc, lower.clone(), upper.clone()).contains(key)
+}
+
+///
 /// KeyEnvelope
 ///
 /// Canonical raw-key envelope with direction-aware continuation semantics.
