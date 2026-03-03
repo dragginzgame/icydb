@@ -210,10 +210,12 @@ mod tests {
         let cases = [
             (ErrorClass::Corruption, ErrorOrigin::Store),
             (ErrorClass::InvariantViolation, ErrorOrigin::Query),
+            (ErrorClass::InvariantViolation, ErrorOrigin::Recovery),
             (ErrorClass::Conflict, ErrorOrigin::Executor),
             (ErrorClass::NotFound, ErrorOrigin::Identity),
             (ErrorClass::Unsupported, ErrorOrigin::Cursor),
             (ErrorClass::Internal, ErrorOrigin::Serialize),
+            (ErrorClass::Internal, ErrorOrigin::Planner),
         ];
 
         for (class, origin) in cases {
@@ -241,5 +243,31 @@ mod tests {
                 if inner.class == ErrorClass::Unsupported
                     && inner.origin == ErrorOrigin::Cursor
         ));
+    }
+
+    #[test]
+    fn planner_internal_mapping_preserves_boundary_origins_for_telemetry_matrix() {
+        let cases = [
+            (ErrorClass::Internal, ErrorOrigin::Planner),
+            (ErrorClass::Unsupported, ErrorOrigin::Cursor),
+            (ErrorClass::InvariantViolation, ErrorOrigin::Recovery),
+            (ErrorClass::Corruption, ErrorOrigin::Identity),
+        ];
+
+        for (class, origin) in cases {
+            let planner_internal =
+                PlannerError::Internal(Box::new(InternalError::classified(class, origin, "matrix")));
+            let query_err = QueryError::from(planner_internal);
+
+            let QueryError::Execute(execute_err) = query_err else {
+                panic!("planner internal errors must map to query execute errors");
+            };
+            assert_execute_variant_for_class(&execute_err, class);
+            assert_eq!(
+                execute_err.as_internal().origin,
+                origin,
+                "planner-internal mapping must preserve telemetry origin for {origin:?}",
+            );
+        }
     }
 }

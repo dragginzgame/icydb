@@ -3,7 +3,10 @@ use crate::{
     serialize::SerializeError,
 };
 
-use super::{MAX_ROW_BYTES, deserialize_row, map_deserialize_error};
+use super::{
+    MAX_ROW_BYTES, deserialize_persisted_payload, deserialize_protocol_payload, deserialize_row,
+    map_deserialize_error,
+};
 
 #[test]
 fn map_deserialize_error_classifies_size_limit_as_corruption() {
@@ -58,5 +61,44 @@ fn map_deserialize_error_uses_stable_kind_labels() {
     assert!(
         serialize_err.message.ends_with(": serialize"),
         "serialize mapping should not depend on backend error text: {serialize_err:?}"
+    );
+}
+
+#[test]
+fn deserialize_protocol_payload_preserves_size_limit_error_for_untrusted_input() {
+    let oversized = vec![0u8; 33];
+    let err = deserialize_protocol_payload::<u8>(&oversized, 32)
+        .expect_err("protocol payload size-limit failures must stay at serialize boundary");
+
+    assert!(
+        matches!(
+            err,
+            SerializeError::DeserializeSizeLimitExceeded {
+                len: 33,
+                max_bytes: 32
+            }
+        ),
+        "protocol decode should preserve deserialize size-limit context: {err:?}"
+    );
+}
+
+#[test]
+fn shared_deserialize_failures_are_classified_by_decode_boundary_context() {
+    let malformed = [0xFF_u8];
+
+    let persisted_err = deserialize_persisted_payload::<u8>(&malformed, 64, "row")
+        .expect_err("persisted malformed payload must fail closed as corruption");
+    assert_eq!(persisted_err.class, ErrorClass::Corruption);
+    assert_eq!(persisted_err.origin, ErrorOrigin::Serialize);
+    assert!(
+        persisted_err.message.ends_with(": deserialize"),
+        "persisted decode should map malformed payloads via stable deserialize label: {persisted_err:?}",
+    );
+
+    let protocol_err = deserialize_protocol_payload::<u8>(&malformed, 64)
+        .expect_err("protocol malformed payload must stay at serialize boundary");
+    assert!(
+        matches!(protocol_err, SerializeError::Deserialize(_)),
+        "protocol decode should preserve deserialize failure kind without corruption remap: {protocol_err:?}",
     );
 }

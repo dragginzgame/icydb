@@ -19,6 +19,7 @@ use crate::{
         predicate::{CompareOp, MissingRowPolicy, Predicate},
         query::{
             builder::field::FieldRef,
+            explain::{ExplainGroupedStrategy, ExplainGrouping},
             intent::{KeyAccess, LoadSpec, QueryMode, access_plan_from_keys_value},
             plan::OrderDirection,
             plan::{
@@ -340,6 +341,35 @@ fn continuation_decode_remains_stable_for_alias_only_numeric_projection_changes(
     assert_eq!(
         decoded.last_group_key(),
         Some(vec![Value::Uint(7)].as_slice())
+    );
+}
+
+#[test]
+fn continuation_signature_changes_when_grouped_strategy_changes() {
+    let mut hash_strategy = grouped_explain_with_fixed_shape();
+    let mut ordered_strategy = hash_strategy.clone();
+
+    let ExplainGrouping::Grouped {
+        strategy: hash_value,
+        ..
+    } = &mut hash_strategy.grouping
+    else {
+        panic!("grouped explain fixture must produce grouped explain shape");
+    };
+    *hash_value = ExplainGroupedStrategy::HashGroup;
+    let ExplainGrouping::Grouped {
+        strategy: ordered_value,
+        ..
+    } = &mut ordered_strategy.grouping
+    else {
+        panic!("grouped explain fixture must produce grouped explain shape");
+    };
+    *ordered_value = ExplainGroupedStrategy::OrderedGroup;
+
+    assert_ne!(
+        hash_strategy.continuation_signature("tests::Entity"),
+        ordered_strategy.continuation_signature("tests::Entity"),
+        "grouped continuation signatures must remain strategy-sensitive for resume compatibility",
     );
 }
 

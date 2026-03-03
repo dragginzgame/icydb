@@ -4,6 +4,13 @@ use crate::db::{
     direction::Direction,
 };
 
+// Extract the cursor-domain taxonomy from executor plan-surface failures.
+fn unwrap_cursor_plan_error(err: crate::db::executor::ExecutorPlanError) -> CursorPlanError {
+    match err {
+        crate::db::executor::ExecutorPlanError::Cursor(inner) => *inner,
+    }
+}
+
 #[test]
 fn load_cursor_rejects_version_mismatch_at_plan_time() {
     let plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
@@ -632,4 +639,306 @@ fn grouped_cursor_rejects_cross_shape_resume_token_when_distinct_aggregate_chang
         ),
         "grouped resume must fail when aggregate DISTINCT shape differs"
     );
+}
+
+#[test]
+#[expect(clippy::too_many_lines)]
+fn grouped_and_scalar_cursor_mismatch_matrix_preserves_contract_parity() {
+    // Phase 1: build one scalar plan and one grouped plan with identical pagination windows.
+    let scalar_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
+        .order_by("rank")
+        .limit(1)
+        .offset(2)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("scalar plan should build");
+    let grouped_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .group_by("group")
+        .expect("grouped plan should build")
+        .aggregate(crate::db::count())
+        .limit(1)
+        .offset(2)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("grouped plan should build");
+
+    // Phase 2: assert unsupported-version parity across scalar and grouped cursors.
+    let scalar_boundary = CursorBoundary {
+        slots: vec![
+            CursorBoundarySlot::Present(Value::Uint(10)),
+            CursorBoundarySlot::Present(Value::Ulid(Ulid::from_u128(9001))),
+        ],
+    };
+    let scalar_version_cursor = ContinuationToken::new_with_direction(
+        scalar_plan.continuation_signature(),
+        scalar_boundary.clone(),
+        Direction::Asc,
+        2,
+    )
+    .encode_with_version_for_test(9)
+    .expect("scalar unsupported-version cursor should encode");
+    let grouped_version_cursor = GroupedContinuationToken::new_with_direction(
+        grouped_plan.continuation_signature(),
+        vec![Value::Uint(7)],
+        Direction::Asc,
+        2,
+    )
+    .encode_with_version_for_test(9)
+    .expect("grouped unsupported-version cursor should encode");
+    let scalar_version_err = unwrap_cursor_plan_error(
+        scalar_plan
+            .prepare_cursor(Some(scalar_version_cursor.as_slice()))
+            .expect_err("scalar unsupported version must fail"),
+    );
+    let grouped_version_err = unwrap_cursor_plan_error(
+        grouped_plan
+            .prepare_grouped_cursor(Some(grouped_version_cursor.as_slice()))
+            .expect_err("grouped unsupported version must fail"),
+    );
+    assert!(
+        matches!(
+            scalar_version_err,
+            CursorPlanError::ContinuationCursorVersionMismatch { version: 9 }
+        ),
+        "scalar mismatch matrix must keep unsupported-version mapping explicit"
+    );
+    assert!(
+        matches!(
+            grouped_version_err,
+            CursorPlanError::ContinuationCursorVersionMismatch { version: 9 }
+        ),
+        "grouped mismatch matrix must keep unsupported-version mapping explicit"
+    );
+
+    // Phase 3: assert signature-mismatch parity across scalar and grouped plan-shape drift.
+    let scalar_drift_target = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
+        .order_by("label")
+        .limit(1)
+        .offset(2)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("scalar drift target should build");
+    let scalar_signature_cursor = ContinuationToken::new_with_direction(
+        scalar_plan.continuation_signature(),
+        scalar_boundary,
+        Direction::Asc,
+        2,
+    )
+    .encode()
+    .expect("scalar signature cursor should encode");
+    let scalar_signature_err = unwrap_cursor_plan_error(
+        scalar_drift_target
+            .prepare_cursor(Some(scalar_signature_cursor.as_slice()))
+            .expect_err("scalar plan-shape drift must fail"),
+    );
+
+    let grouped_drift_target = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .group_by("rank")
+        .expect("grouped drift target should build")
+        .aggregate(crate::db::count())
+        .limit(1)
+        .offset(2)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("grouped drift target should build");
+    let grouped_signature_cursor = GroupedContinuationToken::new_with_direction(
+        grouped_plan.continuation_signature(),
+        vec![Value::Uint(7)],
+        Direction::Asc,
+        2,
+    )
+    .encode()
+    .expect("grouped signature cursor should encode");
+    let grouped_signature_err = unwrap_cursor_plan_error(
+        grouped_drift_target
+            .prepare_grouped_cursor(Some(grouped_signature_cursor.as_slice()))
+            .expect_err("grouped plan-shape drift must fail"),
+    );
+    assert!(
+        matches!(
+            scalar_signature_err,
+            CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+        ),
+        "scalar mismatch matrix must keep signature-mismatch mapping explicit"
+    );
+    assert!(
+        matches!(
+            grouped_signature_err,
+            CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+        ),
+        "grouped mismatch matrix must keep signature-mismatch mapping explicit"
+    );
+
+    // Phase 4: assert offset-window mismatch parity across scalar and grouped cursors.
+    let scalar_window_cursor = ContinuationToken::new_with_direction(
+        scalar_plan.continuation_signature(),
+        CursorBoundary {
+            slots: vec![
+                CursorBoundarySlot::Present(Value::Uint(10)),
+                CursorBoundarySlot::Present(Value::Ulid(Ulid::from_u128(9002))),
+            ],
+        },
+        Direction::Asc,
+        0,
+    )
+    .encode()
+    .expect("scalar window-mismatch cursor should encode");
+    let grouped_window_cursor = GroupedContinuationToken::new_with_direction(
+        grouped_plan.continuation_signature(),
+        vec![Value::Uint(7)],
+        Direction::Asc,
+        0,
+    )
+    .encode()
+    .expect("grouped window-mismatch cursor should encode");
+    let scalar_window_err = unwrap_cursor_plan_error(
+        scalar_plan
+            .prepare_cursor(Some(scalar_window_cursor.as_slice()))
+            .expect_err("scalar window mismatch must fail"),
+    );
+    let grouped_window_err = unwrap_cursor_plan_error(
+        grouped_plan
+            .prepare_grouped_cursor(Some(grouped_window_cursor.as_slice()))
+            .expect_err("grouped window mismatch must fail"),
+    );
+    assert!(
+        matches!(
+            scalar_window_err,
+            CursorPlanError::ContinuationCursorWindowMismatch {
+                expected_offset: 2,
+                actual_offset: 0
+            }
+        ),
+        "scalar mismatch matrix must keep window-mismatch mapping explicit"
+    );
+    assert!(
+        matches!(
+            grouped_window_err,
+            CursorPlanError::ContinuationCursorWindowMismatch {
+                expected_offset: 2,
+                actual_offset: 0
+            }
+        ),
+        "grouped mismatch matrix must keep window-mismatch mapping explicit"
+    );
+}
+
+#[test]
+#[expect(clippy::too_many_lines)]
+fn continuation_resume_tokens_fail_closed_on_scalar_and_grouped_shape_drift_matrix() {
+    // Phase 1: mint one scalar resume token from the source semantic shape.
+    let scalar_source = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
+        .order_by("rank")
+        .limit(1)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("scalar source plan should build");
+    let scalar_cursor = ContinuationToken::new_with_direction(
+        scalar_source.continuation_signature(),
+        CursorBoundary {
+            slots: vec![
+                CursorBoundarySlot::Present(Value::Uint(10)),
+                CursorBoundarySlot::Present(Value::Ulid(Ulid::from_u128(9101))),
+            ],
+        },
+        Direction::Asc,
+        0,
+    )
+    .encode()
+    .expect("scalar source cursor should encode");
+
+    // Phase 2: assert scalar resume invalidation across independent shape drifts.
+    for (case_name, scalar_target) in [
+        (
+            "scalar_order_field_drift",
+            Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
+                .order_by("label")
+                .limit(1)
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("scalar order-drift target plan should build"),
+        ),
+        (
+            "scalar_distinct_flag_drift",
+            Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
+                .order_by("rank")
+                .distinct()
+                .limit(1)
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("scalar distinct-drift target plan should build"),
+        ),
+    ] {
+        let err = unwrap_cursor_plan_error(
+            scalar_target
+                .prepare_cursor(Some(scalar_cursor.as_slice()))
+                .expect_err("scalar shape drift must reject stale continuation token"),
+        );
+        assert!(
+            matches!(
+                err,
+                CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+            ),
+            "scalar continuation invalidation must fail closed on shape drift ({case_name})"
+        );
+    }
+
+    // Phase 3: mint one grouped resume token from the source grouped shape.
+    let grouped_source = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .group_by("group")
+        .expect("grouped source query should build")
+        .aggregate(crate::db::count())
+        .limit(1)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("grouped source plan should build");
+    let grouped_cursor = GroupedContinuationToken::new_with_direction(
+        grouped_source.continuation_signature(),
+        vec![Value::Uint(7)],
+        Direction::Asc,
+        0,
+    )
+    .encode()
+    .expect("grouped source cursor should encode");
+
+    // Phase 4: assert grouped resume invalidation across independent shape drifts.
+    for (case_name, grouped_target) in [
+        (
+            "grouped_having_clause_drift",
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .group_by("group")
+                .expect("grouped having-drift target query should build")
+                .aggregate(crate::db::count())
+                .limit(1)
+                .having_aggregate(0, CompareOp::Gt, Value::Uint(1))
+                .expect("grouped having-drift target clause should build")
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("grouped having-drift target plan should build"),
+        ),
+        (
+            "grouped_distinct_aggregate_drift",
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .group_by("group")
+                .expect("grouped distinct-drift target query should build")
+                .aggregate(crate::db::count().distinct())
+                .limit(1)
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("grouped distinct-drift target plan should build"),
+        ),
+    ] {
+        let err = unwrap_cursor_plan_error(
+            grouped_target
+                .prepare_grouped_cursor(Some(grouped_cursor.as_slice()))
+                .expect_err("grouped shape drift must reject stale continuation token"),
+        );
+        assert!(
+            matches!(
+                err,
+                CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+            ),
+            "grouped continuation invalidation must fail closed on shape drift ({case_name})"
+        );
+    }
 }

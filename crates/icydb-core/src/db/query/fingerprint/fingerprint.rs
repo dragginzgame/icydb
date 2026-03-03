@@ -93,12 +93,16 @@ mod tests {
 
     use crate::db::access::AccessPath;
     use crate::db::predicate::{MissingRowPolicy, Predicate};
+    use crate::db::query::explain::{ExplainGroupedStrategy, ExplainGrouping};
     use crate::db::query::fingerprint::hash_parts;
     use crate::db::query::intent::{DeleteSpec, KeyAccess, LoadSpec, access_plan_from_keys_value};
     use crate::db::query::plan::expr::{
         Alias, BinaryOp, Expr, FieldId, ProjectionField, ProjectionSpec,
     };
-    use crate::db::query::plan::{AccessPlannedQuery, DeleteLimitSpec, LogicalPlan, PageSpec};
+    use crate::db::query::plan::{
+        AccessPlannedQuery, AggregateKind, DeleteLimitSpec, FieldSlot, GroupAggregateSpec,
+        GroupSpec, GroupedExecutionConfig, LogicalPlan, PageSpec,
+    };
     use crate::db::query::{builder::field::FieldRef, builder::sum, intent::QueryMode};
     use crate::model::index::IndexModel;
     use crate::types::{Decimal, Ulid};
@@ -146,6 +150,20 @@ mod tests {
             AccessPath::index_range(index, prefix, lower, upper),
             MissingRowPolicy::Ignore,
         )
+    }
+
+    fn grouped_explain_with_fixed_shape() -> crate::db::query::explain::ExplainPlan {
+        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+            .into_grouped(GroupSpec {
+                group_fields: vec![FieldSlot::from_parts_for_test(1, "rank")],
+                aggregates: vec![GroupAggregateSpec {
+                    kind: AggregateKind::Count,
+                    target_field: None,
+                    distinct: false,
+                }],
+                execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
+            })
+            .explain()
     }
 
     #[test]
@@ -411,6 +429,33 @@ mod tests {
     }
 
     #[test]
+    fn fingerprint_commutative_operand_order_remains_significant_without_ast_normalization() {
+        let plan: AccessPlannedQuery<Value> = full_scan_query();
+        let rank_plus_score = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+            expr: Expr::Binary {
+                op: BinaryOp::Add,
+                left: Box::new(Expr::Field(FieldId::new("rank"))),
+                right: Box::new(Expr::Field(FieldId::new("score"))),
+            },
+            alias: None,
+        }]);
+        let score_plus_rank = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+            expr: Expr::Binary {
+                op: BinaryOp::Add,
+                left: Box::new(Expr::Field(FieldId::new("score"))),
+                right: Box::new(Expr::Field(FieldId::new("rank"))),
+            },
+            alias: None,
+        }]);
+
+        assert_ne!(
+            fingerprint_with_projection(&plan, &rank_plus_score),
+            fingerprint_with_projection(&plan, &score_plus_rank),
+            "fingerprint preserves AST operand order for commutative operators in v2",
+        );
+    }
+
+    #[test]
     fn fingerprint_aggregate_numeric_target_field_remains_significant() {
         let plan: AccessPlannedQuery<Value> = full_scan_query();
         let sum_rank = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
@@ -542,5 +587,34 @@ mod tests {
         );
 
         assert_ne!(plan_low_100.fingerprint(), plan_low_101.fingerprint());
+    }
+
+    #[test]
+    fn explain_fingerprint_grouped_strategy_only_change_does_not_invalidate() {
+        let mut hash_strategy = grouped_explain_with_fixed_shape();
+        let mut ordered_strategy = hash_strategy.clone();
+
+        let ExplainGrouping::Grouped {
+            strategy: hash_value,
+            ..
+        } = &mut hash_strategy.grouping
+        else {
+            panic!("grouped explain fixture must produce grouped explain shape");
+        };
+        *hash_value = ExplainGroupedStrategy::HashGroup;
+        let ExplainGrouping::Grouped {
+            strategy: ordered_value,
+            ..
+        } = &mut ordered_strategy.grouping
+        else {
+            panic!("grouped explain fixture must produce grouped explain shape");
+        };
+        *ordered_value = ExplainGroupedStrategy::OrderedGroup;
+
+        assert_eq!(
+            hash_strategy.fingerprint(),
+            ordered_strategy.fingerprint(),
+            "execution strategy hints are explain/runtime metadata and must not affect semantic fingerprint identity",
+        );
     }
 }

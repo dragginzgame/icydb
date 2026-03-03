@@ -1,5 +1,8 @@
 use super::*;
-use crate::db::query::plan::validate::GroupPlanError;
+use crate::db::{
+    cursor::CursorPlanError,
+    query::plan::validate::{GroupPlanError, OrderPlanError, PlanPolicyError, PlanUserError},
+};
 
 #[test]
 fn index_plan_index_corruption_uses_index_origin() {
@@ -79,6 +82,56 @@ fn group_plan_error_mapping_uses_invalid_logical_plan_prefix() {
     assert_eq!(
         err.message,
         "invalid logical plan: unknown group field 'tenant'",
+    );
+}
+
+#[test]
+fn group_plan_error_mapping_rejects_non_group_user_variant() {
+    let err = InternalError::from_group_plan_error(PlanError::from(PlanUserError::Order(
+        Box::new(OrderPlanError::UnknownField {
+            field: "tenant".to_string(),
+        }),
+    )));
+
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Planner);
+    assert!(
+        err.message
+            .contains("group-plan error conversion received non-group user variant"),
+        "non-group user variant mapping should fail closed with explicit domain message: {err:?}",
+    );
+}
+
+#[test]
+fn group_plan_error_mapping_rejects_non_group_policy_variant() {
+    let err = InternalError::from_group_plan_error(PlanError::from(PlanPolicyError::Policy(
+        Box::new(PolicyPlanError::UnorderedPagination),
+    )));
+
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Planner);
+    assert!(
+        err.message
+            .contains("group-plan error conversion received non-group policy variant"),
+        "non-group policy variant mapping should fail closed with explicit domain message: {err:?}",
+    );
+}
+
+#[test]
+fn group_plan_error_mapping_rejects_cursor_variant() {
+    let err = InternalError::from_group_plan_error(PlanError::from(
+        CursorPlanError::ContinuationCursorWindowMismatch {
+            expected_offset: 8,
+            actual_offset: 3,
+        },
+    ));
+
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Planner);
+    assert!(
+        err.message
+            .contains("group-plan error conversion received cursor variant"),
+        "cursor variant mapping should fail closed with explicit domain message: {err:?}",
     );
 }
 

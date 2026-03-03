@@ -142,14 +142,15 @@ impl<'a> AggregateReducerDispatch<'a> {
 }
 
 impl ExecutionKernel {
-    // Validate aggregate spec compatibility at the executor boundary so
-    // unsupported user shapes fail before route/scan work.
-    fn validate_scalar_aggregate_spec_supported(
+    // Validate aggregate spec contract at the executor boundary.
+    // Planner owns semantic aggregate-shape validation; executor only fails
+    // closed when a bypassed shape violates the terminal contract.
+    fn validate_scalar_aggregate_spec_invariant(
         aggregate: &AggregateExpr,
     ) -> Result<(), InternalError> {
         if aggregate.target_field().is_some() && !aggregate.kind().supports_field_targets() {
-            return Err(InternalError::executor_unsupported(format!(
-                "field-target aggregate is only supported for min/max terminals: found {:?}",
+            return Err(InternalError::query_executor_invariant(format!(
+                "field-target aggregate requires MIN/MAX terminal after planning: found {:?}",
                 aggregate.kind()
             )));
         }
@@ -384,7 +385,7 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
-        Self::validate_scalar_aggregate_spec_supported(&aggregate)?;
+        Self::validate_scalar_aggregate_spec_invariant(&aggregate)?;
 
         // Scalar terminal execution boundary.
         Self::execute_scalar_terminal_stage(executor, plan, aggregate)

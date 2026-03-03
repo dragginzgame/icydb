@@ -2,7 +2,7 @@
 mod tests;
 
 #[cfg(test)]
-use crate::db::query::plan::{PlanError, PolicyPlanError};
+use crate::db::query::plan::{PlanError, PlanPolicyError, PlanUserError, PolicyPlanError};
 use crate::{
     db::{access::AccessPlanError, cursor::CursorPlanError},
     patch::MergePatchError,
@@ -448,20 +448,26 @@ impl InternalError {
     /// Map grouped plan failures into query-boundary invariants.
     #[cfg(test)]
     pub(crate) fn from_group_plan_error(err: PlanError) -> Self {
-        let message = match &err {
-            PlanError::User(inner) => match inner.as_ref() {
-                crate::db::query::plan::PlanUserError::Group(inner) => {
-                    format!("invalid logical plan: {inner}")
+        let message = match err {
+            PlanError::User(inner) => match *inner {
+                PlanUserError::Group(inner) => {
+                    Self::invalid_logical_plan_message(inner.to_string())
                 }
-                _ => err.to_string(),
-            },
-            PlanError::Policy(inner) => match inner.as_ref() {
-                crate::db::query::plan::PlanPolicyError::Group(inner) => {
-                    format!("invalid logical plan: {inner}")
+                other => {
+                    format!("group-plan error conversion received non-group user variant: {other}")
                 }
-                crate::db::query::plan::PlanPolicyError::Policy(_) => err.to_string(),
             },
-            PlanError::Cursor(_) => err.to_string(),
+            PlanError::Policy(inner) => match *inner {
+                PlanPolicyError::Group(inner) => {
+                    Self::invalid_logical_plan_message(inner.to_string())
+                }
+                PlanPolicyError::Policy(inner) => format!(
+                    "group-plan error conversion received non-group policy variant: {inner}"
+                ),
+            },
+            PlanError::Cursor(inner) => {
+                format!("group-plan error conversion received cursor variant: {inner}")
+            }
         };
 
         Self::planner_invariant(message)

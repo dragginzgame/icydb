@@ -88,6 +88,8 @@ fn hash_expr_v1(hasher: &mut Sha256, expr: &Expr, numeric_literal_context: bool)
         Expr::Binary { op, left, right } => {
             write_tag(hasher, 0x23);
             write_tag(hasher, binary_op_tag_v1(*op));
+            // Expression hashing preserves AST operand order. Commutative
+            // normalization is intentionally out-of-scope for v1 identity.
             let binary_numeric_literal_context =
                 numeric_literal_context || binary_op_uses_numeric_widen_semantics(*op);
             hash_expr_v1(hasher, left.as_ref(), binary_numeric_literal_context);
@@ -368,6 +370,32 @@ mod tests {
 
         assert_eq!(hash_int_plus_int, hash_int_plus_decimal);
         assert_eq!(hash_int_plus_int, hash_decimal_plus_int);
+    }
+
+    #[test]
+    fn commutative_operand_order_remains_hash_significant_without_ast_normalization() {
+        let rank_plus_score = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+            expr: Expr::Binary {
+                op: BinaryOp::Add,
+                left: Box::new(Expr::Field(FieldId::new("rank"))),
+                right: Box::new(Expr::Field(FieldId::new("score"))),
+            },
+            alias: None,
+        }]);
+        let score_plus_rank = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+            expr: Expr::Binary {
+                op: BinaryOp::Add,
+                left: Box::new(Expr::Field(FieldId::new("score"))),
+                right: Box::new(Expr::Field(FieldId::new("rank"))),
+            },
+            alias: None,
+        }]);
+
+        assert_ne!(
+            hash_projection(&rank_plus_score),
+            hash_projection(&score_plus_rank),
+            "projection hash preserves AST operand order for commutative operators in v1",
+        );
     }
 
     #[test]

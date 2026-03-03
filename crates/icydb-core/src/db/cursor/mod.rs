@@ -134,15 +134,45 @@ pub(in crate::db) fn decode_pk_cursor_boundary<E>(
 where
     E: EntityKind,
 {
-    decode_pk_boundary::<E>(boundary).map_err(|err| match err {
+    decode_pk_boundary::<E>(boundary).map_err(map_pk_cursor_decode_error)
+}
+
+// Map cursor decode variants into explicit pk-cursor invariant taxonomy.
+// This keeps variant/domain ownership explicit and avoids fallback conversion.
+fn map_pk_cursor_decode_error(err: CursorPlanError) -> InternalError {
+    match err {
+        CursorPlanError::InvalidContinuationCursor { reason } => invariant(format!(
+            "pk cursor decode rejected invalid continuation cursor: {reason}"
+        )),
+        CursorPlanError::InvalidContinuationCursorPayload { reason } => invariant(format!(
+            "pk cursor decode rejected invalid continuation payload: {reason}"
+        )),
+        CursorPlanError::ContinuationCursorVersionMismatch { version } => invariant(format!(
+            "pk cursor decode rejected unsupported continuation version: {version}"
+        )),
+        CursorPlanError::ContinuationCursorSignatureMismatch { .. } => {
+            invariant("pk cursor decode encountered continuation signature mismatch")
+        }
+        CursorPlanError::ContinuationCursorBoundaryArityMismatch { expected, found } => invariant(
+            format!("pk cursor boundary arity mismatch: expected {expected}, found {found}"),
+        ),
+        CursorPlanError::ContinuationCursorWindowMismatch {
+            expected_offset,
+            actual_offset,
+        } => invariant(format!(
+            "pk cursor window mismatch: expected_offset={expected_offset}, actual_offset={actual_offset}"
+        )),
+        CursorPlanError::ContinuationCursorBoundaryTypeMismatch { field, .. } => invariant(
+            format!("pk cursor boundary type mismatch on field '{field}'"),
+        ),
         CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch { value: None, .. } => {
             invariant("pk cursor slot must be present")
         }
         CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch { value: Some(_), .. } => {
             invariant("pk cursor slot type mismatch")
         }
-        _ => invariant(err.to_string()),
-    })
+        CursorPlanError::ContinuationCursorInvariantViolation { reason } => invariant(reason),
+    }
 }
 
 // Resolve cursor ordering for plan-surface decoding and executor revalidation.

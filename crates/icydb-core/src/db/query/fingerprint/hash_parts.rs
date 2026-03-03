@@ -238,7 +238,7 @@ pub(in crate::db::query) enum ExplainHashProfile<'a> {
     ContinuationV1 { entity_path: &'a str },
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ExplainHashField {
     EntityPath,
     Mode,
@@ -253,7 +253,7 @@ enum ExplainHashField {
     ProjectionSpecV1,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct ExplainHashStep {
     section_tag: u8,
     field: ExplainHashField,
@@ -359,6 +359,7 @@ fn hash_explain_field(
     field: ExplainHashField,
     entity_path: Option<&str>,
     projection: Option<&ProjectionSpec>,
+    include_group_strategy: bool,
 ) {
     match field {
         ExplainHashField::EntityPath => {
@@ -373,9 +374,11 @@ fn hash_explain_field(
         ExplainHashField::Page => hash_page(hasher, &plan.page),
         ExplainHashField::DeleteLimit => hash_delete_limit(hasher, &plan.delete_limit),
         ExplainHashField::Consistency => hash_consistency(hasher, plan.consistency),
-        ExplainHashField::GroupingShapeV1 => hash_grouping_shape_v1(hasher, &plan.grouping),
+        ExplainHashField::GroupingShapeV1 => {
+            hash_grouping_shape_v1(hasher, &plan.grouping, include_group_strategy);
+        }
         ExplainHashField::ProjectionSpecV1 => {
-            hash_projection_spec_v1(hasher, projection, &plan.grouping);
+            hash_projection_spec_v1(hasher, projection, &plan.grouping, include_group_strategy);
         }
     }
 }
@@ -407,9 +410,17 @@ fn hash_explain_plan_profile_internal(
 ) {
     // Apply selected hash profile in declared order to preserve determinism.
     let spec = profile.spec();
+    let include_group_strategy = spec.entity_path.is_some();
     for step in spec.steps {
         write_tag(hasher, step.section_tag);
-        hash_explain_field(hasher, plan, step.field, spec.entity_path, projection);
+        hash_explain_field(
+            hasher,
+            plan,
+            step.field,
+            spec.entity_path,
+            projection,
+            include_group_strategy,
+        );
     }
 }
 
@@ -457,7 +468,11 @@ fn hash_consistency(hasher: &mut Sha256, consistency: MissingRowPolicy) {
 
 // Grouped shape semantics that remain part of continuation identity independent
 // from projection expression hashing.
-fn hash_grouping_shape_v1(hasher: &mut Sha256, grouping: &ExplainGrouping) {
+fn hash_grouping_shape_v1(
+    hasher: &mut Sha256,
+    grouping: &ExplainGrouping,
+    include_group_strategy: bool,
+) {
     match grouping {
         ExplainGrouping::None => write_tag(hasher, 0x70),
         ExplainGrouping::Grouped {
@@ -468,10 +483,12 @@ fn hash_grouping_shape_v1(hasher: &mut Sha256, grouping: &ExplainGrouping) {
             max_groups,
             max_group_bytes,
         } => {
-            // Grouped continuation identity includes grouped key/aggregate ordering,
-            // grouped HAVING semantics, and grouped budget policy.
+            // Grouped identity includes grouped key/aggregate ordering, grouped
+            // HAVING semantics, and grouped budget policy.
             write_tag(hasher, 0x71);
-            hash_grouped_strategy(hasher, *strategy);
+            if include_group_strategy {
+                hash_grouped_strategy(hasher, *strategy);
+            }
             write_u32(hasher, group_fields.len() as u32);
             for field in group_fields {
                 // Hash declared group field order using stable slot identity first,
@@ -503,6 +520,7 @@ fn hash_projection_spec_v1(
     hasher: &mut Sha256,
     projection: Option<&ProjectionSpec>,
     grouping: &ExplainGrouping,
+    include_group_strategy: bool,
 ) {
     // Explain-only hashing callsites may not have planner projection semantics.
     // In that case, preserve grouped-shape identity semantics.
@@ -511,7 +529,7 @@ fn hash_projection_spec_v1(
         return;
     }
 
-    hash_grouping_shape_v1(hasher, grouping);
+    hash_grouping_shape_v1(hasher, grouping, include_group_strategy);
 }
 
 fn hash_grouped_strategy(hasher: &mut Sha256, strategy: ExplainGroupedStrategy) {
@@ -552,4 +570,65 @@ fn hash_group_having_clause(hasher: &mut Sha256, clause: &ExplainGroupHavingClau
 
 fn write_u64(hasher: &mut Sha256, value: u64) {
     hasher.update(value.to_be_bytes());
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        CONTINUATION_V1_STEPS, ExplainHashField, ExplainHashProfile, FINGERPRINT_V2_STEPS,
+    };
+
+    #[test]
+    fn fingerprint_v2_profile_excludes_grouping_shape_field() {
+        let has_grouping_shape = FINGERPRINT_V2_STEPS
+            .iter()
+            .any(|step| step.field == ExplainHashField::GroupingShapeV1);
+
+        assert!(
+            !has_grouping_shape,
+            "FingerprintV2 must remain semantic and exclude grouped strategy/handoff metadata fields",
+        );
+    }
+
+    #[test]
+    fn continuation_v1_profile_includes_grouping_shape_field() {
+        let has_grouping_shape = CONTINUATION_V1_STEPS
+            .iter()
+            .any(|step| step.field == ExplainHashField::GroupingShapeV1);
+
+        assert!(
+            has_grouping_shape,
+            "ContinuationV1 must remain grouped-shape aware for resume compatibility",
+        );
+    }
+
+    #[test]
+    fn fingerprint_v2_profile_projection_slot_is_stable() {
+        let projection_slots = FINGERPRINT_V2_STEPS
+            .iter()
+            .filter(|step| step.field == ExplainHashField::ProjectionSpecV1)
+            .count();
+
+        assert_eq!(
+            projection_slots, 1,
+            "FingerprintV2 must keep exactly one projection-semantic hash slot",
+        );
+    }
+
+    #[test]
+    fn continuation_v1_profile_declares_entity_path_contract_slot() {
+        let spec = ExplainHashProfile::ContinuationV1 {
+            entity_path: "tests::Entity",
+        }
+        .spec();
+
+        assert!(
+            spec.entity_path.is_some(),
+            "ContinuationV1 must remain entity-path aware for cursor signature isolation",
+        );
+    }
 }

@@ -1,12 +1,15 @@
 use crate::{
     db::{
+        codec::cursor::CursorDecodeError,
         cursor::{
             ContinuationSignature, CursorPlanError, GroupedContinuationToken,
-            prepare_grouped_cursor, revalidate_grouped_cursor, validate_grouped_cursor_order_plan,
+            map_pk_cursor_decode_error, prepare_grouped_cursor, revalidate_grouped_cursor,
+            validate_grouped_cursor_order_plan,
         },
         direction::Direction,
         query::plan::{OrderDirection, OrderSpec},
     },
+    error::{ErrorClass, ErrorOrigin},
     value::Value,
 };
 
@@ -185,4 +188,67 @@ fn revalidate_grouped_cursor_rejects_offset_mismatch() {
             actual_offset,
         } if expected_offset == token.initial_offset() + 1 && actual_offset == token.initial_offset()
     ));
+}
+
+#[test]
+fn pk_cursor_decode_error_mapping_is_explicit_for_all_cursor_variants() {
+    let cases = vec![
+        CursorPlanError::InvalidContinuationCursor {
+            reason: CursorDecodeError::OddLength,
+        },
+        CursorPlanError::InvalidContinuationCursorPayload {
+            reason: "payload type mismatch".to_string(),
+        },
+        CursorPlanError::ContinuationCursorVersionMismatch { version: 9 },
+        CursorPlanError::ContinuationCursorSignatureMismatch {
+            entity_path: "tests::Entity",
+            expected: "aa".to_string(),
+            actual: "bb".to_string(),
+        },
+        CursorPlanError::ContinuationCursorBoundaryArityMismatch {
+            expected: 2,
+            found: 1,
+        },
+        CursorPlanError::ContinuationCursorWindowMismatch {
+            expected_offset: 8,
+            actual_offset: 3,
+        },
+        CursorPlanError::ContinuationCursorBoundaryTypeMismatch {
+            field: "id".to_string(),
+            expected: "Ulid".to_string(),
+            value: Value::Text("x".to_string()),
+        },
+        CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
+            field: "id".to_string(),
+            expected: "Ulid".to_string(),
+            value: None,
+        },
+        CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
+            field: "id".to_string(),
+            expected: "Ulid".to_string(),
+            value: Some(Value::Text("x".to_string())),
+        },
+        CursorPlanError::ContinuationCursorInvariantViolation {
+            reason: "runtime cursor contract violated".to_string(),
+        },
+    ];
+
+    for err in cases {
+        let mapped = map_pk_cursor_decode_error(err);
+
+        assert_eq!(
+            mapped.class,
+            ErrorClass::InvariantViolation,
+            "pk cursor decode mapping must remain invariant-classed",
+        );
+        assert_eq!(
+            mapped.origin,
+            ErrorOrigin::Cursor,
+            "pk cursor decode mapping must remain cursor-origin",
+        );
+        assert!(
+            mapped.message.starts_with("executor invariant violated:"),
+            "pk cursor decode mapping must preserve canonical executor-invariant prefix: {mapped:?}",
+        );
+    }
 }

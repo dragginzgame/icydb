@@ -25,7 +25,7 @@ fn aggregate_parity_matrix_harness_covers_all_id_terminals() {
 }
 
 #[test]
-fn aggregate_spec_field_target_non_extrema_surfaces_unsupported_taxonomy() {
+fn aggregate_spec_field_target_non_extrema_is_executor_invariant_only_when_planner_is_bypassed() {
     seed_pushdown_entities(&[(8_021, 7, 10), (8_022, 7, 20), (8_023, 7, 30)]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
@@ -41,18 +41,19 @@ fn aggregate_spec_field_target_non_extrema_surfaces_unsupported_taxonomy() {
         )
     });
     let Err(err) = result else {
-        panic!("field-target COUNT should be rejected by unsupported taxonomy");
+        panic!("bypassed field-target COUNT should fail with executor invariant");
     };
 
-    assert_eq!(err.class, ErrorClass::Unsupported);
-    assert_eq!(err.origin, ErrorOrigin::Executor);
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Query);
     assert_eq!(
         scanned, 0,
-        "unsupported field-target COUNT should fail before any scan-budget consumption"
+        "bypassed field-target COUNT should fail before any scan-budget consumption"
     );
     assert!(
-        err.message.contains("only supported for min/max terminals"),
-        "field-target non-extrema taxonomy should be explicit: {err:?}"
+        err.message
+            .contains("field-target aggregate requires MIN/MAX terminal after planning"),
+        "bypassed field-target non-extrema shape should fail with executor invariant taxonomy: {err:?}"
     );
 }
 
@@ -1304,5 +1305,49 @@ fn grouped_scalar_distinct_policy_violation_is_executor_invariant_only_when_plan
         err.message
             .contains("grouped DISTINCT requires adjacency-based ordered-group eligibility proof in this release"),
         "bypassed grouped scalar DISTINCT policy violation should fail with planner-policy invariant text: {err:?}",
+    );
+}
+
+#[test]
+fn grouped_field_target_aggregate_is_executor_invariant_only_when_planner_is_bypassed() {
+    seed_pushdown_entities(&[(8_1241, 7, 10), (8_1242, 7, 20), (8_1243, 7, 30)]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let grouped = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore)
+        .into_grouped(crate::db::query::plan::GroupSpec {
+            group_fields: vec![
+                crate::db::query::plan::FieldSlot::resolve(
+                    <PushdownParityEntity as crate::traits::EntitySchema>::MODEL,
+                    "group",
+                )
+                .expect("group field should resolve for bypass fixture"),
+            ],
+            aggregates: vec![crate::db::query::plan::GroupAggregateSpec {
+                kind: crate::db::query::plan::AggregateKind::Min,
+                target_field: Some("rank".to_string()),
+                distinct: false,
+            }],
+            execution: crate::db::query::plan::GroupedExecutionConfig::unbounded(),
+        });
+    let plan = crate::db::executor::ExecutablePlan::<PushdownParityEntity>::new(grouped);
+
+    let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+        load.execute_grouped_paged_with_cursor_traced(
+            plan,
+            crate::db::cursor::GroupedPlannedCursor::none(),
+        )
+    });
+    let err = result
+        .expect_err("bypassed grouped field-target aggregate should fail with executor invariant");
+
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Query);
+    assert_eq!(
+        scanned, 0,
+        "bypassed grouped field-target aggregate should fail before scan-budget consumption",
+    );
+    assert!(
+        err.message
+            .contains("grouped field-target aggregate reached executor after planning"),
+        "bypassed grouped field-target aggregate should fail with executor invariant taxonomy: {err:?}",
     );
 }
