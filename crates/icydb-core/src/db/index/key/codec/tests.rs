@@ -797,6 +797,7 @@ fn index_key_pk_terminal_tie_break_and_prefix_visibility() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines)]
 fn index_key_prefix_lowering_matches_direct_prefix_membership_property() {
     let mut seed = 0x0D15_EA5E_BAAD_F00D_u64;
     let index_len = 3usize;
