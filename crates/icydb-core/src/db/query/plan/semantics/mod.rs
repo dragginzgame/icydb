@@ -1,0 +1,31 @@
+//! Module: query::plan::semantics
+//! Responsibility: semantic interpretation for query-plan model contracts.
+//! Does not own: constructors or planner algorithm selection.
+//! Boundary: meaning-level helpers over data-only plan model types.
+
+mod access_projection;
+mod group_distinct;
+mod group_having;
+mod group_model;
+mod grouped_strategy;
+mod logical;
+
+pub(crate) use access_projection::{
+    AccessPlanProjection, project_access_plan, project_explain_access_path,
+};
+pub(in crate::db) use group_distinct::global_distinct_group_spec_for_semantic_aggregate;
+pub(crate) use group_distinct::{
+    GroupDistinctAdmissibility, GroupDistinctPolicyReason, grouped_distinct_admissibility,
+    resolve_global_distinct_field_aggregate,
+};
+#[cfg(test)]
+pub(crate) use group_distinct::{
+    global_distinct_field_aggregate_admissibility, is_global_distinct_field_aggregate_candidate,
+};
+pub(in crate::db::query::plan) use group_having::grouped_cursor_policy_violation;
+pub(crate) use group_having::{
+    GroupedCursorPolicyViolation, evaluate_grouped_having_compare_v1,
+    grouped_having_compare_op_supported,
+};
+pub(crate) use grouped_strategy::GroupedPlanStrategyHint;
+pub(in crate::db::query::plan) use grouped_strategy::grouped_plan_strategy_hint;
