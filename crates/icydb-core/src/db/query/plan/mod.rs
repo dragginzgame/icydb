@@ -73,15 +73,8 @@ pub(in crate::db) const fn grouped_distinct_policy_violation_for_executor(
     }
 }
 
-// Project grouped strategy hint for executor route strategy selection.
-pub(in crate::db) fn grouped_plan_strategy_hint_for_route<K>(
-    plan: &AccessPlannedQuery<K>,
-) -> Option<GroupedPlanStrategyHint> {
-    semantics::grouped_plan_strategy_hint(plan)
-}
-
-// Project grouped strategy hint for query explain grouping projection.
-pub(in crate::db) fn grouped_plan_strategy_hint_for_explain<K>(
+// Project grouped strategy hint for consumers that need grouped execution guidance.
+pub(in crate::db) fn grouped_plan_strategy_hint_for_plan<K>(
     plan: &AccessPlannedQuery<K>,
 ) -> Option<GroupedPlanStrategyHint> {
     semantics::grouped_plan_strategy_hint(plan)

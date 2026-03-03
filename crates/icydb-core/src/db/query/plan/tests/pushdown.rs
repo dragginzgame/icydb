@@ -7,7 +7,7 @@ use crate::{
         contracts::MissingRowPolicy,
         executor::route::{
             assess_secondary_order_pushdown, assess_secondary_order_pushdown_if_applicable,
-            assess_secondary_order_pushdown_if_applicable_validated,
+            derive_secondary_pushdown_applicability_validated,
         },
         query::{
             intent::{LoadSpec, QueryMode},
@@ -479,7 +479,7 @@ fn secondary_order_pushdown_if_applicable_validated_matches_defensive_assessor()
         Some(order_spec(&[("id", OrderDirection::Desc)])),
     );
     assert_eq!(
-        assess_secondary_order_pushdown_if_applicable_validated(model, &descending_plan),
+        derive_secondary_pushdown_applicability_validated(model, &descending_plan),
         assess_secondary_order_pushdown_if_applicable(model, &descending_plan),
     );
 
@@ -488,7 +488,7 @@ fn secondary_order_pushdown_if_applicable_validated_matches_defensive_assessor()
         Some(order_spec(&[("id", OrderDirection::Asc)])),
     );
     assert_eq!(
-        assess_secondary_order_pushdown_if_applicable_validated(model, &non_applicable_plan),
+        derive_secondary_pushdown_applicability_validated(model, &non_applicable_plan),
         assess_secondary_order_pushdown_if_applicable(model, &non_applicable_plan),
     );
 
@@ -499,7 +499,7 @@ fn secondary_order_pushdown_if_applicable_validated_matches_defensive_assessor()
         Some(order_spec(&[("id", OrderDirection::Asc)])),
     );
     assert_eq!(
-        assess_secondary_order_pushdown_if_applicable_validated(model, &index_range_plan),
+        derive_secondary_pushdown_applicability_validated(model, &index_range_plan),
         assess_secondary_order_pushdown_if_applicable(model, &index_range_plan),
     );
 
@@ -516,7 +516,7 @@ fn secondary_order_pushdown_if_applicable_validated_matches_defensive_assessor()
         Some(order_spec(&[("id", OrderDirection::Asc)])),
     );
     assert_eq!(
-        assess_secondary_order_pushdown_if_applicable_validated(model, &composite_index_range_plan),
+        derive_secondary_pushdown_applicability_validated(model, &composite_index_range_plan),
         assess_secondary_order_pushdown_if_applicable(model, &composite_index_range_plan),
     );
 }

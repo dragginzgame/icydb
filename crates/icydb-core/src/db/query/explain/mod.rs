@@ -18,7 +18,7 @@ use crate::{
                 AccessPlanProjection, AccessPlannedQuery, AggregateKind, DeleteLimitSpec,
                 GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupedPlanStrategyHint,
                 LogicalPlan, OrderDirection, OrderSpec, PageSpec, ScalarPlan,
-                grouped_plan_strategy_hint_for_explain, project_access_plan,
+                grouped_plan_strategy_hint_for_plan, project_access_plan,
             },
         },
     },
@@ -338,7 +338,7 @@ where
             LogicalPlan::Grouped(logical) => (
                 &logical.scalar,
                 ExplainGrouping::Grouped {
-                    strategy: grouped_plan_strategy_hint_for_explain(self)
+                    strategy: grouped_plan_strategy_hint_for_plan(self)
                         .map_or(ExplainGroupedStrategy::HashGroup, Into::into),
                     group_fields: logical
                         .group

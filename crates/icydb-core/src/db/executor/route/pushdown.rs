@@ -225,18 +225,7 @@ pub(in crate::db) fn derive_secondary_pushdown_applicability_validated<K>(
 }
 
 #[cfg(test)]
-/// Evaluate pushdown eligibility only when secondary-index ORDER BY is applicable.
 pub(in crate::db) fn assess_secondary_order_pushdown_if_applicable<K>(
-    model: &EntityModel,
-    plan: &AccessPlannedQuery<K>,
-) -> PushdownApplicability {
-    derive_secondary_pushdown_applicability_validated(model, plan)
-}
-
-#[cfg(test)]
-/// Evaluate pushdown applicability for plans that have already passed full
-/// logical/executor validation.
-pub(in crate::db) fn assess_secondary_order_pushdown_if_applicable_validated<K>(
     model: &EntityModel,
     plan: &AccessPlannedQuery<K>,
 ) -> PushdownApplicability {

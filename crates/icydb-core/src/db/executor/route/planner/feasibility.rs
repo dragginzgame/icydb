@@ -19,7 +19,7 @@ use crate::{
         },
         query::builder::AggregateExpr,
         query::plan::{
-            AccessPlannedQuery, GroupedPlanStrategyHint, grouped_plan_strategy_hint_for_route,
+            AccessPlannedQuery, GroupedPlanStrategyHint, grouped_plan_strategy_hint_for_plan,
         },
     },
     traits::{EntityKind, EntityValue},
@@ -172,7 +172,7 @@ where
             // revalidates physical/runtime capability constraints.
             let grouped_ordered_eligibility = derive_grouped_ordered_eligibility(
                 plan,
-                grouped_plan_strategy_hint_for_route(plan)
+                grouped_plan_strategy_hint_for_plan(plan)
                     .unwrap_or(GroupedPlanStrategyHint::HashGroup),
                 direction,
                 capabilities.desc_physical_reverse_supported,
