@@ -13,9 +13,8 @@ use crate::{
                 GroupedRouteStage, IndexSpecBundle, LoadExecutor,
             },
             plan_metrics::GroupedPlanMetricsStrategy,
-            validate_executor_plan,
         },
-        query::plan::{grouped_executor_handoff, validate_grouped_projection_layout},
+        query::plan::validate_grouped_projection_layout,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -45,11 +44,10 @@ where
         cursor: GroupedPlannedCursor,
         debug: bool,
     ) -> Result<GroupedRouteStage<E>, InternalError> {
-        validate_executor_plan::<E>(plan.as_inner())?;
-        if let Some(reason) = plan.grouped_distinct_policy_violation_for_executor() {
+        let grouped_handoff = plan.grouped_handoff()?;
+        if let Some(reason) = grouped_handoff.distinct_policy_violation_for_executor() {
             return Err(super::invariant(reason.invariant_message()));
         }
-        let grouped_handoff = grouped_executor_handoff(plan.as_inner())?;
         let grouped_execution = grouped_handoff.execution();
         let group_fields = grouped_handoff.group_fields().to_vec();
         let grouped_aggregate_exprs = grouped_handoff.aggregate_exprs().to_vec();

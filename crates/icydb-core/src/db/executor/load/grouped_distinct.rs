@@ -148,13 +148,13 @@ where
 // Validate grouped global DISTINCT aggregate kind at runtime boundary.
 // Planner should enforce this, but executor must fail-closed for bypassed shapes.
 fn global_distinct_kind_is_sum(aggregate_kind: AggregateKind) -> Result<bool, InternalError> {
-    match aggregate_kind {
-        AggregateKind::Count => Ok(false),
-        AggregateKind::Sum => Ok(true),
-        _ => Err(crate::db::executor::load::invariant(
+    if !aggregate_kind.supports_global_distinct_without_group_keys() {
+        return Err(crate::db::executor::load::invariant(
             GroupDistinctPolicyReason::GlobalDistinctUnsupportedAggregateKind.invariant_message(),
-        )),
+        ));
     }
+
+    Ok(aggregate_kind.is_sum())
 }
 
 ///

@@ -138,7 +138,7 @@ where
             ));
         }
 
-        let consistency = plan.as_inner().scalar_plan().consistency;
+        let consistency = plan.consistency();
         let (AggregateOutput::First(selected_id) | AggregateOutput::Last(selected_id)) =
             ExecutionKernel::execute_aggregate_spec(
                 self,

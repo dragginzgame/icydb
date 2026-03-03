@@ -1,4 +1,6 @@
 use super::*;
+use proptest::prelude::*;
+use std::cmp::Ordering;
 
 fn seed_grouped_phase_entities() {
     reset_store();
@@ -76,6 +78,152 @@ fn seed_grouped_phase_entities_with_filtered_middle_group() {
             label: label.to_string(),
         })
         .expect("grouped seed insert should succeed");
+    }
+}
+
+// Compare grouped keys using the same canonical grouped-key comparator used by grouped execution.
+fn grouped_key_ordering(left: &[Value], right: &[Value]) -> Ordering {
+    crate::db::contracts::canonical_value_compare(
+        &Value::List(left.to_vec()),
+        &Value::List(right.to_vec()),
+    )
+}
+
+fn grouped_rank_strategy() -> impl Strategy<Value = u32> {
+    prop_oneof![Just(0_u32), Just(1_u32), Just(u32::MAX), 2_u32..2048_u32,]
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(48))]
+
+    #[test]
+    fn grouped_continuation_property_preserves_monotonicity_no_duplicates_and_full_union(
+        ranks in proptest::collection::vec(grouped_rank_strategy(), 5..40),
+        limit in 1_u32..7_u32,
+        descending in any::<bool>(),
+    ) {
+        // Phase 1: seed a synthetic grouped domain with duplicate and edge-value group keys.
+        reset_store();
+        let save = SaveExecutor::<PhaseEntity>::new(DB, false);
+        for (idx, rank) in ranks.iter().copied().enumerate() {
+            save.insert(PhaseEntity {
+                id: Ulid::generate(),
+                opt_rank: Some(rank),
+                rank,
+                tags: vec![rank],
+                label: format!("grouped-property-{idx}-{rank}"),
+            })
+            .expect("grouped property seed insert should succeed");
+        }
+
+        let session = DbSession::new(DB);
+
+        // Phase 2: execute one full grouped baseline to define expected grouped-domain output.
+        let baseline = if descending {
+            session
+                .load::<PhaseEntity>()
+                .order_by_desc("rank")
+                .group_by("rank")
+                .expect("group field should resolve")
+                .aggregate(crate::db::count())
+                .limit(u32::MAX)
+                .execute_grouped()
+                .expect("grouped property descending baseline should execute")
+        } else {
+            session
+                .load::<PhaseEntity>()
+                .order_by("rank")
+                .group_by("rank")
+                .expect("group field should resolve")
+                .aggregate(crate::db::count())
+                .limit(u32::MAX)
+                .execute_grouped()
+                .expect("grouped property ascending baseline should execute")
+        };
+        let expected_rows: Vec<(Vec<Value>, Vec<Value>)> = baseline
+            .rows()
+            .iter()
+            .map(|row| (row.group_key().to_vec(), row.aggregate_values().to_vec()))
+            .collect();
+        let expected_progression = expected_rows
+            .windows(2)
+            .next()
+            .map_or(Ordering::Less, |pair| {
+                grouped_key_ordering(pair[0].0.as_slice(), pair[1].0.as_slice())
+            });
+        prop_assert!(
+            expected_rows.windows(2).all(|pair| {
+                let ordering = grouped_key_ordering(pair[0].0.as_slice(), pair[1].0.as_slice());
+                ordering != Ordering::Equal && ordering == expected_progression
+            }),
+            "baseline grouped output must remain strictly monotonic for descending={}",
+            descending,
+        );
+
+        // Phase 3: page through grouped results with continuation tokens and collect emitted rows.
+        let mut observed_rows = Vec::<(Vec<Value>, Vec<Value>)>::new();
+        let mut continuation_hex: Option<String> = None;
+        let mut page_count = 0usize;
+        loop {
+            let query = if descending {
+                session
+                    .load::<PhaseEntity>()
+                    .order_by_desc("rank")
+                    .group_by("rank")
+                    .expect("group field should resolve")
+                    .aggregate(crate::db::count())
+                    .limit(limit)
+            } else {
+                session
+                    .load::<PhaseEntity>()
+                    .order_by("rank")
+                    .group_by("rank")
+                    .expect("group field should resolve")
+                    .aggregate(crate::db::count())
+                    .limit(limit)
+            };
+            let page = if let Some(cursor_hex) = continuation_hex.as_deref() {
+                query
+                    .cursor(cursor_hex)
+                    .execute_grouped()
+                    .expect("grouped property continuation page should execute")
+            } else {
+                query
+                    .execute_grouped()
+                    .expect("grouped property initial page should execute")
+            };
+
+            for row in page.rows() {
+                let emitted = (row.group_key().to_vec(), row.aggregate_values().to_vec());
+                if let Some((previous_key, _)) = observed_rows.last() {
+                    prop_assert_eq!(
+                        grouped_key_ordering(previous_key, emitted.0.as_slice()),
+                        expected_progression,
+                        "grouped continuation must preserve baseline strict grouped-key progression for descending={}",
+                        descending,
+                    );
+                }
+                observed_rows.push(emitted);
+            }
+
+            page_count = page_count.saturating_add(1);
+            prop_assert!(
+                page_count <= expected_rows.len().saturating_add(1),
+                "grouped continuation pagination must terminate without replay loops",
+            );
+
+            continuation_hex = page.continuation_cursor().map(crate::db::encode_cursor);
+            if continuation_hex.is_none() {
+                break;
+            }
+        }
+
+        // Phase 4: assert union parity against the full grouped baseline.
+        prop_assert_eq!(
+            observed_rows,
+            expected_rows,
+            "grouped continuation pages must cover the full grouped output without omission or duplication",
+        );
     }
 }
 

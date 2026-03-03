@@ -960,6 +960,11 @@ fn grouped_executor_handoff_preserves_group_fields_aggregates_and_execution_conf
         GroupedDistinctExecutionStrategy::None
     ));
     assert_eq!(
+        handoff.distinct_policy_violation_for_executor(),
+        None,
+        "grouped handoff should not project DISTINCT policy violations for non-DISTINCT grouped plans",
+    );
+    assert_eq!(
         handoff.base().scalar_plan().consistency,
         grouped.scalar_plan().consistency
     );
@@ -989,6 +994,41 @@ fn grouped_executor_handoff_lowers_global_distinct_execution_strategy() {
             target_field
         } if target_field == "tag"
     ));
+    assert_eq!(
+        handoff.distinct_policy_violation_for_executor(),
+        None,
+        "global grouped DISTINCT execution strategy lowering should not project scalar DISTINCT policy violations",
+    );
+}
+
+#[test]
+fn grouped_executor_handoff_projects_scalar_distinct_policy_violation_for_executor() {
+    let base = load_plan(AccessPlan::path(AccessPath::FullScan));
+    let mut grouped = grouped_plan(
+        base,
+        vec!["rank"],
+        vec![GroupAggregateSpec {
+            kind: GroupAggregateKind::Count,
+            target_field: None,
+            distinct: false,
+        }],
+    );
+    grouped.scalar_plan_mut().distinct = true;
+
+    let handoff =
+        grouped_executor_handoff(&grouped).expect("grouped logical plans should build handoff");
+    assert_eq!(
+        handoff.distinct_policy_violation_for_executor(),
+        Some(GroupDistinctPolicyReason::DistinctAdjacencyEligibilityRequired),
+        "grouped handoff should project scalar DISTINCT policy violations for executor boundaries",
+    );
+    assert!(
+        matches!(
+            handoff.distinct_execution_strategy(),
+            GroupedDistinctExecutionStrategy::None
+        ),
+        "scalar DISTINCT policy violations should remain independent from global DISTINCT execution strategy lowering",
+    );
 }
 
 #[test]

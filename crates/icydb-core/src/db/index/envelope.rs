@@ -160,10 +160,16 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
-        db::{direction::Direction, index::RawIndexKey},
+        db::{
+            direction::Direction,
+            identity::{EntityName, IndexName},
+            index::{EncodedValue, IndexId, IndexKey, IndexKeyKind, RawIndexKey},
+        },
         traits::Storable,
+        value::Value,
     };
-    use std::{borrow::Cow, ops::Bound};
+    use proptest::prelude::*;
+    use std::{borrow::Cow, cmp::Ordering, ops::Bound};
 
     use super::{anchor_within_envelope, continuation_advanced};
 
@@ -223,5 +229,216 @@ mod tests {
             &asc_candidate,
             &anchor
         ));
+    }
+
+    fn property_index_id() -> IndexId {
+        let entity = EntityName::try_from_str("continuation_property")
+            .expect("property test entity name should parse");
+        IndexId(
+            IndexName::try_from_parts(&entity, &["f0", "f1", "f2"])
+                .expect("property test index name should parse"),
+        )
+    }
+
+    // Build one canonical raw index key from semantic composite components.
+    fn canonical_raw_key(values: &[Value]) -> RawIndexKey {
+        let encoded = EncodedValue::try_encode_all(values)
+            .expect("property-domain values must remain canonically index-encodable");
+        let (key, _) = IndexKey::bounds_for_prefix_with_kind(
+            &property_index_id(),
+            IndexKeyKind::User,
+            values.len(),
+            encoded.as_slice(),
+        );
+
+        key.to_raw()
+    }
+
+    fn int_component_strategy() -> impl Strategy<Value = Value> {
+        prop_oneof![
+            Just(Value::Int(i64::MIN)),
+            Just(Value::Int(-1_i64)),
+            Just(Value::Int(0_i64)),
+            Just(Value::Int(1_i64)),
+            Just(Value::Int(i64::MAX)),
+        ]
+    }
+
+    fn text_component_strategy() -> impl Strategy<Value = Value> {
+        prop_oneof![
+            Just(Value::Text(String::new())),
+            Just(Value::Text("a".to_string())),
+            Just(Value::Text("mm".to_string())),
+            Just(Value::Text("zz".to_string())),
+        ]
+    }
+
+    fn uint_component_strategy() -> impl Strategy<Value = Value> {
+        prop_oneof![
+            Just(Value::Uint(0_u64)),
+            Just(Value::Uint(1_u64)),
+            Just(Value::Uint(1024_u64)),
+            Just(Value::Uint(u64::MAX)),
+        ]
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn cross_layer_canonical_ordering_is_consistent(
+            left_int in int_component_strategy(),
+            left_text in text_component_strategy(),
+            left_uint in uint_component_strategy(),
+            right_int in int_component_strategy(),
+            right_text in text_component_strategy(),
+            right_uint in uint_component_strategy(),
+        ) {
+            // Phase 1: canonicalize through encode -> decode -> re-encode for both keys.
+            let left_raw = canonical_raw_key(&[left_int, left_text, left_uint]);
+            let left_decoded = IndexKey::try_from_raw(&left_raw)
+                .expect("left canonical raw key should decode");
+            let left_recanonical = left_decoded.to_raw();
+            let left_decoded_again = IndexKey::try_from_raw(&left_recanonical)
+                .expect("left recanonical raw key should decode");
+            let left_recanonical_again = left_decoded_again.to_raw();
+            prop_assert_eq!(
+                &left_recanonical,
+                &left_recanonical_again,
+                "left key canonicalization must remain idempotent across repeated decode/re-encode",
+            );
+
+            let right_raw = canonical_raw_key(&[right_int, right_text, right_uint]);
+            let right_decoded = IndexKey::try_from_raw(&right_raw)
+                .expect("right canonical raw key should decode");
+            let right_recanonical = right_decoded.to_raw();
+            let right_decoded_again = IndexKey::try_from_raw(&right_recanonical)
+                .expect("right recanonical raw key should decode");
+            let right_recanonical_again = right_decoded_again.to_raw();
+            prop_assert_eq!(
+                &right_recanonical,
+                &right_recanonical_again,
+                "right key canonicalization must remain idempotent across repeated decode/re-encode",
+            );
+
+            // Phase 2: treat left as anchor and right as candidate under all comparator gates.
+            let ordering = left_recanonical.cmp(&right_recanonical);
+
+            let lower_included_asc = anchor_within_envelope(
+                Direction::Asc,
+                &right_recanonical,
+                &Bound::Included(left_recanonical.clone()),
+                &Bound::Unbounded,
+            );
+            let lower_excluded_asc = anchor_within_envelope(
+                Direction::Asc,
+                &right_recanonical,
+                &Bound::Excluded(left_recanonical.clone()),
+                &Bound::Unbounded,
+            );
+            let upper_included_asc = anchor_within_envelope(
+                Direction::Asc,
+                &right_recanonical,
+                &Bound::Unbounded,
+                &Bound::Included(left_recanonical.clone()),
+            );
+            let upper_excluded_asc = anchor_within_envelope(
+                Direction::Asc,
+                &right_recanonical,
+                &Bound::Unbounded,
+                &Bound::Excluded(left_recanonical.clone()),
+            );
+            let lower_included_desc = anchor_within_envelope(
+                Direction::Desc,
+                &right_recanonical,
+                &Bound::Included(left_recanonical.clone()),
+                &Bound::Unbounded,
+            );
+            let lower_excluded_desc = anchor_within_envelope(
+                Direction::Desc,
+                &right_recanonical,
+                &Bound::Excluded(left_recanonical.clone()),
+                &Bound::Unbounded,
+            );
+            let upper_included_desc = anchor_within_envelope(
+                Direction::Desc,
+                &right_recanonical,
+                &Bound::Unbounded,
+                &Bound::Included(left_recanonical.clone()),
+            );
+            let upper_excluded_desc = anchor_within_envelope(
+                Direction::Desc,
+                &right_recanonical,
+                &Bound::Unbounded,
+                &Bound::Excluded(left_recanonical.clone()),
+            );
+            let asc_advanced =
+                continuation_advanced(Direction::Asc, &right_recanonical, &left_recanonical);
+            let desc_advanced =
+                continuation_advanced(Direction::Desc, &right_recanonical, &left_recanonical);
+
+            // Phase 3: assert all cross-layer checks agree on the same ordering domain.
+            prop_assert_eq!(
+                lower_included_asc,
+                ordering != Ordering::Greater,
+                "included lower-bound containment must match raw-key comparator",
+            );
+            prop_assert_eq!(
+                lower_excluded_asc,
+                ordering == Ordering::Less,
+                "excluded lower-bound containment must match strict raw-key comparator",
+            );
+            prop_assert_eq!(
+                upper_included_asc,
+                ordering != Ordering::Less,
+                "included upper-bound containment must match raw-key comparator",
+            );
+            prop_assert_eq!(
+                upper_excluded_asc,
+                ordering == Ordering::Greater,
+                "excluded upper-bound containment must match strict raw-key comparator",
+            );
+            prop_assert_eq!(
+                lower_included_desc,
+                lower_included_asc,
+                "envelope containment must be direction-symmetric for included lower bounds",
+            );
+            prop_assert_eq!(
+                lower_excluded_desc,
+                lower_excluded_asc,
+                "envelope containment must be direction-symmetric for excluded lower bounds",
+            );
+            prop_assert_eq!(
+                upper_included_desc,
+                upper_included_asc,
+                "envelope containment must be direction-symmetric for included upper bounds",
+            );
+            prop_assert_eq!(
+                upper_excluded_desc,
+                upper_excluded_asc,
+                "envelope containment must be direction-symmetric for excluded upper bounds",
+            );
+            prop_assert_eq!(
+                asc_advanced,
+                ordering == Ordering::Less,
+                "ASC continuation advancement must match strict raw-key ordering",
+            );
+            prop_assert_eq!(
+                desc_advanced,
+                ordering == Ordering::Greater,
+                "DESC continuation advancement must match strict raw-key ordering",
+            );
+        }
+    }
+
+    #[test]
+    fn canonical_ordering_property_domain_rejects_null_components() {
+        let err = EncodedValue::try_encode_all(&[Value::Null, Value::Text("a".to_string())])
+            .expect_err("null values must remain non-indexable for canonical key domains");
+        let message = err.to_string();
+        assert!(
+            message.contains("null") || message.contains("index"),
+            "null component rejection should remain explicit: {message}",
+        );
     }
 }

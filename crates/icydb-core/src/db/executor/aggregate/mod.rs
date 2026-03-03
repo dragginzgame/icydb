@@ -160,34 +160,43 @@ impl ExecutionKernel {
     // Build one canonical aggregate descriptor so kernel dispatch works from a
     // validated shape with route-owned mode/direction/fold decisions.
     fn build_aggregate_execution_descriptor<E>(
-        plan: &ExecutablePlan<E>,
+        plan: ExecutablePlan<E>,
         aggregate: AggregateExpr,
-    ) -> Result<AggregateExecutionDescriptor, InternalError>
+    ) -> Result<(AggregateExecutionDescriptor, ExecutablePlan<E>), InternalError>
     where
         E: EntityKind + EntityValue,
     {
+        // Move to one logical-plan spine for route derivation and capability snapshots.
+        let logical_plan = plan.into_inner();
+
         // Route derivation interprets plan shape only. Re-validate first so
         // capability snapshots are always built from a validated logical plan.
-        validate_executor_plan::<E>(plan.as_inner())?;
+        validate_executor_plan::<E>(&logical_plan)?;
 
-        let execution_preparation = ExecutionPreparation::for_plan::<E>(plan.as_inner());
+        let execution_preparation = ExecutionPreparation::for_plan::<E>(&logical_plan);
 
         // Route planning owns aggregate streaming/materialized decisions,
         // direction derivation, and bounded probe-hint derivation.
         let route_plan =
             LoadExecutor::<E>::build_execution_route_plan_for_aggregate_spec_with_preparation(
-                plan.as_inner(),
+                &logical_plan,
                 aggregate.clone(),
                 &execution_preparation,
             );
         let direction = route_plan.direction();
 
-        Ok(AggregateExecutionDescriptor {
-            aggregate,
-            direction,
-            route_plan,
-            execution_preparation,
-        })
+        // Rebuild executable contracts for downstream reducers after descriptor derivation.
+        let plan = ExecutablePlan::new(logical_plan);
+
+        Ok((
+            AggregateExecutionDescriptor {
+                aggregate,
+                direction,
+                route_plan,
+                execution_preparation,
+            },
+            plan,
+        ))
     }
 
     // Consume one executable aggregate plan into canonical streaming execution
@@ -286,7 +295,7 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
-        let descriptor = Self::build_aggregate_execution_descriptor(&plan, aggregate)?;
+        let (descriptor, plan) = Self::build_aggregate_execution_descriptor(plan, aggregate)?;
         let kind = descriptor.aggregate.kind();
 
         // Kernel-owned reducer adapter selection. Eager reducers return

@@ -10,11 +10,11 @@ use crate::{
         executor::{
             ContinuationEngine, ExecutorPlanError, LOWERED_INDEX_PREFIX_SPEC_INVALID,
             LOWERED_INDEX_RANGE_SPEC_INVALID, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
-            lower_index_prefix_specs, lower_index_range_specs,
+            lower_index_prefix_specs, lower_index_range_specs, validate_executor_plan,
         },
+        predicate::MissingRowPolicy,
         query::plan::{
-            AccessPlannedQuery, GroupDistinctPolicyReason, QueryMode,
-            grouped_distinct_policy_violation_for_executor,
+            AccessPlannedQuery, GroupedExecutorHandoff, QueryMode, grouped_executor_handoff,
         },
     },
     error::InternalError,
@@ -116,22 +116,19 @@ impl<E: EntityKind> ExecutablePlan<E> {
         self.plan.grouped_plan().is_some()
     }
 
-    /// Return grouped DISTINCT policy violation reason for executor boundary guards.
-    #[must_use]
-    pub(in crate::db) fn grouped_distinct_policy_violation_for_executor(
-        &self,
-    ) -> Option<GroupDistinctPolicyReason> {
-        self.plan
-            .grouped_plan()
-            .and_then(grouped_distinct_policy_violation_for_executor)
-    }
-
     pub(in crate::db) const fn access(&self) -> &AccessPlan<E::Key> {
         &self.plan.access
     }
 
+    /// Borrow scalar row-consistency policy for runtime row reads.
     #[must_use]
-    pub(in crate::db) const fn as_inner(&self) -> &AccessPlannedQuery<E::Key> {
+    pub(in crate::db) const fn consistency(&self) -> MissingRowPolicy {
+        self.plan.scalar_plan().consistency
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) const fn as_inner(&self) -> &AccessPlannedQuery<E::Key> {
         &self.plan
     }
 
@@ -157,6 +154,15 @@ impl<E: EntityKind> ExecutablePlan<E> {
 
     pub(in crate::db) fn into_inner(self) -> AccessPlannedQuery<E::Key> {
         self.plan
+    }
+
+    /// Build grouped executor handoff from this executable plan using one
+    /// canonical executor-boundary validation pass.
+    pub(in crate::db) fn grouped_handoff(
+        &self,
+    ) -> Result<GroupedExecutorHandoff<'_, E::Key>, InternalError> {
+        validate_executor_plan::<E>(&self.plan)?;
+        grouped_executor_handoff(&self.plan)
     }
 
     /// Revalidate executor-provided cursor state through the canonical cursor spine.

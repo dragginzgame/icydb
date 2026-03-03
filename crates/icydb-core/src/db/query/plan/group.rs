@@ -7,11 +7,12 @@ use crate::{
     db::query::{
         builder::AggregateExpr,
         plan::{
-            AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec, GroupHavingSpec,
+            AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec,
+            GroupDistinctAdmissibility, GroupDistinctPolicyReason, GroupHavingSpec,
             GroupedExecutionConfig, GroupedPlanStrategyHint,
             expr::{Expr, ProjectionField, ProjectionSpec},
-            grouped_plan_strategy_hint_for_plan, resolve_global_distinct_field_aggregate,
-            validate_grouped_projection_layout,
+            grouped_distinct_admissibility, grouped_plan_strategy_hint_for_plan,
+            resolve_global_distinct_field_aggregate, validate_grouped_projection_layout,
         },
     },
     error::InternalError,
@@ -60,7 +61,7 @@ pub(in crate::db) struct GroupedExecutorHandoff<'a, K> {
     aggregate_exprs: Vec<AggregateExpr>,
     projection_layout: PlannedProjectionLayout,
     grouped_plan_strategy_hint: GroupedPlanStrategyHint,
-    distinct_execution_strategy: GroupedDistinctExecutionStrategy,
+    grouped_distinct_policy_contract: GroupedDistinctPolicyContract,
     having: Option<&'a GroupHavingSpec>,
     execution: GroupedExecutionConfig,
 }
@@ -101,7 +102,16 @@ impl<'a, K> GroupedExecutorHandoff<'a, K> {
     pub(in crate::db) const fn distinct_execution_strategy(
         &self,
     ) -> &GroupedDistinctExecutionStrategy {
-        &self.distinct_execution_strategy
+        self.grouped_distinct_policy_contract.execution_strategy()
+    }
+
+    /// Borrow grouped DISTINCT policy violation reason for executor boundaries.
+    #[must_use]
+    pub(in crate::db) const fn distinct_policy_violation_for_executor(
+        &self,
+    ) -> Option<GroupDistinctPolicyReason> {
+        self.grouped_distinct_policy_contract
+            .violation_for_executor()
     }
 
     /// Borrow grouped HAVING clause specification when present.
@@ -139,7 +149,9 @@ pub(in crate::db) fn grouped_executor_handoff<K>(
         grouped_plan_strategy_hint_for_plan(plan).ok_or_else(|| {
             invariant("grouped executor handoff must carry grouped strategy hint for grouped plans")
         })?;
-    let distinct_execution_strategy = grouped_distinct_execution_strategy(
+    let grouped_distinct_policy_contract = grouped_distinct_policy_contract(
+        grouped.scalar.distinct,
+        grouped.having.is_some(),
         grouped.group.group_fields.as_slice(),
         grouped.group.aggregates.as_slice(),
         grouped.having.as_ref(),
@@ -151,10 +163,50 @@ pub(in crate::db) fn grouped_executor_handoff<K>(
         aggregate_exprs,
         projection_layout,
         grouped_plan_strategy_hint,
-        distinct_execution_strategy,
+        grouped_distinct_policy_contract,
         having: grouped.having.as_ref(),
         execution: grouped.group.execution,
     })
+}
+
+///
+/// GroupedDistinctPolicyContract
+///
+/// Planner-projected grouped DISTINCT policy contract for executor boundaries.
+/// Route/load layers consume this contract directly instead of re-deriving
+/// grouped DISTINCT policy from logical plan internals.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct GroupedDistinctPolicyContract {
+    violation_for_executor: Option<GroupDistinctPolicyReason>,
+    execution_strategy: GroupedDistinctExecutionStrategy,
+}
+
+impl GroupedDistinctPolicyContract {
+    /// Construct one grouped DISTINCT policy contract.
+    #[must_use]
+    const fn new(
+        violation_for_executor: Option<GroupDistinctPolicyReason>,
+        execution_strategy: GroupedDistinctExecutionStrategy,
+    ) -> Self {
+        Self {
+            violation_for_executor,
+            execution_strategy,
+        }
+    }
+
+    /// Borrow grouped DISTINCT execution strategy lowered by planner.
+    #[must_use]
+    pub(in crate::db) const fn execution_strategy(&self) -> &GroupedDistinctExecutionStrategy {
+        &self.execution_strategy
+    }
+
+    /// Borrow grouped DISTINCT policy violation reason for executor boundaries.
+    #[must_use]
+    pub(in crate::db) const fn violation_for_executor(&self) -> Option<GroupDistinctPolicyReason> {
+        self.violation_for_executor
+    }
 }
 
 ///
@@ -192,6 +244,26 @@ fn grouped_distinct_execution_strategy(
             reason.invariant_message()
         ))),
     }
+}
+
+// Build grouped DISTINCT executor policy contract from validated grouped semantics.
+fn grouped_distinct_policy_contract(
+    scalar_distinct: bool,
+    has_having: bool,
+    group_fields: &[FieldSlot],
+    aggregates: &[GroupAggregateSpec],
+    having: Option<&GroupHavingSpec>,
+) -> Result<GroupedDistinctPolicyContract, InternalError> {
+    let violation_for_executor = match grouped_distinct_admissibility(scalar_distinct, has_having) {
+        GroupDistinctAdmissibility::Allowed => None,
+        GroupDistinctAdmissibility::Disallowed(reason) => Some(reason),
+    };
+    let execution_strategy = grouped_distinct_execution_strategy(group_fields, aggregates, having)?;
+
+    Ok(GroupedDistinctPolicyContract::new(
+        violation_for_executor,
+        execution_strategy,
+    ))
 }
 
 // Derive grouped field/aggregate projection slots and aggregate expressions from

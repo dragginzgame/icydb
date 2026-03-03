@@ -237,7 +237,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         // Phase 1: build/validate executable plan and reject grouped plans.
         let plan = query.plan()?.into_executable();
-        if plan.as_inner().grouped_plan().is_some() {
+        if plan.is_grouped() {
             return Err(QueryError::execute(invariant(
                 "grouped plans require execute_grouped(...)",
             )));
@@ -301,7 +301,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         // Phase 1: build/validate executable plan and require grouped shape.
         let plan = query.plan()?.into_executable();
-        if plan.as_inner().grouped_plan().is_none() {
+        if !plan.is_grouped() {
             return Err(QueryError::execute(invariant(
                 "execute_grouped requires grouped logical plans",
             )));
@@ -504,4 +504,131 @@ impl<C: CanisterKind> DbSession<C> {
 
 fn invariant(message: impl Into<String>) -> InternalError {
     InternalError::query_executor_invariant(message)
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Assert query-surface cursor errors remain wrapped under QueryError::Plan(PlanError::Cursor).
+    fn assert_query_error_is_cursor_plan(
+        err: QueryError,
+        predicate: impl FnOnce(&CursorPlanError) -> bool,
+    ) {
+        assert!(matches!(
+            err,
+            QueryError::Plan(plan_err)
+                if matches!(
+                    plan_err.as_ref(),
+                    PlanError::Cursor(inner) if predicate(inner.as_ref())
+                )
+        ));
+    }
+
+    // Assert both session conversion paths preserve the same cursor-plan variant payload.
+    fn assert_cursor_mapping_parity(
+        build: impl Fn() -> CursorPlanError,
+        predicate: impl Fn(&CursorPlanError) -> bool + Copy,
+    ) {
+        let mapped_via_executor = map_executor_plan_error(ExecutorPlanError::from(build()));
+        assert_query_error_is_cursor_plan(mapped_via_executor, predicate);
+
+        let mapped_via_plan = QueryError::from(PlanError::from(build()));
+        assert_query_error_is_cursor_plan(mapped_via_plan, predicate);
+    }
+
+    #[test]
+    fn session_cursor_error_mapping_parity_boundary_arity() {
+        assert_cursor_mapping_parity(
+            || CursorPlanError::continuation_cursor_boundary_arity_mismatch(2, 1),
+            |inner| {
+                matches!(
+                    inner,
+                    CursorPlanError::ContinuationCursorBoundaryArityMismatch {
+                        expected: 2,
+                        found: 1
+                    }
+                )
+            },
+        );
+    }
+
+    #[test]
+    fn session_cursor_error_mapping_parity_window_mismatch() {
+        assert_cursor_mapping_parity(
+            || CursorPlanError::continuation_cursor_window_mismatch(8, 3),
+            |inner| {
+                matches!(
+                    inner,
+                    CursorPlanError::ContinuationCursorWindowMismatch {
+                        expected_offset: 8,
+                        actual_offset: 3
+                    }
+                )
+            },
+        );
+    }
+
+    #[test]
+    fn session_cursor_error_mapping_parity_decode_reason() {
+        assert_cursor_mapping_parity(
+            || {
+                CursorPlanError::invalid_continuation_cursor(
+                    crate::db::codec::cursor::CursorDecodeError::OddLength,
+                )
+            },
+            |inner| {
+                matches!(
+                    inner,
+                    CursorPlanError::InvalidContinuationCursor {
+                        reason: crate::db::codec::cursor::CursorDecodeError::OddLength
+                    }
+                )
+            },
+        );
+    }
+
+    #[test]
+    fn session_cursor_error_mapping_parity_primary_key_type_mismatch() {
+        assert_cursor_mapping_parity(
+            || {
+                CursorPlanError::continuation_cursor_primary_key_type_mismatch(
+                    "id",
+                    "ulid",
+                    Some(crate::value::Value::Text("not-a-ulid".to_string())),
+                )
+            },
+            |inner| {
+                matches!(
+                    inner,
+                    CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
+                        field,
+                        expected,
+                        value: Some(crate::value::Value::Text(value))
+                    } if field == "id" && expected == "ulid" && value == "not-a-ulid"
+                )
+            },
+        );
+    }
+
+    #[test]
+    fn session_cursor_error_mapping_parity_matrix_preserves_cursor_variants() {
+        // Keep one matrix-level canary test name so cross-module audit references remain stable.
+        assert_cursor_mapping_parity(
+            || CursorPlanError::continuation_cursor_boundary_arity_mismatch(2, 1),
+            |inner| {
+                matches!(
+                    inner,
+                    CursorPlanError::ContinuationCursorBoundaryArityMismatch {
+                        expected: 2,
+                        found: 1
+                    }
+                )
+            },
+        );
+    }
 }

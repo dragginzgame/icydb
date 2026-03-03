@@ -146,17 +146,7 @@ fn runtime_as_inner_calls_are_limited_to_boundary_adapters() {
     collect_rust_sources(source_root.as_path(), &mut sources);
     sources.sort();
 
-    let allowed: BTreeSet<String> = [
-        "src/db/session.rs",
-        "src/db/executor/load/grouped_route.rs",
-        "src/db/executor/aggregate/mod.rs",
-        "src/db/executor/aggregate/field_extrema.rs",
-        "src/db/executor/load/entrypoints.rs",
-        "src/db/executor/aggregate/projection.rs",
-    ]
-    .into_iter()
-    .map(ToString::to_string)
-    .collect();
+    let allowed: BTreeSet<String> = BTreeSet::new();
     let mut actual = BTreeSet::new();
 
     for source_path in sources {
@@ -193,5 +183,52 @@ fn runtime_as_inner_calls_are_limited_to_boundary_adapters() {
     assert_eq!(
         actual, allowed,
         "runtime .as_inner() call sites must remain boundary-local; update allowlist only for intentional boundary changes",
+    );
+}
+
+#[test]
+fn grouped_order_limit_policy_symbols_remain_planner_owned() {
+    let executor_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor");
+    let mut sources = Vec::new();
+    collect_rust_sources(executor_root.as_path(), &mut sources);
+    sources.sort();
+
+    let forbidden = [
+        "GroupPlanError::OrderRequiresLimit",
+        "GroupPlanError::OrderPrefixNotAlignedWithGroupKeys",
+        "validate_group_cursor_constraints(",
+    ];
+    let mut violations = Vec::new();
+
+    for source_path in sources {
+        if source_path
+            .components()
+            .any(|part| part.as_os_str() == "tests")
+            || source_path
+                .file_name()
+                .is_some_and(|name| name == "tests.rs")
+        {
+            continue;
+        }
+
+        let source = fs::read_to_string(&source_path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
+        let runtime_source = strip_cfg_test_items(source.as_str());
+        if forbidden
+            .iter()
+            .any(|symbol| runtime_source.contains(symbol))
+        {
+            violations.push(source_path);
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "grouped order/limit policy legality must remain planner-owned; executor runtime must consume projected contracts only. Violations: {}",
+        violations
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", "),
     );
 }

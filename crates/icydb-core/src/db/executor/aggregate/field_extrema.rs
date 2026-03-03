@@ -110,10 +110,10 @@ impl ExecutionKernel {
         // unsupported targets fail without scan-budget consumption.
         let field_slot = resolve_orderable_aggregate_target_slot::<E>(target_field)
             .map_err(AggregateFieldValueError::into_internal_error)?;
-        let execution_preparation = ExecutionPreparation::for_plan::<E>(plan.as_inner());
 
         // Reuse shared aggregate streaming setup and route-owned stream resolution.
         let prepared = Self::prepare_aggregate_streaming_inputs(executor, plan)?;
+        let execution_preparation = ExecutionPreparation::for_plan::<E>(&prepared.logical_plan);
         let execution_inputs = ExecutionInputs {
             ctx: &prepared.ctx,
             plan: &prepared.logical_plan,

@@ -517,8 +517,9 @@ where
         let continuation_signature = plan.continuation_signature();
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
+        let logical_plan = plan.into_inner();
         let route_plan = Self::build_execution_route_plan_for_load(
-            plan.as_inner(),
+            &logical_plan,
             cursor_boundary,
             index_range_token,
             None,
@@ -542,23 +543,22 @@ where
         let direction = route_plan.direction();
         debug_assert_eq!(
             route_plan.window().effective_offset,
-            ExecutionKernel::effective_page_offset(plan.as_inner(), cursor_boundary),
+            ExecutionKernel::effective_page_offset(&logical_plan, cursor_boundary),
             "route window effective offset must match logical plan offset semantics",
         );
         let mut execution_trace = self
             .debug
-            .then(|| ExecutionTrace::new(plan.access(), direction, continuation_applied));
-        let plan = plan.into_inner();
-        let execution_preparation = ExecutionPreparation::for_plan::<E>(&plan);
+            .then(|| ExecutionTrace::new(&logical_plan.access, direction, continuation_applied));
+        let execution_preparation = ExecutionPreparation::for_plan::<E>(&logical_plan);
 
         let result = (|| {
             let mut span = Span::<E>::new(ExecKind::Load);
 
-            validate_executor_plan::<E>(&plan)?;
+            validate_executor_plan::<E>(&logical_plan)?;
             let ctx = self.db.recovered_context::<E>()?;
             let execution_inputs = super::ExecutionInputs {
                 ctx: &ctx,
-                plan: &plan,
+                plan: &logical_plan,
                 stream_bindings: AccessStreamBindings {
                     index_prefix_specs: index_prefix_specs.as_slice(),
                     index_range_specs: index_range_specs.as_slice(),
@@ -568,7 +568,7 @@ where
                 execution_preparation: &execution_preparation,
             };
 
-            record_plan_metrics(&plan.access);
+            record_plan_metrics(&logical_plan.access);
             let materialized = ExecutionKernel::materialize_with_optional_residual_retry(
                 &execution_inputs,
                 &route_plan,
