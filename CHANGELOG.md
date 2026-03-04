@@ -5,7 +5,7 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.40.x] - 2026-03-02 - AUDIT ALL THE THINGS!!!!1
+## [0.40.x] - 2026-03-04 - AUDIT ALL THE THINGS!!!!1
 
 - `0.40.0` split very large runtime/planner files into smaller modules to make the codebase easier to navigate and review.
 - `0.40.1` made load routing use one shared executable access shape at runtime and added a guard test so old path-specific branching does not come back.
@@ -38,6 +38,7 @@ icydb-schema-tests           2450           73       2.9%
 
 - `0.40.13` finalizes the highest-ROI complexity-accretion v2 follow-ups by formalizing planner-to-route pushdown contracts, centralizing access-capability evaluation, and removing remaining compatibility/shim surfaces.
 - `0.40.14` closes the remaining `0.40` audit work by adding cursor parity/invalidation, persisted decode-boundary, and origin-preservation matrix coverage, then reconciling status/design trackers to a closed state.
+- `0.40.15` continues `0.40` boundary cleanup by moving commit/response ownership out of `db.rs`, tightening `db`/`session` visibility, and centralizing continuation contracts between planning and execution.
 
 See detailed breakdown:
 [docs/changelog/0.40.md](docs/changelog/0.40.md)
