@@ -43,14 +43,14 @@ pub(in crate::db) struct ContinuationContract<K> {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum PreparedCursor {
-    Scalar(PlannedCursor),
+    Scalar(Box<PlannedCursor>),
     Grouped(GroupedPlannedCursor),
 }
 
 impl<K: FieldValue + Clone> ContinuationContract<K> {
     #[must_use]
     #[expect(clippy::too_many_arguments)]
-    pub(in crate::db) fn new(
+    pub(in crate::db) const fn new(
         shape_signature: ExecutionShapeSignature,
         boundary_arity: usize,
         window_size: usize,
@@ -108,7 +108,7 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
             bytes,
         )?;
 
-        Ok(PreparedCursor::Scalar(cursor))
+        Ok(PreparedCursor::Scalar(Box::new(cursor)))
     }
 
     /// Validate scalar cursor bytes against this immutable continuation contract.
@@ -123,7 +123,7 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
         }
 
         match self.validate_cursor_bytes::<E>(bytes)? {
-            PreparedCursor::Scalar(cursor) => Ok(cursor),
+            PreparedCursor::Scalar(cursor) => Ok(*cursor),
             PreparedCursor::Grouped(_) => Err(cursor_invariant_error(
                 "grouped plans require grouped cursor preparation",
             )),
@@ -189,12 +189,8 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
         crate::db::cursor::revalidate_grouped_cursor(self.expected_initial_offset(), cursor)
     }
 
-    const fn expected_initial_offset(&self) -> u32 {
-        if self.window_size > u32::MAX as usize {
-            return u32::MAX;
-        }
-
-        self.window_size as u32
+    fn expected_initial_offset(&self) -> u32 {
+        u32::try_from(self.window_size).unwrap_or(u32::MAX)
     }
 
     fn validate_grouped_cursor_policy(&self) -> Result<(), CursorPlanError> {
