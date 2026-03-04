@@ -67,15 +67,26 @@ where
 
         let next_cursor = if has_more {
             last_emitted_group_key.map(|last_group_key| {
-                PageCursor::Grouped(ContinuationEngine::grouped_next_cursor_token(
-                    route.execution_context.continuation_signature,
-                    last_group_key,
-                    resume_initial_offset,
+                if last_group_key.len() != route.execution_context.continuation_boundary_arity {
+                    return Err(crate::db::executor::load::invariant(format!(
+                        "grouped continuation boundary arity mismatch: expected {}, found {}",
+                        route.execution_context.continuation_boundary_arity,
+                        last_group_key.len()
+                    )));
+                }
+
+                Ok(PageCursor::Grouped(
+                    ContinuationEngine::grouped_next_cursor_token(
+                        route.execution_context.continuation_signature,
+                        last_group_key,
+                        resume_initial_offset,
+                    ),
                 ))
             })
         } else {
             None
-        };
+        }
+        .transpose()?;
 
         Ok((page_rows, next_cursor))
     }

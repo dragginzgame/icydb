@@ -1,7 +1,7 @@
 use crate::{
     db::{
         access::{AccessPlan, lower_executable_access_plan},
-        cursor::{CursorPlanError, GroupedPlannedCursor, PlannedCursor},
+        cursor::{ContinuationSignature, CursorPlanError, GroupedPlannedCursor, PlannedCursor},
         direction::Direction,
         query::plan::{
             AccessPlannedQuery, ExecutionShapeSignature, GroupedCursorPolicyViolation,
@@ -10,6 +10,7 @@ use crate::{
     },
     error::InternalError,
     traits::{EntityKind, FieldValue},
+    value::Value,
 };
 
 ///
@@ -26,10 +27,61 @@ pub(in crate::db) struct ContinuationContract<K> {
     pub boundary_arity: usize,
     pub window_size: usize,
     pub is_grouped: bool,
+    page_limit: Option<usize>,
     access: AccessPlan<K>,
     order: Option<OrderSpec>,
     direction: Direction,
     grouped_cursor_policy_violation: Option<GroupedCursorPolicyViolation>,
+}
+
+///
+/// GroupedContinuationWindow
+///
+/// Planner-contract grouped continuation paging window.
+/// Carries grouped page limit/offset/window progression semantics derived once
+/// from immutable continuation contract state plus validated grouped cursor state.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct GroupedContinuationWindow {
+    limit: Option<usize>,
+    initial_offset_for_page: usize,
+    selection_bound: Option<usize>,
+    resume_initial_offset: u32,
+    resume_boundary: Option<Value>,
+}
+
+impl GroupedContinuationWindow {
+    // Construct one immutable grouped continuation paging window.
+    const fn new(
+        limit: Option<usize>,
+        initial_offset_for_page: usize,
+        selection_bound: Option<usize>,
+        resume_initial_offset: u32,
+        resume_boundary: Option<Value>,
+    ) -> Self {
+        Self {
+            limit,
+            initial_offset_for_page,
+            selection_bound,
+            resume_initial_offset,
+            resume_boundary,
+        }
+    }
+
+    /// Decompose grouped continuation window fields into grouped-fold tuple order.
+    #[must_use]
+    pub(in crate::db) fn into_parts(
+        self,
+    ) -> (Option<usize>, usize, Option<usize>, u32, Option<Value>) {
+        (
+            self.limit,
+            self.initial_offset_for_page,
+            self.selection_bound,
+            self.resume_initial_offset,
+            self.resume_boundary,
+        )
+    }
 }
 
 ///
@@ -54,6 +106,7 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
         boundary_arity: usize,
         window_size: usize,
         is_grouped: bool,
+        page_limit: Option<usize>,
         access: AccessPlan<K>,
         order: Option<OrderSpec>,
         direction: Direction,
@@ -64,6 +117,7 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
             boundary_arity,
             window_size,
             is_grouped,
+            page_limit,
             access,
             order,
             direction,
@@ -74,6 +128,16 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
     #[must_use]
     pub(in crate::db) const fn is_grouped(&self) -> bool {
         self.is_grouped
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn continuation_signature(&self) -> ContinuationSignature {
+        self.shape_signature.continuation_signature()
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn boundary_arity(&self) -> usize {
+        self.boundary_arity
     }
 
     /// Validate optional cursor bytes against this immutable continuation contract.
@@ -89,7 +153,7 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
             let cursor = crate::db::cursor::prepare_grouped_cursor(
                 E::PATH,
                 self.order.as_ref(),
-                self.shape_signature.continuation_signature(),
+                self.continuation_signature(),
                 self.expected_initial_offset(),
                 bytes,
             )?;
@@ -102,7 +166,7 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
             executable_access.as_path().cloned(),
             self.order.as_ref(),
             self.direction,
-            self.shape_signature.continuation_signature(),
+            self.continuation_signature(),
             self.expected_initial_offset(),
             bytes,
         )?;
@@ -188,6 +252,49 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
         crate::db::cursor::revalidate_grouped_cursor(self.expected_initial_offset(), cursor)
     }
 
+    /// Derive grouped paging contracts from validated grouped cursor state.
+    pub(in crate::db) fn grouped_paging_window(
+        &self,
+        cursor: &GroupedPlannedCursor,
+    ) -> Result<GroupedContinuationWindow, CursorPlanError> {
+        if !self.is_grouped {
+            return Err(cursor_invariant_error(
+                "grouped paging window requires grouped logical plans",
+            ));
+        }
+
+        if !cursor.is_empty() {
+            self.validate_grouped_cursor_policy()?;
+        }
+
+        let resume_initial_offset = if cursor.is_empty() {
+            self.expected_initial_offset()
+        } else {
+            cursor.initial_offset()
+        };
+        let initial_offset_for_page = if cursor.is_empty() {
+            self.window_size
+        } else {
+            0
+        };
+        let selection_bound = self.page_limit.and_then(|limit| {
+            limit
+                .checked_add(initial_offset_for_page)
+                .and_then(|count| count.checked_add(1))
+        });
+        let resume_boundary = cursor
+            .last_group_key()
+            .map(|last_group_key| Value::List(last_group_key.to_vec()));
+
+        Ok(GroupedContinuationWindow::new(
+            self.page_limit,
+            initial_offset_for_page,
+            selection_bound,
+            resume_initial_offset,
+            resume_boundary,
+        ))
+    }
+
     fn expected_initial_offset(&self) -> u32 {
         u32::try_from(self.window_size).unwrap_or(u32::MAX)
     }
@@ -229,6 +336,12 @@ impl<K: FieldValue + Clone> AccessPlannedQuery<K> {
             .page
             .as_ref()
             .map_or(0, |page| usize::try_from(page.offset).unwrap_or(usize::MAX));
+        let page_limit = self
+            .scalar_plan()
+            .page
+            .as_ref()
+            .and_then(|page| page.limit)
+            .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
         let is_grouped = self.grouped_plan().is_some();
         let order = self.scalar_plan().order.clone();
         let direction = primary_scan_direction(order.as_ref());
@@ -242,6 +355,7 @@ impl<K: FieldValue + Clone> AccessPlannedQuery<K> {
             boundary_arity,
             window_size,
             is_grouped,
+            page_limit,
             access,
             order,
             direction,

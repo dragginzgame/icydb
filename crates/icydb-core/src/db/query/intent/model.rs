@@ -4,7 +4,7 @@ use crate::{
         query::{
             builder::aggregate::AggregateExpr,
             expr::{FilterExpr, SortExpr, SortLowerError},
-            intent::{IntentError, QueryError, intent_ast::QueryIntent},
+            intent::{IntentError, QueryError, QueryIntent},
             plan::{
                 AccessPlannedQuery, GroupAggregateSpec, GroupHavingClause, GroupHavingSymbol,
                 OrderSpec, QueryMode, build_logical_plan, logical_query_from_logical_inputs,

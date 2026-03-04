@@ -4,7 +4,6 @@ use crate::{
     db::{
         contracts::canonical_value_compare,
         executor::{
-            ContinuationEngine,
             aggregate::AggregateEngine,
             load::{GroupedRouteStage, LoadExecutor},
         },
@@ -22,11 +21,11 @@ where
     pub(super) fn grouped_pagination_window(
         route: &GroupedRouteStage<E>,
     ) -> (Option<usize>, usize, Option<usize>, u32, Option<Value>) {
-        ContinuationEngine::grouped_paging_contract(
-            &route.planner_payload.plan,
-            &route.execution_context.cursor,
-        )
-        .into_parts()
+        route
+            .execution_context
+            .grouped_continuation_window
+            .clone()
+            .into_parts()
     }
 
     // Finalize grouped reducers into deterministic candidate rows before paging.

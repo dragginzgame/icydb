@@ -24,7 +24,7 @@ use crate::{
         Context, Db, GroupedRow,
         cursor::{
             ContinuationSignature, ContinuationToken, CursorBoundary, GroupedContinuationToken,
-            GroupedPlannedCursor, decode_pk_cursor_boundary,
+            decode_pk_cursor_boundary,
         },
         direction::Direction,
         executor::{
@@ -37,8 +37,8 @@ use crate::{
             plan_metrics::GroupedPlanMetricsStrategy,
         },
         query::plan::{
-            AccessPlannedQuery, GroupHavingSpec, GroupedDistinctExecutionStrategy,
-            PlannedProjectionLayout,
+            AccessPlannedQuery, GroupHavingSpec, GroupedContinuationWindow,
+            GroupedDistinctExecutionStrategy, PlannedProjectionLayout,
         },
         response::EntityResponse,
     },
@@ -214,9 +214,10 @@ struct IndexSpecBundle {
 ///
 
 struct GroupedExecutionContext {
-    cursor: GroupedPlannedCursor,
     direction: Direction,
     continuation_signature: ContinuationSignature,
+    continuation_boundary_arity: usize,
+    grouped_continuation_window: GroupedContinuationWindow,
     grouped_plan_metrics_strategy: GroupedPlanMetricsStrategy,
     execution_trace: Option<ExecutionTrace>,
 }

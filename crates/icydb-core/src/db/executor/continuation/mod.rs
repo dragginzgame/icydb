@@ -1,12 +1,11 @@
 use crate::{
     db::{
         cursor::{
-            ContinuationSignature, CursorBoundary, GroupedContinuationToken, GroupedPlannedCursor,
-            PlannedCursor, range_token_from_validated_cursor_anchor,
+            ContinuationSignature, CursorBoundary, GroupedContinuationToken, PlannedCursor,
+            range_token_from_validated_cursor_anchor,
         },
         direction::Direction,
         executor::RangeToken,
-        query::plan::AccessPlannedQuery,
     },
     value::Value,
 };
@@ -15,8 +14,8 @@ use crate::{
 /// ContinuationEngine
 ///
 /// Executor-owned continuation protocol facade.
-/// Centralizes cursor decode/revalidation entrypoints and grouped pagination
-/// token/window contracts so executor load paths consume one boundary.
+/// Centralizes scalar cursor runtime bindings and grouped cursor token emission
+/// so executor load paths consume one boundary for runtime continuation payloads.
 ///
 
 pub(in crate::db::executor) struct ContinuationEngine;
@@ -28,52 +27,6 @@ impl ContinuationEngine {
         cursor: PlannedCursor,
     ) -> ScalarContinuationRuntime {
         ScalarContinuationRuntime::new(cursor)
-    }
-
-    /// Derive grouped pagination contracts from one grouped plan + grouped cursor state.
-    #[must_use]
-    pub(in crate::db::executor) fn grouped_paging_contract<K>(
-        plan: &AccessPlannedQuery<K>,
-        cursor: &GroupedPlannedCursor,
-    ) -> GroupedContinuationPaging {
-        let initial_offset = plan
-            .scalar_plan()
-            .page
-            .as_ref()
-            .map_or(0, |page| page.offset);
-        let resume_initial_offset = if cursor.is_empty() {
-            initial_offset
-        } else {
-            cursor.initial_offset()
-        };
-        let resume_boundary = cursor
-            .last_group_key()
-            .map(|last_group_key| Value::List(last_group_key.to_vec()));
-        let apply_initial_offset = cursor.is_empty();
-        let limit = plan
-            .scalar_plan()
-            .page
-            .as_ref()
-            .and_then(|page| page.limit)
-            .and_then(|limit| usize::try_from(limit).ok());
-        let initial_offset_for_page = if apply_initial_offset {
-            usize::try_from(initial_offset).unwrap_or(usize::MAX)
-        } else {
-            0
-        };
-        let selection_bound = limit.and_then(|limit| {
-            limit
-                .checked_add(initial_offset_for_page)
-                .and_then(|count| count.checked_add(1))
-        });
-
-        GroupedContinuationPaging::new(
-            limit,
-            initial_offset_for_page,
-            selection_bound,
-            resume_initial_offset,
-            resume_boundary,
-        )
     }
 
     /// Build one grouped continuation token for grouped page finalization.
@@ -153,56 +106,5 @@ impl ScalarContinuationRuntime {
     #[must_use]
     pub(in crate::db::executor) const fn index_range_token(&self) -> Option<&RangeToken> {
         self.index_range_token.as_ref()
-    }
-}
-
-///
-/// GroupedContinuationPaging
-///
-/// Canonical grouped paging contract derived from grouped plan + cursor state.
-/// Keeps grouped resume boundary, offset semantics, and bounded selection shape
-/// centralized outside grouped fold mechanics.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) struct GroupedContinuationPaging {
-    limit: Option<usize>,
-    initial_offset_for_page: usize,
-    selection_bound: Option<usize>,
-    resume_initial_offset: u32,
-    resume_boundary: Option<Value>,
-}
-
-impl GroupedContinuationPaging {
-    /// Construct one grouped continuation paging contract.
-    #[must_use]
-    const fn new(
-        limit: Option<usize>,
-        initial_offset_for_page: usize,
-        selection_bound: Option<usize>,
-        resume_initial_offset: u32,
-        resume_boundary: Option<Value>,
-    ) -> Self {
-        Self {
-            limit,
-            initial_offset_for_page,
-            selection_bound,
-            resume_initial_offset,
-            resume_boundary,
-        }
-    }
-
-    /// Decompose grouped paging fields into load-fold friendly tuple order.
-    #[must_use]
-    pub(in crate::db::executor) fn into_parts(
-        self,
-    ) -> (Option<usize>, usize, Option<usize>, u32, Option<Value>) {
-        (
-            self.limit,
-            self.initial_offset_for_page,
-            self.selection_bound,
-            self.resume_initial_offset,
-            self.resume_boundary,
-        )
     }
 }

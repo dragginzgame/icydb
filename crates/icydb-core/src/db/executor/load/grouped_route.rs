@@ -94,8 +94,9 @@ where
         let continuation_applied = !cursor.is_empty();
         let execution_trace =
             debug.then(|| ExecutionTrace::new(plan.access(), direction, continuation_applied));
-        let execution_shape_signature = plan.execution_shape_signature();
-        let continuation_signature = execution_shape_signature.continuation_signature();
+        let continuation_signature = plan.continuation_signature_for_runtime()?;
+        let continuation_boundary_arity = plan.grouped_cursor_boundary_arity()?;
+        let grouped_continuation_window = plan.grouped_continuation_window(&cursor)?;
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
         let plan = plan.into_inner();
@@ -116,9 +117,10 @@ where
                 index_range_specs,
             },
             execution_context: GroupedExecutionContext {
-                cursor,
                 direction,
                 continuation_signature,
+                continuation_boundary_arity,
+                grouped_continuation_window,
                 grouped_plan_metrics_strategy,
                 execution_trace,
             },

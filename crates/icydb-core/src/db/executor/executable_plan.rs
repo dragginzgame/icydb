@@ -15,7 +15,7 @@ use crate::{
         predicate::MissingRowPolicy,
         query::plan::{
             AccessPlannedQuery, ContinuationContract, ExecutionShapeSignature,
-            GroupedExecutorHandoff, QueryMode, grouped_executor_handoff,
+            GroupedContinuationWindow, GroupedExecutorHandoff, QueryMode, grouped_executor_handoff,
         },
     },
     error::InternalError,
@@ -93,11 +93,17 @@ impl<E: EntityKind> ExecutablePlan<E> {
     #[must_use]
     #[cfg_attr(not(test), allow(dead_code))]
     pub(in crate::db) const fn continuation_signature(&self) -> ContinuationSignature {
-        self.execution_shape_signature.continuation_signature()
+        match self.continuation {
+            Some(ref contract) => contract.continuation_signature(),
+            None => {
+                panic!("continuation signature requires load-mode continuation contract")
+            }
+        }
     }
 
     /// Borrow the immutable execution-shape signature for this executable plan.
     #[must_use]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(in crate::db) const fn execution_shape_signature(&self) -> ExecutionShapeSignature {
         self.execution_shape_signature
     }
@@ -234,6 +240,44 @@ impl<E: EntityKind> ExecutablePlan<E> {
         contract
             .revalidate_grouped_cursor(cursor)
             .map_err(InternalError::from_cursor_plan_error)
+    }
+
+    /// Borrow continuation signature from immutable continuation contract.
+    pub(in crate::db) fn continuation_signature_for_runtime(
+        &self,
+    ) -> Result<ContinuationSignature, InternalError> {
+        let contract = self.continuation_contract()?;
+        Ok(contract.continuation_signature())
+    }
+
+    /// Borrow grouped cursor boundary arity from immutable continuation contract.
+    pub(in crate::db) fn grouped_cursor_boundary_arity(&self) -> Result<usize, InternalError> {
+        let contract = self.continuation_contract()?;
+        if !contract.is_grouped() {
+            return Err(invariant(
+                "grouped cursor boundary arity requires grouped logical plans",
+            ));
+        }
+
+        Ok(contract.boundary_arity())
+    }
+
+    /// Derive grouped paging window from immutable continuation contract.
+    pub(in crate::db) fn grouped_continuation_window(
+        &self,
+        cursor: &GroupedPlannedCursor,
+    ) -> Result<GroupedContinuationWindow, InternalError> {
+        let contract = self.continuation_contract()?;
+        contract
+            .grouped_paging_window(cursor)
+            .map_err(InternalError::from_cursor_plan_error)
+    }
+
+    // Borrow immutable continuation contract for load-mode plans.
+    fn continuation_contract(&self) -> Result<&ContinuationContract<E::Key>, InternalError> {
+        self.continuation
+            .as_ref()
+            .ok_or_else(|| invariant("continuation contracts are only supported for load plans"))
     }
 }
 

@@ -4,11 +4,14 @@
 //! Boundary: typed/fluent query inputs lowered into validated logical plans.
 
 mod errors;
-mod intent_ast;
 mod key_access;
 mod model;
+mod mutation;
 mod order;
+mod planning;
+mod policy;
 mod query;
+mod state;
 
 #[cfg(test)]
 mod tests;
@@ -31,3 +34,4 @@ pub(crate) use model::QueryModel;
 #[expect(unreachable_pub)]
 pub use query::PlannedQuery;
 pub use query::{CompiledQuery, Query};
+pub(in crate::db::query::intent) use state::QueryIntent;
