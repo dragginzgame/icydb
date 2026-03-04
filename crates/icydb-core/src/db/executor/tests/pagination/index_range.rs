@@ -29,7 +29,7 @@ fn load_index_pushdown_eligible_order_matches_index_scan_order() {
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("parity load plan should build");
     let response = load.execute(plan).expect("parity load should execute");
-    let actual_ids: Vec<Ulid> = ids_from_items(&response.0);
+    let actual_ids: Vec<Ulid> = ids_from_items(&response);
 
     let expected_ids = ordered_ids_from_group_rank_index(7);
     assert_eq!(
@@ -92,17 +92,16 @@ fn load_index_prefix_spec_closed_bounds_preserve_prefix_window_end_to_end() {
         )
         .expect("fallback execution should succeed");
 
-    let pushdown_ids = ids_from_items(&pushdown_response.0);
-    let fallback_ids = ids_from_items(&fallback_response.0);
+    let pushdown_ids = ids_from_items(&pushdown_response);
+    let fallback_ids = ids_from_items(&fallback_response);
     assert_eq!(
         pushdown_ids, fallback_ids,
         "closed prefix bounds should preserve the exact group window"
     );
     assert!(
         pushdown_response
-            .0
             .iter()
-            .all(|(_, entity)| entity.group == 7),
+            .all(|row| row.entity_ref().group == 7),
         "closed prefix bounds must not leak adjacent prefix rows"
     );
 }
@@ -140,7 +139,7 @@ fn load_index_pushdown_desc_with_explicit_pk_desc_is_eligible_and_ordered() {
     let response = load
         .execute(plan)
         .expect("descending parity load should execute");
-    let actual_ids: Vec<Ulid> = ids_from_items(&response.0);
+    let actual_ids: Vec<Ulid> = ids_from_items(&response);
 
     let mut expected_ids = ordered_ids_from_group_rank_index(7);
     expected_ids.reverse();
@@ -173,7 +172,7 @@ fn load_index_pushdown_eligible_paged_results_match_index_scan_window() {
     let page1 = load
         .execute_paged_with_cursor(page1_plan, page1_boundary)
         .expect("page1 parity should execute");
-    let page1_ids: Vec<Ulid> = ids_from_items(&page1.items.0);
+    let page1_ids: Vec<Ulid> = ids_from_items(&page1.items);
 
     let expected_all = ordered_ids_from_group_rank_index(7);
     let expected_page1: Vec<Ulid> = expected_all.iter().copied().take(2).collect();
@@ -205,7 +204,7 @@ fn load_index_pushdown_eligible_paged_results_match_index_scan_window() {
     let page2 = load
         .execute_paged_with_cursor(page2_plan, page2_boundary)
         .expect("page2 parity should execute");
-    let page2_ids: Vec<Ulid> = ids_from_items(&page2.items.0);
+    let page2_ids: Vec<Ulid> = ids_from_items(&page2.items);
 
     let expected_page2: Vec<Ulid> = expected_all.iter().copied().skip(2).take(2).collect();
     assert_eq!(
@@ -247,8 +246,8 @@ fn load_index_pushdown_and_fallback_emit_equivalent_cursor_boundaries() {
         .execute_paged_with_cursor(fallback_plan, None)
         .expect("fallback page should execute");
 
-    let pushdown_ids: Vec<Ulid> = ids_from_items(&pushdown_page.items.0);
-    let fallback_ids: Vec<Ulid> = ids_from_items(&fallback_page.items.0);
+    let pushdown_ids: Vec<Ulid> = ids_from_items(&pushdown_page.items);
+    let fallback_ids: Vec<Ulid> = ids_from_items(&fallback_page.items);
     assert_eq!(
         pushdown_ids, fallback_ids,
         "pushdown and fallback page windows should match"
@@ -296,7 +295,7 @@ fn load_index_range_cursor_anchor_matches_last_emitted_row_after_post_access_pip
     let page = load
         .execute_paged_with_cursor(page_plan, None)
         .expect("index-range page should execute");
-    assert_eq!(page.items.0.len(), 2, "page should emit exactly two rows");
+    assert_eq!(page.items.len(), 2, "page should emit exactly two rows");
 
     // Phase 2: lock continuation boundary + raw anchor to the final emitted row.
     let emitted_cursor = page
@@ -306,11 +305,11 @@ fn load_index_range_cursor_anchor_matches_last_emitted_row_after_post_access_pip
     let scalar_cursor = emitted_cursor
         .as_scalar()
         .expect("index-range pagination must emit a scalar continuation cursor");
-    let (_, last_entity) = page
+    let last_entity = page
         .items
-        .0
         .last()
-        .expect("non-empty page must include a trailing emitted row");
+        .expect("non-empty page must include a trailing emitted row")
+        .entity_ref();
 
     let comparison_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
@@ -401,8 +400,8 @@ fn load_index_pushdown_and_fallback_resume_equivalently_from_shared_boundary() {
         .execute_paged_with_cursor(fallback_page2_plan, Some(shared_boundary))
         .expect("fallback page2 should execute");
 
-    let pushdown_page2_ids: Vec<Ulid> = ids_from_items(&pushdown_page2.items.0);
-    let fallback_page2_ids: Vec<Ulid> = ids_from_items(&fallback_page2.items.0);
+    let pushdown_page2_ids: Vec<Ulid> = ids_from_items(&pushdown_page2.items);
+    let fallback_page2_ids: Vec<Ulid> = ids_from_items(&fallback_page2.items);
     assert_eq!(
         pushdown_page2_ids, fallback_page2_ids,
         "pushdown and fallback should return the same rows for a shared continuation boundary"
@@ -469,8 +468,8 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
         .execute_paged_with_cursor(by_ids_page1_plan, None)
         .expect("by-ids desc page1 should execute");
 
-    let index_path_page1_ids: Vec<Ulid> = ids_from_items(&index_path_page1.items.0);
-    let by_ids_page1_ids: Vec<Ulid> = ids_from_items(&by_ids_page1.items.0);
+    let index_path_page1_ids: Vec<Ulid> = ids_from_items(&index_path_page1.items);
+    let by_ids_page1_ids: Vec<Ulid> = ids_from_items(&by_ids_page1.items);
     assert_eq!(
         index_path_page1_ids, by_ids_page1_ids,
         "descending page1 should match across index-prefix and by-ids paths"
@@ -504,8 +503,8 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
         .execute_paged_with_cursor(by_ids_page2_plan, Some(shared_boundary))
         .expect("by-ids desc page2 should execute");
 
-    let index_path_page2_ids: Vec<Ulid> = ids_from_items(&index_path_page2.items.0);
-    let by_ids_page2_ids: Vec<Ulid> = ids_from_items(&by_ids_page2.items.0);
+    let index_path_page2_ids: Vec<Ulid> = ids_from_items(&index_path_page2.items);
+    let by_ids_page2_ids: Vec<Ulid> = ids_from_items(&by_ids_page2.items);
     assert_eq!(
         index_path_page2_ids, by_ids_page2_ids,
         "descending page2 should match across index-prefix and by-ids paths"
@@ -555,13 +554,13 @@ fn load_index_prefix_window_cursor_past_end_returns_empty_page() {
     let page2 = load
         .execute_paged_with_cursor(page2_plan, page2_boundary)
         .expect("prefix window page2 should execute");
-    assert_eq!(page2.items.0.len(), 1, "page2 should return final row only");
+    assert_eq!(page2.items.len(), 1, "page2 should return final row only");
     assert!(
         page2.next_cursor.is_none(),
         "final prefix window page should not emit continuation cursor"
     );
 
-    let terminal_entity = &page2.items.0[0].1;
+    let terminal_entity = page2.items[0].entity_ref();
     assert_resume_from_terminal_entity_exhausts_range(
         || {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
@@ -692,12 +691,12 @@ fn load_single_field_range_full_asc_reversed_equals_full_desc() {
         )
         .expect("single-field desc execution should succeed");
 
-    let mut asc_ids = ids_from_items(&asc.0);
+    let mut asc_ids = ids_from_items(&asc);
     asc_ids.reverse();
 
     assert_eq!(
         asc_ids,
-        ids_from_items(&desc.0),
+        ids_from_items(&desc),
         "full DESC result stream should match reversed full ASC result stream"
     );
 }
@@ -753,12 +752,12 @@ fn load_composite_range_full_asc_reversed_equals_full_desc() {
         )
         .expect("composite desc execution should succeed");
 
-    let mut asc_ids = ids_from_items(&asc.0);
+    let mut asc_ids = ids_from_items(&asc);
     asc_ids.reverse();
 
     assert_eq!(
         asc_ids,
-        ids_from_items(&desc.0),
+        ids_from_items(&desc),
         "full DESC composite stream should match reversed full ASC stream"
     );
 }
@@ -814,12 +813,12 @@ fn load_unique_index_range_full_asc_reversed_equals_full_desc() {
         )
         .expect("unique desc execution should succeed");
 
-    let mut asc_ids = ids_from_items(&asc.0);
+    let mut asc_ids = ids_from_items(&asc);
     asc_ids.reverse();
 
     assert_eq!(
         asc_ids,
-        ids_from_items(&desc.0),
+        ids_from_items(&desc),
         "full DESC unique stream should match reversed full ASC stream"
     );
 }
@@ -930,7 +929,7 @@ fn load_single_field_range_limit_exact_size_returns_single_page_without_cursor()
         .execute_paged_with_cursor(page_plan, planned_cursor)
         .expect("single-field exact-size page should execute");
 
-    let page_ids: Vec<Ulid> = ids_from_items(&page.items.0);
+    let page_ids: Vec<Ulid> = ids_from_items(&page.items);
     let expected_ids = indexed_metrics_ids_in_tag_range(&rows, 10, 30);
     assert_eq!(
         page_ids, expected_ids,
@@ -982,7 +981,7 @@ fn load_composite_range_limit_terminal_page_suppresses_cursor() {
             .execute_paged_with_cursor(page_plan, planned_cursor)
             .expect("composite terminal-page execution should succeed");
 
-        page_sizes.push(page.items.0.len());
+        page_sizes.push(page.items.len());
 
         let Some(next_cursor) = page.next_cursor else {
             break;
@@ -1273,8 +1272,8 @@ fn load_index_range_limit_pushdown_with_residual_predicate_reduces_access_rows()
     let fallback_trace = fallback_trace.expect("debug trace should be present");
 
     assert_eq!(
-        ids_from_items(&fast_page.items.0),
-        ids_from_items(&fallback_page.items.0),
+        ids_from_items(&fast_page.items),
+        ids_from_items(&fallback_page.items),
         "residual-filter index-range pushdown must preserve fallback row parity",
     );
     assert!(
@@ -1364,8 +1363,8 @@ fn load_index_range_limit_pushdown_residual_underfill_retries_without_pushdown()
     let fallback_trace = fallback_trace.expect("debug trace should be present");
 
     assert_eq!(
-        ids_from_items(&fast_page.items.0),
-        ids_from_items(&fallback_page.items.0),
+        ids_from_items(&fast_page.items),
+        ids_from_items(&fallback_page.items),
         "residual underfill retry path must preserve fallback row parity",
     );
     assert_eq!(
@@ -1460,8 +1459,8 @@ fn load_index_range_limit_pushdown_residual_predicate_parity_matches_canonical_f
             .expect("fallback residual matrix execution should succeed");
 
         assert_eq!(
-            ids_from_items(&fast_page.items.0),
-            ids_from_items(&fallback_page.items.0),
+            ids_from_items(&fast_page.items),
+            ids_from_items(&fallback_page.items),
             "residual range matrix case should preserve fallback row parity: case={case_name}",
         );
         assert_eq!(
@@ -1548,8 +1547,8 @@ fn load_index_only_predicate_reduces_access_rows_vs_fallback() {
     let fallback_trace = fallback_trace.expect("debug trace should be present");
 
     assert_eq!(
-        ids_from_items(&fast_page.items.0),
-        ids_from_items(&fallback_page.items.0),
+        ids_from_items(&fast_page.items),
+        ids_from_items(&fallback_page.items),
         "index-only predicate path must preserve fallback result parity",
     );
     assert!(
@@ -1653,8 +1652,8 @@ fn load_index_only_predicate_distinct_continuation_matches_fallback() {
     let fallback_trace1 = fallback_trace1.expect("debug trace should be present");
 
     assert_eq!(
-        ids_from_items(&fast_page1.items.0),
-        ids_from_items(&fallback_page1.items.0),
+        ids_from_items(&fast_page1.items),
+        ids_from_items(&fallback_page1.items),
         "fast and fallback distinct page1 rows should match",
     );
     assert!(
@@ -1707,8 +1706,8 @@ fn load_index_only_predicate_distinct_continuation_matches_fallback() {
     let fallback_trace2 = fallback_trace2.expect("debug trace should be present");
 
     assert_eq!(
-        ids_from_items(&fast_page2.items.0),
-        ids_from_items(&fallback_page2.items.0),
+        ids_from_items(&fast_page2.items),
+        ids_from_items(&fallback_page2.items),
         "fast and fallback distinct page2 rows should match",
     );
     assert!(
@@ -1809,8 +1808,8 @@ fn load_index_only_predicate_distinct_desc_continuation_matches_fallback() {
     let fallback_trace1 = fallback_trace1.expect("debug trace should be present");
 
     assert_eq!(
-        ids_from_items(&fast_page1.items.0),
-        ids_from_items(&fallback_page1.items.0),
+        ids_from_items(&fast_page1.items),
+        ids_from_items(&fallback_page1.items),
         "fast and fallback descending distinct page1 rows should match",
     );
     assert!(
@@ -1851,8 +1850,8 @@ fn load_index_only_predicate_distinct_desc_continuation_matches_fallback() {
     let fallback_trace2 = fallback_trace2.expect("debug trace should be present");
 
     assert_eq!(
-        ids_from_items(&fast_page2.items.0),
-        ids_from_items(&fallback_page2.items.0),
+        ids_from_items(&fast_page2.items),
+        ids_from_items(&fallback_page2.items),
         "fast and fallback descending distinct page2 rows should match",
     );
     assert!(
@@ -1952,8 +1951,8 @@ fn load_index_only_predicate_in_constants_reduces_access_rows_vs_fallback() {
 
     // Phase 3: assert parity and read-reduction behavior.
     assert_eq!(
-        ids_from_items(&fast_page.items.0),
-        ids_from_items(&fallback_page.items.0),
+        ids_from_items(&fast_page.items),
+        ids_from_items(&fallback_page.items),
         "strict IN index-only execution must preserve fallback row parity",
     );
     assert!(
@@ -2092,8 +2091,8 @@ fn load_index_only_predicate_bounded_range_distinct_continuation_matches_fallbac
         let fallback_trace1 = fallback_trace1.expect("debug trace should be present");
 
         assert_eq!(
-            ids_from_items(&fast_page1.items.0),
-            ids_from_items(&fallback_page1.items.0),
+            ids_from_items(&fast_page1.items),
+            ids_from_items(&fallback_page1.items),
             "fast and fallback bounded-range page1 rows should match for descending={descending}",
         );
         assert!(
@@ -2143,8 +2142,8 @@ fn load_index_only_predicate_bounded_range_distinct_continuation_matches_fallbac
         let fallback_trace2 = fallback_trace2.expect("debug trace should be present");
 
         assert_eq!(
-            ids_from_items(&fast_page2.items.0),
-            ids_from_items(&fallback_page2.items.0),
+            ids_from_items(&fast_page2.items),
+            ids_from_items(&fallback_page2.items),
             "fast and fallback bounded-range page2 rows should match for descending={descending}",
         );
         assert!(

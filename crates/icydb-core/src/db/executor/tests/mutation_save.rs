@@ -1554,7 +1554,7 @@ fn unique_index_delete_then_insert_same_value_succeeds() {
     let deleted = delete
         .execute(delete_plan)
         .expect("delete should clear existing unique row");
-    assert_eq!(deleted.0.len(), 1);
+    assert_eq!(deleted.len(), 1);
 
     let replacement = Ulid::from_u128(41);
     save.insert(UniqueEmailEntity {

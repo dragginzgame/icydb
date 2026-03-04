@@ -17,15 +17,15 @@ fn session_load_aggregate_terminals_match_execute() {
         .expect("baseline session execute should succeed");
     let expected_count = expected.count();
     let expected_exists = !expected.is_empty();
-    let expected_min = expected.ids().into_iter().min();
-    let expected_max = expected.ids().into_iter().max();
-    let expected_min_by_id = expected.ids().into_iter().min();
-    let expected_max_by_id = expected.ids().into_iter().max();
-    let mut expected_ordered_ids = expected.ids();
+    let expected_min = expected.ids().min();
+    let expected_max = expected.ids().max();
+    let expected_min_by_id = expected.ids().min();
+    let expected_max_by_id = expected.ids().max();
+    let mut expected_ordered_ids: Vec<_> = expected.ids().collect();
     expected_ordered_ids.sort_unstable();
     let expected_nth_by_id = expected_ordered_ids.get(1).copied();
     let expected_first = expected.id();
-    let expected_last = expected.ids().last().copied();
+    let expected_last = expected.ids().last();
 
     let actual_count = load_window().count().expect("session count should succeed");
     let actual_exists = load_window()
@@ -126,8 +126,8 @@ fn session_load_numeric_field_aggregates_match_execute() {
         .expect("baseline execute for numeric field aggregates should succeed");
     let mut expected_sum = Decimal::ZERO;
     let mut expected_count = 0u64;
-    for (_, entity) in expected_response {
-        let rank = Decimal::from_num(u64::from(entity.rank)).expect("rank decimal");
+    for row in expected_response {
+        let rank = Decimal::from_num(u64::from(row.entity().rank)).expect("rank decimal");
         expected_sum += rank;
         expected_count = expected_count.saturating_add(1);
     }

@@ -2,9 +2,7 @@ use crate::{
     traits::{AsView, EntityKind, EntityValue, View},
     types::Id,
 };
-use icydb_core::db::{
-    WriteBatchResponse as CoreWriteBatchResponse, WriteResponse as CoreWriteResponse,
-};
+use icydb_core::db::WriteBatchResponse as CoreWriteBatchResponse;
 
 ///
 /// WriteResponse
@@ -15,26 +13,20 @@ use icydb_core::db::{
 
 #[derive(Debug)]
 pub struct WriteResponse<E: EntityKind> {
-    inner: CoreWriteResponse<E>,
+    entity: E,
 }
 
 impl<E: EntityKind> WriteResponse<E> {
     /// Construct a facade write response from a stored entity.
     #[must_use]
     pub const fn new(entity: E) -> Self {
-        Self::from_core(CoreWriteResponse::new(entity))
-    }
-
-    /// Construct a facade write response from the core response.
-    #[must_use]
-    pub const fn from_core(inner: CoreWriteResponse<E>) -> Self {
-        Self { inner }
+        Self { entity }
     }
 
     /// Return the stored entity.
     #[must_use]
     pub fn entity(self) -> E {
-        self.inner.entity()
+        self.entity
     }
 
     /// Return the stored entity's primary identity
@@ -43,7 +35,7 @@ impl<E: EntityKind> WriteResponse<E> {
     where
         E: EntityValue,
     {
-        self.inner.id()
+        self.entity.id()
     }
 
     /// Return the stored entity as its view type.
@@ -52,7 +44,7 @@ impl<E: EntityKind> WriteResponse<E> {
     where
         E: AsView,
     {
-        self.inner.view()
+        crate::traits::AsView::as_view(&self.entity)
     }
 }
 
@@ -64,81 +56,68 @@ impl<E: EntityKind> WriteResponse<E> {
 
 #[derive(Debug)]
 pub struct WriteBatchResponse<E: EntityKind> {
-    entries: Vec<WriteResponse<E>>,
+    entities: Vec<E>,
 }
 
 impl<E: EntityKind> WriteBatchResponse<E> {
     /// Construct a facade batch response from stored entities.
     #[must_use]
-    pub fn new(entities: Vec<E>) -> Self {
-        Self {
-            entries: entities.into_iter().map(WriteResponse::new).collect(),
-        }
+    pub const fn new(entities: Vec<E>) -> Self {
+        Self { entities }
     }
 
     /// Construct a facade batch response from the core response.
     #[must_use]
     pub fn from_core(inner: CoreWriteBatchResponse<E>) -> Self {
         Self {
-            entries: inner.into_iter().map(WriteResponse::from_core).collect(),
+            entities: inner.into_iter().collect(),
         }
-    }
-
-    /// Return all write responses.
-    #[must_use]
-    pub fn entries(&self) -> &[WriteResponse<E>] {
-        &self.entries
     }
 
     /// Return the number of entries.
     #[must_use]
     pub const fn len(&self) -> usize {
-        self.entries.len()
+        self.entities.len()
     }
 
     /// Returns `true` if the batch is empty.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.entities.is_empty()
     }
 
     /// Return all stored entities.
     #[must_use]
     pub fn entities(self) -> Vec<E> {
-        self.entries
-            .into_iter()
-            .map(WriteResponse::entity)
-            .collect()
+        self.entities
     }
 
-    /// Return all primary keys for correlation, reporting, and lookup.
-    #[must_use]
-    pub fn ids(&self) -> Vec<Id<E>>
+    /// Borrow an iterator over primary keys for correlation, reporting, and lookup.
+    pub fn ids(&self) -> impl Iterator<Item = Id<E>> + '_
     where
         E: EntityValue,
     {
-        self.entries.iter().map(WriteResponse::id).collect()
+        self.entities.iter().map(EntityValue::id)
     }
 
-    /// Return all views.
-    #[must_use]
-    pub fn views(&self) -> Vec<View<E>>
+    /// Borrow an iterator over views.
+    pub fn views(&self) -> impl Iterator<Item = View<E>> + '_
     where
         E: AsView,
     {
-        self.entries.iter().map(WriteResponse::view).collect()
+        self.entities.iter().map(AsView::as_view)
     }
 }
 
 impl<E: EntityKind> WriteBatchResponse<E> {
-    pub fn iter(&self) -> std::slice::Iter<'_, WriteResponse<E>> {
-        self.entries.iter()
+    pub fn iter(&self) -> std::slice::Iter<'_, E> {
+        self.entities.iter()
     }
 }
 
 impl<'a, E: EntityKind> IntoIterator for &'a WriteBatchResponse<E> {
-    type Item = &'a WriteResponse<E>;
-    type IntoIter = std::slice::Iter<'a, WriteResponse<E>>;
+    type Item = &'a E;
+    type IntoIter = std::slice::Iter<'a, E>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()

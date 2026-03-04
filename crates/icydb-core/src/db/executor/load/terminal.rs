@@ -15,7 +15,7 @@ use crate::{
             load::LoadExecutor,
         },
         query::plan::FieldSlot as PlannedFieldSlot,
-        response::Response,
+        response::EntityResponse,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -51,7 +51,7 @@ where
         &self,
         plan: ExecutablePlan<E>,
         take_count: u32,
-    ) -> Result<Response<E>, InternalError> {
+    ) -> Result<EntityResponse<E>, InternalError> {
         self.execute_take_terminal(plan, take_count)
     }
 
@@ -62,7 +62,7 @@ where
         plan: ExecutablePlan<E>,
         target_field: PlannedFieldSlot,
         take_count: u32,
-    ) -> Result<Response<E>, InternalError> {
+    ) -> Result<EntityResponse<E>, InternalError> {
         let field_slot =
             resolve_orderable_aggregate_target_slot_from_planner_slot::<E>(&target_field)
                 .map_err(AggregateFieldValueError::into_internal_error)?;
@@ -78,7 +78,7 @@ where
         plan: ExecutablePlan<E>,
         target_field: PlannedFieldSlot,
         take_count: u32,
-    ) -> Result<Response<E>, InternalError> {
+    ) -> Result<EntityResponse<E>, InternalError> {
         let field_slot =
             resolve_orderable_aggregate_target_slot_from_planner_slot::<E>(&target_field)
                 .map_err(AggregateFieldValueError::into_internal_error)?;
@@ -182,20 +182,21 @@ where
         &self,
         plan: ExecutablePlan<E>,
         take_count: u32,
-    ) -> Result<Response<E>, InternalError> {
-        let mut response = self.execute(plan)?;
+    ) -> Result<EntityResponse<E>, InternalError> {
+        let response = self.execute(plan)?;
+        let mut rows = response.rows();
         let take_len = usize::try_from(take_count).unwrap_or(usize::MAX);
-        if response.0.len() > take_len {
-            response.0.truncate(take_len);
+        if rows.len() > take_len {
+            rows.truncate(take_len);
         }
 
-        Ok(response)
+        Ok(EntityResponse::new(rows))
     }
 
     // Reduce one materialized response into deterministic top-k ranked rows
     // ordered by `(field_value_desc, primary_key_asc)`.
     fn top_k_ranked_rows_from_materialized(
-        response: Response<E>,
+        response: EntityResponse<E>,
         target_field: &str,
         field_slot: FieldSlot,
         take_count: u32,
@@ -212,7 +213,7 @@ where
     // Reduce one materialized response into deterministic bottom-k ranked rows
     // ordered by `(field_value_asc, primary_key_asc)`.
     fn bottom_k_ranked_rows_from_materialized(
-        response: Response<E>,
+        response: EntityResponse<E>,
         target_field: &str,
         field_slot: FieldSlot,
         take_count: u32,
@@ -232,14 +233,15 @@ where
     // - Memory growth is bounded by the effective execute() response size.
     // - No streaming heap optimization is used in 0.29 by design.
     fn rank_k_rows_from_materialized(
-        response: Response<E>,
+        response: EntityResponse<E>,
         target_field: &str,
         field_slot: FieldSlot,
         take_count: u32,
         direction: RankedFieldDirection,
     ) -> Result<Vec<(Id<E>, E, Value)>, InternalError> {
         let mut ordered_rows: Vec<(Id<E>, E, Value)> = Vec::new();
-        for (id, entity) in response {
+        for row in response {
+            let (id, entity) = row.into_parts();
             let value = extract_orderable_field_value(&entity, target_field, field_slot)
                 .map_err(AggregateFieldValueError::into_internal_error)?;
             let mut insert_index = ordered_rows.len();
@@ -266,11 +268,11 @@ where
     // Reduce one materialized response into a deterministic top-k response
     // ordered by `(field_value_desc, primary_key_asc)`.
     fn top_k_field_from_materialized(
-        response: Response<E>,
+        response: EntityResponse<E>,
         target_field: &str,
         field_slot: FieldSlot,
         take_count: u32,
-    ) -> Result<Response<E>, InternalError> {
+    ) -> Result<EntityResponse<E>, InternalError> {
         let ordered_rows = Self::top_k_ranked_rows_from_materialized(
             response,
             target_field,
@@ -282,13 +284,13 @@ where
             .map(|(id, entity, _)| (id, entity))
             .collect();
 
-        Ok(Response::from_rows(output_rows))
+        Ok(EntityResponse::from_rows(output_rows))
     }
 
     // Reduce one materialized response into top-k projected field values under
     // deterministic `(field_value_desc, primary_key_asc)` ranking.
     fn top_k_field_values_from_materialized(
-        response: Response<E>,
+        response: EntityResponse<E>,
         target_field: &str,
         field_slot: FieldSlot,
         take_count: u32,
@@ -310,7 +312,7 @@ where
     // Reduce one materialized response into top-k projected field values with
     // ids under deterministic `(field_value_desc, primary_key_asc)` ranking.
     fn top_k_field_values_with_ids_from_materialized(
-        response: Response<E>,
+        response: EntityResponse<E>,
         target_field: &str,
         field_slot: FieldSlot,
         take_count: u32,
@@ -332,11 +334,11 @@ where
     // Reduce one materialized response into a deterministic bottom-k response
     // ordered by `(field_value_asc, primary_key_asc)`.
     fn bottom_k_field_from_materialized(
-        response: Response<E>,
+        response: EntityResponse<E>,
         target_field: &str,
         field_slot: FieldSlot,
         take_count: u32,
-    ) -> Result<Response<E>, InternalError> {
+    ) -> Result<EntityResponse<E>, InternalError> {
         let ordered_rows = Self::bottom_k_ranked_rows_from_materialized(
             response,
             target_field,
@@ -348,13 +350,13 @@ where
             .map(|(id, entity, _)| (id, entity))
             .collect();
 
-        Ok(Response::from_rows(output_rows))
+        Ok(EntityResponse::from_rows(output_rows))
     }
 
     // Reduce one materialized response into bottom-k projected field values
     // under deterministic `(field_value_asc, primary_key_asc)` ranking.
     fn bottom_k_field_values_from_materialized(
-        response: Response<E>,
+        response: EntityResponse<E>,
         target_field: &str,
         field_slot: FieldSlot,
         take_count: u32,
@@ -376,7 +378,7 @@ where
     // Reduce one materialized response into bottom-k projected field values
     // with ids under deterministic `(field_value_asc, primary_key_asc)` ranking.
     fn bottom_k_field_values_with_ids_from_materialized(
-        response: Response<E>,
+        response: EntityResponse<E>,
         target_field: &str,
         field_slot: FieldSlot,
         take_count: u32,

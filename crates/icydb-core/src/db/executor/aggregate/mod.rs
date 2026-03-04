@@ -43,7 +43,7 @@ use crate::{
         },
         index::IndexCompilePolicy,
         query::builder::AggregateExpr,
-        response::Response,
+        response::EntityResponse,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -264,7 +264,7 @@ impl ExecutionKernel {
     // Reduce one materialized response into a standard aggregate terminal
     // result using the shared aggregate state-machine boundary.
     fn aggregate_from_materialized<E>(
-        response: Response<E>,
+        response: EntityResponse<E>,
         kind: AggregateKind,
     ) -> Result<AggregateOutput<E>, InternalError>
     where
@@ -275,7 +275,8 @@ impl ExecutionKernel {
         // MIN/MAX remain globally correct over the full response window.
         let direction = aggregate_materialized_fold_direction(kind);
         let mut engine = AggregateEngine::new_scalar(kind, direction);
-        for (id, _) in response {
+        for row in response {
+            let id = row.id();
             let data_key = DataKey::try_new::<E>(id.key())?;
             let fold_control = engine.ingest_scalar(&data_key)?;
             if matches!(fold_control, FoldControl::Break) {

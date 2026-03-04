@@ -8,13 +8,14 @@ use crate::{
         DbSession, PagedGroupedExecutionWithTrace, PagedLoadExecution, PagedLoadExecutionWithTrace,
         predicate::{CompareOp, Predicate},
         query::{
+            api::ResponseCardinalityExt,
             builder::aggregate::AggregateExpr,
             explain::ExplainPlan,
             expr::{FilterExpr, SortExpr},
             intent::{CompiledQuery, IntentError, PlannedQuery, Query, QueryError},
             plan::{FieldSlot, validate_fluent_non_paged_mode, validate_fluent_paged_mode},
         },
-        response::Response,
+        response::EntityResponse,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue, SingletonEntity},
@@ -29,7 +30,7 @@ type MinMaxByIds<E> = Option<(Id<E>, Id<E>)>;
 ///
 /// Session-bound load query wrapper.
 /// Owns intent construction and execution routing only.
-/// All result inspection and projection is performed on `Response<E>`.
+/// Result inspection is provided by query API extension traits over `EntityResponse<E>`.
 ///
 
 pub struct FluentLoadQuery<'a, E>
@@ -226,7 +227,7 @@ where
     // ------------------------------------------------------------------
 
     /// Execute this query using the session's policy settings.
-    pub fn execute(&self) -> Result<Response<E>, QueryError>
+    pub fn execute(&self) -> Result<EntityResponse<E>, QueryError>
     where
         E: EntityValue,
     {
@@ -481,7 +482,7 @@ where
     }
 
     /// Execute and return the first `k` rows from the effective response window.
-    pub fn take(&self, take_count: u32) -> Result<Response<E>, QueryError>
+    pub fn take(&self, take_count: u32) -> Result<EntityResponse<E>, QueryError>
     where
         E: EntityValue,
     {
@@ -502,7 +503,7 @@ where
         &self,
         field: impl AsRef<str>,
         take_count: u32,
-    ) -> Result<Response<E>, QueryError>
+    ) -> Result<EntityResponse<E>, QueryError>
     where
         E: EntityValue,
     {
@@ -526,7 +527,7 @@ where
         &self,
         field: impl AsRef<str>,
         take_count: u32,
-    ) -> Result<Response<E>, QueryError>
+    ) -> Result<EntityResponse<E>, QueryError>
     where
         E: EntityValue,
     {

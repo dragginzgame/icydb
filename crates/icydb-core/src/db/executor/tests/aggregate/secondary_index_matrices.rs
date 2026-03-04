@@ -132,7 +132,6 @@ fn assert_secondary_id_extrema_missing_ok_stale_fallback(
         ))
         .expect("stale-leading MIN ASC baseline execute should succeed")
         .ids()
-        .into_iter()
         .min();
     let expected_max_desc = load
         .execute(secondary_group_rank_order_plan(
@@ -142,7 +141,6 @@ fn assert_secondary_id_extrema_missing_ok_stale_fallback(
         ))
         .expect("stale-leading MAX DESC baseline execute should succeed")
         .ids()
-        .into_iter()
         .max();
     let (min_asc, scanned_min_asc) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {

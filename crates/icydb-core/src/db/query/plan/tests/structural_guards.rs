@@ -26,7 +26,7 @@ type ExecutablePlanNewFn<E> =
 type LoadExecuteFn<E> = fn(
     &LoadExecutor<E>,
     ExecutablePlan<E>,
-) -> Result<crate::db::Response<E>, crate::error::InternalError>;
+) -> Result<crate::db::EntityResponse<E>, crate::error::InternalError>;
 type SlotValuesByFn<E> = fn(
     &LoadExecutor<E>,
     ExecutablePlan<E>,
@@ -37,7 +37,7 @@ type SlotTopKByFn<E> = fn(
     ExecutablePlan<E>,
     FieldSlot,
     u32,
-) -> Result<crate::db::Response<E>, crate::error::InternalError>;
+) -> Result<crate::db::EntityResponse<E>, crate::error::InternalError>;
 type SlotSumByFn<E> = fn(
     &LoadExecutor<E>,
     ExecutablePlan<E>,

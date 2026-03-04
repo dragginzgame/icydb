@@ -22,9 +22,9 @@ fn load_applies_order_and_pagination() {
         .expect("load plan should build");
 
     let response = load.execute(plan).expect("load should succeed");
-    assert_eq!(response.0.len(), 1, "pagination should return one row");
+    assert_eq!(response.len(), 1, "pagination should return one row");
     assert_eq!(
-        response.0[0].1.id,
+        response[0].entity_ref().id,
         Ulid::from_u128(2),
         "pagination should run after canonical ordering by id"
     );
@@ -57,7 +57,7 @@ fn load_offset_pagination_preserves_next_cursor_boundary() {
         .execute_paged_with_cursor(page_plan, page_boundary)
         .expect("offset page should execute");
 
-    let page_ids: Vec<Ulid> = ids_from_items(&page.items.0);
+    let page_ids: Vec<Ulid> = ids_from_items(&page.items);
     assert_eq!(
         page_ids,
         vec![Ulid::from_u128(2), Ulid::from_u128(3)],
@@ -82,8 +82,10 @@ fn load_offset_pagination_preserves_next_cursor_boundary() {
         .order
         .as_ref()
         .expect("comparison plan order should be present");
-    let expected_boundary =
-        crate::db::cursor::cursor_boundary_from_entity(&page.items.0[1].1, comparison_order);
+    let expected_boundary = crate::db::cursor::cursor_boundary_from_entity(
+        page.items[1].entity_ref(),
+        comparison_order,
+    );
     assert_eq!(
         token.boundary(),
         &expected_boundary,
@@ -198,7 +200,7 @@ fn load_cursor_with_offset_applies_offset_once_across_pages() {
         .execute_paged_with_cursor(page1_plan, page1_boundary)
         .expect("offset page1 should execute");
     assert_eq!(
-        ids_from_items(&page1.items.0),
+        ids_from_items(&page1.items),
         vec![Ulid::from_u128(2), Ulid::from_u128(3)],
         "first page should apply offset once"
     );
@@ -226,7 +228,7 @@ fn load_cursor_with_offset_applies_offset_once_across_pages() {
         .execute_paged_with_cursor(page2_plan, page2_boundary)
         .expect("offset page2 should execute");
     assert_eq!(
-        ids_from_items(&page2.items.0),
+        ids_from_items(&page2.items),
         vec![Ulid::from_u128(4), Ulid::from_u128(5)],
         "continuation page should not re-apply offset"
     );
@@ -289,7 +291,7 @@ fn load_cursor_initial_to_continuation_matrix_covers_direction_and_window_semant
             .take(limit as usize)
             .collect::<Vec<_>>();
         assert_eq!(
-            ids_from_items(&page_1.items.0),
+            ids_from_items(&page_1.items),
             expected_page_1,
             "first-page rows must match canonical cursor window for case={case_name}",
         );
@@ -328,7 +330,7 @@ fn load_cursor_initial_to_continuation_matrix_covers_direction_and_window_semant
             .execute_paged_with_cursor(page_2_plan, page_2_cursor)
             .expect("page-2 execution should succeed");
         assert_eq!(
-            ids_from_items(&page_2.items.0),
+            ids_from_items(&page_2.items),
             expected_page_2,
             "resumed rows must continue canonical window without offset replay for case={case_name}",
         );
@@ -582,7 +584,7 @@ fn load_cursor_pagination_pk_order_round_trips_across_pages() {
     let page1 = load
         .execute_paged_with_cursor(page1_plan, page1_boundary)
         .expect("pk-order page1 should execute");
-    let page1_ids: Vec<Ulid> = ids_from_items(&page1.items.0);
+    let page1_ids: Vec<Ulid> = ids_from_items(&page1.items);
     assert_eq!(page1_ids, vec![Ulid::from_u128(1), Ulid::from_u128(2)]);
 
     let cursor = page1
@@ -606,7 +608,7 @@ fn load_cursor_pagination_pk_order_round_trips_across_pages() {
     let page2 = load
         .execute_paged_with_cursor(page2_plan, page2_boundary)
         .expect("pk-order page2 should execute");
-    let page2_ids: Vec<Ulid> = ids_from_items(&page2.items.0);
+    let page2_ids: Vec<Ulid> = ids_from_items(&page2.items);
     assert_eq!(page2_ids, vec![Ulid::from_u128(3), Ulid::from_u128(4)]);
     assert!(
         page2.next_cursor.is_none(),
@@ -660,8 +662,8 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_post_access_semantics() 
         .execute_paged_with_cursor(non_fast_page1_plan, non_fast_page1_boundary)
         .expect("non-fast page1 should execute");
 
-    let fast_page1_ids: Vec<Ulid> = ids_from_items(&fast_page1.items.0);
-    let non_fast_page1_ids: Vec<Ulid> = ids_from_items(&non_fast_page1.items.0);
+    let fast_page1_ids: Vec<Ulid> = ids_from_items(&fast_page1.items);
+    let non_fast_page1_ids: Vec<Ulid> = ids_from_items(&non_fast_page1.items);
     assert_eq!(
         fast_page1_ids, non_fast_page1_ids,
         "page1 rows should match between fast and non-fast access paths"
@@ -726,8 +728,8 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_post_access_semantics() 
         .execute_paged_with_cursor(non_fast_page2_plan, non_fast_page2_boundary)
         .expect("non-fast page2 should execute");
 
-    let fast_page2_ids: Vec<Ulid> = ids_from_items(&fast_page2.items.0);
-    let non_fast_page2_ids: Vec<Ulid> = ids_from_items(&non_fast_page2.items.0);
+    let fast_page2_ids: Vec<Ulid> = ids_from_items(&fast_page2.items);
+    let non_fast_page2_ids: Vec<Ulid> = ids_from_items(&non_fast_page2.items);
     assert_eq!(
         fast_page2_ids, non_fast_page2_ids,
         "page2 rows should match between fast and non-fast access paths"
@@ -785,8 +787,8 @@ fn load_cursor_pagination_pk_fast_path_desc_matches_non_fast_post_access_semanti
         .execute_paged_with_cursor(non_fast_page1_plan, non_fast_page1_boundary)
         .expect("non-fast descending page1 should execute");
 
-    let fast_page1_ids: Vec<Ulid> = ids_from_items(&fast_page1.items.0);
-    let non_fast_page1_ids: Vec<Ulid> = ids_from_items(&non_fast_page1.items.0);
+    let fast_page1_ids: Vec<Ulid> = ids_from_items(&fast_page1.items);
+    let non_fast_page1_ids: Vec<Ulid> = ids_from_items(&non_fast_page1.items);
     assert_eq!(
         fast_page1_ids, non_fast_page1_ids,
         "descending page1 rows should match between fast and non-fast access paths"
@@ -851,8 +853,8 @@ fn load_cursor_pagination_pk_fast_path_desc_matches_non_fast_post_access_semanti
         .execute_paged_with_cursor(non_fast_page2_plan, non_fast_page2_boundary)
         .expect("non-fast descending page2 should execute");
 
-    let fast_page2_ids: Vec<Ulid> = ids_from_items(&fast_page2.items.0);
-    let non_fast_page2_ids: Vec<Ulid> = ids_from_items(&non_fast_page2.items.0);
+    let fast_page2_ids: Vec<Ulid> = ids_from_items(&fast_page2.items);
+    let non_fast_page2_ids: Vec<Ulid> = ids_from_items(&non_fast_page2.items);
     assert_eq!(
         fast_page2_ids, non_fast_page2_ids,
         "descending page2 rows should match between fast and non-fast access paths"
@@ -921,8 +923,8 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_with_same_cursor_boundar
         .execute_paged_with_cursor(non_fast_page2_plan, Some(shared_boundary))
         .expect("non-fast page2 should execute");
 
-    let fast_ids: Vec<Ulid> = ids_from_items(&fast_page2.items.0);
-    let non_fast_ids: Vec<Ulid> = ids_from_items(&non_fast_page2.items.0);
+    let fast_ids: Vec<Ulid> = ids_from_items(&fast_page2.items);
+    let non_fast_ids: Vec<Ulid> = ids_from_items(&non_fast_page2.items);
     assert_eq!(
         fast_ids, non_fast_ids,
         "fast and non-fast paths must return identical rows for the same cursor boundary"
@@ -985,7 +987,7 @@ fn load_cursor_pagination_pk_order_key_range_respects_bounds() {
     let page1 = load
         .execute_paged_with_cursor(page1_plan, page1_boundary)
         .expect("pk-range page1 should execute");
-    let page1_ids: Vec<Ulid> = ids_from_items(&page1.items.0);
+    let page1_ids: Vec<Ulid> = ids_from_items(&page1.items);
     assert_eq!(page1_ids, vec![Ulid::from_u128(2), Ulid::from_u128(3)]);
 
     let cursor = page1
@@ -1018,7 +1020,7 @@ fn load_cursor_pagination_pk_order_key_range_respects_bounds() {
     let page2 = load
         .execute_paged_with_cursor(page2_plan, page2_boundary)
         .expect("pk-range page2 should execute");
-    let page2_ids: Vec<Ulid> = ids_from_items(&page2.items.0);
+    let page2_ids: Vec<Ulid> = ids_from_items(&page2.items);
     assert_eq!(page2_ids, vec![Ulid::from_u128(4)]);
     assert!(
         page2.next_cursor.is_none(),
@@ -1360,8 +1362,8 @@ fn load_cursor_pagination_skips_strictly_before_limit() {
     let page1 = load
         .execute_paged_with_cursor(page1_plan, page1_boundary)
         .expect("cursor page1 should execute");
-    assert_eq!(page1.items.0.len(), 1, "page1 should return one row");
-    assert_eq!(page1.items.0[0].1.id, Ulid::from_u128(1100));
+    assert_eq!(page1.items.len(), 1, "page1 should return one row");
+    assert_eq!(page1.items[0].entity_ref().id, Ulid::from_u128(1100));
 
     let cursor1 = page1
         .next_cursor
@@ -1384,9 +1386,9 @@ fn load_cursor_pagination_skips_strictly_before_limit() {
     let page2 = load
         .execute_paged_with_cursor(page2_plan, page2_boundary)
         .expect("cursor page2 should execute");
-    assert_eq!(page2.items.0.len(), 1, "page2 should return one row");
+    assert_eq!(page2.items.len(), 1, "page2 should return one row");
     assert_eq!(
-        page2.items.0[0].1.id,
+        page2.items[0].entity_ref().id,
         Ulid::from_u128(1101),
         "cursor boundary must be applied before limit using strict ordering"
     );
@@ -1412,9 +1414,9 @@ fn load_cursor_pagination_skips_strictly_before_limit() {
     let page3 = load
         .execute_paged_with_cursor(page3_plan, page3_boundary)
         .expect("cursor page3 should execute");
-    assert_eq!(page3.items.0.len(), 1, "page3 should return one row");
+    assert_eq!(page3.items.len(), 1, "page3 should return one row");
     assert_eq!(
-        page3.items.0[0].1.id,
+        page3.items[0].entity_ref().id,
         Ulid::from_u128(1102),
         "strict cursor continuation must advance beyond the last returned row"
     );
@@ -1471,10 +1473,10 @@ fn load_cursor_next_cursor_uses_last_returned_row_boundary() {
     let page1 = load
         .execute_paged_with_cursor(page1_plan, page1_boundary)
         .expect("cursor page1 should execute");
-    assert_eq!(page1.items.0.len(), 2, "page1 should return two rows");
-    assert_eq!(page1.items.0[0].1.id, Ulid::from_u128(1200));
+    assert_eq!(page1.items.len(), 2, "page1 should return two rows");
+    assert_eq!(page1.items[0].entity_ref().id, Ulid::from_u128(1200));
     assert_eq!(
-        page1.items.0[1].1.id,
+        page1.items[1].entity_ref().id,
         Ulid::from_u128(1201),
         "page1 second row should be the PK tie-break winner for rank=20"
     );
@@ -1496,8 +1498,10 @@ fn load_cursor_next_cursor_uses_last_returned_row_boundary() {
         .order
         .as_ref()
         .expect("comparison plan order should be present");
-    let expected_boundary =
-        crate::db::cursor::cursor_boundary_from_entity(&page1.items.0[1].1, comparison_order);
+    let expected_boundary = crate::db::cursor::cursor_boundary_from_entity(
+        page1.items[1].entity_ref(),
+        comparison_order,
+    );
     assert_eq!(
         token.boundary(),
         &expected_boundary,
@@ -1521,7 +1525,7 @@ fn load_cursor_next_cursor_uses_last_returned_row_boundary() {
     let page2 = load
         .execute_paged_with_cursor(page2_plan, page2_boundary)
         .expect("cursor page2 should execute");
-    let page2_ids: Vec<Ulid> = ids_from_items(&page2.items.0);
+    let page2_ids: Vec<Ulid> = ids_from_items(&page2.items);
     assert_eq!(
         page2_ids,
         vec![Ulid::from_u128(1202), Ulid::from_u128(1203)],
@@ -1584,7 +1588,7 @@ fn load_cursor_pagination_desc_order_resumes_strictly_after_boundary() {
     let page1 = load
         .execute_paged_with_cursor(page1_plan, page1_boundary)
         .expect("descending page1 should execute");
-    let page1_ids: Vec<Ulid> = ids_from_items(&page1.items.0);
+    let page1_ids: Vec<Ulid> = ids_from_items(&page1.items);
     assert_eq!(
         page1_ids,
         vec![Ulid::from_u128(1403), Ulid::from_u128(1401)],
@@ -1612,7 +1616,7 @@ fn load_cursor_pagination_desc_order_resumes_strictly_after_boundary() {
     let page2 = load
         .execute_paged_with_cursor(page2_plan, page2_boundary)
         .expect("descending page2 should execute");
-    let page2_ids: Vec<Ulid> = ids_from_items(&page2.items.0);
+    let page2_ids: Vec<Ulid> = ids_from_items(&page2.items);
     assert_eq!(
         page2_ids,
         vec![Ulid::from_u128(1402), Ulid::from_u128(1400)],
@@ -1672,7 +1676,7 @@ fn load_desc_order_uses_primary_key_tie_break_for_equal_rank_rows() {
     let page = load
         .execute_paged_with_cursor(plan, None)
         .expect("descending tie-break page should execute");
-    let page_ids: Vec<Ulid> = ids_from_items(&page.items.0);
+    let page_ids: Vec<Ulid> = ids_from_items(&page.items);
 
     assert_eq!(
         page_ids,

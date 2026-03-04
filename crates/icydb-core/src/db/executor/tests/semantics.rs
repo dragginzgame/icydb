@@ -56,12 +56,13 @@ fn singleton_unit_key_insert_and_only_load_round_trip() {
     let response = load.execute(plan).expect("singleton load should succeed");
 
     assert_eq!(
-        response.0.len(),
+        response.len(),
         1,
         "singleton only() should match exactly one row"
     );
     assert_eq!(
-        response.0[0].1, expected,
+        response[0].entity_ref(),
+        &expected,
         "loaded singleton should match inserted row"
     );
 }
@@ -88,9 +89,8 @@ fn load_by_ids_dedups_duplicate_input_ids() {
     let response = load.execute(plan).expect("by_ids load should succeed");
 
     let mut ids: Vec<Ulid> = response
-        .0
         .into_iter()
-        .map(|(_, entity)| entity.id)
+        .map(|row| row.entity_ref().id)
         .collect();
     ids.sort();
     assert_eq!(
@@ -149,9 +149,8 @@ fn load_union_or_predicate_dedups_overlapping_pk_paths() {
         .expect("union load plan should build");
     let response = load.execute(plan).expect("union load should succeed");
     let ids: Vec<Ulid> = response
-        .0
         .into_iter()
-        .map(|(_, entity)| entity.id)
+        .map(|row| row.entity_ref().id)
         .collect();
 
     assert_eq!(
@@ -199,9 +198,8 @@ fn load_intersection_asc_keeps_overlap_in_canonical_order() {
         .execute(plan)
         .expect("intersection load should succeed");
     let ids: Vec<Ulid> = response
-        .0
         .into_iter()
-        .map(|(_, entity)| entity.id)
+        .map(|row| row.entity_ref().id)
         .collect();
 
     assert_eq!(
@@ -249,9 +247,8 @@ fn load_intersection_desc_keeps_overlap_in_desc_order() {
         .execute(plan)
         .expect("intersection DESC load should succeed");
     let ids: Vec<Ulid> = response
-        .0
         .into_iter()
-        .map(|(_, entity)| entity.id)
+        .map(|row| row.entity_ref().id)
         .collect();
 
     assert_eq!(
@@ -299,7 +296,7 @@ fn load_intersection_no_overlap_returns_empty() {
         .execute(plan)
         .expect("intersection no-overlap load should succeed");
     assert!(
-        response.0.is_empty(),
+        response.is_empty(),
         "intersection with no shared keys should return no rows"
     );
 }
@@ -342,9 +339,8 @@ fn load_intersection_suppresses_duplicate_keys() {
         .execute(plan)
         .expect("intersection duplicate load should succeed");
     let ids: Vec<Ulid> = response
-        .0
         .into_iter()
-        .map(|(_, entity)| entity.id)
+        .map(|row| row.entity_ref().id)
         .collect();
     let unique: BTreeSet<Ulid> = ids.iter().copied().collect();
 
@@ -414,9 +410,8 @@ fn load_intersection_nested_union_children_matches_expected_overlap() {
         .execute(plan)
         .expect("nested intersection load should succeed");
     let ids: Vec<Ulid> = response
-        .0
         .into_iter()
-        .map(|(_, entity)| entity.id)
+        .map(|row| row.entity_ref().id)
         .collect();
 
     assert_eq!(
@@ -472,9 +467,8 @@ fn load_intersection_desc_limit_continuation_has_no_duplicate_or_omission() {
             .expect("intersection desc paged load should succeed");
         let page_ids: Vec<Ulid> = page
             .items
-            .0
             .into_iter()
-            .map(|(_, entity)| entity.id)
+            .map(|row| row.entity_ref().id)
             .collect();
         paged_ids.extend(page_ids);
 
@@ -495,9 +489,8 @@ fn load_intersection_desc_limit_continuation_has_no_duplicate_or_omission() {
         .execute(full_plan)
         .expect("intersection desc full load should succeed");
     let full_ids: Vec<Ulid> = full_response
-        .0
         .into_iter()
-        .map(|(_, entity)| entity.id)
+        .map(|row| row.entity_ref().id)
         .collect();
     let unique: BTreeSet<Ulid> = paged_ids.iter().copied().collect();
 
@@ -579,9 +572,8 @@ fn load_union_desc_limit_continuation_has_no_duplicate_or_omission() {
             .expect("union desc paged load should succeed");
         let page_ids: Vec<Ulid> = page
             .items
-            .0
             .into_iter()
-            .map(|(_, entity)| entity.id)
+            .map(|row| row.entity_ref().id)
             .collect();
         paged_ids.extend(page_ids);
 
@@ -602,9 +594,8 @@ fn load_union_desc_limit_continuation_has_no_duplicate_or_omission() {
         .execute(full_plan)
         .expect("union desc full load should succeed");
     let full_ids: Vec<Ulid> = full_response
-        .0
         .into_iter()
-        .map(|(_, entity)| entity.id)
+        .map(|row| row.entity_ref().id)
         .collect();
 
     assert_eq!(
@@ -698,9 +689,8 @@ fn load_union_three_children_desc_limit_continuation_has_no_duplicate_or_omissio
             .expect("three-child union desc paged load should succeed");
         let page_ids: Vec<Ulid> = page
             .items
-            .0
             .into_iter()
-            .map(|(_, entity)| entity.id)
+            .map(|row| row.entity_ref().id)
             .collect();
         paged_ids.extend(page_ids);
 
@@ -721,9 +711,8 @@ fn load_union_three_children_desc_limit_continuation_has_no_duplicate_or_omissio
         .execute(full_plan)
         .expect("three-child union desc full load should succeed");
     let full_ids: Vec<Ulid> = full_response
-        .0
         .into_iter()
-        .map(|(_, entity)| entity.id)
+        .map(|row| row.entity_ref().id)
         .collect();
 
     assert_eq!(
@@ -761,9 +750,9 @@ fn delete_applies_order_and_delete_limit() {
         .expect("delete plan should build");
 
     let response = delete.execute(plan).expect("delete should succeed");
-    assert_eq!(response.0.len(), 1, "delete limit should remove one row");
+    assert_eq!(response.len(), 1, "delete limit should remove one row");
     assert_eq!(
-        response.0[0].1.id,
+        response[0].entity_ref().id,
         Ulid::from_u128(10),
         "delete limit should run after canonical ordering by id"
     );
@@ -778,9 +767,8 @@ fn delete_applies_order_and_delete_limit() {
         .execute(remaining_plan)
         .expect("remaining load should succeed");
     let remaining_ids: Vec<Ulid> = remaining
-        .0
         .into_iter()
-        .map(|(_, entity)| entity.id)
+        .map(|row| row.entity_ref().id)
         .collect();
 
     assert_eq!(
@@ -824,7 +812,7 @@ fn load_filter_after_access_with_optional_equality() {
         .execute(match_plan)
         .expect("optional equality should load");
     assert_eq!(
-        match_response.0.len(),
+        match_response.len(),
         1,
         "filter should run after by_id access and keep matching rows"
     );
@@ -845,7 +833,7 @@ fn load_filter_after_access_with_optional_equality() {
         .execute(mismatch_plan)
         .expect("mismatch predicate should execute");
     assert_eq!(
-        mismatch_response.0.len(),
+        mismatch_response.len(),
         0,
         "filter should be applied after access and drop non-matching rows"
     );
@@ -917,12 +905,13 @@ fn load_in_and_text_ops_respect_ordered_pagination() {
         .expect("in+text ordered page should load");
 
     assert_eq!(
-        response.0.len(),
+        response.len(),
         1,
         "ordered pagination should return one row"
     );
     assert_eq!(
-        response.0[0].1.rank, 30,
+        response[0].entity_ref().rank,
+        30,
         "pagination should apply to the filtered+ordered window"
     );
 }
@@ -976,7 +965,7 @@ fn load_ordering_treats_missing_values_consistently_with_direction() {
     let asc = load
         .execute(asc_plan)
         .expect("ascending optional-order query should execute");
-    let asc_ids: Vec<Ulid> = asc.0.into_iter().map(|(_, entity)| entity.id).collect();
+    let asc_ids: Vec<Ulid> = asc.into_iter().map(|row| row.entity_ref().id).collect();
     assert_eq!(
         asc_ids,
         vec![
@@ -996,7 +985,7 @@ fn load_ordering_treats_missing_values_consistently_with_direction() {
     let desc = load
         .execute(desc_plan)
         .expect("descending optional-order query should execute");
-    let desc_ids: Vec<Ulid> = desc.0.into_iter().map(|(_, entity)| entity.id).collect();
+    let desc_ids: Vec<Ulid> = desc.into_iter().map(|row| row.entity_ref().id).collect();
     assert_eq!(
         desc_ids,
         vec![
@@ -1039,7 +1028,7 @@ fn load_contains_filters_after_by_id_access() {
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("contains hit plan should build");
     let hit = load.execute(hit_plan).expect("contains hit should execute");
-    assert_eq!(hit.0.len(), 1, "contains predicate should match row");
+    assert_eq!(hit.len(), 1, "contains predicate should match row");
 
     let contains_missing = Predicate::Compare(ComparePredicate::with_coercion(
         "tags",
@@ -1057,7 +1046,7 @@ fn load_contains_filters_after_by_id_access() {
         .execute(miss_plan)
         .expect("contains miss should execute");
     assert_eq!(
-        miss.0.len(),
+        miss.len(),
         0,
         "contains predicate should filter out non-matching rows after access"
     );
@@ -1108,9 +1097,8 @@ fn load_secondary_index_missing_ok_skips_stale_keys_by_reading_primary_rows() {
         .execute(plan)
         .expect("missing-ok stale-secondary load should succeed");
     let ids: Vec<Ulid> = response
-        .0
         .into_iter()
-        .map(|(_, entity)| entity.id)
+        .map(|row| row.entity_ref().id)
         .collect();
 
     assert_eq!(
@@ -1225,12 +1213,13 @@ fn delete_limit_applies_to_filtered_rows_only() {
         .expect("filtered delete should execute");
 
     assert_eq!(
-        deleted.0.len(),
+        deleted.len(),
         1,
         "delete limit should remove one filtered row"
     );
     assert_eq!(
-        deleted.0[0].1.rank, 100,
+        deleted[0].entity_ref().rank,
+        100,
         "delete limit should apply after filtering+ordering"
     );
 
@@ -1244,9 +1233,8 @@ fn delete_limit_applies_to_filtered_rows_only() {
         .execute(remaining_plan)
         .expect("remaining load should execute");
     let remaining_ranks: Vec<u64> = remaining
-        .0
         .into_iter()
-        .map(|(_, entity)| u64::from(entity.rank))
+        .map(|row| u64::from(row.entity().rank))
         .collect();
 
     assert_eq!(
@@ -1369,7 +1357,7 @@ fn delete_target_succeeds_after_strong_referrer_is_removed() {
     let deleted_sources = source_delete
         .execute(source_delete_plan)
         .expect("source delete should succeed");
-    assert_eq!(deleted_sources.0.len(), 1, "source row should be removed");
+    assert_eq!(deleted_sources.len(), 1, "source row should be removed");
 
     let target_delete = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false);
     let target_delete_plan = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
@@ -1381,7 +1369,7 @@ fn delete_target_succeeds_after_strong_referrer_is_removed() {
     let deleted_targets = target_delete
         .execute(target_delete_plan)
         .expect("target delete should succeed once referrer is removed");
-    assert_eq!(deleted_targets.0.len(), 1, "target row should be removed");
+    assert_eq!(deleted_targets.len(), 1, "target row should be removed");
 }
 
 #[test]
@@ -1422,7 +1410,7 @@ fn delete_allows_target_with_weak_single_referrer() {
     let deleted_targets = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
         .execute(target_delete_plan)
         .expect("target delete should succeed for weak referrer");
-    assert_eq!(deleted_targets.0.len(), 1, "target row should be removed");
+    assert_eq!(deleted_targets.len(), 1, "target row should be removed");
 
     let source_plan = Query::<WeakSingleRelationSourceEntity>::new(MissingRowPolicy::Ignore)
         .by_id(source_id)
@@ -1432,9 +1420,10 @@ fn delete_allows_target_with_weak_single_referrer() {
     let remaining_source = LoadExecutor::<WeakSingleRelationSourceEntity>::new(REL_DB, false)
         .execute(source_plan)
         .expect("source load should succeed");
-    assert_eq!(remaining_source.0.len(), 1, "weak source row should remain");
+    assert_eq!(remaining_source.len(), 1, "weak source row should remain");
     assert_eq!(
-        remaining_source.0[0].1.target, target_id,
+        remaining_source[0].entity_ref().target,
+        target_id,
         "weak source relation value should be preserved",
     );
 }
@@ -1477,7 +1466,7 @@ fn delete_allows_target_with_weak_optional_referrer() {
     let deleted_targets = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
         .execute(target_delete_plan)
         .expect("target delete should succeed for weak optional referrer");
-    assert_eq!(deleted_targets.0.len(), 1, "target row should be removed");
+    assert_eq!(deleted_targets.len(), 1, "target row should be removed");
 
     let source_plan = Query::<WeakOptionalRelationSourceEntity>::new(MissingRowPolicy::Ignore)
         .by_id(source_id)
@@ -1488,12 +1477,12 @@ fn delete_allows_target_with_weak_optional_referrer() {
         .execute(source_plan)
         .expect("source load should succeed");
     assert_eq!(
-        remaining_source.0.len(),
+        remaining_source.len(),
         1,
         "weak optional source row should remain"
     );
     assert_eq!(
-        remaining_source.0[0].1.target,
+        remaining_source[0].entity_ref().target,
         Some(target_id),
         "weak optional source relation value should be preserved",
     );
@@ -1537,7 +1526,7 @@ fn delete_allows_target_with_weak_list_referrer() {
     let deleted_targets = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
         .execute(target_delete_plan)
         .expect("target delete should succeed for weak list referrer");
-    assert_eq!(deleted_targets.0.len(), 1, "target row should be removed");
+    assert_eq!(deleted_targets.len(), 1, "target row should be removed");
 
     let source_plan = Query::<WeakListRelationSourceEntity>::new(MissingRowPolicy::Ignore)
         .by_id(source_id)
@@ -1548,12 +1537,12 @@ fn delete_allows_target_with_weak_list_referrer() {
         .execute(source_plan)
         .expect("source load should succeed");
     assert_eq!(
-        remaining_source.0.len(),
+        remaining_source.len(),
         1,
         "weak list source row should remain"
     );
     assert_eq!(
-        remaining_source.0[0].1.targets,
+        remaining_source[0].entity_ref().targets,
         vec![target_id],
         "weak list source relation values should be preserved",
     );
@@ -1666,7 +1655,7 @@ fn strong_relation_reverse_index_moves_on_fk_update() {
     let deleted_a = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
         .execute(old_target_delete_plan)
         .expect("old target should be deletable after relation retarget");
-    assert_eq!(deleted_a.0.len(), 1, "old target should delete cleanly");
+    assert_eq!(deleted_a.len(), 1, "old target should delete cleanly");
 
     let protected_target_delete_plan = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
         .delete()
@@ -1866,7 +1855,7 @@ fn recovery_startup_rebuild_drops_orphan_reverse_relation_entries() {
         .execute(delete_orphan_target)
         .expect("orphan target should be deletable after startup rebuild");
     assert_eq!(
-        deleted_orphan_target.0.len(),
+        deleted_orphan_target.len(),
         1,
         "orphan target should delete after stale reverse entry is purged",
     );
@@ -2122,7 +2111,7 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
     let deleted_target = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
         .execute(retry_target_delete_plan)
         .expect("target should delete once all referrers are removed");
-    assert_eq!(deleted_target.0.len(), 1, "target row should be removed");
+    assert_eq!(deleted_target.len(), 1, "target row should be removed");
 }
 
 #[test]
@@ -2193,7 +2182,7 @@ fn recovery_replays_retarget_update_moves_reverse_index_membership() {
     let deleted_target_a = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
         .execute(delete_target_a)
         .expect("old target should be deletable after replayed retarget");
-    assert_eq!(deleted_target_a.0.len(), 1, "old target should be removed");
+    assert_eq!(deleted_target_a.len(), 1, "old target should be removed");
 
     let delete_target_b = Query::<RelationTargetEntity>::new(MissingRowPolicy::Ignore)
         .delete()
@@ -2369,7 +2358,7 @@ fn recovery_rollback_restores_reverse_index_state_on_prepare_error() {
     let deleted_target_b = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
         .execute(delete_target_b)
         .expect("target B should remain deletable after rollback");
-    assert_eq!(deleted_target_b.0.len(), 1, "target B should be removed");
+    assert_eq!(deleted_target_b.len(), 1, "target B should be removed");
 }
 
 #[test]

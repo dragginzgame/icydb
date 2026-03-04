@@ -26,7 +26,7 @@ use crate::{
             aggregate::{count, exists, first, last, max, min},
         },
         query::plan::FieldSlot as PlannedFieldSlot,
-        response::Response,
+        response::EntityResponse,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -165,13 +165,13 @@ where
     // Project one materialized response into one field value vector while
     // preserving the effective response row order.
     fn project_field_values_from_materialized(
-        response: Response<E>,
+        response: EntityResponse<E>,
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<Vec<Value>, InternalError> {
         let mut projected_values = Vec::new();
-        for (_, entity) in response {
-            let value = extract_orderable_field_value(&entity, target_field, field_slot)
+        for row in response {
+            let value = extract_orderable_field_value(row.entity_ref(), target_field, field_slot)
                 .map_err(Self::map_aggregate_field_value_error)?;
             projected_values.push(value);
         }
@@ -183,14 +183,14 @@ where
     // preserving first-observed order within the effective response window.
     // This is value DISTINCT semantics via canonical `GroupKey` equality.
     fn project_distinct_field_values_from_materialized(
-        response: Response<E>,
+        response: EntityResponse<E>,
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<Vec<Value>, InternalError> {
         let mut distinct_values = GroupKeySet::default();
         let mut projected_values = Vec::new();
-        for (_, entity) in response {
-            let value = extract_orderable_field_value(&entity, target_field, field_slot)
+        for row in response {
+            let value = extract_orderable_field_value(row.entity_ref(), target_field, field_slot)
                 .map_err(Self::map_aggregate_field_value_error)?;
             if !insert_materialized_distinct_value(&mut distinct_values, &value)? {
                 continue;
@@ -204,12 +204,13 @@ where
     // Project one materialized response into id/value pairs while preserving
     // the effective response row order.
     fn project_field_values_with_ids_from_materialized(
-        response: Response<E>,
+        response: EntityResponse<E>,
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<Vec<(Id<E>, Value)>, InternalError> {
         let mut projected_values = Vec::new();
-        for (id, entity) in response {
+        for row in response {
+            let (id, entity) = row.into_parts();
             let value = extract_orderable_field_value(&entity, target_field, field_slot)
                 .map_err(Self::map_aggregate_field_value_error)?;
             projected_values.push((id, value));

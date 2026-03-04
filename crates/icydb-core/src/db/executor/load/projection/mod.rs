@@ -31,7 +31,6 @@ mod tests {
                 expr::{Alias, Expr, FieldId, ProjectionField, ProjectionSpec},
             },
         },
-        db::response::Response,
         model::{field::FieldKind, index::IndexModel},
         traits::EntityValue,
         types::Ulid,
@@ -535,28 +534,32 @@ mod tests {
     }
 
     #[test]
-    fn response_exposes_projected_rows_payload() {
+    fn projection_materialization_exposes_projected_rows_payload() {
         let row = row(6, 19, true);
-        let projected = vec![ProjectedRow::new(row.0, vec![Value::Int(row.1.rank)])];
-        let response = Response::from_rows_with_projection(vec![row.clone()], Some(projected));
+        let projection = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+            expr: Expr::Field(FieldId::new("rank")),
+            alias: None,
+        }]);
+        let projected_rows = project_rows_from_projection::<ProjectionEvalEntity>(
+            &projection,
+            std::slice::from_ref(&row),
+        )
+        .expect("projection materialization should succeed for one row");
 
-        let projected_rows = response
-            .projected_rows()
-            .expect("response should expose projection payload when provided");
         assert_eq!(
             projected_rows.len(),
             1,
-            "response projected payload should preserve row cardinality"
+            "projection payload should preserve row cardinality"
         );
         assert_eq!(
             projected_rows[0].id(),
             row.0,
-            "response projected payload should preserve row identity"
+            "projection payload should preserve row identity"
         );
         assert_eq!(
             projected_rows[0].values(),
             &[Value::Int(19)],
-            "response projected payload should preserve projection value ordering",
+            "projection payload should preserve projection value ordering",
         );
     }
 }

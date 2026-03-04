@@ -261,7 +261,7 @@ impl<E: EntityKind> PagedLoadQuery<'_, E> {
         let next_cursor = execution.continuation_cursor().map(core::db::encode_cursor);
 
         Ok(PagedResponse {
-            items: execution.response().views(),
+            items: execution.response().views().collect(),
             next_cursor,
         })
     }

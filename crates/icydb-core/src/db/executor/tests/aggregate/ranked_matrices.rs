@@ -28,7 +28,7 @@ fn run_session_top_k_by_direction(
         .top_k_by("rank", 3)
         .expect("session top_k_by(rank, 3) direction matrix query should succeed");
 
-    RankedDirectionResult::Ids(ranked.ids())
+    RankedDirectionResult::Ids(ranked.ids().collect())
 }
 
 fn run_session_bottom_k_by_direction(
@@ -46,7 +46,7 @@ fn run_session_bottom_k_by_direction(
         .bottom_k_by("rank", 3)
         .expect("session bottom_k_by(rank, 3) direction matrix query should succeed");
 
-    RankedDirectionResult::Ids(ranked.ids())
+    RankedDirectionResult::Ids(ranked.ids().collect())
 }
 
 fn run_session_top_k_by_values_direction(
@@ -251,6 +251,7 @@ fn aggregate_field_target_top_k_by_direction_invariance_across_forced_access_sha
             .top_k_by_slot(plan, slot(&simple_load, "id"), 3)
             .expect("top_k_by(id, 3) should succeed for full-scan direction matrix")
             .ids()
+            .collect::<Vec<_>>()
     };
     let full_scan_asc = full_scan_top_ids_for(OrderDirection::Asc);
     let full_scan_desc = full_scan_top_ids_for(OrderDirection::Desc);
@@ -290,6 +291,7 @@ fn aggregate_field_target_top_k_by_direction_invariance_across_forced_access_sha
             .top_k_by_slot(plan, slot(&range_load, "code"), 3)
             .expect("top_k_by(code, 3) should succeed for index-range direction matrix")
             .ids()
+            .collect::<Vec<_>>()
     };
     let index_range_asc = index_range_top_ids_for(OrderDirection::Asc);
     let index_range_desc = index_range_top_ids_for(OrderDirection::Desc);
@@ -324,14 +326,16 @@ fn session_load_ranked_rows_are_invariant_to_insertion_order() {
             .order_by("id")
             .top_k_by("rank", 3)
             .expect("top_k_by(rank, 3) insertion-order invariance query should succeed")
-            .ids();
+            .ids()
+            .collect::<Vec<_>>();
         let bottom_ids = session
             .load::<PushdownParityEntity>()
             .filter(u32_eq_predicate("group", 7))
             .order_by("id")
             .bottom_k_by("rank", 3)
             .expect("bottom_k_by(rank, 3) insertion-order invariance query should succeed")
-            .ids();
+            .ids()
+            .collect::<Vec<_>>();
 
         (top_ids, bottom_ids)
     };
@@ -441,7 +445,9 @@ fn run_ranked_k_one_terminal(
 ) -> Result<RankedDirectionResult, InternalError> {
     match (terminal, projection) {
         (RankedKOneTerminal::Top, RankedKOneProjection::Ids) => Ok(RankedDirectionResult::Ids(
-            load.top_k_by_slot(plan, slot(load, "rank"), 1)?.ids(),
+            load.top_k_by_slot(plan, slot(load, "rank"), 1)?
+                .ids()
+                .collect(),
         )),
         (RankedKOneTerminal::Top, RankedKOneProjection::Values) => {
             Ok(RankedDirectionResult::Values(load.top_k_by_values_slot(
@@ -456,7 +462,9 @@ fn run_ranked_k_one_terminal(
             ))
         }
         (RankedKOneTerminal::Bottom, RankedKOneProjection::Ids) => Ok(RankedDirectionResult::Ids(
-            load.bottom_k_by_slot(plan, slot(load, "rank"), 1)?.ids(),
+            load.bottom_k_by_slot(plan, slot(load, "rank"), 1)?
+                .ids()
+                .collect(),
         )),
         (RankedKOneTerminal::Bottom, RankedKOneProjection::Values) => {
             Ok(RankedDirectionResult::Values(
@@ -495,10 +503,9 @@ fn ranked_k_one_projection_from_extrema(
         RankedKOneProjection::Values => {
             let projected = if let Some(target_id) = extrema_id {
                 load.execute(plan)?
-                    .0
                     .into_iter()
-                    .find(|(id, _)| *id == target_id)
-                    .map(|(_, entity)| Value::Uint(u64::from(entity.rank)))
+                    .find(|row| row.id() == target_id)
+                    .map(|row| Value::Uint(u64::from(row.entity().rank)))
                     .into_iter()
                     .collect()
             } else {
@@ -509,10 +516,9 @@ fn ranked_k_one_projection_from_extrema(
         RankedKOneProjection::ValuesWithIds => {
             let projected = if let Some(target_id) = extrema_id {
                 load.execute(plan)?
-                    .0
                     .into_iter()
-                    .find(|(id, _)| *id == target_id)
-                    .map(|(_, entity)| (target_id, Value::Uint(u64::from(entity.rank))))
+                    .find(|row| row.id() == target_id)
+                    .map(|row| (target_id, Value::Uint(u64::from(row.entity().rank))))
                     .into_iter()
                     .collect()
             } else {

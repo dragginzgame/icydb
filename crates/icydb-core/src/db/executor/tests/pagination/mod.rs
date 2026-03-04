@@ -12,17 +12,17 @@ use crate::{
             intent::{LoadSpec, QueryMode},
             plan::{AccessPlannedQuery, LogicalPlan, OrderDirection, OrderSpec, PageSpec},
         },
+        response::Row,
     },
     error::{ErrorClass, ErrorOrigin},
     serialize::serialize,
     traits::Storable,
-    types::Id,
 };
 use std::{borrow::Cow, collections::BTreeSet, ops::Bound};
 
 macro_rules! assert_exhausted_continuation_page {
     ($page:expr, $empty_message:expr, $cursor_message:expr $(,)?) => {{
-        assert!($page.items.0.is_empty(), "{}", $empty_message);
+        assert!($page.items.is_empty(), "{}", $empty_message);
         assert!($page.next_cursor.is_none(), "{}", $cursor_message);
     }};
 }
@@ -524,11 +524,11 @@ fn assert_anchor_monotonic(
     anchors.push(anchor);
 }
 
-fn ids_from_items<E>(items: &[(Id<E>, E)]) -> Vec<Ulid>
+fn ids_from_items<E>(items: &[Row<E>]) -> Vec<Ulid>
 where
     E: EntityKind<Key = Ulid>,
 {
-    items.iter().map(|(id, _)| id.key()).collect()
+    items.iter().map(|row| row.id().key()).collect()
 }
 
 fn decode_boundary(cursor: &[u8], decode_message: &'static str) -> CursorBoundary {
@@ -577,8 +577,8 @@ fn assert_pushdown_parity<E, I, O>(
         )
         .expect("fallback execution should succeed");
 
-    let push_ids: Vec<Ulid> = ids_from_items(&pushdown.0);
-    let fallback_ids: Vec<Ulid> = ids_from_items(&fallback.0);
+    let push_ids: Vec<Ulid> = ids_from_items(&pushdown);
+    let fallback_ids: Vec<Ulid> = ids_from_items(&fallback);
 
     assert_eq!(push_ids, fallback_ids);
 }
@@ -613,12 +613,11 @@ where
             .execute_paged_with_cursor(plan, planned_cursor)
             .expect("paged execution should succeed");
 
-        ids.extend(ids_from_items(&page.items.0));
+        ids.extend(ids_from_items(&page.items));
         row_bytes.extend(
-            page.items
-                .0
-                .iter()
-                .map(|(_, e)| serialize(e).expect("entity serialization should succeed")),
+            page.items.iter().map(|row| {
+                serialize(row.entity_ref()).expect("entity serialization should succeed")
+            }),
         );
 
         match page.next_cursor {
@@ -658,7 +657,7 @@ where
             .execute_paged_with_cursor(build_plan(), cursor.clone())
             .expect("paged execution should succeed");
 
-        ids.extend(ids_from_items(&page.items.0));
+        ids.extend(ids_from_items(&page.items));
 
         let Some(next_cursor) = page.next_cursor else {
             break;
@@ -702,7 +701,7 @@ where
             .execute_paged_with_cursor(plan, planned_cursor)
             .expect("paged execution should succeed");
 
-        ids.extend(ids_from_items(&page.items.0));
+        ids.extend(ids_from_items(&page.items));
 
         let Some(next_cursor) = page.next_cursor else {
             break;
@@ -744,7 +743,7 @@ where
         let page = load
             .execute_paged_with_cursor(build_plan(), cursor.clone())
             .expect("paged execution should succeed");
-        ids.extend(ids_from_items(&page.items.0));
+        ids.extend(ids_from_items(&page.items));
 
         let Some(next_cursor) = page.next_cursor else {
             break;
@@ -783,7 +782,7 @@ where
         let page = load
             .execute_paged_with_cursor(plan, planned_cursor)
             .expect("paged execution should succeed");
-        ids.extend(ids_from_items(&page.items.0));
+        ids.extend(ids_from_items(&page.items));
 
         let Some(next_cursor) = page.next_cursor else {
             break;
@@ -812,7 +811,7 @@ where
         )
         .expect("unbounded execution should succeed");
 
-    let unbounded_ids: Vec<Ulid> = ids_from_items(&unbounded.0);
+    let unbounded_ids: Vec<Ulid> = ids_from_items(&unbounded);
 
     for &limit in limits {
         let (ids, _) = collect_all_pages(&load, || build_base_query().limit(limit), max_pages);
@@ -860,7 +859,7 @@ fn assert_resume_after_entity<E>(
         )
         .expect("resume execution should succeed");
 
-    let ids: Vec<Ulid> = ids_from_items(&page.items.0);
+    let ids: Vec<Ulid> = ids_from_items(&page.items);
 
     assert_eq!(ids, expected_ids);
 }

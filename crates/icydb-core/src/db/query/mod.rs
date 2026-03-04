@@ -13,6 +13,7 @@
 //! for internal use, but external crates must only rely on types
 //! intentionally re-exported at the `db` boundary.
 
+pub(crate) mod api;
 pub(crate) mod builder;
 pub(crate) mod explain;
 pub(crate) mod expr;

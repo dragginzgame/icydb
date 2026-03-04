@@ -21,7 +21,7 @@ use crate::{
         },
         index::IndexCompilePolicy,
         predicate::MissingRowPolicy,
-        response::Response,
+        response::EntityResponse,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -33,7 +33,7 @@ impl ExecutionKernel {
     // Reduce one materialized response into a field-target extrema id with the
     // deterministic tie-break contract `(field_value, primary_key_asc)`.
     pub(in crate::db::executor::aggregate) fn aggregate_field_extrema_from_materialized<E>(
-        response: Response<E>,
+        response: EntityResponse<E>,
         kind: AggregateKind,
         target_field: &str,
         field_slot: FieldSlot,
@@ -51,7 +51,8 @@ impl ExecutionKernel {
         })?;
 
         let mut selected: Option<(Id<E>, E)> = None;
-        for (id, entity) in response {
+        for row in response {
+            let (id, entity) = row.into_parts();
             let should_replace = match selected.as_ref() {
                 Some((_, current)) => {
                     compare_entities_for_field_extrema(

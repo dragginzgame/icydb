@@ -19,7 +19,7 @@ use crate::{
             explain::ExplainAccessPath,
             plan::{AccessPlannedQuery, FieldSlot, OrderDirection, OrderSpec, PageSpec},
         },
-        response::Response,
+        response::EntityResponse,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     obs::sink::{MetricsEvent, MetricsSink, with_metrics_sink},
@@ -189,7 +189,7 @@ enum AggregateParityValue<E: EntityKind> {
     Id(Option<Id<E>>),
 }
 
-type AggregateParityExpectedFn<E> = fn(&Response<E>) -> AggregateParityValue<E>;
+type AggregateParityExpectedFn<E> = fn(&EntityResponse<E>) -> AggregateParityValue<E>;
 type AggregateParityActualFn<E> =
     fn(&LoadExecutor<E>, ExecutablePlan<E>) -> Result<AggregateParityValue<E>, InternalError>;
 
@@ -206,28 +206,28 @@ struct AggregateParityCase<E: EntityKind + EntityValue> {
     actual: AggregateParityActualFn<E>,
 }
 
-fn parity_expected_count<E: EntityKind>(response: &Response<E>) -> AggregateParityValue<E> {
+fn parity_expected_count<E: EntityKind>(response: &EntityResponse<E>) -> AggregateParityValue<E> {
     AggregateParityValue::Count(response.count())
 }
 
-fn parity_expected_exists<E: EntityKind>(response: &Response<E>) -> AggregateParityValue<E> {
+fn parity_expected_exists<E: EntityKind>(response: &EntityResponse<E>) -> AggregateParityValue<E> {
     AggregateParityValue::Exists(!response.is_empty())
 }
 
-fn parity_expected_min<E: EntityKind>(response: &Response<E>) -> AggregateParityValue<E> {
-    AggregateParityValue::Id(response.ids().into_iter().min())
+fn parity_expected_min<E: EntityKind>(response: &EntityResponse<E>) -> AggregateParityValue<E> {
+    AggregateParityValue::Id(response.ids().min())
 }
 
-fn parity_expected_max<E: EntityKind>(response: &Response<E>) -> AggregateParityValue<E> {
-    AggregateParityValue::Id(response.ids().into_iter().max())
+fn parity_expected_max<E: EntityKind>(response: &EntityResponse<E>) -> AggregateParityValue<E> {
+    AggregateParityValue::Id(response.ids().max())
 }
 
-fn parity_expected_first<E: EntityKind>(response: &Response<E>) -> AggregateParityValue<E> {
+fn parity_expected_first<E: EntityKind>(response: &EntityResponse<E>) -> AggregateParityValue<E> {
     AggregateParityValue::Id(response.id())
 }
 
-fn parity_expected_last<E: EntityKind>(response: &Response<E>) -> AggregateParityValue<E> {
-    AggregateParityValue::Id(response.ids().last().copied())
+fn parity_expected_last<E: EntityKind>(response: &EntityResponse<E>) -> AggregateParityValue<E> {
+    AggregateParityValue::Id(response.ids().last())
 }
 
 fn parity_actual_count<E: EntityKind + EntityValue>(
@@ -317,7 +317,7 @@ enum FieldAggregateParityValue {
 }
 
 type FieldAggregateParityExpectedFn =
-    fn(&Response<PushdownParityEntity>) -> FieldAggregateParityValue;
+    fn(&EntityResponse<PushdownParityEntity>) -> FieldAggregateParityValue;
 type FieldAggregateParityActualFn = fn(
     &LoadExecutor<PushdownParityEntity>,
     ExecutablePlan<PushdownParityEntity>,
@@ -332,14 +332,16 @@ struct FieldAggregateParityCase {
 const FIELD_PARITY_NTH_ORDINAL: usize = 1;
 
 fn expected_min_by_rank_id(
-    response: &Response<PushdownParityEntity>,
+    response: &EntityResponse<PushdownParityEntity>,
 ) -> Option<Id<PushdownParityEntity>> {
     let mut best: Option<(Id<PushdownParityEntity>, u32)> = None;
-    for (id, entity) in &response.0 {
+    for row in response {
+        let id = row.id();
+        let entity = row.entity_ref();
         if best.is_none_or(|(best_id, best_rank)| {
             entity.rank < best_rank || (entity.rank == best_rank && id.key() < best_id.key())
         }) {
-            best = Some((*id, entity.rank));
+            best = Some((id, entity.rank));
         }
     }
 
@@ -347,14 +349,16 @@ fn expected_min_by_rank_id(
 }
 
 fn expected_max_by_rank_id(
-    response: &Response<PushdownParityEntity>,
+    response: &EntityResponse<PushdownParityEntity>,
 ) -> Option<Id<PushdownParityEntity>> {
     let mut best: Option<(Id<PushdownParityEntity>, u32)> = None;
-    for (id, entity) in &response.0 {
+    for row in response {
+        let id = row.id();
+        let entity = row.entity_ref();
         if best.is_none_or(|(best_id, best_rank)| {
             entity.rank > best_rank || (entity.rank == best_rank && id.key() < best_id.key())
         }) {
-            best = Some((*id, entity.rank));
+            best = Some((id, entity.rank));
         }
     }
 
@@ -362,7 +366,7 @@ fn expected_max_by_rank_id(
 }
 
 fn expected_nth_by_rank_id(
-    response: &Response<PushdownParityEntity>,
+    response: &EntityResponse<PushdownParityEntity>,
     nth: usize,
 ) -> Option<Id<PushdownParityEntity>> {
     let ordered = ordered_rank_ids(response);
@@ -371,7 +375,7 @@ fn expected_nth_by_rank_id(
 }
 
 fn expected_median_by_rank_id(
-    response: &Response<PushdownParityEntity>,
+    response: &EntityResponse<PushdownParityEntity>,
 ) -> Option<Id<PushdownParityEntity>> {
     let ordered = ordered_rank_ids(response);
     if ordered.is_empty() {
@@ -387,10 +391,11 @@ fn expected_median_by_rank_id(
     ordered.get(median_index).copied()
 }
 
-fn expected_count_distinct_by_rank(response: &Response<PushdownParityEntity>) -> u32 {
+fn expected_count_distinct_by_rank(response: &EntityResponse<PushdownParityEntity>) -> u32 {
     let mut seen_ranks: Vec<u32> = Vec::new();
     let mut count = 0u32;
-    for (_, entity) in &response.0 {
+    for row in response {
+        let entity = row.entity_ref();
         if seen_ranks.iter().any(|existing| existing == &entity.rank) {
             continue;
         }
@@ -402,27 +407,26 @@ fn expected_count_distinct_by_rank(response: &Response<PushdownParityEntity>) ->
     count
 }
 
-fn expected_values_by_rank(response: &Response<PushdownParityEntity>) -> Vec<Value> {
+fn expected_values_by_rank(response: &EntityResponse<PushdownParityEntity>) -> Vec<Value> {
     response
-        .0
         .iter()
-        .map(|(_, entity)| Value::Uint(u64::from(entity.rank)))
+        .map(|row| Value::Uint(u64::from(row.entity_ref().rank)))
         .collect()
 }
 
 fn expected_values_by_rank_with_ids(
-    response: &Response<PushdownParityEntity>,
+    response: &EntityResponse<PushdownParityEntity>,
 ) -> Vec<(Id<PushdownParityEntity>, Value)> {
     response
-        .0
         .iter()
-        .map(|(id, entity)| (*id, Value::Uint(u64::from(entity.rank))))
+        .map(|row| (row.id(), Value::Uint(u64::from(row.entity_ref().rank))))
         .collect()
 }
 
-fn expected_distinct_values_by_rank(response: &Response<PushdownParityEntity>) -> Vec<Value> {
+fn expected_distinct_values_by_rank(response: &EntityResponse<PushdownParityEntity>) -> Vec<Value> {
     let mut distinct_values = Vec::new();
-    for (_, entity) in &response.0 {
+    for row in response {
+        let entity = row.entity_ref();
         let value = Value::Uint(u64::from(entity.rank));
         if distinct_values.iter().any(|existing| existing == &value) {
             continue;
@@ -433,31 +437,30 @@ fn expected_distinct_values_by_rank(response: &Response<PushdownParityEntity>) -
     distinct_values
 }
 
-fn expected_first_value_by_rank(response: &Response<PushdownParityEntity>) -> Option<Value> {
+fn expected_first_value_by_rank(response: &EntityResponse<PushdownParityEntity>) -> Option<Value> {
     response
-        .0
         .first()
-        .map(|(_, entity)| Value::Uint(u64::from(entity.rank)))
+        .map(|row| Value::Uint(u64::from(row.entity_ref().rank)))
 }
 
-fn expected_last_value_by_rank(response: &Response<PushdownParityEntity>) -> Option<Value> {
+fn expected_last_value_by_rank(response: &EntityResponse<PushdownParityEntity>) -> Option<Value> {
     response
-        .0
         .last()
-        .map(|(_, entity)| Value::Uint(u64::from(entity.rank)))
+        .map(|row| Value::Uint(u64::from(row.entity_ref().rank)))
 }
 
 fn expected_min_max_by_rank_ids(
-    response: &Response<PushdownParityEntity>,
+    response: &EntityResponse<PushdownParityEntity>,
 ) -> Option<(Id<PushdownParityEntity>, Id<PushdownParityEntity>)> {
     expected_min_by_rank_id(response).zip(expected_max_by_rank_id(response))
 }
 
-fn ordered_rank_ids(response: &Response<PushdownParityEntity>) -> Vec<Id<PushdownParityEntity>> {
+fn ordered_rank_ids(
+    response: &EntityResponse<PushdownParityEntity>,
+) -> Vec<Id<PushdownParityEntity>> {
     let mut ordered = response
-        .0
         .iter()
-        .map(|(id, entity)| (entity.rank, *id))
+        .map(|row| (row.entity_ref().rank, row.id()))
         .collect::<Vec<_>>();
     ordered.sort_unstable_by(|(left_rank, left_id), (right_rank, right_id)| {
         left_rank
@@ -468,13 +471,14 @@ fn ordered_rank_ids(response: &Response<PushdownParityEntity>) -> Vec<Id<Pushdow
     ordered.into_iter().map(|(_, id)| id).collect()
 }
 
-fn expected_sum_by_rank(response: &Response<PushdownParityEntity>) -> Option<Decimal> {
+fn expected_sum_by_rank(response: &EntityResponse<PushdownParityEntity>) -> Option<Decimal> {
     if response.is_empty() {
         return None;
     }
 
     let mut sum = Decimal::ZERO;
-    for (_, entity) in &response.0 {
+    for row in response {
+        let entity = row.entity_ref();
         let rank = Decimal::from_num(u64::from(entity.rank)).expect("rank decimal conversion");
         sum += rank;
     }
@@ -482,56 +486,56 @@ fn expected_sum_by_rank(response: &Response<PushdownParityEntity>) -> Option<Dec
     Some(sum)
 }
 
-fn expected_avg_by_rank(response: &Response<PushdownParityEntity>) -> Option<Decimal> {
+fn expected_avg_by_rank(response: &EntityResponse<PushdownParityEntity>) -> Option<Decimal> {
     let sum = expected_sum_by_rank(response)?;
     let count = Decimal::from_num(u64::from(response.count())).expect("row count decimal");
     Some(sum / count)
 }
 
 fn field_parity_expected_min_by_rank(
-    response: &Response<PushdownParityEntity>,
+    response: &EntityResponse<PushdownParityEntity>,
 ) -> FieldAggregateParityValue {
     FieldAggregateParityValue::Id(expected_min_by_rank_id(response))
 }
 
 fn field_parity_expected_max_by_rank(
-    response: &Response<PushdownParityEntity>,
+    response: &EntityResponse<PushdownParityEntity>,
 ) -> FieldAggregateParityValue {
     FieldAggregateParityValue::Id(expected_max_by_rank_id(response))
 }
 
 fn field_parity_expected_nth_by_rank(
-    response: &Response<PushdownParityEntity>,
+    response: &EntityResponse<PushdownParityEntity>,
 ) -> FieldAggregateParityValue {
     FieldAggregateParityValue::Id(expected_nth_by_rank_id(response, FIELD_PARITY_NTH_ORDINAL))
 }
 
 fn field_parity_expected_sum_by_rank(
-    response: &Response<PushdownParityEntity>,
+    response: &EntityResponse<PushdownParityEntity>,
 ) -> FieldAggregateParityValue {
     FieldAggregateParityValue::Decimal(expected_sum_by_rank(response))
 }
 
 fn field_parity_expected_avg_by_rank(
-    response: &Response<PushdownParityEntity>,
+    response: &EntityResponse<PushdownParityEntity>,
 ) -> FieldAggregateParityValue {
     FieldAggregateParityValue::Decimal(expected_avg_by_rank(response))
 }
 
 fn field_parity_expected_median_by_rank(
-    response: &Response<PushdownParityEntity>,
+    response: &EntityResponse<PushdownParityEntity>,
 ) -> FieldAggregateParityValue {
     FieldAggregateParityValue::Id(expected_median_by_rank_id(response))
 }
 
 fn field_parity_expected_count_distinct_by_rank(
-    response: &Response<PushdownParityEntity>,
+    response: &EntityResponse<PushdownParityEntity>,
 ) -> FieldAggregateParityValue {
     FieldAggregateParityValue::Count(expected_count_distinct_by_rank(response))
 }
 
 fn field_parity_expected_min_max_by_rank(
-    response: &Response<PushdownParityEntity>,
+    response: &EntityResponse<PushdownParityEntity>,
 ) -> FieldAggregateParityValue {
     FieldAggregateParityValue::IdPair(expected_min_max_by_rank_ids(response))
 }

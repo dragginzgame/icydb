@@ -8,11 +8,12 @@ use crate::{
         DbSession,
         predicate::Predicate,
         query::{
+            api::ResponseCardinalityExt,
             explain::ExplainPlan,
             expr::{FilterExpr, SortExpr},
             intent::{CompiledQuery, PlannedQuery, Query, QueryError},
         },
-        response::Response,
+        response::EntityResponse,
     },
     traits::{EntityKind, EntityValue, SingletonEntity},
     types::Id,
@@ -23,7 +24,7 @@ use crate::{
 ///
 /// Session-bound delete query wrapper.
 /// This type owns *intent construction* and *execution routing only*.
-/// All result projection and cardinality handling lives on `Response<E>`.
+/// Result inspection is provided by query API extension traits over `EntityResponse<E>`.
 ///
 
 pub struct FluentDeleteQuery<'a, E>
@@ -136,8 +137,8 @@ where
 
     /// Execute this delete using the session's policy settings.
     ///
-    /// All result inspection and projection is performed on `Response<E>`.
-    pub fn execute(&self) -> Result<Response<E>, QueryError>
+    /// All result inspection and projection is performed on `EntityResponse<E>`.
+    pub fn execute(&self) -> Result<EntityResponse<E>, QueryError>
     where
         E: EntityValue,
     {

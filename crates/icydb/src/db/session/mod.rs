@@ -139,7 +139,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        Ok(WriteResponse::from_core(self.inner.insert(entity)?))
+        Ok(WriteResponse::new(self.inner.insert(entity)?))
     }
 
     /// Insert a single-entity-type batch atomically in one commit window.
@@ -178,7 +178,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        Ok(WriteResponse::from_core(self.inner.replace(entity)?))
+        Ok(WriteResponse::new(self.inner.replace(entity)?))
     }
 
     /// Replace a single-entity-type batch atomically in one commit window.
@@ -217,7 +217,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        Ok(WriteResponse::from_core(self.inner.update(entity)?))
+        Ok(WriteResponse::new(self.inner.update(entity)?))
     }
 
     /// Load one entity by id, apply a merge patch, and persist it.

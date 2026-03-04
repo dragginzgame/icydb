@@ -15,7 +15,7 @@ use crate::{
         },
         numeric::{NumericArithmeticOp, apply_numeric_arithmetic},
         query::plan::FieldSlot as PlannedFieldSlot,
-        response::Response,
+        response::EntityResponse,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -104,15 +104,15 @@ where
     // Reduce one materialized response into `sum(field)` / `avg(field)` over
     // numeric field values coerced to Decimal.
     fn aggregate_numeric_field_from_materialized(
-        response: Response<E>,
+        response: EntityResponse<E>,
         target_field: &str,
         field_slot: FieldSlot,
         kind: NumericFieldAggregateKind,
     ) -> Result<Option<Decimal>, InternalError> {
         let mut sum = Decimal::ZERO;
         let mut row_count = 0u64;
-        for (_, entity) in response {
-            let value = extract_numeric_field_decimal(&entity, target_field, field_slot)
+        for row in response {
+            let value = extract_numeric_field_decimal(row.entity_ref(), target_field, field_slot)
                 .map_err(Self::map_aggregate_field_value_error)?;
             sum = add_numeric_decimal(sum, value)?;
             row_count = row_count.saturating_add(1);

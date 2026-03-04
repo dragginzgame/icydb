@@ -21,7 +21,7 @@ fn executor_save_then_delete_round_trip() {
         .expect("delete plan should build");
     let response = delete.execute(plan).expect("delete should succeed");
 
-    assert_eq!(response.0.len(), 1);
+    assert_eq!(response.len(), 1);
     assert!(
         !commit_marker_present().expect("commit marker check should succeed"),
         "commit marker should be cleared after delete"
@@ -66,7 +66,7 @@ fn delete_replays_incomplete_commit_marker() {
         .expect("delete plan should build");
     let response = delete.execute(plan).expect("delete should succeed");
 
-    assert_eq!(response.0.len(), 1);
+    assert_eq!(response.len(), 1);
     assert!(
         !commit_marker_present().expect("commit marker check should succeed"),
         "commit marker should be cleared after delete recovery"
@@ -93,7 +93,7 @@ fn load_replays_incomplete_commit_marker_after_startup_recovery() {
     let response = load.execute(plan).expect("load should succeed");
 
     assert!(
-        response.0.is_empty(),
+        response.is_empty(),
         "empty store should still load after recovery replay"
     );
     assert!(

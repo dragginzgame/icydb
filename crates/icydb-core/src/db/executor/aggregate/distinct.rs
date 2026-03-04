@@ -27,7 +27,7 @@ use crate::{
             FieldSlot as PlannedFieldSlot, GroupedExecutionConfig,
             global_distinct_group_spec_for_semantic_aggregate,
         },
-        response::Response,
+        response::EntityResponse,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -113,14 +113,14 @@ where
     // Count distinct field values from one materialized response while preserving
     // value DISTINCT semantics via canonical GroupKey equality.
     fn count_distinct_field_values_from_materialized(
-        response: Response<E>,
+        response: EntityResponse<E>,
         target_field: &str,
         field_slot: crate::db::executor::aggregate::field::FieldSlot,
     ) -> Result<u32, InternalError> {
         let mut distinct_values = GroupKeySet::default();
         let mut distinct_count = 0u32;
-        for (_, entity) in response {
-            let value = extract_orderable_field_value(&entity, target_field, field_slot)
+        for row in response {
+            let value = extract_orderable_field_value(row.entity_ref(), target_field, field_slot)
                 .map_err(Self::map_aggregate_field_value_error)?;
             if !insert_materialized_distinct_value(&mut distinct_values, &value)? {
                 continue;

@@ -46,7 +46,7 @@ fn run_pushdown_rank_terminal(
     plan: ExecutablePlan<PushdownParityEntity>,
     terminal: RankOrderTerminal,
     k: u32,
-) -> Result<Response<PushdownParityEntity>, InternalError> {
+) -> Result<EntityResponse<PushdownParityEntity>, InternalError> {
     match terminal {
         RankOrderTerminal::Top => load.top_k_by_slot(plan, slot(load, "rank"), k),
         RankOrderTerminal::Bottom => load.bottom_k_by_slot(plan, slot(load, "rank"), k),
@@ -54,14 +54,13 @@ fn run_pushdown_rank_terminal(
 }
 
 fn expected_pushdown_rank_ids(
-    response: &Response<PushdownParityEntity>,
+    response: &EntityResponse<PushdownParityEntity>,
     terminal: RankOrderTerminal,
     k: usize,
 ) -> Vec<Id<PushdownParityEntity>> {
     let mut expected_rank_order = response
-        .0
         .iter()
-        .map(|(id, entity)| (entity.rank, *id))
+        .map(|row| (row.entity_ref().rank, row.id()))
         .collect::<Vec<_>>();
     expected_rank_order.sort_unstable_by(|(left_rank, left_id), (right_rank, right_id)| {
         match terminal {
@@ -134,7 +133,7 @@ fn aggregate_field_target_rank_terminals_bounded_window_scan_budget_and_oracle_m
         // Phase 2: compare bounded terminal output to execute oracle and assert scan-budget parity.
         let expected_bounded_ids = expected_pushdown_rank_ids(&bounded_execute, case.terminal, 2);
         assert_eq!(
-            bounded_ranked.ids(),
+            bounded_ranked.ids().collect::<Vec<_>>(),
             expected_bounded_ids,
             "bounded rank-window execute oracle mismatch for case={}",
             case.label
@@ -150,8 +149,8 @@ fn aggregate_field_target_rank_terminals_bounded_window_scan_budget_and_oracle_m
             run_pushdown_rank_terminal(&load, build_unbounded_plan(), case.terminal, 2)
                 .expect("unbounded rank-window matrix terminal should succeed");
         assert_ne!(
-            bounded_ranked.ids(),
-            unbounded_ranked.ids(),
+            bounded_ranked.ids().collect::<Vec<_>>(),
+            unbounded_ranked.ids().collect::<Vec<_>>(),
             "bounded rank-window behavior should differ from unbounded behavior for case={}",
             case.label
         );
@@ -197,7 +196,7 @@ fn run_simple_rank_terminal(
     plan: ExecutablePlan<SimpleEntity>,
     terminal: RankOrderTerminal,
     k: u32,
-) -> Result<Response<SimpleEntity>, InternalError> {
+) -> Result<EntityResponse<SimpleEntity>, InternalError> {
     match terminal {
         RankOrderTerminal::Top => load.top_k_by_slot(plan, slot(load, "id"), k),
         RankOrderTerminal::Bottom => load.bottom_k_by_slot(plan, slot(load, "id"), k),
@@ -209,7 +208,7 @@ fn run_unique_index_rank_terminal(
     plan: ExecutablePlan<UniqueIndexRangeEntity>,
     terminal: RankOrderTerminal,
     k: u32,
-) -> Result<Response<UniqueIndexRangeEntity>, InternalError> {
+) -> Result<EntityResponse<UniqueIndexRangeEntity>, InternalError> {
     match terminal {
         RankOrderTerminal::Top => load.top_k_by_slot(plan, slot(load, "code"), k),
         RankOrderTerminal::Bottom => load.bottom_k_by_slot(plan, slot(load, "code"), k),
@@ -217,11 +216,11 @@ fn run_unique_index_rank_terminal(
 }
 
 fn expected_simple_rank_ids(
-    response: &Response<SimpleEntity>,
+    response: &EntityResponse<SimpleEntity>,
     terminal: RankOrderTerminal,
     k: usize,
 ) -> Vec<Id<SimpleEntity>> {
-    let mut expected = response.ids();
+    let mut expected: Vec<_> = response.ids().collect();
     match terminal {
         RankOrderTerminal::Top => {
             expected.sort_unstable_by_key(|id| std::cmp::Reverse(id.key()));
@@ -233,14 +232,13 @@ fn expected_simple_rank_ids(
 }
 
 fn expected_unique_index_rank_ids(
-    response: &Response<UniqueIndexRangeEntity>,
+    response: &EntityResponse<UniqueIndexRangeEntity>,
     terminal: RankOrderTerminal,
     k: usize,
 ) -> Vec<Id<UniqueIndexRangeEntity>> {
     let mut ranked = response
-        .0
         .iter()
-        .map(|(id, entity)| (entity.code, *id))
+        .map(|row| (row.entity_ref().code, row.id()))
         .collect::<Vec<_>>();
     ranked.sort_unstable_by(
         |(left_code, left_id), (right_code, right_id)| match terminal {
@@ -301,7 +299,7 @@ fn aggregate_field_target_rank_terminals_forced_shape_execute_oracle_matrix() {
             run_simple_rank_terminal(&simple_load, build_full_scan_plan(), case.terminal, 2)
                 .expect("forced-shape FullScan terminal should succeed");
         assert_eq!(
-            full_scan_ranked.ids(),
+            full_scan_ranked.ids().collect::<Vec<_>>(),
             expected_simple_rank_ids(&full_scan_execute, case.terminal, 2),
             "forced-shape FullScan execute oracle mismatch for case={}",
             case.label
@@ -337,7 +335,7 @@ fn aggregate_field_target_rank_terminals_forced_shape_execute_oracle_matrix() {
             run_unique_index_rank_terminal(&range_load, build_index_range_plan(), case.terminal, 2)
                 .expect("forced-shape IndexRange terminal should succeed");
         assert_eq!(
-            index_range_ranked.ids(),
+            index_range_ranked.ids().collect::<Vec<_>>(),
             expected_unique_index_rank_ids(&index_range_execute, case.terminal, 2),
             "forced-shape IndexRange execute oracle mismatch for case={}",
             case.label
@@ -1202,11 +1200,7 @@ struct DescCursorResumeCase {
 
 macro_rules! collect_ulid_keys {
     ($response:expr) => {
-        $response
-            .ids()
-            .into_iter()
-            .map(|id| id.key())
-            .collect::<Vec<_>>()
+        $response.ids().map(|id| id.key()).collect::<Vec<_>>()
     };
 }
 

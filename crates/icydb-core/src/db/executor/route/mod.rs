@@ -30,5 +30,5 @@ pub(in crate::db) use pushdown::derive_secondary_pushdown_applicability_from_con
 pub(in crate::db::executor) use semantics::{
     aggregate_bounded_probe_fetch_hint, aggregate_extrema_direction,
     aggregate_materialized_fold_direction, aggregate_supports_bounded_probe_hint,
-    direction_from_order, order_direction_from_direction,
+    direction_from_order,
 };

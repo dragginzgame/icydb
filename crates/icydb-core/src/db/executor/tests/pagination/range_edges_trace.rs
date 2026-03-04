@@ -132,9 +132,8 @@ fn load_single_field_range_pushdown_handles_min_and_max_tag_edges() {
                 .expect("single-field extreme-edge inclusive plan should build"),
         )
         .expect("single-field extreme-edge inclusive pushdown should execute")
-        .0
         .iter()
-        .any(|(_, entity)| entity.id == Ulid::from_u128(19_305));
+        .any(|row| row.entity_ref().id == Ulid::from_u128(19_305));
     assert!(
         pushdown_inclusive_has_max,
         "inclusive upper-bound range must include rows at the max field value"
@@ -206,9 +205,8 @@ fn load_composite_range_pushdown_handles_min_and_max_rank_edges() {
                 .expect("composite extreme-edge inclusive plan should build"),
         )
         .expect("composite extreme-edge inclusive pushdown should execute")
-        .0
         .iter()
-        .any(|(_, entity)| entity.id == Ulid::from_u128(19_405));
+        .any(|row| row.entity_ref().id == Ulid::from_u128(19_405));
     assert!(
         pushdown_inclusive_has_max,
         "inclusive upper-bound range must include rows at the max field value"
@@ -319,11 +317,10 @@ fn load_composite_range_cursor_pagination_matches_unbounded_and_anchor_is_strict
     let unbounded = load
         .execute(unbounded_plan)
         .expect("unbounded execution should succeed");
-    let unbounded_ids: Vec<Ulid> = ids_from_items(&unbounded.0);
+    let unbounded_ids: Vec<Ulid> = ids_from_items(&unbounded);
     let unbounded_row_bytes: Vec<Vec<u8>> = unbounded
-        .0
         .iter()
-        .map(|(_, entity)| serialize(entity).expect("entity serialization should succeed"))
+        .map(|row| serialize(row.entity_ref()).expect("entity serialization should succeed"))
         .collect();
 
     let (paged_ids, paged_row_bytes) = collect_all_pages(
@@ -460,7 +457,7 @@ proptest! {
         let unbounded = load
             .execute(unbounded_plan)
             .expect("property matrix unbounded execution should succeed");
-        let expected_ids = ids_from_items(&unbounded.0);
+        let expected_ids = ids_from_items(&unbounded);
 
         let build_plan = || {
             Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
@@ -493,7 +490,7 @@ proptest! {
                 .execute_paged_with_cursor(page_plan, planned_cursor)
                 .expect("property matrix paged execution should succeed");
 
-            paged_ids.extend(ids_from_items(&page.items.0));
+            paged_ids.extend(ids_from_items(&page.items));
 
             let Some(next_cursor) = page.next_cursor else {
                 break;
@@ -574,11 +571,10 @@ fn load_unique_index_range_cursor_pagination_matches_unbounded_case_f() {
     let unbounded = load
         .execute(unbounded_plan)
         .expect("unique unbounded execution should succeed");
-    let unbounded_ids: Vec<Ulid> = ids_from_items(&unbounded.0);
+    let unbounded_ids: Vec<Ulid> = ids_from_items(&unbounded);
     let unbounded_row_bytes: Vec<Vec<u8>> = unbounded
-        .0
         .iter()
-        .map(|(_, entity)| serialize(entity).expect("entity serialization should succeed"))
+        .map(|row| serialize(row.entity_ref()).expect("entity serialization should succeed"))
         .collect();
 
     let (paged_ids, paged_row_bytes) = collect_all_pages(
@@ -684,14 +680,14 @@ fn load_single_field_range_cursor_boundaries_respect_lower_and_upper_edges() {
     let base_page = load
         .execute_paged_with_cursor(base_plan, None)
         .expect("single-field base page should execute");
-    let all_ids: Vec<Ulid> = ids_from_items(&base_page.items.0);
+    let all_ids: Vec<Ulid> = ids_from_items(&base_page.items);
     assert_eq!(
         all_ids.len(),
         4,
         "single-field range should include only rows in [10, 30)"
     );
 
-    let first_entity = &base_page.items.0[0].1;
+    let first_entity = base_page.items[0].entity_ref();
     assert_resume_after_entity(
         || {
             Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
@@ -703,7 +699,7 @@ fn load_single_field_range_cursor_boundaries_respect_lower_and_upper_edges() {
         all_ids[1..].to_vec(),
     );
 
-    let terminal_entity = &base_page.items.0[base_page.items.0.len() - 1].1;
+    let terminal_entity = base_page.items[base_page.items.len() - 1].entity_ref();
     assert_resume_from_terminal_entity_exhausts_range(
         || {
             Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
@@ -747,7 +743,7 @@ fn load_single_field_desc_range_resume_from_upper_anchor_returns_remaining_rows(
         .execute_paged_with_cursor(page1_plan, page1_boundary)
         .expect("single-field desc upper-anchor page1 should execute");
     assert_eq!(
-        ids_from_items(&page1.items.0),
+        ids_from_items(&page1.items),
         vec![Ulid::from_u128(21_105)],
         "descending first page should start at the upper envelope row"
     );
@@ -776,7 +772,7 @@ fn load_single_field_desc_range_resume_from_upper_anchor_returns_remaining_rows(
         .expect("single-field desc upper-anchor resume should execute");
 
     assert_eq!(
-        ids_from_items(&resume.items.0),
+        ids_from_items(&resume.items),
         vec![
             Ulid::from_u128(21_104),
             Ulid::from_u128(21_103),
@@ -811,7 +807,7 @@ fn load_single_field_desc_range_resume_from_lower_boundary_returns_empty() {
         .execute_paged_with_cursor(base_plan, None)
         .expect("single-field desc lower-boundary base page should execute");
 
-    let terminal_entity = &base_page.items.0[base_page.items.0.len() - 1].1;
+    let terminal_entity = base_page.items[base_page.items.len() - 1].entity_ref();
     assert_resume_from_terminal_entity_exhausts_range(
         || {
             Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
@@ -849,7 +845,7 @@ fn load_single_field_desc_range_single_element_resume_returns_empty() {
         .execute_paged_with_cursor(page1_plan, None)
         .expect("single-element desc page1 should execute");
     assert_eq!(
-        ids_from_items(&page1.items.0),
+        ids_from_items(&page1.items),
         vec![Ulid::from_u128(21_302)],
         "single-element descending range should return the only row"
     );
@@ -865,7 +861,7 @@ fn load_single_field_desc_range_single_element_resume_returns_empty() {
                 .order_by_desc("tag")
                 .limit(1)
         },
-        &page1.items.0[0].1,
+        page1.items[0].entity_ref(),
         "resuming a single-element descending range must return an empty page",
         "single-element empty resume must not emit a cursor",
     );
@@ -901,7 +897,7 @@ fn load_single_field_desc_range_multi_page_has_no_duplicate_or_omission() {
         .execute_paged_with_cursor(page1_plan, page1_boundary)
         .expect("multi-page desc page1 should execute");
     assert_eq!(
-        ids_from_items(&page1.items.0),
+        ids_from_items(&page1.items),
         vec![Ulid::from_u128(21_405), Ulid::from_u128(21_404)],
         "descending page1 should return E, D"
     );
@@ -929,7 +925,7 @@ fn load_single_field_desc_range_multi_page_has_no_duplicate_or_omission() {
         .execute_paged_with_cursor(page2_plan, page2_boundary)
         .expect("multi-page desc page2 should execute");
     assert_eq!(
-        ids_from_items(&page2.items.0),
+        ids_from_items(&page2.items),
         vec![Ulid::from_u128(21_403), Ulid::from_u128(21_402)],
         "descending page2 should return C, B"
     );
@@ -957,7 +953,7 @@ fn load_single_field_desc_range_multi_page_has_no_duplicate_or_omission() {
         .execute_paged_with_cursor(page3_plan, page3_boundary)
         .expect("multi-page desc page3 should execute");
     assert_eq!(
-        ids_from_items(&page3.items.0),
+        ids_from_items(&page3.items),
         vec![Ulid::from_u128(21_401)],
         "descending page3 should return A"
     );
@@ -966,9 +962,9 @@ fn load_single_field_desc_range_multi_page_has_no_duplicate_or_omission() {
         "final descending page should not emit a continuation cursor"
     );
 
-    let mut all_ids = ids_from_items(&page1.items.0);
-    all_ids.extend(ids_from_items(&page2.items.0));
-    all_ids.extend(ids_from_items(&page3.items.0));
+    let mut all_ids = ids_from_items(&page1.items);
+    all_ids.extend(ids_from_items(&page2.items));
+    all_ids.extend(ids_from_items(&page3.items));
 
     assert_eq!(
         all_ids,
@@ -1021,7 +1017,7 @@ fn load_single_field_desc_range_mixed_edges_resume_inside_duplicate_group() {
     let base_page = load
         .execute_paged_with_cursor(base_plan, None)
         .expect("single-field mixed-edge desc base page should execute");
-    let all_ids = ids_from_items(&base_page.items.0);
+    let all_ids = ids_from_items(&base_page.items);
     assert_eq!(
         all_ids,
         vec![
@@ -1035,7 +1031,7 @@ fn load_single_field_desc_range_mixed_edges_resume_inside_duplicate_group() {
 
     // Boundary inside the upper duplicate group should resume strictly to the
     // next duplicate row, then continue through lower groups.
-    let boundary_entity = &base_page.items.0[0].1;
+    let boundary_entity = base_page.items[0].entity_ref();
     assert_resume_after_entity(
         || {
             Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
@@ -1048,7 +1044,7 @@ fn load_single_field_desc_range_mixed_edges_resume_inside_duplicate_group() {
     );
 
     // Boundary at the terminal row should exhaust the descending range.
-    let terminal_entity = &base_page.items.0[base_page.items.0.len() - 1].1;
+    let terminal_entity = base_page.items[base_page.items.len() - 1].entity_ref();
     assert_resume_from_terminal_entity_exhausts_range(
         || {
             Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
@@ -1108,7 +1104,7 @@ fn load_composite_desc_range_mixed_edges_resume_inside_duplicate_group() {
     let base_page = load
         .execute_paged_with_cursor(base_plan, None)
         .expect("composite mixed-edge desc base page should execute");
-    let all_ids = ids_from_items(&base_page.items.0);
+    let all_ids = ids_from_items(&base_page.items);
     assert_eq!(
         all_ids,
         vec![
@@ -1120,7 +1116,7 @@ fn load_composite_desc_range_mixed_edges_resume_inside_duplicate_group() {
     );
 
     // Boundary inside duplicate upper group should continue from the sibling row.
-    let boundary_entity = &base_page.items.0[0].1;
+    let boundary_entity = base_page.items[0].entity_ref();
     assert_resume_after_entity(
         || {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
@@ -1133,7 +1129,7 @@ fn load_composite_desc_range_mixed_edges_resume_inside_duplicate_group() {
     );
 
     // Boundary at terminal lower row should exhaust the range.
-    let terminal_entity = &base_page.items.0[base_page.items.0.len() - 1].1;
+    let terminal_entity = base_page.items[base_page.items.len() - 1].entity_ref();
     assert_resume_from_terminal_entity_exhausts_range(
         || {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
@@ -1357,7 +1353,7 @@ fn load_composite_between_cursor_boundaries_respect_duplicate_lower_and_upper_ed
     let base_page = load
         .execute_paged_with_cursor(base_plan, None)
         .expect("composite duplicate-edge base page should execute");
-    let all_ids: Vec<Ulid> = ids_from_items(&base_page.items.0);
+    let all_ids: Vec<Ulid> = ids_from_items(&base_page.items);
     assert_eq!(
         all_ids.len(),
         5,
@@ -1365,7 +1361,7 @@ fn load_composite_between_cursor_boundaries_respect_duplicate_lower_and_upper_ed
     );
 
     // Phase 2: boundary at the first lower-edge row should skip only that row.
-    let lower_entity = &base_page.items.0[0].1;
+    let lower_entity = base_page.items[0].entity_ref();
     assert_resume_after_entity(
         || {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
@@ -1378,7 +1374,7 @@ fn load_composite_between_cursor_boundaries_respect_duplicate_lower_and_upper_ed
     );
 
     // Phase 3: mid-window boundary should resume at the next strict row.
-    let mid_entity = &base_page.items.0[2].1;
+    let mid_entity = base_page.items[2].entity_ref();
     assert_resume_after_entity(
         || {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
@@ -1391,7 +1387,7 @@ fn load_composite_between_cursor_boundaries_respect_duplicate_lower_and_upper_ed
     );
 
     // Phase 4: boundary at the terminal upper-edge row should produce an empty continuation page.
-    let terminal_entity = &base_page.items.0[base_page.items.0.len() - 1].1;
+    let terminal_entity = base_page.items[base_page.items.len() - 1].entity_ref();
     assert_resume_from_terminal_entity_exhausts_range(
         || {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)

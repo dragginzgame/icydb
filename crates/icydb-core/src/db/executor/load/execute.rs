@@ -299,7 +299,7 @@ where
             metrics.index_predicate_keys_rejected,
             metrics.distinct_keys_deduped,
         );
-        set_rows_from_len(span, page.items.0.len());
+        set_rows_from_len(span, page.items.len());
 
         page
     }

@@ -1,12 +1,13 @@
-//! Module: executor::trace
+//! Module: diagnostics::execution_trace
 //! Responsibility: execution trace contracts and mutation boundaries.
 //! Does not own: execution routing policy or stream/materialization behavior.
-//! Boundary: shared trace surface used by load/response APIs.
+//! Boundary: shared trace surface used by executor and response APIs.
 
-mod projection;
-
-use crate::db::{access::AccessPlan, direction::Direction, query::plan::OrderDirection};
-use projection::{access_path_variant, execution_order_direction};
+use crate::db::{
+    access::{AccessPath, AccessPlan},
+    direction::Direction,
+    query::plan::OrderDirection,
+};
 
 ///
 /// ExecutionAccessPathVariant
@@ -62,7 +63,7 @@ pub struct ExecutionTrace {
 impl ExecutionTrace {
     /// Build one trace payload from canonical access shape and runtime direction.
     #[must_use]
-    pub(in crate::db::executor) fn new<K>(
+    pub(in crate::db) fn new<K>(
         access: &AccessPlan<K>,
         direction: Direction,
         continuation_applied: bool,
@@ -81,7 +82,7 @@ impl ExecutionTrace {
     }
 
     /// Apply one finalized path outcome to this trace snapshot.
-    pub(in crate::db::executor) fn set_path_outcome(
+    pub(in crate::db) fn set_path_outcome(
         &mut self,
         optimization: Option<ExecutionOptimization>,
         keys_scanned: usize,
@@ -101,5 +102,27 @@ impl ExecutionTrace {
             u64::try_from(keys_scanned).unwrap_or(u64::MAX),
             "execution trace keys_scanned must match rows_scanned metrics input",
         );
+    }
+}
+
+fn access_path_variant<K>(access: &AccessPlan<K>) -> ExecutionAccessPathVariant {
+    match access {
+        AccessPlan::Path(path) => match path.as_ref() {
+            AccessPath::ByKey(_) => ExecutionAccessPathVariant::ByKey,
+            AccessPath::ByKeys(_) => ExecutionAccessPathVariant::ByKeys,
+            AccessPath::KeyRange { .. } => ExecutionAccessPathVariant::KeyRange,
+            AccessPath::IndexPrefix { .. } => ExecutionAccessPathVariant::IndexPrefix,
+            AccessPath::IndexRange { .. } => ExecutionAccessPathVariant::IndexRange,
+            AccessPath::FullScan => ExecutionAccessPathVariant::FullScan,
+        },
+        AccessPlan::Union(_) => ExecutionAccessPathVariant::Union,
+        AccessPlan::Intersection(_) => ExecutionAccessPathVariant::Intersection,
+    }
+}
+
+const fn execution_order_direction(direction: Direction) -> OrderDirection {
+    match direction {
+        Direction::Asc => OrderDirection::Asc,
+        Direction::Desc => OrderDirection::Desc,
     }
 }

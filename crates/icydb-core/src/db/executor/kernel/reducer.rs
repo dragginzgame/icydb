@@ -19,7 +19,7 @@ use crate::{
         },
         predicate::MissingRowPolicy,
         query::plan::AccessPlannedQuery,
-        response::Response,
+        response::EntityResponse,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -357,11 +357,15 @@ impl ExecutionKernel {
             Self::run_row_stream_reducer(ctx, plan, key_stream, RowCollectorReducer)?;
         let projected_rows =
             LoadExecutor::<E>::project_materialized_rows_if_needed(plan, rows.as_slice())?;
+        LoadExecutor::<E>::validate_projection_alignment(
+            rows.as_slice(),
+            projected_rows.as_deref(),
+        )?;
         let page = CursorPage {
-            items: Response::from_rows_with_projection(rows, projected_rows),
+            items: EntityResponse::from_rows(rows),
             next_cursor: None,
         };
-        let post_access_rows = page.items.0.len();
+        let post_access_rows = page.items.len();
 
         Ok(Some((page, keys_scanned, post_access_rows)))
     }

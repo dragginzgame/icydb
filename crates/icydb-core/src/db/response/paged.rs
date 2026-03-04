@@ -5,8 +5,8 @@
 
 use crate::{
     db::{
-        executor::ExecutionTrace,
-        response::{ProjectedRow, Response},
+        diagnostics::ExecutionTrace,
+        response::{EntityResponse, Row},
     },
     traits::EntityKind,
 };
@@ -19,14 +19,14 @@ use crate::{
 
 #[derive(Debug)]
 pub struct PagedLoadExecution<E: EntityKind> {
-    response: Response<E>,
+    response: EntityResponse<E>,
     continuation_cursor: Option<Vec<u8>>,
 }
 
 impl<E: EntityKind> PagedLoadExecution<E> {
     /// Create a paged load execution payload.
     #[must_use]
-    pub const fn new(response: Response<E>, continuation_cursor: Option<Vec<u8>>) -> Self {
+    pub const fn new(response: EntityResponse<E>, continuation_cursor: Option<Vec<u8>>) -> Self {
         Self {
             response,
             continuation_cursor,
@@ -35,16 +35,13 @@ impl<E: EntityKind> PagedLoadExecution<E> {
 
     /// Borrow the paged response rows.
     #[must_use]
-    pub const fn response(&self) -> &Response<E> {
+    pub const fn response(&self) -> &EntityResponse<E> {
         &self.response
     }
 
-    /// Borrow optional projected scalar rows for this page.
-    ///
-    /// Projection rows are present when scalar projection evaluation ran.
-    #[must_use]
-    pub fn projected_rows(&self) -> Option<&[ProjectedRow<E>]> {
-        self.response.projected_rows()
+    /// Borrow an iterator over paged rows in response order.
+    pub fn iter(&self) -> std::slice::Iter<'_, Row<E>> {
+        self.response.iter()
     }
 
     /// Borrow the optional continuation cursor bytes.
@@ -55,22 +52,17 @@ impl<E: EntityKind> PagedLoadExecution<E> {
 
     /// Consume this payload and return `(response, continuation_cursor)`.
     #[must_use]
-    pub fn into_parts(self) -> (Response<E>, Option<Vec<u8>>) {
+    pub fn into_parts(self) -> (EntityResponse<E>, Option<Vec<u8>>) {
         (self.response, self.continuation_cursor)
     }
 }
 
-impl<E: EntityKind> From<(Response<E>, Option<Vec<u8>>)> for PagedLoadExecution<E> {
-    fn from(value: (Response<E>, Option<Vec<u8>>)) -> Self {
-        let (response, continuation_cursor) = value;
+impl<'a, E: EntityKind> IntoIterator for &'a PagedLoadExecution<E> {
+    type Item = &'a Row<E>;
+    type IntoIter = std::slice::Iter<'a, Row<E>>;
 
-        Self::new(response, continuation_cursor)
-    }
-}
-
-impl<E: EntityKind> From<PagedLoadExecution<E>> for (Response<E>, Option<Vec<u8>>) {
-    fn from(value: PagedLoadExecution<E>) -> Self {
-        value.into_parts()
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
     }
 }
 
@@ -82,7 +74,8 @@ impl<E: EntityKind> From<PagedLoadExecution<E>> for (Response<E>, Option<Vec<u8>
 
 #[derive(Debug)]
 pub struct PagedLoadExecutionWithTrace<E: EntityKind> {
-    execution: PagedLoadExecution<E>,
+    response: EntityResponse<E>,
+    continuation_cursor: Option<Vec<u8>>,
     execution_trace: Option<ExecutionTrace>,
 }
 
@@ -90,40 +83,32 @@ impl<E: EntityKind> PagedLoadExecutionWithTrace<E> {
     /// Create a traced paged load execution payload.
     #[must_use]
     pub const fn new(
-        response: Response<E>,
+        response: EntityResponse<E>,
         continuation_cursor: Option<Vec<u8>>,
         execution_trace: Option<ExecutionTrace>,
     ) -> Self {
         Self {
-            execution: PagedLoadExecution::new(response, continuation_cursor),
+            response,
+            continuation_cursor,
             execution_trace,
         }
     }
 
-    /// Borrow the paged execution payload.
-    #[must_use]
-    pub const fn execution(&self) -> &PagedLoadExecution<E> {
-        &self.execution
-    }
-
     /// Borrow the paged response rows.
     #[must_use]
-    pub const fn response(&self) -> &Response<E> {
-        self.execution.response()
+    pub const fn response(&self) -> &EntityResponse<E> {
+        &self.response
     }
 
-    /// Borrow optional projected scalar rows for this page.
-    ///
-    /// Projection rows are present when scalar projection evaluation ran.
-    #[must_use]
-    pub fn projected_rows(&self) -> Option<&[ProjectedRow<E>]> {
-        self.execution.projected_rows()
+    /// Borrow an iterator over paged rows in response order.
+    pub fn iter(&self) -> std::slice::Iter<'_, Row<E>> {
+        self.response.iter()
     }
 
     /// Borrow the optional continuation cursor bytes.
     #[must_use]
     pub fn continuation_cursor(&self) -> Option<&[u8]> {
-        self.execution.continuation_cursor()
+        self.continuation_cursor.as_deref()
     }
 
     /// Borrow optional execution trace details.
@@ -135,32 +120,28 @@ impl<E: EntityKind> PagedLoadExecutionWithTrace<E> {
     /// Consume this payload and drop trace details.
     #[must_use]
     pub fn into_execution(self) -> PagedLoadExecution<E> {
-        self.execution
+        PagedLoadExecution {
+            response: self.response,
+            continuation_cursor: self.continuation_cursor,
+        }
     }
 
     /// Consume this payload and return `(response, continuation_cursor, trace)`.
     #[must_use]
-    pub fn into_parts(self) -> (Response<E>, Option<Vec<u8>>, Option<ExecutionTrace>) {
-        let (response, continuation_cursor) = self.execution.into_parts();
-
-        (response, continuation_cursor, self.execution_trace)
+    pub fn into_parts(self) -> (EntityResponse<E>, Option<Vec<u8>>, Option<ExecutionTrace>) {
+        (
+            self.response,
+            self.continuation_cursor,
+            self.execution_trace,
+        )
     }
 }
 
-impl<E: EntityKind> From<(Response<E>, Option<Vec<u8>>, Option<ExecutionTrace>)>
-    for PagedLoadExecutionWithTrace<E>
-{
-    fn from(value: (Response<E>, Option<Vec<u8>>, Option<ExecutionTrace>)) -> Self {
-        let (response, continuation_cursor, execution_trace) = value;
+impl<'a, E: EntityKind> IntoIterator for &'a PagedLoadExecutionWithTrace<E> {
+    type Item = &'a Row<E>;
+    type IntoIter = std::slice::Iter<'a, Row<E>>;
 
-        Self::new(response, continuation_cursor, execution_trace)
-    }
-}
-
-impl<E: EntityKind> From<PagedLoadExecutionWithTrace<E>>
-    for (Response<E>, Option<Vec<u8>>, Option<ExecutionTrace>)
-{
-    fn from(value: PagedLoadExecutionWithTrace<E>) -> Self {
-        value.into_parts()
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
     }
 }

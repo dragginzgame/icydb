@@ -7,9 +7,9 @@
 use crate::db::{DataStore, IndexStore};
 use crate::{
     db::{
-        Db, FluentDeleteQuery, FluentLoadQuery, MissingRowPolicy, PagedGroupedExecutionWithTrace,
-        PagedLoadExecutionWithTrace, PlanError, Query, QueryError, Response, StoreRegistry,
-        WriteBatchResponse, WriteResponse,
+        Db, EntityResponse, FluentDeleteQuery, FluentLoadQuery, MissingRowPolicy,
+        PagedGroupedExecutionWithTrace, PagedLoadExecutionWithTrace, PlanError, Query, QueryError,
+        StoreRegistry, WriteBatchResponse,
         commit::EntityRuntimeHooks,
         cursor::CursorPlanError,
         decode_cursor,
@@ -101,11 +101,11 @@ impl<C: CanisterKind> DbSession<C> {
     fn execute_save_entity<E>(
         &self,
         op: impl FnOnce(SaveExecutor<E>) -> Result<E, InternalError>,
-    ) -> Result<WriteResponse<E>, InternalError>
+    ) -> Result<E, InternalError>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        self.execute_save_with(op, WriteResponse::new)
+        self.execute_save_with(op, std::convert::identity)
     }
 
     fn execute_save_batch<E>(
@@ -207,7 +207,7 @@ impl<C: CanisterKind> DbSession<C> {
     // ---------------------------------------------------------------------
 
     /// Execute one scalar load/delete query and return materialized response rows.
-    pub fn execute_query<E>(&self, query: &Query<E>) -> Result<Response<E>, QueryError>
+    pub fn execute_query<E>(&self, query: &Query<E>) -> Result<EntityResponse<E>, QueryError>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
@@ -372,7 +372,7 @@ impl<C: CanisterKind> DbSession<C> {
     // ---------------------------------------------------------------------
 
     /// Insert one entity row.
-    pub fn insert<E>(&self, entity: E) -> Result<WriteResponse<E>, InternalError>
+    pub fn insert<E>(&self, entity: E) -> Result<E, InternalError>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
@@ -408,7 +408,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Replace one existing entity row.
-    pub fn replace<E>(&self, entity: E) -> Result<WriteResponse<E>, InternalError>
+    pub fn replace<E>(&self, entity: E) -> Result<E, InternalError>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
@@ -444,7 +444,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Update one existing entity row.
-    pub fn update<E>(&self, entity: E) -> Result<WriteResponse<E>, InternalError>
+    pub fn update<E>(&self, entity: E) -> Result<E, InternalError>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {

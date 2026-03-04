@@ -42,8 +42,9 @@ pub use codec::cursor::{decode_cursor, encode_cursor};
 pub use commit::EntityRuntimeHooks;
 pub use data::DataStore;
 pub(crate) use data::StorageKey;
-pub use diagnostics::StorageReport;
-pub use executor::{ExecutionAccessPathVariant, ExecutionOptimization, ExecutionTrace};
+pub use diagnostics::{
+    ExecutionAccessPathVariant, ExecutionOptimization, ExecutionTrace, StorageReport,
+};
 pub use identity::{EntityName, IndexName};
 pub use index::IndexStore;
 pub use predicate::{
@@ -51,6 +52,7 @@ pub use predicate::{
     ValidateError,
 };
 pub use query::{
+    api::ResponseCardinalityExt,
     builder::{
         AggregateExpr, FieldRef, count, count_by, exists, first, last, max, max_by, min, min_by,
         sum,
@@ -68,9 +70,9 @@ pub use query::{
 };
 pub use registry::StoreRegistry;
 pub use response::{
-    GroupedRow, PagedGroupedExecution, PagedGroupedExecutionWithTrace, PagedLoadExecution,
-    PagedLoadExecutionWithTrace, ProjectedRow, Response, ResponseError, Row, WriteBatchResponse,
-    WriteResponse,
+    EntityResponse, GroupedRow, PagedGroupedExecution, PagedGroupedExecutionWithTrace,
+    PagedLoadExecution, PagedLoadExecutionWithTrace, ProjectedRow, ProjectionResponse,
+    Response as RowResponse, ResponseError, ResponseRow, Row, WriteBatchResponse,
 };
 pub use session::DbSession;
 

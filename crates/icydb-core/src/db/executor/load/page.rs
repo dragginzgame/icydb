@@ -13,7 +13,7 @@ use crate::{
         executor::{BudgetedOrderedKeyStream, ExecutionKernel, OrderedKeyStream},
         predicate::PredicateProgram,
         query::plan::AccessPlannedQuery,
-        response::{ProjectedRow, Response},
+        response::{EntityResponse, ProjectedRow},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -101,7 +101,7 @@ where
             direction,
             continuation_signature,
         )?;
-        let post_access_rows = page.items.0.len();
+        let post_access_rows = page.items.len();
 
         Ok((page, rows_scanned, post_access_rows))
     }
@@ -134,7 +134,7 @@ where
         .map(PageCursor::Scalar);
         let projected_rows = Self::project_materialized_rows_if_needed(plan, rows.as_slice())?;
         Self::validate_projection_alignment(rows.as_slice(), projected_rows.as_deref())?;
-        let items = Response::from_rows_with_projection(std::mem::take(rows), projected_rows);
+        let items = EntityResponse::from_rows(std::mem::take(rows));
 
         Ok(CursorPage { items, next_cursor })
     }
@@ -142,7 +142,7 @@ where
     // Projection materialization must remain a pure row-wise mapping over the
     // already-ordered post-access row domain. Any cardinality/id drift can
     // corrupt continuation semantics, so fail closed on mismatches.
-    fn validate_projection_alignment(
+    pub(in crate::db::executor) fn validate_projection_alignment(
         rows: &[(Id<E>, E)],
         projected_rows: Option<&[ProjectedRow<E>]>,
     ) -> Result<(), InternalError> {

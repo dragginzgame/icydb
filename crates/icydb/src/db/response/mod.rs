@@ -6,7 +6,9 @@ use crate::{
     traits::{EntityKind, View},
     types::Id,
 };
-use icydb_core::db::Response as CoreResponse;
+use icydb_core::db::{
+    EntityResponse as CoreEntityResponse, ResponseCardinalityExt as CoreResponseCardinalityExt,
+};
 
 // re-exports
 pub use paged::{PagedGroupedResponse, PagedResponse};
@@ -22,13 +24,13 @@ pub use write::*;
 
 #[derive(Debug)]
 pub struct Response<E: EntityKind> {
-    inner: CoreResponse<E>,
+    inner: CoreEntityResponse<E>,
 }
 
 impl<E: EntityKind> Response<E> {
     /// Construct a facade response from a core response.
     #[must_use]
-    pub const fn from_core(inner: CoreResponse<E>) -> Self {
+    pub const fn from_core(inner: CoreEntityResponse<E>) -> Self {
         Self { inner }
     }
 
@@ -48,12 +50,12 @@ impl<E: EntityKind> Response<E> {
 
     /// Require exactly one row.
     pub fn require_one(&self) -> Result<(), Error> {
-        self.inner.require_one().map_err(Into::into)
+        CoreResponseCardinalityExt::require_one(&self.inner).map_err(Into::into)
     }
 
     /// Require at least one row.
     pub fn require_some(&self) -> Result<(), Error> {
-        self.inner.require_some().map_err(Into::into)
+        CoreResponseCardinalityExt::require_some(&self.inner).map_err(Into::into)
     }
 
     // ------------------------------------------------------------------
@@ -62,12 +64,12 @@ impl<E: EntityKind> Response<E> {
 
     /// Return the single entity.
     pub fn entity(self) -> Result<E, Error> {
-        self.inner.entity().map_err(Into::into)
+        CoreResponseCardinalityExt::entity(self.inner).map_err(Into::into)
     }
 
     /// Return zero or one entity.
     pub fn try_entity(self) -> Result<Option<E>, Error> {
-        self.inner.try_entity().map_err(Into::into)
+        CoreResponseCardinalityExt::try_entity(self.inner).map_err(Into::into)
     }
 
     /// Return all entities.
@@ -82,17 +84,27 @@ impl<E: EntityKind> Response<E> {
 
     /// Return the single view.
     pub fn view(&self) -> Result<View<E>, Error> {
-        self.inner.view().map_err(Into::into)
+        self.require_one()?;
+
+        Ok(self
+            .inner
+            .views()
+            .next()
+            .expect("require_one guarantees one row"))
     }
 
     /// Return zero or one view.
     pub fn view_opt(&self) -> Result<Option<View<E>>, Error> {
-        self.inner.view_opt().map_err(Into::into)
+        if self.inner.is_empty() {
+            return Ok(None);
+        }
+        self.require_one()?;
+
+        Ok(self.inner.views().next())
     }
 
-    /// Return all views.
-    #[must_use]
-    pub fn views(&self) -> Vec<View<E>> {
+    /// Borrow an iterator over all views.
+    pub fn views(&self) -> impl Iterator<Item = View<E>> + '_ {
         self.inner.views()
     }
 
@@ -104,22 +116,20 @@ impl<E: EntityKind> Response<E> {
     ///
     /// This key is a public identifier and does not grant access or authority.
     pub fn require_id(self) -> Result<Id<E>, Error> {
-        self.inner.require_id().map_err(Into::into)
+        CoreResponseCardinalityExt::require_id(self.inner).map_err(Into::into)
     }
 
     /// Return zero or one primary key.
     ///
     /// IDs are safe to transport and log; verification is always explicit and contextual.
     pub fn try_id(self) -> Result<Option<Id<E>>, Error> {
-        self.inner
-            .try_row()
-            .map(|row| row.map(|(id, _)| id))
+        CoreResponseCardinalityExt::try_row(self.inner)
+            .map(|row| row.map(|entry| entry.id()))
             .map_err(Into::into)
     }
 
-    /// Return all primary keys for correlation, reporting, and lookup.
-    #[must_use]
-    pub fn ids(&self) -> Vec<Id<E>> {
+    /// Borrow an iterator over primary keys for correlation, reporting, and lookup.
+    pub fn ids(&self) -> impl Iterator<Item = Id<E>> + '_ {
         self.inner.ids()
     }
 

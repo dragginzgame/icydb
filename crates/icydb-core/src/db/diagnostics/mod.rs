@@ -3,6 +3,7 @@
 //! Does not own: recovery, write-path mutation, or query planning semantics.
 //! Boundary: consumes `Db`/store read APIs and returns DTO snapshots.
 
+mod execution_trace;
 #[cfg(test)]
 mod tests;
 
@@ -19,6 +20,8 @@ use crate::{
 use candid::CandidType;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+
+pub use execution_trace::{ExecutionAccessPathVariant, ExecutionOptimization, ExecutionTrace};
 
 ///
 /// StorageReport

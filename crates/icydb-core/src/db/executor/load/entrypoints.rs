@@ -14,7 +14,7 @@ use crate::{
             range_token_anchor_key, validate_executor_plan,
         },
         index::IndexCompilePolicy,
-        response::Response,
+        response::EntityResponse,
     },
     error::InternalError,
     obs::sink::{ExecKind, Span},
@@ -191,7 +191,7 @@ struct LoadExecutionOutput<E: EntityKind> {
 
 impl<E: EntityKind> LoadExecutionOutput<E> {
     // Convert one output payload into scalar rows.
-    fn into_scalar_rows(self) -> Result<Response<E>, InternalError> {
+    fn into_scalar_rows(self) -> Result<EntityResponse<E>, InternalError> {
         let LoadExecutionPayload::Scalar(page) = self.payload else {
             return Err(super::invariant(
                 "scalar rows mode must emit scalar execution payload",
@@ -244,7 +244,10 @@ where
     E: EntityKind + EntityValue,
 {
     // Execute one scalar load plan without explicit cursor input.
-    pub(crate) fn execute(&self, plan: ExecutablePlan<E>) -> Result<Response<E>, InternalError> {
+    pub(crate) fn execute(
+        &self,
+        plan: ExecutablePlan<E>,
+    ) -> Result<EntityResponse<E>, InternalError> {
         let output = self.execute_load(
             plan,
             LoadCursorInput::Scalar(Box::new(PlannedCursor::none())),

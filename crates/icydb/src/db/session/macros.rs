@@ -92,7 +92,8 @@ macro_rules! impl_session_materialization_methods {
         where
             E: EntityValue,
         {
-            self.inner.execute()?.require_one().map_err(Into::into)
+            icydb_core::db::ResponseCardinalityExt::require_one(&self.inner.execute()?)
+                .map_err(Into::into)
         }
 
         /// Require at least one row.
@@ -100,7 +101,8 @@ macro_rules! impl_session_materialization_methods {
         where
             E: EntityValue,
         {
-            self.inner.execute()?.require_some().map_err(Into::into)
+            icydb_core::db::ResponseCardinalityExt::require_some(&self.inner.execute()?)
+                .map_err(Into::into)
         }
 
         /// Materialize one row.
@@ -108,7 +110,7 @@ macro_rules! impl_session_materialization_methods {
         where
             E: EntityValue,
         {
-            self.inner.execute()?.row().map_err(Into::into)
+            icydb_core::db::ResponseCardinalityExt::row(self.inner.execute()?).map_err(Into::into)
         }
 
         /// Materialize an optional row.
@@ -116,7 +118,8 @@ macro_rules! impl_session_materialization_methods {
         where
             E: EntityValue,
         {
-            self.inner.execute()?.try_row().map_err(Into::into)
+            icydb_core::db::ResponseCardinalityExt::try_row(self.inner.execute()?)
+                .map_err(Into::into)
         }
 
         /// Materialize all rows.
@@ -132,7 +135,7 @@ macro_rules! impl_session_materialization_methods {
         where
             E: EntityValue,
         {
-            Ok(self.inner.execute()?.id())
+            Ok(self.inner.execute()?.iter().next().map(|row| row.id()))
         }
 
         /// Materialize one required id.
@@ -140,7 +143,8 @@ macro_rules! impl_session_materialization_methods {
         where
             E: EntityValue,
         {
-            self.inner.execute()?.require_id().map_err(Into::into)
+            icydb_core::db::ResponseCardinalityExt::require_id(self.inner.execute()?)
+                .map_err(Into::into)
         }
 
         /// Materialize an optional id from an optional row.
@@ -148,10 +152,8 @@ macro_rules! impl_session_materialization_methods {
         where
             E: EntityValue,
         {
-            self.inner
-                .execute()?
-                .try_row()
-                .map(|row| row.map(|(id, _)| id))
+            icydb_core::db::ResponseCardinalityExt::try_row(self.inner.execute()?)
+                .map(|row| row.map(|entry| entry.id()))
                 .map_err(Into::into)
         }
 
@@ -160,7 +162,7 @@ macro_rules! impl_session_materialization_methods {
         where
             E: EntityValue,
         {
-            Ok(self.inner.execute()?.ids())
+            Ok(self.inner.execute()?.ids().collect())
         }
 
         /// Check whether an id is present in the response.
@@ -176,7 +178,8 @@ macro_rules! impl_session_materialization_methods {
         where
             E: EntityValue,
         {
-            self.inner.execute()?.entity().map_err(Into::into)
+            icydb_core::db::ResponseCardinalityExt::entity(self.inner.execute()?)
+                .map_err(Into::into)
         }
 
         /// Materialize an optional entity.
@@ -184,7 +187,8 @@ macro_rules! impl_session_materialization_methods {
         where
             E: EntityValue,
         {
-            self.inner.execute()?.try_entity().map_err(Into::into)
+            icydb_core::db::ResponseCardinalityExt::try_entity(self.inner.execute()?)
+                .map_err(Into::into)
         }
 
         /// Materialize all entities.
@@ -200,7 +204,14 @@ macro_rules! impl_session_materialization_methods {
         where
             E: EntityValue,
         {
-            self.inner.execute()?.view().map_err(Into::into)
+            let response = self.inner.execute()?;
+            icydb_core::db::ResponseCardinalityExt::require_one(&response)
+                .map_err(crate::error::Error::from)?;
+
+            Ok(response
+                .views()
+                .next()
+                .expect("require_one guarantees one row"))
         }
 
         /// Materialize an optional view.
@@ -208,7 +219,14 @@ macro_rules! impl_session_materialization_methods {
         where
             E: EntityValue,
         {
-            self.inner.execute()?.view_opt().map_err(Into::into)
+            let response = self.inner.execute()?;
+            if response.is_empty() {
+                return Ok(None);
+            }
+            icydb_core::db::ResponseCardinalityExt::require_one(&response)
+                .map_err(crate::error::Error::from)?;
+
+            Ok(response.views().next())
         }
 
         /// Materialize all views.
@@ -216,7 +234,7 @@ macro_rules! impl_session_materialization_methods {
         where
             E: EntityValue,
         {
-            Ok(self.inner.execute()?.views())
+            Ok(self.inner.execute()?.views().collect())
         }
     };
 }

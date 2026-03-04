@@ -21,7 +21,6 @@ pub(super) mod route;
 mod stream;
 #[cfg(test)]
 mod tests;
-mod trace;
 mod traversal;
 mod window;
 
@@ -34,6 +33,7 @@ use crate::db::{
     cursor::{RangeToken, range_token_anchor_key, range_token_from_lowered_anchor},
 };
 
+pub(in crate::db::executor) use crate::db::diagnostics::{ExecutionOptimization, ExecutionTrace};
 pub(in crate::db) use access_contract::{
     ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan, ExecutionBounds,
     ExecutionDistinctMode, ExecutionMode, ExecutionOrdering, ExecutionPathKind,
@@ -41,7 +41,6 @@ pub(in crate::db) use access_contract::{
 };
 pub(in crate::db::executor) use access_dispatcher::{
     access_plan_metrics_kind, derive_access_capabilities, derive_access_path_capabilities,
-    dispatch_access_plan_kind,
 };
 pub(super) use context::*;
 pub(in crate::db::executor) use continuation::ContinuationEngine;
@@ -59,7 +58,6 @@ pub(super) use stream::{
         VecOrderedKeyStream,
     },
 };
-pub use trace::{ExecutionAccessPathVariant, ExecutionOptimization, ExecutionTrace};
 pub(in crate::db) use window::compute_page_window;
 
 ///

@@ -6,7 +6,7 @@
 use crate::{
     db::executor::{
         ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan, ExecutionBounds,
-        ExecutionPathKind, ExecutionPathPayload, trace::ExecutionAccessPathVariant,
+        ExecutionPathKind, ExecutionPathPayload,
     },
     model::index::IndexModel,
     obs::sink::PlanKind,
@@ -81,21 +81,6 @@ impl AccessPathKind {
     pub(in crate::db::executor) const fn supports_strict_resume(self) -> bool {
         true
     }
-
-    /// Project one path kind into trace-surface variant shape.
-    #[must_use]
-    pub(in crate::db::executor) const fn execution_access_path_variant(
-        self,
-    ) -> ExecutionAccessPathVariant {
-        match self {
-            Self::ByKey => ExecutionAccessPathVariant::ByKey,
-            Self::ByKeys => ExecutionAccessPathVariant::ByKeys,
-            Self::KeyRange => ExecutionAccessPathVariant::KeyRange,
-            Self::IndexPrefix => ExecutionAccessPathVariant::IndexPrefix,
-            Self::IndexRange => ExecutionAccessPathVariant::IndexRange,
-            Self::FullScan => ExecutionAccessPathVariant::FullScan,
-        }
-    }
 }
 
 impl AccessPlanKind {
@@ -134,18 +119,6 @@ impl AccessPlanKind {
             AccessScanKind::Range => PlanKind::Range,
             AccessScanKind::Index => PlanKind::Index,
             AccessScanKind::FullScan | AccessScanKind::Composite => PlanKind::FullScan,
-        }
-    }
-
-    /// Project one plan kind into trace-surface variant shape.
-    #[must_use]
-    pub(in crate::db::executor) const fn execution_access_path_variant(
-        self,
-    ) -> ExecutionAccessPathVariant {
-        match self {
-            Self::Path(kind) => kind.execution_access_path_variant(),
-            Self::Union => ExecutionAccessPathVariant::Union,
-            Self::Intersection => ExecutionAccessPathVariant::Intersection,
         }
     }
 }

@@ -15,7 +15,7 @@ use crate::{
             },
             plan_metrics::{record_plan_metrics, record_rows_scanned, set_rows_from_len},
         },
-        response::Response,
+        response::EntityResponse,
     },
     error::InternalError,
     obs::sink::{ExecKind, Span},
@@ -114,7 +114,10 @@ where
     // ─────────────────────────────────────────────
 
     /// Execute one delete plan and return deleted entities in response order.
-    pub(crate) fn execute(self, plan: ExecutablePlan<E>) -> Result<Response<E>, InternalError> {
+    pub(crate) fn execute(
+        self,
+        plan: ExecutablePlan<E>,
+    ) -> Result<EntityResponse<E>, InternalError> {
         if plan.is_grouped() {
             return Err(InternalError::executor_unsupported(
                 "grouped query execution is not yet enabled in this release",
@@ -158,7 +161,9 @@ where
 
             if rows.is_empty() {
                 set_rows_from_len(&mut span, 0);
-                return Ok(Response::from_rows(Vec::new()));
+                return Ok(EntityResponse::from_rows(
+                    Vec::<crate::db::response::Row<E>>::new(),
+                ));
             }
 
             // Relation phase: reject target deletes that are still strongly referenced.
@@ -205,7 +210,7 @@ where
                 .collect::<Vec<_>>();
             set_rows_from_len(&mut span, res.len());
 
-            Ok(Response::from_rows(res))
+            Ok(EntityResponse::from_rows(res))
         })()
     }
 }

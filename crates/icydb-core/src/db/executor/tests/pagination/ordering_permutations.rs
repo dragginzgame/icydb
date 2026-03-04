@@ -69,14 +69,14 @@ fn load_mixed_direction_resume_matrix_is_boundary_complete() {
         let base_page = load
             .execute_paged_with_cursor(base_plan, None)
             .expect("mixed-direction base page should execute");
-        let base_ids = ids_from_items(&base_page.items.0);
+        let base_ids = ids_from_items(&base_page.items);
         assert_eq!(
             base_ids, expected_ids,
             "case '{case_name}' should preserve mixed-direction canonical ordering",
         );
 
-        for idx in 0..base_page.items.0.len() {
-            let boundary_entity = &base_page.items.0[idx].1;
+        for idx in 0..base_page.items.len() {
+            let boundary_entity = base_page.items[idx].entity_ref();
             assert_resume_after_entity(
                 || order_query(16),
                 boundary_entity,

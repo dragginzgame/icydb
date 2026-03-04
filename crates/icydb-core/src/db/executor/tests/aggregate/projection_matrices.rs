@@ -78,7 +78,7 @@ fn run_session_execute_projection_actual(
 }
 
 fn session_execute_projection_expected(
-    response: &Response<PushdownParityEntity>,
+    response: &EntityResponse<PushdownParityEntity>,
     terminal: SessionExecuteProjectionTerminal,
 ) -> RankedDirectionResult {
     match terminal {
@@ -242,17 +242,16 @@ fn session_load_take_matches_execute_prefix() {
     let actual_take_ten = load_window()
         .take(10)
         .expect("session take(10) should succeed");
-    let expected_take_two_ids: Vec<Id<PushdownParityEntity>> =
-        expected.ids().into_iter().take(2).collect();
+    let expected_take_two_ids: Vec<Id<PushdownParityEntity>> = expected.ids().take(2).collect();
 
     assert_eq!(
-        actual_take_two.ids(),
+        actual_take_two.ids().collect::<Vec<_>>(),
         expected_take_two_ids,
         "session take(2) should match first two execute() rows in effective response order"
     );
     assert_eq!(
-        actual_take_ten.ids(),
-        expected.ids(),
+        actual_take_ten.ids().collect::<Vec<_>>(),
+        expected.ids().collect::<Vec<_>>(),
         "session take(k) with k above response size should preserve full effective response"
     );
 }
@@ -284,9 +283,8 @@ fn session_load_top_k_by_matches_execute_field_ordering() {
         .top_k_by("rank", 3)
         .expect("session top_k_by(rank, 3) should succeed");
     let mut expected_rank_order = expected
-        .0
         .iter()
-        .map(|(id, entity)| (entity.rank, *id))
+        .map(|row| (row.entity_ref().rank, row.id()))
         .collect::<Vec<_>>();
     expected_rank_order.sort_unstable_by(|(left_rank, left_id), (right_rank, right_id)| {
         right_rank
@@ -300,7 +298,7 @@ fn session_load_top_k_by_matches_execute_field_ordering() {
         .collect();
 
     assert_eq!(
-        actual_top_three.ids(),
+        actual_top_three.ids().collect::<Vec<_>>(),
         expected_top_three_ids,
         "session top_k_by(rank, 3) should match execute() reduced by deterministic (rank desc, id asc) ordering"
     );
@@ -333,9 +331,8 @@ fn session_load_bottom_k_by_matches_execute_field_ordering() {
         .bottom_k_by("rank", 3)
         .expect("session bottom_k_by(rank, 3) should succeed");
     let mut expected_rank_order = expected
-        .0
         .iter()
-        .map(|(id, entity)| (entity.rank, *id))
+        .map(|row| (row.entity_ref().rank, row.id()))
         .collect::<Vec<_>>();
     expected_rank_order.sort_unstable_by(|(left_rank, left_id), (right_rank, right_id)| {
         left_rank
@@ -349,7 +346,7 @@ fn session_load_bottom_k_by_matches_execute_field_ordering() {
         .collect();
 
     assert_eq!(
-        actual_bottom_three.ids(),
+        actual_bottom_three.ids().collect::<Vec<_>>(),
         expected_bottom_three_ids,
         "session bottom_k_by(rank, 3) should match execute() reduced by deterministic (rank asc, id asc) ordering"
     );
@@ -430,7 +427,7 @@ const SESSION_RANKED_PROJECTION_BOTTOM_VALUES_WITH_IDS_ROWS: [(u128, u32, u32); 
 fn run_session_ranked_rows_for_projection(
     session: &DbSession<TestCanister>,
     terminal: SessionRankedProjectionTerminal,
-) -> Result<Response<PushdownParityEntity>, QueryError> {
+) -> Result<EntityResponse<PushdownParityEntity>, QueryError> {
     let load_window = || {
         session
             .load::<PushdownParityEntity>()

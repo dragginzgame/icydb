@@ -187,7 +187,8 @@ fn aggregate_field_target_count_distinct_residual_retry_parity_and_scan_budget_m
     let expected_count = {
         let mut seen_values: Vec<Value> = Vec::new();
         let mut count = 0u32;
-        for (_, entity) in &response.0 {
+        for row in &response {
+            let entity = row.entity_ref();
             let value = Value::Uint(u64::from(entity.tag));
             if seen_values.iter().any(|existing| existing == &value) {
                 continue;

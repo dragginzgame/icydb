@@ -2,8 +2,21 @@
 //! Responsibility: materialized query/write response payload contracts.
 //! Does not own: execution routing, planning policy, or cursor token protocol.
 //! Boundary: Tier-2 db API DTO surface returned by session execution.
+//! Architecture: `Response<R>` is transport-only and row-shape-agnostic.
+//! Query semantics (for example cardinality checks) must live in query/session
+//! extension traits rather than inherent response DTO methods.
+
 mod grouped;
 mod paged;
+
+///
+/// Sealed
+/// Internal trait used to seal response row-shape marker implementations.
+///
+
+mod private {
+    pub trait Sealed {}
+}
 
 use crate::{
     prelude::*,
@@ -13,15 +26,80 @@ use crate::{
 };
 use thiserror::Error as ThisError;
 
-// re-exports
 pub use grouped::{GroupedRow, PagedGroupedExecution, PagedGroupedExecutionWithTrace};
 pub use paged::{PagedLoadExecution, PagedLoadExecutionWithTrace};
 
 ///
-/// Row
+/// ResponseRow
+///
+/// Marker trait for row-shape DTOs that are valid payloads for `Response<R>`.
+/// This trait is sealed to keep row-shape admission local to the response layer.
 ///
 
-pub type Row<E> = (Id<E>, E);
+pub trait ResponseRow: private::Sealed {}
+
+impl ResponseRow for GroupedRow {}
+
+impl private::Sealed for GroupedRow {}
+
+///
+/// Row
+///
+/// Materialized entity row with explicit identity and payload accessors.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Row<E: EntityKind> {
+    id: Id<E>,
+    entity: E,
+}
+
+impl<E: EntityKind> Row<E> {
+    /// Construct one row from identity and entity payload.
+    #[must_use]
+    #[inline]
+    pub const fn new(id: Id<E>, entity: E) -> Self {
+        Self { id, entity }
+    }
+
+    /// Borrow this row's identity.
+    #[must_use]
+    #[inline]
+    pub const fn id(&self) -> Id<E> {
+        self.id
+    }
+
+    /// Consume and return this row's entity payload.
+    #[must_use]
+    #[inline]
+    pub fn entity(self) -> E {
+        self.entity
+    }
+
+    /// Borrow this row's entity payload.
+    #[must_use]
+    #[inline]
+    pub const fn entity_ref(&self) -> &E {
+        &self.entity
+    }
+
+    /// Consume and return `(id, entity)` parts.
+    #[must_use]
+    #[inline]
+    pub fn into_parts(self) -> (Id<E>, E) {
+        (self.id, self.entity)
+    }
+}
+
+impl<E: EntityKind> From<(Id<E>, E)> for Row<E> {
+    fn from(value: (Id<E>, E)) -> Self {
+        Self::new(value.0, value.1)
+    }
+}
+
+impl<E: EntityKind> private::Sealed for Row<E> {}
+
+impl<E: EntityKind> ResponseRow for Row<E> {}
 
 ///
 /// ProjectedRow
@@ -39,28 +117,36 @@ pub struct ProjectedRow<E: EntityKind> {
 impl<E: EntityKind> ProjectedRow<E> {
     /// Construct one projected scalar row.
     #[must_use]
+    #[inline]
     pub const fn new(id: Id<E>, values: Vec<Value>) -> Self {
         Self { id, values }
     }
 
     /// Borrow the source row identifier.
     #[must_use]
+    #[inline]
     pub const fn id(&self) -> Id<E> {
         self.id
     }
 
     /// Borrow projected scalar values in declaration order.
     #[must_use]
+    #[inline]
     pub const fn values(&self) -> &[Value] {
         self.values.as_slice()
     }
 
     /// Consume and return `(id, projected_values)`.
     #[must_use]
+    #[inline]
     pub fn into_parts(self) -> (Id<E>, Vec<Value>) {
         (self.id, self.values)
     }
 }
+
+impl<E: EntityKind> private::Sealed for ProjectedRow<E> {}
+
+impl<E: EntityKind> ResponseRow for ProjectedRow<E> {}
 
 ///
 /// ResponseError
@@ -75,63 +161,52 @@ pub enum ResponseError {
     NotUnique { entity: &'static str, count: u32 },
 }
 
-impl ResponseError {
-    const fn not_found<E: EntityKind>() -> Self {
-        Self::NotFound { entity: E::PATH }
-    }
-
-    const fn not_unique<E: EntityKind>(count: u32) -> Self {
-        Self::NotUnique {
-            entity: E::PATH,
-            count,
-        }
-    }
-}
-
 ///
 /// Response
 ///
-/// Materialized query result: ordered `(Id, Entity)` pairs.
-/// IDs are returned for correlation, reporting, and lookup; they are public values and do not imply
-/// authorization, ownership, or row existence outside this response payload.
-/// When scalar projection evaluation runs, `projected_rows()` exposes the
-/// evaluated projection payload in matching row order.
+/// Generic response transport container for one row shape `R`.
 ///
 
 #[derive(Debug)]
-pub struct Response<E: EntityKind>(pub Vec<Row<E>>, Option<Vec<ProjectedRow<E>>>);
+pub struct Response<R: ResponseRow>(Vec<R>);
 
-impl<E: EntityKind> Response<E> {
-    /// Construct one entity-row response without projection payload.
+///
+/// EntityResponse
+///
+/// Entity-row response transport alias.
+///
+
+pub type EntityResponse<E> = Response<Row<E>>;
+
+///
+/// ProjectionResponse
+///
+/// Scalar projection response transport alias.
+///
+
+pub type ProjectionResponse<E> = Response<ProjectedRow<E>>;
+
+impl<R: ResponseRow> Response<R> {
+    /// Construct one response from ordered rows.
     #[must_use]
-    pub const fn from_rows(rows: Vec<Row<E>>) -> Self {
-        Self(rows, None)
+    pub const fn new(rows: Vec<R>) -> Self {
+        Self(rows)
     }
 
-    /// Construct one entity-row response with optional scalar projection output.
+    /// Construct one response from rows convertible into `R`.
     #[must_use]
-    pub const fn from_rows_with_projection(
-        rows: Vec<Row<E>>,
-        projected_rows: Option<Vec<ProjectedRow<E>>>,
-    ) -> Self {
-        Self(rows, projected_rows)
+    pub fn from_rows<T>(rows: Vec<T>) -> Self
+    where
+        T: Into<R>,
+    {
+        Self(rows.into_iter().map(Into::into).collect())
     }
 
-    /// Borrow optional projected scalar rows when projection materialization ran.
+    /// Return the number of rows.
     #[must_use]
-    pub fn projected_rows(&self) -> Option<&[ProjectedRow<E>]> {
-        self.1.as_deref()
+    pub const fn len(&self) -> usize {
+        self.0.len()
     }
-
-    /// Consume and return optional projected scalar rows.
-    #[must_use]
-    pub fn into_projected_rows(self) -> Option<Vec<ProjectedRow<E>>> {
-        self.1
-    }
-
-    // ------------------------------------------------------------------
-    // Introspection
-    // ------------------------------------------------------------------
 
     /// Return the number of rows as a u32 API contract count.
     #[must_use]
@@ -146,129 +221,63 @@ impl<E: EntityKind> Response<E> {
         self.0.is_empty()
     }
 
-    // ------------------------------------------------------------------
-    // Cardinality enforcement
-    // ------------------------------------------------------------------
-
-    /// Require exactly one row in this response.
-    pub const fn require_one(&self) -> Result<(), ResponseError> {
-        match self.count() {
-            1 => Ok(()),
-            0 => Err(ResponseError::not_found::<E>()),
-            n => Err(ResponseError::not_unique::<E>(n)),
-        }
-    }
-
-    /// Require at least one row in this response.
-    pub const fn require_some(&self) -> Result<(), ResponseError> {
-        if self.is_empty() {
-            Err(ResponseError::not_found::<E>())
-        } else {
-            Ok(())
-        }
-    }
-
-    // ------------------------------------------------------------------
-    // Rows
-    // ------------------------------------------------------------------
-
-    /// Consume and return `None` for empty, `Some(row)` for one row, or error for many rows.
-    #[expect(clippy::cast_possible_truncation)]
-    pub fn try_row(self) -> Result<Option<Row<E>>, ResponseError> {
-        match self.0.len() {
-            0 => Ok(None),
-            1 => Ok(Some(self.0.into_iter().next().unwrap())),
-            n => Err(ResponseError::not_unique::<E>(n as u32)),
-        }
-    }
-
-    /// Consume and return the single row, or fail on zero/many rows.
-    pub fn row(self) -> Result<Row<E>, ResponseError> {
-        self.try_row()?.ok_or_else(ResponseError::not_found::<E>)
-    }
-
     /// Consume and return all rows in response order.
     #[must_use]
-    pub fn rows(self) -> Vec<Row<E>> {
+    pub fn rows(self) -> Vec<R> {
         self.0
     }
 
-    // ------------------------------------------------------------------
-    // Entities
-    // ------------------------------------------------------------------
-
-    /// Consume and return the single entity or `None`, failing on many rows.
-    pub fn try_entity(self) -> Result<Option<E>, ResponseError> {
-        Ok(self.try_row()?.map(|(_, e)| e))
+    /// Borrow an iterator over rows in response order.
+    pub fn iter(&self) -> std::slice::Iter<'_, R> {
+        self.0.iter()
     }
+}
 
-    /// Consume and return the single entity, failing on zero/many rows.
-    pub fn entity(self) -> Result<E, ResponseError> {
-        self.row().map(|(_, e)| e)
+impl<R: ResponseRow> AsRef<[R]> for Response<R> {
+    fn as_ref(&self) -> &[R] {
+        self.0.as_slice()
+    }
+}
+
+impl<R: ResponseRow> std::ops::Deref for Response<R> {
+    type Target = [R];
+
+    fn deref(&self) -> &Self::Target {
+        self.0.as_slice()
+    }
+}
+
+impl<E: EntityKind> Response<Row<E>> {
+    /// Return the first row identifier, if present.
+    #[must_use]
+    pub fn id(&self) -> Option<Id<E>> {
+        self.0.first().map(Row::id)
     }
 
     /// Consume and return all entities in response order.
     #[must_use]
     pub fn entities(self) -> Vec<E> {
-        self.0.into_iter().map(|(_, e)| e).collect()
+        self.0.into_iter().map(Row::entity).collect()
     }
 
-    // ------------------------------------------------------------------
-    // Ids (identity-level)
-    // ------------------------------------------------------------------
-
-    /// Return the first row identifier, if present.
-    ///
-    /// This identifier is a public value for correlation, reporting, and lookup only.
-    #[must_use]
-    pub fn id(&self) -> Option<Id<E>> {
-        self.0.first().map(|(id, _)| *id)
-    }
-
-    /// Require exactly one row and return its identifier.
-    pub fn require_id(self) -> Result<Id<E>, ResponseError> {
-        self.row().map(|(id, _)| id)
-    }
-
-    /// Return all row identifiers in response order for correlation/reporting/lookup.
-    #[must_use]
-    pub fn ids(&self) -> Vec<Id<E>> {
-        self.0.iter().map(|(id, _)| *id).collect()
+    /// Borrow an iterator over row identifiers in response order.
+    pub fn ids(&self) -> impl Iterator<Item = Id<E>> + '_ {
+        self.0.iter().map(Row::id)
     }
 
     /// Check whether the response contains the provided identifier.
     pub fn contains_id(&self, id: &Id<E>) -> bool {
-        self.0.iter().any(|(k, _)| k == id)
+        self.0.iter().any(|row| row.id() == *id)
     }
 
-    // ------------------------------------------------------------------
-    // Views
-    // ------------------------------------------------------------------
-
-    /// Return the single-row view, failing on zero/many rows.
-    pub fn view(&self) -> Result<<E as AsView>::ViewType, ResponseError> {
-        self.require_one()?;
-        Ok(self.0[0].1.as_view())
-    }
-
-    /// Return an optional single-row view, failing on many rows.
-    pub fn view_opt(&self) -> Result<Option<<E as AsView>::ViewType>, ResponseError> {
-        match self.count() {
-            0 => Ok(None),
-            1 => Ok(Some(self.0[0].1.as_view())),
-            n => Err(ResponseError::not_unique::<E>(n)),
-        }
-    }
-
-    /// Return all row views in response order.
-    #[must_use]
-    pub fn views(&self) -> Vec<<E as AsView>::ViewType> {
-        self.0.iter().map(|(_, e)| e.as_view()).collect()
+    /// Borrow an iterator over row views in response order.
+    pub fn views(&self) -> impl Iterator<Item = <E as AsView>::ViewType> + '_ {
+        self.0.iter().map(|row| row.entity_ref().as_view())
     }
 }
 
-impl<E: EntityKind> IntoIterator for Response<E> {
-    type Item = Row<E>;
+impl<R: ResponseRow> IntoIterator for Response<R> {
+    type Item = R;
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -276,47 +285,12 @@ impl<E: EntityKind> IntoIterator for Response<E> {
     }
 }
 
-///
-/// WriteResponse
-///
-/// Result of a single write operation.
-/// Provides explicit access to the stored entity and its identifier.
-///
+impl<'a, R: ResponseRow> IntoIterator for &'a Response<R> {
+    type Item = &'a R;
+    type IntoIter = std::slice::Iter<'a, R>;
 
-#[derive(Debug)]
-pub struct WriteResponse<E> {
-    entity: E,
-}
-
-impl<E> WriteResponse<E> {
-    /// Construct a write response from the stored entity.
-    #[must_use]
-    pub const fn new(entity: E) -> Self {
-        Self { entity }
-    }
-
-    /// Return the stored entity.
-    #[must_use]
-    pub fn entity(self) -> E {
-        self.entity
-    }
-
-    /// Return the stored entity's identity
-    #[must_use]
-    pub fn id(&self) -> Id<E>
-    where
-        E: EntityValue,
-    {
-        self.entity.id()
-    }
-
-    /// Return the stored entity as its view type.
-    #[must_use]
-    pub fn view(&self) -> <E as AsView>::ViewType
-    where
-        E: AsView,
-    {
-        self.entity.as_view()
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
     }
 }
 
@@ -329,83 +303,68 @@ impl<E> WriteResponse<E> {
 
 #[derive(Debug)]
 pub struct WriteBatchResponse<E> {
-    entries: Vec<WriteResponse<E>>,
+    entities: Vec<E>,
 }
 
 impl<E> WriteBatchResponse<E> {
     /// Construct a batch response from stored entities.
     #[must_use]
-    pub fn new(entities: Vec<E>) -> Self {
-        Self {
-            entries: entities.into_iter().map(WriteResponse::new).collect(),
-        }
-    }
-
-    /// Return all write responses.
-    #[must_use]
-    pub fn entries(&self) -> &[WriteResponse<E>] {
-        &self.entries
+    pub const fn new(entities: Vec<E>) -> Self {
+        Self { entities }
     }
 
     /// Return the number of entries.
     #[must_use]
     pub const fn len(&self) -> usize {
-        self.entries.len()
+        self.entities.len()
     }
 
     /// Returns `true` if the batch is empty.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.entities.is_empty()
     }
 
     /// Return all stored entities.
     #[must_use]
     pub fn entities(self) -> Vec<E> {
-        self.entries
-            .into_iter()
-            .map(WriteResponse::entity)
-            .collect()
+        self.entities
     }
 
-    /// Return all primary keys for correlation, reporting, and lookup.
-    #[must_use]
-    pub fn ids(&self) -> Vec<Id<E>>
+    /// Borrow an iterator over primary keys in stable batch order.
+    pub fn ids(&self) -> impl Iterator<Item = Id<E>> + '_
     where
         E: EntityValue,
     {
-        self.entries.iter().map(WriteResponse::id).collect()
+        self.entities.iter().map(EntityValue::id)
     }
 
-    /// Return all views.
-    #[must_use]
-    pub fn views(&self) -> Vec<<E as AsView>::ViewType>
+    /// Borrow an iterator over views in stable batch order.
+    pub fn views(&self) -> impl Iterator<Item = <E as AsView>::ViewType> + '_
     where
         E: AsView,
     {
-        self.entries.iter().map(WriteResponse::view).collect()
+        self.entities.iter().map(AsView::as_view)
+    }
+
+    /// Borrow an iterator over write entries in stable batch order.
+    pub fn iter(&self) -> std::slice::Iter<'_, E> {
+        self.entities.iter()
     }
 }
 
 impl<E> IntoIterator for WriteBatchResponse<E> {
-    type Item = WriteResponse<E>;
-    type IntoIter = std::vec::IntoIter<WriteResponse<E>>;
+    type Item = E;
+    type IntoIter = std::vec::IntoIter<E>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.entries.into_iter()
-    }
-}
-
-impl<E> WriteBatchResponse<E> {
-    /// Borrow an iterator over write entries in stable batch order.
-    pub fn iter(&self) -> std::slice::Iter<'_, WriteResponse<E>> {
-        self.entries.iter()
+        self.entities.into_iter()
     }
 }
 
 impl<'a, E> IntoIterator for &'a WriteBatchResponse<E> {
-    type Item = &'a WriteResponse<E>;
-    type IntoIter = std::slice::Iter<'a, WriteResponse<E>>;
+    type Item = &'a E;
+    type IntoIter = std::slice::Iter<'a, E>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()

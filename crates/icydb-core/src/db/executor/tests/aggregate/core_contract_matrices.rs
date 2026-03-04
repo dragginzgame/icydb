@@ -390,7 +390,7 @@ fn aggregate_field_target_nth_boundary_matrix_respects_window_and_out_of_range()
                 .expect("nth boundary baseline plan should build"),
         )
         .expect("nth boundary baseline execute should succeed");
-    let expected_len = expected_response.0.len();
+    let expected_len = expected_response.len();
 
     for nth in [0usize, 1, 2, 3, usize::MAX] {
         let actual = load

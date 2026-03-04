@@ -40,7 +40,7 @@ use crate::{
             AccessPlannedQuery, GroupHavingSpec, GroupedDistinctExecutionStrategy,
             PlannedProjectionLayout,
         },
-        response::Response,
+        response::EntityResponse,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -108,7 +108,7 @@ impl From<GroupedContinuationToken> for PageCursor {
 
 #[derive(Debug)]
 pub(crate) struct CursorPage<E: EntityKind> {
-    pub(crate) items: Response<E>,
+    pub(crate) items: EntityResponse<E>,
     pub(crate) next_cursor: Option<PageCursor>,
 }
 

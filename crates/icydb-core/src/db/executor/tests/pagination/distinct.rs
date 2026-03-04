@@ -95,15 +95,14 @@ fn load_row_distinct_keeps_rows_with_same_projected_values_when_datakey_differs(
         .expect("row DISTINCT projection-invariant execution should succeed");
 
     assert_eq!(
-        ids_from_items(&response.0),
+        ids_from_items(&response),
         expected_ids,
         "row DISTINCT must keep rows with different DataKeys even when projected values are equal",
     );
 
     let projected_ranks = response
-        .0
         .iter()
-        .map(|(_, entity)| entity.rank)
+        .map(|row| row.entity_ref().rank)
         .collect::<Vec<_>>();
     assert_eq!(
         projected_ranks,

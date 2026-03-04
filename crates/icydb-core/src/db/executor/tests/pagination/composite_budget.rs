@@ -52,7 +52,7 @@ fn load_composite_pk_budget_trace_limits_access_rows_for_safe_shape() {
         "safe composite PK-order shape should apply offset+limit+1 scan budget"
     );
     assert_eq!(
-        ids_from_items(&page.items.0),
+        ids_from_items(&page.items),
         vec![id2, id3],
         "safe composite budget path must preserve canonical offset/limit page rows"
     );
@@ -228,7 +228,7 @@ fn load_composite_budget_disabled_for_offset_with_residual_filter() {
         "residual filter must disable scan budgeting and preserve full access scan volume"
     );
     assert_eq!(
-        ids_from_items(&page.items.0),
+        ids_from_items(&page.items),
         vec![id3, id4],
         "offset+filter window should remain canonical under fallback path"
     );
@@ -290,7 +290,7 @@ fn load_composite_pk_budget_trace_limits_access_rows_for_safe_desc_shape() {
         "safe DESC composite PK-order shape should apply offset+limit+1 scan budget"
     );
     assert_eq!(
-        ids_from_items(&page.items.0),
+        ids_from_items(&page.items),
         vec![id5, id4],
         "safe DESC composite budget path must preserve canonical offset/limit page rows"
     );
@@ -365,7 +365,7 @@ fn load_nested_composite_pk_budget_trace_limits_access_rows_for_safe_shape() {
         "safe nested composite PK-order shape should apply offset+limit+1 scan budget"
     );
     assert_eq!(
-        ids_from_items(&page.items.0),
+        ids_from_items(&page.items),
         vec![id4, id5],
         "safe nested composite budget path must preserve canonical page window"
     );
@@ -453,8 +453,8 @@ fn load_composite_budgeted_and_fallback_paths_emit_equivalent_continuation_bound
         "residual-filter fallback path should preserve full access scan volume"
     );
     assert_eq!(
-        ids_from_items(&budgeted_page.items.0),
-        ids_from_items(&fallback_page.items.0),
+        ids_from_items(&budgeted_page.items),
+        ids_from_items(&fallback_page.items),
         "budgeted and fallback paths must emit identical page rows"
     );
 

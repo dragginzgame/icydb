@@ -20,17 +20,6 @@ pub(in crate::db::executor) const fn direction_from_order(direction: OrderDirect
     }
 }
 
-/// Convert execution scan direction into canonical order direction.
-#[must_use]
-pub(in crate::db::executor) const fn order_direction_from_direction(
-    direction: Direction,
-) -> OrderDirection {
-    match direction {
-        Direction::Asc => OrderDirection::Asc,
-        Direction::Desc => OrderDirection::Desc,
-    }
-}
-
 /// Return the canonical extrema traversal direction for this aggregate kind.
 #[must_use]
 pub(in crate::db::executor) const fn aggregate_extrema_direction(

@@ -18,7 +18,7 @@ use crate::{
             route::aggregate_extrema_direction,
         },
         predicate::MissingRowPolicy,
-        response::Response,
+        response::EntityResponse,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -98,7 +98,7 @@ where
     // Reduce one materialized response into `nth(field, n)` using deterministic
     // ordering `(field_value_asc, primary_key_asc)`.
     fn aggregate_nth_field_from_materialized(
-        response: Response<E>,
+        response: EntityResponse<E>,
         target_field: &str,
         field_slot: FieldSlot,
         nth: usize,
@@ -118,7 +118,7 @@ where
     // ordering `(field_value_asc, primary_key_asc)`.
     // Even-length windows select the lower median for type-agnostic stability.
     fn aggregate_median_field_from_materialized(
-        response: Response<E>,
+        response: EntityResponse<E>,
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<Option<Id<E>>, InternalError> {
@@ -140,13 +140,14 @@ where
     // Reduce one materialized response into `(min_by(field), max_by(field))`
     // using one pass over the response window.
     fn aggregate_min_max_field_from_materialized(
-        response: Response<E>,
+        response: EntityResponse<E>,
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<MinMaxByIds<E>, InternalError> {
         let mut min_candidate: Option<(Id<E>, Value)> = None;
         let mut max_candidate: Option<(Id<E>, Value)> = None;
-        for (id, entity) in response {
+        for row in response {
+            let (id, entity) = row.into_parts();
             let value = extract_orderable_field_value(&entity, target_field, field_slot)
                 .map_err(AggregateFieldValueError::into_internal_error)?;
             let replace_min = match min_candidate.as_ref() {
@@ -195,12 +196,13 @@ where
     // Project one response window into deterministic field ordering
     // `(field_value_asc, primary_key_asc)`.
     fn ordered_field_projection_from_materialized(
-        response: Response<E>,
+        response: EntityResponse<E>,
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<Vec<(Id<E>, Value)>, InternalError> {
         let mut ordered_rows: Vec<(Id<E>, Value)> = Vec::new();
-        for (id, entity) in response {
+        for row in response {
+            let (id, entity) = row.into_parts();
             let value = extract_orderable_field_value(&entity, target_field, field_slot)
                 .map_err(AggregateFieldValueError::into_internal_error)?;
             let mut insert_index = ordered_rows.len();

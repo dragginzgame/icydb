@@ -1,0 +1,21 @@
+error[E0599]: no method named `require_one` found for struct `RowResponse<Row<E>>` in the current scope
+ --> tests/ui/response_cardinality_methods_require_extension_trait.rs:7:22
+  |
+7 |     let _ = response.require_one();
+  |                      ^^^^^^^^^^^
+  |
+ ::: src/db/query/api/result_ext.rs
+  |
+  |     fn require_one(&self) -> Result<(), ResponseError>;
+  |        ----------- the method is available for `RowResponse<Row<E>>` here
+  |
+  = help: items from traits can only be used if the trait is in scope
+help: trait `ResponseCardinalityExt` which provides `require_one` is implemented but not in scope; perhaps you want to import it
+  |
+1 + use icydb_core::db::ResponseCardinalityExt;
+  |
+help: there is a method `require_some` with a similar name
+  |
+7 -     let _ = response.require_one();
+7 +     let _ = response.require_some();
+  |
