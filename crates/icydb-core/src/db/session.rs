@@ -248,6 +248,11 @@ impl<C: CanisterKind> DbSession<C> {
     {
         // Phase 1: build/validate executable plan and reject grouped plans.
         let plan = query.plan()?.into_executable();
+        if !plan.supports_continuation() {
+            return Err(QueryError::execute(invariant(
+                "cursor pagination requires load plans",
+            )));
+        }
         if plan.is_grouped() {
             return Err(QueryError::execute(invariant(
                 "grouped plans require execute_grouped(...)",
@@ -312,7 +317,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         // Phase 1: build/validate executable plan and require grouped shape.
         let plan = query.plan()?.into_executable();
-        if !plan.is_grouped() {
+        if !plan.supports_continuation() || !plan.is_grouped() {
             return Err(QueryError::execute(invariant(
                 "execute_grouped requires grouped logical plans",
             )));

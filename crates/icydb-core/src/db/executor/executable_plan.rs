@@ -6,20 +6,20 @@
 use crate::{
     db::{
         access::AccessPlan,
-        cursor::{ContinuationSignature, GroupedPlannedCursor, PlannedCursor},
+        cursor::{ContinuationSignature, CursorPlanError, GroupedPlannedCursor, PlannedCursor},
         executor::{
-            ContinuationEngine, ExecutorPlanError, LOWERED_INDEX_PREFIX_SPEC_INVALID,
-            LOWERED_INDEX_RANGE_SPEC_INVALID, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
-            lower_index_prefix_specs, lower_index_range_specs, validate_executor_plan,
+            ExecutorPlanError, LOWERED_INDEX_PREFIX_SPEC_INVALID, LOWERED_INDEX_RANGE_SPEC_INVALID,
+            LoweredIndexPrefixSpec, LoweredIndexRangeSpec, lower_index_prefix_specs,
+            lower_index_range_specs, validate_executor_plan,
         },
         predicate::MissingRowPolicy,
         query::plan::{
-            AccessPlannedQuery, ExecutionShapeSignature, GroupedExecutorHandoff, QueryMode,
-            grouped_executor_handoff,
+            AccessPlannedQuery, ContinuationContract, ExecutionShapeSignature,
+            GroupedExecutorHandoff, QueryMode, grouped_executor_handoff,
         },
     },
     error::InternalError,
-    traits::{EntityKind, FieldValue},
+    traits::EntityKind,
 };
 use std::marker::PhantomData;
 
@@ -33,6 +33,7 @@ use std::marker::PhantomData;
 pub(crate) struct ExecutablePlan<E: EntityKind> {
     plan: AccessPlannedQuery<E::Key>,
     execution_shape_signature: ExecutionShapeSignature,
+    continuation: Option<ContinuationContract<E::Key>>,
     index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
     index_prefix_spec_invalid: bool,
     index_range_specs: Vec<LoweredIndexRangeSpec>,
@@ -54,6 +55,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
     fn build(plan: AccessPlannedQuery<E::Key>) -> Self {
         // Phase 0: derive immutable execution-shape signature once from planner semantics.
         let execution_shape_signature = plan.execution_shape_signature(E::PATH);
+        let continuation = plan.continuation_contract(E::PATH);
 
         // Phase 1: Lower index-prefix specs once and retain invariant state.
         let (index_prefix_specs, index_prefix_spec_invalid) =
@@ -72,6 +74,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
         Self {
             plan,
             execution_shape_signature,
+            continuation,
             index_prefix_specs,
             index_prefix_spec_invalid,
             index_range_specs,
@@ -91,6 +94,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
     ///
     /// Unlike `fingerprint()`, this excludes window state such as `limit`/`offset`.
     #[must_use]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(in crate::db) const fn continuation_signature(&self) -> ContinuationSignature {
         self.execution_shape_signature.continuation_signature()
     }
@@ -105,15 +109,16 @@ impl<E: EntityKind> ExecutablePlan<E> {
     pub(in crate::db) fn prepare_cursor(
         &self,
         cursor: Option<&[u8]>,
-    ) -> Result<PlannedCursor, ExecutorPlanError>
-    where
-        E::Key: FieldValue,
-    {
-        ContinuationEngine::prepare_scalar_cursor_for_plan::<E>(
-            &self.plan,
-            self.continuation_signature(),
-            cursor,
-        )
+    ) -> Result<PlannedCursor, ExecutorPlanError> {
+        let Some(contract) = self.continuation.as_ref() else {
+            return Err(cursor_plan_error(
+                "continuation cursors are only supported for load plans",
+            ));
+        };
+
+        contract
+            .prepare_scalar_cursor::<E>(cursor)
+            .map_err(ExecutorPlanError::from)
     }
 
     /// Return the plan mode (load vs delete).
@@ -125,7 +130,16 @@ impl<E: EntityKind> ExecutablePlan<E> {
     /// Return whether this executable plan carries grouped logical shape.
     #[must_use]
     pub(in crate::db) const fn is_grouped(&self) -> bool {
-        self.plan.grouped_plan().is_some()
+        match self.continuation {
+            Some(ref contract) => contract.is_grouped(),
+            None => false,
+        }
+    }
+
+    /// Return whether this executable plan supports continuation cursors.
+    #[must_use]
+    pub(in crate::db) const fn supports_continuation(&self) -> bool {
+        self.continuation.is_some()
     }
 
     pub(in crate::db) const fn access(&self) -> &AccessPlan<E::Key> {
@@ -181,11 +195,16 @@ impl<E: EntityKind> ExecutablePlan<E> {
     pub(in crate::db) fn revalidate_cursor(
         &self,
         cursor: PlannedCursor,
-    ) -> Result<PlannedCursor, InternalError>
-    where
-        E::Key: FieldValue,
-    {
-        ContinuationEngine::revalidate_scalar_cursor_for_plan::<E>(&self.plan, cursor)
+    ) -> Result<PlannedCursor, InternalError> {
+        let Some(contract) = self.continuation.as_ref() else {
+            return Err(invariant(
+                "continuation cursors are only supported for load plans",
+            ));
+        };
+
+        contract
+            .revalidate_scalar_cursor::<E>(cursor)
+            .map_err(InternalError::from_cursor_plan_error)
     }
 
     /// Validate and decode grouped continuation cursor state for grouped plans.
@@ -193,12 +212,15 @@ impl<E: EntityKind> ExecutablePlan<E> {
         &self,
         cursor: Option<&[u8]>,
     ) -> Result<GroupedPlannedCursor, ExecutorPlanError> {
-        ContinuationEngine::prepare_grouped_cursor_for_plan(
-            E::PATH,
-            &self.plan,
-            self.continuation_signature(),
-            cursor,
-        )
+        let Some(contract) = self.continuation.as_ref() else {
+            return Err(cursor_plan_error(
+                "grouped cursor preparation requires grouped logical plans",
+            ));
+        };
+
+        contract
+            .prepare_grouped_cursor::<E>(cursor)
+            .map_err(ExecutorPlanError::from)
     }
 
     /// Revalidate grouped cursor state before grouped executor entry.
@@ -206,10 +228,24 @@ impl<E: EntityKind> ExecutablePlan<E> {
         &self,
         cursor: GroupedPlannedCursor,
     ) -> Result<GroupedPlannedCursor, InternalError> {
-        ContinuationEngine::revalidate_grouped_cursor_for_plan(&self.plan, cursor)
+        let Some(contract) = self.continuation.as_ref() else {
+            return Err(invariant(
+                "grouped cursor revalidation requires grouped logical plans",
+            ));
+        };
+
+        contract
+            .revalidate_grouped_cursor(cursor)
+            .map_err(InternalError::from_cursor_plan_error)
     }
 }
 
 fn invariant(message: impl Into<String>) -> InternalError {
     InternalError::query_executor_invariant(message)
+}
+
+fn cursor_plan_error(message: impl Into<String>) -> ExecutorPlanError {
+    ExecutorPlanError::from(CursorPlanError::continuation_cursor_invariant(
+        InternalError::executor_invariant_message(message),
+    ))
 }

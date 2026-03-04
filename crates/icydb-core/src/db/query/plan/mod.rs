@@ -4,6 +4,7 @@
 //! Boundary: intent/explain/planner/validator consumers import from this root only.
 
 mod access_plan;
+mod continuation;
 #[expect(dead_code)]
 pub(crate) mod expr;
 mod group;
@@ -21,6 +22,7 @@ pub(crate) use access_plan::AccessPlannedQuery;
 #[cfg(test)]
 pub(in crate::db) use access_plan::lower_executable_access_path;
 pub(in crate::db) use access_plan::lower_executable_access_plan;
+pub(in crate::db) use continuation::ContinuationContract;
 pub(in crate::db) use group::{
     GroupedDistinctExecutionStrategy, GroupedExecutorHandoff, PlannedProjectionLayout,
     grouped_executor_handoff,
