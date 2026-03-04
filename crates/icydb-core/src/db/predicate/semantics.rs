@@ -6,7 +6,10 @@
 use crate::{
     db::{
         numeric::{compare_numeric_eq, compare_numeric_order},
-        predicate::coercion::{CoercionId, CoercionSpec},
+        predicate::{
+            coercion::{CoercionId, CoercionSpec},
+            model::CompareOp,
+        },
     },
     value::{TextMode, Value},
 };
@@ -100,6 +103,76 @@ pub(in crate::db) fn compare_text(
     match op {
         TextOp::StartsWith => left.text_starts_with(right, mode),
         TextOp::EndsWith => left.text_ends_with(right, mode),
+    }
+}
+
+/// Return whether grouped HAVING supports this compare operator in grouped v1.
+#[must_use]
+pub(in crate::db) const fn grouped_having_compare_op_supported(op: CompareOp) -> bool {
+    grouped_having_compare_kind(op).is_some()
+}
+
+/// Evaluate one grouped HAVING comparison under grouped-v1 predicate semantics.
+///
+/// Returns `None` when `op` is outside grouped HAVING v1 support.
+#[must_use]
+pub(in crate::db) fn evaluate_grouped_having_compare_v1(
+    actual: &Value,
+    op: CompareOp,
+    expected: &Value,
+) -> Option<bool> {
+    let numeric = CoercionSpec::new(CoercionId::NumericWiden);
+    let strict = CoercionSpec::default();
+    let coercion = if actual.supports_numeric_coercion() || expected.supports_numeric_coercion() {
+        &numeric
+    } else {
+        &strict
+    };
+    let kind = grouped_having_compare_kind(op)?;
+
+    Some(match kind {
+        GroupedHavingCompareKind::Eq => compare_eq(actual, expected, coercion).unwrap_or(false),
+        GroupedHavingCompareKind::Ne => {
+            compare_eq(actual, expected, coercion).is_some_and(|equal| !equal)
+        }
+        GroupedHavingCompareKind::Lt => {
+            compare_order(actual, expected, coercion).is_some_and(std::cmp::Ordering::is_lt)
+        }
+        GroupedHavingCompareKind::Lte => {
+            compare_order(actual, expected, coercion).is_some_and(std::cmp::Ordering::is_le)
+        }
+        GroupedHavingCompareKind::Gt => {
+            compare_order(actual, expected, coercion).is_some_and(std::cmp::Ordering::is_gt)
+        }
+        GroupedHavingCompareKind::Gte => {
+            compare_order(actual, expected, coercion).is_some_and(std::cmp::Ordering::is_ge)
+        }
+    })
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum GroupedHavingCompareKind {
+    Eq,
+    Ne,
+    Lt,
+    Lte,
+    Gt,
+    Gte,
+}
+
+const fn grouped_having_compare_kind(op: CompareOp) -> Option<GroupedHavingCompareKind> {
+    match op {
+        CompareOp::Eq => Some(GroupedHavingCompareKind::Eq),
+        CompareOp::Ne => Some(GroupedHavingCompareKind::Ne),
+        CompareOp::Lt => Some(GroupedHavingCompareKind::Lt),
+        CompareOp::Lte => Some(GroupedHavingCompareKind::Lte),
+        CompareOp::Gt => Some(GroupedHavingCompareKind::Gt),
+        CompareOp::Gte => Some(GroupedHavingCompareKind::Gte),
+        CompareOp::In
+        | CompareOp::NotIn
+        | CompareOp::Contains
+        | CompareOp::StartsWith
+        | CompareOp::EndsWith => None,
     }
 }
 

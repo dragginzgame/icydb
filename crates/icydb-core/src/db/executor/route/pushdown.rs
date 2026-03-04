@@ -7,14 +7,11 @@ use crate::{
     db::{
         access::{
             PushdownApplicability, SecondaryOrderPushdownEligibility,
-            SecondaryOrderPushdownRejection,
+            SecondaryOrderPushdownRejection, lower_executable_access_plan,
         },
         direction::Direction,
         executor::{derive_access_capabilities, route::direction_from_order},
-        query::plan::{
-            AccessPlannedQuery, LogicalPushdownEligibility, OrderDirection, ScalarPlan,
-            lower_executable_access_plan,
-        },
+        query::plan::{AccessPlannedQuery, LogicalPushdownEligibility, OrderDirection, ScalarPlan},
     },
     model::entity::EntityModel,
 };

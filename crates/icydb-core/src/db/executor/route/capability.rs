@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        access::AccessPlan,
+        access::{AccessPlan, lower_executable_access_plan},
         direction::Direction,
         executor::{
             ExecutableAccessPath, aggregate::AggregateKind,
@@ -14,9 +14,7 @@ use crate::{
             traversal::effective_page_offset_for_window,
         },
         query::builder::AggregateExpr,
-        query::plan::{
-            AccessPlannedQuery, DistinctExecutionStrategy, lower_executable_access_plan,
-        },
+        query::plan::{AccessPlannedQuery, DistinctExecutionStrategy},
     },
     model::entity::resolve_field_slot,
     traits::{EntityKind, EntitySchema, EntityValue},

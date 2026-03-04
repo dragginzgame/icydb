@@ -1,8 +1,6 @@
 use crate::db::{
-    access::AccessPlan,
-    query::plan::{
-        AccessPlannedQuery, FieldSlot, GroupAggregateSpec, OrderSpec, lower_executable_access_plan,
-    },
+    access::{AccessPlan, lower_executable_access_plan},
+    query::plan::{AccessPlannedQuery, FieldSlot, GroupAggregateSpec, OrderSpec},
 };
 
 ///

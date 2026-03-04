@@ -1,5 +1,5 @@
-//! Module: db::executor::access_contract
-//! Responsibility: executor-owned normalized access contracts consumed at runtime.
+//! Module: db::access::execution_contract
+//! Responsibility: shared normalized access contracts consumed by query/cursor/executor.
 //! Does not own: logical access-path selection policy.
 //! Boundary: planner lowers `AccessPlan`/`AccessPath` into these execution mechanics.
 

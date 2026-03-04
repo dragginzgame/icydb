@@ -16,7 +16,8 @@ use crate::{
 use crate::db::executor::route::{
     ContinuationMode, IndexRangeLimitSpec, RouteCapabilities, RouteWindowPlan,
     aggregate_bounded_probe_fetch_hint, aggregate_supports_bounded_probe_hint,
-    direction_allows_physical_fetch_hint,
+    continuation_policy_allows_index_range_limit_pushdown,
+    continuation_policy_allows_load_scan_budget_hint, direction_allows_physical_fetch_hint,
 };
 
 impl<E> LoadExecutor<E>
@@ -36,7 +37,10 @@ where
         if !capabilities.index_range_limit_pushdown_shape_eligible {
             return None;
         }
-        if !continuation_policy.allows_index_range_limit_pushdown(continuation_mode) {
+        if !continuation_policy_allows_index_range_limit_pushdown(
+            continuation_policy,
+            continuation_mode,
+        ) {
             return None;
         }
         if let Some(fetch) = probe_fetch_hint {
@@ -72,7 +76,11 @@ where
         route_window: RouteWindowPlan,
         capabilities: RouteCapabilities,
     ) -> Option<usize> {
-        if !continuation_policy.allows_load_scan_budget_hint(continuation_mode, capabilities) {
+        if !continuation_policy_allows_load_scan_budget_hint(
+            continuation_policy,
+            continuation_mode,
+            capabilities,
+        ) {
             return None;
         }
 

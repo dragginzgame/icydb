@@ -75,42 +75,40 @@ pub(in crate::db::executor) enum ContinuationMode {
     IndexRangeAnchor,
 }
 
-impl ContinuationPolicy {
-    /// Return true when this route run has continuation bindings applied.
-    #[must_use]
-    pub(in crate::db::executor) const fn continuation_applied(
-        continuation_mode: ContinuationMode,
-    ) -> bool {
-        !matches!(continuation_mode, ContinuationMode::Initial)
+/// Return true when this route run has continuation bindings applied.
+#[must_use]
+pub(in crate::db::executor) const fn continuation_applied(
+    continuation_mode: ContinuationMode,
+) -> bool {
+    !matches!(continuation_mode, ContinuationMode::Initial)
+}
+
+/// Return true when index-range pushdown is valid under this continuation mode.
+#[must_use]
+pub(in crate::db::executor::route) const fn continuation_policy_allows_index_range_limit_pushdown(
+    continuation_policy: ContinuationPolicy,
+    continuation_mode: ContinuationMode,
+) -> bool {
+    if continuation_policy.requires_anchor() {
+        !matches!(continuation_mode, ContinuationMode::CursorBoundary)
+    } else {
+        true
+    }
+}
+
+/// Return true when load scan-budget hints are valid under this route shape.
+#[must_use]
+pub(in crate::db::executor::route) const fn continuation_policy_allows_load_scan_budget_hint(
+    continuation_policy: ContinuationPolicy,
+    continuation_mode: ContinuationMode,
+    capabilities: RouteCapabilities,
+) -> bool {
+    let continuation_applied = continuation_applied(continuation_mode);
+    if continuation_policy.requires_strict_advance() && continuation_applied {
+        return false;
     }
 
-    /// Return true when index-range pushdown is valid under this continuation mode.
-    #[must_use]
-    pub(in crate::db::executor::route) const fn allows_index_range_limit_pushdown(
-        self,
-        continuation_mode: ContinuationMode,
-    ) -> bool {
-        if self.requires_anchor() {
-            !matches!(continuation_mode, ContinuationMode::CursorBoundary)
-        } else {
-            true
-        }
-    }
-
-    /// Return true when load scan-budget hints are valid under this route shape.
-    #[must_use]
-    pub(in crate::db::executor::route) const fn allows_load_scan_budget_hint(
-        self,
-        continuation_mode: ContinuationMode,
-        capabilities: RouteCapabilities,
-    ) -> bool {
-        let continuation_applied = Self::continuation_applied(continuation_mode);
-        if self.requires_strict_advance() && continuation_applied {
-            return false;
-        }
-
-        !continuation_applied && capabilities.streaming_access_shape_safe
-    }
+    !continuation_applied && capabilities.streaming_access_shape_safe
 }
 
 ///

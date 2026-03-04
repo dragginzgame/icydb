@@ -120,7 +120,7 @@ mod tests {
             AccessPlan::path(AccessPath::ByKey(id2)),
         ]);
         let descriptor = AccessExecutionDescriptor {
-            executable_access: crate::db::query::plan::lower_executable_access_plan(&access),
+            executable_access: crate::db::access::lower_executable_access_plan(&access),
             bindings: AccessStreamBindings {
                 index_prefix_specs: &[],
                 index_range_specs: &[],

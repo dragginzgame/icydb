@@ -14,7 +14,7 @@ pub use metrics::EventReport;
 pub use sink::{MetricsSink, metrics_report, metrics_reset_all};
 
 /// Build a point-in-time storage report for observability surfaces.
-#[allow(private_interfaces)]
+#[expect(private_interfaces)]
 pub fn storage_report<C: CanisterKind>(
     db: &Db<C>,
     name_to_path: &[(&'static str, &'static str)],

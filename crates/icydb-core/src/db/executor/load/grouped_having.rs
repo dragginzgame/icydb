@@ -6,10 +6,8 @@
 use crate::{
     db::{
         executor::load::LoadExecutor,
-        predicate::CompareOp,
-        query::plan::{
-            FieldSlot, GroupHavingSpec, GroupHavingSymbol, evaluate_grouped_having_compare_v1,
-        },
+        predicate::{CompareOp, evaluate_grouped_having_compare_v1},
+        query::plan::{FieldSlot, GroupHavingSpec, GroupHavingSymbol},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},

@@ -60,6 +60,7 @@ pub(in crate::db) struct GroupedExecutorHandoff<'a, K> {
     group_fields: &'a [FieldSlot],
     aggregate_exprs: Vec<AggregateExpr>,
     projection_layout: PlannedProjectionLayout,
+    projection_layout_valid: bool,
     grouped_plan_strategy_hint: GroupedPlanStrategyHint,
     grouped_distinct_policy_contract: GroupedDistinctPolicyContract,
     having: Option<&'a GroupHavingSpec>,
@@ -89,6 +90,12 @@ impl<'a, K> GroupedExecutorHandoff<'a, K> {
     #[must_use]
     pub(in crate::db) const fn projection_layout(&self) -> &PlannedProjectionLayout {
         &self.projection_layout
+    }
+
+    /// Return whether planner already validated grouped projection layout invariants.
+    #[must_use]
+    pub(in crate::db) const fn projection_layout_valid(&self) -> bool {
+        self.projection_layout_valid
     }
 
     /// Borrow grouped execution strategy hint projected by planner semantics.
@@ -140,11 +147,12 @@ pub(in crate::db) fn grouped_executor_handoff<K>(
     let projection_spec = plan.projection_spec_for_identity();
     let (projection_layout, aggregate_exprs) =
         planned_projection_layout_and_aggregate_exprs_from_spec(&projection_spec)?;
-    validate_grouped_projection_layout(
+    let projection_layout_valid = validate_grouped_projection_layout(
         &projection_layout,
         grouped.group.group_fields.len(),
         aggregate_exprs.len(),
-    )?;
+    )
+    .map(|()| true)?;
     let grouped_plan_strategy_hint =
         grouped_plan_strategy_hint_for_plan(plan).ok_or_else(|| {
             invariant("grouped executor handoff must carry grouped strategy hint for grouped plans")
@@ -162,6 +170,7 @@ pub(in crate::db) fn grouped_executor_handoff<K>(
         group_fields: grouped.group.group_fields.as_slice(),
         aggregate_exprs,
         projection_layout,
+        projection_layout_valid,
         grouped_plan_strategy_hint,
         grouped_distinct_policy_contract,
         having: grouped.having.as_ref(),

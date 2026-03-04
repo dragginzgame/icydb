@@ -12,6 +12,7 @@ use crate::{
             load::LoadExecutor,
             route::{
                 ContinuationMode, GroupedExecutionStrategy, RouteWindowPlan, ScanHintPlan,
+                continuation_applied, continuation_policy_allows_load_scan_budget_hint,
                 planner::{RouteDerivationContext, RouteFeasibilityStage, RouteIntentStage},
             },
         },
@@ -206,6 +207,7 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
+    #[expect(clippy::too_many_lines)]
     pub(in crate::db::executor::route::planner) fn derive_route_feasibility_stage(
         plan: &AccessPlannedQuery<E::Key>,
         continuation: &ScalarContinuationRuntime,
@@ -276,8 +278,11 @@ where
         );
         debug_assert!(
             derivation.scan_hints.load_scan_budget_hint.is_none()
-                || continuation_policy
-                    .allows_load_scan_budget_hint(continuation_mode, derivation.capabilities),
+                || continuation_policy_allows_load_scan_budget_hint(
+                    continuation_policy,
+                    continuation_mode,
+                    derivation.capabilities,
+                ),
             "route invariant: load scan-budget hints require non-continuation streaming-safe shape",
         );
         debug_assert!(
@@ -288,18 +293,18 @@ where
             "route invariant: grouped intent must not derive load/aggregate scan hints or index-range pushdown specs",
         );
         debug_assert_eq!(
-            ContinuationPolicy::continuation_applied(continuation_mode),
+            continuation_applied(continuation_mode),
             !matches!(continuation_mode, ContinuationMode::Initial),
             "route invariant: continuation policy and continuation mode must classify continuation activation identically",
         );
         debug_assert!(
-            !ContinuationPolicy::continuation_applied(continuation_mode)
+            !continuation_applied(continuation_mode)
                 || continuation_policy.requires_strict_advance(),
             "route invariant: continuation executions must require strict advancement",
         );
         debug_assert!(
             !intent_stage.grouped
-                || !ContinuationPolicy::continuation_applied(continuation_mode)
+                || !continuation_applied(continuation_mode)
                 || continuation_policy.is_grouped_safe(),
             "route invariant: grouped continuation executions must satisfy planner-projected continuation policy safety",
         );

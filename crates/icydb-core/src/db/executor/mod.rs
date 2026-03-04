@@ -3,7 +3,6 @@
 //! Does not own: logical query semantics or persistence encoding policy.
 //! Boundary: consumes query/access/cursor contracts and drives load/delete/aggregate runtime.
 
-pub(in crate::db) mod access_contract;
 mod access_dispatcher;
 mod aggregate;
 mod context;
@@ -33,12 +32,11 @@ use crate::db::{
     cursor::{RangeToken, range_token_anchor_key, range_token_from_lowered_anchor},
 };
 
-pub(in crate::db::executor) use crate::db::diagnostics::{ExecutionOptimization, ExecutionTrace};
-pub(in crate::db) use access_contract::{
+pub(in crate::db) use crate::db::access::{
     ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan, ExecutionBounds,
-    ExecutionDistinctMode, ExecutionMode, ExecutionOrdering, ExecutionPathKind,
-    ExecutionPathPayload,
+    ExecutionPathKind, ExecutionPathPayload,
 };
+pub(in crate::db::executor) use crate::db::diagnostics::{ExecutionOptimization, ExecutionTrace};
 pub(in crate::db::executor) use access_dispatcher::{
     access_plan_metrics_kind, derive_access_capabilities, derive_access_path_capabilities,
 };
@@ -94,7 +92,7 @@ impl<E: EntityKind> CompiledQuery<E> {
 //   indicate executor/planner contract breaches.
 
 use crate::{
-    db::{cursor::CursorPlanError, data::DataKey, query::intent::CompiledQuery},
+    db::{CompiledQuery, cursor::CursorPlanError, data::DataKey},
     error::{ErrorClass, ErrorOrigin, InternalError},
     traits::EntityKind,
 };

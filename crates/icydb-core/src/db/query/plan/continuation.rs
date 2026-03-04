@@ -1,12 +1,11 @@
 use crate::{
     db::{
-        access::AccessPlan,
+        access::{AccessPlan, lower_executable_access_plan},
         cursor::{CursorPlanError, GroupedPlannedCursor, PlannedCursor},
         direction::Direction,
         query::plan::{
             AccessPlannedQuery, ExecutionShapeSignature, GroupedCursorPolicyViolation,
             OrderDirection, OrderSpec, grouped_cursor_policy_violation_for_continuation,
-            lower_executable_access_plan,
         },
     },
     error::InternalError,

@@ -14,7 +14,6 @@ use crate::{
             },
             plan_metrics::GroupedPlanMetricsStrategy,
         },
-        query::plan::validate_grouped_projection_layout,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -53,12 +52,7 @@ where
         let grouped_aggregate_exprs = grouped_handoff.aggregate_exprs().to_vec();
         let projection_layout = grouped_handoff.projection_layout().clone();
         debug_assert!(
-            validate_grouped_projection_layout(
-                grouped_handoff.projection_layout(),
-                grouped_handoff.group_fields().len(),
-                grouped_handoff.aggregate_exprs().len(),
-            )
-            .is_ok(),
+            grouped_handoff.projection_layout_valid(),
             "planner grouped projection layout invariants must hold at executor boundary",
         );
         let grouped_distinct_execution_strategy =

@@ -1,9 +1,9 @@
-use crate::{
-    db::{
-        predicate::{CoercionId, CoercionSpec, CompareOp, compare_eq, compare_order},
-        query::plan::{GroupHavingSpec, GroupPlan},
+use crate::db::{
+    predicate::{
+        CompareOp,
+        grouped_having_compare_op_supported as predicate_grouped_having_compare_op_supported,
     },
-    value::Value,
+    query::plan::{GroupHavingSpec, GroupPlan},
 };
 
 ///
@@ -36,7 +36,7 @@ impl GroupedCursorPolicyViolation {
 /// Return whether grouped HAVING supports this compare operator in grouped v1.
 #[must_use]
 pub(crate) const fn grouped_having_compare_op_supported(op: CompareOp) -> bool {
-    grouped_having_compare_kind(op).is_some()
+    predicate_grouped_having_compare_op_supported(op)
 }
 
 /// Return grouped cursor-policy violations for one grouped plan shape.
@@ -64,70 +64,6 @@ pub(in crate::db::query::plan) fn grouped_cursor_policy_violation(
     None
 }
 
-/// Evaluate one grouped HAVING comparison under v1 semantic rules.
-///
-/// Returns `None` when `op` is outside grouped HAVING v1 support.
-#[must_use]
-pub(crate) fn evaluate_grouped_having_compare_v1(
-    actual: &Value,
-    op: CompareOp,
-    expected: &Value,
-) -> Option<bool> {
-    let numeric = CoercionSpec::new(CoercionId::NumericWiden);
-    let strict = CoercionSpec::default();
-    let coercion = if actual.supports_numeric_coercion() || expected.supports_numeric_coercion() {
-        &numeric
-    } else {
-        &strict
-    };
-    let kind = grouped_having_compare_kind(op)?;
-
-    Some(match kind {
-        GroupedHavingCompareKind::Eq => compare_eq(actual, expected, coercion).unwrap_or(false),
-        GroupedHavingCompareKind::Ne => {
-            compare_eq(actual, expected, coercion).is_some_and(|equal| !equal)
-        }
-        GroupedHavingCompareKind::Lt => {
-            compare_order(actual, expected, coercion).is_some_and(std::cmp::Ordering::is_lt)
-        }
-        GroupedHavingCompareKind::Lte => {
-            compare_order(actual, expected, coercion).is_some_and(std::cmp::Ordering::is_le)
-        }
-        GroupedHavingCompareKind::Gt => {
-            compare_order(actual, expected, coercion).is_some_and(std::cmp::Ordering::is_gt)
-        }
-        GroupedHavingCompareKind::Gte => {
-            compare_order(actual, expected, coercion).is_some_and(std::cmp::Ordering::is_ge)
-        }
-    })
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum GroupedHavingCompareKind {
-    Eq,
-    Ne,
-    Lt,
-    Lte,
-    Gt,
-    Gte,
-}
-
-const fn grouped_having_compare_kind(op: CompareOp) -> Option<GroupedHavingCompareKind> {
-    match op {
-        CompareOp::Eq => Some(GroupedHavingCompareKind::Eq),
-        CompareOp::Ne => Some(GroupedHavingCompareKind::Ne),
-        CompareOp::Lt => Some(GroupedHavingCompareKind::Lt),
-        CompareOp::Lte => Some(GroupedHavingCompareKind::Lte),
-        CompareOp::Gt => Some(GroupedHavingCompareKind::Gt),
-        CompareOp::Gte => Some(GroupedHavingCompareKind::Gte),
-        CompareOp::In
-        | CompareOp::NotIn
-        | CompareOp::Contains
-        | CompareOp::StartsWith
-        | CompareOp::EndsWith => None,
-    }
-}
-
 pub(in crate::db::query::plan::semantics) fn grouped_having_streaming_compatible(
     having: Option<&GroupHavingSpec>,
 ) -> bool {
@@ -146,7 +82,7 @@ pub(in crate::db::query::plan::semantics) fn grouped_having_streaming_compatible
 #[cfg(test)]
 mod tests {
     use crate::{
-        db::{predicate::CompareOp, query::plan::semantics::evaluate_grouped_having_compare_v1},
+        db::predicate::{CompareOp, evaluate_grouped_having_compare_v1},
         value::Value,
     };
 

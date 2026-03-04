@@ -12,10 +12,10 @@ mod scan;
 #[cfg(test)]
 use crate::db::access::AccessPath;
 #[cfg(test)]
-use crate::db::query::plan::lower_executable_access_path;
+use crate::db::access::lower_executable_access_path;
 use crate::{
     db::{
-        access::AccessPlan,
+        access::{AccessPlan, lower_executable_access_plan},
         direction::Direction,
         executor::LoweredKey,
         executor::{
@@ -28,7 +28,6 @@ use crate::{
         },
         index::predicate::IndexPredicateExecution,
         predicate::MissingRowPolicy,
-        query::plan::lower_executable_access_plan,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},

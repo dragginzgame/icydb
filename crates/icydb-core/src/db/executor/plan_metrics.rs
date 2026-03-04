@@ -5,8 +5,8 @@
 
 use crate::{
     db::{
-        access::AccessPlan, executor::access_plan_metrics_kind,
-        query::plan::lower_executable_access_plan,
+        access::{AccessPlan, lower_executable_access_plan},
+        executor::access_plan_metrics_kind,
     },
     obs::sink::{GroupedPlanStrategy, MetricsEvent, PlanKind, Span, record},
     traits::EntityKind,

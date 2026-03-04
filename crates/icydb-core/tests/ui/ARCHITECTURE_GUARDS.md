@@ -15,6 +15,8 @@ This file maps each UI test to exactly one architecture rule.
 | `db/executor/aggregate_terminals_module_private.rs` | Executor aggregate terminal internals are not public API. |
 | `db/executor/grouped_budget_observability_module_private.rs` | Grouped budget observability internals are not publicly importable. |
 | `db/executor/grouped_route_observability_module_private.rs` | Grouped route observability internals are not publicly importable. |
+| `db/executor/cannot_import_query_plan_planner.rs` | Executor boundary must not import planner internals (`db::query::plan::planner`). |
+| `db/executor/cannot_import_query_intent.rs` | Executor boundary must not import query intent internals (`db::query::intent`). |
 | `db/executor/kernel_module_private.rs` | `db::executor::kernel` internals are not public API. |
 | `db/executor/load_module_private.rs` | `db::executor::load` internals are not public API. |
 | `db/executor/requires_executable_plan.rs` | `db::executor` module is private; executable plan/executor internals stay hidden. |

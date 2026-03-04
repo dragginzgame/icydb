@@ -5,7 +5,11 @@
 
 use crate::{
     db::{
-        access::{AccessPath, AccessPlan},
+        access::{
+            AccessPath, AccessPlan, ExecutableAccessPath, ExecutableAccessPlan, ExecutionBounds,
+            ExecutionDistinctMode, ExecutionMode, ExecutionOrdering, ExecutionPathPayload,
+        },
+        direction::Direction,
         index::{
             EncodedValue, IndexRangeBoundEncodeError, RawIndexKey,
             raw_bounds_for_semantic_index_component_range, raw_keys_for_encoded_prefix,
@@ -26,6 +30,93 @@ const LOWERED_INDEX_PREFIX_VALUE_NOT_INDEXABLE: &str =
     "validated index-prefix value is not indexable";
 
 pub(in crate::db) type LoweredKey = RawIndexKey;
+
+/// Lower one structural `AccessPlan` into its normalized executable contract.
+#[must_use]
+pub(in crate::db) fn lower_executable_access_plan<K>(
+    access: &AccessPlan<K>,
+) -> ExecutableAccessPlan<'_, K> {
+    match access {
+        AccessPlan::Path(path) => {
+            ExecutableAccessPlan::for_path(lower_executable_access_path(path.as_ref()))
+        }
+        AccessPlan::Union(children) => {
+            ExecutableAccessPlan::union(children.iter().map(lower_executable_access_plan).collect())
+        }
+        AccessPlan::Intersection(children) => ExecutableAccessPlan::intersection(
+            children.iter().map(lower_executable_access_plan).collect(),
+        ),
+    }
+}
+
+/// Lower one structural `AccessPath` into its normalized executable contract.
+#[must_use]
+pub(in crate::db) const fn lower_executable_access_path<K>(
+    path: &AccessPath<K>,
+) -> ExecutableAccessPath<'_, K> {
+    match path {
+        AccessPath::ByKey(key) => ExecutableAccessPath::new(
+            ExecutionMode::FullScan,
+            ExecutionOrdering::Natural,
+            ExecutionBounds::Unbounded,
+            ExecutionDistinctMode::None,
+            false,
+            ExecutionPathPayload::ByKey(key),
+        ),
+        AccessPath::ByKeys(keys) => ExecutableAccessPath::new(
+            ExecutionMode::FullScan,
+            ExecutionOrdering::Natural,
+            ExecutionBounds::Unbounded,
+            ExecutionDistinctMode::None,
+            false,
+            ExecutionPathPayload::ByKeys(keys.as_slice()),
+        ),
+        AccessPath::KeyRange { start, end } => ExecutableAccessPath::new(
+            ExecutionMode::FullScan,
+            ExecutionOrdering::Natural,
+            ExecutionBounds::PrimaryKeyRange,
+            ExecutionDistinctMode::None,
+            false,
+            ExecutionPathPayload::KeyRange { start, end },
+        ),
+        AccessPath::IndexPrefix { index, values } => ExecutableAccessPath::new(
+            ExecutionMode::OrderedIndexScan,
+            ExecutionOrdering::ByIndex(Direction::Asc),
+            ExecutionBounds::IndexPrefix {
+                index: *index,
+                prefix_len: values.len(),
+            },
+            ExecutionDistinctMode::PreOrdered,
+            true,
+            ExecutionPathPayload::IndexPrefix,
+        ),
+        AccessPath::IndexRange { spec } => {
+            let index = *spec.index();
+            let prefix_len = spec.prefix_values().len();
+
+            ExecutableAccessPath::new(
+                ExecutionMode::IndexRange,
+                ExecutionOrdering::ByIndex(Direction::Asc),
+                ExecutionBounds::IndexRange { index, prefix_len },
+                ExecutionDistinctMode::PreOrdered,
+                true,
+                ExecutionPathPayload::IndexRange {
+                    prefix_values: spec.prefix_values(),
+                    lower: spec.lower(),
+                    upper: spec.upper(),
+                },
+            )
+        }
+        AccessPath::FullScan => ExecutableAccessPath::new(
+            ExecutionMode::FullScan,
+            ExecutionOrdering::Natural,
+            ExecutionBounds::Unbounded,
+            ExecutionDistinctMode::None,
+            false,
+            ExecutionPathPayload::FullScan,
+        ),
+    }
+}
 
 ///
 /// LoweredIndexNotIndexableReasonScope

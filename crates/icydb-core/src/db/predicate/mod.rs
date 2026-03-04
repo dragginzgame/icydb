@@ -30,5 +30,6 @@ pub(in crate::db) use fingerprint::hash_predicate;
 pub(in crate::db) use resolved::{ResolvedComparePredicate, ResolvedPredicate};
 pub(in crate::db) use runtime::PredicateProgram;
 pub(in crate::db) use semantics::{
-    TextOp, canonical_cmp, compare_eq, compare_order, compare_text, strict_value_order,
+    TextOp, canonical_cmp, compare_eq, compare_order, compare_text,
+    evaluate_grouped_having_compare_v1, grouped_having_compare_op_supported, strict_value_order,
 };

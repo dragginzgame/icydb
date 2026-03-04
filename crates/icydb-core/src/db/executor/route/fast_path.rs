@@ -5,11 +5,11 @@
 
 use crate::{
     db::{
-        access::AccessPlan,
+        access::{AccessPlan, lower_executable_access_plan},
         executor::{ExecutionPreparation, aggregate::AggregateKind, load::LoadExecutor},
         executor::{derive_access_capabilities, derive_access_path_capabilities},
         index::{IndexCompilePolicy, compile_index_program},
-        query::plan::{AccessPlannedQuery, lower_executable_access_plan},
+        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},

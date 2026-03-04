@@ -1,9 +1,8 @@
 use crate::{
+    db::executor::load::projection::grouped::GroupedRowView,
     db::{
-        numeric::{
-            NumericArithmeticOp, apply_numeric_arithmetic, compare_numeric_eq,
-            compare_numeric_order,
-        },
+        numeric::{NumericArithmeticOp, apply_numeric_arithmetic},
+        predicate::{CoercionId, CoercionSpec, compare_eq, compare_order},
         query::plan::expr::{BinaryOp, Expr, UnaryOp},
     },
     model::entity::resolve_field_slot,
@@ -13,8 +12,6 @@ use crate::{
 };
 use std::cmp::Ordering;
 use thiserror::Error as ThisError;
-
-use crate::db::executor::load::projection::grouped::GroupedRowView;
 
 ///
 /// ExecutionError
@@ -269,18 +266,24 @@ fn eval_equality_binary_expr(
     left: Value,
     right: Value,
 ) -> Result<Value, ExecutionError> {
-    let are_equal = if left.supports_numeric_coercion() || right.supports_numeric_coercion() {
-        let Some(are_equal) = compare_numeric_eq(&left, &right) else {
-            return Err(ExecutionError::InvalidBinaryOperands {
-                op: binary_op_name(op).to_string(),
-                left: Box::new(left),
-                right: Box::new(right),
-            });
-        };
-
-        are_equal
+    let numeric_widen_enabled =
+        left.supports_numeric_coercion() || right.supports_numeric_coercion();
+    let coercion = if numeric_widen_enabled {
+        CoercionSpec::new(CoercionId::NumericWiden)
     } else {
+        CoercionSpec::new(CoercionId::Strict)
+    };
+    let are_equal = if let Some(are_equal) = compare_eq(&left, &right, &coercion) {
+        are_equal
+    } else if !numeric_widen_enabled {
+        // Preserve projection behavior for non-numeric cross-variant comparisons.
         left == right
+    } else {
+        return Err(ExecutionError::InvalidBinaryOperands {
+            op: binary_op_name(op).to_string(),
+            left: Box::new(left),
+            right: Box::new(right),
+        });
     };
 
     let result = match op {
@@ -334,11 +337,13 @@ fn eval_compare_binary_expr(
 
 fn compare_ordering(op: BinaryOp, left: &Value, right: &Value) -> Option<Ordering> {
     let _ = op;
-    if left.supports_numeric_coercion() && right.supports_numeric_coercion() {
-        return compare_numeric_order(left, right);
-    }
+    let coercion = if left.supports_numeric_coercion() && right.supports_numeric_coercion() {
+        CoercionSpec::new(CoercionId::NumericWiden)
+    } else {
+        CoercionSpec::new(CoercionId::Strict)
+    };
 
-    Value::strict_order_cmp(left, right)
+    compare_order(left, right, &coercion)
 }
 
 const fn numeric_arithmetic_op(op: BinaryOp) -> Option<NumericArithmeticOp> {

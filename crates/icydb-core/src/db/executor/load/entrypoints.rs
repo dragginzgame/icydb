@@ -511,9 +511,8 @@ where
         let route_plan =
             Self::build_execution_route_plan_for_load(&logical_plan, &scalar_runtime, None)?;
         let continuation_policy = route_plan.continuation_policy();
-        let continuation_applied = crate::db::query::plan::ContinuationPolicy::continuation_applied(
-            route_plan.continuation_mode(),
-        );
+        let continuation_applied =
+            crate::db::executor::route::continuation_applied(route_plan.continuation_mode());
         debug_assert_eq!(
             continuation_applied,
             !matches!(
