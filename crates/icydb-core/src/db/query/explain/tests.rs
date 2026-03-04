@@ -2,11 +2,11 @@ use super::*;
 use crate::db::access::{AccessPath, AccessPlan};
 use crate::db::predicate::{CompareOp, MissingRowPolicy, Predicate};
 use crate::db::query::builder::field::FieldRef;
-use crate::db::query::intent::{KeyAccess, LoadSpec, QueryMode, build_access_plan_from_keys};
+use crate::db::query::intent::{KeyAccess, build_access_plan_from_keys};
 use crate::db::query::plan::{
     AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec, GroupHavingClause,
-    GroupHavingSpec, GroupHavingSymbol, GroupSpec, GroupedExecutionConfig, LogicalPlan,
-    OrderDirection, OrderSpec,
+    GroupHavingSpec, GroupHavingSymbol, GroupSpec, GroupedExecutionConfig, LoadSpec, LogicalPlan,
+    OrderDirection, OrderSpec, QueryMode,
 };
 use crate::model::{field::FieldKind, index::IndexModel};
 use crate::traits::EntitySchema;

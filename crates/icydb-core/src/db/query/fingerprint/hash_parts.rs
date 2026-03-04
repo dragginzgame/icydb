@@ -17,9 +17,8 @@ use crate::{
                 AggregateHashShape, hash_group_aggregate_structural_fingerprint_v1,
             },
             fingerprint::projection_hash::hash_projection_structural_fingerprint_v1,
-            intent::QueryMode,
             plan::{
-                AccessPlanProjection, OrderDirection, expr::ProjectionSpec,
+                AccessPlanProjection, OrderDirection, QueryMode, expr::ProjectionSpec,
                 project_explain_access_path,
             },
         },

@@ -16,14 +16,11 @@ use crate::{
             },
         },
         predicate::{CompareOp, MissingRowPolicy, Predicate},
-        query::{
-            intent::{DeleteSpec, QueryMode},
-            plan::{
-                AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec,
-                GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupSpec,
-                GroupedExecutionConfig, OrderDirection, OrderSpec, PageSpec,
-                grouped_executor_handoff,
-            },
+        query::plan::{
+            AccessPlannedQuery, AggregateKind, DeleteSpec, FieldSlot, GroupAggregateSpec,
+            GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupSpec,
+            GroupedExecutionConfig, OrderDirection, OrderSpec, PageSpec, QueryMode,
+            grouped_executor_handoff,
         },
     },
     model::{field::FieldKind, index::IndexModel},

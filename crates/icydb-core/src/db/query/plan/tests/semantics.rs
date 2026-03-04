@@ -3,13 +3,13 @@ use crate::{
         access::{AccessPath, AccessPlan, AccessPlanError},
         predicate::{MissingRowPolicy, SchemaInfo},
         query::{
-            intent::{DeleteSpec, LoadSpec, QueryMode},
             plan::validate::{
                 OrderPlanError, PlanError, PolicyPlanError, validate_query_semantics,
             },
             plan::{
-                AccessPlannedQuery, DeleteLimitSpec, DistinctExecutionStrategy, LogicalPlan,
-                OrderDirection, OrderSpec, PageSpec, PlanPolicyError, PlanUserError,
+                AccessPlannedQuery, DeleteLimitSpec, DeleteSpec, DistinctExecutionStrategy,
+                LoadSpec, LogicalPlan, OrderDirection, OrderSpec, PageSpec, PlanPolicyError,
+                PlanUserError, QueryMode,
             },
         },
     },

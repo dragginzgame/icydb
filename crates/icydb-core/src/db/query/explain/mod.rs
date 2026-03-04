@@ -12,14 +12,11 @@ use crate::{
         predicate::{
             CoercionSpec, CompareOp, ComparePredicate, MissingRowPolicy, Predicate, normalize,
         },
-        query::{
-            intent::QueryMode,
-            plan::{
-                AccessPlanProjection, AccessPlannedQuery, AggregateKind, DeleteLimitSpec,
-                GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupedPlanStrategyHint,
-                LogicalPlan, OrderDirection, OrderSpec, PageSpec, ScalarPlan,
-                grouped_plan_strategy_hint_for_plan, project_access_plan,
-            },
+        query::plan::{
+            AccessPlanProjection, AccessPlannedQuery, AggregateKind, DeleteLimitSpec,
+            GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupedPlanStrategyHint,
+            LogicalPlan, OrderDirection, OrderSpec, PageSpec, QueryMode, ScalarPlan,
+            grouped_plan_strategy_hint_for_plan, project_access_plan,
         },
     },
     model::entity::EntityModel,

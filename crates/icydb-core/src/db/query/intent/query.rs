@@ -5,10 +5,8 @@ use crate::{
             builder::aggregate::AggregateExpr,
             explain::ExplainPlan,
             expr::{FilterExpr, SortExpr},
-            intent::{
-                LoadSpec, QueryError, QueryMode, access_plan_to_entity_keys, model::QueryModel,
-            },
-            plan::AccessPlannedQuery,
+            intent::{QueryError, access_plan_to_entity_keys, model::QueryModel},
+            plan::{AccessPlannedQuery, LoadSpec, QueryMode},
         },
     },
     traits::{EntityKind, SingletonEntity},
@@ -60,7 +58,10 @@ impl<E: EntityKind> Query<E> {
 
     #[must_use]
     pub(crate) const fn load_spec(&self) -> Option<LoadSpec> {
-        self.intent.load_spec()
+        match self.intent.mode() {
+            QueryMode::Load(spec) => Some(spec),
+            QueryMode::Delete(_) => None,
+        }
     }
 
     /// Add a predicate, implicitly AND-ing with any existing predicate.

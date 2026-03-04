@@ -4,11 +4,13 @@
 //! Boundary: intent/explain/planner/validator consumers import from this root only.
 
 mod access_plan;
+mod access_planner;
 mod continuation;
 #[expect(dead_code)]
 pub(crate) mod expr;
 mod group;
 mod grouped_layout;
+mod logical_builder;
 mod model;
 mod model_builder;
 mod planner;
@@ -19,20 +21,27 @@ mod tests;
 pub(crate) mod validate;
 
 pub(crate) use access_plan::AccessPlannedQuery;
+pub(in crate::db::query) use access_planner::{
+    AccessPlanningInputs, normalize_query_predicate, plan_query_access,
+};
 pub(in crate::db) use continuation::ContinuationContract;
 pub(in crate::db) use group::{
     GroupedDistinctExecutionStrategy, GroupedExecutorHandoff, PlannedProjectionLayout,
     grouped_executor_handoff,
 };
 pub(in crate::db) use grouped_layout::validate_grouped_projection_layout;
+pub(in crate::db::query) use logical_builder::{
+    LogicalPlanningInputs, build_logical_plan, logical_query_from_logical_inputs,
+};
 pub use model::OrderDirection;
-pub(crate) use model::{AggregateKind, DeleteSpec, DistinctExecutionStrategy, LoadSpec, QueryMode};
+pub(crate) use model::{AggregateKind, DistinctExecutionStrategy};
 pub(in crate::db) use model::{ContinuationPolicy, ExecutionShapeSignature, PlannerRouteProfile};
 pub(crate) use model::{
     DeleteLimitSpec, FieldSlot, GroupAggregateSpec, GroupHavingClause, GroupHavingSpec,
     GroupHavingSymbol, GroupPlan, GroupSpec, GroupedExecutionConfig, LogicalPlan, OrderSpec,
     PageSpec, ScalarPlan,
 };
+pub use model::{DeleteSpec, LoadSpec, QueryMode};
 pub(crate) use planner::{PlannerError, plan_access};
 pub(crate) use projection::{lower_projection_identity, lower_projection_intent};
 pub(in crate::db) use semantics::global_distinct_group_spec_for_semantic_aggregate;

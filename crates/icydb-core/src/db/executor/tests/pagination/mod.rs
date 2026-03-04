@@ -9,8 +9,10 @@ use crate::{
         index::{EncodedValue, RawIndexKey, raw_keys_for_encoded_prefix},
         query::{
             explain::{ExplainAccessPath, ExplainOrderPushdown},
-            intent::{LoadSpec, QueryMode},
-            plan::{AccessPlannedQuery, LogicalPlan, OrderDirection, OrderSpec, PageSpec},
+            plan::{
+                AccessPlannedQuery, LoadSpec, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
+                QueryMode,
+            },
         },
         response::Row,
     },

@@ -6,12 +6,9 @@ use crate::{
         },
         executor::route::derive_secondary_pushdown_applicability_from_contract,
         predicate::MissingRowPolicy,
-        query::{
-            intent::{LoadSpec, QueryMode},
-            plan::{
-                AccessPlannedQuery, LogicalPlan, LogicalPushdownEligibility, OrderDirection,
-                OrderSpec, derive_logical_pushdown_eligibility,
-            },
+        query::plan::{
+            AccessPlannedQuery, LoadSpec, LogicalPlan, LogicalPushdownEligibility, OrderDirection,
+            OrderSpec, QueryMode, derive_logical_pushdown_eligibility,
         },
     },
     model::{entity::EntityModel, field::FieldKind, index::IndexModel},

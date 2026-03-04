@@ -1,25 +1,15 @@
 use crate::{
     db::{
-        predicate::{
-            CompareOp, MissingRowPolicy, Predicate, SchemaInfo, ValidateError, normalize,
-            normalize_enum_literals, reject_unsupported_query_features,
-        },
+        predicate::{CompareOp, MissingRowPolicy, Predicate, SchemaInfo},
         query::{
             builder::aggregate::AggregateExpr,
             expr::{FilterExpr, SortExpr, SortLowerError},
-            intent::{
-                DeleteSpec, IntentError, KeyAccess, KeyAccessKind, KeyAccessState, LoadSpec,
-                QueryError, QueryMode, build_access_plan_from_keys,
-                order::{canonicalize_order_spec, push_order},
-            },
+            intent::{IntentError, QueryError, intent_ast::QueryIntent},
             plan::{
-                AccessPlannedQuery, DeleteLimitSpec, GroupAggregateSpec, GroupHavingClause,
-                GroupHavingSpec, GroupHavingSymbol, GroupSpec, GroupedExecutionConfig,
-                IntentKeyAccessKind as IntentValidationKeyAccessKind, LogicalPlan, OrderDirection,
-                OrderSpec, PageSpec, ScalarPlan, has_explicit_order, plan_access,
-                resolve_group_field_slot, validate_group_query_semantics,
-                validate_intent_key_access_policy, validate_intent_plan_shape,
-                validate_order_shape, validate_query_semantics,
+                AccessPlannedQuery, GroupAggregateSpec, GroupHavingClause, GroupHavingSymbol,
+                OrderSpec, QueryMode, build_logical_plan, logical_query_from_logical_inputs,
+                normalize_query_predicate, plan_query_access, resolve_group_field_slot,
+                validate_group_query_semantics, validate_order_shape, validate_query_semantics,
             },
         },
     },
@@ -38,15 +28,7 @@ use crate::{
 #[derive(Debug)]
 pub(crate) struct QueryModel<'m, K> {
     model: &'m EntityModel,
-    mode: QueryMode,
-    offset_set: bool,
-    predicate: Option<Predicate>,
-    key_access: Option<KeyAccessState<K>>,
-    key_access_conflict: bool,
-    group: Option<crate::db::query::plan::GroupSpec>,
-    having: Option<GroupHavingSpec>,
-    order: Option<OrderSpec>,
-    distinct: bool,
+    intent: QueryIntent<K>,
     consistency: MissingRowPolicy,
 }
 
@@ -55,15 +37,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
     pub(crate) const fn new(model: &'m EntityModel, consistency: MissingRowPolicy) -> Self {
         Self {
             model,
-            mode: QueryMode::Load(LoadSpec::new()),
-            offset_set: false,
-            predicate: None,
-            key_access: None,
-            key_access_conflict: false,
-            group: None,
-            having: None,
-            order: None,
-            distinct: false,
+            intent: QueryIntent::new(),
             consistency,
         }
     }
@@ -71,34 +45,22 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
     /// Return the intent mode (load vs delete).
     #[must_use]
     pub(crate) const fn mode(&self) -> QueryMode {
-        self.mode
+        self.intent.mode()
     }
 
     #[must_use]
     pub(in crate::db::query::intent) fn has_explicit_order(&self) -> bool {
-        has_explicit_order(self.order.as_ref())
+        self.intent.has_explicit_order()
     }
 
     #[must_use]
     pub(in crate::db::query::intent) const fn has_grouping(&self) -> bool {
-        self.group.is_some()
+        self.intent.is_grouped()
     }
 
-    #[must_use]
-    pub(in crate::db::query::intent) const fn load_spec(&self) -> Option<LoadSpec> {
-        match self.mode {
-            QueryMode::Load(spec) => Some(spec),
-            QueryMode::Delete(_) => None,
-        }
-    }
-
-    /// Add a predicate, implicitly AND-ing with any existing predicate.
     #[must_use]
     pub(crate) fn filter(mut self, predicate: Predicate) -> Self {
-        self.predicate = match self.predicate.take() {
-            Some(existing) => Some(Predicate::And(vec![existing, predicate])),
-            None => Some(predicate),
-        };
+        self.intent.append_predicate(predicate);
         self
     }
 
@@ -129,27 +91,27 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
     /// Append an ascending sort key.
     #[must_use]
     pub(crate) fn order_by(mut self, field: impl AsRef<str>) -> Self {
-        self.order = Some(push_order(self.order, field.as_ref(), OrderDirection::Asc));
+        self.intent.push_order_ascending(field.as_ref());
         self
     }
 
     /// Append a descending sort key.
     #[must_use]
     pub(crate) fn order_by_desc(mut self, field: impl AsRef<str>) -> Self {
-        self.order = Some(push_order(self.order, field.as_ref(), OrderDirection::Desc));
+        self.intent.push_order_descending(field.as_ref());
         self
     }
 
     /// Set a fully-specified order spec (validated before reaching this boundary).
     pub(crate) fn order_spec(mut self, order: OrderSpec) -> Self {
-        self.order = Some(order);
+        self.intent.set_order_spec(order);
         self
     }
 
     /// Enable DISTINCT semantics for this query intent.
     #[must_use]
     pub(crate) const fn distinct(mut self) -> Self {
-        self.distinct = true;
+        self.intent.set_distinct();
         self
     }
 
@@ -160,18 +122,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         field: &str,
     ) -> Result<Self, QueryError> {
         let field_slot = resolve_group_field_slot(self.model, field).map_err(QueryError::from)?;
-        let group = self.group.get_or_insert(GroupSpec {
-            group_fields: Vec::new(),
-            aggregates: Vec::new(),
-            execution: GroupedExecutionConfig::unbounded(),
-        });
-        if !group
-            .group_fields
-            .iter()
-            .any(|existing| existing.index() == field_slot.index())
-        {
-            group.group_fields.push(field_slot);
-        }
+        self.intent.push_group_field_slot(field_slot);
 
         Ok(self)
     }
@@ -181,14 +132,8 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         mut self,
         aggregate: AggregateExpr,
     ) -> Self {
-        let group = self.group.get_or_insert(GroupSpec {
-            group_fields: Vec::new(),
-            aggregates: Vec::new(),
-            execution: GroupedExecutionConfig::unbounded(),
-        });
-        group
-            .aggregates
-            .push(GroupAggregateSpec::from_aggregate_expr(&aggregate));
+        self.intent
+            .push_group_aggregate(GroupAggregateSpec::from_aggregate_expr(&aggregate));
 
         self
     }
@@ -199,26 +144,16 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         max_groups: u64,
         max_group_bytes: u64,
     ) -> Self {
-        let group = self.group.get_or_insert(GroupSpec {
-            group_fields: Vec::new(),
-            aggregates: Vec::new(),
-            execution: GroupedExecutionConfig::unbounded(),
-        });
-        group.execution = GroupedExecutionConfig::with_hard_limits(max_groups, max_group_bytes);
+        self.intent.set_grouped_limits(max_groups, max_group_bytes);
 
         self
     }
 
     // Append one grouped HAVING compare clause after GROUP BY terminal declaration.
     fn push_having_clause(mut self, clause: GroupHavingClause) -> Result<Self, QueryError> {
-        if self.group.is_none() {
-            return Err(QueryError::Intent(IntentError::HavingRequiresGroupBy));
-        }
-
-        let having = self.having.get_or_insert(GroupHavingSpec {
-            clauses: Vec::new(),
-        });
-        having.clauses.push(clause);
+        self.intent
+            .push_having_clause(clause)
+            .map_err(QueryError::Intent)?;
 
         Ok(self)
     }
@@ -253,46 +188,31 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         })
     }
 
-    /// Track key-only access paths and detect conflicting key intents.
-    fn set_key_access(mut self, kind: KeyAccessKind, access: KeyAccess<K>) -> Self {
-        if let Some(existing) = &self.key_access
-            && existing.kind != kind
-        {
-            self.key_access_conflict = true;
-        }
-
-        self.key_access = Some(KeyAccessState { kind, access });
-
+    /// Set the access path to a single primary key lookup.
+    pub(crate) fn by_id(mut self, id: K) -> Self {
+        self.intent.set_by_id(id);
         self
     }
 
-    /// Set the access path to a single primary key lookup.
-    pub(crate) fn by_id(self, id: K) -> Self {
-        self.set_key_access(KeyAccessKind::Single, KeyAccess::Single(id))
-    }
-
     /// Set the access path to a primary key batch lookup.
-    pub(crate) fn by_ids<I>(self, ids: I) -> Self
+    pub(crate) fn by_ids<I>(mut self, ids: I) -> Self
     where
         I: IntoIterator<Item = K>,
     {
-        self.set_key_access(
-            KeyAccessKind::Many,
-            KeyAccess::Many(ids.into_iter().collect()),
-        )
+        self.intent.set_by_ids(ids);
+        self
     }
 
     /// Set the access path to the singleton primary key.
-    pub(crate) fn only(self, id: K) -> Self {
-        self.set_key_access(KeyAccessKind::Only, KeyAccess::Single(id))
+    pub(crate) fn only(mut self, id: K) -> Self {
+        self.intent.set_only(id);
+        self
     }
 
     /// Mark this intent as a delete query.
     #[must_use]
-    pub(crate) const fn delete(mut self) -> Self {
-        if self.mode.is_load() {
-            self.mode = QueryMode::Delete(DeleteSpec::new());
-        }
+    pub(crate) fn delete(mut self) -> Self {
+        self.intent = self.intent.set_delete_mode();
         self
     }
 
@@ -300,17 +220,8 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
     ///
     /// Load limits bound result size; delete limits bound mutation size.
     #[must_use]
-    pub(crate) const fn limit(mut self, limit: u32) -> Self {
-        match self.mode {
-            QueryMode::Load(mut spec) => {
-                spec.limit = Some(limit);
-                self.mode = QueryMode::Load(spec);
-            }
-            QueryMode::Delete(mut spec) => {
-                spec.limit = Some(limit);
-                self.mode = QueryMode::Delete(spec);
-            }
-        }
+    pub(crate) fn limit(mut self, limit: u32) -> Self {
+        self.intent = self.intent.apply_limit(limit);
         self
     }
 
@@ -319,12 +230,8 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
     /// When the intent is already in delete mode, this is recorded so
     /// intent validation can reject the invalid modifier combination.
     #[must_use]
-    pub(crate) const fn offset(mut self, offset: u32) -> Self {
-        self.offset_set = true;
-        if let QueryMode::Load(mut spec) = self.mode {
-            spec.offset = offset;
-            self.mode = QueryMode::Load(spec);
-        }
+    pub(crate) fn offset(mut self, offset: u32) -> Self {
+        self.intent = self.intent.apply_offset(offset);
         self
     }
 
@@ -334,58 +241,27 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
     ) -> Result<AccessPlannedQuery<Value>, QueryError> {
         // Phase 1: schema surface and intent validation.
         let schema_info = SchemaInfo::from_entity_model(self.model)?;
-        self.validate_intent()?;
+        self.intent.validate_policy_shape()?;
+        // Phase 2: normalize scalar predicate then derive one access plan.
+        let access_inputs = self.intent.planning_access_inputs();
+        let normalized_predicate =
+            normalize_query_predicate(&schema_info, access_inputs.predicate())?;
+        let access_plan_value = plan_query_access(
+            self.model,
+            &schema_info,
+            normalized_predicate.as_ref(),
+            access_inputs.into_key_access_override(),
+        )?;
 
-        // Phase 2: predicate normalization and access planning.
-        let normalized_predicate = self
-            .predicate
-            .as_ref()
-            .map(|predicate| {
-                reject_unsupported_query_features(predicate).map_err(ValidateError::from)?;
-                let predicate = normalize_enum_literals(&schema_info, predicate)?;
-                Ok::<Predicate, ValidateError>(normalize(&predicate))
-            })
-            .transpose()?;
-        let access_plan_value = match &self.key_access {
-            Some(state) => build_access_plan_from_keys(&state.access),
-            None => plan_access(self.model, &schema_info, normalized_predicate.as_ref())?,
-        };
-
-        // Phase 3: assemble the executor-ready plan.
-        let scalar = ScalarPlan {
-            mode: self.mode,
-            predicate: normalized_predicate,
-            // Canonicalize ORDER BY to include an explicit primary-key tie-break.
-            // This ensures explain/fingerprint/execution share one deterministic order shape.
-            order: canonicalize_order_spec(self.model, self.order.clone()),
-            distinct: self.distinct,
-            delete_limit: match self.mode {
-                QueryMode::Delete(spec) => spec.limit.map(|max_rows| DeleteLimitSpec { max_rows }),
-                QueryMode::Load(_) => None,
-            },
-            page: match self.mode {
-                QueryMode::Load(spec) => {
-                    if spec.limit.is_some() || spec.offset > 0 {
-                        Some(PageSpec {
-                            limit: spec.limit,
-                            offset: spec.offset,
-                        })
-                    } else {
-                        None
-                    }
-                }
-                QueryMode::Delete(_) => None,
-            },
-            consistency: self.consistency,
-        };
-        let mut plan =
-            AccessPlannedQuery::from_parts(LogicalPlan::Scalar(scalar), access_plan_value);
-        if let Some(group) = self.group.clone() {
-            plan = match self.having.clone() {
-                Some(having) => plan.into_grouped_with_having(group, Some(having)),
-                None => plan.into_grouped(group),
-            };
-        }
+        // Phase 3: assemble logical plan from normalized scalar/grouped intent.
+        let logical_inputs = self.intent.planning_logical_inputs();
+        let logical_query = logical_query_from_logical_inputs(
+            logical_inputs,
+            normalized_predicate,
+            self.consistency,
+        );
+        let logical = build_logical_plan(self.model, logical_query);
+        let plan = AccessPlannedQuery::from_parts(logical, access_plan_value);
 
         if plan.grouped_plan().is_some() {
             validate_group_query_semantics(&schema_info, self.model, &plan)?;
@@ -394,33 +270,5 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         }
 
         Ok(plan)
-    }
-
-    // Validate pre-plan policy invariants and key-access rules before planning.
-    pub(in crate::db::query::intent) fn validate_intent(&self) -> Result<(), IntentError> {
-        validate_intent_plan_shape(
-            self.mode,
-            self.order.as_ref(),
-            self.group.is_some(),
-            self.mode.is_delete() && self.offset_set,
-        )
-        .map_err(IntentError::from)?;
-
-        let key_access_kind = self.key_access.as_ref().map(|state| match state.kind {
-            KeyAccessKind::Single => IntentValidationKeyAccessKind::Single,
-            KeyAccessKind::Many => IntentValidationKeyAccessKind::Many,
-            KeyAccessKind::Only => IntentValidationKeyAccessKind::Only,
-        });
-        validate_intent_key_access_policy(
-            self.key_access_conflict,
-            key_access_kind,
-            self.predicate.is_some(),
-        )
-        .map_err(IntentError::from)?;
-        if self.having.is_some() && self.group.is_none() {
-            return Err(IntentError::HavingRequiresGroupBy);
-        }
-
-        Ok(())
     }
 }

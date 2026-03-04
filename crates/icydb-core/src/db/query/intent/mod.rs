@@ -4,6 +4,7 @@
 //! Boundary: typed/fluent query inputs lowered into validated logical plans.
 
 mod errors;
+mod intent_ast;
 mod key_access;
 mod model;
 mod order;
@@ -11,15 +12,12 @@ mod query;
 
 #[cfg(test)]
 mod tests;
+
 #[cfg(test)]
 use crate::db::{
     predicate::{MissingRowPolicy, Predicate},
     query::plan::{OrderDirection, OrderSpec},
 };
-
-pub type DeleteSpec = crate::db::query::plan::DeleteSpec;
-pub type LoadSpec = crate::db::query::plan::LoadSpec;
-pub type QueryMode = crate::db::query::plan::QueryMode;
 
 pub use errors::{IntentError, QueryError, QueryExecuteError};
 #[expect(unused_imports)]

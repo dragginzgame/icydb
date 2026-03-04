@@ -62,11 +62,8 @@ pub use query::{
         delete::FluentDeleteQuery,
         load::{FluentLoadQuery, PagedLoadQuery},
     },
-    intent::{
-        CompiledQuery, DeleteSpec, IntentError, LoadSpec, Query, QueryError, QueryExecuteError,
-        QueryMode,
-    },
-    plan::{OrderDirection, PlanError},
+    intent::{CompiledQuery, IntentError, Query, QueryError, QueryExecuteError},
+    plan::{DeleteSpec, LoadSpec, OrderDirection, PlanError, QueryMode},
 };
 pub use registry::StoreRegistry;
 pub use response::{

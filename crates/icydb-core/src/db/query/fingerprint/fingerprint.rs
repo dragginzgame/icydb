@@ -95,15 +95,16 @@ mod tests {
     use crate::db::predicate::{MissingRowPolicy, Predicate};
     use crate::db::query::explain::{ExplainGroupedStrategy, ExplainGrouping};
     use crate::db::query::fingerprint::hash_parts;
-    use crate::db::query::intent::{DeleteSpec, KeyAccess, LoadSpec, build_access_plan_from_keys};
+    use crate::db::query::intent::{KeyAccess, build_access_plan_from_keys};
     use crate::db::query::plan::expr::{
         Alias, BinaryOp, Expr, FieldId, ProjectionField, ProjectionSpec,
     };
     use crate::db::query::plan::{
-        AccessPlannedQuery, AggregateKind, DeleteLimitSpec, FieldSlot, GroupAggregateSpec,
-        GroupSpec, GroupedExecutionConfig, LogicalPlan, PageSpec,
+        AccessPlannedQuery, AggregateKind, DeleteLimitSpec, DeleteSpec, FieldSlot,
+        GroupAggregateSpec, GroupSpec, GroupedExecutionConfig, LoadSpec, LogicalPlan, PageSpec,
+        QueryMode,
     };
-    use crate::db::query::{builder::field::FieldRef, builder::sum, intent::QueryMode};
+    use crate::db::query::{builder::field::FieldRef, builder::sum};
     use crate::model::index::IndexModel;
     use crate::types::{Decimal, Ulid};
     use crate::value::Value;

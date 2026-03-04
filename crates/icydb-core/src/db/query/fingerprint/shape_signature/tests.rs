@@ -20,12 +20,12 @@ use crate::{
         query::{
             builder::field::FieldRef,
             explain::{ExplainGroupedStrategy, ExplainGrouping},
-            intent::{KeyAccess, LoadSpec, QueryMode, build_access_plan_from_keys},
+            intent::{KeyAccess, build_access_plan_from_keys},
             plan::OrderDirection,
             plan::{
                 AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec,
                 GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupSpec,
-                GroupedExecutionConfig, LogicalPlan, OrderSpec, PageSpec,
+                GroupedExecutionConfig, LoadSpec, LogicalPlan, OrderSpec, PageSpec, QueryMode,
                 expr::{Alias, Expr, FieldId, ProjectionField, ProjectionSpec},
             },
         },

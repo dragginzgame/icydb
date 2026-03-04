@@ -43,6 +43,7 @@ icydb-schema-tests           2450           73       2.9%
 - `0.40.17` hardens API/layer boundaries by sealing cardinality and index-planning extension traits behind private modules, moving response sealing to `private.rs`, relocating executable access contracts and lowering helpers under `db::access`, replacing executor-side planner-type extension helpers with route-owned helpers, shifting grouped projection-layout validity into the planner handoff contract (so executor no longer calls planner validators), moving grouped HAVING compare semantics under predicate ownership, and adding a layered compile-fail/compile-pass guard suite that locks allowed root import paths and blocks deep internal imports.
 - `0.40.18` consolidates projection comparison semantics by routing load projection equality/ordering through shared predicate helpers, while keeping grouped `HAVING` fingerprint and index-predicate compilation contracts stable.
 - `0.40.19` rejects `delete().offset(...)` at intent validation instead of silently ignoring it, and removes unused marker types from query wrappers to keep those APIs simpler and clearer.
+- `0.40.20` completes the query intent migration by making `query/intent` the approved intent-state authority and moving planning handoff to explicit access/logical DTO contracts without changing query behavior.
 
 See detailed breakdown:
 [docs/changelog/0.40.md](docs/changelog/0.40.md)

@@ -14,7 +14,7 @@ use crate::{
         cursor::CursorPlanError,
         decode_cursor,
         executor::{DeleteExecutor, ExecutablePlan, ExecutorPlanError, LoadExecutor, SaveExecutor},
-        query::intent::QueryMode,
+        query::plan::QueryMode,
     },
     error::InternalError,
     obs::sink::{MetricsSink, with_metrics_sink},

@@ -124,8 +124,8 @@ fn first_plan_shape_policy_violation(ctx: PlanShapePolicyContext) -> Option<Poli
 
 // ORDER validation ownership contract:
 // - This module owns ORDER semantic validation (field existence/orderability/tie-break).
-// - ORDER canonicalization (primary-key tie-break insertion) is performed at the
-//   intent boundary via `canonicalize_order_spec` before plan validation.
+// - ORDER canonicalization (primary-key tie-break insertion) is performed by
+//   plan logical assembly before plan validation.
 // - Shape-policy checks (for example empty ORDER, pagination/order coupling) are owned here.
 // - Executor/runtime layers may defend execution preconditions only.
 

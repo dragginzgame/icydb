@@ -242,8 +242,8 @@ fn intent_rejects_by_ids_with_predicate() {
         .filter(Predicate::True);
 
     assert!(matches!(
-        intent.validate_intent(),
-        Err(IntentError::ByIdsWithPredicate)
+        intent.build_plan_model(),
+        Err(QueryError::Intent(IntentError::ByIdsWithPredicate))
     ));
 }
 
@@ -255,8 +255,8 @@ fn intent_rejects_only_with_predicate() {
         .filter(Predicate::True);
 
     assert!(matches!(
-        intent.validate_intent(),
-        Err(IntentError::OnlyWithPredicate)
+        intent.build_plan_model(),
+        Err(QueryError::Intent(IntentError::OnlyWithPredicate))
     ));
 }
 
@@ -268,10 +268,10 @@ fn intent_rejects_delete_limit_without_order() {
         .limit(1);
 
     assert!(matches!(
-        intent.validate_intent(),
-        Err(IntentError::PlanShape(
+        intent.build_plan_model(),
+        Err(QueryError::Intent(IntentError::PlanShape(
             crate::db::query::plan::validate::PolicyPlanError::DeleteLimitRequiresOrder
-        ))
+        )))
     ));
 }
 
@@ -283,10 +283,10 @@ fn intent_rejects_delete_offset_modifier() {
         .offset(10);
 
     assert!(matches!(
-        intent.validate_intent(),
-        Err(IntentError::PlanShape(
+        intent.build_plan_model(),
+        Err(QueryError::Intent(IntentError::PlanShape(
             crate::db::query::plan::validate::PolicyPlanError::DeletePlanWithOffset
-        ))
+        )))
     ));
 }
 
@@ -298,10 +298,10 @@ fn intent_rejects_offset_then_delete_shape() {
         .delete();
 
     assert!(matches!(
-        intent.validate_intent(),
-        Err(IntentError::PlanShape(
+        intent.build_plan_model(),
+        Err(QueryError::Intent(IntentError::PlanShape(
             crate::db::query::plan::validate::PolicyPlanError::DeletePlanWithOffset
-        ))
+        )))
     ));
 }
 
@@ -1037,10 +1037,10 @@ fn intent_rejects_empty_order_spec() {
         .order_spec(OrderSpec { fields: Vec::new() });
 
     assert!(matches!(
-        intent.validate_intent(),
-        Err(IntentError::PlanShape(
+        intent.build_plan_model(),
+        Err(QueryError::Intent(IntentError::PlanShape(
             crate::db::query::plan::validate::PolicyPlanError::EmptyOrderSpec
-        ))
+        )))
     ));
 }
 
@@ -1052,8 +1052,8 @@ fn intent_rejects_conflicting_key_access() {
         .by_ids([Ulid::generate()]);
 
     assert!(matches!(
-        intent.validate_intent(),
-        Err(IntentError::KeyAccessConflict)
+        intent.build_plan_model(),
+        Err(QueryError::Intent(IntentError::KeyAccessConflict))
     ));
 }
 
