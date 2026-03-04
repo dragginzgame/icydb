@@ -45,6 +45,7 @@ icydb-schema-tests           2450           73       2.9%
 - `0.40.19` rejects `delete().offset(...)` at intent validation instead of silently ignoring it, and removes unused marker types from query wrappers to keep those APIs simpler and clearer.
 - `0.40.20` completes the query intent migration by making `query/intent` the approved intent-state authority and moving planning handoff to explicit access/logical DTO contracts without changing query behavior.
 - `0.40.21` continues planner cleanup by splitting validation and planner internals into smaller modules (`validate/*`, `planner/*`) to reduce branch pressure and make responsibility boundaries clearer while keeping query behavior unchanged.
+- `0.40.22` splits planner expression ownership into `expr/{ast,projection,type_inference}` and tightens continuation-signature wiring so runtime paths consume signature authority from the continuation contract.
 
 See detailed breakdown:
 [docs/changelog/0.40.md](docs/changelog/0.40.md)
