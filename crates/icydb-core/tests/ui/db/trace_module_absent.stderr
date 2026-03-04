@@ -1,0 +1,5 @@
+error[E0432]: unresolved import `icydb_core::db::trace`
+ --> tests/ui/db/trace_module_absent.rs:1:21
+  |
+1 | use icydb_core::db::trace::ExecutionTrace;
+  |                     ^^^^^ could not find `trace` in `db`

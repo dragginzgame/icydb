@@ -1,5 +1,5 @@
 error[E0603]: module `validate` is private
- --> tests/ui/validate_module_private.rs:1:26
+ --> tests/ui/visitor/validate_module_private.rs:1:26
   |
 1 | use icydb_core::visitor::validate::ValidateVisitor;
   |                          ^^^^^^^^ private module

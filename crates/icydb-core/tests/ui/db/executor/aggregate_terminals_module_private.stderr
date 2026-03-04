@@ -1,5 +1,5 @@
 error[E0603]: module `executor` is private
- --> tests/ui/executor_aggregate_terminals_module_private.rs:1:21
+ --> tests/ui/db/executor/aggregate_terminals_module_private.rs:1:21
   |
 1 | use icydb_core::db::executor::aggregate::terminals;
   |                     ^^^^^^^^             --------- module `terminals` is not publicly re-exported

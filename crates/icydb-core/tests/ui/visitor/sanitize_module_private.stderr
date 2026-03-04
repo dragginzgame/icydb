@@ -1,5 +1,5 @@
 error[E0603]: module `sanitize` is private
- --> tests/ui/sanitize_module_private.rs:1:26
+ --> tests/ui/visitor/sanitize_module_private.rs:1:26
   |
 1 | use icydb_core::visitor::sanitize::SanitizeVisitor;
   |                          ^^^^^^^^ private module

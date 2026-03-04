@@ -1,5 +1,5 @@
 error[E0599]: no method named `group_count_distinct_by` found for struct `FluentLoadQuery<'a, E>` in the current scope
- --> tests/ui/fluent_removed_group_terminal_methods.rs:4:19
+ --> tests/ui/query/fluent/removed_group_terminal_methods.rs:4:19
   |
 4 |     let _ = query.group_count_distinct_by("rank");
   |                   ^^^^^^^^^^^^^^^^^^^^^^^

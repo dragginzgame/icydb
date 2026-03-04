@@ -39,6 +39,7 @@ icydb-schema-tests           2450           73       2.9%
 - `0.40.13` finalizes the highest-ROI complexity-accretion v2 follow-ups by formalizing planner-to-route pushdown contracts, centralizing access-capability evaluation, and removing remaining compatibility/shim surfaces.
 - `0.40.14` closes the remaining `0.40` audit work by adding cursor parity/invalidation, persisted decode-boundary, and origin-preservation matrix coverage, then reconciling status/design trackers to a closed state.
 - `0.40.15` continues `0.40` boundary cleanup by moving commit/response ownership out of `db.rs`, tightening `db`/`session` visibility, centralizing continuation contracts between planning and execution, replacing ambiguous response aliases with explicit `EntityResponse` types, and removing repeated response `ids()`/`views()` allocation in favor of iterator-based access.
+- `0.40.16` finishes response-surface cleanup by switching repeated `ids()`/`views()` materialization to iterator APIs, adding direct iteration over paged execution payloads, moving execution trace contracts under diagnostics ownership, and removing the ambiguous `Response` alias in favor of explicit `EntityResponse` typing.
 
 See detailed breakdown:
 [docs/changelog/0.40.md](docs/changelog/0.40.md)

@@ -1,5 +1,5 @@
 use crate::{
-    db::{EntityResponse, ResponseError, Row},
+    db::{EntityResponse, ResponseError, Row, query::api::private::SealedResponseCardinalityExt},
     prelude::*,
     types::Id,
 };
@@ -12,7 +12,7 @@ use crate::{
 /// semantics remain owned by the query/session API boundary.
 ///
 
-pub trait ResponseCardinalityExt<E: EntityKind> {
+pub trait ResponseCardinalityExt<E: EntityKind>: SealedResponseCardinalityExt<E> {
     /// Require exactly one row in this response.
     fn require_one(&self) -> Result<(), ResponseError>;
 

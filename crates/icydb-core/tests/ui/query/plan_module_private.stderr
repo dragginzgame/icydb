@@ -1,5 +1,5 @@
 error[E0603]: module `query` is private
- --> tests/ui/query_plan_module_private.rs:1:21
+ --> tests/ui/query/plan_module_private.rs:1:21
   |
 1 | use icydb_core::db::query::plan::PlanError;
   |                     ^^^^^ private module

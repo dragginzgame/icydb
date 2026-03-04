@@ -1,5 +1,5 @@
 error[E0603]: module `response` is private
- --> tests/ui/db_response_module_private.rs:1:21
+ --> tests/ui/db/response_module_private.rs:1:21
   |
 1 | use icydb_core::db::response::Response;
   |                     ^^^^^^^^ private module

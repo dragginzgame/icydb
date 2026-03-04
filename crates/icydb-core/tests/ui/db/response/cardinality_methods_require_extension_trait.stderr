@@ -1,5 +1,5 @@
 error[E0599]: no method named `require_one` found for struct `RowResponse<Row<E>>` in the current scope
- --> tests/ui/response_cardinality_methods_require_extension_trait.rs:7:22
+ --> tests/ui/db/response/cardinality_methods_require_extension_trait.rs:7:22
   |
 7 |     let _ = response.require_one();
   |                      ^^^^^^^^^^^

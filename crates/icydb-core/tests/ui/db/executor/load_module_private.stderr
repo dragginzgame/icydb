@@ -1,8 +1,8 @@
 error[E0603]: module `executor` is private
- --> tests/ui/grouped_budget_observability_module_private.rs:1:21
+ --> tests/ui/db/executor/load_module_private.rs:1:21
   |
-1 | use icydb_core::db::executor::group::GroupedBudgetObservability;
-  |                     ^^^^^^^^  ----- module `group` is not publicly re-exported
+1 | use icydb_core::db::executor::load::LoadExecutor;
+  |                     ^^^^^^^^  ---- module `load` is not publicly re-exported
   |                     |
   |                     private module
   |

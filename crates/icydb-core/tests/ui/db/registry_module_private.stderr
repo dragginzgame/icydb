@@ -1,0 +1,11 @@
+error[E0603]: module `registry` is private
+ --> tests/ui/db/registry_module_private.rs:1:21
+  |
+1 | use icydb_core::db::registry::StoreRegistry;
+  |                     ^^^^^^^^ private module
+  |
+note: the module `registry` is defined here
+ --> src/db/mod.rs
+  |
+  | pub(crate) mod registry;
+  | ^^^^^^^^^^^^^^^^^^^^^^^

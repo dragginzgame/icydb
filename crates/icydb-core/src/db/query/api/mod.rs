@@ -2,6 +2,7 @@
 //! Boundary rule: cardinality semantics belong here, not on transport DTOs
 //! from `db::response`.
 
+mod private;
 mod result_ext;
 
 pub use result_ext::ResponseCardinalityExt;

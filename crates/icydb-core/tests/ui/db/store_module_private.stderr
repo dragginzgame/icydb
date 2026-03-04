@@ -1,5 +1,5 @@
 error[E0603]: module `data` is private
- --> tests/ui/db_store_module_private.rs:1:21
+ --> tests/ui/db/store_module_private.rs:1:21
   |
 1 | use icydb_core::db::data::DataStore;
   |                     ^^^^ private module

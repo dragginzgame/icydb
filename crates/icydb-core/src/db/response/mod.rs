@@ -8,15 +8,7 @@
 
 mod grouped;
 mod paged;
-
-///
-/// Sealed
-/// Internal trait used to seal response row-shape marker implementations.
-///
-
-mod private {
-    pub trait Sealed {}
-}
+mod private;
 
 use crate::{
     prelude::*,
@@ -57,35 +49,30 @@ pub struct Row<E: EntityKind> {
 impl<E: EntityKind> Row<E> {
     /// Construct one row from identity and entity payload.
     #[must_use]
-    #[inline]
     pub const fn new(id: Id<E>, entity: E) -> Self {
         Self { id, entity }
     }
 
     /// Borrow this row's identity.
     #[must_use]
-    #[inline]
     pub const fn id(&self) -> Id<E> {
         self.id
     }
 
     /// Consume and return this row's entity payload.
     #[must_use]
-    #[inline]
     pub fn entity(self) -> E {
         self.entity
     }
 
     /// Borrow this row's entity payload.
     #[must_use]
-    #[inline]
     pub const fn entity_ref(&self) -> &E {
         &self.entity
     }
 
     /// Consume and return `(id, entity)` parts.
     #[must_use]
-    #[inline]
     pub fn into_parts(self) -> (Id<E>, E) {
         (self.id, self.entity)
     }
@@ -117,28 +104,24 @@ pub struct ProjectedRow<E: EntityKind> {
 impl<E: EntityKind> ProjectedRow<E> {
     /// Construct one projected scalar row.
     #[must_use]
-    #[inline]
     pub const fn new(id: Id<E>, values: Vec<Value>) -> Self {
         Self { id, values }
     }
 
     /// Borrow the source row identifier.
     #[must_use]
-    #[inline]
     pub const fn id(&self) -> Id<E> {
         self.id
     }
 
     /// Borrow projected scalar values in declaration order.
     #[must_use]
-    #[inline]
     pub const fn values(&self) -> &[Value] {
         self.values.as_slice()
     }
 
     /// Consume and return `(id, projected_values)`.
     #[must_use]
-    #[inline]
     pub fn into_parts(self) -> (Id<E>, Vec<Value>) {
         (self.id, self.values)
     }

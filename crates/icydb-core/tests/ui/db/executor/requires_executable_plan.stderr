@@ -1,5 +1,5 @@
 error[E0603]: module `executor` is private
- --> tests/ui/executor_requires_executable_plan.rs:1:21
+ --> tests/ui/db/executor/requires_executable_plan.rs:1:21
   |
 1 | use icydb_core::db::executor::LoadExecutor;
   |                     ^^^^^^^^ private module

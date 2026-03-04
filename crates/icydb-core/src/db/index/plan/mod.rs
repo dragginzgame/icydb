@@ -4,6 +4,7 @@
 //! Boundary: executor/commit call this module before writing commit markers.
 
 mod commit_ops;
+mod private;
 mod unique;
 
 use crate::{
@@ -20,6 +21,8 @@ use crate::{
     traits::{EntityKind, EntityValue},
 };
 use std::{cell::RefCell, ops::Bound, thread::LocalKey};
+
+pub(in crate::db) use private::{SealedIndexEntryReader, SealedPrimaryRowReader};
 
 ///
 /// IndexApplyPlan
@@ -48,7 +51,9 @@ pub(crate) struct IndexMutationPlan {
 /// depending on executor context internals.
 ///
 
-pub(in crate::db) trait PrimaryRowReader<E: EntityKind + EntityValue> {
+pub(in crate::db) trait PrimaryRowReader<E: EntityKind + EntityValue>:
+    SealedPrimaryRowReader<E>
+{
     /// Return the primary row for `key`, or `None` when no row exists.
     fn read_primary_row(&self, key: &DataKey) -> Result<Option<RawRow>, InternalError>;
 }
@@ -60,7 +65,9 @@ pub(in crate::db) trait PrimaryRowReader<E: EntityKind + EntityValue> {
 /// requiring commit preflight to mutate real stores.
 ///
 
-pub(in crate::db) trait IndexEntryReader<E: EntityKind + EntityValue> {
+pub(in crate::db) trait IndexEntryReader<E: EntityKind + EntityValue>:
+    SealedIndexEntryReader<E>
+{
     /// Return the index entry for `(store, key)`, or `None` when no entry exists.
     fn read_index_entry(
         &self,

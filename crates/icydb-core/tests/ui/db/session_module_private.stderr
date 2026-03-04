@@ -1,0 +1,11 @@
+error[E0603]: module `session` is private
+ --> tests/ui/db/session_module_private.rs:1:21
+  |
+1 | use icydb_core::db::session::DbSession;
+  |                     ^^^^^^^ private module
+  |
+note: the module `session` is defined here
+ --> src/db/mod.rs
+  |
+  | pub(crate) mod session;
+  | ^^^^^^^^^^^^^^^^^^^^^^

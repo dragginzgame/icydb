@@ -12,7 +12,10 @@ use crate::{
         },
         direction::Direction,
         executor::{ExecutorError, OrderedKeyStream},
-        index::{IndexEntryReader, IndexStore, PrimaryRowReader, RawIndexEntry, RawIndexKey},
+        index::{
+            IndexEntryReader, IndexStore, PrimaryRowReader, RawIndexEntry, RawIndexKey,
+            SealedIndexEntryReader, SealedPrimaryRowReader,
+        },
         predicate::MissingRowPolicy,
     },
     error::InternalError,
@@ -219,6 +222,8 @@ where
     }
 }
 
+impl<E> SealedPrimaryRowReader<E> for Context<'_, E> where E: EntityKind + EntityValue {}
+
 impl<E> IndexEntryReader<E> for Context<'_, E>
 where
     E: EntityKind + EntityValue,
@@ -257,6 +262,8 @@ where
         Ok(out)
     }
 }
+
+impl<E> SealedIndexEntryReader<E> for Context<'_, E> where E: EntityKind + EntityValue {}
 
 ///
 /// TESTS

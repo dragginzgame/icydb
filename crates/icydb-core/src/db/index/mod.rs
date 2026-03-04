@@ -22,7 +22,10 @@ pub(in crate::db) use envelope::{
 };
 pub(in crate::db) use key::{EncodedValue, IndexId, IndexKey, IndexKeyKind, RawIndexKey};
 pub(in crate::db) use pk_equivalence::{PrimaryKeyEquivalenceError, primary_key_matches_value};
-pub(in crate::db) use plan::{IndexEntryReader, PrimaryRowReader, plan_index_mutation_for_entity};
+pub(in crate::db) use plan::{
+    IndexEntryReader, PrimaryRowReader, SealedIndexEntryReader, SealedPrimaryRowReader,
+    plan_index_mutation_for_entity,
+};
 pub(in crate::db) use predicate::{
     IndexCompareOp, IndexCompilePolicy, IndexLiteral, IndexPredicateProgram, compile_index_program,
 };

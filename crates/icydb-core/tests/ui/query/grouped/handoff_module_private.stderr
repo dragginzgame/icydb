@@ -1,11 +1,11 @@
 error[E0432]: unresolved import `icydb_core::db::query::grouped`
- --> tests/ui/grouped_handoff_module_private.rs:1:28
+ --> tests/ui/query/grouped/handoff_module_private.rs:1:28
   |
 1 | use icydb_core::db::query::grouped::GroupedExecutorHandoff;
   |                            ^^^^^^^ could not find `grouped` in `query`
 
 error[E0603]: module `query` is private
- --> tests/ui/grouped_handoff_module_private.rs:1:21
+ --> tests/ui/query/grouped/handoff_module_private.rs:1:21
   |
 1 | use icydb_core::db::query::grouped::GroupedExecutorHandoff;
   |                     ^^^^^ private module

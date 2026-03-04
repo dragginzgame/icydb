@@ -1,0 +1,13 @@
+error[E0603]: module `access` is private
+ --> tests/ui/db/access_module_private.rs:1:21
+  |
+1 | use icydb_core::db::access::AccessPlan;
+  |                     ^^^^^^  ---------- enum `AccessPlan` is not publicly re-exported
+  |                     |
+  |                     private module
+  |
+note: the module `access` is defined here
+ --> src/db/mod.rs
+  |
+  | pub(crate) mod access;
+  | ^^^^^^^^^^^^^^^^^^^^^

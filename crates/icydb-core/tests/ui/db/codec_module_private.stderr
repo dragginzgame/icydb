@@ -1,0 +1,11 @@
+error[E0603]: module `codec` is private
+ --> tests/ui/db/codec_module_private.rs:1:21
+  |
+1 | use icydb_core::db::codec::deserialize_row;
+  |                     ^^^^^ private module
+  |
+note: the module `codec` is defined here
+ --> src/db/mod.rs
+  |
+  | pub(in crate::db) mod codec;
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^

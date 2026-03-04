@@ -1,0 +1,11 @@
+error[E0603]: module `commit` is private
+ --> tests/ui/db/commit_module_private.rs:1:21
+  |
+1 | use icydb_core::db::commit::CommitMarker;
+  |                     ^^^^^^ private module
+  |
+note: the module `commit` is defined here
+ --> src/db/mod.rs
+  |
+  | pub(in crate::db) mod commit;
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
