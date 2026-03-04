@@ -118,8 +118,7 @@ pub use error::Error;
 #[doc(hidden)]
 pub mod __macro {
     pub use icydb_core::db::{
-        DataStore, Db, EntityRuntimeHooks, IndexStore, StoreRegistry,
-        validate_delete_strong_relations_for_source,
+        DataStore, DbSession as CoreDbSession, EntityRuntimeHooks, IndexStore, StoreRegistry,
     };
     pub use icydb_core::traits::{
         AsView as CoreAsView, CreateView as CoreCreateView, UpdateView as CoreUpdateView,

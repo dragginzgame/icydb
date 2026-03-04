@@ -35,10 +35,8 @@ impl<C: CanisterKind> DbSession<C> {
     // ------------------------------------------------------------------
 
     #[must_use]
-    pub const fn new(db: core::db::Db<C>) -> Self {
-        Self {
-            inner: core::db::DbSession::new(db),
-        }
+    pub const fn new(session: core::db::DbSession<C>) -> Self {
+        Self { inner: session }
     }
 
     #[must_use]

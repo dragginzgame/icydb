@@ -91,12 +91,6 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
             };
         }
 
-        static DB: ::icydb::__macro::Db<#canister_path> =
-            ::icydb::__macro::Db::<#canister_path>::new_with_hooks(
-                &STORE_REGISTRY,
-                ENTITY_RUNTIME_HOOKS
-            );
-
         // reserve the ic memory range
         ::icydb::__reexports::canic_memory::eager_init!({
             ::icydb::__reexports::canic_memory::ic_memory_range!(
@@ -109,7 +103,12 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
         /// This is the **only** API applications should use.
         #[must_use]
         pub const fn db() -> ::icydb::db::DbSession<#canister_path> {
-            ::icydb::db::DbSession::new(DB)
+            ::icydb::db::DbSession::new(
+                ::icydb::__macro::CoreDbSession::<#canister_path>::new_with_hooks(
+                    &STORE_REGISTRY,
+                    ENTITY_RUNTIME_HOOKS
+                )
+            )
         }
     }
 }
@@ -122,9 +121,7 @@ fn entity_runtime_hooks(builder: &ActorBuilder, canister_path: &syn::Path) -> To
         let entity_ty: syn::Path = parse_str(&entity_path)
             .unwrap_or_else(|_| panic!("invalid entity path: {entity_path}"));
         hook_inits.extend(quote! {
-            ::icydb::__macro::EntityRuntimeHooks::<#canister_path>::for_entity::<#entity_ty>(
-                ::icydb::__macro::validate_delete_strong_relations_for_source::<#entity_ty>,
-            ),
+            ::icydb::__macro::EntityRuntimeHooks::<#canister_path>::for_entity::<#entity_ty>(),
         });
     }
 

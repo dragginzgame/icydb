@@ -52,10 +52,8 @@ impl<C: CanisterKind> EntityRuntimeHooks<C> {
     }
 
     #[must_use]
-    /// Build runtime hooks from one entity type and delete-validation callback.
-    pub const fn for_entity<E>(
-        validate_delete_strong_relations: StrongRelationDeleteValidateFn<C>,
-    ) -> Self
+    /// Build runtime hooks from one entity type.
+    pub const fn for_entity<E>() -> Self
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
@@ -64,7 +62,7 @@ impl<C: CanisterKind> EntityRuntimeHooks<C> {
             E::PATH,
             commit_schema_fingerprint_for_runtime_entity::<E>,
             prepare_row_commit_for_entity::<E>,
-            validate_delete_strong_relations,
+            crate::db::relation::validate_delete_strong_relations_for_source::<E>,
         )
     }
 }

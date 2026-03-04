@@ -67,7 +67,6 @@ pub use query::{
     plan::{OrderDirection, PlanError},
 };
 pub use registry::StoreRegistry;
-pub use relation::validate_delete_strong_relations_for_source;
 pub use response::{
     GroupedRow, PagedGroupedExecution, PagedGroupedExecutionWithTrace, PagedLoadExecution,
     PagedLoadExecutionWithTrace, ProjectedRow, Response, ResponseError, Row, WriteBatchResponse,
@@ -80,7 +79,7 @@ pub use session::DbSession;
 /// A handle to the set of stores registered for a specific canister domain.
 ///
 
-pub struct Db<C: CanisterKind> {
+pub(crate) struct Db<C: CanisterKind> {
     store: &'static LocalKey<StoreRegistry>,
     entity_runtime_hooks: &'static [EntityRuntimeHooks<C>],
     _marker: PhantomData<C>,
@@ -89,13 +88,14 @@ pub struct Db<C: CanisterKind> {
 impl<C: CanisterKind> Db<C> {
     /// Construct a db handle without per-entity runtime hooks.
     #[must_use]
-    pub const fn new(store: &'static LocalKey<StoreRegistry>) -> Self {
+    #[cfg(test)]
+    pub(crate) const fn new(store: &'static LocalKey<StoreRegistry>) -> Self {
         Self::new_with_hooks(store, &[])
     }
 
     /// Construct a db handle with explicit per-entity runtime hook wiring.
     #[must_use]
-    pub const fn new_with_hooks(
+    pub(crate) const fn new_with_hooks(
         store: &'static LocalKey<StoreRegistry>,
         entity_runtime_hooks: &'static [EntityRuntimeHooks<C>],
     ) -> Self {
@@ -138,7 +138,7 @@ impl<C: CanisterKind> Db<C> {
     }
 
     /// Build one storage diagnostics report for registered stores/entities.
-    pub fn storage_report(
+    pub(crate) fn storage_report(
         &self,
         name_to_path: &[(&'static str, &'static str)],
     ) -> Result<StorageReport, InternalError> {

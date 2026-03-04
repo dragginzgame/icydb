@@ -20,7 +20,7 @@ use crate::{
 use std::collections::BTreeSet;
 
 /// Validate that source rows do not strongly reference target keys selected for delete.
-pub fn validate_delete_strong_relations_for_source<S>(
+pub(in crate::db) fn validate_delete_strong_relations_for_source<S>(
     db: &Db<S::Canister>,
     target_path: &str,
     deleted_target_keys: &BTreeSet<RawDataKey>,

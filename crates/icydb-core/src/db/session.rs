@@ -8,8 +8,9 @@ use crate::db::{DataStore, IndexStore};
 use crate::{
     db::{
         Db, FluentDeleteQuery, FluentLoadQuery, MissingRowPolicy, PagedGroupedExecutionWithTrace,
-        PagedLoadExecutionWithTrace, PlanError, Query, QueryError, Response, WriteBatchResponse,
-        WriteResponse,
+        PagedLoadExecutionWithTrace, PlanError, Query, QueryError, Response, StoreRegistry,
+        WriteBatchResponse, WriteResponse,
+        commit::EntityRuntimeHooks,
         cursor::CursorPlanError,
         decode_cursor,
         executor::{DeleteExecutor, ExecutablePlan, ExecutorPlanError, LoadExecutor, SaveExecutor},
@@ -19,6 +20,7 @@ use crate::{
     obs::sink::{MetricsSink, with_metrics_sink},
     traits::{CanisterKind, EntityKind, EntityValue},
 };
+use std::thread::LocalKey;
 
 // Map executor-owned plan-surface failures into query-owned plan errors.
 fn map_executor_plan_error(err: ExecutorPlanError) -> QueryError {
@@ -42,12 +44,21 @@ pub struct DbSession<C: CanisterKind> {
 impl<C: CanisterKind> DbSession<C> {
     /// Construct one session facade for a database handle.
     #[must_use]
-    pub const fn new(db: Db<C>) -> Self {
+    pub(crate) const fn new(db: Db<C>) -> Self {
         Self {
             db,
             debug: false,
             metrics: None,
         }
+    }
+
+    /// Construct one session facade from store registry and runtime hooks.
+    #[must_use]
+    pub const fn new_with_hooks(
+        store: &'static LocalKey<StoreRegistry>,
+        entity_runtime_hooks: &'static [EntityRuntimeHooks<C>],
+    ) -> Self {
+        Self::new(Db::new_with_hooks(store, entity_runtime_hooks))
     }
 
     /// Enable debug execution behavior where supported by executors.
