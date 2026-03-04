@@ -8,23 +8,28 @@
 //! rules, but must not reinterpret semantics or error class intent.
 
 mod core;
+mod cursor_policy;
+mod fluent_policy;
 mod grouped;
+mod intent_policy;
 mod order;
-mod policy;
+mod plan_shape;
+mod symbols;
 
 use crate::db::{access::AccessPlanError, cursor::CursorPlanError, predicate::ValidateError};
 use thiserror::Error as ThisError;
 
 pub(crate) use core::{validate_group_query_semantics, validate_query_semantics};
+pub(crate) use cursor_policy::{
+    validate_cursor_order_plan_shape, validate_cursor_paging_requirements,
+};
+pub(crate) use fluent_policy::{validate_fluent_non_paged_mode, validate_fluent_paged_mode};
 #[cfg(test)]
 pub(in crate::db::query) use grouped::validate_group_projection_expr_compatibility_for_test;
+pub(crate) use intent_policy::{validate_intent_key_access_policy, validate_intent_plan_shape};
 pub(crate) use order::validate_order;
-pub(crate) use policy::{
-    has_explicit_order, resolve_group_field_slot, validate_cursor_order_plan_shape,
-    validate_cursor_paging_requirements, validate_fluent_non_paged_mode,
-    validate_fluent_paged_mode, validate_intent_key_access_policy, validate_intent_plan_shape,
-    validate_order_shape,
-};
+pub(crate) use plan_shape::{has_explicit_order, validate_order_shape, validate_plan_shape};
+pub(crate) use symbols::resolve_group_field_slot;
 
 ///
 /// PlanError

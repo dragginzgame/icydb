@@ -14,7 +14,7 @@ use crate::{
                     validate_no_duplicate_non_pk_order_fields, validate_order,
                     validate_primary_key_tie_break,
                 },
-                policy::validate_plan_shape,
+                validate_plan_shape,
             },
         },
     },

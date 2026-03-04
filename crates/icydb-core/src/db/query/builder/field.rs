@@ -35,84 +35,63 @@ impl FieldRef {
     }
 
     // ------------------------------------------------------------------
+    // Internal helpers
+    // ------------------------------------------------------------------
+
+    /// Internal comparison predicate builder.
+    fn cmp(self, op: CompareOp, value: impl FieldValue, coercion: CoercionId) -> Predicate {
+        Predicate::Compare(ComparePredicate::with_coercion(
+            self.0,
+            op,
+            value.to_value(),
+            coercion,
+        ))
+    }
+
+    // ------------------------------------------------------------------
     // Comparison predicates
     // ------------------------------------------------------------------
 
     /// Strict equality comparison (no coercion).
     #[must_use]
     pub fn eq(self, value: impl FieldValue) -> Predicate {
-        Predicate::Compare(ComparePredicate::with_coercion(
-            self.0,
-            CompareOp::Eq,
-            value.to_value(),
-            CoercionId::Strict,
-        ))
+        self.cmp(CompareOp::Eq, value, CoercionId::Strict)
     }
 
     /// Case-insensitive equality for text fields.
     #[must_use]
     pub fn text_eq_ci(self, value: impl FieldValue) -> Predicate {
-        Predicate::Compare(ComparePredicate::with_coercion(
-            self.0,
-            CompareOp::Eq,
-            value.to_value(),
-            CoercionId::TextCasefold,
-        ))
+        self.cmp(CompareOp::Eq, value, CoercionId::TextCasefold)
     }
 
     /// Strict inequality comparison.
     #[must_use]
     pub fn ne(self, value: impl FieldValue) -> Predicate {
-        Predicate::Compare(ComparePredicate::with_coercion(
-            self.0,
-            CompareOp::Ne,
-            value.to_value(),
-            CoercionId::Strict,
-        ))
+        self.cmp(CompareOp::Ne, value, CoercionId::Strict)
     }
 
     /// Less-than comparison with numeric widening.
     #[must_use]
     pub fn lt(self, value: impl FieldValue) -> Predicate {
-        Predicate::Compare(ComparePredicate::with_coercion(
-            self.0,
-            CompareOp::Lt,
-            value.to_value(),
-            CoercionId::NumericWiden,
-        ))
+        self.cmp(CompareOp::Lt, value, CoercionId::NumericWiden)
     }
 
     /// Less-than-or-equal comparison with numeric widening.
     #[must_use]
     pub fn lte(self, value: impl FieldValue) -> Predicate {
-        Predicate::Compare(ComparePredicate::with_coercion(
-            self.0,
-            CompareOp::Lte,
-            value.to_value(),
-            CoercionId::NumericWiden,
-        ))
+        self.cmp(CompareOp::Lte, value, CoercionId::NumericWiden)
     }
 
     /// Greater-than comparison with numeric widening.
     #[must_use]
     pub fn gt(self, value: impl FieldValue) -> Predicate {
-        Predicate::Compare(ComparePredicate::with_coercion(
-            self.0,
-            CompareOp::Gt,
-            value.to_value(),
-            CoercionId::NumericWiden,
-        ))
+        self.cmp(CompareOp::Gt, value, CoercionId::NumericWiden)
     }
 
     /// Greater-than-or-equal comparison with numeric widening.
     #[must_use]
     pub fn gte(self, value: impl FieldValue) -> Predicate {
-        Predicate::Compare(ComparePredicate::with_coercion(
-            self.0,
-            CompareOp::Gte,
-            value.to_value(),
-            CoercionId::NumericWiden,
-        ))
+        self.cmp(CompareOp::Gte, value, CoercionId::NumericWiden)
     }
 
     /// Membership test against a fixed list (strict).
