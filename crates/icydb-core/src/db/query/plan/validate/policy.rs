@@ -69,6 +69,10 @@ impl PlanShapePolicyRule {
 
 const PLAN_SHAPE_POLICY_RULES: &[PlanShapePolicyRule] = &[
     PlanShapePolicyRule::new(
+        PolicyPlanError::DeletePlanWithGrouping,
+        plan_shape_delete_with_grouping_violated,
+    ),
+    PlanShapePolicyRule::new(
         PolicyPlanError::DeleteLimitRequiresOrder,
         plan_shape_delete_limit_requires_order_violated,
     ),
@@ -88,6 +92,10 @@ const PLAN_SHAPE_POLICY_RULES: &[PlanShapePolicyRule] = &[
 
 const fn plan_shape_delete_limit_requires_order_violated(ctx: PlanShapePolicyContext) -> bool {
     ctx.has_delete_limit && !ctx.has_order
+}
+
+const fn plan_shape_delete_with_grouping_violated(ctx: PlanShapePolicyContext) -> bool {
+    ctx.is_delete_mode && ctx.grouped
 }
 
 const fn plan_shape_delete_with_pagination_violated(ctx: PlanShapePolicyContext) -> bool {
@@ -142,14 +150,22 @@ pub(crate) fn validate_order_shape(order: Option<&OrderSpec>) -> Result<(), Poli
     Ok(())
 }
 
-/// Validate intent-level plan-shape rules derived from query mode + order.
+/// Validate intent-level plan-shape rules derived from query mode + modifiers.
 pub(crate) fn validate_intent_plan_shape(
     mode: QueryMode,
     order: Option<&OrderSpec>,
+    grouped: bool,
+    delete_has_offset: bool,
 ) -> Result<(), PolicyPlanError> {
     validate_order_shape(order)?;
 
     let has_order = has_explicit_order(order);
+    if mode.is_delete() && delete_has_offset {
+        return Err(PolicyPlanError::DeletePlanWithOffset);
+    }
+    if mode.is_delete() && grouped {
+        return Err(PolicyPlanError::DeletePlanWithGrouping);
+    }
     if matches!(mode, QueryMode::Delete(spec) if spec.limit.is_some()) && !has_order {
         return Err(PolicyPlanError::DeleteLimitRequiresOrder);
     }

@@ -255,8 +255,9 @@ mod tests {
         ];
 
         for (class, origin) in cases {
-            let planner_internal =
-                PlannerError::Internal(Box::new(InternalError::classified(class, origin, "matrix")));
+            let planner_internal = PlannerError::Internal(Box::new(InternalError::classified(
+                class, origin, "matrix",
+            )));
             let query_err = QueryError::from(planner_internal);
 
             let QueryError::Execute(execute_err) = query_err else {

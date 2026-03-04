@@ -23,7 +23,7 @@ use crate::{
     traits::{EntityKind, EntityValue, Path},
     types::Id,
 };
-use std::{collections::BTreeSet, marker::PhantomData, ops::Bound};
+use std::{collections::BTreeSet, ops::Bound};
 
 // -----------------------------------------------------------------------------
 // Context Subdomains
@@ -38,7 +38,6 @@ use std::{collections::BTreeSet, marker::PhantomData, ops::Bound};
 
 pub(crate) struct Context<'a, E: EntityKind + EntityValue> {
     pub db: &'a Db<E::Canister>,
-    _marker: PhantomData<E>,
 }
 
 impl<'a, E> Context<'a, E>
@@ -52,10 +51,7 @@ where
     /// Construct one executor context bound to a database handle.
     #[must_use]
     pub(crate) const fn new(db: &'a Db<E::Canister>) -> Self {
-        Self {
-            db,
-            _marker: PhantomData,
-        }
+        Self { db }
     }
 
     // ------------------------------------------------------------------

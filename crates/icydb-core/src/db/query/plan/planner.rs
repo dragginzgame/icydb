@@ -400,7 +400,7 @@ impl IndexModel {
 mod planner_tests {
     use super::*;
     use crate::{
-        db::query::intent::{KeyAccess, access_plan_from_keys_value},
+        db::query::intent::{KeyAccess, build_access_plan_from_keys},
         model::field::{FieldKind, FieldModel},
         testing::entity_model_from_static,
         types::Ulid,
@@ -481,7 +481,7 @@ mod planner_tests {
 
         let planner_shape = plan_access(&PLANNER_CANONICAL_MODEL, &schema, Some(&predicate))
             .expect("planner access shape should build for strict single-key IN predicate");
-        let intent_shape = access_plan_from_keys_value(&KeyAccess::Many(vec![key]));
+        let intent_shape = build_access_plan_from_keys(&KeyAccess::Many(vec![key]));
 
         assert_eq!(
             planner_shape, intent_shape,

@@ -95,7 +95,7 @@ mod tests {
     use crate::db::predicate::{MissingRowPolicy, Predicate};
     use crate::db::query::explain::{ExplainGroupedStrategy, ExplainGrouping};
     use crate::db::query::fingerprint::hash_parts;
-    use crate::db::query::intent::{DeleteSpec, KeyAccess, LoadSpec, access_plan_from_keys_value};
+    use crate::db::query::intent::{DeleteSpec, KeyAccess, LoadSpec, build_access_plan_from_keys};
     use crate::db::query::plan::expr::{
         Alias, BinaryOp, Expr, FieldId, ProjectionField, ProjectionSpec,
     };
@@ -193,8 +193,8 @@ mod tests {
         let a = Ulid::from_u128(1);
         let b = Ulid::from_u128(2);
 
-        let access_a = access_plan_from_keys_value(&KeyAccess::Many(vec![a, b, a]));
-        let access_b = access_plan_from_keys_value(&KeyAccess::Many(vec![b, a]));
+        let access_a = build_access_plan_from_keys(&KeyAccess::Many(vec![a, b, a]));
+        let access_b = build_access_plan_from_keys(&KeyAccess::Many(vec![b, a]));
 
         let plan_a: AccessPlannedQuery<Value> = AccessPlannedQuery {
             logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {

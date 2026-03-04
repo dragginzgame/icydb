@@ -9,7 +9,7 @@ use crate::{
             expr::{FilterExpr, SortExpr, SortLowerError},
             intent::{
                 DeleteSpec, IntentError, KeyAccess, KeyAccessKind, KeyAccessState, LoadSpec,
-                QueryError, QueryMode, access_plan_from_keys_value,
+                QueryError, QueryMode, build_access_plan_from_keys,
                 order::{canonicalize_order_spec, push_order},
             },
             plan::{
@@ -39,6 +39,7 @@ use crate::{
 pub(crate) struct QueryModel<'m, K> {
     model: &'m EntityModel,
     mode: QueryMode,
+    offset_set: bool,
     predicate: Option<Predicate>,
     key_access: Option<KeyAccessState<K>>,
     key_access_conflict: bool,
@@ -55,6 +56,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         Self {
             model,
             mode: QueryMode::Load(LoadSpec::new()),
+            offset_set: false,
             predicate: None,
             key_access: None,
             key_access_conflict: false,
@@ -313,8 +315,12 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
     }
 
     /// Apply an offset to a load intent.
+    ///
+    /// When the intent is already in delete mode, this is recorded so
+    /// intent validation can reject the invalid modifier combination.
     #[must_use]
     pub(crate) const fn offset(mut self, offset: u32) -> Self {
+        self.offset_set = true;
         if let QueryMode::Load(mut spec) = self.mode {
             spec.offset = offset;
             self.mode = QueryMode::Load(spec);
@@ -341,7 +347,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
             })
             .transpose()?;
         let access_plan_value = match &self.key_access {
-            Some(state) => access_plan_from_keys_value(&state.access),
+            Some(state) => build_access_plan_from_keys(&state.access),
             None => plan_access(self.model, &schema_info, normalized_predicate.as_ref())?,
         };
 
@@ -392,7 +398,13 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
 
     // Validate pre-plan policy invariants and key-access rules before planning.
     pub(in crate::db::query::intent) fn validate_intent(&self) -> Result<(), IntentError> {
-        validate_intent_plan_shape(self.mode, self.order.as_ref()).map_err(IntentError::from)?;
+        validate_intent_plan_shape(
+            self.mode,
+            self.order.as_ref(),
+            self.group.is_some(),
+            self.mode.is_delete() && self.offset_set,
+        )
+        .map_err(IntentError::from)?;
 
         let key_access_kind = self.key_access.as_ref().map(|state| match state.kind {
             KeyAccessKind::Single => IntentValidationKeyAccessKind::Single,

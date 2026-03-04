@@ -276,6 +276,53 @@ fn intent_rejects_delete_limit_without_order() {
 }
 
 #[test]
+fn intent_rejects_delete_offset_modifier() {
+    let model = basic_model();
+    let intent = QueryModel::<Ulid>::new(model, MissingRowPolicy::Ignore)
+        .delete()
+        .offset(10);
+
+    assert!(matches!(
+        intent.validate_intent(),
+        Err(IntentError::PlanShape(
+            crate::db::query::plan::validate::PolicyPlanError::DeletePlanWithOffset
+        ))
+    ));
+}
+
+#[test]
+fn intent_rejects_offset_then_delete_shape() {
+    let model = basic_model();
+    let intent = QueryModel::<Ulid>::new(model, MissingRowPolicy::Ignore)
+        .offset(10)
+        .delete();
+
+    assert!(matches!(
+        intent.validate_intent(),
+        Err(IntentError::PlanShape(
+            crate::db::query::plan::validate::PolicyPlanError::DeletePlanWithOffset
+        ))
+    ));
+}
+
+#[test]
+fn delete_query_rejects_grouped_shape_during_intent_validation() {
+    let err = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .delete()
+        .group_by("name")
+        .expect("group field should resolve")
+        .plan()
+        .expect_err("delete queries must reject grouped logical shape during intent validation");
+
+    assert!(matches!(
+        err,
+        QueryError::Intent(IntentError::PlanShape(
+            crate::db::query::plan::validate::PolicyPlanError::DeletePlanWithGrouping
+        ))
+    ));
+}
+
+#[test]
 fn load_limit_without_order_rejects_unordered_pagination() {
     let err = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .limit(1)

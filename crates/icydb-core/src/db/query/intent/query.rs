@@ -14,7 +14,6 @@ use crate::{
     traits::{EntityKind, SingletonEntity},
     value::Value,
 };
-use std::marker::PhantomData;
 
 ///
 /// Query
@@ -27,77 +26,9 @@ use std::marker::PhantomData;
 /// - free of access-path decisions
 ///
 
-///
-/// PlannedQuery
-///
-/// Neutral query-owned planned contract produced by query planning.
-/// Stores logical + access shape without executor compilation state.
-///
-#[derive(Debug)]
-pub struct PlannedQuery<E: EntityKind> {
-    plan: AccessPlannedQuery<E::Key>,
-    _marker: PhantomData<E>,
-}
-
-impl<E: EntityKind> PlannedQuery<E> {
-    #[must_use]
-    pub(in crate::db) const fn new(plan: AccessPlannedQuery<E::Key>) -> Self {
-        Self {
-            plan,
-            _marker: PhantomData,
-        }
-    }
-
-    #[must_use]
-    pub fn explain(&self) -> ExplainPlan {
-        self.plan.explain_with_model(E::MODEL)
-    }
-}
-
-///
-/// CompiledQuery
-///
-/// Query-owned compiled handoff produced by `Query::plan()`.
-/// This type intentionally carries only logical/access query semantics.
-/// Executor runtime shape is derived explicitly at the executor boundary.
-///
-#[derive(Clone, Debug)]
-pub struct CompiledQuery<E: EntityKind> {
-    plan: AccessPlannedQuery<E::Key>,
-    _marker: PhantomData<E>,
-}
-
-impl<E: EntityKind> CompiledQuery<E> {
-    #[must_use]
-    pub(in crate::db) const fn new(plan: AccessPlannedQuery<E::Key>) -> Self {
-        Self {
-            plan,
-            _marker: PhantomData,
-        }
-    }
-
-    #[must_use]
-    pub fn explain(&self) -> ExplainPlan {
-        self.plan.explain_with_model(E::MODEL)
-    }
-
-    /// Borrow planner-lowered projection semantics for this compiled query.
-    #[must_use]
-    #[cfg(test)]
-    pub(crate) fn projection_spec(&self) -> crate::db::query::plan::expr::ProjectionSpec {
-        self.plan.projection_spec(E::MODEL)
-    }
-
-    #[must_use]
-    pub(in crate::db) fn into_inner(self) -> AccessPlannedQuery<E::Key> {
-        self.plan
-    }
-}
-
 #[derive(Debug)]
 pub struct Query<E: EntityKind> {
     intent: QueryModel<'static, E::Key>,
-    _marker: PhantomData<E>,
 }
 
 impl<E: EntityKind> Query<E> {
@@ -108,7 +39,6 @@ impl<E: EntityKind> Query<E> {
     pub const fn new(consistency: MissingRowPolicy) -> Self {
         Self {
             intent: QueryModel::new(E::MODEL, consistency),
-            _marker: PhantomData,
         }
     }
 
@@ -142,18 +72,18 @@ impl<E: EntityKind> Query<E> {
 
     /// Apply a dynamic filter expression.
     pub fn filter_expr(self, expr: FilterExpr) -> Result<Self, QueryError> {
-        let Self { intent, _marker } = self;
+        let Self { intent } = self;
         let intent = intent.filter_expr(expr)?;
 
-        Ok(Self { intent, _marker })
+        Ok(Self { intent })
     }
 
     /// Apply a dynamic sort expression.
     pub fn sort_expr(self, expr: SortExpr) -> Result<Self, QueryError> {
-        let Self { intent, _marker } = self;
+        let Self { intent } = self;
         let intent = intent.sort_expr(expr)?;
 
-        Ok(Self { intent, _marker })
+        Ok(Self { intent })
     }
 
     /// Append an ascending sort key.
@@ -179,10 +109,10 @@ impl<E: EntityKind> Query<E> {
 
     /// Add one GROUP BY field.
     pub fn group_by(self, field: impl AsRef<str>) -> Result<Self, QueryError> {
-        let Self { intent, _marker } = self;
+        let Self { intent } = self;
         let intent = intent.push_group_field(field.as_ref())?;
 
-        Ok(Self { intent, _marker })
+        Ok(Self { intent })
     }
 
     /// Add one aggregate terminal via composable aggregate expression.
@@ -207,10 +137,10 @@ impl<E: EntityKind> Query<E> {
         value: Value,
     ) -> Result<Self, QueryError> {
         let field = field.as_ref().to_owned();
-        let Self { intent, _marker } = self;
+        let Self { intent } = self;
         let intent = intent.push_having_group_clause(&field, op, value)?;
 
-        Ok(Self { intent, _marker })
+        Ok(Self { intent })
     }
 
     /// Add one grouped HAVING compare clause over one grouped aggregate output.
@@ -220,18 +150,17 @@ impl<E: EntityKind> Query<E> {
         op: CompareOp,
         value: Value,
     ) -> Result<Self, QueryError> {
-        let Self { intent, _marker } = self;
+        let Self { intent } = self;
         let intent = intent.push_having_aggregate_clause(aggregate_index, op, value)?;
 
-        Ok(Self { intent, _marker })
+        Ok(Self { intent })
     }
 
     /// Set the access path to a single primary key lookup.
     pub(crate) fn by_id(self, id: E::Key) -> Self {
-        let Self { intent, _marker } = self;
+        let Self { intent } = self;
         Self {
             intent: intent.by_id(id),
-            _marker,
         }
     }
 
@@ -240,10 +169,9 @@ impl<E: EntityKind> Query<E> {
     where
         I: IntoIterator<Item = E::Key>,
     {
-        let Self { intent, _marker } = self;
+        let Self { intent } = self;
         Self {
             intent: intent.by_ids(ids),
-            _marker,
         }
     }
 
@@ -270,6 +198,7 @@ impl<E: EntityKind> Query<E> {
     ///
     /// Scalar pagination requires an explicit `order_by(...)`.
     /// GROUP BY queries use canonical grouped-key order by default.
+    /// Delete intents reject `offset(...)` during planning.
     #[must_use]
     pub fn offset(mut self, offset: u32) -> Self {
         self.intent = self.intent.offset(offset);
@@ -319,11 +248,71 @@ where
 {
     /// Set the access path to the singleton primary key.
     pub(crate) fn only(self) -> Self {
-        let Self { intent, _marker } = self;
+        let Self { intent } = self;
 
         Self {
             intent: intent.only(E::Key::default()),
-            _marker,
         }
+    }
+}
+
+///
+/// PlannedQuery
+///
+/// Neutral query-owned planned contract produced by query planning.
+/// Stores logical + access shape without executor compilation state.
+///
+
+#[derive(Debug)]
+pub struct PlannedQuery<E: EntityKind> {
+    plan: AccessPlannedQuery<E::Key>,
+}
+
+impl<E: EntityKind> PlannedQuery<E> {
+    #[must_use]
+    pub(in crate::db) const fn new(plan: AccessPlannedQuery<E::Key>) -> Self {
+        Self { plan }
+    }
+
+    #[must_use]
+    pub fn explain(&self) -> ExplainPlan {
+        self.plan.explain_with_model(E::MODEL)
+    }
+}
+
+///
+/// CompiledQuery
+///
+/// Query-owned compiled handoff produced by `Query::plan()`.
+/// This type intentionally carries only logical/access query semantics.
+/// Executor runtime shape is derived explicitly at the executor boundary.
+///
+
+#[derive(Clone, Debug)]
+pub struct CompiledQuery<E: EntityKind> {
+    plan: AccessPlannedQuery<E::Key>,
+}
+
+impl<E: EntityKind> CompiledQuery<E> {
+    #[must_use]
+    pub(in crate::db) const fn new(plan: AccessPlannedQuery<E::Key>) -> Self {
+        Self { plan }
+    }
+
+    #[must_use]
+    pub fn explain(&self) -> ExplainPlan {
+        self.plan.explain_with_model(E::MODEL)
+    }
+
+    /// Borrow planner-lowered projection semantics for this compiled query.
+    #[must_use]
+    #[cfg(test)]
+    pub(crate) fn projection_spec(&self) -> crate::db::query::plan::expr::ProjectionSpec {
+        self.plan.projection_spec(E::MODEL)
+    }
+
+    #[must_use]
+    pub(in crate::db) fn into_inner(self) -> AccessPlannedQuery<E::Key> {
+        self.plan
     }
 }

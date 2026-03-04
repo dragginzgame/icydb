@@ -21,7 +21,7 @@ use crate::{
 use candid::CandidType;
 use derive_more::Display;
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeSet, marker::PhantomData};
+use std::collections::BTreeSet;
 
 // Debug assertions below are diagnostic sentinels; correctness is enforced by
 // runtime validation earlier in the pipeline.
@@ -49,7 +49,6 @@ pub(crate) enum SaveMode {
 #[derive(Clone, Copy)]
 pub(crate) struct SaveExecutor<E: EntityKind + EntityValue> {
     pub(in crate::db::executor::mutation) db: Db<E::Canister>,
-    _marker: PhantomData<E>,
 }
 
 ///
@@ -82,10 +81,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
     /// Construct one save executor bound to a database handle.
     #[must_use]
     pub(crate) const fn new(db: Db<E::Canister>, _debug: bool) -> Self {
-        Self {
-            db,
-            _marker: PhantomData,
-        }
+        Self { db }
     }
 
     // ======================================================================

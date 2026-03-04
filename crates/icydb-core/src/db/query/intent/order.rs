@@ -29,25 +29,22 @@ pub(in crate::db::query::intent) fn canonicalize_order_spec(
     order: Option<OrderSpec>,
 ) -> Option<OrderSpec> {
     let mut order = order?;
-    if order.fields.is_empty() {
-        return Some(order);
-    }
+    let pk = model.primary_key.name;
 
-    let pk_field = model.primary_key.name;
     let mut pk_direction = None;
-    order.fields.retain(|(field, direction)| {
-        if field == pk_field {
-            if pk_direction.is_none() {
-                pk_direction = Some(*direction);
-            }
+
+    order.fields.retain(|(field, dir)| {
+        if field == pk {
+            pk_direction.get_or_insert(*dir);
             false
         } else {
             true
         }
     });
 
-    let pk_direction = pk_direction.unwrap_or(OrderDirection::Asc);
-    order.fields.push((pk_field.to_string(), pk_direction));
+    order
+        .fields
+        .push((pk.to_string(), pk_direction.unwrap_or(OrderDirection::Asc)));
 
     Some(order)
 }

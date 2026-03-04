@@ -22,7 +22,7 @@ use crate::{
     traits::{EntityKind, EntityValue},
     types::Id,
 };
-use std::{collections::BTreeSet, marker::PhantomData};
+use std::collections::BTreeSet;
 
 ///
 /// DeleteRow
@@ -93,7 +93,6 @@ where
     E: EntityKind,
 {
     db: Db<E::Canister>,
-    _marker: PhantomData<E>,
 }
 
 impl<E> DeleteExecutor<E>
@@ -103,10 +102,7 @@ where
     /// Construct one delete executor bound to a database handle.
     #[must_use]
     pub(crate) const fn new(db: Db<E::Canister>, _debug: bool) -> Self {
-        Self {
-            db,
-            _marker: PhantomData,
-        }
+        Self { db }
     }
 
     // ─────────────────────────────────────────────

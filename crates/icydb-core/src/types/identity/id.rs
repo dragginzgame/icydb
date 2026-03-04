@@ -11,7 +11,6 @@ use serde::{Deserialize, Serialize, Serializer, de::Deserializer};
 use std::{
     fmt,
     hash::{Hash, Hasher},
-    marker::PhantomData,
 };
 
 ///
@@ -52,7 +51,6 @@ use std::{
 #[repr(transparent)]
 pub struct Id<E: EntityKey> {
     key: E::Key,
-    _marker: PhantomData<fn() -> E>,
 }
 
 impl<E> Id<E>
@@ -74,11 +72,8 @@ where
     ///
     /// This is an explicit boundary conversion from storage-level
     /// representation to a typed entity key.
-    pub fn from_key(key: E::Key) -> Self {
-        Self {
-            key,
-            _marker: ::core::marker::PhantomData,
-        }
+    pub const fn from_key(key: E::Key) -> Self {
+        Self { key }
     }
 
     // ------------------------------------------------------------------

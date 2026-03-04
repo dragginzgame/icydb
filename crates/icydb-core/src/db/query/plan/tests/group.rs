@@ -3,7 +3,7 @@ use crate::{
         access::{AccessPath, AccessPlan},
         predicate::{CompareOp, MissingRowPolicy, SchemaInfo},
         query::{
-            intent::{LoadSpec, QueryMode},
+            intent::{DeleteSpec, LoadSpec, QueryMode},
             plan::{
                 AccessPlannedQuery, AggregateKind, DeleteLimitSpec, FieldSlot, GroupAggregateSpec,
                 GroupDistinctAdmissibility, GroupDistinctPolicyReason, GroupHavingClause,
@@ -1295,6 +1295,33 @@ fn grouped_validation_preserves_scalar_policy_errors_on_base_plan() {
     assert!(is_policy_plan_error(&grouped_err, |inner| matches!(
         inner,
         PolicyPlanError::LoadPlanWithDeleteLimit
+    )));
+}
+
+#[test]
+fn grouped_validation_rejects_delete_mode_grouped_shape_as_policy_error() {
+    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::from_entity_model(model).expect("valid model");
+    let mut base = load_plan(AccessPlan::path(AccessPath::FullScan));
+    base.scalar_plan_mut().mode = QueryMode::Delete(DeleteSpec::new());
+    base.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
+    });
+    let grouped = grouped_plan(
+        base,
+        vec!["rank"],
+        vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: None,
+            distinct: false,
+        }],
+    );
+
+    let err = validate_group_query_semantics(&schema, model, &grouped)
+        .expect_err("delete grouped shape must fail planner policy validation");
+    assert!(is_policy_plan_error(&err, |inner| matches!(
+        inner,
+        PolicyPlanError::DeletePlanWithGrouping
     )));
 }
 

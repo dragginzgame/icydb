@@ -2,6 +2,14 @@
 //! Responsibility: deterministic access-shape canonicalization.
 //! Does not own: query semantics or schema-aware ordering rules.
 //! Boundary: canonicalization is used for deterministic planning/fingerprinting.
+//!
+//! Canonicalization invariants:
+//! - canonicalization must be idempotent
+//! - canonical ordering must be total
+//! - semantically equivalent access shapes must normalize to identical plans
+//! - canonical shape must align with query fingerprinting
+//!
+//! Any change in this module must preserve fingerprint/continuation stability.
 
 use crate::{
     db::access::{AccessPath, AccessPlan},

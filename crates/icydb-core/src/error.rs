@@ -486,6 +486,10 @@ impl InternalError {
             PolicyPlanError::EmptyOrderSpec => {
                 "order specification must include at least one field"
             }
+            PolicyPlanError::DeletePlanWithOffset => "delete plans must not include OFFSET",
+            PolicyPlanError::DeletePlanWithGrouping => {
+                "delete plans must not include GROUP BY or HAVING"
+            }
             PolicyPlanError::DeletePlanWithPagination => "delete plans must not include pagination",
             PolicyPlanError::LoadPlanWithDeleteLimit => "load plans must not carry delete limits",
             PolicyPlanError::DeleteLimitRequiresOrder => "delete limit requires explicit ordering",

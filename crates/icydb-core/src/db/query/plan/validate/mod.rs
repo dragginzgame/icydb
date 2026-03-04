@@ -127,6 +127,14 @@ pub enum PolicyPlanError {
     #[error("order specification must include at least one field")]
     EmptyOrderSpec,
 
+    /// Delete plans must not carry offsets.
+    #[error("delete plans must not include OFFSET")]
+    DeletePlanWithOffset,
+
+    /// Delete plans must not carry grouped query wrappers.
+    #[error("delete plans must not include GROUP BY or HAVING")]
+    DeletePlanWithGrouping,
+
     /// Delete plans must not carry pagination.
     #[error("delete plans must not include pagination")]
     DeletePlanWithPagination,

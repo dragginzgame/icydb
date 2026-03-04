@@ -21,7 +21,6 @@ use crate::{
     error::InternalError,
     traits::EntityKind,
 };
-use std::marker::PhantomData;
 
 ///
 /// ExecutablePlan
@@ -38,7 +37,6 @@ pub(crate) struct ExecutablePlan<E: EntityKind> {
     index_prefix_spec_invalid: bool,
     index_range_specs: Vec<LoweredIndexRangeSpec>,
     index_range_spec_invalid: bool,
-    _marker: PhantomData<E>,
 }
 
 impl<E: EntityKind> ExecutablePlan<E> {
@@ -79,7 +77,6 @@ impl<E: EntityKind> ExecutablePlan<E> {
             index_prefix_spec_invalid,
             index_range_specs,
             index_range_spec_invalid,
-            _marker: PhantomData,
         }
     }
 

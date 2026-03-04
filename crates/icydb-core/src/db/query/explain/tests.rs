@@ -2,7 +2,7 @@ use super::*;
 use crate::db::access::{AccessPath, AccessPlan};
 use crate::db::predicate::{CompareOp, MissingRowPolicy, Predicate};
 use crate::db::query::builder::field::FieldRef;
-use crate::db::query::intent::{KeyAccess, LoadSpec, QueryMode, access_plan_from_keys_value};
+use crate::db::query::intent::{KeyAccess, LoadSpec, QueryMode, build_access_plan_from_keys};
 use crate::db::query::plan::{
     AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec, GroupHavingClause,
     GroupHavingSpec, GroupHavingSymbol, GroupSpec, GroupedExecutionConfig, LogicalPlan,
@@ -74,8 +74,8 @@ fn explain_is_deterministic_for_by_keys() {
     let a = Ulid::from_u128(1);
     let b = Ulid::from_u128(2);
 
-    let access_a = access_plan_from_keys_value(&KeyAccess::Many(vec![a, b, a]));
-    let access_b = access_plan_from_keys_value(&KeyAccess::Many(vec![b, a]));
+    let access_a = build_access_plan_from_keys(&KeyAccess::Many(vec![a, b, a]));
+    let access_b = build_access_plan_from_keys(&KeyAccess::Many(vec![b, a]));
 
     let plan_a: AccessPlannedQuery<Value> = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {

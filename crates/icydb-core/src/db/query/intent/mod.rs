@@ -1,20 +1,13 @@
-#![expect(clippy::used_underscore_binding)]
-
 //! Module: query::intent
 //! Responsibility: query intent construction, coercion, and semantic-plan compilation.
 //! Does not own: executor runtime behavior or index storage details.
 //! Boundary: typed/fluent query inputs lowered into validated logical plans.
 
-#[rustfmt::skip]
-mod key_access;
-#[rustfmt::skip]
-mod model;
-#[rustfmt::skip]
-mod query;
-#[rustfmt::skip]
 mod errors;
-#[rustfmt::skip]
+mod key_access;
+mod model;
 mod order;
+mod query;
 
 #[cfg(test)]
 mod tests;
@@ -32,8 +25,8 @@ pub use errors::{IntentError, QueryError, QueryExecuteError};
 #[expect(unused_imports)]
 pub(crate) use key_access::coerce_entity_key;
 pub(crate) use key_access::{
-    KeyAccess, KeyAccessKind, KeyAccessState, access_plan_from_keys_value,
-    access_plan_to_entity_keys,
+    KeyAccess, KeyAccessKind, KeyAccessState, access_plan_to_entity_keys,
+    build_access_plan_from_keys,
 };
 #[cfg_attr(not(test), expect(unused_imports))]
 pub(crate) use model::QueryModel;

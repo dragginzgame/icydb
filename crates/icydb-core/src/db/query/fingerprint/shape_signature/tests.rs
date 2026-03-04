@@ -20,7 +20,7 @@ use crate::{
         query::{
             builder::field::FieldRef,
             explain::{ExplainGroupedStrategy, ExplainGrouping},
-            intent::{KeyAccess, LoadSpec, QueryMode, access_plan_from_keys_value},
+            intent::{KeyAccess, LoadSpec, QueryMode, build_access_plan_from_keys},
             plan::OrderDirection,
             plan::{
                 AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec,
@@ -106,8 +106,8 @@ fn signature_is_deterministic_for_by_keys() {
     let a = Ulid::from_u128(1);
     let b = Ulid::from_u128(2);
 
-    let access_a = access_plan_from_keys_value(&KeyAccess::Many(vec![a, b, a]));
-    let access_b = access_plan_from_keys_value(&KeyAccess::Many(vec![b, a]));
+    let access_a = build_access_plan_from_keys(&KeyAccess::Many(vec![a, b, a]));
+    let access_b = build_access_plan_from_keys(&KeyAccess::Many(vec![b, a]));
 
     let plan_a: AccessPlannedQuery<Value> = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {

@@ -45,7 +45,6 @@ use crate::{
     error::InternalError,
     traits::{EntityKind, EntityValue},
 };
-use std::marker::PhantomData;
 
 #[cfg(test)]
 pub(in crate::db::executor) use self::entrypoints::{
@@ -154,7 +153,6 @@ pub(in crate::db::executor) struct FastPathKeyResult {
 pub(crate) struct LoadExecutor<E: EntityKind> {
     db: Db<E::Canister>,
     debug: bool,
-    _marker: PhantomData<E>,
 }
 
 ///
@@ -270,11 +268,7 @@ where
     /// Construct one load executor bound to a database handle and debug mode.
     #[must_use]
     pub(crate) const fn new(db: Db<E::Canister>, debug: bool) -> Self {
-        Self {
-            db,
-            debug,
-            _marker: PhantomData,
-        }
+        Self { db, debug }
     }
 
     /// Recover one canonical read context for kernel-owned execution setup.

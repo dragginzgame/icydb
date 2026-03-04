@@ -43,7 +43,7 @@ pub(crate) struct KeyAccessState<K> {
 }
 
 // Build a model-level access plan for key-only intents.
-pub(crate) fn access_plan_from_keys_value<K>(access: &KeyAccess<K>) -> AccessPlan<Value>
+pub(crate) fn build_access_plan_from_keys<K>(access: &KeyAccess<K>) -> AccessPlan<Value>
 where
     K: FieldValue,
 {
@@ -51,7 +51,9 @@ where
     let plan = match access {
         KeyAccess::Single(key) => AccessPlan::by_key(key.to_value()),
         KeyAccess::Many(keys) => {
-            let values = keys.iter().map(FieldValue::to_value).collect();
+            let mut values = Vec::with_capacity(keys.len());
+            values.extend(keys.iter().map(FieldValue::to_value));
+
             AccessPlan::by_keys(values)
         }
     };

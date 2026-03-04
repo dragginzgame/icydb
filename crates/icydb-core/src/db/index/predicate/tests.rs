@@ -6,12 +6,35 @@ use crate::{
         },
         predicate::{
             CoercionId, CoercionSpec, CompareOp, ResolvedComparePredicate, ResolvedPredicate,
+            compare_eq, compare_order,
         },
     },
+    types::Decimal,
     value::Value,
 };
+use std::cmp::Ordering;
 
-use super::{IndexCompilePolicy, compile_index_program};
+use super::{IndexCompilePolicy, compile_index_program, eval_index_compare};
+
+// Match index compare operations to strict predicate semantics for expected results.
+fn expected_strict_compare(
+    op: IndexCompareOp,
+    left: &Value,
+    right: &Value,
+    strict: &CoercionSpec,
+) -> bool {
+    match op {
+        IndexCompareOp::Eq => compare_eq(left, right, strict).unwrap_or(false),
+        IndexCompareOp::Ne => compare_eq(left, right, strict).is_some_and(|equal| !equal),
+        IndexCompareOp::Lt => compare_order(left, right, strict).is_some_and(Ordering::is_lt),
+        IndexCompareOp::Lte => compare_order(left, right, strict).is_some_and(Ordering::is_le),
+        IndexCompareOp::Gt => compare_order(left, right, strict).is_some_and(Ordering::is_gt),
+        IndexCompareOp::Gte => compare_order(left, right, strict).is_some_and(Ordering::is_ge),
+        IndexCompareOp::In | IndexCompareOp::NotIn => {
+            unreachable!("expected_strict_compare only handles one-literal compare operators")
+        }
+    }
+}
 
 #[test]
 fn compile_index_program_maps_field_slot_to_component_index() {
@@ -253,4 +276,80 @@ fn compile_index_program_strict_rejects_partial_and_support() {
 
     let program = compile_index_program(&predicate, &[1], IndexCompilePolicy::StrictAllOrNone);
     assert!(program.is_none());
+}
+
+#[test]
+fn eval_index_compare_matches_strict_semantics_for_one_literal_ops() {
+    let strict = CoercionSpec::new(CoercionId::Strict);
+    let cases = vec![
+        (Value::Int(-2), Value::Int(7)),
+        (
+            Value::Decimal(Decimal::new(10, 1)),
+            Value::Decimal(Decimal::new(1, 0)),
+        ),
+        (
+            Value::Text("alpha".to_string()),
+            Value::Text("beta".to_string()),
+        ),
+    ];
+    let operators = [
+        IndexCompareOp::Eq,
+        IndexCompareOp::Ne,
+        IndexCompareOp::Lt,
+        IndexCompareOp::Lte,
+        IndexCompareOp::Gt,
+        IndexCompareOp::Gte,
+    ];
+
+    for (left, right) in cases {
+        let component = literal_index_component_bytes(&left).expect("left value should encode");
+        let literal = IndexLiteral::One(
+            literal_index_component_bytes(&right).expect("right value should encode"),
+        );
+
+        for op in operators {
+            let expected = expected_strict_compare(op, &left, &right, &strict);
+            let actual = eval_index_compare(component.as_slice(), op, &literal);
+
+            assert_eq!(
+                actual, expected,
+                "index compare drifted from strict predicate semantics for op={op:?} left={left:?} right={right:?}",
+            );
+        }
+    }
+}
+
+#[test]
+fn eval_index_compare_in_and_not_in_match_strict_membership_semantics() {
+    let strict = CoercionSpec::new(CoercionId::Strict);
+    let target = Value::Text("beta".to_string());
+    let candidates = [
+        Value::Text("alpha".to_string()),
+        Value::Text("beta".to_string()),
+        Value::Text("gamma".to_string()),
+    ];
+    let component = literal_index_component_bytes(&target).expect("target should encode");
+    let literal = IndexLiteral::Many(
+        candidates
+            .iter()
+            .map(literal_index_component_bytes)
+            .collect::<Option<Vec<_>>>()
+            .expect("all candidate literals should encode"),
+    );
+
+    let expected_in = candidates
+        .iter()
+        .any(|candidate| compare_eq(&target, candidate, &strict).unwrap_or(false));
+    let expected_not_in = candidates
+        .iter()
+        .all(|candidate| compare_eq(&target, candidate, &strict).is_some_and(|eq| !eq));
+
+    assert_eq!(
+        eval_index_compare(component.as_slice(), IndexCompareOp::In, &literal),
+        expected_in,
+    );
+    assert_eq!(
+        eval_index_compare(component.as_slice(), IndexCompareOp::NotIn, &literal),
+        expected_not_in,
+    );
 }
