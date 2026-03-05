@@ -49,6 +49,7 @@ use crate::{
 pub(in crate::db::executor) use self::entrypoints::{
     load_execute_stage_order_guard, load_pipeline_state_optional_slot_count_guard,
 };
+pub(in crate::db::executor::load) use self::execute::ExecutionOutcomeMetrics;
 pub(in crate::db::executor) use self::execute::{
     ExecutionInputs, ExecutionInputsProjection, MaterializedExecutionAttempt,
     ResolvedExecutionKeyStream,

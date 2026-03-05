@@ -60,6 +60,7 @@ impl IndexModel {
                 | CompareOp::Gte
                 | CompareOp::Lt
                 | CompareOp::Lte
+                | CompareOp::StartsWith
         )
     }
 }

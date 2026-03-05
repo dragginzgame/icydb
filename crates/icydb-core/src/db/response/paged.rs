@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        diagnostics::ExecutionTrace,
+        diagnostics::{ExecutionMetrics, ExecutionTrace},
         response::{EntityResponse, Row},
     },
     traits::EntityKind,
@@ -115,6 +115,12 @@ impl<E: EntityKind> PagedLoadExecutionWithTrace<E> {
     #[must_use]
     pub const fn execution_trace(&self) -> Option<&ExecutionTrace> {
         self.execution_trace.as_ref()
+    }
+
+    /// Borrow compact execution metrics derived from the optional execution trace.
+    #[must_use]
+    pub fn execution_metrics(&self) -> Option<ExecutionMetrics> {
+        self.execution_trace.as_ref().map(ExecutionTrace::metrics)
     }
 
     /// Consume this payload and drop trace details.

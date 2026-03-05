@@ -3,7 +3,10 @@
 //! Does not own: grouped execution evaluation, route policy, or cursor token protocol.
 //! Boundary: grouped DTOs returned by session/query execution APIs.
 
-use crate::{db::diagnostics::ExecutionTrace, value::Value};
+use crate::{
+    db::diagnostics::{ExecutionMetrics, ExecutionTrace},
+    value::Value,
+};
 
 ///
 /// GroupedRow
@@ -138,6 +141,12 @@ impl PagedGroupedExecutionWithTrace {
     #[must_use]
     pub const fn execution_trace(&self) -> Option<&ExecutionTrace> {
         self.execution_trace.as_ref()
+    }
+
+    /// Borrow compact execution metrics derived from the optional execution trace.
+    #[must_use]
+    pub fn execution_metrics(&self) -> Option<ExecutionMetrics> {
+        self.execution_trace.as_ref().map(ExecutionTrace::metrics)
     }
 
     /// Consume payload and drop trace details.

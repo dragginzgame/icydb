@@ -43,7 +43,8 @@ pub use commit::EntityRuntimeHooks;
 pub use data::DataStore;
 pub(crate) use data::StorageKey;
 pub use diagnostics::{
-    ExecutionAccessPathVariant, ExecutionOptimization, ExecutionTrace, StorageReport,
+    ExecutionAccessPathVariant, ExecutionMetrics, ExecutionOptimization, ExecutionTrace,
+    StorageReport,
 };
 pub use identity::{EntityName, IndexName};
 pub use index::IndexStore;

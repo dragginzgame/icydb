@@ -5,6 +5,7 @@
 
 use crate::{
     db::{
+        access::ExecutionPathKind,
         direction::Direction,
         executor::{
             AccessExecutionDescriptor, AccessScanContinuationInput, AccessStreamBindings,
@@ -39,8 +40,12 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<u32, InternalError> {
+        if Self::primary_key_count_eligible(&plan) {
+            return self.aggregate_count_from_existing_row_stream(plan);
+        }
+
         if Self::index_covering_count_eligible(&plan) {
-            return self.aggregate_count_from_index_covering_stream(plan);
+            return self.aggregate_count_from_existing_row_stream(plan);
         }
 
         match ExecutionKernel::execute_aggregate_spec(self, plan, count())? {
@@ -183,6 +188,26 @@ where
         }
     }
 
+    // Primary-key point lookups can count without row materialization by
+    // folding over one key while preserving missing-row consistency checks.
+    fn primary_key_count_eligible(plan: &ExecutablePlan<E>) -> bool {
+        // Keep the dedicated point-lookup fast path narrow: exact PK equality,
+        // no residual predicate, and no explicit ordering contract.
+        if plan.order_spec().is_some() {
+            return false;
+        }
+        if plan.has_predicate() {
+            return false;
+        }
+
+        let access_strategy = plan.access().resolve_strategy();
+        let Some(path) = access_strategy.as_path() else {
+            return false;
+        };
+
+        path.kind() == ExecutionPathKind::ByKey
+    }
+
     // Secondary index shapes can count without row materialization by folding
     // over key streams while still preserving missing-row consistency checks.
     fn index_covering_count_eligible(plan: &ExecutablePlan<E>) -> bool {
@@ -201,10 +226,10 @@ where
             || plan.access().as_index_range_path().is_some()
     }
 
-    // Fold COUNT over an index-backed key stream using `ExistingRows` mode.
+    // Fold COUNT over one key stream using `ExistingRows` mode.
     // This avoids entity decode/materialization while preserving stale-key and
     // strict-missing-row semantics via `row_exists_for_key`.
-    fn aggregate_count_from_index_covering_stream(
+    fn aggregate_count_from_existing_row_stream(
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<u32, InternalError> {
@@ -241,7 +266,7 @@ where
 
         match aggregate_output {
             AggregateOutput::Count(value) => Ok(value),
-            _ => Err(invariant("covering COUNT reducer result kind mismatch")),
+            _ => Err(invariant("existing-row COUNT reducer result kind mismatch")),
         }
     }
 

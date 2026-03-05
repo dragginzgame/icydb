@@ -17,7 +17,7 @@ use crate::{
     model::{entity::EntityModel, index::IndexModel},
     value::Value,
 };
-use std::ops::Bound;
+use std::{fmt, ops::Bound};
 
 // Audit Summary:
 // - `path: &AccessPath<K>` was previously used only by stream physical lowering.
@@ -336,7 +336,7 @@ impl AccessRouteClass {
 /// route-class derivation under one access-owned authority object.
 ///
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub(in crate::db) struct AccessStrategy<'a, K> {
     executable: ExecutableAccessPlan<'a, K>,
     class: AccessRouteClass,
@@ -404,6 +404,110 @@ impl<'a, K> AccessStrategy<'a, K> {
         }
 
         fetch_count
+    }
+}
+
+impl<K> AccessStrategy<'_, K>
+where
+    K: fmt::Debug,
+{
+    /// Return one concise debug summary of the resolved access strategy shape.
+    #[must_use]
+    pub(in crate::db) fn debug_summary(&self) -> String {
+        summarize_executable_access_plan(&self.executable)
+    }
+}
+
+impl<K> fmt::Debug for AccessStrategy<'_, K>
+where
+    K: fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AccessStrategy")
+            .field("summary", &self.debug_summary())
+            .field("class", &self.class)
+            .finish()
+    }
+}
+
+fn summarize_executable_access_plan<K>(plan: &ExecutableAccessPlan<'_, K>) -> String
+where
+    K: fmt::Debug,
+{
+    match plan.node() {
+        ExecutableAccessNode::Path(path) => summarize_executable_access_path(path),
+        ExecutableAccessNode::Union(children) => {
+            format!("Union({})", summarize_composite_children(children))
+        }
+        ExecutableAccessNode::Intersection(children) => {
+            format!("Intersection({})", summarize_composite_children(children))
+        }
+    }
+}
+
+fn summarize_composite_children<K>(children: &[ExecutableAccessPlan<'_, K>]) -> String
+where
+    K: fmt::Debug,
+{
+    let preview_len = children.len().min(3);
+    let mut preview = Vec::with_capacity(preview_len);
+    for child in children.iter().take(preview_len) {
+        preview.push(summarize_executable_access_plan(child));
+    }
+
+    if children.len() > preview_len {
+        preview.push(format!("... +{} more", children.len() - preview_len));
+    }
+
+    preview.join(", ")
+}
+
+fn summarize_executable_access_path<K>(path: &ExecutableAccessPath<'_, K>) -> String
+where
+    K: fmt::Debug,
+{
+    match path.payload() {
+        ExecutionPathPayload::ByKey(key) => format!("ByKey({key:?})"),
+        ExecutionPathPayload::ByKeys(keys) => format!("ByKeys(count={})", keys.len()),
+        ExecutionPathPayload::KeyRange { start, end } => {
+            format!("KeyRange(start={start:?}, end={end:?})")
+        }
+        ExecutionPathPayload::IndexPrefix => {
+            if let Some((index, prefix_len)) = path.index_prefix_details() {
+                format!("IndexPrefix({} prefix_len={prefix_len})", index.name)
+            } else {
+                "IndexPrefix".to_string()
+            }
+        }
+        ExecutionPathPayload::IndexRange {
+            prefix_values,
+            lower,
+            upper,
+        } => {
+            if let Some((index, prefix_len)) = path.index_range_details() {
+                format!(
+                    "IndexRange({} prefix={prefix_values:?} lower={} upper={} prefix_len={prefix_len})",
+                    index.name,
+                    summarize_bound(lower),
+                    summarize_bound(upper),
+                )
+            } else {
+                format!(
+                    "IndexRange(prefix={prefix_values:?} lower={} upper={})",
+                    summarize_bound(lower),
+                    summarize_bound(upper),
+                )
+            }
+        }
+        ExecutionPathPayload::FullScan => "FullScan".to_string(),
+    }
+}
+
+fn summarize_bound(bound: &Bound<Value>) -> String {
+    match bound {
+        Bound::Unbounded => "Unbounded".to_string(),
+        Bound::Included(value) => format!("Included({value:?})"),
+        Bound::Excluded(value) => format!("Excluded({value:?})"),
     }
 }
 
@@ -810,5 +914,46 @@ fn access_plan_is_pk_ordered_stream_internal<K>(access: &ExecutableAccessPlan<'_
                 .iter()
                 .all(access_plan_is_pk_ordered_stream_internal)
         }
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use crate::db::access::{AccessPlan, AccessStrategy};
+
+    #[test]
+    fn access_strategy_debug_summary_reports_scalar_path_shape() {
+        let plan = AccessPlan::by_key(7u64);
+        let strategy = AccessStrategy::from_plan(&plan);
+
+        assert_eq!(
+            strategy.debug_summary(),
+            "ByKey(7)",
+            "single-key strategies should render concise path summaries",
+        );
+    }
+
+    #[test]
+    fn access_strategy_debug_summary_reports_composite_shape() {
+        let plan = AccessPlan::union(vec![AccessPlan::by_key(1u64), AccessPlan::by_key(2u64)]);
+        let strategy = AccessStrategy::from_plan(&plan);
+        let summary = strategy.debug_summary();
+
+        assert!(
+            summary.starts_with("Union("),
+            "composite strategies should render union summary headings",
+        );
+        assert!(
+            summary.contains("ByKey(1)") && summary.contains("ByKey(2)"),
+            "composite strategy summaries should include child path summaries",
+        );
+        assert!(
+            format!("{strategy:?}").contains("summary"),
+            "debug output should include the summarized route label",
+        );
     }
 }

@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.41.x] - 2026-03-05 - Minor Features Kickoff
 
-- `0.41.0` opens this minor line with scalar `LIMIT` runtime cleanup, strategy-owned early-stop hint routing, no-cursor `LIMIT` parity coverage, covering-index projection fast paths for `values/distinct/first/last` (including adjacent-key `distinct_values_by` dedupe for eligible index-ordered shapes), index-backed `COUNT(*)`/`EXISTS` fast paths that avoid row materialization while preserving missing-row consistency checks, and index-leading `MIN(field)` probe optimization with stale-key-safe fallback coverage.
+- `0.41.0` opens this minor line with scalar `LIMIT` runtime cleanup, strategy-owned early-stop hint routing, no-cursor `LIMIT` parity coverage, and covering-index projection fast paths for `values/distinct/first/last`.
+- `0.41.1` adds aggregate speedups for index-backed scalar shapes (`count()`/`exists()`, parity-safe `COUNT WHERE pk = ?`, bounded index-leading `MIN(field)` probe hints, and faster covering `distinct_values_by`) while preserving stale-key and strict missing-row semantics.
+- `0.41.2` adds ordered-path planner/executor optimizations (`ORDER BY` sort-skip, bounded `ORDER BY ... LIMIT` windows, unpaged `ORDER BY ... LIMIT 1` seek hints), extends covering projection to `values_by_with_ids`, improves pushdown/simplification (`starts_with` range lowering, secondary `IN`/`BETWEEN` coverage, redundant `ByKey` predicate + `LIMIT 1` cleanup), and adds pre-EXPLAIN observability surfaces (`AccessStrategy` debug summary + response execution metrics).
 
 See detailed breakdown:
 [docs/changelog/0.41.md](docs/changelog/0.41.md)

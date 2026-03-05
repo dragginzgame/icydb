@@ -15,7 +15,10 @@ use crate::{
             derive_access_capabilities, derive_access_path_capabilities,
             load::LoadExecutor,
         },
-        query::{builder::AggregateExpr, plan::AccessPlannedQuery},
+        query::{
+            builder::AggregateExpr,
+            plan::{AccessPlannedQuery, OrderDirection},
+        },
     },
     traits::{EntityKind, EntitySchema, EntityValue},
 };
@@ -95,18 +98,60 @@ where
     let Some(order) = plan.scalar_plan().order.as_ref() else {
         return false;
     };
-    if order.fields.len() != 1 {
-        return false;
-    }
-    if order.fields[0].0 != E::MODEL.primary_key.name {
+    if order.fields.is_empty() {
         return false;
     }
 
-    access_stream_is_pk_ordered(&plan.access)
+    let access_class = plan.access_strategy().class();
+    if access_order_satisfied_by_pk::<E>(order, access_class) {
+        return true;
+    }
+
+    // Secondary-index order contracts are planner-gated. Only treat access
+    // traversal order as authoritative when logical pushdown policy allows it.
+    let logical_pushdown_eligibility = plan
+        .planner_route_profile(E::MODEL)
+        .logical_pushdown_eligibility();
+    if !logical_pushdown_eligibility.secondary_order_allowed()
+        || logical_pushdown_eligibility.requires_full_materialization()
+    {
+        return false;
+    }
+    let Some((index, _)) = access_class.single_path_index_prefix_details() else {
+        return false;
+    };
+    if !index.unique {
+        return false;
+    }
+
+    let normalized_order_fields = order
+        .fields
+        .iter()
+        .map(|(field, direction)| (field.as_str(), order_direction(*direction)))
+        .collect::<Vec<_>>();
+
+    access_class
+        .secondary_order_pushdown_applicability(E::MODEL, normalized_order_fields.as_slice())
+        .is_eligible()
 }
 
-fn access_stream_is_pk_ordered<K>(access: &AccessPlan<K>) -> bool {
-    access.resolve_strategy().class().ordered()
+fn access_order_satisfied_by_pk<E>(
+    order: &crate::db::query::plan::OrderSpec,
+    access_class: crate::db::access::AccessRouteClass,
+) -> bool
+where
+    E: EntitySchema,
+{
+    order.fields.len() == 1
+        && order.fields[0].0 == E::MODEL.primary_key.name
+        && access_class.ordered()
+}
+
+const fn order_direction(direction: OrderDirection) -> Direction {
+    match direction {
+        OrderDirection::Asc => Direction::Asc,
+        OrderDirection::Desc => Direction::Desc,
+    }
 }
 
 fn debug_assert_access_route_class_parity<K>(

@@ -287,6 +287,54 @@ fn aggregate_by_id_windowed_count_scans_one_candidate_key() {
 }
 
 #[test]
+fn aggregate_by_id_count_ignore_missing_returns_zero() {
+    seed_simple_entities(&[8626]);
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    let (count, scanned) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
+        load.aggregate_count(
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+                .by_id(Ulid::from_u128(8627))
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("ignore by_id COUNT plan should build"),
+        )
+        .expect("ignore by_id COUNT should succeed")
+    });
+
+    assert_eq!(
+        count, 0,
+        "missing by_id COUNT should return zero under ignore mode"
+    );
+    assert_eq!(
+        scanned, 1,
+        "missing by_id COUNT should evaluate exactly one candidate key",
+    );
+}
+
+#[test]
+fn aggregate_by_id_count_strict_missing_surfaces_corruption_error() {
+    seed_simple_entities(&[8628]);
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    let err = load
+        .aggregate_count(
+            Query::<SimpleEntity>::new(MissingRowPolicy::Error)
+                .by_id(Ulid::from_u128(8629))
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("strict by_id COUNT plan should build"),
+        )
+        .expect_err("strict by_id COUNT should fail when row is missing");
+
+    assert_eq!(
+        err.class,
+        crate::error::ErrorClass::Corruption,
+        "strict by_id COUNT missing row should classify as corruption",
+    );
+}
+
+#[test]
 fn aggregate_by_id_strict_missing_surfaces_corruption_error() {
     seed_simple_entities(&[8631]);
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);

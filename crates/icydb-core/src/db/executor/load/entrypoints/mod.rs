@@ -290,10 +290,15 @@ where
             context,
             access_inputs,
         } = state;
+        let load_mode = context.mode.mode;
         let LoadAccessInputs { plan, cursor } = access_inputs;
         let (payload, trace) = match cursor {
             PreparedLoadCursor::Scalar(resolved_continuation) => {
-                let (page, trace) = self.execute_scalar_path(plan, *resolved_continuation)?;
+                let (page, trace) = self.execute_scalar_path(
+                    plan,
+                    *resolved_continuation,
+                    matches!(load_mode, LoadMode::ScalarRows),
+                )?;
                 (LoadExecutionPayload::Scalar(page), trace)
             }
             PreparedLoadCursor::Grouped(cursor) => {

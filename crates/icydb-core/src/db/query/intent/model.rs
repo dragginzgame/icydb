@@ -1,5 +1,6 @@
 use crate::{
     db::{
+        access::{AccessPath, AccessPlan},
         predicate::{CompareOp, MissingRowPolicy, Predicate, SchemaInfo},
         query::{
             builder::aggregate::AggregateExpr,
@@ -7,9 +8,10 @@ use crate::{
             intent::{IntentError, QueryError, QueryIntent},
             plan::{
                 AccessPlannedQuery, GroupAggregateSpec, GroupHavingClause, GroupHavingSymbol,
-                OrderSpec, QueryMode, build_logical_plan, logical_query_from_logical_inputs,
-                normalize_query_predicate, plan_query_access, resolve_group_field_slot,
-                validate_group_query_semantics, validate_order_shape, validate_query_semantics,
+                LogicalPlan, OrderSpec, QueryMode, build_logical_plan,
+                logical_query_from_logical_inputs, normalize_query_predicate, plan_query_access,
+                resolve_group_field_slot, validate_group_query_semantics, validate_order_shape,
+                validate_query_semantics,
             },
         },
     },
@@ -252,6 +254,11 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
             normalized_predicate.as_ref(),
             access_inputs.into_key_access_override(),
         )?;
+        let normalized_predicate = strip_redundant_primary_key_equality_predicate_for_by_key_access(
+            self.model,
+            &access_plan_value,
+            normalized_predicate,
+        );
 
         // Phase 3: assemble logical plan from normalized scalar/grouped intent.
         let logical_inputs = self.intent.planning_logical_inputs();
@@ -261,7 +268,8 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
             self.consistency,
         );
         let logical = build_logical_plan(self.model, logical_query);
-        let plan = AccessPlannedQuery::from_parts(logical, access_plan_value);
+        let mut plan = AccessPlannedQuery::from_parts(logical, access_plan_value);
+        simplify_limit_one_page_for_by_key_access(&mut plan);
 
         if plan.grouped_plan().is_some() {
             validate_group_query_semantics(&schema_info, self.model, &plan)?;
@@ -271,4 +279,50 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
 
         Ok(plan)
     }
+}
+
+// Drop one normalized `pk = literal` predicate when access planning already
+// resolved the exact same `ByKey(literal)` path. This prevents duplicate
+// predicate evaluation and unlocks downstream `ByKey` fast paths.
+fn strip_redundant_primary_key_equality_predicate_for_by_key_access(
+    model: &EntityModel,
+    access: &AccessPlan<Value>,
+    normalized_predicate: Option<Predicate>,
+) -> Option<Predicate> {
+    let predicate = normalized_predicate?;
+    let Some(AccessPath::ByKey(access_key)) = access.as_path() else {
+        return Some(predicate);
+    };
+    let Predicate::Compare(cmp) = &predicate else {
+        return Some(predicate);
+    };
+    if cmp.field != model.primary_key.name || cmp.op != CompareOp::Eq {
+        return Some(predicate);
+    }
+    if cmp.value != *access_key {
+        return Some(predicate);
+    }
+
+    None
+}
+
+// Collapse `LIMIT 1` pagination overhead when access is already one exact
+// primary-key lookup and no offset is requested.
+fn simplify_limit_one_page_for_by_key_access(plan: &mut AccessPlannedQuery<Value>) {
+    if !matches!(plan.access.as_path(), Some(AccessPath::ByKey(_))) {
+        return;
+    }
+
+    let scalar = match &mut plan.logical {
+        LogicalPlan::Scalar(scalar) => scalar,
+        LogicalPlan::Grouped(grouped) => &mut grouped.scalar,
+    };
+    let Some(page) = scalar.page.as_ref() else {
+        return;
+    };
+    if page.offset != 0 || page.limit != Some(1) {
+        return;
+    }
+
+    scalar.page = None;
 }

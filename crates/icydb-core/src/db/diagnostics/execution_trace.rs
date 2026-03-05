@@ -53,11 +53,27 @@ pub struct ExecutionTrace {
     pub direction: OrderDirection,
     pub optimization: Option<ExecutionOptimization>,
     pub keys_scanned: u64,
+    pub rows_materialized: u64,
     pub rows_returned: u64,
+    pub index_only: bool,
     pub continuation_applied: bool,
     pub index_predicate_applied: bool,
     pub index_predicate_keys_rejected: u64,
     pub distinct_keys_deduped: u64,
+}
+
+///
+/// ExecutionMetrics
+///
+/// Compact execution metrics projection derived from one `ExecutionTrace`.
+/// This surface is intentionally small and stable for pre-EXPLAIN observability.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ExecutionMetrics {
+    pub rows_scanned: u64,
+    pub rows_materialized: u64,
+    pub index_only: bool,
 }
 
 impl ExecutionTrace {
@@ -73,7 +89,9 @@ impl ExecutionTrace {
             direction: execution_order_direction(direction),
             optimization: None,
             keys_scanned: 0,
+            rows_materialized: 0,
             rows_returned: 0,
+            index_only: false,
             continuation_applied,
             index_predicate_applied: false,
             index_predicate_keys_rejected: 0,
@@ -82,18 +100,23 @@ impl ExecutionTrace {
     }
 
     /// Apply one finalized path outcome to this trace snapshot.
+    #[expect(clippy::too_many_arguments)]
     pub(in crate::db) fn set_path_outcome(
         &mut self,
         optimization: Option<ExecutionOptimization>,
         keys_scanned: usize,
+        rows_materialized: usize,
         rows_returned: usize,
+        index_only: bool,
         index_predicate_applied: bool,
         index_predicate_keys_rejected: u64,
         distinct_keys_deduped: u64,
     ) {
         self.optimization = optimization;
         self.keys_scanned = u64::try_from(keys_scanned).unwrap_or(u64::MAX);
+        self.rows_materialized = u64::try_from(rows_materialized).unwrap_or(u64::MAX);
         self.rows_returned = u64::try_from(rows_returned).unwrap_or(u64::MAX);
+        self.index_only = index_only;
         self.index_predicate_applied = index_predicate_applied;
         self.index_predicate_keys_rejected = index_predicate_keys_rejected;
         self.distinct_keys_deduped = distinct_keys_deduped;
@@ -102,6 +125,16 @@ impl ExecutionTrace {
             u64::try_from(keys_scanned).unwrap_or(u64::MAX),
             "execution trace keys_scanned must match rows_scanned metrics input",
         );
+    }
+
+    /// Return compact execution metrics for pre-EXPLAIN observability surfaces.
+    #[must_use]
+    pub const fn metrics(&self) -> ExecutionMetrics {
+        ExecutionMetrics {
+            rows_scanned: self.keys_scanned,
+            rows_materialized: self.rows_materialized,
+            index_only: self.index_only,
+        }
     }
 }
 
@@ -124,5 +157,49 @@ const fn execution_order_direction(direction: Direction) -> OrderDirection {
     match direction {
         Direction::Asc => OrderDirection::Asc,
         Direction::Desc => OrderDirection::Desc,
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use crate::db::{
+        access::AccessPlan,
+        diagnostics::{ExecutionMetrics, ExecutionOptimization, ExecutionTrace},
+        direction::Direction,
+    };
+
+    #[test]
+    fn execution_trace_metrics_projection_exposes_requested_surface() {
+        let access = AccessPlan::by_key(11u64);
+        let mut trace = ExecutionTrace::new(&access, Direction::Asc, false);
+        trace.set_path_outcome(
+            Some(ExecutionOptimization::PrimaryKey),
+            5,
+            3,
+            2,
+            true,
+            true,
+            7,
+            9,
+        );
+
+        let metrics = trace.metrics();
+        assert_eq!(
+            metrics,
+            ExecutionMetrics {
+                rows_scanned: 5,
+                rows_materialized: 3,
+                index_only: true,
+            },
+            "metrics projection must expose rows_scanned/rows_materialized/index_only",
+        );
+        assert_eq!(
+            trace.rows_returned, 2,
+            "trace should preserve returned-row counters independently from materialization counters",
+        );
     }
 }

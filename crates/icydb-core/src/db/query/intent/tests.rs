@@ -1076,6 +1076,57 @@ fn typed_by_ids_matches_by_id_access() {
 }
 
 #[test]
+fn by_id_limit_one_without_order_simplifies_paging_shape() {
+    let key = Ulid::generate();
+    let plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .by_id(key)
+        .limit(1)
+        .plan()
+        .expect("by_id + limit(1) plan should build")
+        .into_inner();
+
+    assert!(
+        plan.scalar_plan().page.is_none(),
+        "by_id + limit(1) with no offset should remove redundant page metadata"
+    );
+    assert!(
+        matches!(
+            plan.access,
+            AccessPlan::Path(path)
+                if matches!(path.as_ref(), AccessPath::ByKey(by_key) if *by_key == key)
+        ),
+        "by_id + limit(1) should keep exact ByKey access",
+    );
+}
+
+#[test]
+fn by_key_access_strips_redundant_primary_key_equality_predicate() {
+    let key = Ulid::generate();
+    let model_plan = QueryModel::<Ulid>::new(PlanEntity::MODEL, MissingRowPolicy::Ignore)
+        .by_id(key)
+        .filter(FieldRef::new("id").eq(key))
+        .build_plan_model()
+        .expect("model by_id + id == literal plan should build");
+    let (logical, access) = model_plan.into_parts();
+    let typed_access = access_plan_to_entity_keys::<PlanEntity>(PlanEntity::MODEL, access)
+        .expect("typed access conversion should succeed");
+    let typed_plan = AccessPlannedQuery::from_parts(logical, typed_access);
+
+    assert!(
+        typed_plan.scalar_plan().predicate.is_none(),
+        "by_id + id == literal should strip redundant scalar predicate"
+    );
+    assert!(
+        matches!(
+            typed_plan.access,
+            AccessPlan::Path(path)
+                if matches!(path.as_ref(), AccessPath::ByKey(by_key) if *by_key == key)
+        ),
+        "redundant predicate stripping must keep the exact ByKey path"
+    );
+}
+
+#[test]
 fn singleton_only_uses_default_key() {
     let plan = Query::<PlanSingleton>::new(MissingRowPolicy::Ignore)
         .only()

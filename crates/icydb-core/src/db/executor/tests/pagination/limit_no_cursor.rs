@@ -1,4 +1,48 @@
 use super::*;
+use crate::obs::sink::{MetricsEvent, MetricsSink, with_metrics_sink};
+use std::cell::RefCell;
+
+#[derive(Default)]
+struct PaginationCaptureSink {
+    events: RefCell<Vec<MetricsEvent>>,
+}
+
+impl PaginationCaptureSink {
+    fn into_events(self) -> Vec<MetricsEvent> {
+        self.events.into_inner()
+    }
+}
+
+impl MetricsSink for PaginationCaptureSink {
+    fn record(&self, event: MetricsEvent) {
+        self.events.borrow_mut().push(event);
+    }
+}
+
+fn rows_scanned_for_entity(events: &[MetricsEvent], entity_path: &'static str) -> usize {
+    events.iter().fold(0usize, |acc, event| {
+        let scanned = match event {
+            MetricsEvent::RowsScanned {
+                entity_path: path,
+                rows_scanned,
+            } if *path == entity_path => usize::try_from(*rows_scanned).unwrap_or(usize::MAX),
+            _ => 0,
+        };
+
+        acc.saturating_add(scanned)
+    })
+}
+
+fn capture_rows_scanned_for_entity<R>(
+    entity_path: &'static str,
+    run: impl FnOnce() -> R,
+) -> (R, usize) {
+    let sink = PaginationCaptureSink::default();
+    let output = with_metrics_sink(&sink, run);
+    let rows_scanned = rows_scanned_for_entity(&sink.into_events(), entity_path);
+
+    (output, rows_scanned)
+}
 
 fn seed_simple_rows(ids: &[u128]) {
     let save = SaveExecutor::<SimpleEntity>::new(DB, false);
@@ -130,5 +174,28 @@ fn load_limit_without_cursor_applies_scan_budget_across_primary_access_shapes() 
     assert!(
         full_scan_window_scanned >= full_scan_window_ids.len(),
         "FullScan tracing should report at least the emitted row count (keys_scanned={full_scan_window_scanned})",
+    );
+}
+
+#[test]
+fn load_execute_order_by_limit_one_seeks_single_row_without_cursor() {
+    setup_pagination_test();
+    seed_simple_rows(&[41_101, 41_102, 41_103, 41_104]);
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    let plan = build_scalar_limit_plan(AccessPlan::path(AccessPath::FullScan), 1, 0);
+    let (response, scanned) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
+        load.execute(plan)
+            .expect("unpaged ORDER BY LIMIT 1 execution should succeed")
+    });
+
+    assert_eq!(
+        ids_from_items(&response),
+        vec![Ulid::from_u128(41_101)],
+        "unpaged ORDER BY LIMIT 1 should return the first ordered row",
+    );
+    assert_eq!(
+        scanned, 1,
+        "unpaged ORDER BY LIMIT 1 should scan exactly one row under seek hint",
     );
 }

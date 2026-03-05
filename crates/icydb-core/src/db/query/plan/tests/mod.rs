@@ -169,6 +169,122 @@ fn plan_access_uses_index_prefix_for_exact_match() {
 }
 
 #[test]
+fn plan_access_uses_index_prefix_union_for_secondary_in() {
+    let model = model_with_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = compare_strict(
+        "tag",
+        CompareOp::In,
+        Value::List(vec![
+            Value::Text("alpha".to_string()),
+            Value::Text("beta".to_string()),
+        ]),
+    );
+
+    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+
+    assert_eq!(
+        plan,
+        AccessPlan::Union(vec![
+            AccessPlan::path(AccessPath::IndexPrefix {
+                index: INDEX_MODEL,
+                values: vec![Value::Text("alpha".to_string())],
+            }),
+            AccessPlan::path(AccessPath::IndexPrefix {
+                index: INDEX_MODEL,
+                values: vec![Value::Text("beta".to_string())],
+            }),
+        ]),
+    );
+}
+
+#[test]
+fn plan_access_emits_index_range_for_single_field_between_equivalent_bounds() {
+    let model = model_with_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = Predicate::And(vec![
+        compare_strict("tag", CompareOp::Gte, Value::Text("alpha".to_string())),
+        compare_strict("tag", CompareOp::Lte, Value::Text("omega".to_string())),
+    ]);
+
+    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let (index, prefix, lower, upper) =
+        find_index_range(&plan).expect("plan should include index range");
+
+    assert_eq!(index.name, INDEX_MODEL.name);
+    assert!(
+        prefix.is_empty(),
+        "single-field ranges should use empty prefixes"
+    );
+    assert_eq!(lower, &Bound::Included(Value::Text("alpha".to_string())));
+    assert_eq!(upper, &Bound::Included(Value::Text("omega".to_string())));
+}
+
+#[test]
+fn plan_access_emits_index_range_for_text_starts_with() {
+    let model = model_with_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = compare_strict("tag", CompareOp::StartsWith, Value::Text("foo".to_string()));
+
+    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let (index, prefix, lower, upper) =
+        find_index_range(&plan).expect("plan should include index range");
+
+    assert_eq!(index.name, INDEX_MODEL.name);
+    assert!(
+        prefix.is_empty(),
+        "starts-with index range should use an empty equality prefix"
+    );
+    assert_eq!(lower, &Bound::Included(Value::Text("foo".to_string())));
+    assert_eq!(upper, &Bound::Excluded(Value::Text("fop".to_string())));
+}
+
+#[test]
+fn plan_access_starts_with_empty_prefix_falls_back_to_full_scan() {
+    let model = model_with_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = compare_strict("tag", CompareOp::StartsWith, Value::Text(String::new()));
+
+    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+
+    assert_eq!(plan, AccessPlan::full_scan());
+}
+
+#[test]
+fn plan_access_starts_with_high_unicode_prefix_skips_surrogate_gap_in_upper_bound() {
+    let model = model_with_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let prefix = format!("foo{}", char::from_u32(0xD7FF).expect("valid scalar"));
+    let predicate = compare_strict("tag", CompareOp::StartsWith, Value::Text(prefix.clone()));
+
+    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let (_, _, lower, upper) = find_index_range(&plan).expect("plan should include index range");
+
+    assert_eq!(lower, &Bound::Included(Value::Text(prefix)));
+    assert_eq!(
+        upper,
+        &Bound::Excluded(Value::Text(format!(
+            "foo{}",
+            char::from_u32(0xE000).expect("valid scalar")
+        ))),
+    );
+}
+
+#[test]
+fn plan_access_starts_with_max_unicode_prefix_uses_unbounded_upper() {
+    let model = model_with_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let prefix = char::from_u32(0x10_FFFF).expect("valid scalar").to_string();
+    let predicate = compare_strict("tag", CompareOp::StartsWith, Value::Text(prefix.clone()));
+
+    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let (_, _, lower, upper) = find_index_range(&plan).expect("plan should include index range");
+
+    assert_eq!(lower, &Bound::Included(Value::Text(prefix)));
+    assert_eq!(upper, &Bound::Unbounded);
+}
+
+#[test]
 fn plan_access_emits_index_range_for_single_field_gt() {
     let model = model_with_index();
     let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");

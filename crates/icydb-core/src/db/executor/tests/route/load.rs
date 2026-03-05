@@ -1,3 +1,4 @@
+use super::super::{UNIQUE_INDEX_RANGE_INDEX_MODELS, UniqueIndexRangeEntity};
 use super::*;
 
 #[test]
@@ -188,6 +189,41 @@ fn route_matrix_load_non_pk_order_disables_scan_budget_hint() {
 
     assert_eq!(route_plan.execution_mode, ExecutionMode::Materialized);
     assert_eq!(route_plan.scan_hints.load_scan_budget_hint, None);
+}
+
+#[test]
+fn route_matrix_load_unique_secondary_order_limit_one_uses_bounded_scan_budget_hint() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::<Ulid>::IndexPrefix {
+            index: UNIQUE_INDEX_RANGE_INDEX_MODELS[0],
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("code".to_string(), OrderDirection::Desc),
+            ("id".to_string(), OrderDirection::Desc),
+        ],
+    });
+    plan.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(1),
+        offset: 0,
+    });
+    let route_plan = LoadExecutor::<UniqueIndexRangeEntity>::build_execution_route_plan_for_load(
+        &plan,
+        &initial_scalar_continuation_context(),
+        None,
+    )
+    .expect("secondary-order limit-one route plan should build");
+
+    assert_eq!(route_plan.execution_mode, ExecutionMode::Streaming);
+    assert_eq!(route_plan.direction(), Direction::Desc);
+    assert_eq!(
+        route_plan.scan_hints.load_scan_budget_hint,
+        Some(2),
+        "secondary ORDER BY DESC LIMIT 1 should bound access scanning to keep+continuation fetch",
+    );
 }
 
 #[test]

@@ -7,10 +7,11 @@ use crate::{
     db::{
         GroupedRow,
         executor::{
-            ExecutionOptimization, ExecutionTrace,
+            ExecutionTrace,
             aggregate::AggregateOutput,
             load::{
-                GroupedCursorPage, GroupedFoldStage, GroupedRouteStageProjection, LoadExecutor,
+                ExecutionOutcomeMetrics, GroupedCursorPage, GroupedFoldStage,
+                GroupedRouteStageProjection, LoadExecutor,
             },
             plan_metrics::record_rows_scanned,
         },
@@ -37,15 +38,15 @@ where
         R: GroupedRouteStageProjection<E>,
     {
         let rows_returned = folded.rows_returned();
-        Self::finalize_path_outcome(
-            route.execution_trace_mut(),
-            folded.optimization(),
-            folded.rows_scanned(),
-            rows_returned,
-            folded.index_predicate_applied(),
-            folded.index_predicate_keys_rejected(),
-            folded.distinct_keys_deduped(),
-        );
+        let metrics = ExecutionOutcomeMetrics {
+            optimization: folded.optimization(),
+            rows_scanned: folded.rows_scanned(),
+            post_access_rows: rows_returned,
+            index_predicate_applied: folded.index_predicate_applied(),
+            index_predicate_keys_rejected: folded.index_predicate_keys_rejected(),
+            distinct_keys_deduped: folded.distinct_keys_deduped(),
+        };
+        Self::finalize_path_outcome(route.execution_trace_mut(), metrics, false);
 
         let mut span = crate::obs::sink::Span::<E>::new(crate::obs::sink::ExecKind::Load);
         span.set_rows(u64::try_from(rows_returned).unwrap_or(u64::MAX));
@@ -156,19 +157,25 @@ where
     // Record shared observability outcome for any execution path.
     pub(in crate::db::executor::load) fn finalize_path_outcome(
         execution_trace: &mut Option<ExecutionTrace>,
-        optimization: Option<ExecutionOptimization>,
-        rows_scanned: usize,
-        rows_returned: usize,
-        index_predicate_applied: bool,
-        index_predicate_keys_rejected: u64,
-        distinct_keys_deduped: u64,
+        metrics: ExecutionOutcomeMetrics,
+        index_only: bool,
     ) {
+        let ExecutionOutcomeMetrics {
+            optimization,
+            rows_scanned,
+            post_access_rows,
+            index_predicate_applied,
+            index_predicate_keys_rejected,
+            distinct_keys_deduped,
+        } = metrics;
         record_rows_scanned::<E>(rows_scanned);
         if let Some(execution_trace) = execution_trace.as_mut() {
             execution_trace.set_path_outcome(
                 optimization,
                 rows_scanned,
-                rows_returned,
+                rows_scanned,
+                post_access_rows,
+                index_only,
                 index_predicate_applied,
                 index_predicate_keys_rejected,
                 distinct_keys_deduped,

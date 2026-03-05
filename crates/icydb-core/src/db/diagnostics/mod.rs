@@ -21,7 +21,9 @@ use candid::CandidType;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-pub use execution_trace::{ExecutionAccessPathVariant, ExecutionOptimization, ExecutionTrace};
+pub use execution_trace::{
+    ExecutionAccessPathVariant, ExecutionMetrics, ExecutionOptimization, ExecutionTrace,
+};
 
 ///
 /// StorageReport

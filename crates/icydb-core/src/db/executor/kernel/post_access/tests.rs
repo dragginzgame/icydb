@@ -4,7 +4,19 @@ use crate::db::{
     predicate::Predicate,
     query::plan::{AccessPlannedQuery, OrderDirection, OrderSpec, PageSpec},
 };
-use crate::{db::MissingRowPolicy, model::field::FieldKind, types::Ulid};
+use crate::{
+    db::MissingRowPolicy,
+    model::{field::FieldKind, index::IndexModel},
+    types::Ulid,
+};
+
+static BUDGET_METADATA_RANK_INDEX_FIELDS: [&str; 1] = ["rank"];
+static BUDGET_METADATA_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
+    "rank_idx",
+    "budget_metadata_entity",
+    &BUDGET_METADATA_RANK_INDEX_FIELDS,
+    true,
+)];
 
 crate::test_entity! {
     ident = BudgetMetadataEntity,
@@ -16,7 +28,7 @@ crate::test_entity! {
         ("id", FieldKind::Ulid),
         ("rank", FieldKind::Uint),
     ],
-    indexes = [],
+    indexes = [&BUDGET_METADATA_INDEX_MODELS[0]],
 }
 
 #[test]
@@ -98,5 +110,35 @@ fn budget_safety_metadata_marks_residual_filter_plan_as_unsafe() {
     assert!(
         !metadata.requires_post_access_sort,
         "residual filtering alone should not imply post-access sorting"
+    );
+}
+
+#[test]
+fn budget_safety_metadata_marks_secondary_index_order_plan_as_access_order_satisfied() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::<Ulid>::IndexPrefix {
+            index: BUDGET_METADATA_INDEX_MODELS[0],
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("rank".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+
+    let metadata = crate::db::executor::ExecutionKernel::budget_safety_metadata::<
+        BudgetMetadataEntity,
+        _,
+    >(&plan);
+    assert!(
+        metadata.access_order_satisfied_by_path,
+        "index-prefix order-compatible plans should be marked access-order-satisfied",
+    );
+    assert!(
+        !metadata.requires_post_access_sort,
+        "index-order-compatible plans should skip post-access sort requirements",
     );
 }

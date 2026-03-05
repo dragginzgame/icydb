@@ -666,6 +666,10 @@ fn aggregate_field_target_covering_constant_projection_terminals_match_effective
         .expect("covering-constant baseline execute should succeed");
     let expected_value = Value::Uint(7);
     let expected_values = vec![expected_value.clone(); expected_rows.len()];
+    let expected_values_with_ids = expected_rows
+        .iter()
+        .map(|row| (row.id(), expected_value.clone()))
+        .collect::<Vec<_>>();
     let expected_first_or_last = if expected_rows.is_empty() {
         None
     } else {
@@ -678,6 +682,9 @@ fn aggregate_field_target_covering_constant_projection_terminals_match_effective
     let distinct_values = load
         .distinct_values_by_slot(build_plan(), slot(&load, "group"))
         .expect("distinct_values_by(group) should succeed on covering index-prefix window");
+    let values_with_ids = load
+        .values_by_with_ids_slot(build_plan(), slot(&load, "group"))
+        .expect("values_by_with_ids(group) should succeed on covering index-prefix window");
     let first_value = load
         .first_value_by_slot(build_plan(), slot(&load, "group"))
         .expect("first_value_by(group) should succeed on covering index-prefix window");
@@ -696,6 +703,10 @@ fn aggregate_field_target_covering_constant_projection_terminals_match_effective
             .into_iter()
             .collect::<Vec<_>>(),
         "distinct_values_by(group) should return one value when the effective window is non-empty",
+    );
+    assert_eq!(
+        values_with_ids, expected_values_with_ids,
+        "values_by_with_ids(group) should preserve id/value alignment for covering constant projections",
     );
     assert_eq!(
         first_value, expected_first_or_last,
@@ -753,6 +764,28 @@ fn aggregate_field_target_covering_constant_projection_strict_missing_row_preser
         err.message.contains("missing row"),
         "strict covering projection must preserve missing-row error context",
     );
+
+    let with_ids_err = load
+        .values_by_with_ids_slot(
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
+                .filter(u32_eq_predicate_strict("group", 7))
+                .order_by("rank")
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("strict covering-projection with-ids plan should build"),
+            slot(&load, "group"),
+        )
+        .expect_err("strict covering projection with ids should fail on missing primary rows");
+
+    assert_eq!(
+        with_ids_err.class,
+        ErrorClass::Corruption,
+        "strict covering projection with ids must preserve missing-row corruption classification",
+    );
+    assert!(
+        with_ids_err.message.contains("missing row"),
+        "strict covering projection with ids must preserve missing-row error context",
+    );
 }
 
 #[test]
@@ -780,6 +813,10 @@ fn aggregate_field_target_covering_index_projection_terminals_match_effective_wi
         .execute(build_plan())
         .expect("covering-index baseline execute should succeed");
     let expected_values = expected_values_by_rank(&expected_response);
+    let expected_values_with_ids = expected_response
+        .iter()
+        .map(|row| (row.id(), Value::Uint(u64::from(row.entity_ref().rank))))
+        .collect::<Vec<_>>();
     let expected_distinct = expected_distinct_values_by_rank(&expected_response);
     let expected_first = expected_first_value_by_rank(&expected_response);
     let expected_last = expected_last_value_by_rank(&expected_response);
@@ -787,6 +824,9 @@ fn aggregate_field_target_covering_index_projection_terminals_match_effective_wi
     let values = load
         .values_by_slot(build_plan(), slot(&load, "rank"))
         .expect("values_by(rank) should succeed on covering index projection");
+    let values_with_ids = load
+        .values_by_with_ids_slot(build_plan(), slot(&load, "rank"))
+        .expect("values_by_with_ids(rank) should succeed on covering index projection");
     let distinct_values = load
         .distinct_values_by_slot(build_plan(), slot(&load, "rank"))
         .expect("distinct_values_by(rank) should succeed on covering index projection");
@@ -800,6 +840,10 @@ fn aggregate_field_target_covering_index_projection_terminals_match_effective_wi
     assert_eq!(
         values, expected_values,
         "values_by(rank) should match effective-window projection under covering index paths",
+    );
+    assert_eq!(
+        values_with_ids, expected_values_with_ids,
+        "values_by_with_ids(rank) should match effective-window id/value projection under covering index paths",
     );
     assert_eq!(
         distinct_values, expected_distinct,
@@ -908,6 +952,30 @@ fn aggregate_field_target_covering_index_projection_strict_missing_row_preserves
     assert!(
         err.message.contains("missing row"),
         "strict covering-index projection must preserve missing-row error context",
+    );
+
+    let with_ids_err = load
+        .values_by_with_ids_slot(
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
+                .filter(u32_eq_predicate_strict("group", 7))
+                .order_by("rank")
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("strict covering-index projection with-ids plan should build"),
+            slot(&load, "rank"),
+        )
+        .expect_err(
+            "strict covering-index projection with ids should fail on missing primary rows",
+        );
+
+    assert_eq!(
+        with_ids_err.class,
+        ErrorClass::Corruption,
+        "strict covering-index projection with ids must preserve missing-row corruption classification",
+    );
+    assert!(
+        with_ids_err.message.contains("missing row"),
+        "strict covering-index projection with ids must preserve missing-row error context",
     );
 }
 

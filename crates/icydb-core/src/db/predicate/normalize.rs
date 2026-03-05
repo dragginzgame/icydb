@@ -335,7 +335,15 @@ fn normalize_and(children: &[Predicate]) -> Predicate {
         return Predicate::True;
     }
 
-    out.sort_by_cached_key(sort_key);
+    // Evaluate cheaper predicates first to reduce average short-circuit work
+    // while keeping deterministic ordering under the canonical sort key.
+    out.sort_by_cached_key(|predicate| (predicate_eval_cost_rank(predicate), sort_key(predicate)));
+    out.dedup();
+
+    if out.len() == 1 {
+        return out.remove(0);
+    }
+
     Predicate::And(out)
 }
 
@@ -368,8 +376,32 @@ fn normalize_or(children: &[Predicate]) -> Predicate {
         return Predicate::False;
     }
 
-    out.sort_by_cached_key(sort_key);
+    // Evaluate cheaper predicates first to reduce average short-circuit work
+    // while keeping deterministic ordering under the canonical sort key.
+    out.sort_by_cached_key(|predicate| (predicate_eval_cost_rank(predicate), sort_key(predicate)));
+    out.dedup();
+
+    if out.len() == 1 {
+        return out.remove(0);
+    }
+
     Predicate::Or(out)
+}
+
+// Return a stable heuristic rank for predicate evaluation cost. Lower ranks
+// are evaluated first after normalization.
+const fn predicate_eval_cost_rank(predicate: &Predicate) -> u8 {
+    match predicate {
+        Predicate::True | Predicate::False => 0,
+        Predicate::Compare(_)
+        | Predicate::IsNull { .. }
+        | Predicate::IsMissing { .. }
+        | Predicate::IsEmpty { .. }
+        | Predicate::IsNotEmpty { .. } => 1,
+        Predicate::Not(_) => 2,
+        Predicate::TextContains { .. } | Predicate::TextContainsCi { .. } => 3,
+        Predicate::And(_) | Predicate::Or(_) => 4,
+    }
 }
 
 ///
@@ -383,4 +415,77 @@ fn normalize_or(children: &[Predicate]) -> Predicate {
 ///
 fn sort_key(predicate: &Predicate) -> Vec<u8> {
     encode_predicate_sort_key(predicate)
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        db::predicate::{ComparePredicate, Predicate, normalize},
+        value::Value,
+    };
+
+    #[test]
+    fn normalize_and_dedups_identical_children_and_collapses_to_singleton() {
+        let duplicated = Predicate::And(vec![
+            Predicate::eq("rank".to_string(), Value::Uint(7)),
+            Predicate::eq("rank".to_string(), Value::Uint(7)),
+        ]);
+
+        let normalized = normalize(&duplicated);
+
+        assert_eq!(
+            normalized,
+            Predicate::Compare(ComparePredicate::eq("rank".to_string(), Value::Uint(7))),
+            "identical AND children should collapse to one predicate",
+        );
+    }
+
+    #[test]
+    fn normalize_or_dedups_identical_children_and_collapses_to_singleton() {
+        let duplicated = Predicate::Or(vec![
+            Predicate::eq("rank".to_string(), Value::Uint(7)),
+            Predicate::eq("rank".to_string(), Value::Uint(7)),
+        ]);
+
+        let normalized = normalize(&duplicated);
+
+        assert_eq!(
+            normalized,
+            Predicate::Compare(ComparePredicate::eq("rank".to_string(), Value::Uint(7))),
+            "identical OR children should collapse to one predicate",
+        );
+    }
+
+    #[test]
+    fn normalize_and_orders_cheaper_predicates_before_text_contains() {
+        let mixed = Predicate::And(vec![
+            Predicate::TextContains {
+                field: "name".to_string(),
+                value: Value::Text("ada".to_string()),
+            },
+            Predicate::eq("rank".to_string(), Value::Uint(7)),
+        ]);
+
+        let normalized = normalize(&mixed);
+        let Predicate::And(children) = normalized else {
+            panic!("normalized mixed predicate should remain AND with two children");
+        };
+        assert_eq!(
+            children.len(),
+            2,
+            "mixed AND should keep exactly two children"
+        );
+        assert!(
+            matches!(children[0], Predicate::Compare(_)),
+            "cheap compare predicate should be evaluated before text-contains predicate",
+        );
+        assert!(
+            matches!(children[1], Predicate::TextContains { .. }),
+            "text-contains predicate should be placed after cheap compare predicate",
+        );
+    }
 }

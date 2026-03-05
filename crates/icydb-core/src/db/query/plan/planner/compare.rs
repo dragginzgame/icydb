@@ -75,6 +75,11 @@ pub(super) fn plan_compare(
                 }
             }
         }
+        CompareOp::StartsWith => {
+            if let Some(path) = plan_starts_with_compare(model, schema, cmp) {
+                return path;
+            }
+        }
         _ => {
             // NOTE: Other non-equality comparisons do not currently map to key access paths.
         }
@@ -127,4 +132,70 @@ fn value_matches_pk_model(schema: &SchemaInfo, model: &EntityModel, value: &Valu
     };
 
     field_type.is_keyable() && literal_matches_type(value, field_type)
+}
+
+fn plan_starts_with_compare(
+    model: &EntityModel,
+    schema: &SchemaInfo,
+    cmp: &ComparePredicate,
+) -> Option<AccessPlan<Value>> {
+    if !index_literal_matches_schema(schema, &cmp.field, &cmp.value) {
+        return None;
+    }
+
+    let Value::Text(prefix) = &cmp.value else {
+        return None;
+    };
+    if prefix.is_empty() {
+        return None;
+    }
+
+    let lower = Bound::Included(Value::Text(prefix.clone()));
+    let upper = strict_text_prefix_upper_bound(prefix);
+    for index in sorted_indexes(model) {
+        if index.fields.first() != Some(&cmp.field.as_str())
+            || !index.is_field_indexable(cmp.field.as_str(), CompareOp::StartsWith)
+        {
+            continue;
+        }
+
+        let semantic_range =
+            SemanticIndexRangeSpec::new(*index, vec![0usize], Vec::new(), lower, upper);
+        return Some(AccessPlan::index_range(semantic_range));
+    }
+
+    None
+}
+
+fn strict_text_prefix_upper_bound(prefix: &str) -> Bound<Value> {
+    next_text_prefix(prefix).map_or(Bound::Unbounded, |next_prefix| {
+        Bound::Excluded(Value::Text(next_prefix))
+    })
+}
+
+fn next_text_prefix(prefix: &str) -> Option<String> {
+    let mut chars = prefix.chars().collect::<Vec<_>>();
+    for index in (0..chars.len()).rev() {
+        let Some(next_char) = next_unicode_scalar(chars[index]) else {
+            continue;
+        };
+        chars.truncate(index);
+        chars.push(next_char);
+        return Some(chars.into_iter().collect());
+    }
+
+    None
+}
+
+fn next_unicode_scalar(value: char) -> Option<char> {
+    if value == char::MAX {
+        return None;
+    }
+
+    let mut next = u32::from(value).saturating_add(1);
+    if (0xD800..=0xDFFF).contains(&next) {
+        next = 0xE000;
+    }
+
+    char::from_u32(next)
 }

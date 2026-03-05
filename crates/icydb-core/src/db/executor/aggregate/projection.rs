@@ -38,6 +38,8 @@ use crate::{
     value::{Value, ValueTag},
 };
 
+type IdValueProjection<E> = Vec<(Id<E>, Value)>;
+
 impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
@@ -113,9 +115,14 @@ where
         &self,
         plan: ExecutablePlan<E>,
         target_field: PlannedFieldSlot,
-    ) -> Result<Vec<(Id<E>, Value)>, InternalError> {
+    ) -> Result<IdValueProjection<E>, InternalError> {
         let field_slot = resolve_any_aggregate_target_slot_from_planner_slot::<E>(&target_field)
             .map_err(Self::map_aggregate_field_value_error)?;
+        if let Some(projected_values) =
+            self.covering_index_projection_values_with_ids_if_eligible(&plan, &target_field)?
+        {
+            return Ok(projected_values);
+        }
         let response = self.execute(plan)?;
 
         Self::project_field_values_with_ids_from_materialized(
@@ -266,7 +273,7 @@ where
         response: EntityResponse<E>,
         target_field: &str,
         field_slot: FieldSlot,
-    ) -> Result<Vec<(Id<E>, Value)>, InternalError> {
+    ) -> Result<IdValueProjection<E>, InternalError> {
         let mut projected_values = Vec::new();
         for row in response {
             let (id, entity) = row.into_parts();
@@ -381,6 +388,81 @@ where
         }
 
         Ok(Some(CoveringProjectionValues { values, context }))
+    }
+
+    // Resolve one index-covered `(id, value)` vector for `values_by_with_ids`
+    // terminals when planner/runtime shape contracts allow index-only decode.
+    fn covering_index_projection_values_with_ids_if_eligible(
+        &self,
+        plan: &ExecutablePlan<E>,
+        target_field: &PlannedFieldSlot,
+    ) -> Result<Option<IdValueProjection<E>>, InternalError> {
+        if plan.has_predicate() {
+            return Ok(None);
+        }
+
+        let Some(context) =
+            covering_index_projection_context::<E>(plan.access(), plan, target_field.field())
+        else {
+            return Ok(None);
+        };
+
+        // Phase 1: read component pairs in the order implied by the covering contract.
+        let scan_direction = match context.order_contract {
+            CoveringProjectionOrder::IndexOrder(direction) => direction,
+            CoveringProjectionOrder::PrimaryKeyOrder(_) => Direction::Asc,
+        };
+        let raw_pairs = self.read_covering_projection_component_pairs(
+            plan,
+            context.component_index,
+            scan_direction,
+        )?;
+
+        // Phase 2: enforce missing-row policy and decode projection components.
+        let mut projected_pairs = Vec::with_capacity(raw_pairs.len());
+        let ctx = self.recovered_context()?;
+        for (data_key, component_bytes) in raw_pairs {
+            match plan.consistency() {
+                MissingRowPolicy::Ignore => match ctx.read(&data_key) {
+                    Ok(_) => {}
+                    Err(err) if err.is_not_found() => continue,
+                    Err(err) => return Err(err),
+                },
+                MissingRowPolicy::Error => {
+                    ctx.read_strict(&data_key)?;
+                }
+            }
+
+            let Some(value) = decode_covering_projection_component(&component_bytes)? else {
+                return Ok(None);
+            };
+            projected_pairs.push((data_key, value));
+        }
+
+        // Phase 3: realign to post-access order and apply effective window.
+        match context.order_contract {
+            CoveringProjectionOrder::PrimaryKeyOrder(Direction::Asc) => {
+                projected_pairs.sort_by(|left, right| left.0.cmp(&right.0));
+            }
+            CoveringProjectionOrder::PrimaryKeyOrder(Direction::Desc) => {
+                projected_pairs.sort_by(|left, right| right.0.cmp(&left.0));
+            }
+            CoveringProjectionOrder::IndexOrder(Direction::Asc | Direction::Desc) => {}
+        }
+
+        let (offset, limit) = scalar_window_for_covering_projection(plan.page_spec());
+        let mut projected_values = Vec::new();
+        for (data_key, value) in projected_pairs.into_iter().skip(offset) {
+            if let Some(limit) = limit
+                && projected_values.len() == limit
+            {
+                break;
+            }
+            let id = Id::from_key(data_key.try_key::<E>()?);
+            projected_values.push((id, value));
+        }
+
+        Ok(Some(projected_values))
     }
 
     // Read one index-backed `(data_key, encoded_component)` stream for covering

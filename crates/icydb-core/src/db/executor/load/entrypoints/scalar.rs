@@ -10,9 +10,11 @@ use crate::{
                 invariant,
             },
             plan_metrics::record_plan_metrics,
+            route::ExecutionMode,
             validate_executor_plan,
         },
         index::IndexCompilePolicy,
+        query::plan::AccessPlannedQuery,
         response::EntityResponse,
     },
     error::InternalError,
@@ -86,15 +88,22 @@ where
         &self,
         plan: ExecutablePlan<E>,
         resolved_continuation: ResolvedScalarContinuationContext,
+        unpaged_rows_mode: bool,
     ) -> Result<(CursorPage<E>, Option<ExecutionTrace>), InternalError> {
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
         let logical_plan = plan.into_inner();
-        let route_plan = Self::build_execution_route_plan_for_load(
+        let mut route_plan = Self::build_execution_route_plan_for_load(
             &logical_plan,
             resolved_continuation.route_context(),
             None,
         )?;
+        Self::apply_unpaged_limit_one_seek_hints(
+            &logical_plan,
+            &resolved_continuation,
+            unpaged_rows_mode,
+            &mut route_plan,
+        );
         let continuation = route_plan.continuation();
         let continuation_applied = continuation.applied();
         let continuation_invariants = ScalarRouteContinuationInvariantProjection::new(
@@ -144,5 +153,43 @@ where
         })();
 
         result.map(|page| (page, execution_trace))
+    }
+
+    // Unpaged `execute()` does not need continuation lookahead rows. For
+    // streaming-safe first-page `ORDER BY ... LIMIT 1` shapes, constrain both
+    // access probe and load scan-budget hints to one row so fast paths can
+    // seek and stop immediately.
+    fn apply_unpaged_limit_one_seek_hints(
+        plan: &AccessPlannedQuery<E::Key>,
+        resolved_continuation: &ResolvedScalarContinuationContext,
+        unpaged_rows_mode: bool,
+        route_plan: &mut crate::db::executor::ExecutionPlan,
+    ) {
+        if !unpaged_rows_mode {
+            return;
+        }
+        if !matches!(route_plan.execution_mode, ExecutionMode::Streaming) {
+            return;
+        }
+        if !route_plan.streaming_access_shape_safe() {
+            return;
+        }
+        if resolved_continuation.cursor_boundary().is_some() {
+            return;
+        }
+
+        let scalar = plan.scalar_plan();
+        if scalar.order.is_none() || scalar.predicate.is_some() || scalar.distinct {
+            return;
+        }
+        let Some(page) = scalar.page.as_ref() else {
+            return;
+        };
+        if page.offset != 0 || page.limit != Some(1) {
+            return;
+        }
+
+        route_plan.scan_hints.physical_fetch_hint = Some(1);
+        route_plan.scan_hints.load_scan_budget_hint = Some(1);
     }
 }

@@ -211,16 +211,18 @@ impl ExecutionKernel {
     ) -> bool {
         matches!(
             (kind, mode),
-            (AggregateKind::Count, AggregateFoldMode::KeysOnly)
-                | (
-                    AggregateKind::Sum
-                        | AggregateKind::Exists
-                        | AggregateKind::Min
-                        | AggregateKind::Max
-                        | AggregateKind::First
-                        | AggregateKind::Last,
-                    AggregateFoldMode::ExistingRows
-                )
+            (
+                AggregateKind::Count,
+                AggregateFoldMode::KeysOnly | AggregateFoldMode::ExistingRows
+            ) | (
+                AggregateKind::Sum
+                    | AggregateKind::Exists
+                    | AggregateKind::Min
+                    | AggregateKind::Max
+                    | AggregateKind::First
+                    | AggregateKind::Last,
+                AggregateFoldMode::ExistingRows
+            )
         )
     }
 
