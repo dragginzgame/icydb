@@ -12,6 +12,7 @@ mod grouped_fold;
 mod grouped_having;
 mod grouped_output;
 mod grouped_route;
+mod grouped_runtime;
 mod index_range_limit;
 mod page;
 mod pk_stream;
@@ -22,14 +23,11 @@ mod terminal;
 use crate::{
     db::{
         Context, Db, GroupedRow,
-        cursor::{
-            ContinuationSignature, ContinuationToken, CursorBoundary, GroupedContinuationToken,
-            decode_pk_cursor_boundary,
-        },
+        cursor::{ContinuationToken, GroupedContinuationToken},
         direction::Direction,
         executor::{
-            ContinuationEngine, ExecutionOptimization, ExecutionPreparation, ExecutionTrace,
-            KeyOrderComparator, OrderedKeyStreamBox,
+            ExecutionOptimization, ExecutionPreparation, ExecutionTrace, KeyOrderComparator,
+            OrderedKeyStreamBox,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, resolve_any_aggregate_target_slot,
                 resolve_numeric_aggregate_target_slot,
@@ -37,8 +35,8 @@ use crate::{
             plan_metrics::GroupedPlanMetricsStrategy,
         },
         query::plan::{
-            AccessPlannedQuery, GroupHavingSpec, GroupedContinuationWindow,
-            GroupedDistinctExecutionStrategy, PlannedProjectionLayout,
+            AccessPlannedQuery, GroupHavingSpec, GroupedDistinctExecutionStrategy,
+            PlannedProjectionLayout,
         },
         response::EntityResponse,
     },
@@ -54,6 +52,10 @@ pub(in crate::db::executor) use self::entrypoints::{
 pub(in crate::db::executor) use self::execute::{
     ExecutionInputs, ExecutionInputsProjection, MaterializedExecutionAttempt,
     ResolvedExecutionKeyStream,
+};
+pub(in crate::db::executor::load) use self::grouped_runtime::{
+    GroupedContinuationContext, GroupedExecutionContext, GroupedPaginationWindow,
+    GroupedRuntimeProjection,
 };
 pub(in crate::db::executor) use self::page::PageMaterializationRequest;
 
@@ -205,237 +207,6 @@ struct GroupedRoutePayload {
 struct IndexSpecBundle {
     index_prefix_specs: Vec<crate::db::access::LoweredIndexPrefixSpec>,
     index_range_specs: Vec<crate::db::access::LoweredIndexRangeSpec>,
-}
-
-///
-/// GroupedPaginationWindow
-///
-/// Runtime grouped pagination projection consumed by grouped fold/page stages.
-/// Separates grouped paging primitives from route/fold call signatures so grouped
-/// continuation window semantics flow through one runtime boundary object.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::executor::load) struct GroupedPaginationWindow {
-    limit: Option<usize>,
-    initial_offset_for_page: usize,
-    selection_bound: Option<usize>,
-    resume_initial_offset: u32,
-    resume_boundary: Option<Value>,
-}
-
-impl GroupedPaginationWindow {
-    /// Build runtime grouped pagination projection from planner continuation window contract.
-    #[must_use]
-    pub(in crate::db::executor::load) fn from_contract(window: GroupedContinuationWindow) -> Self {
-        let (
-            limit,
-            initial_offset_for_page,
-            selection_bound,
-            resume_initial_offset,
-            resume_boundary,
-        ) = window.into_parts();
-
-        Self {
-            limit,
-            initial_offset_for_page,
-            selection_bound,
-            resume_initial_offset,
-            resume_boundary,
-        }
-    }
-
-    /// Return grouped page limit for this execution window.
-    #[must_use]
-    pub(in crate::db::executor::load) const fn limit(&self) -> Option<usize> {
-        self.limit
-    }
-
-    /// Return grouped page-initial offset for this execution window.
-    #[must_use]
-    pub(in crate::db::executor::load) const fn initial_offset_for_page(&self) -> usize {
-        self.initial_offset_for_page
-    }
-
-    /// Return bounded grouped candidate selection cap (`offset + limit + 1`) when active.
-    #[must_use]
-    pub(in crate::db::executor::load) const fn selection_bound(&self) -> Option<usize> {
-        self.selection_bound
-    }
-
-    /// Return resume offset encoded into grouped continuation tokens.
-    #[must_use]
-    pub(in crate::db::executor::load) const fn resume_initial_offset(&self) -> u32 {
-        self.resume_initial_offset
-    }
-
-    /// Borrow optional grouped resume boundary value for continuation filtering.
-    #[must_use]
-    pub(in crate::db::executor::load) const fn resume_boundary(&self) -> Option<&Value> {
-        self.resume_boundary.as_ref()
-    }
-}
-
-///
-/// GroupedContinuationContext
-///
-/// Runtime grouped continuation context derived from immutable continuation
-/// contracts. Carries grouped continuation signature, boundary arity, and one
-/// grouped pagination projection bundle consumed by grouped runtime stages.
-///
-
-struct GroupedContinuationContext {
-    continuation_signature: ContinuationSignature,
-    continuation_boundary_arity: usize,
-    grouped_pagination_window: GroupedPaginationWindow,
-}
-
-impl GroupedContinuationContext {
-    /// Construct grouped continuation runtime context from grouped contract values.
-    #[must_use]
-    const fn new(
-        continuation_signature: ContinuationSignature,
-        continuation_boundary_arity: usize,
-        grouped_pagination_window: GroupedPaginationWindow,
-    ) -> Self {
-        Self {
-            continuation_signature,
-            continuation_boundary_arity,
-            grouped_pagination_window,
-        }
-    }
-
-    /// Borrow grouped runtime pagination projection.
-    #[must_use]
-    const fn grouped_pagination_window(&self) -> &GroupedPaginationWindow {
-        &self.grouped_pagination_window
-    }
-
-    /// Build one grouped next cursor after validating grouped boundary arity.
-    fn grouped_next_cursor(&self, last_group_key: Vec<Value>) -> Result<PageCursor, InternalError> {
-        if last_group_key.len() != self.continuation_boundary_arity {
-            return Err(invariant(format!(
-                "grouped continuation boundary arity mismatch: expected {}, found {}",
-                self.continuation_boundary_arity,
-                last_group_key.len()
-            )));
-        }
-
-        Ok(PageCursor::Grouped(
-            ContinuationEngine::grouped_next_cursor_token(
-                self.continuation_signature,
-                last_group_key,
-                self.grouped_pagination_window.resume_initial_offset(),
-            ),
-        ))
-    }
-}
-
-///
-/// GroupedRuntimeProjection
-///
-/// Runtime grouped execution projection shared across grouped stream/fold/output
-/// stages. Keeps routed direction, grouped plan-metrics strategy, and optional
-/// execution trace under one runtime-boundary object.
-///
-
-struct GroupedRuntimeProjection {
-    direction: Direction,
-    grouped_plan_metrics_strategy: GroupedPlanMetricsStrategy,
-    execution_trace: Option<ExecutionTrace>,
-}
-
-impl GroupedRuntimeProjection {
-    /// Construct grouped runtime projection from routed direction/metrics/trace.
-    #[must_use]
-    const fn new(
-        direction: Direction,
-        grouped_plan_metrics_strategy: GroupedPlanMetricsStrategy,
-        execution_trace: Option<ExecutionTrace>,
-    ) -> Self {
-        Self {
-            direction,
-            grouped_plan_metrics_strategy,
-            execution_trace,
-        }
-    }
-
-    /// Return routed grouped stream direction.
-    #[must_use]
-    const fn direction(&self) -> Direction {
-        self.direction
-    }
-
-    /// Return grouped plan-metrics strategy for grouped stream observability.
-    #[must_use]
-    const fn grouped_plan_metrics_strategy(&self) -> GroupedPlanMetricsStrategy {
-        self.grouped_plan_metrics_strategy
-    }
-
-    /// Borrow optional grouped execution trace for observability mutation.
-    const fn execution_trace_mut(&mut self) -> &mut Option<ExecutionTrace> {
-        &mut self.execution_trace
-    }
-
-    /// Consume projection and return final grouped execution trace payload.
-    const fn into_execution_trace(self) -> Option<ExecutionTrace> {
-        self.execution_trace
-    }
-}
-
-///
-/// GroupedExecutionContext
-///
-/// Grouped runtime execution context artifacts derived at grouped route stage.
-/// Keeps cursor/runtime direction, continuation signature, trace, and grouped
-/// metrics strategy together for grouped stream/fold/output stages.
-///
-
-struct GroupedExecutionContext {
-    continuation: GroupedContinuationContext,
-    runtime: GroupedRuntimeProjection,
-}
-
-impl GroupedExecutionContext {
-    /// Construct grouped execution context from continuation + runtime projection.
-    #[must_use]
-    const fn new(
-        continuation: GroupedContinuationContext,
-        runtime: GroupedRuntimeProjection,
-    ) -> Self {
-        Self {
-            continuation,
-            runtime,
-        }
-    }
-
-    /// Return routed grouped stream direction.
-    #[must_use]
-    const fn direction(&self) -> Direction {
-        self.runtime.direction()
-    }
-
-    /// Return grouped plan-metrics strategy for grouped stream observability.
-    #[must_use]
-    const fn grouped_plan_metrics_strategy(&self) -> GroupedPlanMetricsStrategy {
-        self.runtime.grouped_plan_metrics_strategy()
-    }
-
-    /// Borrow grouped continuation context.
-    #[must_use]
-    const fn continuation(&self) -> &GroupedContinuationContext {
-        &self.continuation
-    }
-
-    /// Borrow optional grouped execution trace for observability mutation.
-    const fn execution_trace_mut(&mut self) -> &mut Option<ExecutionTrace> {
-        self.runtime.execution_trace_mut()
-    }
-
-    /// Consume grouped execution context and return final grouped execution trace payload.
-    fn into_execution_trace(self) -> Option<ExecutionTrace> {
-        self.runtime.into_execution_trace()
-    }
 }
 
 struct GroupedRouteStage<E: EntityKind + EntityValue> {
@@ -843,19 +614,6 @@ where
     ) -> Result<FieldSlot, InternalError> {
         resolve_numeric_aggregate_target_slot::<E>(target_field)
             .map_err(AggregateFieldValueError::into_internal_error)
-    }
-
-    // Preserve PK fast-path cursor-boundary error classification at the executor boundary.
-    pub(in crate::db::executor) fn validate_pk_fast_path_boundary_if_applicable(
-        plan: &AccessPlannedQuery<E::Key>,
-        cursor_boundary: Option<&CursorBoundary>,
-    ) -> Result<(), InternalError> {
-        if !Self::pk_order_stream_fast_path_shape_supported(plan) {
-            return Ok(());
-        }
-        let _ = decode_pk_cursor_boundary::<E>(cursor_boundary)?;
-
-        Ok(())
     }
 }
 

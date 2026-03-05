@@ -22,6 +22,7 @@ pub(crate) mod token;
 
 use crate::{
     db::{
+        codec::cursor::decode_cursor,
         direction::Direction,
         executor::ExecutableAccessPath,
         query::plan::{CursorOrderPlanShapeError, OrderSpec, validate_cursor_order_plan_shape},
@@ -49,6 +50,15 @@ pub use signature::ContinuationSignature;
 pub(crate) use token::{ContinuationToken, TokenWireError};
 pub(in crate::db) use token::{GroupedContinuationToken, IndexRangeCursorAnchor};
 pub(in crate::db) use validation::{CursorValidationOutcome, validate_cursor_compatibility};
+
+/// Decode one optional external continuation token through cursor-runtime authority.
+pub(in crate::db) fn decode_optional_cursor_token(
+    cursor_token: Option<&str>,
+) -> Result<Option<Vec<u8>>, CursorPlanError> {
+    cursor_token
+        .map(|token| decode_cursor(token).map_err(CursorPlanError::invalid_continuation_cursor))
+        .transpose()
+}
 
 /// Validate and decode a continuation cursor into executor-ready cursor state.
 pub(in crate::db) fn prepare_cursor<E: EntityKind>(

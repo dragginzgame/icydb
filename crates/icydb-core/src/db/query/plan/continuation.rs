@@ -155,12 +155,6 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
         self.grouped_cursor_policy_violation
     }
 
-    /// Return whether cursor continuation is supported for this contract.
-    #[must_use]
-    pub(in crate::db) const fn supports_cursor(&self) -> bool {
-        self.order_contract.supports_cursor()
-    }
-
     #[must_use]
     pub(in crate::db) const fn continuation_signature(&self) -> ContinuationSignature {
         self.shape_signature.continuation_signature()

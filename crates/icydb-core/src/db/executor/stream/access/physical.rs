@@ -7,7 +7,6 @@ use crate::{
     db::{
         data::DataKey,
         direction::Direction,
-        executor::LoweredKey,
         executor::stream::access::AccessScanContinuationInput,
         executor::{
             Context, ExecutableAccessPath, ExecutionPathPayload, IndexScan, LoweredIndexPrefixSpec,
@@ -108,8 +107,7 @@ impl<K> ExecutableAccessPath<'_, K> {
                 ctx,
                 self.index_range_details().map(|(index, _)| index),
                 index_range_spec,
-                continuation.anchor(),
-                continuation.direction(),
+                continuation.index_scan_continuation(),
                 physical_fetch_hint,
                 index_predicate_execution,
             )?,
@@ -251,8 +249,7 @@ impl<K> ExecutableAccessPath<'_, K> {
         ctx: &Context<'_, E>,
         _index: Option<IndexModel>,
         index_range_spec: Option<&LoweredIndexRangeSpec>,
-        index_range_anchor: Option<&LoweredKey>,
-        direction: Direction,
+        continuation: IndexScanContinuationInput<'_>,
         index_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError>
@@ -267,7 +264,6 @@ impl<K> ExecutableAccessPath<'_, K> {
         };
 
         let fetch_limit = index_fetch_hint.unwrap_or(usize::MAX);
-        let continuation = IndexScanContinuationInput::new(index_range_anchor, direction);
         let keys = IndexScan::range::<E>(
             ctx,
             spec,

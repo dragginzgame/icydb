@@ -7,7 +7,7 @@ use crate::db::{
     access::PushdownApplicability,
     direction::Direction,
     executor::{
-        AccessExecutionDescriptor,
+        AccessExecutionDescriptor, ScalarRouteWindowProjection,
         aggregate::{AggregateFoldMode, capability::AggregateFieldExtremaIneligibilityReason},
     },
     query::builder::AggregateExpr,
@@ -163,6 +163,18 @@ pub(in crate::db::executor) struct RouteWindowPlan {
 }
 
 impl RouteWindowPlan {
+    #[must_use]
+    pub(in crate::db::executor::route) const fn from_scalar_route_window_projection(
+        projection: ScalarRouteWindowProjection,
+    ) -> Self {
+        Self {
+            effective_offset: projection.effective_offset(),
+            limit: projection.limit(),
+            keep_count: projection.keep_count(),
+            fetch_count: projection.fetch_count(),
+        }
+    }
+
     #[must_use]
     pub(in crate::db::executor) const fn limit(&self) -> Option<u32> {
         self.limit

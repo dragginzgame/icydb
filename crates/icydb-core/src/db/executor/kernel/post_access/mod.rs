@@ -166,7 +166,7 @@ impl ExecutionKernel {
             plan.scalar_plan().page.as_ref(),
             rows,
             stats.rows_after_cursor,
-            continuation.cursor_boundary(),
+            continuation.post_access_cursor_boundary(),
             continuation.previous_index_range_anchor(),
             continuation.direction(),
             continuation.continuation_signature(),

@@ -9,7 +9,6 @@ mod reducer;
 
 use crate::{
     db::{
-        cursor::CursorBoundary,
         direction::Direction,
         executor::{
             ExecutionPlan, OrderedKeyStreamBox, ScalarContinuationBindings,
@@ -101,7 +100,7 @@ impl ExecutionKernel {
         // Phase 2: retry via unbounded index-range path when bounded residual pass under-fills.
         if Self::index_range_limited_residual_retry_required(
             inputs.plan(),
-            continuation.cursor_boundary(),
+            continuation,
             route_plan,
             rows_scanned,
             post_access_rows,
@@ -164,7 +163,7 @@ impl ExecutionKernel {
             Self::try_materialize_load_via_row_collector(
                 inputs.ctx(),
                 inputs.plan(),
-                continuation.cursor_boundary(),
+                continuation.post_access_cursor_boundary(),
                 resolved.key_stream_mut(),
             )?
         {
@@ -186,7 +185,7 @@ impl ExecutionKernel {
     // have under-filled the requested page window.
     fn index_range_limited_residual_retry_required<K>(
         plan: &AccessPlannedQuery<K>,
-        cursor_boundary: Option<&CursorBoundary>,
+        continuation: ScalarContinuationBindings<'_>,
         route_plan: &ExecutionPlan,
         rows_scanned: usize,
         post_access_rows: usize,
@@ -204,7 +203,7 @@ impl ExecutionKernel {
         let Some(limit) = logical.page.as_ref().and_then(|page| page.limit) else {
             return false;
         };
-        let keep_count = Self::effective_keep_count_for_limit(plan, cursor_boundary, limit);
+        let keep_count = continuation.effective_keep_count_for_limit(plan, limit);
         if keep_count == 0 {
             return false;
         }

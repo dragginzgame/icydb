@@ -17,7 +17,6 @@ use crate::{
         executor::{
             Context, ExecutionPlan, ExecutionPreparation, OrderedKeyStreamBox,
             aggregate::{AggregateFoldMode, AggregateKind},
-            compute_page_window,
             continuation::ScalarContinuationContext,
             load::LoadExecutor,
         },
@@ -114,28 +113,6 @@ pub(in crate::db::executor::route::planner) struct RouteExecutionStage {
     pub(in crate::db::executor::route::planner) execution_mode: ExecutionMode,
     pub(in crate::db::executor::route::planner) aggregate_fold_mode: AggregateFoldMode,
     pub(in crate::db::executor::route::planner) index_range_limit_spec: Option<IndexRangeLimitSpec>,
-}
-
-impl RouteWindowPlan {
-    // Build the canonical route window payload from effective offset + optional
-    // page limit, keeping keep/fetch counts aligned with shared page math.
-    pub(in crate::db::executor::route) fn new(effective_offset: u32, limit: Option<u32>) -> Self {
-        let (keep_count, fetch_count) = match limit {
-            Some(limit) => {
-                let keep = compute_page_window(effective_offset, limit, false).keep_count;
-                let fetch = compute_page_window(effective_offset, limit, true).fetch_count;
-                (Some(keep), Some(fetch))
-            }
-            None => (None, None),
-        };
-
-        Self {
-            effective_offset,
-            limit,
-            keep_count,
-            fetch_count,
-        }
-    }
 }
 
 impl ExecutionRoutePlan {
@@ -257,7 +234,9 @@ where
         continuation: &ScalarContinuationContext,
         probe_fetch_hint: Option<usize>,
     ) -> Result<ExecutionPlan, InternalError> {
-        Self::validate_pk_fast_path_boundary_if_applicable(plan, continuation.cursor_boundary())?;
+        if Self::pk_order_stream_fast_path_shape_supported(plan) {
+            continuation.validate_pk_fast_path_boundary::<E>()?;
+        }
 
         Ok(Self::build_execution_route_plan(
             plan,

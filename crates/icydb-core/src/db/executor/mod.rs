@@ -23,13 +23,9 @@ mod tests;
 mod traversal;
 mod window;
 
-use crate::db::{
-    access::{
-        LOWERED_INDEX_PREFIX_SPEC_INVALID, LOWERED_INDEX_RANGE_SPEC_INVALID,
-        LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey, lower_index_prefix_specs,
-        lower_index_range_specs,
-    },
-    cursor::{RangeToken, range_token_anchor_key},
+use crate::db::access::{
+    LOWERED_INDEX_PREFIX_SPEC_INVALID, LOWERED_INDEX_RANGE_SPEC_INVALID, LoweredIndexPrefixSpec,
+    LoweredIndexRangeSpec, LoweredKey, lower_index_prefix_specs, lower_index_range_specs,
 };
 
 pub(in crate::db) use crate::db::access::{
@@ -41,7 +37,11 @@ pub(in crate::db::executor) use access_dispatcher::{
     access_plan_metrics_kind, derive_access_capabilities, derive_access_path_capabilities,
 };
 pub(super) use context::*;
-pub(in crate::db::executor) use continuation::{ContinuationEngine, ScalarContinuationBindings};
+pub(in crate::db::executor) use continuation::{
+    ContinuationEngine, LoadCursorInput, PreparedLoadCursor, RequestedLoadExecutionShape,
+    ResolvedScalarContinuationContext, ScalarContinuationBindings,
+    ScalarRouteContinuationInvariantProjection, ScalarRouteWindowProjection,
+};
 pub(super) use delete::DeleteExecutor;
 pub(in crate::db) use executable_plan::{ExecutablePlan, ExecutionStrategy};
 pub(in crate::db::executor) use kernel::{ExecutionKernel, PlanRow};

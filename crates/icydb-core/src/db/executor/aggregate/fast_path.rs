@@ -395,8 +395,7 @@ impl ExecutionKernel {
             inputs.ctx,
             inputs.logical_plan,
             inputs.index_range_specs.first(),
-            None,
-            inputs.direction,
+            AccessScanContinuationInput::new(None, inputs.direction),
             index_range_limit_spec.fetch,
             Self::aggregate_index_predicate_execution(inputs.index_predicate_program),
         )?

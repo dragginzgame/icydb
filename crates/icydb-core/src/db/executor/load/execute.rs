@@ -426,8 +426,7 @@ where
                     inputs.ctx(),
                     inputs.plan(),
                     inputs.stream_bindings().index_range_specs.first(),
-                    inputs.stream_bindings().index_range_anchor(),
-                    inputs.stream_bindings().direction(),
+                    inputs.stream_bindings().continuation,
                     spec.fetch,
                     index_predicate_execution,
                 )

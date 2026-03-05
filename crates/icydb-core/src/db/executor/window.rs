@@ -6,14 +6,7 @@
 use crate::{
     db::{
         cursor::{CursorBoundary, spine::apply_continuation},
-        executor::{
-            ExecutionKernel,
-            kernel::PlanRow,
-            traversal::{
-                effective_keep_count_for_limit as plan_effective_keep_count_for_limit,
-                effective_page_offset_for_window,
-            },
-        },
+        executor::{ExecutionKernel, kernel::PlanRow, traversal::effective_page_offset_for_window},
         query::plan::AccessPlannedQuery,
     },
     error::InternalError,
@@ -120,15 +113,6 @@ impl ExecutionKernel {
         cursor_boundary: Option<&CursorBoundary>,
     ) -> WindowCursorContract {
         WindowCursorContract::from_plan(plan, cursor_boundary)
-    }
-
-    /// Compute effective keep-count from plan + cursor-offset semantics.
-    pub(in crate::db::executor) fn effective_keep_count_for_limit<K>(
-        plan: &AccessPlannedQuery<K>,
-        cursor_boundary: Option<&CursorBoundary>,
-        limit: u32,
-    ) -> usize {
-        plan_effective_keep_count_for_limit(plan, cursor_boundary.is_some(), limit)
     }
 
     /// Return the effective page offset for this request.

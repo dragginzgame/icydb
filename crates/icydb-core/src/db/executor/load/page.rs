@@ -58,21 +58,9 @@ where
             continuation,
         } = request;
 
-        // Phase 1: validate scan-budget hint preconditions.
-        // Bounded load scan hints are valid only for non-continuation,
-        // streaming-safe access shapes where access order is final.
-        if scan_budget_hint.is_some() {
-            if continuation.cursor_boundary().is_some() {
-                return Err(invariant(
-                    "load page scan budget hint requires non-continuation execution",
-                ));
-            }
-            if !streaming_access_shape_safe {
-                return Err(invariant(
-                    "load page scan budget hint requires streaming-safe access shape",
-                ));
-            }
-        }
+        // Phase 1: validate continuation-owned scan-budget hint preconditions.
+        continuation
+            .validate_load_scan_budget_hint(scan_budget_hint, streaming_access_shape_safe)?;
 
         // Phase 2: read rows from the ordered key stream, with optional budget guard.
         let data_rows = if let Some(scan_budget) = scan_budget_hint {
@@ -101,7 +89,7 @@ where
         let stats = ExecutionKernel::apply_post_access_with_cursor_and_compiled_predicate::<E, _, _>(
             plan,
             rows,
-            continuation.cursor_boundary(),
+            continuation.post_access_cursor_boundary(),
             predicate_slots,
         )?;
         let next_cursor =

@@ -11,8 +11,7 @@ use crate::{
         PagedGroupedExecutionWithTrace, PagedLoadExecutionWithTrace, PlanError, Query, QueryError,
         StoreRegistry, WriteBatchResponse,
         commit::EntityRuntimeHooks,
-        cursor::CursorPlanError,
-        decode_cursor,
+        cursor::decode_optional_cursor_token,
         executor::{
             DeleteExecutor, ExecutablePlan, ExecutionStrategy, ExecutorPlanError, LoadExecutor,
             SaveExecutor,
@@ -35,15 +34,7 @@ fn map_executor_plan_error(err: ExecutorPlanError) -> QueryError {
 // Decode one optional external cursor token and map decode failures into the
 // query-plan cursor error boundary.
 fn decode_optional_cursor_bytes(cursor_token: Option<&str>) -> Result<Option<Vec<u8>>, QueryError> {
-    cursor_token
-        .map(|token| {
-            decode_cursor(token).map_err(|reason| {
-                QueryError::from(PlanError::from(
-                    CursorPlanError::invalid_continuation_cursor(reason),
-                ))
-            })
-        })
-        .transpose()
+    decode_optional_cursor_token(cursor_token).map_err(|err| QueryError::from(PlanError::from(err)))
 }
 
 ///
@@ -538,6 +529,7 @@ fn invariant(message: impl Into<String>) -> InternalError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::cursor::CursorPlanError;
 
     // Assert query-surface cursor errors remain wrapped under QueryError::Plan(PlanError::Cursor).
     fn assert_query_error_is_cursor_plan(

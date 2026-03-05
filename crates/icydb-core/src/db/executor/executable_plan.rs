@@ -170,12 +170,6 @@ impl<E: EntityKind> ExecutablePlan<E> {
         })
     }
 
-    /// Return whether planner-projected execution ordering supports cursors.
-    pub(in crate::db) fn supports_execution_cursor(&self) -> Result<bool, InternalError> {
-        let contract = self.continuation_contract()?;
-        Ok(contract.supports_cursor())
-    }
-
     pub(in crate::db) const fn access(&self) -> &AccessPlan<E::Key> {
         &self.plan.access
     }

@@ -18,6 +18,25 @@ Run scope: all recurring audit definitions under `docs/audits/recurring/` execut
 12. `planner/planner-boundary-semantics` -> `boundary-semantics.md` (Risk: 3/10)
 13. `storage/storage-recovery-consistency` -> `recovery-consistency.md` (Risk: 4/10)
 14. `follow-up/execution-routing-refactor` -> `execution-routing-refactor-followup.md` (Refactor plan refinement)
+15. `follow-up/decode-cursor-authority` -> `decode-cursor-authority-followup.md` (Session decode leak closure)
+16. `follow-up/load-entrypoints-continuation-contract` -> `load-entrypoints-continuation-contract-followup.md` (Scalar continuation assembly leak reduction)
+17. `follow-up/load-entrypoints-cursor-resolution` -> `load-entrypoints-cursor-resolution-followup.md` (Cursor compatibility/revalidation leak reduction)
+18. `follow-up/load-entrypoints-shape-dispatch` -> `load-entrypoints-shape-dispatch-followup.md` (Load shape compatibility branch reduction)
+19. `follow-up/load-entrypoints-final-surface` -> `load-entrypoints-final-surface-followup.md` (Payload-shape branch reduction in paging/surface materialization)
+20. `follow-up/load-entrypoints-wrapper-typed-surface` -> `load-entrypoints-wrapper-typed-surface-followup.md` (Wrapper-level surface conversion check removal)
+21. `follow-up/load-entrypoints-module-split` -> `load-entrypoints-module-split-followup.md` (Entrypoint hub split into scalar/grouped modules)
+22. `follow-up/access-stream-anchor-interpretation` -> `access-stream-anchor-interpretation-followup.md` (Stream layer anchor interpretation removal)
+23. `follow-up/access-stream-anchor-interpretation-pass-2` -> `access-stream-anchor-interpretation-followup.md` (Removed stream anchor exposure and migrated remaining index-range fast-path callsites to continuation input)
+24. `follow-up/access-stream-anchor-interpretation-pass-3` -> `access-stream-anchor-interpretation-followup.md` (Access continuation carrier now stores index-layer continuation contract directly)
+25. `follow-up/load-hub-pk-boundary-decode-authority` -> `decode-cursor-authority-followup.md` (Moved PK fast-path boundary decode authority from load hub to continuation runtime)
+26. `follow-up/load-entrypoint-scalar-invariant-centralization` -> `load-entrypoints-continuation-contract-followup.md` (Moved scalar strict-advance/effective-offset continuation invariant checks from load entrypoint to continuation runtime context)
+27. `follow-up/load-page-scan-budget-continuation-guard-centralization` -> `load-entrypoints-continuation-contract-followup.md` (Moved load page scan-budget continuation precondition checks into continuation bindings)
+28. `follow-up/load-kernel-cursor-boundary-read-collapse` -> `load-entrypoints-continuation-contract-followup.md` (Replaced direct load/kernel/route-mode cursor-boundary protocol reads with continuation-owned helpers)
+29. `follow-up/route-mode-continuation-projection-centralization` -> `load-entrypoints-continuation-contract-followup.md` (route/mode continuation mode/window derivation now consumes continuation-owned projection helpers)
+30. `follow-up/route-contract-assertion-dto-decoupling` -> `load-entrypoints-continuation-contract-followup.md` (scalar continuation invariant assertions now consume a minimal DTO instead of full route contract)
+31. `follow-up/load-runtime-hub-split` -> `load-runtime-hub-split-followup.md` (Moved grouped runtime context/window types out of `load/mod.rs` into dedicated module)
+32. `follow-up/route-window-math-guard-test` -> `load-runtime-hub-split-followup.md` (Added structural test that fails if `compute_page_window(` appears under `executor/route`)
+31. `follow-up/router-window-math-projection-collapse` -> `load-entrypoints-continuation-contract-followup.md` (router no longer computes keep/fetch window math; continuation runtime now projects full route window inputs)
 
 ## Global Findings
 
@@ -32,6 +51,26 @@ Run scope: all recurring audit definitions under `docs/audits/recurring/` execut
 - Continuation wiring follow-up added pure `ContinuationContract` accessor surface and moved load fast-path direction wiring to routed execution inputs (no ad-hoc `ExecutionOrderContract::from_plan(...)` in load fast-path modules).
 - Continuation runtime plumbing now carries one shared `ScalarContinuationBindings` object through load/kernel materialization, replacing duplicated boundary/anchor/direction/signature parameter bundles.
 - Initial-page offset semantics are now sourced from one continuation helper and consumed by both executor traversal and cursor token derivation paths.
+- Session-layer continuation decode no longer calls `decode_cursor` directly; cursor token decode authority is now centralized in `db/cursor::decode_optional_cursor_token`.
+- Load hub no longer decodes PK cursor boundaries directly; PK fast-path boundary decode now routes through `ScalarContinuationContext::validate_pk_fast_path_boundary` under route shape gating.
+- Scalar load entrypoint no longer hosts strict-advance/effective-offset continuation protocol assertions; these now live in `ResolvedScalarContinuationContext::debug_assert_route_continuation_invariants`.
+- Load page materialization no longer re-derives continuation scan-budget preconditions; this guard now lives in `ScalarContinuationBindings::validate_load_scan_budget_hint`.
+- Load/kernel/route-mode continuations no longer inspect cursor-boundary presence directly at callsites; continuation runtime now exposes `continuation_applied`/`effective_keep_count_for_limit` and scalar-context route helpers for these protocol decisions.
+- route/mode continuation derivation now consumes `ScalarContinuationContext` projection helpers (`route_continuation_mode`, `route_window_projection_for_plan`) instead of branching on raw boundary/token presence.
+- scalar continuation invariant assertions now consume `ScalarRouteContinuationInvariantProjection`, reducing continuation-runtime coupling to full route contract types.
+- Grouped runtime context/window definitions were split from `load/mod.rs` into `load/grouped_runtime.rs`, reducing load hub concentration without changing behavior.
+- Added a guard test that enforces router boundary discipline by rejecting `compute_page_window(` in `executor/route` sources.
+- route continuation window assembly now consumes `ScalarRouteWindowProjection` (including precomputed keep/fetch counts), and router no longer runs `compute_page_window` math.
+- Practical stopping rule now holds on continuation routing: router continuation path is projection mapping to route contracts; continuation semantics/math/invariants are owned by continuation runtime.
+- Scalar load entrypoints no longer unpack continuation anchor/token primitives directly; `ResolvedScalarContinuationContext` now owns scalar continuation binding/access-scan input assembly.
+- Load entrypoint cursor compatibility + revalidation decisions now resolve through `ContinuationEngine::resolve_load_cursor_context`, removing local scalar/grouped cursor decision branching from `build_execution_context`.
+- Load entrypoint mode/order compatibility now resolves through `RequestedLoadExecutionShape` + continuation resolver contracts, and grouping/projection dispatch now matches resolved cursor shape only.
+- Load entrypoint paging/surface stages now emit typed final output (`LoadExecutionSurface`) and use centralized payload extractors, removing repeated scalar/grouped mismatch branch cross-products from `apply_paging` and `materialize_surface`.
+- Public load entrypoint wrappers now call mode-typed helper boundaries directly, removing wrapper-level `LoadExecutionSurface` conversion helper checks.
+- Load entrypoint implementation is now split into `entrypoints/mod.rs` + `entrypoints/scalar.rs` + `entrypoints/grouped.rs`, reducing single-file hub pressure while keeping one shared stage-order root.
+- Access-stream physical index-range resolution now consumes one index-layer continuation contract (`IndexScanContinuationInput`) from `AccessScanContinuationInput::index_scan_continuation()`, removing stream-layer direct anchor read/interpretation in physical resolver wiring.
+- Index-range stream fast-path wiring now consumes `AccessScanContinuationInput` end-to-end (including aggregate fast-path callsites), and stream-level raw anchor exposure helpers were removed.
+- `AccessScanContinuationInput` now stores one `IndexScanContinuationInput` internally, removing remaining stream-owned anchor field/state representation while preserving existing runtime behavior.
 - Scan-layer continuation wiring now carries one shared `IndexScanContinuationInput` object at executor/index boundaries, and index-range fast-path anchor wiring now consumes lowered anchors directly without `RangeToken` round-trips.
 - Access-stream continuation wiring now carries one shared `AccessScanContinuationInput` object through executor access stream key/row helper boundaries, replacing duplicated anchor/direction argument pairs.
 - `AccessStreamBindings` now carries continuation as one field with accessor-based reads, reducing direct primitive continuation field references in load/kernel/aggregate stream paths.
@@ -75,6 +114,7 @@ Run scope: all recurring audit definitions under `docs/audits/recurring/` execut
 - `cargo test -p icydb-core grouped_fluent_execute_initial_to_continuation_matrix_covers_offset_and_limit -- --nocapture` -> PASS
 - `cargo test -p icydb-core grouped_fluent_execute_having_filters_groups_without_extra_continuation -- --nocapture` -> PASS
 - `cargo test -p icydb-core db::cursor::tests -- --nocapture` -> PASS
+- `cargo test -p icydb-core --lib cursor::tests` -> PASS
 - `cargo test -p icydb-core anchor_equal_to_upper_resumes_to_empty_envelope -- --nocapture` -> PASS
 - `cargo test -p icydb-core access_plan_rejects_misaligned_index_range_spec -- --nocapture` -> PASS
 - `cargo test -p icydb-core index_range_path_requires_pre_lowered_spec -- --nocapture` -> PASS
