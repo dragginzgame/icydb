@@ -83,7 +83,7 @@ fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_pat
         ExecutionModeRouteCase::AggregateGrouped
     );
     assert_eq!(route_plan.execution_mode, ExecutionMode::Materialized);
-    assert_eq!(route_plan.continuation_mode(), ContinuationMode::Initial);
+    assert_eq!(route_plan.continuation().mode(), ContinuationMode::Initial);
     assert_eq!(route_plan.index_range_limit_spec, None);
     assert_eq!(route_plan.scan_hints.physical_fetch_hint, None);
     assert_eq!(route_plan.scan_hints.load_scan_budget_hint, None);
@@ -134,7 +134,7 @@ fn route_plan_grouped_wrapper_keeps_blocking_shape_under_tight_budget_config() {
         ExecutionModeRouteCase::AggregateGrouped
     );
     assert_eq!(route_plan.execution_mode, ExecutionMode::Materialized);
-    assert_eq!(route_plan.continuation_mode(), ContinuationMode::Initial);
+    assert_eq!(route_plan.continuation().mode(), ContinuationMode::Initial);
     assert_eq!(route_plan.index_range_limit_spec, None);
     assert_eq!(route_plan.scan_hints.physical_fetch_hint, None);
     assert_eq!(route_plan.scan_hints.load_scan_budget_hint, None);
@@ -1162,7 +1162,7 @@ fn route_matrix_aggregate_strict_compile_uncertainty_forces_materialized_executi
 
     let load_route = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
         &strict_uncertain,
-        &initial_scalar_continuation_runtime(),
+        &initial_scalar_continuation_context(),
         None,
     )
     .expect("load route plan should build for strict/subset parity boundary shape");
@@ -1217,7 +1217,7 @@ fn route_matrix_strict_vs_subset_decision_logs_are_stable() {
         );
     let load_route = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
         &strict_uncertain,
-        &initial_scalar_continuation_runtime(),
+        &initial_scalar_continuation_context(),
         None,
     )
     .expect("load route plan should build for strict/subset log shape");
@@ -1229,7 +1229,7 @@ fn route_matrix_strict_vs_subset_decision_logs_are_stable() {
         strict_compatible_route.scan_hints.physical_fetch_hint,
         strict_compatible_route.secondary_extrema_probe_fetch_hint(),
         strict_compatible_route.index_range_limit_fast_path_enabled(),
-        strict_compatible_route.continuation_mode(),
+        strict_compatible_route.continuation().mode(),
     );
     let strict_uncertain_log = format!(
         "aggregate:mode={:?};fold={:?};fetch={:?};secondary_probe={:?};index_range_limit={};continuation={:?}",
@@ -1238,7 +1238,7 @@ fn route_matrix_strict_vs_subset_decision_logs_are_stable() {
         strict_uncertain_route.scan_hints.physical_fetch_hint,
         strict_uncertain_route.secondary_extrema_probe_fetch_hint(),
         strict_uncertain_route.index_range_limit_fast_path_enabled(),
-        strict_uncertain_route.continuation_mode(),
+        strict_uncertain_route.continuation().mode(),
     );
     let load_log = format!(
         "load:mode={:?};fetch={:?};scan_budget={:?};index_range_limit={};continuation={:?}",
@@ -1246,7 +1246,7 @@ fn route_matrix_strict_vs_subset_decision_logs_are_stable() {
         load_route.scan_hints.physical_fetch_hint,
         load_route.scan_hints.load_scan_budget_hint,
         load_route.index_range_limit_fast_path_enabled(),
-        load_route.continuation_mode(),
+        load_route.continuation().mode(),
     );
 
     assert_eq!(

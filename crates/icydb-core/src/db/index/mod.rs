@@ -33,4 +33,5 @@ pub(in crate::db) use range::{
     IndexRangeBoundEncodeError, envelope_is_empty, raw_bounds_for_semantic_index_component_range,
     raw_keys_for_encoded_prefix, raw_keys_for_encoded_prefix_with_kind,
 };
+pub(in crate::db) use scan::IndexScanContinuationInput;
 pub use store::IndexStore;

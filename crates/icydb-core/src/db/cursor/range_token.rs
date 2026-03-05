@@ -66,12 +66,6 @@ pub(in crate::db) fn range_token_from_validated_cursor_anchor(
     RangeToken::new(LogicalKeyHandle::from_lowered(anchor.lowered_key().clone()))
 }
 
-/// Build one range token from one lowered anchor key.
-#[must_use]
-pub(in crate::db) fn range_token_from_lowered_anchor(anchor: &LoweredKey) -> RangeToken {
-    RangeToken::new(LogicalKeyHandle::from_lowered(anchor.clone()))
-}
-
 /// Borrow the lowered anchor key carried by one range token.
 #[must_use]
 pub(in crate::db) const fn range_token_anchor_key(range_token: &RangeToken) -> &LoweredKey {

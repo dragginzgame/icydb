@@ -78,40 +78,73 @@ pub(in crate::db::executor) enum ContinuationMode {
     IndexRangeAnchor,
 }
 
-/// Return true when this route run has continuation bindings applied.
-#[must_use]
-pub(in crate::db::executor) const fn continuation_applied(
-    continuation_mode: ContinuationMode,
-) -> bool {
-    !matches!(continuation_mode, ContinuationMode::Initial)
+///
+/// RouteContinuationPlan
+///
+/// Route-owned continuation projection bundle.
+/// Keeps continuation mode, planner continuation policy, and route window
+/// semantics under one immutable routing contract.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) struct RouteContinuationPlan {
+    mode: ContinuationMode,
+    policy: ContinuationPolicy,
+    window: RouteWindowPlan,
 }
 
-/// Return true when index-range pushdown is valid under this continuation mode.
-#[must_use]
-pub(in crate::db::executor::route) const fn continuation_policy_allows_index_range_limit_pushdown(
-    continuation_policy: ContinuationPolicy,
-    continuation_mode: ContinuationMode,
-) -> bool {
-    if continuation_policy.requires_anchor() {
-        !matches!(continuation_mode, ContinuationMode::CursorBoundary)
-    } else {
-        true
-    }
-}
-
-/// Return true when load scan-budget hints are valid under this route shape.
-#[must_use]
-pub(in crate::db::executor::route) const fn continuation_policy_allows_load_scan_budget_hint(
-    continuation_policy: ContinuationPolicy,
-    continuation_mode: ContinuationMode,
-    capabilities: RouteCapabilities,
-) -> bool {
-    let continuation_applied = continuation_applied(continuation_mode);
-    if continuation_policy.requires_strict_advance() && continuation_applied {
-        return false;
+impl RouteContinuationPlan {
+    #[must_use]
+    pub(in crate::db::executor::route) const fn new(
+        mode: ContinuationMode,
+        policy: ContinuationPolicy,
+        window: RouteWindowPlan,
+    ) -> Self {
+        Self {
+            mode,
+            policy,
+            window,
+        }
     }
 
-    !continuation_applied && capabilities.streaming_access_shape_safe
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db::executor) const fn mode(self) -> ContinuationMode {
+        self.mode
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn window(self) -> RouteWindowPlan {
+        self.window
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn applied(self) -> bool {
+        !matches!(self.mode, ContinuationMode::Initial)
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn strict_advance_required_when_applied(self) -> bool {
+        !self.applied() || self.policy.requires_strict_advance()
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn grouped_safe_when_applied(self) -> bool {
+        !self.applied() || self.policy.is_grouped_safe()
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn index_range_limit_pushdown_allowed(self) -> bool {
+        !self.policy.requires_anchor() || !matches!(self.mode, ContinuationMode::CursorBoundary)
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn load_scan_budget_hint_allowed(
+        self,
+        capabilities: RouteCapabilities,
+    ) -> bool {
+        !self.applied() && capabilities.streaming_access_shape_safe
+    }
 }
 
 ///
@@ -161,9 +194,7 @@ impl RouteWindowPlan {
 pub(in crate::db::executor) struct ExecutionRoutePlan {
     pub(in crate::db::executor) direction: Direction,
     pub(in crate::db::executor) route_shape_kind: RouteShapeKind,
-    pub(in crate::db::executor) continuation_mode: ContinuationMode,
-    pub(in crate::db::executor) continuation_policy: ContinuationPolicy,
-    pub(in crate::db::executor) window: RouteWindowPlan,
+    pub(in crate::db::executor) continuation: RouteContinuationPlan,
     pub(in crate::db::executor) execution_mode: ExecutionMode,
     pub(in crate::db::executor) execution_mode_case: ExecutionModeRouteCase,
     pub(in crate::db::executor) secondary_pushdown_applicability: PushdownApplicability,
@@ -183,18 +214,8 @@ impl ExecutionRoutePlan {
     }
 
     #[must_use]
-    pub(in crate::db::executor) const fn continuation_mode(&self) -> ContinuationMode {
-        self.continuation_mode
-    }
-
-    #[must_use]
-    pub(in crate::db::executor) const fn continuation_policy(&self) -> ContinuationPolicy {
-        self.continuation_policy
-    }
-
-    #[must_use]
-    pub(in crate::db::executor) const fn window(&self) -> RouteWindowPlan {
-        self.window
+    pub(in crate::db::executor) const fn continuation(&self) -> RouteContinuationPlan {
+        self.continuation
     }
 
     #[must_use]

@@ -4,7 +4,7 @@
 //! semantics. Query semantic validation remains
 //! owned by `db::query::plan::validate`.
 
-use crate::db::query::plan::AccessPlannedQuery;
+use crate::db::query::plan::{AccessPlannedQuery, effective_offset_for_cursor_window};
 
 /// Derive the effective pagination offset for a plan under cursor-window semantics.
 #[must_use]
@@ -12,14 +12,13 @@ pub(in crate::db) fn effective_page_offset_for_window<K>(
     plan: &AccessPlannedQuery<K>,
     cursor_boundary_present: bool,
 ) -> u32 {
-    if cursor_boundary_present {
-        return 0;
-    }
-
-    plan.scalar_plan()
+    let window_size = plan
+        .scalar_plan()
         .page
         .as_ref()
-        .map_or(0, |page| page.offset)
+        .map_or(0, |page| page.offset);
+
+    effective_offset_for_cursor_window(window_size, cursor_boundary_present)
 }
 
 /// Derive the effective keep-count (`offset + limit`) for one plan and limit.

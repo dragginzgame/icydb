@@ -6,12 +6,12 @@
 use crate::{
     db::{
         Context,
+        access::LoweredKey,
         direction::Direction,
         executor::{
             AccessExecutionDescriptor, AccessStreamBindings, ExecutionOptimization,
-            LoweredIndexRangeSpec, RangeToken, derive_access_path_capabilities,
+            LoweredIndexRangeSpec, derive_access_path_capabilities,
             load::{FastPathKeyResult, LoadExecutor},
-            range_token_anchor_key,
         },
         index::predicate::IndexPredicateExecution,
         query::plan::AccessPlannedQuery,
@@ -29,7 +29,7 @@ where
         ctx: &Context<'_, E>,
         plan: &AccessPlannedQuery<E::Key>,
         index_range_spec: Option<&LoweredIndexRangeSpec>,
-        index_range_anchor: Option<&RangeToken>,
+        index_range_anchor: Option<&LoweredKey>,
         direction: Direction,
         effective_fetch: usize,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
@@ -57,11 +57,7 @@ where
         // Phase 2: bind range/anchor inputs and execute through shared fast-stream helper.
         let descriptor = AccessExecutionDescriptor::from_executable_bindings(
             executable_access,
-            AccessStreamBindings::with_index_range(
-                index_range_spec,
-                index_range_anchor.map(range_token_anchor_key),
-                direction,
-            ),
+            AccessStreamBindings::with_index_range(index_range_spec, index_range_anchor, direction),
             Some(effective_fetch),
             index_predicate_execution,
         );

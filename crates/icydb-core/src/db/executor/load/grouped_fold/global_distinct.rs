@@ -3,8 +3,8 @@ use crate::{
         executor::{
             aggregate::ExecutionContext,
             load::{
-                GroupedCursorPage, GroupedFoldStage, GroupedRouteStage, GroupedStreamStage,
-                LoadExecutor,
+                GroupedCursorPage, GroupedFoldStage, GroupedRouteStageProjection,
+                GroupedStreamStage, LoadExecutor,
             },
         },
         query::plan::{GroupedDistinctExecutionStrategy, expr::ProjectionSpec},
@@ -18,69 +18,56 @@ where
     E: EntityKind + EntityValue,
 {
     // Execute grouped global DISTINCT field-target fold path and emit one folded page when active.
-    pub(super) fn try_execute_global_distinct_fold(
-        route: &GroupedRouteStage<E>,
+    pub(super) fn try_execute_global_distinct_fold<R>(
+        route: &R,
         stream: &mut GroupedStreamStage<'_, E>,
         grouped_execution_context: &mut ExecutionContext,
         grouped_projection_spec: &ProjectionSpec,
         scanned_rows: &mut usize,
         filtered_rows: &mut usize,
-    ) -> Result<Option<GroupedFoldStage>, InternalError> {
-        let (aggregate_kind, target_field) =
-            match &route.planner_payload.grouped_distinct_execution_strategy {
-                GroupedDistinctExecutionStrategy::None => return Ok(None),
-                GroupedDistinctExecutionStrategy::GlobalDistinctFieldAggregate {
-                    kind,
-                    target_field,
-                } => (kind, target_field),
-            };
-        let compiled_predicate = stream.execution_preparation.compiled_predicate();
+    ) -> Result<Option<GroupedFoldStage>, InternalError>
+    where
+        R: GroupedRouteStageProjection<E>,
+    {
+        let (aggregate_kind, target_field) = match route.grouped_distinct_execution_strategy() {
+            GroupedDistinctExecutionStrategy::None => return Ok(None),
+            GroupedDistinctExecutionStrategy::GlobalDistinctFieldAggregate {
+                kind,
+                target_field,
+            } => (kind, target_field.as_str()),
+        };
+        let (ctx, execution_preparation, resolved) = stream.parts_mut();
+        let compiled_predicate = execution_preparation.compiled_predicate();
 
         let global_row = Self::execute_global_distinct_field_aggregate(
-            &route.planner_payload.plan,
-            &stream.ctx,
-            &mut stream.resolved,
+            route.plan(),
+            ctx,
+            resolved,
             compiled_predicate,
             grouped_execution_context,
-            (*aggregate_kind, target_field.as_str()),
+            (*aggregate_kind, target_field),
             (scanned_rows, filtered_rows),
         )?;
         let page_rows = Self::page_global_distinct_grouped_row(
             global_row,
-            route.planner_payload.plan.scalar_plan().page.as_ref(),
+            route.plan().scalar_plan().page.as_ref(),
         );
         let page_rows = Self::project_grouped_rows_from_projection(
             grouped_projection_spec,
-            &route.planner_payload.projection_layout,
-            route.planner_payload.group_fields.as_slice(),
-            route.planner_payload.grouped_aggregate_exprs.as_slice(),
+            route.projection_layout(),
+            route.group_fields(),
+            route.grouped_aggregate_exprs(),
             page_rows,
         )?;
-        let rows_scanned = stream
-            .resolved
-            .rows_scanned_override
-            .unwrap_or(*scanned_rows);
-        let optimization = stream.resolved.optimization;
-        let index_predicate_applied = stream.resolved.index_predicate_applied;
-        let index_predicate_keys_rejected = stream.resolved.index_predicate_keys_rejected;
-        let distinct_keys_deduped = stream
-            .resolved
-            .distinct_keys_deduped_counter
-            .as_ref()
-            .map_or(0, |counter| counter.get());
-
-        Ok(Some(GroupedFoldStage {
-            page: GroupedCursorPage {
+        Ok(Some(GroupedFoldStage::from_grouped_stream(
+            GroupedCursorPage {
                 rows: page_rows,
                 next_cursor: None,
             },
-            filtered_rows: *filtered_rows,
-            check_filtered_rows_upper_bound: false,
-            rows_scanned,
-            optimization,
-            index_predicate_applied,
-            index_predicate_keys_rejected,
-            distinct_keys_deduped,
-        }))
+            *filtered_rows,
+            false,
+            stream,
+            *scanned_rows,
+        )))
     }
 }

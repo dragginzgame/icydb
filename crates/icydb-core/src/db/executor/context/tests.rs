@@ -2,10 +2,9 @@ use crate::{
     db::{
         Db,
         access::{AccessPath, AccessPlan},
-        direction::Direction,
         executor::{
-            Context, IndexStreamConstraints, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
-            StreamExecutionHints,
+            AccessScanContinuationInput, Context, IndexStreamConstraints, LoweredIndexPrefixSpec,
+            LoweredIndexRangeSpec, StreamExecutionHints,
         },
         predicate::MissingRowPolicy,
         registry::StoreRegistry,
@@ -108,9 +107,8 @@ fn index_range_path_requires_pre_lowered_spec() {
         IndexStreamConstraints {
             prefix: None,
             range: None,
-            anchor: None,
         },
-        Direction::Asc,
+        AccessScanContinuationInput::initial_asc(),
         StreamExecutionHints {
             physical_fetch_hint: None,
             predicate_execution: None,
@@ -140,9 +138,8 @@ fn index_prefix_path_direct_resolution_skips_alignment_invariant_check() {
         IndexStreamConstraints {
             prefix: Some(&spec),
             range: None,
-            anchor: None,
         },
-        Direction::Asc,
+        AccessScanContinuationInput::initial_asc(),
         StreamExecutionHints {
             physical_fetch_hint: None,
             predicate_execution: None,
@@ -174,9 +171,8 @@ fn index_range_path_direct_resolution_skips_alignment_invariant_check() {
         IndexStreamConstraints {
             prefix: None,
             range: Some(&spec),
-            anchor: None,
         },
-        Direction::Asc,
+        AccessScanContinuationInput::initial_asc(),
         StreamExecutionHints {
             physical_fetch_hint: None,
             predicate_execution: None,

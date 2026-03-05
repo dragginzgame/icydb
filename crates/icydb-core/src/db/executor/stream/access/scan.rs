@@ -9,7 +9,7 @@ use crate::{
         direction::Direction,
         executor::LoweredKey,
         executor::{Context, LoweredIndexPrefixSpec, LoweredIndexRangeSpec},
-        index::predicate::IndexPredicateExecution,
+        index::{IndexScanContinuationInput, predicate::IndexPredicateExecution},
     },
     error::InternalError,
     model::index::IndexModel,
@@ -145,8 +145,7 @@ impl IndexScan {
             spec.index(),
             spec.lower(),
             spec.upper(),
-            None,
-            direction,
+            IndexScanContinuationInput::new(None, direction),
             limit,
             predicate_execution,
         )
@@ -156,8 +155,7 @@ impl IndexScan {
     pub(in crate::db::executor) fn range<E>(
         ctx: &Context<'_, E>,
         spec: &LoweredIndexRangeSpec,
-        anchor: Option<&LoweredKey>,
-        direction: Direction,
+        continuation: IndexScanContinuationInput<'_>,
         limit: usize,
         predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Vec<DataKey>, InternalError>
@@ -170,8 +168,7 @@ impl IndexScan {
             spec.index(),
             spec.lower(),
             spec.upper(),
-            anchor,
-            direction,
+            continuation,
             limit,
             predicate_execution,
         )
@@ -185,8 +182,7 @@ impl IndexScan {
         index: &IndexModel,
         lower: &Bound<LoweredKey>,
         upper: &Bound<LoweredKey>,
-        anchor: Option<&LoweredKey>,
-        direction: Direction,
+        continuation: IndexScanContinuationInput<'_>,
         limit: usize,
         predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Vec<DataKey>, InternalError>
@@ -200,8 +196,7 @@ impl IndexScan {
             index_store.resolve_data_values_in_raw_range_limited::<E>(
                 index,
                 (lower, upper),
-                anchor,
-                direction,
+                continuation,
                 limit,
                 predicate_execution,
             )

@@ -9,7 +9,9 @@ use crate::{
         executor::{
             ExecutionOptimization, ExecutionTrace,
             aggregate::AggregateOutput,
-            load::{GroupedCursorPage, GroupedFoldStage, GroupedRouteStage, LoadExecutor},
+            load::{
+                GroupedCursorPage, GroupedFoldStage, GroupedRouteStageProjection, LoadExecutor,
+            },
             plan_metrics::record_rows_scanned,
         },
         query::{
@@ -27,31 +29,34 @@ where
     E: EntityKind + EntityValue,
 {
     // Finalize grouped output payloads and observability after grouped fold execution.
-    pub(super) fn finalize_grouped_output(
-        mut route: GroupedRouteStage<E>,
+    pub(super) fn finalize_grouped_output<R>(
+        mut route: R,
         folded: GroupedFoldStage,
-    ) -> (GroupedCursorPage, Option<ExecutionTrace>) {
-        let rows_returned = folded.page.rows.len();
+    ) -> (GroupedCursorPage, Option<ExecutionTrace>)
+    where
+        R: GroupedRouteStageProjection<E>,
+    {
+        let rows_returned = folded.rows_returned();
         Self::finalize_path_outcome(
-            &mut route.execution_context.execution_trace,
-            folded.optimization,
-            folded.rows_scanned,
+            route.execution_trace_mut(),
+            folded.optimization(),
+            folded.rows_scanned(),
             rows_returned,
-            folded.index_predicate_applied,
-            folded.index_predicate_keys_rejected,
-            folded.distinct_keys_deduped,
+            folded.index_predicate_applied(),
+            folded.index_predicate_keys_rejected(),
+            folded.distinct_keys_deduped(),
         );
 
         let mut span = crate::obs::sink::Span::<E>::new(crate::obs::sink::ExecKind::Load);
         span.set_rows(u64::try_from(rows_returned).unwrap_or(u64::MAX));
-        if folded.check_filtered_rows_upper_bound {
+        if folded.should_check_filtered_rows_upper_bound() {
             debug_assert!(
-                folded.filtered_rows >= rows_returned,
+                folded.filtered_rows() >= rows_returned,
                 "grouped pagination must return at most filtered row cardinality",
             );
         }
 
-        (folded.page, route.execution_context.execution_trace)
+        (folded.into_page(), route.into_execution_trace())
     }
 
     // Evaluate grouped projection semantics for each grouped row while preserving

@@ -9,12 +9,12 @@ mod reducer;
 
 use crate::{
     db::{
-        cursor::{ContinuationSignature, CursorBoundary},
+        cursor::CursorBoundary,
         direction::Direction,
         executor::{
-            ExecutionPlan, OrderedKeyStreamBox,
+            ExecutionPlan, OrderedKeyStreamBox, ScalarContinuationBindings,
             load::{
-                CursorPage, ExecutionInputs, LoadExecutor, MaterializedExecutionAttempt,
+                CursorPage, ExecutionInputsProjection, LoadExecutor, MaterializedExecutionAttempt,
                 PageMaterializationRequest, ResolvedExecutionKeyStream,
             },
         },
@@ -40,13 +40,14 @@ pub(in crate::db::executor) struct ExecutionKernel;
 
 impl ExecutionKernel {
     /// Resolve one execution key stream under kernel-owned DISTINCT decoration.
-    pub(in crate::db::executor) fn resolve_execution_key_stream<E>(
-        inputs: &ExecutionInputs<'_, E>,
+    pub(in crate::db::executor) fn resolve_execution_key_stream<E, I>(
+        inputs: &I,
         route_plan: &ExecutionPlan,
         predicate_compile_mode: IndexCompilePolicy,
     ) -> Result<ResolvedExecutionKeyStream, InternalError>
     where
         E: EntityKind + EntityValue,
+        I: ExecutionInputsProjection<E>,
     {
         let resolved = LoadExecutor::<E>::resolve_execution_key_stream_without_distinct(
             inputs,
@@ -56,8 +57,8 @@ impl ExecutionKernel {
 
         Ok(distinct::decorate_resolved_execution_key_stream(
             resolved,
-            inputs.plan,
-            inputs.stream_bindings.direction,
+            inputs.plan(),
+            inputs.stream_bindings().direction(),
         ))
     }
 
@@ -71,15 +72,15 @@ impl ExecutionKernel {
     }
 
     /// Materialize one load execution attempt with optional residual retry.
-    pub(in crate::db::executor) fn materialize_with_optional_residual_retry<E>(
-        inputs: &ExecutionInputs<'_, E>,
+    pub(in crate::db::executor) fn materialize_with_optional_residual_retry<E, I>(
+        inputs: &I,
         route_plan: &ExecutionPlan,
-        cursor_boundary: Option<&CursorBoundary>,
-        continuation_signature: ContinuationSignature,
+        continuation: ScalarContinuationBindings<'_>,
         predicate_compile_mode: IndexCompilePolicy,
     ) -> Result<MaterializedExecutionAttempt<E>, InternalError>
     where
         E: EntityKind + EntityValue,
+        I: ExecutionInputsProjection<E>,
     {
         // Phase 1: resolve and materialize the routed key stream once.
         let mut resolved =
@@ -88,23 +89,19 @@ impl ExecutionKernel {
             Self::materialize_resolved_execution_stream(
                 inputs,
                 route_plan,
-                cursor_boundary,
-                continuation_signature,
+                continuation,
                 &mut resolved,
             )?;
-        let mut rows_scanned = resolved.rows_scanned_override.unwrap_or(keys_scanned);
-        let mut optimization = resolved.optimization;
-        let mut index_predicate_applied = resolved.index_predicate_applied;
-        let mut index_predicate_keys_rejected = resolved.index_predicate_keys_rejected;
-        let mut distinct_keys_deduped = resolved
-            .distinct_keys_deduped_counter
-            .as_ref()
-            .map_or(0, |counter| counter.get());
+        let mut rows_scanned = resolved.rows_scanned_override().unwrap_or(keys_scanned);
+        let mut optimization = resolved.optimization();
+        let mut index_predicate_applied = resolved.index_predicate_applied();
+        let mut index_predicate_keys_rejected = resolved.index_predicate_keys_rejected();
+        let mut distinct_keys_deduped = resolved.distinct_keys_deduped();
 
         // Phase 2: retry via unbounded index-range path when bounded residual pass under-fills.
         if Self::index_range_limited_residual_retry_required(
-            inputs.plan,
-            cursor_boundary,
+            inputs.plan(),
+            continuation.cursor_boundary(),
             route_plan,
             rows_scanned,
             post_access_rows,
@@ -120,25 +117,21 @@ impl ExecutionKernel {
                 Self::materialize_resolved_execution_stream(
                     inputs,
                     &fallback_route_plan,
-                    cursor_boundary,
-                    continuation_signature,
+                    continuation,
                     &mut fallback_resolved,
                 )?;
             let fallback_rows_scanned = fallback_resolved
-                .rows_scanned_override
+                .rows_scanned_override()
                 .unwrap_or(fallback_keys_scanned);
-            let fallback_distinct_keys_deduped = fallback_resolved
-                .distinct_keys_deduped_counter
-                .as_ref()
-                .map_or(0, |counter| counter.get());
+            let fallback_distinct_keys_deduped = fallback_resolved.distinct_keys_deduped();
 
             // Retry accounting keeps observability faithful to actual work.
             rows_scanned = rows_scanned.saturating_add(fallback_rows_scanned);
-            optimization = fallback_resolved.optimization;
+            optimization = fallback_resolved.optimization();
             index_predicate_applied =
-                index_predicate_applied || fallback_resolved.index_predicate_applied;
+                index_predicate_applied || fallback_resolved.index_predicate_applied();
             index_predicate_keys_rejected = index_predicate_keys_rejected
-                .saturating_add(fallback_resolved.index_predicate_keys_rejected);
+                .saturating_add(fallback_resolved.index_predicate_keys_rejected());
             distinct_keys_deduped =
                 distinct_keys_deduped.saturating_add(fallback_distinct_keys_deduped);
             page = fallback_page;
@@ -159,10 +152,9 @@ impl ExecutionKernel {
     // Materialize one already-resolved key stream using row-collector fast path
     // when applicable, otherwise fall back to canonical load materialization.
     fn materialize_resolved_execution_stream<E>(
-        inputs: &ExecutionInputs<'_, E>,
+        inputs: &impl ExecutionInputsProjection<E>,
         route_plan: &ExecutionPlan,
-        cursor_boundary: Option<&CursorBoundary>,
-        continuation_signature: ContinuationSignature,
+        continuation: ScalarContinuationBindings<'_>,
         resolved: &mut ResolvedExecutionKeyStream,
     ) -> Result<(CursorPage<E>, usize, usize), InternalError>
     where
@@ -170,26 +162,23 @@ impl ExecutionKernel {
     {
         if let Some((page, keys_scanned, post_access_rows)) =
             Self::try_materialize_load_via_row_collector(
-                inputs.ctx,
-                inputs.plan,
-                cursor_boundary,
-                resolved.key_stream.as_mut(),
+                inputs.ctx(),
+                inputs.plan(),
+                continuation.cursor_boundary(),
+                resolved.key_stream_mut(),
             )?
         {
             return Ok((page, keys_scanned, post_access_rows));
         }
 
         LoadExecutor::<E>::materialize_key_stream_into_page(PageMaterializationRequest {
-            ctx: inputs.ctx,
-            plan: inputs.plan,
-            predicate_slots: inputs.execution_preparation.compiled_predicate(),
-            key_stream: resolved.key_stream.as_mut(),
+            ctx: inputs.ctx(),
+            plan: inputs.plan(),
+            predicate_slots: inputs.execution_preparation().compiled_predicate(),
+            key_stream: resolved.key_stream_mut(),
             scan_budget_hint: route_plan.scan_hints.load_scan_budget_hint,
             streaming_access_shape_safe: route_plan.streaming_access_shape_safe(),
-            cursor_boundary,
-            previous_index_range_anchor: inputs.stream_bindings.index_range_anchor,
-            direction: route_plan.direction(),
-            continuation_signature,
+            continuation,
         })
     }
 

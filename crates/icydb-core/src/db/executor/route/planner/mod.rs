@@ -18,7 +18,7 @@ use crate::{
             Context, ExecutionPlan, ExecutionPreparation, OrderedKeyStreamBox,
             aggregate::{AggregateFoldMode, AggregateKind},
             compute_page_window,
-            continuation::ScalarContinuationRuntime,
+            continuation::ScalarContinuationContext,
             load::LoadExecutor,
         },
         query::builder::AggregateExpr,
@@ -35,7 +35,7 @@ use crate::db::executor::route::{
     ContinuationMode, ExecutionMode, ExecutionModeRouteCase, ExecutionRoutePlan, FastPathOrder,
     GroupedExecutionStrategy, GroupedRouteDecisionOutcome, GroupedRouteObservability,
     GroupedRouteRejectionReason, IndexRangeLimitSpec, MUTATION_FAST_PATH_ORDER, RouteCapabilities,
-    RouteIntent, RouteShapeKind, RouteWindowPlan, ScanHintPlan,
+    RouteContinuationPlan, RouteIntent, RouteShapeKind, RouteWindowPlan, ScanHintPlan,
 };
 
 ///
@@ -94,9 +94,7 @@ impl RouteIntentStage {
 ///
 
 pub(in crate::db::executor::route::planner) struct RouteFeasibilityStage {
-    pub(in crate::db::executor::route::planner) continuation_mode: ContinuationMode,
-    pub(in crate::db::executor::route::planner) continuation_policy: ContinuationPolicy,
-    pub(in crate::db::executor::route::planner) route_window: RouteWindowPlan,
+    pub(in crate::db::executor::route::planner) continuation: RouteContinuationPlan,
     pub(in crate::db::executor::route::planner) derivation: RouteDerivationContext,
     pub(in crate::db::executor::route::planner) index_range_limit_spec: Option<IndexRangeLimitSpec>,
     pub(in crate::db::executor::route::planner) page_limit_is_zero: bool,
@@ -148,14 +146,16 @@ impl ExecutionRoutePlan {
         Self {
             direction: Direction::Asc,
             route_shape_kind: RouteShapeKind::MutationDelete,
-            continuation_mode: ContinuationMode::Initial,
-            continuation_policy: ContinuationPolicy::new(true, true, true),
-            window: RouteWindowPlan {
-                effective_offset: 0,
-                limit: None,
-                keep_count: None,
-                fetch_count: None,
-            },
+            continuation: RouteContinuationPlan::new(
+                ContinuationMode::Initial,
+                ContinuationPolicy::new(true, true, true),
+                RouteWindowPlan {
+                    effective_offset: 0,
+                    limit: None,
+                    keep_count: None,
+                    fetch_count: None,
+                },
+            ),
             execution_mode: ExecutionMode::Materialized,
             execution_mode_case: ExecutionModeRouteCase::Load,
             secondary_pushdown_applicability: PushdownApplicability::NotApplicable,
@@ -254,7 +254,7 @@ where
     /// Build canonical execution routing for load execution.
     pub(in crate::db::executor) fn build_execution_route_plan_for_load(
         plan: &AccessPlannedQuery<E::Key>,
-        continuation: &ScalarContinuationRuntime,
+        continuation: &ScalarContinuationContext,
         probe_fetch_hint: Option<usize>,
     ) -> Result<ExecutionPlan, InternalError> {
         Self::validate_pk_fast_path_boundary_if_applicable(plan, continuation.cursor_boundary())?;
@@ -310,7 +310,7 @@ where
         aggregate: AggregateExpr,
         execution_preparation: &ExecutionPreparation,
     ) -> ExecutionPlan {
-        let continuation = ScalarContinuationRuntime::initial();
+        let continuation = ScalarContinuationContext::initial();
 
         Self::build_execution_route_plan(
             plan,
@@ -331,7 +331,7 @@ where
         grouped: GroupedExecutorHandoff<'_, E::Key>,
     ) -> ExecutionPlan {
         let execution_preparation = ExecutionPreparation::for_plan::<E>(grouped.base());
-        let continuation = ScalarContinuationRuntime::initial();
+        let continuation = ScalarContinuationContext::initial();
 
         Self::build_execution_route_plan(
             grouped.base(),
@@ -350,7 +350,7 @@ where
     // Shared route gate for load + aggregate execution.
     fn build_execution_route_plan(
         plan: &AccessPlannedQuery<E::Key>,
-        continuation: &ScalarContinuationRuntime,
+        continuation: &ScalarContinuationContext,
         probe_fetch_hint: Option<usize>,
         intent: RouteIntent,
     ) -> ExecutionRoutePlan {
@@ -387,9 +387,7 @@ where
         execution_stage: RouteExecutionStage,
     ) -> ExecutionRoutePlan {
         let RouteFeasibilityStage {
-            continuation_mode,
-            continuation_policy,
-            route_window,
+            continuation,
             derivation,
             index_range_limit_spec: _,
             page_limit_is_zero: _,
@@ -398,9 +396,7 @@ where
         ExecutionRoutePlan {
             direction: derivation.direction,
             route_shape_kind: execution_stage.route_shape_kind,
-            continuation_mode,
-            continuation_policy,
-            window: route_window,
+            continuation,
             execution_mode: execution_stage.execution_mode,
             execution_mode_case: execution_stage.execution_mode_case,
             secondary_pushdown_applicability: derivation.secondary_pushdown_applicability,

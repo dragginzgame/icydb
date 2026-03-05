@@ -8,7 +8,8 @@ use crate::{
         Context,
         direction::Direction,
         executor::{
-            AccessExecutionDescriptor, AccessStreamBindings, ExecutionKernel,
+            AccessExecutionDescriptor, AccessScanContinuationInput, AccessStreamBindings,
+            ExecutionKernel,
             aggregate::{
                 AggregateFastPathInputs, AggregateFoldMode, AggregateKind, AggregateOutput,
             },
@@ -79,6 +80,7 @@ impl ExecutionKernel {
             inputs.ctx,
             inputs.logical_plan,
             inputs.index_prefix_specs.first(),
+            inputs.direction,
             probe_fetch_hint,
             index_predicate_execution,
         )?
@@ -426,8 +428,7 @@ impl ExecutionKernel {
             AccessStreamBindings::new(
                 inputs.index_prefix_specs,
                 inputs.index_range_specs,
-                None,
-                inputs.direction,
+                AccessScanContinuationInput::new(None, inputs.direction),
             ),
             inputs.physical_fetch_hint,
             Self::aggregate_index_predicate_execution(inputs.index_predicate_program),

@@ -35,7 +35,8 @@ use crate::{
         data::DataKey,
         direction::Direction,
         executor::{
-            AccessStreamBindings, ExecutablePlan, ExecutionKernel, ExecutionPreparation,
+            AccessScanContinuationInput, AccessStreamBindings, ExecutablePlan, ExecutionKernel,
+            ExecutionPreparation,
             load::{ExecutionInputs, LoadExecutor},
             plan_metrics::{record_plan_metrics, record_rows_scanned},
             route::{ExecutionMode, aggregate_materialized_fold_direction},
@@ -337,17 +338,16 @@ impl ExecutionKernel {
 
         // Build canonical execution inputs. This must match the load executor
         // path exactly to preserve ordering and DISTINCT behavior.
-        let execution_inputs = ExecutionInputs {
-            ctx: &prepared.ctx,
-            plan: &prepared.logical_plan,
-            stream_bindings: AccessStreamBindings {
+        let execution_inputs = ExecutionInputs::new(
+            &prepared.ctx,
+            &prepared.logical_plan,
+            AccessStreamBindings {
                 index_prefix_specs: prepared.index_prefix_specs.as_slice(),
                 index_range_specs: prepared.index_range_specs.as_slice(),
-                index_range_anchor: None,
-                direction: descriptor.direction,
+                continuation: AccessScanContinuationInput::new(None, descriptor.direction),
             },
-            execution_preparation: &descriptor.execution_preparation,
-        };
+            &descriptor.execution_preparation,
+        );
 
         // Resolve the ordered key stream using canonical routing logic.
         let mut resolved = Self::resolve_execution_key_stream(
@@ -364,12 +364,12 @@ impl ExecutionKernel {
             kind,
             descriptor.direction,
             fold_mode,
-            resolved.key_stream.as_mut(),
+            resolved.key_stream_mut(),
         )?;
 
         // Preserve row-scan metrics semantics.
         // If a fast-path overrides scan accounting, honor it.
-        let rows_scanned = resolved.rows_scanned_override.unwrap_or(keys_scanned);
+        let rows_scanned = resolved.rows_scanned_override().unwrap_or(keys_scanned);
         record_rows_scanned::<E>(rows_scanned);
 
         Ok(aggregate_output)

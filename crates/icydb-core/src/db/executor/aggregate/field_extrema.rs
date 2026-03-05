@@ -8,7 +8,8 @@ use crate::{
         Context,
         direction::Direction,
         executor::{
-            AccessStreamBindings, ExecutablePlan, ExecutionKernel, ExecutionPreparation,
+            AccessScanContinuationInput, AccessStreamBindings, ExecutablePlan, ExecutionKernel,
+            ExecutionPreparation,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, apply_aggregate_direction,
                 compare_entities_by_orderable_field, compare_entities_for_field_extrema,
@@ -115,17 +116,16 @@ impl ExecutionKernel {
         // Reuse shared aggregate streaming setup and route-owned stream resolution.
         let prepared = Self::prepare_aggregate_streaming_inputs(executor, plan)?;
         let execution_preparation = ExecutionPreparation::for_plan::<E>(&prepared.logical_plan);
-        let execution_inputs = ExecutionInputs {
-            ctx: &prepared.ctx,
-            plan: &prepared.logical_plan,
-            stream_bindings: AccessStreamBindings {
+        let execution_inputs = ExecutionInputs::new(
+            &prepared.ctx,
+            &prepared.logical_plan,
+            AccessStreamBindings {
                 index_prefix_specs: prepared.index_prefix_specs.as_slice(),
                 index_range_specs: prepared.index_range_specs.as_slice(),
-                index_range_anchor: None,
-                direction,
+                continuation: AccessScanContinuationInput::new(None, direction),
             },
-            execution_preparation: &execution_preparation,
-        };
+            &execution_preparation,
+        );
         let mut resolved = Self::resolve_execution_key_stream(
             &execution_inputs,
             route_plan,
@@ -134,14 +134,14 @@ impl ExecutionKernel {
         let (aggregate_output, keys_scanned) = LoadExecutor::<E>::fold_streaming_field_extrema(
             &prepared.ctx,
             prepared.logical_plan.scalar_plan().consistency,
-            resolved.key_stream.as_mut(),
+            resolved.key_stream_mut(),
             target_field,
             field_slot,
             kind,
             direction,
         )?;
 
-        let rows_scanned = resolved.rows_scanned_override.unwrap_or(keys_scanned);
+        let rows_scanned = resolved.rows_scanned_override().unwrap_or(keys_scanned);
         record_rows_scanned::<E>(rows_scanned);
 
         Ok(aggregate_output)

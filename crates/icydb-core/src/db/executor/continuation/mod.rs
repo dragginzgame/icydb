@@ -1,5 +1,6 @@
 use crate::{
     db::{
+        access::LoweredKey,
         cursor::{
             ContinuationSignature, CursorBoundary, GroupedContinuationToken, PlannedCursor,
             range_token_from_validated_cursor_anchor,
@@ -21,12 +22,12 @@ use crate::{
 pub(in crate::db::executor) struct ContinuationEngine;
 
 impl ContinuationEngine {
-    /// Derive scalar runtime cursor/access bindings from one validated cursor.
+    /// Derive scalar continuation runtime context from one validated cursor.
     #[must_use]
-    pub(in crate::db::executor) fn scalar_runtime(
+    pub(in crate::db::executor) fn scalar_context(
         cursor: PlannedCursor,
-    ) -> ScalarContinuationRuntime {
-        ScalarContinuationRuntime::new(cursor)
+    ) -> ScalarContinuationContext {
+        ScalarContinuationContext::new(cursor)
     }
 
     /// Build one grouped continuation token for grouped page finalization.
@@ -46,7 +47,7 @@ impl ContinuationEngine {
 }
 
 ///
-/// ScalarContinuationRuntime
+/// ScalarContinuationContext
 ///
 /// Normalized scalar continuation runtime state.
 /// Carries the validated cursor plus pre-derived boundary and index-range anchor
@@ -54,12 +55,12 @@ impl ContinuationEngine {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) struct ScalarContinuationRuntime {
+pub(in crate::db::executor) struct ScalarContinuationContext {
     cursor_boundary: Option<CursorBoundary>,
     index_range_token: Option<RangeToken>,
 }
 
-impl ScalarContinuationRuntime {
+impl ScalarContinuationContext {
     /// Construct one empty scalar continuation runtime for initial executions.
     #[must_use]
     pub(in crate::db::executor) const fn initial() -> Self {
@@ -106,5 +107,65 @@ impl ScalarContinuationRuntime {
     #[must_use]
     pub(in crate::db::executor) const fn index_range_token(&self) -> Option<&RangeToken> {
         self.index_range_token.as_ref()
+    }
+}
+
+///
+/// ScalarContinuationBindings
+///
+/// Runtime continuation bindings shared across kernel/load materialization.
+/// Bundles scalar continuation boundary and anchor state with routed direction
+/// and continuation signature so runtime boundaries stop carrying primitives.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) struct ScalarContinuationBindings<'a> {
+    cursor_boundary: Option<&'a CursorBoundary>,
+    previous_index_range_anchor: Option<&'a LoweredKey>,
+    direction: Direction,
+    continuation_signature: ContinuationSignature,
+}
+
+impl<'a> ScalarContinuationBindings<'a> {
+    /// Construct one scalar continuation runtime binding bundle.
+    #[must_use]
+    pub(in crate::db::executor) const fn new(
+        cursor_boundary: Option<&'a CursorBoundary>,
+        previous_index_range_anchor: Option<&'a LoweredKey>,
+        direction: Direction,
+        continuation_signature: ContinuationSignature,
+    ) -> Self {
+        Self {
+            cursor_boundary,
+            previous_index_range_anchor,
+            direction,
+            continuation_signature,
+        }
+    }
+
+    /// Borrow optional scalar cursor boundary.
+    #[must_use]
+    pub(in crate::db::executor) const fn cursor_boundary(&self) -> Option<&'a CursorBoundary> {
+        self.cursor_boundary
+    }
+
+    /// Borrow optional previous index-range anchor.
+    #[must_use]
+    pub(in crate::db::executor) const fn previous_index_range_anchor(
+        &self,
+    ) -> Option<&'a LoweredKey> {
+        self.previous_index_range_anchor
+    }
+
+    /// Borrow routed stream direction for this continuation context.
+    #[must_use]
+    pub(in crate::db::executor) const fn direction(&self) -> Direction {
+        self.direction
+    }
+
+    /// Borrow continuation signature for this continuation context.
+    #[must_use]
+    pub(in crate::db::executor) const fn continuation_signature(&self) -> ContinuationSignature {
+        self.continuation_signature
     }
 }

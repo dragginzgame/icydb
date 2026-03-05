@@ -8,12 +8,13 @@ use crate::{
         data::DataKey,
         direction::Direction,
         executor::LoweredKey,
+        executor::stream::access::AccessScanContinuationInput,
         executor::{
             Context, ExecutableAccessPath, ExecutionPathPayload, IndexScan, LoweredIndexPrefixSpec,
             LoweredIndexRangeSpec, OrderedKeyStreamBox, PrimaryScan, VecOrderedKeyStream,
             route::primary_scan_fetch_hint_for_executable_access_path,
         },
-        index::predicate::IndexPredicateExecution,
+        index::{IndexScanContinuationInput, predicate::IndexPredicateExecution},
     },
     error::InternalError,
     model::index::IndexModel,
@@ -48,8 +49,7 @@ where
     pub(super) ctx: &'a Context<'ctx, E>,
     pub(super) index_prefix_spec: Option<&'a LoweredIndexPrefixSpec>,
     pub(super) index_range_spec: Option<&'a LoweredIndexRangeSpec>,
-    pub(super) index_range_anchor: Option<&'a LoweredKey>,
-    pub(super) direction: Direction,
+    pub(super) continuation: AccessScanContinuationInput<'a>,
     pub(super) physical_fetch_hint: Option<usize>,
     pub(super) index_predicate_execution: Option<IndexPredicateExecution<'a>>,
 }
@@ -70,8 +70,7 @@ impl<K> ExecutableAccessPath<'_, K> {
             ctx,
             index_prefix_spec,
             index_range_spec,
-            index_range_anchor,
-            direction,
+            continuation,
             physical_fetch_hint,
             index_predicate_execution,
         } = request;
@@ -89,17 +88,19 @@ impl<K> ExecutableAccessPath<'_, K> {
                 ctx,
                 **start,
                 **end,
-                direction,
+                continuation.direction(),
                 primary_scan_fetch_hint,
             )?,
-            ExecutionPathPayload::FullScan => {
-                Self::resolve_full_scan::<E>(ctx, direction, primary_scan_fetch_hint)?
-            }
+            ExecutionPathPayload::FullScan => Self::resolve_full_scan::<E>(
+                ctx,
+                continuation.direction(),
+                primary_scan_fetch_hint,
+            )?,
             ExecutionPathPayload::IndexPrefix => Self::resolve_index_prefix::<E>(
                 ctx,
                 self.index_prefix_details().map(|(index, _)| index),
                 index_prefix_spec,
-                direction,
+                continuation.direction(),
                 physical_fetch_hint,
                 index_predicate_execution,
             )?,
@@ -107,14 +108,14 @@ impl<K> ExecutableAccessPath<'_, K> {
                 ctx,
                 self.index_range_details().map(|(index, _)| index),
                 index_range_spec,
-                index_range_anchor,
-                direction,
+                continuation.anchor(),
+                continuation.direction(),
                 physical_fetch_hint,
                 index_predicate_execution,
             )?,
         };
 
-        Self::normalize_ordered_keys(&mut candidates, direction, key_order_state);
+        Self::normalize_ordered_keys(&mut candidates, continuation.direction(), key_order_state);
 
         Ok(Box::new(VecOrderedKeyStream::new(candidates)))
     }
@@ -266,11 +267,11 @@ impl<K> ExecutableAccessPath<'_, K> {
         };
 
         let fetch_limit = index_fetch_hint.unwrap_or(usize::MAX);
+        let continuation = IndexScanContinuationInput::new(index_range_anchor, direction);
         let keys = IndexScan::range::<E>(
             ctx,
             spec,
-            index_range_anchor,
-            direction,
+            continuation,
             fetch_limit,
             index_predicate_execution,
         )?;

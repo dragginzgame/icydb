@@ -54,9 +54,7 @@ pub(in crate::db::executor) struct AccessStreamInputs<'ctx, 'a, E: EntityKind + 
     pub(in crate::db::executor) ctx: &'a Context<'ctx, E>,
     pub(in crate::db::executor) index_prefix_specs: &'a [LoweredIndexPrefixSpec],
     pub(in crate::db::executor) index_range_specs: &'a [LoweredIndexRangeSpec],
-    pub(in crate::db::executor) index_range_anchor: Option<&'a LoweredKey>,
-    pub(in crate::db::executor) direction: Direction,
-    pub(in crate::db::executor) key_comparator: KeyOrderComparator,
+    pub(in crate::db::executor) continuation: AccessScanContinuationInput<'a>,
     pub(in crate::db::executor) physical_fetch_hint: Option<usize>,
     pub(in crate::db::executor) index_predicate_execution: Option<IndexPredicateExecution<'a>>,
 }
@@ -75,9 +73,7 @@ where
             ctx: self.ctx,
             index_prefix_specs: self.index_prefix_specs,
             index_range_specs: self.index_range_specs,
-            index_range_anchor: self.index_range_anchor,
-            direction: self.direction,
-            key_comparator: self.key_comparator,
+            continuation: self.continuation,
             physical_fetch_hint,
             index_predicate_execution: self.index_predicate_execution,
         }
@@ -141,15 +137,14 @@ impl<'a> AccessSpecCursor<'a> {
 /// AccessStreamBindings
 ///
 /// Shared access-stream traversal bindings reused by execution and key-stream
-/// request wrappers so spec/anchor/direction fields stay aligned.
+/// request wrappers so spec + continuation fields stay aligned.
 ///
 
 #[derive(Clone, Copy)]
 pub(in crate::db::executor) struct AccessStreamBindings<'a> {
     pub(in crate::db::executor) index_prefix_specs: &'a [LoweredIndexPrefixSpec],
     pub(in crate::db::executor) index_range_specs: &'a [LoweredIndexRangeSpec],
-    pub(in crate::db::executor) index_range_anchor: Option<&'a LoweredKey>,
-    pub(in crate::db::executor) direction: Direction,
+    pub(in crate::db::executor) continuation: AccessScanContinuationInput<'a>,
 }
 
 impl<'a> AccessStreamBindings<'a> {
@@ -158,21 +153,19 @@ impl<'a> AccessStreamBindings<'a> {
     pub(in crate::db::executor) const fn new(
         index_prefix_specs: &'a [LoweredIndexPrefixSpec],
         index_range_specs: &'a [LoweredIndexRangeSpec],
-        index_range_anchor: Option<&'a LoweredKey>,
-        direction: Direction,
+        continuation: AccessScanContinuationInput<'a>,
     ) -> Self {
         Self {
             index_prefix_specs,
             index_range_specs,
-            index_range_anchor,
-            direction,
+            continuation,
         }
     }
 
     /// Build one binding envelope with no index-lowered specs.
     #[must_use]
     pub(in crate::db::executor) const fn no_index(direction: Direction) -> Self {
-        Self::new(&[], &[], None, direction)
+        Self::new(&[], &[], AccessScanContinuationInput::new(None, direction))
     }
 
     /// Build one binding envelope for one index-prefix spec.
@@ -184,8 +177,7 @@ impl<'a> AccessStreamBindings<'a> {
         Self::new(
             std::slice::from_ref(index_prefix_spec),
             &[],
-            None,
-            direction,
+            AccessScanContinuationInput::new(None, direction),
         )
     }
 
@@ -199,9 +191,20 @@ impl<'a> AccessStreamBindings<'a> {
         Self::new(
             &[],
             std::slice::from_ref(index_range_spec),
-            index_range_anchor,
-            direction,
+            AccessScanContinuationInput::new(index_range_anchor, direction),
         )
+    }
+
+    /// Borrow continuation scan direction from this binding envelope.
+    #[must_use]
+    pub(in crate::db::executor) const fn direction(&self) -> Direction {
+        self.continuation.direction()
+    }
+
+    /// Borrow optional index-range anchor from this binding envelope.
+    #[must_use]
+    pub(in crate::db::executor) const fn index_range_anchor(&self) -> Option<&'a LoweredKey> {
+        self.continuation.anchor()
     }
 }
 
@@ -216,7 +219,6 @@ impl<'a> AccessStreamBindings<'a> {
 pub(in crate::db::executor) struct AccessExecutionDescriptor<'a, K> {
     pub(in crate::db::executor) executable_access: ExecutableAccessPlan<'a, K>,
     pub(in crate::db::executor) bindings: AccessStreamBindings<'a>,
-    pub(in crate::db::executor) key_comparator: KeyOrderComparator,
     pub(in crate::db::executor) physical_fetch_hint: Option<usize>,
     pub(in crate::db::executor) index_predicate_execution: Option<IndexPredicateExecution<'a>>,
 }
@@ -249,7 +251,6 @@ impl<'a, K> AccessExecutionDescriptor<'a, K> {
         Self {
             executable_access,
             bindings,
-            key_comparator: KeyOrderComparator::from_direction(bindings.direction),
             physical_fetch_hint,
             index_predicate_execution,
         }
@@ -260,14 +261,53 @@ impl<'a, K> AccessExecutionDescriptor<'a, K> {
 /// IndexStreamConstraints
 ///
 /// Canonical constraint envelope for index-backed path resolution.
-/// Groups prefix/range/anchor controls so call sites pass one structural input
-/// rather than multiple loosely related optional arguments.
+/// Groups prefix/range controls so call sites pass one structural input rather
+/// than multiple loosely related optional arguments.
 ///
 
 pub(in crate::db) struct IndexStreamConstraints<'a> {
     pub prefix: Option<&'a LoweredIndexPrefixSpec>,
     pub range: Option<&'a LoweredIndexRangeSpec>,
-    pub anchor: Option<&'a LoweredKey>,
+}
+
+///
+/// AccessScanContinuationInput
+///
+/// Access-stream continuation traversal bindings.
+/// Bundles optional index-range anchor and direction so access resolver
+/// boundaries do not pass continuation primitives separately.
+///
+
+#[derive(Clone, Copy)]
+pub(in crate::db) struct AccessScanContinuationInput<'a> {
+    anchor: Option<&'a LoweredKey>,
+    direction: Direction,
+}
+
+impl<'a> AccessScanContinuationInput<'a> {
+    /// Build one access-scan continuation input.
+    #[must_use]
+    pub(in crate::db) const fn new(anchor: Option<&'a LoweredKey>, direction: Direction) -> Self {
+        Self { anchor, direction }
+    }
+
+    /// Build one initial (non-continuation) ascending scan continuation input.
+    #[must_use]
+    pub(in crate::db) const fn initial_asc() -> Self {
+        Self::new(None, Direction::Asc)
+    }
+
+    /// Borrow optional index-range anchor.
+    #[must_use]
+    pub(in crate::db) const fn anchor(&self) -> Option<&'a LoweredKey> {
+        self.anchor
+    }
+
+    /// Borrow continuation scan direction.
+    #[must_use]
+    pub(in crate::db) const fn direction(&self) -> Direction {
+        self.direction
+    }
 }
 
 ///
@@ -293,7 +333,7 @@ where
         &self,
         access: &AccessPath<E::Key>,
         constraints: IndexStreamConstraints<'_>,
-        direction: Direction,
+        continuation: AccessScanContinuationInput<'_>,
         hints: StreamExecutionHints<'_>,
     ) -> Result<OrderedKeyStreamBox, InternalError>
     where
@@ -303,7 +343,7 @@ where
         self.ordered_key_stream_from_executable_access(
             &executable_access,
             constraints,
-            direction,
+            continuation,
             hints,
         )
     }
@@ -313,7 +353,7 @@ where
         &self,
         access: &ExecutableAccessPath<'_, E::Key>,
         constraints: IndexStreamConstraints<'_>,
-        direction: Direction,
+        continuation: AccessScanContinuationInput<'_>,
         hints: StreamExecutionHints<'_>,
     ) -> Result<OrderedKeyStreamBox, InternalError>
     where
@@ -323,8 +363,7 @@ where
             ctx: self,
             index_prefix_spec: constraints.prefix,
             index_range_spec: constraints.range,
-            index_range_anchor: constraints.anchor,
-            direction,
+            continuation,
             physical_fetch_hint: hints.physical_fetch_hint,
             index_predicate_execution: hints.predicate_execution,
         })
@@ -341,13 +380,12 @@ where
     where
         E: EntityKind,
     {
-        self.rows_from_access_plan_with_index_range_anchor(
+        self.rows_from_access_plan_with_scan_continuation(
             access,
             index_prefix_specs,
             index_range_specs,
             consistency,
-            None,
-            Direction::Asc,
+            AccessScanContinuationInput::initial_asc(),
         )
     }
 
@@ -364,9 +402,7 @@ where
             ctx: self,
             index_prefix_specs: request.bindings.index_prefix_specs,
             index_range_specs: request.bindings.index_range_specs,
-            index_range_anchor: request.bindings.index_range_anchor,
-            direction: request.bindings.direction,
-            key_comparator: request.key_comparator,
+            continuation: request.bindings.continuation,
             physical_fetch_hint: request.physical_fetch_hint,
             index_predicate_execution: request.index_predicate_execution,
         };
@@ -381,15 +417,14 @@ where
         Ok(key_stream)
     }
 
-    /// Resolve rows from an access plan with explicit direction and optional range anchor.
-    pub(in crate::db) fn rows_from_access_plan_with_index_range_anchor(
+    /// Resolve rows from an access plan with explicit continuation scan bindings.
+    pub(in crate::db) fn rows_from_access_plan_with_scan_continuation(
         &self,
         access: &AccessPlan<E::Key>,
         index_prefix_specs: &[LoweredIndexPrefixSpec],
         index_range_specs: &[LoweredIndexRangeSpec],
         consistency: MissingRowPolicy,
-        index_range_anchor: Option<&LoweredKey>,
-        direction: Direction,
+        continuation: AccessScanContinuationInput<'_>,
     ) -> Result<Vec<crate::db::data::DataRow>, InternalError>
     where
         E: EntityKind,
@@ -397,8 +432,7 @@ where
         let bindings = AccessStreamBindings {
             index_prefix_specs,
             index_range_specs,
-            index_range_anchor,
-            direction,
+            continuation,
         };
         let descriptor = AccessExecutionDescriptor::from_bindings(access, bindings, None, None);
         let mut key_stream = self.ordered_key_stream_from_access_descriptor(descriptor)?;
@@ -432,7 +466,6 @@ impl AccessPlanStreamResolver {
         let constraints = IndexStreamConstraints {
             prefix: index_prefix_spec,
             range: index_range_spec,
-            anchor: inputs.index_range_anchor,
         };
         let hints = StreamExecutionHints {
             physical_fetch_hint: inputs.physical_fetch_hint,
@@ -441,7 +474,7 @@ impl AccessPlanStreamResolver {
         inputs.ctx.ordered_key_stream_from_executable_access(
             path,
             constraints,
-            inputs.direction,
+            inputs.continuation,
             hints,
         )
     }
@@ -586,7 +619,7 @@ impl AccessPlanStreamResolver {
         K: Copy,
     {
         let streams = Self::collect_child_key_streams(children, inputs, spec_cursor)?;
-        let key_comparator = inputs.key_comparator;
+        let key_comparator = KeyOrderComparator::from_direction(inputs.continuation.direction());
 
         Ok(Self::reduce_key_streams(streams, |left, right| {
             Box::new(MergeOrderedKeyStream::new_with_comparator(
@@ -608,7 +641,7 @@ impl AccessPlanStreamResolver {
         K: Copy,
     {
         let streams = Self::collect_child_key_streams(children, inputs, spec_cursor)?;
-        let key_comparator = inputs.key_comparator;
+        let key_comparator = KeyOrderComparator::from_direction(inputs.continuation.direction());
 
         Ok(Self::reduce_key_streams(streams, |left, right| {
             Box::new(IntersectOrderedKeyStream::new_with_comparator(

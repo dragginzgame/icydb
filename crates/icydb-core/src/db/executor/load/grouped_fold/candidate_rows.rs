@@ -5,7 +5,7 @@ use crate::{
         contracts::canonical_value_compare,
         executor::{
             aggregate::AggregateEngine,
-            load::{GroupedRouteStage, LoadExecutor},
+            load::{GroupedPaginationWindow, GroupedRouteStageProjection, LoadExecutor},
         },
     },
     error::InternalError,
@@ -18,27 +18,28 @@ where
     E: EntityKind + EntityValue,
 {
     // Derive grouped pagination contracts once from grouped plan + cursor state.
-    pub(super) fn grouped_pagination_window(
-        route: &GroupedRouteStage<E>,
-    ) -> (Option<usize>, usize, Option<usize>, u32, Option<Value>) {
-        route
-            .execution_context
-            .grouped_continuation_window
-            .clone()
-            .into_parts()
+    pub(super) fn grouped_pagination_window<R>(route: &R) -> GroupedPaginationWindow
+    where
+        R: GroupedRouteStageProjection<E>,
+    {
+        route.grouped_pagination_window().clone()
     }
 
     // Finalize grouped reducers into deterministic candidate rows before paging.
     #[expect(clippy::too_many_lines)]
-    pub(super) fn collect_grouped_candidate_rows(
-        route: &GroupedRouteStage<E>,
+    pub(super) fn collect_grouped_candidate_rows<R>(
+        route: &R,
         grouped_engines: Vec<AggregateEngine<E>>,
         aggregate_count: usize,
         max_groups_bound: usize,
-        limit: Option<usize>,
-        selection_bound: Option<usize>,
-        resume_boundary: Option<&Value>,
-    ) -> Result<Vec<(Value, Vec<Value>)>, InternalError> {
+        pagination_window: &GroupedPaginationWindow,
+    ) -> Result<Vec<(Value, Vec<Value>)>, InternalError>
+    where
+        R: GroupedRouteStageProjection<E>,
+    {
+        let limit = pagination_window.limit();
+        let selection_bound = pagination_window.selection_bound();
+        let resume_boundary = pagination_window.resume_boundary();
         if aggregate_count == 0 {
             return Err(crate::db::executor::load::invariant(
                 "grouped execution requires at least one aggregate terminal",
@@ -79,10 +80,10 @@ where
                     aggregate_count,
                     "grouped aggregate value alignment must preserve declared aggregate count",
                 );
-                if let Some(grouped_having) = route.planner_payload.grouped_having.as_ref()
+                if let Some(grouped_having) = route.grouped_having()
                     && !Self::group_matches_having(
                         grouped_having,
-                        route.planner_payload.group_fields.as_slice(),
+                        route.group_fields(),
                         &group_key_value,
                         aggregate_values.as_slice(),
                     )?

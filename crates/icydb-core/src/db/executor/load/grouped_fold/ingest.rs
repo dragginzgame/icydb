@@ -8,7 +8,7 @@ use crate::{
         executor::{
             aggregate::{AggregateEngine, ExecutionContext, FoldControl},
             group::CanonicalKey,
-            load::{GroupedRouteStage, GroupedStreamStage, LoadExecutor},
+            load::{GroupedRouteStageProjection, GroupedStreamStage, LoadExecutor},
         },
         predicate::MissingRowPolicy,
     },
@@ -22,22 +22,26 @@ where
     E: EntityKind + EntityValue,
 {
     // Ingest grouped source rows into aggregate reducers while preserving budget contracts.
-    pub(super) fn ingest_grouped_rows_into_engines(
-        route: &GroupedRouteStage<E>,
+    pub(super) fn ingest_grouped_rows_into_engines<R>(
+        route: &R,
         stream: &mut GroupedStreamStage<'_, E>,
         grouped_execution_context: &mut ExecutionContext,
         grouped_engines: &mut [AggregateEngine<E>],
         short_circuit_keys: &mut [Vec<Value>],
         max_groups_bound: usize,
-    ) -> Result<(usize, usize), InternalError> {
+    ) -> Result<(usize, usize), InternalError>
+    where
+        R: GroupedRouteStageProjection<E>,
+    {
         let mut scanned_rows = 0usize;
         let mut filtered_rows = 0usize;
-        let compiled_predicate = stream.execution_preparation.compiled_predicate();
+        let (ctx, execution_preparation, resolved) = stream.parts_mut();
+        let compiled_predicate = execution_preparation.compiled_predicate();
 
-        while let Some(key) = stream.resolved.key_stream.next_key()? {
-            let row = match route.planner_payload.plan.scalar_plan().consistency {
-                MissingRowPolicy::Error => stream.ctx.read_strict(&key),
-                MissingRowPolicy::Ignore => stream.ctx.read(&key),
+        while let Some(key) = resolved.key_stream_mut().next_key()? {
+            let row = match route.plan().scalar_plan().consistency {
+                MissingRowPolicy::Error => ctx.read_strict(&key),
+                MissingRowPolicy::Ignore => ctx.read(&key),
             };
             let row = match row {
                 Ok(row) => row,
@@ -54,8 +58,7 @@ where
             filtered_rows = filtered_rows.saturating_add(1);
 
             let group_values = route
-                .planner_payload
-                .group_fields
+                .group_fields()
                 .iter()
                 .map(|field| {
                     entity.get_value_by_index(field.index()).ok_or_else(|| {

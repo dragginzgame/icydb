@@ -12,8 +12,8 @@ fn route_plan_mutation_is_materialized_with_no_fast_paths_or_hints() {
     assert_eq!(route_plan.execution_mode, ExecutionMode::Materialized);
     assert_eq!(route_plan.fast_path_order(), &MUTATION_FAST_PATH_ORDER);
     assert_eq!(route_plan.direction(), Direction::Asc);
-    assert_eq!(route_plan.continuation_mode(), ContinuationMode::Initial);
-    assert_eq!(route_plan.window().effective_offset, 0);
+    assert_eq!(route_plan.continuation().mode(), ContinuationMode::Initial);
+    assert_eq!(route_plan.continuation().window().effective_offset, 0);
     assert!(
         route_plan.scan_hints.physical_fetch_hint.is_none(),
         "mutation route should not emit physical fetch hints"

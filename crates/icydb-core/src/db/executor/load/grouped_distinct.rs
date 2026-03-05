@@ -59,7 +59,7 @@ where
             .record_implicit_single_group::<E>()
             .map_err(Self::map_group_error)?;
 
-        while let Some(key) = resolved.key_stream.next_key()? {
+        while let Some(key) = resolved.key_stream_mut().next_key()? {
             let row = match plan.scalar_plan().consistency {
                 MissingRowPolicy::Error => ctx.read_strict(&key),
                 MissingRowPolicy::Ignore => ctx.read(&key),

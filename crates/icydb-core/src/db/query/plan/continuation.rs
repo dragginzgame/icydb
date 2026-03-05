@@ -84,6 +84,18 @@ impl GroupedContinuationWindow {
     }
 }
 
+/// Derive the effective offset under cursor-window semantics.
+///
+/// Offset applies only for initial requests. Once a continuation cursor is
+/// present, offset must be treated as `0` to avoid double-skipping rows.
+#[must_use]
+pub(in crate::db) const fn effective_offset_for_cursor_window(
+    window_size: u32,
+    cursor_present: bool,
+) -> u32 {
+    if cursor_present { 0 } else { window_size }
+}
+
 impl<K: FieldValue + Clone> ContinuationContract<K> {
     #[must_use]
     pub(in crate::db) const fn new(
@@ -117,6 +129,32 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
         &self.order_contract
     }
 
+    /// Borrow planner-projected scalar page limit under this continuation contract.
+    #[must_use]
+    pub(in crate::db) const fn page_limit(&self) -> Option<usize> {
+        self.page_limit
+    }
+
+    /// Borrow planner-projected window size (`offset`) under this contract.
+    #[must_use]
+    pub(in crate::db) const fn window_size(&self) -> usize {
+        self.window_size
+    }
+
+    /// Borrow planner-projected access plan used for continuation compatibility checks.
+    #[must_use]
+    pub(in crate::db) const fn access_plan(&self) -> &AccessPlan<K> {
+        &self.access
+    }
+
+    /// Borrow grouped cursor-policy violation, if continuation is disallowed for grouped shape.
+    #[must_use]
+    pub(in crate::db) const fn grouped_cursor_policy_violation(
+        &self,
+    ) -> Option<GroupedCursorPolicyViolation> {
+        self.grouped_cursor_policy_violation
+    }
+
     /// Return whether cursor continuation is supported for this contract.
     #[must_use]
     pub(in crate::db) const fn supports_cursor(&self) -> bool {
@@ -133,6 +171,21 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
         self.boundary_arity
     }
 
+    /// Return expected initial offset encoded in continuation tokens.
+    #[must_use]
+    pub(in crate::db) fn expected_initial_offset(&self) -> u32 {
+        u32::try_from(self.window_size()).unwrap_or(u32::MAX)
+    }
+
+    /// Return effective offset for this request under cursor-window semantics.
+    ///
+    /// Offset is consumed only for initial requests; continuation requests resume
+    /// from cursor boundary and therefore use offset `0`.
+    #[must_use]
+    pub(in crate::db) fn effective_offset(&self, cursor_present: bool) -> u32 {
+        effective_offset_for_cursor_window(self.expected_initial_offset(), cursor_present)
+    }
+
     /// Validate optional cursor bytes against this immutable continuation contract.
     pub(in crate::db) fn validate_cursor_bytes<E: EntityKind<Key = K>>(
         &self,
@@ -145,7 +198,7 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
         let access = if self.is_grouped() {
             None
         } else {
-            let executable_access = lower_executable_access_plan(&self.access);
+            let executable_access = lower_executable_access_plan(self.access_plan());
             executable_access.as_path().cloned()
         };
 
@@ -207,7 +260,7 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
             ));
         }
 
-        let executable_access = lower_executable_access_plan(&self.access);
+        let executable_access = lower_executable_access_plan(self.access_plan());
 
         crate::db::cursor::revalidate_cursor::<E>(
             executable_access.as_path().cloned(),
@@ -252,16 +305,16 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
         }
 
         let resume_initial_offset = if cursor.is_empty() {
-            self.expected_initial_offset()
+            self.effective_offset(false)
         } else {
             cursor.initial_offset()
         };
         let initial_offset_for_page = if cursor.is_empty() {
-            self.window_size
+            self.window_size()
         } else {
             0
         };
-        let selection_bound = self.page_limit.and_then(|limit| {
+        let selection_bound = self.page_limit().and_then(|limit| {
             limit
                 .checked_add(initial_offset_for_page)
                 .and_then(|count| count.checked_add(1))
@@ -271,7 +324,7 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
             .map(|last_group_key| Value::List(last_group_key.to_vec()));
 
         Ok(GroupedContinuationWindow::new(
-            self.page_limit,
+            self.page_limit(),
             initial_offset_for_page,
             selection_bound,
             resume_initial_offset,
@@ -279,12 +332,8 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
         ))
     }
 
-    fn expected_initial_offset(&self) -> u32 {
-        u32::try_from(self.window_size).unwrap_or(u32::MAX)
-    }
-
     fn validate_grouped_cursor_policy(&self) -> Result<(), CursorPlanError> {
-        if let Some(violation) = self.grouped_cursor_policy_violation {
+        if let Some(violation) = self.grouped_cursor_policy_violation() {
             return Err(CursorPlanError::continuation_cursor_invariant(
                 InternalError::executor_invariant_message(violation.invariant_message()),
             ));

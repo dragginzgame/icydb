@@ -2,7 +2,7 @@ use crate::{
     db::{
         executor::{
             aggregate::{AggregateEngine, ExecutionContext},
-            load::{GroupedRouteStage, LoadExecutor},
+            load::{GroupedRouteStageProjection, LoadExecutor},
             route::aggregate_materialized_fold_direction,
         },
         query::plan::GroupedDistinctExecutionStrategy,
@@ -18,27 +18,28 @@ where
 {
     // Build grouped aggregate engines for canonical grouped terminal projection layout.
     #[expect(clippy::type_complexity)]
-    pub(super) fn build_grouped_engines(
-        route: &GroupedRouteStage<E>,
+    pub(super) fn build_grouped_engines<R>(
+        route: &R,
         grouped_execution_context: &ExecutionContext,
-    ) -> Result<(Vec<AggregateEngine<E>>, Vec<Vec<Value>>), InternalError> {
+    ) -> Result<(Vec<AggregateEngine<E>>, Vec<Vec<Value>>), InternalError>
+    where
+        R: GroupedRouteStageProjection<E>,
+    {
         if matches!(
-            route.planner_payload.grouped_distinct_execution_strategy,
+            route.grouped_distinct_execution_strategy(),
             GroupedDistinctExecutionStrategy::GlobalDistinctFieldAggregate { .. }
         ) {
             return Ok((Vec::new(), Vec::new()));
         }
 
         let grouped_engines = route
-            .planner_payload
-            .projection_layout
+            .projection_layout()
             .aggregate_positions()
             .iter()
             .enumerate()
             .map(|(aggregate_index, projection_index)| {
                 let aggregate_expr = route
-                    .planner_payload
-                    .grouped_aggregate_exprs
+                    .grouped_aggregate_exprs()
                     .get(aggregate_index)
                     .ok_or_else(|| {
                         crate::db::executor::load::invariant(format!(

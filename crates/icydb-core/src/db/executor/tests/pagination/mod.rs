@@ -6,7 +6,9 @@ use crate::{
         cursor::ContinuationToken,
         direction::Direction,
         executor::ExecutablePlan,
-        index::{EncodedValue, RawIndexKey, raw_keys_for_encoded_prefix},
+        index::{
+            EncodedValue, IndexScanContinuationInput, RawIndexKey, raw_keys_for_encoded_prefix,
+        },
         query::{
             explain::{ExplainAccessPath, ExplainOrderPushdown},
             plan::{
@@ -137,8 +139,7 @@ fn ordered_ids_from_group_rank_index(group: u32) -> Vec<Ulid> {
                     index_store.resolve_data_values_in_raw_range_limited::<PushdownParityEntity>(
                         &PUSHDOWN_PARITY_INDEX_MODELS[0],
                         (&lower, &upper),
-                        None,
-                        Direction::Asc,
+                        IndexScanContinuationInput::new(None, Direction::Asc),
                         usize::MAX,
                         None,
                     )

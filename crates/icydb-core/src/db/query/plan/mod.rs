@@ -25,7 +25,9 @@ pub(crate) use access_plan::AccessPlannedQuery;
 pub(in crate::db::query) use access_planner::{
     AccessPlanningInputs, normalize_query_predicate, plan_query_access,
 };
-pub(in crate::db) use continuation::{ContinuationContract, GroupedContinuationWindow};
+pub(in crate::db) use continuation::{
+    ContinuationContract, GroupedContinuationWindow, effective_offset_for_cursor_window,
+};
 pub(in crate::db) use group::{
     GroupedDistinctExecutionStrategy, GroupedExecutorHandoff, PlannedProjectionLayout,
     grouped_executor_handoff,

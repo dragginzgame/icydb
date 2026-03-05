@@ -21,13 +21,46 @@ use crate::{
 };
 use std::ops::Bound;
 
+///
+/// IndexScanContinuationInput
+///
+/// Index-scan continuation input contract for directional resume traversal.
+/// Bundles optional exclusive resume anchor plus scan direction so scan-layer
+/// range traversal consumes one continuation boundary object.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct IndexScanContinuationInput<'a> {
+    anchor: Option<&'a RawIndexKey>,
+    direction: Direction,
+}
+
+impl<'a> IndexScanContinuationInput<'a> {
+    /// Build one index-scan continuation input.
+    #[must_use]
+    pub(in crate::db) const fn new(anchor: Option<&'a RawIndexKey>, direction: Direction) -> Self {
+        Self { anchor, direction }
+    }
+
+    /// Borrow optional exclusive continuation anchor.
+    #[must_use]
+    pub(in crate::db) const fn anchor(&self) -> Option<&'a RawIndexKey> {
+        self.anchor
+    }
+
+    /// Borrow scan direction for continuation traversal.
+    #[must_use]
+    pub(in crate::db) const fn direction(&self) -> Direction {
+        self.direction
+    }
+}
+
 impl IndexStore {
     pub(in crate::db) fn resolve_data_values_in_raw_range_limited<E: EntityKind>(
         &self,
         index: &IndexModel,
         bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
-        continuation_start_exclusive: Option<&RawIndexKey>,
-        direction: Direction,
+        continuation: IndexScanContinuationInput<'_>,
         limit: usize,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Vec<DataKey>, InternalError> {
@@ -36,10 +69,16 @@ impl IndexStore {
             return Ok(Vec::new());
         }
 
-        Self::ensure_anchor_within_envelope(direction, continuation_start_exclusive, bounds)?;
+        Self::ensure_anchor_within_envelope(
+            continuation.direction(),
+            continuation.anchor(),
+            bounds,
+        )?;
 
-        let (start_raw, end_raw) = match continuation_start_exclusive {
-            Some(anchor) => resume_bounds_from_refs(direction, bounds.0, bounds.1, anchor),
+        let (start_raw, end_raw) = match continuation.anchor() {
+            Some(anchor) => {
+                resume_bounds_from_refs(continuation.direction(), bounds.0, bounds.1, anchor)
+            }
             None => (bounds.0.clone(), bounds.1.clone()),
         };
 
@@ -50,16 +89,16 @@ impl IndexStore {
         // Phase 2: scan in directional order and decode entries until limit.
         let mut out = Vec::new();
 
-        match direction {
+        match continuation.direction() {
             Direction::Asc => {
                 for entry in self.map.range((start_raw, end_raw)) {
                     let raw_key = entry.key();
                     let value = entry.value();
 
                     Self::ensure_continuation_advanced(
-                        direction,
+                        continuation.direction(),
                         raw_key,
-                        continuation_start_exclusive,
+                        continuation.anchor(),
                     )?;
 
                     if Self::decode_index_entry_and_push::<E>(
@@ -81,9 +120,9 @@ impl IndexStore {
                     let value = entry.value();
 
                     Self::ensure_continuation_advanced(
-                        direction,
+                        continuation.direction(),
                         raw_key,
-                        continuation_start_exclusive,
+                        continuation.anchor(),
                     )?;
 
                     if Self::decode_index_entry_and_push::<E>(

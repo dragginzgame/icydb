@@ -45,23 +45,32 @@ fn wrap_distinct_ordered_key_stream(
 
 /// Decorate one resolved execution key stream with DISTINCT behavior when requested.
 pub(super) fn decorate_resolved_execution_key_stream<K>(
-    mut resolved: ResolvedExecutionKeyStream,
+    resolved: ResolvedExecutionKeyStream,
     plan: &AccessPlannedQuery<K>,
     direction: Direction,
 ) -> ResolvedExecutionKeyStream {
+    let (
+        key_stream,
+        optimization,
+        rows_scanned_override,
+        index_predicate_applied,
+        index_predicate_keys_rejected,
+        _distinct_keys_deduped_counter,
+    ) = resolved.into_parts();
     let key_comparator = key_stream_comparator_from_direction(direction);
     let strategy = plan.distinct_execution_strategy();
     let dedup_counter = strategy.is_enabled().then(|| Rc::new(Cell::new(0u64)));
-    let (key_stream, dedup_counter) = wrap_distinct_ordered_key_stream(
-        resolved.key_stream,
-        strategy,
-        key_comparator,
-        dedup_counter,
-    );
-    resolved.key_stream = key_stream;
-    resolved.distinct_keys_deduped_counter = dedup_counter;
+    let (key_stream, dedup_counter) =
+        wrap_distinct_ordered_key_stream(key_stream, strategy, key_comparator, dedup_counter);
 
-    resolved
+    ResolvedExecutionKeyStream::new(
+        key_stream,
+        optimization,
+        rows_scanned_override,
+        index_predicate_applied,
+        index_predicate_keys_rejected,
+        dedup_counter,
+    )
 }
 
 /// Decorate one ordered key stream with DISTINCT behavior using planner strategy.

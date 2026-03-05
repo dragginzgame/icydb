@@ -28,8 +28,8 @@ use crate::{
         },
         direction::Direction,
         executor::{
-            ExecutionOptimization, ExecutionPreparation, ExecutionTrace, KeyOrderComparator,
-            OrderedKeyStreamBox,
+            ContinuationEngine, ExecutionOptimization, ExecutionPreparation, ExecutionTrace,
+            KeyOrderComparator, OrderedKeyStreamBox,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, resolve_any_aggregate_target_slot,
                 resolve_numeric_aggregate_target_slot,
@@ -44,6 +44,7 @@ use crate::{
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
+    value::Value,
 };
 
 #[cfg(test)]
@@ -51,7 +52,8 @@ pub(in crate::db::executor) use self::entrypoints::{
     load_execute_stage_order_guard, load_pipeline_state_optional_slot_count_guard,
 };
 pub(in crate::db::executor) use self::execute::{
-    ExecutionInputs, MaterializedExecutionAttempt, ResolvedExecutionKeyStream,
+    ExecutionInputs, ExecutionInputsProjection, MaterializedExecutionAttempt,
+    ResolvedExecutionKeyStream,
 };
 pub(in crate::db::executor) use self::page::PageMaterializationRequest;
 
@@ -206,6 +208,182 @@ struct IndexSpecBundle {
 }
 
 ///
+/// GroupedPaginationWindow
+///
+/// Runtime grouped pagination projection consumed by grouped fold/page stages.
+/// Separates grouped paging primitives from route/fold call signatures so grouped
+/// continuation window semantics flow through one runtime boundary object.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::executor::load) struct GroupedPaginationWindow {
+    limit: Option<usize>,
+    initial_offset_for_page: usize,
+    selection_bound: Option<usize>,
+    resume_initial_offset: u32,
+    resume_boundary: Option<Value>,
+}
+
+impl GroupedPaginationWindow {
+    /// Build runtime grouped pagination projection from planner continuation window contract.
+    #[must_use]
+    pub(in crate::db::executor::load) fn from_contract(window: GroupedContinuationWindow) -> Self {
+        let (
+            limit,
+            initial_offset_for_page,
+            selection_bound,
+            resume_initial_offset,
+            resume_boundary,
+        ) = window.into_parts();
+
+        Self {
+            limit,
+            initial_offset_for_page,
+            selection_bound,
+            resume_initial_offset,
+            resume_boundary,
+        }
+    }
+
+    /// Return grouped page limit for this execution window.
+    #[must_use]
+    pub(in crate::db::executor::load) const fn limit(&self) -> Option<usize> {
+        self.limit
+    }
+
+    /// Return grouped page-initial offset for this execution window.
+    #[must_use]
+    pub(in crate::db::executor::load) const fn initial_offset_for_page(&self) -> usize {
+        self.initial_offset_for_page
+    }
+
+    /// Return bounded grouped candidate selection cap (`offset + limit + 1`) when active.
+    #[must_use]
+    pub(in crate::db::executor::load) const fn selection_bound(&self) -> Option<usize> {
+        self.selection_bound
+    }
+
+    /// Return resume offset encoded into grouped continuation tokens.
+    #[must_use]
+    pub(in crate::db::executor::load) const fn resume_initial_offset(&self) -> u32 {
+        self.resume_initial_offset
+    }
+
+    /// Borrow optional grouped resume boundary value for continuation filtering.
+    #[must_use]
+    pub(in crate::db::executor::load) const fn resume_boundary(&self) -> Option<&Value> {
+        self.resume_boundary.as_ref()
+    }
+}
+
+///
+/// GroupedContinuationContext
+///
+/// Runtime grouped continuation context derived from immutable continuation
+/// contracts. Carries grouped continuation signature, boundary arity, and one
+/// grouped pagination projection bundle consumed by grouped runtime stages.
+///
+
+struct GroupedContinuationContext {
+    continuation_signature: ContinuationSignature,
+    continuation_boundary_arity: usize,
+    grouped_pagination_window: GroupedPaginationWindow,
+}
+
+impl GroupedContinuationContext {
+    /// Construct grouped continuation runtime context from grouped contract values.
+    #[must_use]
+    const fn new(
+        continuation_signature: ContinuationSignature,
+        continuation_boundary_arity: usize,
+        grouped_pagination_window: GroupedPaginationWindow,
+    ) -> Self {
+        Self {
+            continuation_signature,
+            continuation_boundary_arity,
+            grouped_pagination_window,
+        }
+    }
+
+    /// Borrow grouped runtime pagination projection.
+    #[must_use]
+    const fn grouped_pagination_window(&self) -> &GroupedPaginationWindow {
+        &self.grouped_pagination_window
+    }
+
+    /// Build one grouped next cursor after validating grouped boundary arity.
+    fn grouped_next_cursor(&self, last_group_key: Vec<Value>) -> Result<PageCursor, InternalError> {
+        if last_group_key.len() != self.continuation_boundary_arity {
+            return Err(invariant(format!(
+                "grouped continuation boundary arity mismatch: expected {}, found {}",
+                self.continuation_boundary_arity,
+                last_group_key.len()
+            )));
+        }
+
+        Ok(PageCursor::Grouped(
+            ContinuationEngine::grouped_next_cursor_token(
+                self.continuation_signature,
+                last_group_key,
+                self.grouped_pagination_window.resume_initial_offset(),
+            ),
+        ))
+    }
+}
+
+///
+/// GroupedRuntimeProjection
+///
+/// Runtime grouped execution projection shared across grouped stream/fold/output
+/// stages. Keeps routed direction, grouped plan-metrics strategy, and optional
+/// execution trace under one runtime-boundary object.
+///
+
+struct GroupedRuntimeProjection {
+    direction: Direction,
+    grouped_plan_metrics_strategy: GroupedPlanMetricsStrategy,
+    execution_trace: Option<ExecutionTrace>,
+}
+
+impl GroupedRuntimeProjection {
+    /// Construct grouped runtime projection from routed direction/metrics/trace.
+    #[must_use]
+    const fn new(
+        direction: Direction,
+        grouped_plan_metrics_strategy: GroupedPlanMetricsStrategy,
+        execution_trace: Option<ExecutionTrace>,
+    ) -> Self {
+        Self {
+            direction,
+            grouped_plan_metrics_strategy,
+            execution_trace,
+        }
+    }
+
+    /// Return routed grouped stream direction.
+    #[must_use]
+    const fn direction(&self) -> Direction {
+        self.direction
+    }
+
+    /// Return grouped plan-metrics strategy for grouped stream observability.
+    #[must_use]
+    const fn grouped_plan_metrics_strategy(&self) -> GroupedPlanMetricsStrategy {
+        self.grouped_plan_metrics_strategy
+    }
+
+    /// Borrow optional grouped execution trace for observability mutation.
+    const fn execution_trace_mut(&mut self) -> &mut Option<ExecutionTrace> {
+        &mut self.execution_trace
+    }
+
+    /// Consume projection and return final grouped execution trace payload.
+    const fn into_execution_trace(self) -> Option<ExecutionTrace> {
+        self.execution_trace
+    }
+}
+
+///
 /// GroupedExecutionContext
 ///
 /// Grouped runtime execution context artifacts derived at grouped route stage.
@@ -214,12 +392,50 @@ struct IndexSpecBundle {
 ///
 
 struct GroupedExecutionContext {
-    direction: Direction,
-    continuation_signature: ContinuationSignature,
-    continuation_boundary_arity: usize,
-    grouped_continuation_window: GroupedContinuationWindow,
-    grouped_plan_metrics_strategy: GroupedPlanMetricsStrategy,
-    execution_trace: Option<ExecutionTrace>,
+    continuation: GroupedContinuationContext,
+    runtime: GroupedRuntimeProjection,
+}
+
+impl GroupedExecutionContext {
+    /// Construct grouped execution context from continuation + runtime projection.
+    #[must_use]
+    const fn new(
+        continuation: GroupedContinuationContext,
+        runtime: GroupedRuntimeProjection,
+    ) -> Self {
+        Self {
+            continuation,
+            runtime,
+        }
+    }
+
+    /// Return routed grouped stream direction.
+    #[must_use]
+    const fn direction(&self) -> Direction {
+        self.runtime.direction()
+    }
+
+    /// Return grouped plan-metrics strategy for grouped stream observability.
+    #[must_use]
+    const fn grouped_plan_metrics_strategy(&self) -> GroupedPlanMetricsStrategy {
+        self.runtime.grouped_plan_metrics_strategy()
+    }
+
+    /// Borrow grouped continuation context.
+    #[must_use]
+    const fn continuation(&self) -> &GroupedContinuationContext {
+        &self.continuation
+    }
+
+    /// Borrow optional grouped execution trace for observability mutation.
+    const fn execution_trace_mut(&mut self) -> &mut Option<ExecutionTrace> {
+        self.runtime.execution_trace_mut()
+    }
+
+    /// Consume grouped execution context and return final grouped execution trace payload.
+    fn into_execution_trace(self) -> Option<ExecutionTrace> {
+        self.runtime.into_execution_trace()
+    }
 }
 
 struct GroupedRouteStage<E: EntityKind + EntityValue> {
@@ -227,6 +443,205 @@ struct GroupedRouteStage<E: EntityKind + EntityValue> {
     route_payload: GroupedRoutePayload,
     index_specs: IndexSpecBundle,
     execution_context: GroupedExecutionContext,
+}
+
+impl<E> GroupedRouteStage<E>
+where
+    E: EntityKind + EntityValue,
+{
+    /// Borrow grouped logical plan payload.
+    #[must_use]
+    const fn plan(&self) -> &AccessPlannedQuery<E::Key> {
+        &self.planner_payload.plan
+    }
+
+    /// Return planner-projected grouped execution configuration.
+    #[must_use]
+    const fn grouped_execution(&self) -> crate::db::query::plan::GroupedExecutionConfig {
+        self.planner_payload.grouped_execution
+    }
+
+    /// Borrow grouped projection layout.
+    #[must_use]
+    const fn projection_layout(&self) -> &PlannedProjectionLayout {
+        &self.planner_payload.projection_layout
+    }
+
+    /// Borrow grouped field slot projection list.
+    #[must_use]
+    const fn group_fields(&self) -> &[crate::db::query::plan::FieldSlot] {
+        self.planner_payload.group_fields.as_slice()
+    }
+
+    /// Borrow grouped aggregate expression list.
+    #[must_use]
+    const fn grouped_aggregate_exprs(&self) -> &[crate::db::query::builder::AggregateExpr] {
+        self.planner_payload.grouped_aggregate_exprs.as_slice()
+    }
+
+    /// Borrow grouped HAVING contract when present.
+    #[must_use]
+    const fn grouped_having(&self) -> Option<&GroupHavingSpec> {
+        self.planner_payload.grouped_having.as_ref()
+    }
+
+    /// Borrow grouped DISTINCT execution strategy contract.
+    #[must_use]
+    const fn grouped_distinct_execution_strategy(&self) -> &GroupedDistinctExecutionStrategy {
+        &self.planner_payload.grouped_distinct_execution_strategy
+    }
+
+    /// Borrow route-owned grouped execution plan contract.
+    #[must_use]
+    const fn grouped_route_plan(&self) -> &crate::db::executor::ExecutionPlan {
+        &self.route_payload.grouped_route_plan
+    }
+
+    /// Borrow lowered grouped index-prefix specs.
+    #[must_use]
+    const fn index_prefix_specs(&self) -> &[crate::db::access::LoweredIndexPrefixSpec] {
+        self.index_specs.index_prefix_specs.as_slice()
+    }
+
+    /// Borrow lowered grouped index-range specs.
+    #[must_use]
+    const fn index_range_specs(&self) -> &[crate::db::access::LoweredIndexRangeSpec] {
+        self.index_specs.index_range_specs.as_slice()
+    }
+}
+
+///
+/// GroupedRouteStageProjection
+///
+/// Compile-time projection boundary for grouped route-stage consumers.
+/// Grouped fold/runtime helpers consume this trait so grouped planner/route
+/// payload internals remain opaque outside grouped route-stage assembly.
+///
+
+pub(in crate::db::executor::load) trait GroupedRouteStageProjection<E>
+where
+    E: EntityKind + EntityValue,
+{
+    /// Borrow grouped logical plan payload.
+    fn plan(&self) -> &AccessPlannedQuery<E::Key>;
+
+    /// Return planner-projected grouped execution configuration.
+    fn grouped_execution(&self) -> crate::db::query::plan::GroupedExecutionConfig;
+
+    /// Borrow grouped projection layout.
+    fn projection_layout(&self) -> &PlannedProjectionLayout;
+
+    /// Borrow grouped field slot projection list.
+    fn group_fields(&self) -> &[crate::db::query::plan::FieldSlot];
+
+    /// Borrow grouped aggregate expression list.
+    fn grouped_aggregate_exprs(&self) -> &[crate::db::query::builder::AggregateExpr];
+
+    /// Borrow grouped HAVING contract when present.
+    fn grouped_having(&self) -> Option<&GroupHavingSpec>;
+
+    /// Borrow grouped DISTINCT execution strategy contract.
+    fn grouped_distinct_execution_strategy(&self) -> &GroupedDistinctExecutionStrategy;
+
+    /// Borrow route-owned grouped execution plan contract.
+    fn grouped_route_plan(&self) -> &crate::db::executor::ExecutionPlan;
+
+    /// Borrow lowered grouped index-prefix specs.
+    fn index_prefix_specs(&self) -> &[crate::db::access::LoweredIndexPrefixSpec];
+
+    /// Borrow lowered grouped index-range specs.
+    fn index_range_specs(&self) -> &[crate::db::access::LoweredIndexRangeSpec];
+
+    /// Return routed grouped stream direction.
+    fn direction(&self) -> Direction;
+
+    /// Return grouped plan-metrics strategy for grouped stream observability.
+    fn grouped_plan_metrics_strategy(&self) -> GroupedPlanMetricsStrategy;
+
+    /// Borrow grouped runtime pagination projection.
+    fn grouped_pagination_window(&self) -> &GroupedPaginationWindow;
+
+    /// Build grouped next cursor after grouped boundary validation.
+    fn grouped_next_cursor(&self, last_group_key: Vec<Value>) -> Result<PageCursor, InternalError>;
+
+    /// Borrow optional grouped execution trace for observability mutation.
+    fn execution_trace_mut(&mut self) -> &mut Option<ExecutionTrace>;
+
+    /// Consume stage and return final grouped execution trace payload.
+    fn into_execution_trace(self) -> Option<ExecutionTrace>;
+}
+
+impl<E> GroupedRouteStageProjection<E> for GroupedRouteStage<E>
+where
+    E: EntityKind + EntityValue,
+{
+    fn plan(&self) -> &AccessPlannedQuery<E::Key> {
+        Self::plan(self)
+    }
+
+    fn grouped_execution(&self) -> crate::db::query::plan::GroupedExecutionConfig {
+        Self::grouped_execution(self)
+    }
+
+    fn projection_layout(&self) -> &PlannedProjectionLayout {
+        Self::projection_layout(self)
+    }
+
+    fn group_fields(&self) -> &[crate::db::query::plan::FieldSlot] {
+        Self::group_fields(self)
+    }
+
+    fn grouped_aggregate_exprs(&self) -> &[crate::db::query::builder::AggregateExpr] {
+        Self::grouped_aggregate_exprs(self)
+    }
+
+    fn grouped_having(&self) -> Option<&GroupHavingSpec> {
+        Self::grouped_having(self)
+    }
+
+    fn grouped_distinct_execution_strategy(&self) -> &GroupedDistinctExecutionStrategy {
+        Self::grouped_distinct_execution_strategy(self)
+    }
+
+    fn grouped_route_plan(&self) -> &crate::db::executor::ExecutionPlan {
+        Self::grouped_route_plan(self)
+    }
+
+    fn index_prefix_specs(&self) -> &[crate::db::access::LoweredIndexPrefixSpec] {
+        Self::index_prefix_specs(self)
+    }
+
+    fn index_range_specs(&self) -> &[crate::db::access::LoweredIndexRangeSpec] {
+        Self::index_range_specs(self)
+    }
+
+    fn direction(&self) -> Direction {
+        self.execution_context.direction()
+    }
+
+    fn grouped_plan_metrics_strategy(&self) -> GroupedPlanMetricsStrategy {
+        self.execution_context.grouped_plan_metrics_strategy()
+    }
+
+    fn grouped_pagination_window(&self) -> &GroupedPaginationWindow {
+        self.execution_context
+            .continuation()
+            .grouped_pagination_window()
+    }
+
+    fn grouped_next_cursor(&self, last_group_key: Vec<Value>) -> Result<PageCursor, InternalError> {
+        self.execution_context
+            .continuation()
+            .grouped_next_cursor(last_group_key)
+    }
+
+    fn execution_trace_mut(&mut self) -> &mut Option<ExecutionTrace> {
+        self.execution_context.execution_trace_mut()
+    }
+
+    fn into_execution_trace(self) -> Option<ExecutionTrace> {
+        self.execution_context.into_execution_trace()
+    }
 }
 
 ///
@@ -241,6 +656,64 @@ struct GroupedStreamStage<'a, E: EntityKind + EntityValue> {
     ctx: Context<'a, E>,
     execution_preparation: ExecutionPreparation,
     resolved: ResolvedExecutionKeyStream,
+}
+
+impl<'a, E> GroupedStreamStage<'a, E>
+where
+    E: EntityKind + EntityValue,
+{
+    // Build one grouped stream stage from recovered context, execution preparation,
+    // and resolved grouped key stream payload.
+    pub(in crate::db::executor::load) const fn new(
+        ctx: Context<'a, E>,
+        execution_preparation: ExecutionPreparation,
+        resolved: ResolvedExecutionKeyStream,
+    ) -> Self {
+        Self {
+            ctx,
+            execution_preparation,
+            resolved,
+        }
+    }
+
+    // Borrow grouped runtime context, execution preparation, and mutable resolved
+    // key stream together so callers can combine immutable/mutable borrows safely.
+    pub(in crate::db::executor::load) const fn parts_mut(
+        &mut self,
+    ) -> (
+        &Context<'a, E>,
+        &ExecutionPreparation,
+        &mut ResolvedExecutionKeyStream,
+    ) {
+        (&self.ctx, &self.execution_preparation, &mut self.resolved)
+    }
+
+    // Derive grouped path `rows_scanned` from resolved stream metadata or runtime fallback.
+    pub(in crate::db::executor::load) fn rows_scanned(&self, fallback: usize) -> usize {
+        self.resolved.rows_scanned_override().unwrap_or(fallback)
+    }
+
+    // Borrow grouped path optimization outcome metadata.
+    pub(in crate::db::executor::load) const fn optimization(
+        &self,
+    ) -> Option<ExecutionOptimization> {
+        self.resolved.optimization()
+    }
+
+    // Borrow grouped path index-predicate observability metadata.
+    pub(in crate::db::executor::load) const fn index_predicate_applied(&self) -> bool {
+        self.resolved.index_predicate_applied()
+    }
+
+    // Borrow grouped path index-predicate rejection counter.
+    pub(in crate::db::executor::load) const fn index_predicate_keys_rejected(&self) -> u64 {
+        self.resolved.index_predicate_keys_rejected()
+    }
+
+    // Borrow grouped path DISTINCT-key dedupe counter.
+    pub(in crate::db::executor::load) fn distinct_keys_deduped(&self) -> u64 {
+        self.resolved.distinct_keys_deduped()
+    }
 }
 
 ///
@@ -260,6 +733,81 @@ struct GroupedFoldStage {
     index_predicate_applied: bool,
     index_predicate_keys_rejected: u64,
     distinct_keys_deduped: u64,
+}
+
+impl GroupedFoldStage {
+    // Build one grouped fold-stage payload from grouped page output plus stream
+    // observability metadata captured after grouped fold execution.
+    pub(in crate::db::executor::load) fn from_grouped_stream<E>(
+        page: GroupedCursorPage,
+        filtered_rows: usize,
+        check_filtered_rows_upper_bound: bool,
+        stream: &GroupedStreamStage<'_, E>,
+        scanned_rows_fallback: usize,
+    ) -> Self
+    where
+        E: EntityKind + EntityValue,
+    {
+        Self {
+            page,
+            filtered_rows,
+            check_filtered_rows_upper_bound,
+            rows_scanned: stream.rows_scanned(scanned_rows_fallback),
+            optimization: stream.optimization(),
+            index_predicate_applied: stream.index_predicate_applied(),
+            index_predicate_keys_rejected: stream.index_predicate_keys_rejected(),
+            distinct_keys_deduped: stream.distinct_keys_deduped(),
+        }
+    }
+
+    // Return grouped output row count for observability.
+    pub(in crate::db::executor::load) const fn rows_returned(&self) -> usize {
+        self.page.rows.len()
+    }
+
+    // Borrow grouped path optimization outcome metadata.
+    pub(in crate::db::executor::load) const fn optimization(
+        &self,
+    ) -> Option<ExecutionOptimization> {
+        self.optimization
+    }
+
+    // Borrow grouped path rows-scanned observability metric.
+    pub(in crate::db::executor::load) const fn rows_scanned(&self) -> usize {
+        self.rows_scanned
+    }
+
+    // Borrow grouped path index-predicate observability metadata.
+    pub(in crate::db::executor::load) const fn index_predicate_applied(&self) -> bool {
+        self.index_predicate_applied
+    }
+
+    // Borrow grouped path index-predicate rejection counter.
+    pub(in crate::db::executor::load) const fn index_predicate_keys_rejected(&self) -> u64 {
+        self.index_predicate_keys_rejected
+    }
+
+    // Borrow grouped path DISTINCT-key dedupe counter.
+    pub(in crate::db::executor::load) const fn distinct_keys_deduped(&self) -> u64 {
+        self.distinct_keys_deduped
+    }
+
+    // Return whether grouped finalization should assert filtered-row upper bound.
+    pub(in crate::db::executor::load) const fn should_check_filtered_rows_upper_bound(
+        &self,
+    ) -> bool {
+        self.check_filtered_rows_upper_bound
+    }
+
+    // Borrow grouped filtered-row count for pagination sanity checks.
+    pub(in crate::db::executor::load) const fn filtered_rows(&self) -> usize {
+        self.filtered_rows
+    }
+
+    // Consume folded stage and return final grouped page payload.
+    pub(in crate::db::executor::load) fn into_page(self) -> GroupedCursorPage {
+        self.page
+    }
 }
 
 impl<E> LoadExecutor<E>

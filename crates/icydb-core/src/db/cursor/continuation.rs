@@ -7,7 +7,7 @@ use crate::{
         },
         direction::Direction,
         index::{IndexKey, continuation_advanced},
-        query::plan::{OrderSpec, PageSpec},
+        query::plan::{OrderSpec, PageSpec, effective_offset_for_cursor_window},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -120,11 +120,7 @@ fn effective_keep_count_for_limit(
     cursor_boundary_present: bool,
     limit: u32,
 ) -> usize {
-    let effective_offset = if cursor_boundary_present {
-        0
-    } else {
-        page_offset
-    };
+    let effective_offset = effective_offset_for_cursor_window(page_offset, cursor_boundary_present);
 
     usize::try_from(effective_offset)
         .unwrap_or(usize::MAX)

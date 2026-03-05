@@ -16,13 +16,11 @@ use crate::{
 };
 use crate::{
     db::{
-        access::LoweredKey,
         cursor::{
-            ContinuationSignature, ContinuationToken, CursorBoundary,
+            ContinuationToken, CursorBoundary,
             next_cursor_for_materialized_rows as derive_next_materialized_cursor,
         },
-        direction::Direction,
-        executor::ExecutionKernel,
+        executor::{ExecutionKernel, ScalarContinuationBindings},
         predicate::PredicateProgram,
         query::plan::AccessPlannedQuery,
     },
@@ -157,10 +155,7 @@ impl ExecutionKernel {
         plan: &AccessPlannedQuery<E::Key>,
         rows: &[(Id<E>, E)],
         stats: &PostAccessStats,
-        cursor_boundary: Option<&CursorBoundary>,
-        previous_index_range_anchor: Option<&LoweredKey>,
-        direction: Direction,
-        signature: ContinuationSignature,
+        continuation: ScalarContinuationBindings<'_>,
     ) -> Result<Option<ContinuationToken>, InternalError>
     where
         E: EntityKind + EntityValue,
@@ -171,10 +166,10 @@ impl ExecutionKernel {
             plan.scalar_plan().page.as_ref(),
             rows,
             stats.rows_after_cursor,
-            cursor_boundary,
-            previous_index_range_anchor,
-            direction,
-            signature,
+            continuation.cursor_boundary(),
+            continuation.previous_index_range_anchor(),
+            continuation.direction(),
+            continuation.continuation_signature(),
         )
     }
 

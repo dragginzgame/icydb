@@ -42,7 +42,7 @@ pub(in crate::db) use order::{apply_order_spec, apply_order_spec_bounded};
 pub(in crate::db) use planned::{GroupedPlannedCursor, PlannedCursor};
 pub(in crate::db) use range_token::{
     RangeToken, cursor_anchor_from_index_key, range_token_anchor_key,
-    range_token_from_lowered_anchor, range_token_from_validated_cursor_anchor,
+    range_token_from_validated_cursor_anchor,
 };
 #[expect(unreachable_pub)]
 pub use signature::ContinuationSignature;

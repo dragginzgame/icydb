@@ -8,18 +8,17 @@ use crate::{
         direction::Direction,
         executor::{
             aggregate::AggregateKind,
-            continuation::ScalarContinuationRuntime,
+            continuation::ScalarContinuationContext,
             load::LoadExecutor,
             route::{
-                ContinuationMode, GroupedExecutionStrategy, RouteWindowPlan, ScanHintPlan,
-                continuation_applied, continuation_policy_allows_load_scan_budget_hint,
+                GroupedExecutionStrategy, RouteContinuationPlan, ScanHintPlan,
                 planner::{RouteDerivationContext, RouteFeasibilityStage, RouteIntentStage},
             },
         },
         query::builder::AggregateExpr,
         query::plan::{
-            AccessPlannedQuery, ContinuationPolicy, GroupedPlanStrategyHint,
-            LogicalPushdownEligibility, PlannerRouteProfile,
+            AccessPlannedQuery, GroupedPlanStrategyHint, LogicalPushdownEligibility,
+            PlannerRouteProfile,
         },
     },
     traits::{EntityKind, EntityValue},
@@ -207,24 +206,21 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
-    #[expect(clippy::too_many_lines)]
     pub(in crate::db::executor::route::planner) fn derive_route_feasibility_stage(
         plan: &AccessPlannedQuery<E::Key>,
-        continuation: &ScalarContinuationRuntime,
+        continuation: &ScalarContinuationContext,
         probe_fetch_hint: Option<usize>,
         planner_route_profile: &PlannerRouteProfile,
         intent_stage: &RouteIntentStage,
     ) -> RouteFeasibilityStage {
-        let continuation_mode = Self::derive_continuation_mode(continuation);
         let continuation_policy = *planner_route_profile.continuation_policy();
-        let route_window = Self::derive_route_window(plan, continuation);
+        let route_continuation =
+            Self::derive_route_continuation(plan, continuation, continuation_policy);
         let derivation = Self::derive_route_derivation_context(
             plan,
             intent_stage,
-            continuation_policy,
             planner_route_profile.logical_pushdown_eligibility(),
-            continuation_mode,
-            route_window,
+            route_continuation,
             probe_fetch_hint,
         );
         let kind = intent_stage.kind();
@@ -241,9 +237,7 @@ where
         } else {
             Self::assess_index_range_limit_pushdown(
                 plan,
-                continuation_policy,
-                continuation_mode,
-                route_window,
+                route_continuation,
                 derivation.scan_hints.physical_fetch_hint,
                 derivation.capabilities,
             )
@@ -278,11 +272,7 @@ where
         );
         debug_assert!(
             derivation.scan_hints.load_scan_budget_hint.is_none()
-                || continuation_policy_allows_load_scan_budget_hint(
-                    continuation_policy,
-                    continuation_mode,
-                    derivation.capabilities,
-                ),
+                || route_continuation.load_scan_budget_hint_allowed(derivation.capabilities),
             "route invariant: load scan-budget hints require non-continuation streaming-safe shape",
         );
         debug_assert!(
@@ -292,27 +282,17 @@ where
                     && index_range_limit_spec.is_none(),
             "route invariant: grouped intent must not derive load/aggregate scan hints or index-range pushdown specs",
         );
-        debug_assert_eq!(
-            continuation_applied(continuation_mode),
-            !matches!(continuation_mode, ContinuationMode::Initial),
-            "route invariant: continuation policy and continuation mode must classify continuation activation identically",
-        );
         debug_assert!(
-            !continuation_applied(continuation_mode)
-                || continuation_policy.requires_strict_advance(),
+            route_continuation.strict_advance_required_when_applied(),
             "route invariant: continuation executions must require strict advancement",
         );
         debug_assert!(
-            !intent_stage.grouped
-                || !continuation_applied(continuation_mode)
-                || continuation_policy.is_grouped_safe(),
+            !intent_stage.grouped || route_continuation.grouped_safe_when_applied(),
             "route invariant: grouped continuation executions must satisfy planner-projected continuation policy safety",
         );
 
         RouteFeasibilityStage {
-            continuation_mode,
-            continuation_policy,
-            route_window,
+            continuation: route_continuation,
             derivation,
             index_range_limit_spec,
             page_limit_is_zero: plan
@@ -326,10 +306,8 @@ where
     pub(in crate::db::executor::route::planner) fn derive_route_derivation_context(
         plan: &AccessPlannedQuery<E::Key>,
         intent_stage: &RouteIntentStage,
-        continuation_policy: ContinuationPolicy,
         logical_pushdown_eligibility: LogicalPushdownEligibility,
-        continuation_mode: ContinuationMode,
-        route_window: RouteWindowPlan,
+        continuation: RouteContinuationPlan,
         probe_fetch_hint: Option<usize>,
     ) -> RouteDerivationContext {
         let aggregate_expr = intent_stage.aggregate_expr.as_ref();
@@ -356,12 +334,17 @@ where
         // Aggregate probes must not assume DESC physical reverse traversal
         // when the access shape cannot emit descending order natively.
         let count_pushdown_probe_fetch_hint = if count_pushdown_eligible {
-            Self::count_pushdown_fetch_hint(route_window, capabilities)
+            Self::count_pushdown_fetch_hint(continuation.window(), capabilities)
         } else {
             None
         };
         let aggregate_terminal_probe_fetch_hint = aggregate_expr.and_then(|aggregate| {
-            Self::aggregate_probe_fetch_hint(aggregate, direction, capabilities, route_window)
+            Self::aggregate_probe_fetch_hint(
+                aggregate,
+                direction,
+                capabilities,
+                continuation.window(),
+            )
         });
         let aggregate_physical_fetch_hint =
             count_pushdown_probe_fetch_hint.or(aggregate_terminal_probe_fetch_hint);
@@ -380,12 +363,7 @@ where
             load_physical_fetch_hint
         };
         let load_scan_budget_hint = if load_scan_hint_gate_rejection.is_none() {
-            Self::load_scan_budget_hint(
-                continuation_policy,
-                continuation_mode,
-                route_window,
-                capabilities,
-            )
+            Self::load_scan_budget_hint(continuation, capabilities)
         } else {
             None
         };

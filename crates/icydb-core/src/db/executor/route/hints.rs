@@ -8,16 +8,15 @@ use crate::{
         direction::Direction,
         executor::{ExecutionKernel, load::LoadExecutor},
         query::builder::AggregateExpr,
-        query::plan::{AccessPlannedQuery, ContinuationPolicy, DistinctExecutionStrategy},
+        query::plan::{AccessPlannedQuery, DistinctExecutionStrategy},
     },
     traits::{EntityKind, EntityValue},
 };
 
 use crate::db::executor::route::{
-    ContinuationMode, IndexRangeLimitSpec, RouteCapabilities, RouteWindowPlan,
+    IndexRangeLimitSpec, RouteCapabilities, RouteContinuationPlan, RouteWindowPlan,
     aggregate_bounded_probe_fetch_hint, aggregate_supports_bounded_probe_hint,
-    continuation_policy_allows_index_range_limit_pushdown,
-    continuation_policy_allows_load_scan_budget_hint, direction_allows_physical_fetch_hint,
+    direction_allows_physical_fetch_hint,
 };
 
 impl<E> LoadExecutor<E>
@@ -28,19 +27,15 @@ where
     // the bounded fetch spec when all eligibility gates pass.
     pub(super) fn assess_index_range_limit_pushdown(
         plan: &AccessPlannedQuery<E::Key>,
-        continuation_policy: ContinuationPolicy,
-        continuation_mode: ContinuationMode,
-        route_window: RouteWindowPlan,
+        continuation: RouteContinuationPlan,
         probe_fetch_hint: Option<usize>,
         capabilities: RouteCapabilities,
     ) -> Option<IndexRangeLimitSpec> {
+        let route_window = continuation.window();
         if !capabilities.index_range_limit_pushdown_shape_eligible {
             return None;
         }
-        if !continuation_policy_allows_index_range_limit_pushdown(
-            continuation_policy,
-            continuation_mode,
-        ) {
+        if !continuation.index_range_limit_pushdown_allowed() {
             return None;
         }
         if let Some(fetch) = probe_fetch_hint {
@@ -71,20 +66,14 @@ where
 
     // Shared load-page scan-budget hint gate.
     pub(super) const fn load_scan_budget_hint(
-        continuation_policy: ContinuationPolicy,
-        continuation_mode: ContinuationMode,
-        route_window: RouteWindowPlan,
+        continuation: RouteContinuationPlan,
         capabilities: RouteCapabilities,
     ) -> Option<usize> {
-        if !continuation_policy_allows_load_scan_budget_hint(
-            continuation_policy,
-            continuation_mode,
-            capabilities,
-        ) {
+        if !continuation.load_scan_budget_hint_allowed(capabilities) {
             return None;
         }
 
-        route_window.fetch_count_for(true)
+        continuation.window().fetch_count_for(true)
     }
 
     // Shared bounded-probe safety gate for aggregate key-stream hints.

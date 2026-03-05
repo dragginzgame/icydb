@@ -7,8 +7,8 @@ use crate::{
     db::{
         cursor::{GroupedPlannedCursor, PlannedCursor},
         executor::{
-            AccessStreamBindings, ContinuationEngine, ExecutablePlan, ExecutionKernel,
-            ExecutionPreparation, ExecutionTrace,
+            AccessScanContinuationInput, AccessStreamBindings, ContinuationEngine, ExecutablePlan,
+            ExecutionKernel, ExecutionPreparation, ExecutionTrace, ScalarContinuationBindings,
             load::{CursorPage, GroupedCursorPage, LoadExecutor},
             plan_metrics::record_plan_metrics,
             range_token_anchor_key, validate_executor_plan,
@@ -538,7 +538,7 @@ where
         plan: ExecutablePlan<E>,
         cursor: PlannedCursor,
     ) -> Result<(CursorPage<E>, Option<ExecutionTrace>), InternalError> {
-        let scalar_runtime = ContinuationEngine::scalar_runtime(cursor);
+        let scalar_runtime = ContinuationEngine::scalar_context(cursor);
         let cursor_boundary = scalar_runtime.cursor_boundary();
         let index_range_token = scalar_runtime.index_range_token();
         let continuation_signature = plan.continuation_signature_for_runtime()?;
@@ -547,26 +547,24 @@ where
         let logical_plan = plan.into_inner();
         let route_plan =
             Self::build_execution_route_plan_for_load(&logical_plan, &scalar_runtime, None)?;
-        let continuation_policy = route_plan.continuation_policy();
-        let continuation_applied =
-            crate::db::executor::route::continuation_applied(route_plan.continuation_mode());
-        debug_assert_eq!(
-            continuation_applied,
-            !matches!(
-                route_plan.continuation_mode(),
-                crate::db::executor::route::ContinuationMode::Initial
-            ),
-            "route invariant: continuation policy and continuation mode must remain equivalent",
-        );
+        let continuation = route_plan.continuation();
+        let continuation_applied = continuation.applied();
         debug_assert!(
-            !continuation_applied || continuation_policy.requires_strict_advance(),
+            continuation.strict_advance_required_when_applied(),
             "route invariant: continuation executions must enforce strict advancement policy",
         );
         let direction = route_plan.direction();
         debug_assert_eq!(
-            route_plan.window().effective_offset,
+            continuation.window().effective_offset,
             ExecutionKernel::effective_page_offset(&logical_plan, cursor_boundary),
             "route window effective offset must match logical plan offset semantics",
+        );
+        let previous_index_range_anchor = index_range_token.map(range_token_anchor_key);
+        let continuation_bindings = ScalarContinuationBindings::new(
+            cursor_boundary,
+            previous_index_range_anchor,
+            direction,
+            continuation_signature,
         );
         let mut execution_trace = self
             .debug
@@ -578,24 +576,25 @@ where
 
             validate_executor_plan::<E>(&logical_plan)?;
             let ctx = self.db.recovered_context::<E>()?;
-            let execution_inputs = super::ExecutionInputs {
-                ctx: &ctx,
-                plan: &logical_plan,
-                stream_bindings: AccessStreamBindings {
+            let execution_inputs = super::ExecutionInputs::new(
+                &ctx,
+                &logical_plan,
+                AccessStreamBindings {
                     index_prefix_specs: index_prefix_specs.as_slice(),
                     index_range_specs: index_range_specs.as_slice(),
-                    index_range_anchor: index_range_token.map(range_token_anchor_key),
-                    direction,
+                    continuation: AccessScanContinuationInput::new(
+                        previous_index_range_anchor,
+                        direction,
+                    ),
                 },
-                execution_preparation: &execution_preparation,
-            };
+                &execution_preparation,
+            );
 
             record_plan_metrics(&logical_plan.access);
             let materialized = ExecutionKernel::materialize_with_optional_residual_retry(
                 &execution_inputs,
                 &route_plan,
-                cursor_boundary,
-                continuation_signature,
+                continuation_bindings,
                 IndexCompilePolicy::ConservativeSubset,
             )?;
             let (page, metrics) = materialized.into_page_and_metrics();

@@ -12,7 +12,7 @@ fn route_capabilities_full_scan_desc_pk_order_reflect_expected_flags() {
     });
     let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
         &plan,
-        &initial_scalar_continuation_runtime(),
+        &initial_scalar_continuation_context(),
         None,
     )
     .expect("load route plan should build");
@@ -47,7 +47,7 @@ fn route_capabilities_by_keys_desc_distinct_offset_disable_probe_hint() {
     });
     let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
         &plan,
-        &initial_scalar_continuation_runtime(),
+        &initial_scalar_continuation_context(),
         None,
     )
     .expect("load route plan should build");

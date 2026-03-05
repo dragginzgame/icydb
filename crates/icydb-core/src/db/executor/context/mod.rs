@@ -13,8 +13,8 @@ use crate::{
         direction::Direction,
         executor::{ExecutorError, OrderedKeyStream},
         index::{
-            IndexEntryReader, IndexStore, PrimaryRowReader, RawIndexEntry, RawIndexKey,
-            SealedIndexEntryReader, SealedPrimaryRowReader,
+            IndexEntryReader, IndexScanContinuationInput, IndexStore, PrimaryRowReader,
+            RawIndexEntry, RawIndexKey, SealedIndexEntryReader, SealedPrimaryRowReader,
         },
         predicate::MissingRowPolicy,
     },
@@ -243,8 +243,7 @@ where
             index_store.resolve_data_values_in_raw_range_limited::<E>(
                 index,
                 bounds,
-                None,
-                Direction::Asc,
+                IndexScanContinuationInput::new(None, Direction::Asc),
                 limit,
                 None,
             )

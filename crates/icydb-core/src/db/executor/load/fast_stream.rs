@@ -63,8 +63,8 @@ mod tests {
             access::{AccessPath, AccessPlan},
             direction::Direction,
             executor::{
-                AccessExecutionDescriptor, AccessStreamBindings, Context, ExecutionOptimization,
-                KeyOrderComparator, load::LoadExecutor,
+                AccessExecutionDescriptor, AccessScanContinuationInput, AccessStreamBindings,
+                Context, ExecutionOptimization, load::LoadExecutor,
             },
             registry::StoreRegistry,
         },
@@ -124,10 +124,8 @@ mod tests {
             bindings: AccessStreamBindings {
                 index_prefix_specs: &[],
                 index_range_specs: &[],
-                index_range_anchor: None,
-                direction: Direction::Asc,
+                continuation: AccessScanContinuationInput::new(None, Direction::Asc),
             },
-            key_comparator: KeyOrderComparator::from_direction(Direction::Asc),
             physical_fetch_hint: None,
             index_predicate_execution: None,
         };

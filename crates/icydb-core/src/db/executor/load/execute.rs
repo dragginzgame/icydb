@@ -10,8 +10,7 @@ use crate::{
         executor::plan_metrics::set_rows_from_len,
         executor::{
             AccessExecutionDescriptor, AccessStreamBindings, ExecutionOptimization, ExecutionPlan,
-            ExecutionPreparation, ExecutionTrace, OrderedKeyStreamBox,
-            range_token_from_lowered_anchor,
+            ExecutionPreparation, ExecutionTrace, OrderedKeyStream, OrderedKeyStreamBox,
             route::{
                 ExecutionMode, FastPathOrder, RoutedKeyStreamRequest,
                 ensure_load_fast_path_spec_arity, try_first_verified_fast_path_hit,
@@ -34,10 +33,77 @@ use std::{cell::Cell, rc::Rc};
 ///
 
 pub(in crate::db::executor) struct ExecutionInputs<'a, E: EntityKind + EntityValue> {
-    pub(in crate::db::executor) ctx: &'a Context<'a, E>,
-    pub(in crate::db::executor) plan: &'a AccessPlannedQuery<E::Key>,
-    pub(in crate::db::executor) stream_bindings: AccessStreamBindings<'a>,
-    pub(in crate::db::executor) execution_preparation: &'a ExecutionPreparation,
+    ctx: &'a Context<'a, E>,
+    plan: &'a AccessPlannedQuery<E::Key>,
+    stream_bindings: AccessStreamBindings<'a>,
+    execution_preparation: &'a ExecutionPreparation,
+}
+
+impl<'a, E> ExecutionInputs<'a, E>
+where
+    E: EntityKind + EntityValue,
+{
+    /// Construct one scalar execution-input projection payload.
+    #[must_use]
+    pub(in crate::db::executor) const fn new(
+        ctx: &'a Context<'a, E>,
+        plan: &'a AccessPlannedQuery<E::Key>,
+        stream_bindings: AccessStreamBindings<'a>,
+        execution_preparation: &'a ExecutionPreparation,
+    ) -> Self {
+        Self {
+            ctx,
+            plan,
+            stream_bindings,
+            execution_preparation,
+        }
+    }
+}
+
+///
+/// ExecutionInputsProjection
+///
+/// Compile-time projection boundary for scalar execution-input consumers.
+/// Load/kernel helpers consume this projection surface instead of reaching into
+/// `ExecutionInputs` fields directly.
+///
+
+pub(in crate::db::executor) trait ExecutionInputsProjection<E>
+where
+    E: EntityKind + EntityValue,
+{
+    /// Borrow recovered execution context for row/index reads.
+    fn ctx(&self) -> &Context<'_, E>;
+
+    /// Borrow logical access plan payload for this execution attempt.
+    fn plan(&self) -> &AccessPlannedQuery<E::Key>;
+
+    /// Borrow lowered access stream bindings for this execution attempt.
+    fn stream_bindings(&self) -> &AccessStreamBindings<'_>;
+
+    /// Borrow precomputed execution-preparation payloads.
+    fn execution_preparation(&self) -> &ExecutionPreparation;
+}
+
+impl<E> ExecutionInputsProjection<E> for ExecutionInputs<'_, E>
+where
+    E: EntityKind + EntityValue,
+{
+    fn ctx(&self) -> &Context<'_, E> {
+        self.ctx
+    }
+
+    fn plan(&self) -> &AccessPlannedQuery<E::Key> {
+        self.plan
+    }
+
+    fn stream_bindings(&self) -> &AccessStreamBindings<'_> {
+        &self.stream_bindings
+    }
+
+    fn execution_preparation(&self) -> &ExecutionPreparation {
+        self.execution_preparation
+    }
 }
 
 ///
@@ -48,12 +114,94 @@ pub(in crate::db::executor) struct ExecutionInputs<'a, E: EntityKind + EntityVal
 ///
 
 pub(in crate::db::executor) struct ResolvedExecutionKeyStream {
-    pub(in crate::db::executor) key_stream: OrderedKeyStreamBox,
-    pub(in crate::db::executor) optimization: Option<ExecutionOptimization>,
-    pub(in crate::db::executor) rows_scanned_override: Option<usize>,
-    pub(in crate::db::executor) index_predicate_applied: bool,
-    pub(in crate::db::executor) index_predicate_keys_rejected: u64,
-    pub(in crate::db::executor) distinct_keys_deduped_counter: Option<Rc<Cell<u64>>>,
+    key_stream: OrderedKeyStreamBox,
+    optimization: Option<ExecutionOptimization>,
+    rows_scanned_override: Option<usize>,
+    index_predicate_applied: bool,
+    index_predicate_keys_rejected: u64,
+    distinct_keys_deduped_counter: Option<Rc<Cell<u64>>>,
+}
+
+impl ResolvedExecutionKeyStream {
+    /// Construct one resolved key-stream payload.
+    #[must_use]
+    pub(in crate::db::executor) fn new(
+        key_stream: OrderedKeyStreamBox,
+        optimization: Option<ExecutionOptimization>,
+        rows_scanned_override: Option<usize>,
+        index_predicate_applied: bool,
+        index_predicate_keys_rejected: u64,
+        distinct_keys_deduped_counter: Option<Rc<Cell<u64>>>,
+    ) -> Self {
+        Self {
+            key_stream,
+            optimization,
+            rows_scanned_override,
+            index_predicate_applied,
+            index_predicate_keys_rejected,
+            distinct_keys_deduped_counter,
+        }
+    }
+
+    /// Decompose resolved key-stream payload into raw parts.
+    #[must_use]
+    #[expect(clippy::type_complexity)]
+    pub(in crate::db::executor) fn into_parts(
+        self,
+    ) -> (
+        OrderedKeyStreamBox,
+        Option<ExecutionOptimization>,
+        Option<usize>,
+        bool,
+        u64,
+        Option<Rc<Cell<u64>>>,
+    ) {
+        (
+            self.key_stream,
+            self.optimization,
+            self.rows_scanned_override,
+            self.index_predicate_applied,
+            self.index_predicate_keys_rejected,
+            self.distinct_keys_deduped_counter,
+        )
+    }
+
+    /// Borrow mutable ordered key stream.
+    pub(in crate::db::executor) fn key_stream_mut(&mut self) -> &mut dyn OrderedKeyStream {
+        self.key_stream.as_mut()
+    }
+
+    /// Return optional rows-scanned override.
+    #[must_use]
+    pub(in crate::db::executor) const fn rows_scanned_override(&self) -> Option<usize> {
+        self.rows_scanned_override
+    }
+
+    /// Return resolved optimization label.
+    #[must_use]
+    pub(in crate::db::executor) const fn optimization(&self) -> Option<ExecutionOptimization> {
+        self.optimization
+    }
+
+    /// Return whether index predicate was applied during access stream resolution.
+    #[must_use]
+    pub(in crate::db::executor) const fn index_predicate_applied(&self) -> bool {
+        self.index_predicate_applied
+    }
+
+    /// Return count of index predicate key rejections during stream resolution.
+    #[must_use]
+    pub(in crate::db::executor) const fn index_predicate_keys_rejected(&self) -> u64 {
+        self.index_predicate_keys_rejected
+    }
+
+    /// Return distinct deduplicated key count for this resolved stream.
+    #[must_use]
+    pub(in crate::db::executor) fn distinct_keys_deduped(&self) -> u64 {
+        self.distinct_keys_deduped_counter
+            .as_ref()
+            .map_or(0, |counter| counter.get())
+    }
 }
 
 ///
@@ -125,25 +273,27 @@ where
     /// Resolve one canonical execution key stream in fast-path precedence order.
     ///
     /// This is the single shared load key-stream resolver boundary.
-    pub(in crate::db::executor) fn resolve_execution_key_stream_without_distinct(
-        inputs: &ExecutionInputs<'_, E>,
+    pub(in crate::db::executor) fn resolve_execution_key_stream_without_distinct<I>(
+        inputs: &I,
         route_plan: &ExecutionPlan,
         predicate_compile_mode: IndexCompilePolicy,
-    ) -> Result<ResolvedExecutionKeyStream, InternalError> {
+    ) -> Result<ResolvedExecutionKeyStream, InternalError>
+    where
+        I: ExecutionInputsProjection<E>,
+    {
         // Phase 0: compile optional index predicate execution program.
-        let index_predicate_program =
-            inputs
-                .execution_preparation
-                .compiled_predicate()
-                .and_then(|compiled_predicate| {
-                    let slot_map = inputs.execution_preparation.slot_map()?;
+        let index_predicate_program = inputs
+            .execution_preparation()
+            .compiled_predicate()
+            .and_then(|compiled_predicate| {
+                let slot_map = inputs.execution_preparation().slot_map()?;
 
-                    compile_index_program(
-                        compiled_predicate.resolved(),
-                        slot_map,
-                        predicate_compile_mode,
-                    )
-                });
+                compile_index_program(
+                    compiled_predicate.resolved(),
+                    slot_map,
+                    predicate_compile_mode,
+                )
+            });
         let index_predicate_applied = index_predicate_program.is_some();
         let index_predicate_rejected_counter = Cell::new(0u64);
         let index_predicate_execution =
@@ -162,37 +312,37 @@ where
             ExecutionMode::Materialized => FastPathDecision::None,
         };
         let resolved = match fast_path_decision {
-            FastPathDecision::Hit(fast) => ResolvedExecutionKeyStream {
-                key_stream: fast.ordered_key_stream,
-                optimization: Some(fast.optimization),
-                rows_scanned_override: Some(fast.rows_scanned),
+            FastPathDecision::Hit(fast) => ResolvedExecutionKeyStream::new(
+                fast.ordered_key_stream,
+                Some(fast.optimization),
+                Some(fast.rows_scanned),
                 index_predicate_applied,
-                index_predicate_keys_rejected: index_predicate_rejected_counter.get(),
-                distinct_keys_deduped_counter: None,
-            },
+                index_predicate_rejected_counter.get(),
+                None,
+            ),
             FastPathDecision::None => {
                 // Phase 2: resolve canonical fallback access stream.
                 let fallback_fetch_hint =
-                    route_plan.fallback_physical_fetch_hint(inputs.stream_bindings.direction);
+                    route_plan.fallback_physical_fetch_hint(inputs.stream_bindings().direction());
                 let descriptor = AccessExecutionDescriptor::from_bindings(
-                    &inputs.plan.access,
-                    inputs.stream_bindings,
+                    &inputs.plan().access,
+                    *inputs.stream_bindings(),
                     fallback_fetch_hint,
                     index_predicate_execution,
                 );
                 let key_stream = Self::resolve_routed_key_stream(
-                    inputs.ctx,
+                    inputs.ctx(),
                     RoutedKeyStreamRequest::AccessDescriptor(descriptor),
                 )?;
 
-                ResolvedExecutionKeyStream {
+                ResolvedExecutionKeyStream::new(
                     key_stream,
-                    optimization: None,
-                    rows_scanned_override: None,
+                    None,
+                    None,
                     index_predicate_applied,
-                    index_predicate_keys_rejected: index_predicate_rejected_counter.get(),
-                    distinct_keys_deduped_counter: None,
-                }
+                    index_predicate_rejected_counter.get(),
+                    None,
+                )
             }
         };
 
@@ -201,18 +351,21 @@ where
 
     /// Evaluate fast-path routes in canonical precedence and return one decision.
     // Evaluate fast-path routes in canonical precedence and return one decision.
-    fn evaluate_fast_path(
-        inputs: &ExecutionInputs<'_, E>,
+    fn evaluate_fast_path<I>(
+        inputs: &I,
         route_plan: &ExecutionPlan,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
-    ) -> Result<FastPathDecision, InternalError> {
+    ) -> Result<FastPathDecision, InternalError>
+    where
+        I: ExecutionInputsProjection<E>,
+    {
         // Guard fast-path spec arity up front so plan/runtime traversal drift
         // cannot silently consume the wrong spec in release builds.
         ensure_load_fast_path_spec_arity(
             route_plan.secondary_fast_path_eligible(),
-            inputs.stream_bindings.index_prefix_specs.len(),
+            inputs.stream_bindings().index_prefix_specs.len(),
             route_plan.index_range_limit_fast_path_enabled(),
-            inputs.stream_bindings.index_range_specs.len(),
+            inputs.stream_bindings().index_range_specs.len(),
         )?;
 
         let fast = try_first_verified_fast_path_hit(
@@ -240,40 +393,41 @@ where
     }
 
     // Execute one verified fast-path route and return keys if the route produces them.
-    fn try_execute_verified_load_fast_path(
-        inputs: &ExecutionInputs<'_, E>,
+    fn try_execute_verified_load_fast_path<I>(
+        inputs: &I,
         route_plan: &ExecutionPlan,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
         verified_route: FastPathOrder,
-    ) -> Result<Option<FastPathKeyResult>, InternalError> {
+    ) -> Result<Option<FastPathKeyResult>, InternalError>
+    where
+        I: ExecutionInputsProjection<E>,
+    {
         match verified_route {
             FastPathOrder::PrimaryKey => Self::try_execute_pk_order_stream(
-                inputs.ctx,
-                inputs.plan,
+                inputs.ctx(),
+                inputs.plan(),
+                inputs.stream_bindings().direction(),
                 route_plan.scan_hints.physical_fetch_hint,
             ),
             FastPathOrder::SecondaryPrefix => Self::try_execute_secondary_index_order_stream(
-                inputs.ctx,
-                inputs.plan,
-                inputs.stream_bindings.index_prefix_specs.first(),
+                inputs.ctx(),
+                inputs.plan(),
+                inputs.stream_bindings().index_prefix_specs.first(),
+                inputs.stream_bindings().direction(),
                 route_plan.scan_hints.physical_fetch_hint,
                 index_predicate_execution,
             ),
             FastPathOrder::IndexRange => {
-                let index_range_token = inputs
-                    .stream_bindings
-                    .index_range_anchor
-                    .map(range_token_from_lowered_anchor);
                 let Some(spec) = route_plan.index_range_limit_spec.as_ref() else {
                     return Ok(None);
                 };
 
                 Self::try_execute_index_range_limit_pushdown_stream(
-                    inputs.ctx,
-                    inputs.plan,
-                    inputs.stream_bindings.index_range_specs.first(),
-                    index_range_token.as_ref(),
-                    inputs.stream_bindings.direction,
+                    inputs.ctx(),
+                    inputs.plan(),
+                    inputs.stream_bindings().index_range_specs.first(),
+                    inputs.stream_bindings().index_range_anchor(),
+                    inputs.stream_bindings().direction(),
                     spec.fetch,
                     index_predicate_execution,
                 )

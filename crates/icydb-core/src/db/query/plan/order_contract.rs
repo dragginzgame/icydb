@@ -75,6 +75,7 @@ impl ExecutionOrderContract {
 
     /// Return canonical secondary-index scan direction for this contract.
     #[must_use]
+    #[allow(dead_code)]
     pub(in crate::db) fn secondary_scan_direction(&self) -> Direction {
         secondary_scan_direction(self.order_spec())
     }
@@ -113,6 +114,7 @@ fn primary_scan_direction(order: Option<&OrderSpec>) -> Direction {
     }
 }
 
+#[allow(dead_code)]
 fn secondary_scan_direction(order: Option<&OrderSpec>) -> Direction {
     let Some(order) = order else {
         return Direction::Asc;

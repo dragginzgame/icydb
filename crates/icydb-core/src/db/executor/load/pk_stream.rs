@@ -6,11 +6,12 @@
 use crate::{
     db::{
         Context,
+        direction::Direction,
         executor::{
             AccessExecutionDescriptor, AccessStreamBindings, ExecutionOptimization,
             load::{FastPathKeyResult, LoadExecutor},
         },
-        query::plan::{AccessPlannedQuery, ExecutionOrderContract},
+        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -24,15 +25,11 @@ where
     pub(super) fn try_execute_pk_order_stream(
         ctx: &Context<'_, E>,
         plan: &AccessPlannedQuery<E::Key>,
+        stream_direction: Direction,
         probe_fetch_hint: Option<usize>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
         // Phase 1: validate that the routed access shape is PK-stream compatible.
         Self::verify_pk_stream_fast_path_access(plan)?;
-        let stream_direction = ExecutionOrderContract::from_plan(
-            plan.grouped_plan().is_some(),
-            plan.scalar_plan().order.as_ref(),
-        )
-        .primary_scan_direction();
 
         // Phase 2: lower through the canonical access-stream resolver boundary.
         let descriptor = AccessExecutionDescriptor::from_bindings(

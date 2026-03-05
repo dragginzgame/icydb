@@ -129,6 +129,65 @@ match route_shape_kind {
     - `index_range_limit_pushdown_shape_eligible_for_order(...)`
   - Route pushdown/capability callsites now delegate to access class for the above checks.
   - Field-extrema fast-path eligibility policy moved out of route and into aggregate capability policy.
+  - `ContinuationContract` gained pure semantic accessors used by contract-owned cursor logic:
+    - `page_limit()`
+    - `window_size()`
+    - `access_plan()`
+    - `grouped_cursor_policy_violation()`
+    - `effective_offset(cursor_present)`
+  - Runtime continuation naming now uses `ScalarContinuationContext` across executor runtime and route tests (legacy alias removed).
+  - Runtime continuation primitive spread across load/kernel materialization now uses one shared boundary object:
+    - `ScalarContinuationBindings` bundles cursor boundary, previous index-range anchor, routed direction, and continuation signature.
+    - `load/page`, `kernel/mod`, and `kernel/post_access` consume this object instead of four parallel continuation parameters.
+  - Route continuation primitive spread across planner/hint derivation now uses one shared boundary object:
+    - `RouteContinuationPlan` bundles continuation mode, continuation policy, and route window.
+    - `planner/feasibility` and `route/hints` now consume this object instead of threading those three continuation primitives separately.
+    - `ExecutionRoutePlan` stores the same projection object and now exposes `continuation()` as the single continuation-routing accessor boundary.
+    - scalar load entrypoints and route matrix tests now consume continuation through that one projection object; direct route-plan primitive continuation accessors were removed.
+    - continuation activation/policy-gate helpers now consume `RouteContinuationPlan` directly (`continuation_applied`, load scan-budget policy gate), keeping continuation-mode extraction localized to route contracts.
+    - strict-advance and grouped-safety assertions now consume `RouteContinuationPlan` helper methods (`strict_advance_required_when_applied`, `grouped_safe_when_applied`) in feasibility/load assertions.
+    - index-range continuation anchor gating now consumes `RouteContinuationPlan::index_range_limit_pushdown_allowed`, localizing the remaining continuation-mode branch to route contracts.
+    - removed remaining free continuation gate wrapper helpers in `route/contracts`; route/load callsites now invoke `RouteContinuationPlan` methods directly (`applied`, `index_range_limit_pushdown_allowed`, `load_scan_budget_hint_allowed`).
+  - Grouped continuation runtime primitive spread now uses one shared grouped boundary object:
+    - `GroupedContinuationContext` bundles grouped continuation signature, boundary arity, and grouped pagination projection.
+    - `GroupedPaginationWindow` projects grouped limit/offset/selection/resume contracts for grouped fold/page stages.
+    - `GroupedRuntimeProjection` bundles grouped direction, grouped plan-metrics strategy, and optional grouped execution trace.
+    - `GroupedRouteStage` now exposes grouped plan/route contract accessors; grouped fold helpers consume those accessors instead of direct `planner_payload` / `route_payload` field reach-through.
+    - `GroupedRouteStageProjection` now defines the grouped stage-consumer compile-time boundary; grouped fold/output helper signatures consume this trait instead of concrete grouped stage internals.
+    - `grouped_fold` helpers now consume grouped pagination through that object instead of threading grouped pagination primitives in parallel.
+    - grouped next-cursor construction and grouped boundary-arity validation now flow through `GroupedContinuationContext::grouped_next_cursor(...)` instead of page-finalize-local primitive handling.
+  - Scalar execution-input coupling now uses one compile-time projection boundary:
+    - `ExecutionInputsProjection` defines scalar execution-input consumer accessors.
+    - scalar load fast-path resolver helpers and kernel materialization helpers now consume that trait instead of direct `ExecutionInputs` field reads.
+    - `ExecutionInputs` is now private-by-construction and built via `ExecutionInputs::new(...)` at executor callsites.
+  - Resolved key-stream coupling now uses constructor/accessor ownership:
+    - `ResolvedExecutionKeyStream` now exposes constructor/accessor APIs (`new`, `into_parts`, stream/metrics accessors).
+    - kernel distinct decoration and scalar/grouped aggregate/load consumers now read/mutate resolved streams through those APIs instead of direct field access.
+  - Grouped stream/fold stage coupling now uses constructor/accessor ownership:
+    - `GroupedStreamStage` now exposes `new(...)` + `parts_mut(...)` in load stage handoff.
+    - `GroupedFoldStage` now exposes `from_grouped_stream(...)` and accessor reads for grouped output observability.
+    - grouped fold/output helpers consume those APIs instead of direct grouped stage field reads.
+  - Scan-layer continuation boundary now uses one shared object:
+    - `IndexScanContinuationInput` bundles index-range resume anchor plus direction.
+    - executor access scan adapters and index-store scan entrypoint now consume this object instead of `anchor + direction` primitive pairs.
+  - Access-stream continuation boundary now uses one shared object:
+    - `AccessScanContinuationInput` bundles optional index-range anchor plus direction for access-stream physical resolver calls.
+    - `executor/stream/access` key-stream and row-stream helper boundaries consume this object instead of `anchor + direction` primitive pairs.
+  - `AccessStreamBindings` now carries continuation as one field:
+    - bindings expose continuation-derived `direction()` / `index_range_anchor()` accessors.
+    - load/kernel/aggregate stream callsites consume continuation through bindings accessors instead of separate anchor/direction fields.
+  - `AccessStreamInputs` now also carries continuation as one field in `executor/stream/access` resolver internals, replacing remaining internal anchor/direction primitive pairs on that path.
+  - Access-stream comparator plumbing was simplified:
+    - removed separate `key_comparator` fields from `AccessExecutionDescriptor` / `AccessStreamInputs`.
+    - union/intersection comparator selection now derives from continuation direction at resolver boundary.
+  - Initial-vs-continuation offset semantics now route through one helper:
+    - `effective_offset_for_cursor_window(...)` in query-plan continuation authority.
+    - consumed by both `executor/traversal.rs` and `cursor/continuation.rs`.
+  - Index-range fast-path anchor wiring now consumes lowered anchor directly (removed redundant `LoweredKey -> RangeToken -> LoweredKey` conversion in load fast-path path).
+  - Load fast-path modules no longer derive ordering ad-hoc via `ExecutionOrderContract::from_plan(...)`:
+    - `load/pk_stream.rs`
+    - `load/secondary_index.rs`
+    now consume routed stream direction from execution inputs.
 - Remaining:
   - none for the current planned refactor slices; continue soak via recurring route matrix coverage.
 
@@ -179,3 +238,13 @@ Primary performance risk to preserve during migration:
 - `cargo test -p icydb-core route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_paths -- --nocapture` -> PASS
 - `cargo test -p icydb-core route_matrix_aggregate_fold_mode_contract_maps_non_count_to_existing_rows -- --nocapture` -> PASS
 - `cargo test -p icydb-core route_plan_mutation_ -- --nocapture` -> PASS
+- `cargo test -p icydb-core load_cursor_pagination_pk_fast_path_matches_non_fast_with_same_cursor_boundary -- --nocapture` -> PASS
+- `cargo test -p icydb-core load_cursor_with_offset_desc_secondary_pushdown_resume_matrix_is_boundary_complete -- --nocapture` -> PASS
+- `cargo test -p icydb-core grouped_fluent_execute_supports_cursor_continuation -- --nocapture` -> PASS
+- `cargo test -p icydb-core grouped_fluent_execute_initial_to_continuation_matrix_covers_offset_and_limit -- --nocapture` -> PASS
+- `cargo test -p icydb-core grouped_fluent_execute_having_filters_groups_without_extra_continuation -- --nocapture` -> PASS
+- `cargo test -p icydb-core db::cursor::tests -- --nocapture` -> PASS
+- `cargo test -p icydb-core anchor_equal_to_upper_resumes_to_empty_envelope -- --nocapture` -> PASS
+- `cargo test -p icydb-core access_plan_rejects_misaligned_index_range_spec -- --nocapture` -> PASS
+- `cargo test -p icydb-core index_range_path_requires_pre_lowered_spec -- --nocapture` -> PASS
+- `cargo test -p icydb-core fast_stream_requires_exact_key_count_hint -- --nocapture` -> PASS

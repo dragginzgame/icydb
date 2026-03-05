@@ -6,15 +6,16 @@
 use crate::{
     db::{
         direction::Direction,
-        executor::{ExecutionKernel, continuation::ScalarContinuationRuntime, load::LoadExecutor},
+        executor::{ExecutionKernel, continuation::ScalarContinuationContext, load::LoadExecutor},
         query::builder::AggregateExpr,
-        query::plan::{AccessPlannedQuery, ExecutionOrderContract},
+        query::plan::{AccessPlannedQuery, ContinuationPolicy, ExecutionOrderContract},
     },
     traits::{EntityKind, EntityValue},
 };
 
 use crate::db::executor::route::{
-    ContinuationMode, RouteCapabilities, RouteWindowPlan, aggregate_extrema_direction,
+    ContinuationMode, RouteCapabilities, RouteContinuationPlan, RouteWindowPlan,
+    aggregate_extrema_direction,
 };
 
 impl<E> LoadExecutor<E>
@@ -45,7 +46,7 @@ where
     }
 
     pub(super) const fn derive_continuation_mode(
-        continuation: &ScalarContinuationRuntime,
+        continuation: &ScalarContinuationContext,
     ) -> ContinuationMode {
         match (
             continuation.cursor_boundary(),
@@ -59,13 +60,24 @@ where
 
     pub(super) fn derive_route_window(
         plan: &AccessPlannedQuery<E::Key>,
-        continuation: &ScalarContinuationRuntime,
+        continuation: &ScalarContinuationContext,
     ) -> RouteWindowPlan {
         let effective_offset =
             ExecutionKernel::effective_page_offset(plan, continuation.cursor_boundary());
         let limit = plan.scalar_plan().page.as_ref().and_then(|page| page.limit);
 
         RouteWindowPlan::new(effective_offset, limit)
+    }
+
+    pub(super) fn derive_route_continuation(
+        plan: &AccessPlannedQuery<E::Key>,
+        continuation: &ScalarContinuationContext,
+        continuation_policy: ContinuationPolicy,
+    ) -> RouteContinuationPlan {
+        let continuation_mode = Self::derive_continuation_mode(continuation);
+        let route_window = Self::derive_route_window(plan, continuation);
+
+        RouteContinuationPlan::new(continuation_mode, continuation_policy, route_window)
     }
 
     // Route-owned aggregate non-count streaming gate.

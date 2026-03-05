@@ -12,10 +12,12 @@ mod page_finalize;
 use crate::{
     db::{
         executor::{
-            AccessStreamBindings, ExecutionPreparation,
+            AccessScanContinuationInput, AccessStreamBindings, ExecutionPreparation,
             aggregate::GroupError,
             group::{grouped_budget_observability, grouped_execution_context_from_planner_config},
-            load::{GroupedFoldStage, GroupedRouteStage, GroupedStreamStage, LoadExecutor},
+            load::{
+                GroupedFoldStage, GroupedRouteStageProjection, GroupedStreamStage, LoadExecutor,
+            },
             plan_metrics::record_grouped_plan_metrics,
         },
         index::IndexCompilePolicy,
@@ -29,50 +31,50 @@ where
     E: EntityKind + EntityValue,
 {
     // Build one grouped key stream from route-owned grouped execution metadata.
-    pub(super) fn build_grouped_stream<'a>(
+    pub(super) fn build_grouped_stream<'a, R>(
         &'a self,
-        route: &'a GroupedRouteStage<E>,
-    ) -> Result<GroupedStreamStage<'a, E>, InternalError> {
-        let execution_preparation =
-            ExecutionPreparation::for_plan::<E>(&route.planner_payload.plan);
+        route: &'a R,
+    ) -> Result<GroupedStreamStage<'a, E>, InternalError>
+    where
+        R: GroupedRouteStageProjection<E>,
+    {
+        let execution_preparation = ExecutionPreparation::for_plan::<E>(route.plan());
         let ctx = self.db.recovered_context::<E>()?;
-        let execution_inputs = crate::db::executor::load::ExecutionInputs {
-            ctx: &ctx,
-            plan: &route.planner_payload.plan,
-            stream_bindings: AccessStreamBindings {
-                index_prefix_specs: route.index_specs.index_prefix_specs.as_slice(),
-                index_range_specs: route.index_specs.index_range_specs.as_slice(),
-                index_range_anchor: None,
-                direction: route.execution_context.direction,
+        let execution_inputs = crate::db::executor::load::ExecutionInputs::new(
+            &ctx,
+            route.plan(),
+            AccessStreamBindings {
+                index_prefix_specs: route.index_prefix_specs(),
+                index_range_specs: route.index_range_specs(),
+                continuation: AccessScanContinuationInput::new(None, route.direction()),
             },
-            execution_preparation: &execution_preparation,
-        };
-        record_grouped_plan_metrics(
-            &route.planner_payload.plan.access,
-            route.execution_context.grouped_plan_metrics_strategy,
+            &execution_preparation,
         );
+        record_grouped_plan_metrics(&route.plan().access, route.grouped_plan_metrics_strategy());
         let resolved = Self::resolve_execution_key_stream_without_distinct(
             &execution_inputs,
-            &route.route_payload.grouped_route_plan,
+            route.grouped_route_plan(),
             IndexCompilePolicy::ConservativeSubset,
         )?;
 
-        Ok(GroupedStreamStage {
+        Ok(GroupedStreamStage::new(
             ctx,
             execution_preparation,
             resolved,
-        })
+        ))
     }
 
     // Execute grouped folding over one resolved grouped key stream.
-    pub(super) fn execute_group_fold(
-        route: &GroupedRouteStage<E>,
+    pub(super) fn execute_group_fold<R>(
+        route: &R,
         mut stream: GroupedStreamStage<'_, E>,
-    ) -> Result<GroupedFoldStage, InternalError> {
+    ) -> Result<GroupedFoldStage, InternalError>
+    where
+        R: GroupedRouteStageProjection<E>,
+    {
         // Phase 1: initialize grouped fold context, projection contracts, and reducers.
-        let mut grouped_execution_context = grouped_execution_context_from_planner_config(Some(
-            route.planner_payload.grouped_execution,
-        ));
+        let mut grouped_execution_context =
+            grouped_execution_context_from_planner_config(Some(route.grouped_execution()));
         let max_groups_bound =
             usize::try_from(grouped_execution_context.config().max_groups()).unwrap_or(usize::MAX);
         let grouped_budget = grouped_budget_observability(&grouped_execution_context);
@@ -86,12 +88,8 @@ where
                 && grouped_budget.aggregate_states() >= grouped_budget.groups(),
             "grouped budget observability invariants must hold at grouped route entry",
         );
-        let aggregate_count = route
-            .planner_payload
-            .projection_layout
-            .aggregate_positions()
-            .len();
-        let grouped_projection_spec = route.planner_payload.plan.projection_spec(E::MODEL);
+        let aggregate_count = route.projection_layout().aggregate_positions().len();
+        let grouped_projection_spec = route.plan().projection_spec(E::MODEL);
         let (mut grouped_engines, mut short_circuit_keys) =
             Self::build_grouped_engines(route, &grouped_execution_context)?;
 
@@ -120,21 +118,13 @@ where
         )?;
 
         // Phase 4: finalize reducer outputs into sorted grouped candidate rows.
-        let (
-            limit,
-            initial_offset_for_page,
-            selection_bound,
-            resume_initial_offset,
-            resume_boundary,
-        ) = Self::grouped_pagination_window(route);
+        let grouped_pagination_window = Self::grouped_pagination_window(route);
         let grouped_candidate_rows = Self::collect_grouped_candidate_rows(
             route,
             grouped_engines,
             aggregate_count,
             max_groups_bound,
-            limit,
-            selection_bound,
-            resume_boundary.as_ref(),
+            &grouped_pagination_window,
         )?;
 
         // Phase 5: page finalized candidates and project grouped outputs.
@@ -142,36 +132,18 @@ where
             route,
             &grouped_projection_spec,
             grouped_candidate_rows,
-            limit,
-            initial_offset_for_page,
-            resume_initial_offset,
+            &grouped_pagination_window,
         )?;
-        let rows_scanned = stream
-            .resolved
-            .rows_scanned_override
-            .unwrap_or(scanned_rows);
-        let optimization = stream.resolved.optimization;
-        let index_predicate_applied = stream.resolved.index_predicate_applied;
-        let index_predicate_keys_rejected = stream.resolved.index_predicate_keys_rejected;
-        let distinct_keys_deduped = stream
-            .resolved
-            .distinct_keys_deduped_counter
-            .as_ref()
-            .map_or(0, |counter| counter.get());
-
-        Ok(GroupedFoldStage {
-            page: crate::db::executor::load::GroupedCursorPage {
+        Ok(GroupedFoldStage::from_grouped_stream(
+            crate::db::executor::load::GroupedCursorPage {
                 rows: page_rows,
                 next_cursor,
             },
             filtered_rows,
-            check_filtered_rows_upper_bound: true,
-            rows_scanned,
-            optimization,
-            index_predicate_applied,
-            index_predicate_keys_rejected,
-            distinct_keys_deduped,
-        })
+            true,
+            &stream,
+            scanned_rows,
+        ))
     }
 
     // Map grouped reducer errors into executor-owned error classes.

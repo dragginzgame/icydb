@@ -6,11 +6,10 @@
 use crate::{
     db::{
         Context,
-        access::LoweredKey,
-        cursor::{ContinuationSignature, CursorBoundary},
-        direction::Direction,
         executor::load::{CursorPage, LoadExecutor, PageCursor},
-        executor::{BudgetedOrderedKeyStream, ExecutionKernel, OrderedKeyStream},
+        executor::{
+            BudgetedOrderedKeyStream, ExecutionKernel, OrderedKeyStream, ScalarContinuationBindings,
+        },
         predicate::PredicateProgram,
         query::plan::AccessPlannedQuery,
         response::{EntityResponse, ProjectedRow},
@@ -38,10 +37,7 @@ where
     pub(in crate::db::executor) key_stream: &'a mut dyn OrderedKeyStream,
     pub(in crate::db::executor) scan_budget_hint: Option<usize>,
     pub(in crate::db::executor) streaming_access_shape_safe: bool,
-    pub(in crate::db::executor) cursor_boundary: Option<&'a CursorBoundary>,
-    pub(in crate::db::executor) previous_index_range_anchor: Option<&'a LoweredKey>,
-    pub(in crate::db::executor) direction: Direction,
-    pub(in crate::db::executor) continuation_signature: ContinuationSignature,
+    pub(in crate::db::executor) continuation: ScalarContinuationBindings<'a>,
 }
 
 impl<E> LoadExecutor<E>
@@ -59,17 +55,14 @@ where
             key_stream,
             scan_budget_hint,
             streaming_access_shape_safe,
-            cursor_boundary,
-            previous_index_range_anchor,
-            direction,
-            continuation_signature,
+            continuation,
         } = request;
 
         // Phase 1: validate scan-budget hint preconditions.
         // Bounded load scan hints are valid only for non-continuation,
         // streaming-safe access shapes where access order is final.
         if scan_budget_hint.is_some() {
-            if cursor_boundary.is_some() {
+            if continuation.cursor_boundary().is_some() {
                 return Err(invariant(
                     "load page scan budget hint requires non-continuation execution",
                 ));
@@ -92,15 +85,7 @@ where
         let mut rows = Context::deserialize_rows(data_rows)?;
 
         // Phase 3: apply post-access pipeline and emit one cursor page.
-        let page = Self::finalize_rows_into_page(
-            plan,
-            predicate_slots,
-            &mut rows,
-            cursor_boundary,
-            previous_index_range_anchor,
-            direction,
-            continuation_signature,
-        )?;
+        let page = Self::finalize_rows_into_page(plan, predicate_slots, &mut rows, continuation)?;
         let post_access_rows = page.items.len();
 
         Ok((page, rows_scanned, post_access_rows))
@@ -111,27 +96,17 @@ where
         plan: &AccessPlannedQuery<E::Key>,
         predicate_slots: Option<&PredicateProgram>,
         rows: &mut Vec<(Id<E>, E)>,
-        cursor_boundary: Option<&CursorBoundary>,
-        previous_index_range_anchor: Option<&LoweredKey>,
-        direction: Direction,
-        continuation_signature: ContinuationSignature,
+        continuation: ScalarContinuationBindings<'_>,
     ) -> Result<CursorPage<E>, InternalError> {
         let stats = ExecutionKernel::apply_post_access_with_cursor_and_compiled_predicate::<E, _, _>(
             plan,
             rows,
-            cursor_boundary,
+            continuation.cursor_boundary(),
             predicate_slots,
         )?;
-        let next_cursor = ExecutionKernel::next_cursor_for_materialized_rows(
-            plan,
-            rows,
-            &stats,
-            cursor_boundary,
-            previous_index_range_anchor,
-            direction,
-            continuation_signature,
-        )?
-        .map(PageCursor::Scalar);
+        let next_cursor =
+            ExecutionKernel::next_cursor_for_materialized_rows(plan, rows, &stats, continuation)?
+                .map(PageCursor::Scalar);
         let projected_rows = Self::project_materialized_rows_if_needed(plan, rows.as_slice())?;
         Self::validate_projection_alignment(rows.as_slice(), projected_rows.as_deref())?;
         let items = EntityResponse::from_rows(std::mem::take(rows));

@@ -48,6 +48,7 @@ icydb-schema-tests           2450           73       2.9%
 - `0.40.22` splits planner expression ownership into `expr/{ast,projection,type_inference}` and tightens continuation-signature wiring so runtime paths consume signature authority from the continuation contract.
 - `0.40.23` keeps query behavior stable while splitting large fluent/predicate files into focused modules, moving cursor/order execution routing behind one planner-owned `ExecutionOrderContract`, and reducing predicate hash drift risk via shared predicate encoding authority plus canonical normalization before fingerprint/signature hashing.
 - `0.40.24` reduces execution-router branching by dispatching through explicit route shapes, moving pushdown/index-range eligibility checks behind one access capability contract, and tightening continuation-envelope debug guards while keeping query behavior unchanged.
+- `0.40.25` continues continuation wiring by making runtime paths consume `ContinuationContract` accessors directly, replacing scalar runtime naming with `ScalarContinuationContext`, routing executor continuation reads and continuation-activation/policy/anchor gates through one `RouteContinuationPlan` projection boundary (without free gate wrappers), removing remaining load fast-path order derivation from plan internals, and hardening grouped fold/stream stage boundaries behind constructor/accessor APIs.
 
 See detailed breakdown:
 [docs/changelog/0.40.md](docs/changelog/0.40.md)

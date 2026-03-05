@@ -9,8 +9,9 @@ use crate::{
         executor::{
             ExecutablePlan, ExecutionTrace,
             load::{
-                GroupedExecutionContext, GroupedPlannerPayload, GroupedRoutePayload,
-                GroupedRouteStage, IndexSpecBundle, LoadExecutor,
+                GroupedContinuationContext, GroupedExecutionContext, GroupedPaginationWindow,
+                GroupedPlannerPayload, GroupedRoutePayload, GroupedRouteStage,
+                GroupedRuntimeProjection, IndexSpecBundle, LoadExecutor,
             },
             plan_metrics::GroupedPlanMetricsStrategy,
         },
@@ -97,6 +98,11 @@ where
         let continuation_signature = plan.continuation_signature_for_runtime()?;
         let continuation_boundary_arity = plan.grouped_cursor_boundary_arity()?;
         let grouped_continuation_window = plan.grouped_continuation_window(&cursor)?;
+        let continuation = GroupedContinuationContext::new(
+            continuation_signature,
+            continuation_boundary_arity,
+            GroupedPaginationWindow::from_contract(grouped_continuation_window),
+        );
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
         let plan = plan.into_inner();
@@ -116,14 +122,14 @@ where
                 index_prefix_specs,
                 index_range_specs,
             },
-            execution_context: GroupedExecutionContext {
-                direction,
-                continuation_signature,
-                continuation_boundary_arity,
-                grouped_continuation_window,
-                grouped_plan_metrics_strategy,
-                execution_trace,
-            },
+            execution_context: GroupedExecutionContext::new(
+                continuation,
+                GroupedRuntimeProjection::new(
+                    direction,
+                    grouped_plan_metrics_strategy,
+                    execution_trace,
+                ),
+            ),
         })
     }
 }

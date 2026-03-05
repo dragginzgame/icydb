@@ -6,13 +6,14 @@
 use crate::{
     db::{
         Context,
+        direction::Direction,
         executor::{
             AccessExecutionDescriptor, AccessStreamBindings, ExecutionOptimization,
             LoweredIndexPrefixSpec, derive_access_path_capabilities,
             load::{FastPathKeyResult, LoadExecutor},
         },
         index::predicate::IndexPredicateExecution,
-        query::plan::{AccessPlannedQuery, ExecutionOrderContract},
+        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -27,6 +28,7 @@ where
         ctx: &Context<'_, E>,
         plan: &AccessPlannedQuery<E::Key>,
         index_prefix_spec: Option<&LoweredIndexPrefixSpec>,
+        stream_direction: Direction,
         probe_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
@@ -49,12 +51,6 @@ where
             &index,
             "secondary fast-path spec/index alignment must be validated by resolver",
         );
-        let stream_direction = ExecutionOrderContract::from_plan(
-            plan.grouped_plan().is_some(),
-            plan.scalar_plan().order.as_ref(),
-        )
-        .secondary_scan_direction();
-
         // Phase 2: bind execution inputs and run the shared fast-stream boundary.
         let descriptor = AccessExecutionDescriptor::from_executable_bindings(
             executable_access,
