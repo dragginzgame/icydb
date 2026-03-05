@@ -13,7 +13,10 @@ use crate::{
         commit::EntityRuntimeHooks,
         cursor::CursorPlanError,
         decode_cursor,
-        executor::{DeleteExecutor, ExecutablePlan, ExecutorPlanError, LoadExecutor, SaveExecutor},
+        executor::{
+            DeleteExecutor, ExecutablePlan, ExecutionStrategy, ExecutorPlanError, LoadExecutor,
+            SaveExecutor,
+        },
         query::plan::QueryMode,
     },
     error::InternalError,
@@ -27,6 +30,20 @@ fn map_executor_plan_error(err: ExecutorPlanError) -> QueryError {
     match err {
         ExecutorPlanError::Cursor(err) => QueryError::from(PlanError::from(*err)),
     }
+}
+
+// Decode one optional external cursor token and map decode failures into the
+// query-plan cursor error boundary.
+fn decode_optional_cursor_bytes(cursor_token: Option<&str>) -> Result<Option<Vec<u8>>, QueryError> {
+    cursor_token
+        .map(|token| {
+            decode_cursor(token).map_err(|reason| {
+                QueryError::from(PlanError::from(
+                    CursorPlanError::invalid_continuation_cursor(reason),
+                ))
+            })
+        })
+        .transpose()
 }
 
 ///
@@ -248,26 +265,22 @@ impl<C: CanisterKind> DbSession<C> {
     {
         // Phase 1: build/validate executable plan and reject grouped plans.
         let plan = query.plan()?.into_executable();
-        if !plan.supports_continuation() {
-            return Err(QueryError::execute(invariant(
-                "cursor pagination requires load plans",
-            )));
-        }
-        if plan.is_grouped() {
-            return Err(QueryError::execute(invariant(
-                "grouped plans require execute_grouped(...)",
-            )));
+        match plan.execution_strategy().map_err(QueryError::execute)? {
+            ExecutionStrategy::PrimaryKey => {
+                return Err(QueryError::execute(invariant(
+                    "cursor pagination requires explicit or grouped ordering",
+                )));
+            }
+            ExecutionStrategy::Ordered => {}
+            ExecutionStrategy::Grouped => {
+                return Err(QueryError::execute(invariant(
+                    "grouped plans require execute_grouped(...)",
+                )));
+            }
         }
 
         // Phase 2: decode external cursor token and validate it against plan surface.
-        let cursor_bytes = match cursor_token {
-            Some(token) => Some(decode_cursor(token).map_err(|reason| {
-                QueryError::from(PlanError::from(
-                    CursorPlanError::invalid_continuation_cursor(reason),
-                ))
-            })?),
-            None => None,
-        };
+        let cursor_bytes = decode_optional_cursor_bytes(cursor_token)?;
         let cursor = plan
             .prepare_cursor(cursor_bytes.as_deref())
             .map_err(map_executor_plan_error)?;
@@ -317,21 +330,17 @@ impl<C: CanisterKind> DbSession<C> {
     {
         // Phase 1: build/validate executable plan and require grouped shape.
         let plan = query.plan()?.into_executable();
-        if !plan.supports_continuation() || !plan.is_grouped() {
+        if !matches!(
+            plan.execution_strategy().map_err(QueryError::execute)?,
+            ExecutionStrategy::Grouped
+        ) {
             return Err(QueryError::execute(invariant(
                 "execute_grouped requires grouped logical plans",
             )));
         }
 
         // Phase 2: decode external grouped cursor token and validate against plan.
-        let cursor_bytes = match cursor_token {
-            Some(token) => Some(decode_cursor(token).map_err(|reason| {
-                QueryError::from(PlanError::from(
-                    CursorPlanError::invalid_continuation_cursor(reason),
-                ))
-            })?),
-            None => None,
-        };
+        let cursor_bytes = decode_optional_cursor_bytes(cursor_token)?;
         let cursor = plan
             .prepare_grouped_cursor(cursor_bytes.as_deref())
             .map_err(map_executor_plan_error)?;

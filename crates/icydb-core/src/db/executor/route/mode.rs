@@ -6,12 +6,9 @@
 use crate::{
     db::{
         direction::Direction,
-        executor::{
-            ExecutionKernel, continuation::ScalarContinuationRuntime, load::LoadExecutor,
-            traversal::derive_primary_scan_direction,
-        },
+        executor::{ExecutionKernel, continuation::ScalarContinuationRuntime, load::LoadExecutor},
         query::builder::AggregateExpr,
-        query::plan::AccessPlannedQuery,
+        query::plan::{AccessPlannedQuery, ExecutionOrderContract},
     },
     traits::{EntityKind, EntityValue},
 };
@@ -25,7 +22,11 @@ where
     E: EntityKind + EntityValue,
 {
     pub(super) fn derive_load_route_direction(plan: &AccessPlannedQuery<E::Key>) -> Direction {
-        derive_primary_scan_direction(plan.scalar_plan().order.as_ref())
+        ExecutionOrderContract::from_plan(
+            plan.grouped_plan().is_some(),
+            plan.scalar_plan().order.as_ref(),
+        )
+        .primary_scan_direction()
     }
 
     pub(super) fn derive_aggregate_route_direction(

@@ -4,6 +4,7 @@
 //! Boundary: query/executor/index consume this as predicate authority.
 
 mod coercion;
+mod encoding;
 mod fingerprint;
 mod model;
 mod normalize;

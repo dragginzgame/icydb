@@ -16,6 +16,7 @@ mod planned;
 mod range_token;
 mod signature;
 pub(in crate::db) mod spine;
+mod validation;
 
 pub(crate) mod token;
 
@@ -47,6 +48,7 @@ pub(in crate::db) use range_token::{
 pub use signature::ContinuationSignature;
 pub(crate) use token::{ContinuationToken, TokenWireError};
 pub(in crate::db) use token::{GroupedContinuationToken, IndexRangeCursorAnchor};
+pub(in crate::db) use validation::{CursorValidationOutcome, validate_cursor_compatibility};
 
 /// Validate and decode a continuation cursor into executor-ready cursor state.
 pub(in crate::db) fn prepare_cursor<E: EntityKind>(

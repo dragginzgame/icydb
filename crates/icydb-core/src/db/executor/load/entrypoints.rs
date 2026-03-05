@@ -14,6 +14,7 @@ use crate::{
             range_token_anchor_key, validate_executor_plan,
         },
         index::IndexCompilePolicy,
+        query::plan::ExecutionOrdering,
         response::EntityResponse,
     },
     error::InternalError,
@@ -116,17 +117,27 @@ enum LoadPreparedCursor {
 /// LoadExecutionContext
 ///
 /// Canonical execution artifacts normalized before staged orchestration.
-/// Owns immutable mode contracts consumed by pipeline stages.
+/// Owns immutable mode and execution-ordering contracts consumed by pipeline stages.
 ///
 
 struct LoadExecutionContext {
     mode: LoadExecutionMode,
+    ordering: ExecutionOrdering,
+    supports_cursor: bool,
 }
 
 impl LoadExecutionContext {
-    // Construct one immutable execution context from normalized mode contracts.
-    const fn new(mode: LoadExecutionMode) -> Self {
-        Self { mode }
+    // Construct one immutable execution context from normalized mode + ordering contracts.
+    const fn new(
+        mode: LoadExecutionMode,
+        ordering: ExecutionOrdering,
+        supports_cursor: bool,
+    ) -> Self {
+        Self {
+            mode,
+            ordering,
+            supports_cursor,
+        }
     }
 }
 
@@ -337,42 +348,58 @@ where
             return Err(super::invariant("load executor requires load plans"));
         }
 
-        let grouped_plan = plan.is_grouped();
-        match (execution_mode.mode, grouped_plan) {
-            (LoadMode::ScalarRows | LoadMode::ScalarPage, false)
-            | (LoadMode::GroupedPage, true) => {}
-            (LoadMode::ScalarRows | LoadMode::ScalarPage, true) => {
+        let ordering = plan.execution_ordering()?;
+        let supports_cursor = plan.supports_execution_cursor()?;
+        debug_assert_eq!(
+            supports_cursor,
+            !matches!(ordering, ExecutionOrdering::PrimaryKey),
+            "load ordering contract must align cursor support with primary-key ordering semantics",
+        );
+        match (execution_mode.mode, &ordering) {
+            (
+                LoadMode::ScalarRows | LoadMode::ScalarPage,
+                ExecutionOrdering::PrimaryKey | ExecutionOrdering::Explicit(_),
+            )
+            | (LoadMode::GroupedPage, ExecutionOrdering::Grouped(_)) => {}
+            (LoadMode::ScalarRows | LoadMode::ScalarPage, ExecutionOrdering::Grouped(_)) => {
                 return Err(super::invariant(
                     "grouped plans require grouped load execution mode",
                 ));
             }
-            (LoadMode::GroupedPage, false) => {
+            (
+                LoadMode::GroupedPage,
+                ExecutionOrdering::PrimaryKey | ExecutionOrdering::Explicit(_),
+            ) => {
                 return Err(super::invariant(
                     "grouped load execution mode requires grouped logical plans",
                 ));
             }
         }
 
-        let prepared_cursor = match (execution_mode.mode, cursor) {
-            (LoadMode::ScalarRows | LoadMode::ScalarPage, LoadCursorInput::Scalar(cursor)) => {
-                LoadPreparedCursor::Scalar(Box::new(plan.revalidate_cursor(*cursor)?))
-            }
-            (LoadMode::GroupedPage, LoadCursorInput::Grouped(cursor)) => {
+        let prepared_cursor = match (&ordering, cursor) {
+            (
+                ExecutionOrdering::PrimaryKey | ExecutionOrdering::Explicit(_),
+                LoadCursorInput::Scalar(cursor),
+            ) => LoadPreparedCursor::Scalar(Box::new(plan.revalidate_cursor(*cursor)?)),
+            (ExecutionOrdering::Grouped(_), LoadCursorInput::Grouped(cursor)) => {
                 LoadPreparedCursor::Grouped(plan.revalidate_grouped_cursor(cursor)?)
             }
-            (LoadMode::ScalarRows | LoadMode::ScalarPage, LoadCursorInput::Grouped(_)) => {
+            (
+                ExecutionOrdering::PrimaryKey | ExecutionOrdering::Explicit(_),
+                LoadCursorInput::Grouped(_),
+            ) => {
                 return Err(super::invariant(
                     "scalar load execution mode requires scalar cursor input",
                 ));
             }
-            (LoadMode::GroupedPage, LoadCursorInput::Scalar(_)) => {
+            (ExecutionOrdering::Grouped(_), LoadCursorInput::Scalar(_)) => {
                 return Err(super::invariant(
                     "grouped load execution mode requires grouped cursor input",
                 ));
             }
         };
         Ok(LoadAccessState {
-            context: LoadExecutionContext::new(execution_mode),
+            context: LoadExecutionContext::new(execution_mode, ordering, supports_cursor),
             access_inputs: LoadAccessInputs {
                 plan,
                 cursor: prepared_cursor,
@@ -396,21 +423,32 @@ where
             access_inputs,
         } = state;
         let LoadAccessInputs { plan, cursor } = access_inputs;
-        let (payload, trace) = match (context.mode.mode, cursor) {
-            (LoadMode::ScalarRows | LoadMode::ScalarPage, LoadPreparedCursor::Scalar(cursor)) => {
+        debug_assert_eq!(
+            context.supports_cursor,
+            !matches!(context.ordering, ExecutionOrdering::PrimaryKey),
+            "load execution context cursor-support flag must remain aligned with ordering contract",
+        );
+        let (payload, trace) = match (&context.ordering, cursor) {
+            (
+                ExecutionOrdering::PrimaryKey | ExecutionOrdering::Explicit(_),
+                LoadPreparedCursor::Scalar(cursor),
+            ) => {
                 let (page, trace) = self.execute_scalar_path(plan, *cursor)?;
                 (LoadExecutionPayload::Scalar(page), trace)
             }
-            (LoadMode::GroupedPage, LoadPreparedCursor::Grouped(cursor)) => {
+            (ExecutionOrdering::Grouped(_), LoadPreparedCursor::Grouped(cursor)) => {
                 let (page, trace) = self.execute_grouped_path(plan, cursor)?;
                 (LoadExecutionPayload::Grouped(page), trace)
             }
-            (LoadMode::ScalarRows | LoadMode::ScalarPage, LoadPreparedCursor::Grouped(_)) => {
+            (
+                ExecutionOrdering::PrimaryKey | ExecutionOrdering::Explicit(_),
+                LoadPreparedCursor::Grouped(_),
+            ) => {
                 return Err(super::invariant(
                     "scalar load execution mode must not carry grouped cursor inputs",
                 ));
             }
-            (LoadMode::GroupedPage, LoadPreparedCursor::Scalar(_)) => {
+            (ExecutionOrdering::Grouped(_), LoadPreparedCursor::Scalar(_)) => {
                 return Err(super::invariant(
                     "grouped load execution mode must not carry scalar cursor inputs",
                 ));

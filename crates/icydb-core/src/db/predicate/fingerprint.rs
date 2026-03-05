@@ -3,129 +3,77 @@
 //! Does not own: predicate normalization or runtime execution.
 //! Boundary: used by planner/continuation fingerprinting.
 
-use crate::{
-    db::predicate::{CoercionId, Predicate},
-    value::{Value, hash_value},
-};
-use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use crate::db::predicate::{Predicate, encoding::hash_predicate_fingerprint};
+use sha2::Sha256;
 
 /// Hash predicate structure into the plan hash stream.
 pub(in crate::db) fn hash_predicate(hasher: &mut Sha256, predicate: &Predicate) {
-    // Predicate hashing is structural: same normalized tree => same bytes.
-    match predicate {
-        Predicate::True => write_tag(hasher, 0x21),
-        Predicate::False => write_tag(hasher, 0x22),
-        Predicate::And(children) => {
-            write_tag(hasher, 0x23);
-            write_len_u32(hasher, children.len());
-            for child in children {
-                hash_predicate(hasher, child);
-            }
-        }
-        Predicate::Or(children) => {
-            write_tag(hasher, 0x24);
-            write_len_u32(hasher, children.len());
-            for child in children {
-                hash_predicate(hasher, child);
-            }
-        }
-        Predicate::Not(inner) => {
-            write_tag(hasher, 0x25);
-            hash_predicate(hasher, inner);
-        }
-        Predicate::Compare(compare) => {
-            write_tag(hasher, 0x26);
-            write_str(hasher, &compare.field);
-            write_tag(hasher, compare.op.tag());
-            write_value(hasher, &compare.value);
-            hash_coercion(hasher, compare.coercion.id, &compare.coercion.params);
-        }
-        Predicate::IsNull { field } => {
-            write_tag(hasher, 0x27);
-            write_str(hasher, field);
-        }
-        Predicate::IsMissing { field } => {
-            write_tag(hasher, 0x28);
-            write_str(hasher, field);
-        }
-        Predicate::IsEmpty { field } => {
-            write_tag(hasher, 0x29);
-            write_str(hasher, field);
-        }
-        Predicate::IsNotEmpty { field } => {
-            write_tag(hasher, 0x2a);
-            write_str(hasher, field);
-        }
-        Predicate::TextContains { field, value } => {
-            write_tag(hasher, 0x2e);
-            write_str(hasher, field);
-            write_value(hasher, value);
-        }
-        Predicate::TextContainsCi { field, value } => {
-            write_tag(hasher, 0x2f);
-            write_str(hasher, field);
-            write_value(hasher, value);
-        }
+    hash_predicate_fingerprint(hasher, predicate);
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::hash_predicate;
+    use crate::{
+        db::predicate::{ComparePredicate, Predicate, normalize},
+        value::Value,
+    };
+    use sha2::{Digest, Sha256};
+
+    #[test]
+    fn hash_predicate_preserves_raw_and_child_order_before_normalization() {
+        let left = Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::eq("a".to_string(), Value::Int(1))),
+            Predicate::Compare(ComparePredicate::eq("b".to_string(), Value::Int(2))),
+        ]);
+        let right = Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::eq("b".to_string(), Value::Int(2))),
+            Predicate::Compare(ComparePredicate::eq("a".to_string(), Value::Int(1))),
+        ]);
+
+        assert_ne!(digest(&left), digest(&right));
     }
-}
 
-/// Hash coercion information into the plan hash stream.
-pub(in crate::db) fn hash_coercion(
-    hasher: &mut Sha256,
-    id: CoercionId,
-    params: &BTreeMap<String, String>,
-) {
-    // Parameter maps are iterated in sorted key order (BTreeMap) for stability.
-    write_tag(hasher, id.plan_hash_tag());
-    write_len_u32(hasher, params.len());
-    for (key, value) in params {
-        write_str(hasher, key);
-        write_str(hasher, value);
+    #[test]
+    fn normalized_and_hash_is_order_insensitive() {
+        let left = normalize(&Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::eq("a".to_string(), Value::Int(1))),
+            Predicate::Compare(ComparePredicate::eq("b".to_string(), Value::Int(2))),
+        ]));
+        let right = normalize(&Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::eq("b".to_string(), Value::Int(2))),
+            Predicate::Compare(ComparePredicate::eq("a".to_string(), Value::Int(1))),
+        ]));
+
+        assert_eq!(left, right);
+        assert_eq!(digest(&left), digest(&right));
     }
-}
 
-///
-/// Encode one value digest into the plan hash stream.
-///
+    #[test]
+    fn normalized_or_hash_is_order_insensitive() {
+        let left = normalize(&Predicate::Or(vec![
+            Predicate::Compare(ComparePredicate::eq("a".to_string(), Value::Int(1))),
+            Predicate::Compare(ComparePredicate::eq("b".to_string(), Value::Int(2))),
+        ]));
+        let right = normalize(&Predicate::Or(vec![
+            Predicate::Compare(ComparePredicate::eq("b".to_string(), Value::Int(2))),
+            Predicate::Compare(ComparePredicate::eq("a".to_string(), Value::Int(1))),
+        ]));
 
-fn write_value(hasher: &mut Sha256, value: &Value) {
-    match hash_value(value) {
-        Ok(digest) => hasher.update(digest),
-        Err(err) => {
-            write_tag(hasher, 0xEE);
-            write_str(hasher, &err.display_with_class());
-        }
+        assert_eq!(left, right);
+        assert_eq!(digest(&left), digest(&right));
     }
-}
 
-///
-/// Encode one string with length prefix into the plan hash stream.
-///
-
-fn write_str(hasher: &mut Sha256, value: &str) {
-    write_len_u32(hasher, value.len());
-    hasher.update(value.as_bytes());
-}
-
-/// Encode a platform-sized length as u32 with deterministic saturation.
-fn write_len_u32(hasher: &mut Sha256, len: usize) {
-    let len = u32::try_from(len).unwrap_or(u32::MAX);
-    write_u32(hasher, len);
-}
-
-///
-/// Encode one u32 in network byte order into the plan hash stream.
-///
-
-fn write_u32(hasher: &mut Sha256, value: u32) {
-    hasher.update(value.to_be_bytes());
-}
-
-///
-/// Encode one tag byte into the plan hash stream.
-///
-
-fn write_tag(hasher: &mut Sha256, tag: u8) {
-    hasher.update([tag]);
+    fn digest(predicate: &Predicate) -> [u8; 32] {
+        let mut hasher = Sha256::new();
+        hash_predicate(&mut hasher, predicate);
+        let digest = hasher.finalize();
+        let mut out = [0u8; 32];
+        out.copy_from_slice(&digest);
+        out
+    }
 }

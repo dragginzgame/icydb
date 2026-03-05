@@ -1,11 +1,13 @@
 use crate::{
     db::{
         access::{AccessPlan, lower_executable_access_plan},
-        cursor::{ContinuationSignature, CursorPlanError, GroupedPlannedCursor, PlannedCursor},
-        direction::Direction,
+        cursor::{
+            ContinuationSignature, CursorPlanError, CursorValidationOutcome, GroupedPlannedCursor,
+            PlannedCursor,
+        },
         query::plan::{
-            AccessPlannedQuery, ExecutionShapeSignature, GroupedCursorPolicyViolation,
-            OrderDirection, OrderSpec, grouped_cursor_policy_violation_for_continuation,
+            AccessPlannedQuery, ExecutionOrderContract, ExecutionShapeSignature,
+            GroupedCursorPolicyViolation, grouped_cursor_policy_violation_for_continuation,
         },
     },
     error::InternalError,
@@ -26,11 +28,9 @@ pub(in crate::db) struct ContinuationContract<K> {
     pub shape_signature: ExecutionShapeSignature,
     pub boundary_arity: usize,
     pub window_size: usize,
-    pub is_grouped: bool,
+    pub order_contract: ExecutionOrderContract,
     page_limit: Option<usize>,
     access: AccessPlan<K>,
-    order: Option<OrderSpec>,
-    direction: Direction,
     grouped_cursor_policy_violation: Option<GroupedCursorPolicyViolation>,
 }
 
@@ -84,50 +84,43 @@ impl GroupedContinuationWindow {
     }
 }
 
-///
-/// PreparedCursor
-///
-/// Planner-contract prepared cursor state for scalar and grouped execution.
-/// This keeps cursor semantic preparation in one planner-owned contract
-/// boundary while preserving executor-facing cursor state payload types.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) enum PreparedCursor {
-    Scalar(Box<PlannedCursor>),
-    Grouped(GroupedPlannedCursor),
-}
-
 impl<K: FieldValue + Clone> ContinuationContract<K> {
     #[must_use]
-    #[expect(clippy::too_many_arguments)]
     pub(in crate::db) const fn new(
         shape_signature: ExecutionShapeSignature,
         boundary_arity: usize,
         window_size: usize,
-        is_grouped: bool,
+        order_contract: ExecutionOrderContract,
         page_limit: Option<usize>,
         access: AccessPlan<K>,
-        order: Option<OrderSpec>,
-        direction: Direction,
         grouped_cursor_policy_violation: Option<GroupedCursorPolicyViolation>,
     ) -> Self {
         Self {
             shape_signature,
             boundary_arity,
             window_size,
-            is_grouped,
+            order_contract,
             page_limit,
             access,
-            order,
-            direction,
             grouped_cursor_policy_violation,
         }
     }
 
     #[must_use]
     pub(in crate::db) const fn is_grouped(&self) -> bool {
-        self.is_grouped
+        self.order_contract.is_grouped()
+    }
+
+    /// Borrow the immutable execution-order contract projected by planning.
+    #[must_use]
+    pub(in crate::db) const fn order_contract(&self) -> &ExecutionOrderContract {
+        &self.order_contract
+    }
+
+    /// Return whether cursor continuation is supported for this contract.
+    #[must_use]
+    pub(in crate::db) const fn supports_cursor(&self) -> bool {
+        self.order_contract.supports_cursor()
     }
 
     #[must_use]
@@ -144,34 +137,25 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
     pub(in crate::db) fn validate_cursor_bytes<E: EntityKind<Key = K>>(
         &self,
         bytes: Option<&[u8]>,
-    ) -> Result<PreparedCursor, CursorPlanError> {
-        if self.is_grouped {
-            if bytes.is_some() {
-                self.validate_grouped_cursor_policy()?;
-            }
-
-            let cursor = crate::db::cursor::prepare_grouped_cursor(
-                E::PATH,
-                self.order.as_ref(),
-                self.continuation_signature(),
-                self.expected_initial_offset(),
-                bytes,
-            )?;
-
-            return Ok(PreparedCursor::Grouped(cursor));
+    ) -> Result<CursorValidationOutcome, CursorPlanError> {
+        if self.is_grouped() && bytes.is_some() {
+            self.validate_grouped_cursor_policy()?;
         }
 
-        let executable_access = lower_executable_access_plan(&self.access);
-        let cursor = crate::db::cursor::prepare_cursor::<E>(
-            executable_access.as_path().cloned(),
-            self.order.as_ref(),
-            self.direction,
+        let access = if self.is_grouped() {
+            None
+        } else {
+            let executable_access = lower_executable_access_plan(&self.access);
+            executable_access.as_path().cloned()
+        };
+
+        crate::db::cursor::validate_cursor_compatibility::<E>(
+            &self.order_contract,
+            access,
             self.continuation_signature(),
             self.expected_initial_offset(),
             bytes,
-        )?;
-
-        Ok(PreparedCursor::Scalar(Box::new(cursor)))
+        )
     }
 
     /// Validate scalar cursor bytes against this immutable continuation contract.
@@ -179,15 +163,15 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
         &self,
         bytes: Option<&[u8]>,
     ) -> Result<PlannedCursor, CursorPlanError> {
-        if self.is_grouped {
+        if self.is_grouped() {
             return Err(cursor_invariant_error(
                 "grouped plans require grouped cursor preparation",
             ));
         }
 
         match self.validate_cursor_bytes::<E>(bytes)? {
-            PreparedCursor::Scalar(cursor) => Ok(*cursor),
-            PreparedCursor::Grouped(_) => Err(cursor_invariant_error(
+            CursorValidationOutcome::Scalar(cursor) => Ok(*cursor),
+            CursorValidationOutcome::Grouped(_) => Err(cursor_invariant_error(
                 "grouped plans require grouped cursor preparation",
             )),
         }
@@ -198,15 +182,15 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
         &self,
         bytes: Option<&[u8]>,
     ) -> Result<GroupedPlannedCursor, CursorPlanError> {
-        if !self.is_grouped {
+        if !self.is_grouped() {
             return Err(cursor_invariant_error(
                 "grouped cursor preparation requires grouped logical plans",
             ));
         }
 
         match self.validate_cursor_bytes::<E>(bytes)? {
-            PreparedCursor::Grouped(cursor) => Ok(cursor),
-            PreparedCursor::Scalar(_) => Err(cursor_invariant_error(
+            CursorValidationOutcome::Grouped(cursor) => Ok(cursor),
+            CursorValidationOutcome::Scalar(_) => Err(cursor_invariant_error(
                 "grouped cursor preparation requires grouped logical plans",
             )),
         }
@@ -217,7 +201,7 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
         &self,
         cursor: PlannedCursor,
     ) -> Result<PlannedCursor, CursorPlanError> {
-        if self.is_grouped {
+        if self.is_grouped() {
             return Err(cursor_invariant_error(
                 "grouped plans require grouped cursor revalidation",
             ));
@@ -227,8 +211,8 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
 
         crate::db::cursor::revalidate_cursor::<E>(
             executable_access.as_path().cloned(),
-            self.order.as_ref(),
-            self.direction,
+            self.order_contract.order_spec(),
+            self.order_contract.direction(),
             self.expected_initial_offset(),
             cursor,
         )
@@ -239,7 +223,7 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
         &self,
         cursor: GroupedPlannedCursor,
     ) -> Result<GroupedPlannedCursor, CursorPlanError> {
-        if !self.is_grouped {
+        if !self.is_grouped() {
             return Err(cursor_invariant_error(
                 "grouped cursor revalidation requires grouped logical plans",
             ));
@@ -257,7 +241,7 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
         &self,
         cursor: &GroupedPlannedCursor,
     ) -> Result<GroupedContinuationWindow, CursorPlanError> {
-        if !self.is_grouped {
+        if !self.is_grouped() {
             return Err(cursor_invariant_error(
                 "grouped paging window requires grouped logical plans",
             ));
@@ -343,8 +327,8 @@ impl<K: FieldValue + Clone> AccessPlannedQuery<K> {
             .and_then(|page| page.limit)
             .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
         let is_grouped = self.grouped_plan().is_some();
-        let order = self.scalar_plan().order.clone();
-        let direction = primary_scan_direction(order.as_ref());
+        let order_contract =
+            ExecutionOrderContract::from_plan(is_grouped, self.scalar_plan().order.as_ref());
         let access = self.access.clone();
         let grouped_cursor_policy_violation = self
             .grouped_plan()
@@ -354,27 +338,11 @@ impl<K: FieldValue + Clone> AccessPlannedQuery<K> {
             shape_signature,
             boundary_arity,
             window_size,
-            is_grouped,
+            order_contract,
             page_limit,
             access,
-            order,
-            direction,
             grouped_cursor_policy_violation,
         ))
-    }
-}
-
-fn primary_scan_direction(order: Option<&OrderSpec>) -> Direction {
-    let Some(order) = order else {
-        return Direction::Asc;
-    };
-    let Some((_, direction)) = order.fields.first() else {
-        return Direction::Asc;
-    };
-
-    match direction {
-        OrderDirection::Asc => Direction::Asc,
-        OrderDirection::Desc => Direction::Desc,
     }
 }
 

@@ -10,10 +10,9 @@ use crate::{
             AccessExecutionDescriptor, AccessStreamBindings, ExecutionOptimization,
             LoweredIndexPrefixSpec, derive_access_path_capabilities,
             load::{FastPathKeyResult, LoadExecutor},
-            traversal::derive_secondary_order_scan_direction,
         },
         index::predicate::IndexPredicateExecution,
-        query::plan::AccessPlannedQuery,
+        query::plan::{AccessPlannedQuery, ExecutionOrderContract},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -50,8 +49,11 @@ where
             &index,
             "secondary fast-path spec/index alignment must be validated by resolver",
         );
-        let stream_direction =
-            derive_secondary_order_scan_direction(plan.scalar_plan().order.as_ref());
+        let stream_direction = ExecutionOrderContract::from_plan(
+            plan.grouped_plan().is_some(),
+            plan.scalar_plan().order.as_ref(),
+        )
+        .secondary_scan_direction();
 
         // Phase 2: bind execution inputs and run the shared fast-stream boundary.
         let descriptor = AccessExecutionDescriptor::from_executable_bindings(

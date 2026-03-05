@@ -14,13 +14,27 @@ use crate::{
         },
         predicate::MissingRowPolicy,
         query::plan::{
-            AccessPlannedQuery, ContinuationContract, ExecutionShapeSignature,
+            AccessPlannedQuery, ContinuationContract, ExecutionOrdering, ExecutionShapeSignature,
             GroupedContinuationWindow, GroupedExecutorHandoff, QueryMode, grouped_executor_handoff,
         },
     },
     error::InternalError,
     traits::EntityKind,
 };
+
+///
+/// ExecutionStrategy
+///
+/// Executor-facing execution shape contract derived from planner ordering.
+/// Session and runtime entrypoints consume this strategy and must not
+/// re-derive grouped/scalar routing shape from boolean flags.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum ExecutionStrategy {
+    PrimaryKey,
+    Ordered,
+    Grouped,
+}
 
 ///
 /// ExecutablePlan
@@ -139,10 +153,27 @@ impl<E: EntityKind> ExecutablePlan<E> {
         }
     }
 
-    /// Return whether this executable plan supports continuation cursors.
-    #[must_use]
-    pub(in crate::db) const fn supports_continuation(&self) -> bool {
-        self.continuation.is_some()
+    /// Return planner-projected execution ordering used by runtime dispatch.
+    pub(in crate::db) fn execution_ordering(&self) -> Result<ExecutionOrdering, InternalError> {
+        let contract = self.continuation_contract()?;
+        Ok(contract.order_contract().ordering().clone())
+    }
+
+    /// Return planner-projected execution strategy for entrypoint dispatch.
+    pub(in crate::db) fn execution_strategy(&self) -> Result<ExecutionStrategy, InternalError> {
+        let ordering = self.execution_ordering()?;
+
+        Ok(match ordering {
+            ExecutionOrdering::PrimaryKey => ExecutionStrategy::PrimaryKey,
+            ExecutionOrdering::Explicit(_) => ExecutionStrategy::Ordered,
+            ExecutionOrdering::Grouped(_) => ExecutionStrategy::Grouped,
+        })
+    }
+
+    /// Return whether planner-projected execution ordering supports cursors.
+    pub(in crate::db) fn supports_execution_cursor(&self) -> Result<bool, InternalError> {
+        let contract = self.continuation_contract()?;
+        Ok(contract.supports_cursor())
     }
 
     pub(in crate::db) const fn access(&self) -> &AccessPlan<E::Key> {

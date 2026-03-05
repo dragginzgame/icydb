@@ -1,54 +1,10 @@
 //! Traversal and pagination helpers shared across cursor and executor paths.
 //!
-//! This module owns derivation helpers for scan direction and effective page
-//! windows under continuation semantics. Query semantic validation remains
+//! This module owns effective page-window derivation under continuation
+//! semantics. Query semantic validation remains
 //! owned by `db::query::plan::validate`.
 
-use crate::db::{
-    direction::Direction,
-    executor::route::direction_from_order,
-    query::plan::{AccessPlannedQuery, OrderSpec},
-};
-
-///
-/// OrderSlotPolicy
-///
-/// Slot-selection policy for deriving scan direction from canonical order specs.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum OrderSlotPolicy {
-    First,
-    Last,
-}
-
-/// Derive scan direction from an optional canonical order spec + slot policy.
-#[must_use]
-pub(in crate::db) fn derive_scan_direction(
-    order: Option<&OrderSpec>,
-    slot_policy: OrderSlotPolicy,
-) -> Direction {
-    let selected = order.and_then(|order| match slot_policy {
-        OrderSlotPolicy::First => order.fields.first(),
-        OrderSlotPolicy::Last => order.fields.last(),
-    });
-
-    selected.map_or(Direction::Asc, |(_, direction)| {
-        direction_from_order(*direction)
-    })
-}
-
-/// Derive canonical direction for primary-order execution surfaces.
-#[must_use]
-pub(in crate::db) fn derive_primary_scan_direction(order: Option<&OrderSpec>) -> Direction {
-    derive_scan_direction(order, OrderSlotPolicy::First)
-}
-
-/// Derive canonical direction for secondary-index order pushdown surfaces.
-#[must_use]
-pub(in crate::db) fn derive_secondary_order_scan_direction(order: Option<&OrderSpec>) -> Direction {
-    derive_scan_direction(order, OrderSlotPolicy::Last)
-}
+use crate::db::query::plan::AccessPlannedQuery;
 
 /// Derive the effective pagination offset for a plan under cursor-window semantics.
 #[must_use]

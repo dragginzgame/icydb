@@ -13,6 +13,7 @@ mod grouped_layout;
 mod logical_builder;
 mod model;
 mod model_builder;
+mod order_contract;
 mod planner;
 mod projection;
 mod semantics;
@@ -42,6 +43,7 @@ pub(crate) use model::{
     PageSpec, ScalarPlan,
 };
 pub use model::{DeleteSpec, LoadSpec, QueryMode};
+pub(in crate::db) use order_contract::{ExecutionOrderContract, ExecutionOrdering};
 pub(crate) use planner::{PlannerError, plan_access};
 pub(crate) use projection::{lower_projection_identity, lower_projection_intent};
 pub(in crate::db) use semantics::global_distinct_group_spec_for_semantic_aggregate;

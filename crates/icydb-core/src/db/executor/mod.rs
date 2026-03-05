@@ -43,7 +43,7 @@ pub(in crate::db::executor) use access_dispatcher::{
 pub(super) use context::*;
 pub(in crate::db::executor) use continuation::ContinuationEngine;
 pub(super) use delete::DeleteExecutor;
-pub(in crate::db) use executable_plan::ExecutablePlan;
+pub(in crate::db) use executable_plan::{ExecutablePlan, ExecutionStrategy};
 pub(in crate::db::executor) use kernel::{ExecutionKernel, PlanRow};
 pub(super) use load::LoadExecutor;
 pub(super) use mutation::save::SaveExecutor;

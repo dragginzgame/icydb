@@ -5,7 +5,7 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.40.x] - 2026-03-04 - AUDIT ALL THE THINGS!!!!1
+## [0.40.x] - 2026-03-05 - AUDIT ALL THE THINGS!!!!1
 
 - `0.40.0` split very large runtime/planner files into smaller modules to make the codebase easier to navigate and review.
 - `0.40.1` made load routing use one shared executable access shape at runtime and added a guard test so old path-specific branching does not come back.
@@ -46,6 +46,7 @@ icydb-schema-tests           2450           73       2.9%
 - `0.40.20` completes the query intent migration by making `query/intent` the approved intent-state authority and moving planning handoff to explicit access/logical DTO contracts without changing query behavior.
 - `0.40.21` continues planner cleanup by splitting validation and planner internals into smaller modules (`validate/*`, `planner/*`) to reduce branch pressure and make responsibility boundaries clearer while keeping query behavior unchanged.
 - `0.40.22` splits planner expression ownership into `expr/{ast,projection,type_inference}` and tightens continuation-signature wiring so runtime paths consume signature authority from the continuation contract.
+- `0.40.23` keeps query behavior stable while splitting large fluent/predicate files into focused modules and moving cursor/order execution routing behind one planner-owned `ExecutionOrderContract` so session and executor paths stop re-deriving the same policy.
 
 See detailed breakdown:
 [docs/changelog/0.40.md](docs/changelog/0.40.md)

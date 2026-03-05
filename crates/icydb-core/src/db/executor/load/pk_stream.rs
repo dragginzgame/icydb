@@ -9,9 +9,8 @@ use crate::{
         executor::{
             AccessExecutionDescriptor, AccessStreamBindings, ExecutionOptimization,
             load::{FastPathKeyResult, LoadExecutor},
-            traversal::derive_primary_scan_direction,
         },
-        query::plan::AccessPlannedQuery,
+        query::plan::{AccessPlannedQuery, ExecutionOrderContract},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -29,7 +28,11 @@ where
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
         // Phase 1: validate that the routed access shape is PK-stream compatible.
         Self::verify_pk_stream_fast_path_access(plan)?;
-        let stream_direction = derive_primary_scan_direction(plan.scalar_plan().order.as_ref());
+        let stream_direction = ExecutionOrderContract::from_plan(
+            plan.grouped_plan().is_some(),
+            plan.scalar_plan().order.as_ref(),
+        )
+        .primary_scan_direction();
 
         // Phase 2: lower through the canonical access-stream resolver boundary.
         let descriptor = AccessExecutionDescriptor::from_bindings(
