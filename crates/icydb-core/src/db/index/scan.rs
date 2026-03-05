@@ -202,7 +202,10 @@ impl IndexStore {
 #[cfg(test)]
 mod tests {
     use crate::{
-        db::{direction::Direction, index::RawIndexKey},
+        db::{
+            direction::Direction,
+            index::{RawIndexKey, envelope_is_empty, resume_bounds_from_refs},
+        },
         error::{ErrorClass, ErrorOrigin},
         traits::Storable,
     };
@@ -257,5 +260,19 @@ mod tests {
 
         assert_eq!(err.class, ErrorClass::InvariantViolation);
         assert_eq!(err.origin, ErrorOrigin::Index);
+    }
+
+    #[test]
+    fn anchor_equal_to_upper_resumes_to_empty_envelope() {
+        let lower = Bound::Included(raw_key(0x10));
+        let upper = Bound::Included(raw_key(0x20));
+        let anchor = raw_key(0x20);
+
+        let (resumed_lower, resumed_upper) =
+            resume_bounds_from_refs(Direction::Asc, &lower, &upper, &anchor);
+        assert!(
+            envelope_is_empty(&resumed_lower, &resumed_upper),
+            "anchor==upper must resume to an empty envelope so scan can short-circuit",
+        );
     }
 }

@@ -47,6 +47,7 @@ icydb-schema-tests           2450           73       2.9%
 - `0.40.21` continues planner cleanup by splitting validation and planner internals into smaller modules (`validate/*`, `planner/*`) to reduce branch pressure and make responsibility boundaries clearer while keeping query behavior unchanged.
 - `0.40.22` splits planner expression ownership into `expr/{ast,projection,type_inference}` and tightens continuation-signature wiring so runtime paths consume signature authority from the continuation contract.
 - `0.40.23` keeps query behavior stable while splitting large fluent/predicate files into focused modules, moving cursor/order execution routing behind one planner-owned `ExecutionOrderContract`, and reducing predicate hash drift risk via shared predicate encoding authority plus canonical normalization before fingerprint/signature hashing.
+- `0.40.24` reduces execution-router branching by dispatching through explicit route shapes, moving pushdown/index-range eligibility checks behind one access capability contract, and tightening continuation-envelope debug guards while keeping query behavior unchanged.
 
 See detailed breakdown:
 [docs/changelog/0.40.md](docs/changelog/0.40.md)

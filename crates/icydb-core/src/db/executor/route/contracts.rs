@@ -6,7 +6,10 @@
 use crate::db::{
     access::PushdownApplicability,
     direction::Direction,
-    executor::{AccessExecutionDescriptor, aggregate::AggregateFoldMode},
+    executor::{
+        AccessExecutionDescriptor,
+        aggregate::{AggregateFoldMode, capability::AggregateFieldExtremaIneligibilityReason},
+    },
     query::builder::AggregateExpr,
     query::plan::{ContinuationPolicy, GroupedPlanStrategyHint},
 };
@@ -157,6 +160,7 @@ impl RouteWindowPlan {
 #[derive(Clone)]
 pub(in crate::db::executor) struct ExecutionRoutePlan {
     pub(in crate::db::executor) direction: Direction,
+    pub(in crate::db::executor) route_shape_kind: RouteShapeKind,
     pub(in crate::db::executor) continuation_mode: ContinuationMode,
     pub(in crate::db::executor) continuation_policy: ContinuationPolicy,
     pub(in crate::db::executor) window: RouteWindowPlan,
@@ -368,6 +372,23 @@ pub(in crate::db::executor::route) enum RouteIntent {
 }
 
 ///
+/// RouteShapeKind
+///
+/// Planner-to-router semantic execution shape contract.
+/// This shape is independent from streaming/materialized execution policy and
+/// allows route dispatch migration away from feature-combination branching.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) enum RouteShapeKind {
+    LoadScalar,
+    AggregateCount,
+    AggregateNonCount,
+    AggregateGrouped,
+    MutationDelete,
+}
+
+///
 /// ExecutionModeRouteCase
 ///
 /// Canonical route-case partition for execution-mode decisions.
@@ -459,38 +480,12 @@ impl GroupedRouteObservability {
 ///
 /// FieldExtremaIneligibilityReason
 ///
-/// Canonical route-owned reason taxonomy for field-extrema ineligibility.
-/// These reasons are stable test/explain diagnostics for future feature enablement.
+/// Route-surfaced alias of aggregate-policy field-extrema ineligibility reasons.
+/// This preserves route diagnostics while aggregate capability policy owns derivation.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) enum FieldExtremaIneligibilityReason {
-    SpecMissing,
-    AggregateKindMismatch,
-    TargetFieldMissing,
-    UnknownTargetField,
-    UnsupportedFieldType,
-    DistinctNotSupported,
-    PageLimitNotSupported,
-    OffsetNotSupported,
-    CompositePathNotSupported,
-    NoMatchingIndex,
-    DescReverseTraversalNotSupported,
-}
-
-///
-/// FieldExtremaEligibility
-///
-/// Route-owned eligibility snapshot for one field-extrema aggregate shape.
-/// Carries both the boolean decision and the first ineligibility reason.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor::route) struct FieldExtremaEligibility {
-    pub(in crate::db::executor::route) eligible: bool,
-    pub(in crate::db::executor::route) ineligibility_reason:
-        Option<FieldExtremaIneligibilityReason>,
-}
+pub(in crate::db::executor) type FieldExtremaIneligibilityReason =
+    AggregateFieldExtremaIneligibilityReason;
 
 ///
 /// RouteCapabilities
@@ -547,4 +542,17 @@ pub(in crate::db::executor) const fn route_execution_mode_case_count_guard() -> 
     ];
 
     4
+}
+
+#[cfg(test)]
+pub(in crate::db::executor) const fn route_shape_kind_count_guard() -> usize {
+    let _ = [
+        RouteShapeKind::LoadScalar,
+        RouteShapeKind::AggregateCount,
+        RouteShapeKind::AggregateNonCount,
+        RouteShapeKind::AggregateGrouped,
+        RouteShapeKind::MutationDelete,
+    ];
+
+    5
 }

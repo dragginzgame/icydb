@@ -8,21 +8,19 @@ use crate::{
         access::{AccessPlan, lower_executable_access_plan},
         direction::Direction,
         executor::{
-            ExecutableAccessPath, aggregate::AggregateKind,
-            aggregate::capability::field_is_orderable, derive_access_capabilities,
-            derive_access_path_capabilities, load::LoadExecutor,
-            traversal::effective_page_offset_for_window,
+            ExecutableAccessPath,
+            aggregate::capability::{
+                AggregateExecutionPolicyInputs, derive_aggregate_execution_policy,
+            },
+            derive_access_capabilities, derive_access_path_capabilities,
+            load::LoadExecutor,
         },
-        query::builder::AggregateExpr,
-        query::plan::{AccessPlannedQuery, DistinctExecutionStrategy},
+        query::{builder::AggregateExpr, plan::AccessPlannedQuery},
     },
-    model::entity::resolve_field_slot,
     traits::{EntityKind, EntitySchema, EntityValue},
 };
 
-use crate::db::executor::route::{
-    ExecutionRoutePlan, FieldExtremaEligibility, FieldExtremaIneligibilityReason, RouteCapabilities,
-};
+use crate::db::executor::route::{ExecutionRoutePlan, RouteCapabilities};
 
 /// Return true when this executable access path is eligible for PK stream fast-path execution.
 #[must_use]
@@ -109,9 +107,68 @@ where
 
 fn access_stream_is_pk_ordered<K>(access: &AccessPlan<K>) -> bool {
     let executable = lower_executable_access_plan(access);
-    let access_capabilities = derive_access_capabilities(&executable);
+    executable.class().ordered()
+}
 
-    access_capabilities.all_paths_pk_ordered_stream()
+fn debug_assert_access_route_class_parity<K>(
+    executable: &crate::db::access::ExecutableAccessPlan<'_, K>,
+) {
+    let access_class: crate::db::access::AccessRouteClass = executable.class();
+    let access_capabilities = derive_access_capabilities(executable);
+    let legacy_single_path = access_capabilities.single_path();
+    let legacy_prefix_details =
+        legacy_single_path.and_then(|single_path| single_path.index_prefix_details());
+    let legacy_range_details =
+        legacy_single_path.and_then(|single_path| single_path.index_range_details());
+    let legacy_first_index_range_details = access_capabilities
+        .first_index_range_details()
+        .map(|details| (details.index(), details.slot_arity()));
+
+    debug_assert_eq!(
+        access_class.single_path(),
+        legacy_single_path.is_some(),
+        "access route class parity: single-path classification drifted from legacy capabilities",
+    );
+    debug_assert_eq!(
+        access_class.composite(),
+        access_capabilities.is_composite(),
+        "access route class parity: composite classification drifted from legacy capabilities",
+    );
+    debug_assert_eq!(
+        access_class.reverse_supported(),
+        access_capabilities.all_paths_support_reverse_traversal(),
+        "access route class parity: reverse-traversal classification drifted from legacy capabilities",
+    );
+    debug_assert_eq!(
+        access_class.ordered(),
+        access_capabilities.all_paths_pk_ordered_stream(),
+        "access route class parity: ordered-stream classification drifted from legacy capabilities",
+    );
+    debug_assert_eq!(
+        access_class.first_index_range_details(),
+        legacy_first_index_range_details,
+        "access route class parity: first index-range details drifted from legacy capabilities",
+    );
+    debug_assert_eq!(
+        access_class.single_path_index_prefix_details(),
+        legacy_prefix_details.map(|details| (details.index(), details.slot_arity())),
+        "access route class parity: single-path index-prefix details drifted from legacy capabilities",
+    );
+    debug_assert_eq!(
+        access_class.single_path_index_range_details(),
+        legacy_range_details.map(|details| (details.index(), details.slot_arity())),
+        "access route class parity: single-path index-range details drifted from legacy capabilities",
+    );
+    debug_assert_eq!(
+        access_class.single_path_supports_pk_stream_access(),
+        legacy_single_path.is_some_and(|single_path| single_path.supports_pk_stream_access()),
+        "access route class parity: PK-stream support drifted from legacy capabilities",
+    );
+    debug_assert_eq!(
+        access_class.single_path_supports_count_pushdown_shape(),
+        legacy_single_path.is_some_and(|single_path| single_path.supports_count_pushdown_shape()),
+        "access route class parity: COUNT-pushdown support drifted from legacy capabilities",
+    );
 }
 
 /// Return true when bounded physical fetch hints are valid for this direction.
@@ -147,10 +204,16 @@ where
         direction: Direction,
         aggregate_expr: Option<&AggregateExpr>,
     ) -> RouteCapabilities {
-        let field_min_eligibility =
-            Self::assess_field_min_fast_path_eligibility(plan, direction, aggregate_expr);
-        let field_max_eligibility =
-            Self::assess_field_max_fast_path_eligibility(plan, direction, aggregate_expr);
+        let (has_residual_filter, _, requires_post_access_sort) =
+            derive_budget_safety_flags::<E, _>(plan);
+        let aggregate_execution_policy = derive_aggregate_execution_policy::<E>(
+            plan,
+            direction,
+            aggregate_expr,
+            AggregateExecutionPolicyInputs::new(has_residual_filter, requires_post_access_sort),
+        );
+        let field_min_eligibility = aggregate_execution_policy.field_min_fast_path();
+        let field_max_eligibility = aggregate_execution_policy.field_max_fast_path();
 
         RouteCapabilities {
             streaming_access_shape_safe: streaming_access_shape_safe::<E, _>(plan),
@@ -159,174 +222,18 @@ where
                 &plan.access,
                 direction,
             ),
-            count_pushdown_access_shape_supported: Self::count_pushdown_access_shape_supported(
-                &plan.access,
-            ),
+            count_pushdown_access_shape_supported: aggregate_execution_policy
+                .count_pushdown_access_shape_supported(),
             index_range_limit_pushdown_shape_eligible:
                 Self::is_index_range_limit_pushdown_shape_eligible(plan),
-            composite_aggregate_fast_path_eligible: Self::is_composite_aggregate_fast_path_eligible(
-                plan,
-            ),
+            composite_aggregate_fast_path_eligible: aggregate_execution_policy
+                .composite_aggregate_fast_path_eligible(),
             bounded_probe_hint_safe: Self::bounded_probe_hint_is_safe(plan),
             field_min_fast_path_eligible: field_min_eligibility.eligible,
             field_max_fast_path_eligible: field_max_eligibility.eligible,
             field_min_fast_path_ineligibility_reason: field_min_eligibility.ineligibility_reason,
             field_max_fast_path_ineligibility_reason: field_max_eligibility.ineligibility_reason,
         }
-    }
-
-    // Placeholder assessment for future `min(field)` fast paths.
-    // Intentionally ineligible in 0.34.x while field-extrema semantics are finalized.
-    fn assess_field_min_fast_path_eligibility(
-        plan: &AccessPlannedQuery<E::Key>,
-        direction: Direction,
-        aggregate_expr: Option<&AggregateExpr>,
-    ) -> FieldExtremaEligibility {
-        Self::assess_field_extrema_fast_path_eligibility(
-            plan,
-            direction,
-            aggregate_expr,
-            AggregateKind::Min,
-        )
-    }
-
-    // Placeholder assessment for future `max(field)` fast paths.
-    // Intentionally ineligible in 0.34.x while field-extrema semantics are finalized.
-    fn assess_field_max_fast_path_eligibility(
-        plan: &AccessPlannedQuery<E::Key>,
-        direction: Direction,
-        aggregate_expr: Option<&AggregateExpr>,
-    ) -> FieldExtremaEligibility {
-        Self::assess_field_extrema_fast_path_eligibility(
-            plan,
-            direction,
-            aggregate_expr,
-            AggregateKind::Max,
-        )
-    }
-
-    // Shared scaffolding for future field-extrema eligibility routing.
-    // Contract:
-    // - field-extrema fast path is enabled only for index-leading
-    //   access shapes with full-window semantics.
-    // - unsupported shapes return explicit route-owned reasons.
-    fn assess_field_extrema_fast_path_eligibility(
-        plan: &AccessPlannedQuery<E::Key>,
-        direction: Direction,
-        aggregate_expr: Option<&AggregateExpr>,
-        extrema_kind: AggregateKind,
-    ) -> FieldExtremaEligibility {
-        let Some(aggregate) = aggregate_expr else {
-            return FieldExtremaEligibility {
-                eligible: false,
-                ineligibility_reason: Some(FieldExtremaIneligibilityReason::SpecMissing),
-            };
-        };
-        if aggregate.kind() != extrema_kind {
-            return FieldExtremaEligibility {
-                eligible: false,
-                ineligibility_reason: Some(FieldExtremaIneligibilityReason::AggregateKindMismatch),
-            };
-        }
-        let Some(target_field) = aggregate.target_field() else {
-            return FieldExtremaEligibility {
-                eligible: false,
-                ineligibility_reason: Some(FieldExtremaIneligibilityReason::TargetFieldMissing),
-            };
-        };
-        if resolve_field_slot(E::MODEL, target_field).is_none() {
-            return FieldExtremaEligibility {
-                eligible: false,
-                ineligibility_reason: Some(FieldExtremaIneligibilityReason::UnknownTargetField),
-            };
-        }
-        if !field_is_orderable::<E>(target_field) {
-            return FieldExtremaEligibility {
-                eligible: false,
-                ineligibility_reason: Some(FieldExtremaIneligibilityReason::UnsupportedFieldType),
-            };
-        }
-        let logical = plan.scalar_plan();
-        if !matches!(
-            plan.distinct_execution_strategy(),
-            DistinctExecutionStrategy::None
-        ) {
-            return FieldExtremaEligibility {
-                eligible: false,
-                ineligibility_reason: Some(FieldExtremaIneligibilityReason::DistinctNotSupported),
-            };
-        }
-        let offset =
-            usize::try_from(effective_page_offset_for_window(plan, false)).unwrap_or(usize::MAX);
-        if offset > 0 {
-            return FieldExtremaEligibility {
-                eligible: false,
-                ineligibility_reason: Some(FieldExtremaIneligibilityReason::OffsetNotSupported),
-            };
-        }
-        if Self::is_composite_access_shape(&plan.access) {
-            return FieldExtremaEligibility {
-                eligible: false,
-                ineligibility_reason: Some(
-                    FieldExtremaIneligibilityReason::CompositePathNotSupported,
-                ),
-            };
-        }
-        if !Self::field_extrema_target_has_matching_index(plan, target_field) {
-            return FieldExtremaEligibility {
-                eligible: false,
-                ineligibility_reason: Some(FieldExtremaIneligibilityReason::NoMatchingIndex),
-            };
-        }
-        if !direction_allows_physical_fetch_hint(
-            direction,
-            Self::is_desc_physical_reverse_traversal_supported(&plan.access, direction),
-        ) {
-            return FieldExtremaEligibility {
-                eligible: false,
-                ineligibility_reason: Some(
-                    FieldExtremaIneligibilityReason::DescReverseTraversalNotSupported,
-                ),
-            };
-        }
-        if logical
-            .page
-            .as_ref()
-            .is_some_and(|page| page.limit.is_some())
-        {
-            return FieldExtremaEligibility {
-                eligible: false,
-                ineligibility_reason: Some(FieldExtremaIneligibilityReason::PageLimitNotSupported),
-            };
-        }
-
-        FieldExtremaEligibility {
-            eligible: true,
-            ineligibility_reason: None,
-        }
-    }
-
-    fn field_extrema_target_has_matching_index(
-        plan: &AccessPlannedQuery<E::Key>,
-        target_field: &str,
-    ) -> bool {
-        let executable = plan.to_executable();
-        let access_capabilities = derive_access_capabilities(&executable);
-        let Some(single_path) = access_capabilities.single_path() else {
-            return false;
-        };
-        if target_field == E::MODEL.primary_key.name {
-            return single_path.supports_pk_stream_access();
-        }
-        single_path
-            .index_prefix_model()
-            .or_else(|| single_path.index_range_model())
-            .is_some_and(|index| {
-                index
-                    .fields
-                    .first()
-                    .is_some_and(|field| field == &target_field)
-            })
     }
 
     /// Return whether DESC physical reverse traversal is supported for this access shape.
@@ -343,39 +250,9 @@ where
 
     fn access_supports_reverse_traversal(access: &AccessPlan<E::Key>) -> bool {
         let executable = lower_executable_access_plan(access);
-        let access_capabilities = derive_access_capabilities(&executable);
+        debug_assert_access_route_class_parity(&executable);
 
-        access_capabilities.all_paths_support_reverse_traversal()
-    }
-
-    // Composite aggregate fast-path eligibility must stay explicit:
-    // - composite access shape only (`Union` / `Intersection`)
-    // - no residual predicate filtering
-    // - no post-access reordering
-    pub(super) fn is_composite_aggregate_fast_path_eligible(
-        plan: &AccessPlannedQuery<E::Key>,
-    ) -> bool {
-        if !Self::is_composite_access_shape(&plan.access) {
-            return false;
-        }
-
-        let (has_residual_filter, _, requires_post_access_sort) =
-            derive_budget_safety_flags::<E, _>(plan);
-        if has_residual_filter {
-            return false;
-        }
-        if requires_post_access_sort {
-            return false;
-        }
-
-        true
-    }
-
-    pub(super) fn is_composite_access_shape(access: &AccessPlan<E::Key>) -> bool {
-        let executable = lower_executable_access_plan(access);
-        let access_capabilities = derive_access_capabilities(&executable);
-
-        access_capabilities.is_composite()
+        executable.class().reverse_supported()
     }
 
     // Route-owned shape gate for index-range limited pushdown eligibility.
@@ -383,49 +260,13 @@ where
         plan: &AccessPlannedQuery<E::Key>,
     ) -> bool {
         let executable = plan.to_executable();
-        let access_capabilities = derive_access_capabilities(&executable);
-        let Some(single_path) = access_capabilities.single_path() else {
-            return false;
-        };
-        let Some(details) = single_path.index_range_details() else {
-            return false;
-        };
-        let index = details.index();
-        let prefix_len = details.slot_arity();
-        let index_fields = index.fields;
-
-        if let Some(order) = plan.scalar_plan().order.as_ref()
-            && !order.fields.is_empty()
-        {
-            let Some(expected_direction) = order.fields.last().map(|(_, direction)| *direction)
-            else {
-                return false;
-            };
-            if order
-                .fields
-                .iter()
-                .any(|(_, direction)| *direction != expected_direction)
-            {
-                return false;
-            }
-
-            let mut expected =
-                Vec::with_capacity(index_fields.len().saturating_sub(prefix_len) + 1);
-            expected.extend(index_fields.iter().skip(prefix_len).copied());
-            expected.push(E::MODEL.primary_key.name);
-            if order.fields.len() != expected.len() {
-                return false;
-            }
-            if !order
-                .fields
-                .iter()
-                .map(|(field, _)| field.as_str())
-                .eq(expected)
-            {
-                return false;
-            }
-        }
-
-        true
+        let access_class = executable.class();
+        access_class.index_range_limit_pushdown_shape_eligible_for_order(
+            plan.scalar_plan()
+                .order
+                .as_ref()
+                .map(|order| order.fields.as_slice()),
+            E::MODEL.primary_key.name,
+        )
     }
 }

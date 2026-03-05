@@ -12,8 +12,8 @@ pub(crate) mod validate;
 
 pub(crate) use canonical::normalize_access_plan_value;
 pub(in crate::db) use execution_contract::{
-    ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan, ExecutionBounds,
-    ExecutionDistinctMode, ExecutionMode, ExecutionOrdering, ExecutionPathKind,
+    AccessRouteClass, ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan,
+    ExecutionBounds, ExecutionDistinctMode, ExecutionMode, ExecutionOrdering, ExecutionPathKind,
     ExecutionPathPayload,
 };
 #[cfg(test)]

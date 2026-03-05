@@ -1,4 +1,4 @@
-# DRY / Redundancy / Consolidation Audit - 2026-03-04
+# DRY / Redundancy / Consolidation Audit - 2026-03-05
 
 Scope: duplication and divergence pressure while preserving boundary ownership.
 
@@ -15,11 +15,10 @@ Scope: duplication and divergence pressure while preserving boundary ownership.
 
 | Area | Evidence | Drift Risk |
 | ---- | ---- | ---- |
-| Access canonicalization ownership remains centralized | `normalize_access_plan_value` in `access` boundary with planner consumption | Low-Medium |
-| Continuation token construction remains boundary-owned | no token constructor callsites outside cursor/continuation owners | Low |
-| Cursor-boundary derivation stays centralized | `cursor_boundary_from_entity` owned in `db/cursor` | Low |
-| Comparator logic leak previously seen in commit window is now delegated | `executor/mutation/commit_window.rs` delegates to `key_within_envelope` | Low |
-| Grouped policy/runtime split remains broad | `query/plan/validate/grouped/*` + grouped runtime fold paths | Medium |
+| Access canonicalization remains centralized | `normalize_query_predicate` and access canonicalization stay under query/access owners | Low-Medium |
+| Continuation token construction remains centralized | no non-test `ContinuationToken::new*` outside continuation owner module | Low |
+| Comparator authority duplication reduced | layer-authority checks report `Comparator definitions outside index: 0` | Low |
+| Grouped policy/runtime split remains broad | planner grouped policy + grouped runtime fold remain separate by design | Medium |
 
 ## Dangerous Consolidations (Do Not Merge)
 
@@ -33,6 +32,4 @@ Scope: duplication and divergence pressure while preserving boundary ownership.
 
 - Duplication patterns noted: 9
 - High-risk divergence-prone patterns: 1
-- Defensive duplications: 4
-- Estimated conservative LoC reduction potential (safe, intra-owner only): 120-220
-- Overall DRY Risk Index: **4/10**
+- Overall DRY Risk Index: **5/10**

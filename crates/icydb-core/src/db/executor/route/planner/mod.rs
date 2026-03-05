@@ -35,7 +35,7 @@ use crate::db::executor::route::{
     ContinuationMode, ExecutionMode, ExecutionModeRouteCase, ExecutionRoutePlan, FastPathOrder,
     GroupedExecutionStrategy, GroupedRouteDecisionOutcome, GroupedRouteObservability,
     GroupedRouteRejectionReason, IndexRangeLimitSpec, MUTATION_FAST_PATH_ORDER, RouteCapabilities,
-    RouteIntent, RouteWindowPlan, ScanHintPlan,
+    RouteIntent, RouteShapeKind, RouteWindowPlan, ScanHintPlan,
 };
 
 ///
@@ -111,6 +111,7 @@ pub(in crate::db::executor::route::planner) struct RouteFeasibilityStage {
 ///
 
 pub(in crate::db::executor::route::planner) struct RouteExecutionStage {
+    pub(in crate::db::executor::route::planner) route_shape_kind: RouteShapeKind,
     pub(in crate::db::executor::route::planner) execution_mode_case: ExecutionModeRouteCase,
     pub(in crate::db::executor::route::planner) execution_mode: ExecutionMode,
     pub(in crate::db::executor::route::planner) aggregate_fold_mode: AggregateFoldMode,
@@ -146,6 +147,7 @@ impl ExecutionRoutePlan {
     ) -> Self {
         Self {
             direction: Direction::Asc,
+            route_shape_kind: RouteShapeKind::MutationDelete,
             continuation_mode: ContinuationMode::Initial,
             continuation_policy: ContinuationPolicy::new(true, true, true),
             window: RouteWindowPlan {
@@ -176,6 +178,26 @@ impl ExecutionRoutePlan {
     pub(in crate::db::executor) const fn grouped_observability(
         &self,
     ) -> Option<GroupedRouteObservability> {
+        debug_assert!(
+            matches!(
+                (self.route_shape_kind, self.execution_mode_case),
+                (
+                    RouteShapeKind::LoadScalar | RouteShapeKind::MutationDelete,
+                    ExecutionModeRouteCase::Load
+                ) | (
+                    RouteShapeKind::AggregateCount,
+                    ExecutionModeRouteCase::AggregateCount
+                ) | (
+                    RouteShapeKind::AggregateNonCount,
+                    ExecutionModeRouteCase::AggregateNonCount
+                ) | (
+                    RouteShapeKind::AggregateGrouped,
+                    ExecutionModeRouteCase::AggregateGrouped
+                )
+            ),
+            "route invariant: route shape kind and execution-mode case must remain aligned",
+        );
+
         match self.execution_mode_case {
             ExecutionModeRouteCase::AggregateGrouped => {
                 let grouped_execution_strategy = match self.grouped_execution_strategy {
@@ -205,7 +227,9 @@ impl ExecutionRoutePlan {
                     grouped_execution_strategy,
                 })
             }
-            _ => None,
+            ExecutionModeRouteCase::Load
+            | ExecutionModeRouteCase::AggregateCount
+            | ExecutionModeRouteCase::AggregateNonCount => None,
         }
     }
 }
@@ -373,6 +397,7 @@ where
 
         ExecutionRoutePlan {
             direction: derivation.direction,
+            route_shape_kind: execution_stage.route_shape_kind,
             continuation_mode,
             continuation_policy,
             window: route_window,

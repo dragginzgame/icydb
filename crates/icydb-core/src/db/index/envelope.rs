@@ -79,12 +79,31 @@ pub(in crate::db) fn continuation_advanced<K: Ord>(
 /// Rewrite continuation bounds while cloning only retained bound edges.
 ///
 #[must_use]
-pub(in crate::db) fn resume_bounds_from_refs<K: Clone>(
+pub(in crate::db) fn resume_bounds_from_refs<K: Clone + Ord>(
     direction: Direction,
     lower: &Bound<K>,
     upper: &Bound<K>,
     anchor: &K,
 ) -> (Bound<K>, Bound<K>) {
+    #[cfg(debug_assertions)]
+    {
+        let envelope = KeyEnvelope::new(direction, lower.clone(), upper.clone());
+
+        debug_assert!(envelope.contains(anchor), "cursor anchor escaped envelope",);
+
+        let bounds_key_ordered = match (lower, upper) {
+            (Bound::Unbounded, _) | (_, Bound::Unbounded) => true,
+            (
+                Bound::Included(lower_key) | Bound::Excluded(lower_key),
+                Bound::Included(upper_key) | Bound::Excluded(upper_key),
+            ) => lower_key <= upper_key,
+        };
+        debug_assert!(
+            bounds_key_ordered,
+            "index envelope bounds must remain ordered before continuation rewrite",
+        );
+    }
+
     match direction {
         Direction::Asc => (Bound::Excluded(anchor.clone()), upper.clone()),
         Direction::Desc => (lower.clone(), Bound::Excluded(anchor.clone())),

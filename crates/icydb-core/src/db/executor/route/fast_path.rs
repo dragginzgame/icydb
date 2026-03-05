@@ -5,9 +5,9 @@
 
 use crate::{
     db::{
-        access::{AccessPlan, lower_executable_access_plan},
+        access::lower_executable_access_plan,
+        executor::derive_access_path_capabilities,
         executor::{ExecutionPreparation, aggregate::AggregateKind, load::LoadExecutor},
-        executor::{derive_access_capabilities, derive_access_path_capabilities},
         index::{IndexCompilePolicy, compile_index_program},
         query::plan::AccessPlannedQuery,
     },
@@ -48,17 +48,6 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
-    /// Return whether count pushdown is supported for one access plan.
-    pub(super) fn count_pushdown_access_shape_supported(access: &AccessPlan<E::Key>) -> bool {
-        let executable = lower_executable_access_plan(access);
-        let access_capabilities = derive_access_capabilities(&executable);
-        let Some(single_path) = access_capabilities.single_path() else {
-            return false;
-        };
-
-        single_path.supports_count_pushdown_shape()
-    }
-
     // Route-owned gate for PK full-scan/key-range ordered fast-path eligibility.
     pub(in crate::db::executor) fn pk_order_stream_fast_path_shape_supported(
         plan: &AccessPlannedQuery<E::Key>,
@@ -88,13 +77,13 @@ where
         plan: &AccessPlannedQuery<E::Key>,
     ) -> Result<(), InternalError> {
         let executable = lower_executable_access_plan(&plan.access);
-        let access_capabilities = derive_access_capabilities(&executable);
-        let Some(single_path) = access_capabilities.single_path() else {
+        let access_class = executable.class();
+        if !access_class.single_path() {
             return Err(invariant(
                 "pk stream fast-path requires direct access-path execution",
             ));
-        };
-        if !single_path.supports_pk_stream_access() {
+        }
+        if !access_class.single_path_supports_pk_stream_access() {
             return Err(invariant(
                 "pk stream fast-path requires full-scan/key-range access path",
             ));
@@ -105,7 +94,7 @@ where
         })?;
         debug_assert_eq!(
             derive_access_path_capabilities(access).supports_pk_stream_access(),
-            single_path.supports_pk_stream_access(),
+            access_class.single_path_supports_pk_stream_access(),
             "route invariant: descriptor and path capability snapshots must stay aligned",
         );
 

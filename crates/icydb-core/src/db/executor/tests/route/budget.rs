@@ -20,6 +20,15 @@ fn route_feature_budget_execution_mode_cases_stay_within_soft_delta() {
 }
 
 #[test]
+fn route_feature_budget_shape_kinds_stay_within_soft_delta() {
+    let route_shape_kinds = route_shape_kind_count_guard();
+    assert!(
+        route_shape_kinds <= ROUTE_SHAPE_KIND_BASELINE_0256 + ROUTE_FEATURE_SOFT_BUDGET_DELTA,
+        "route shape-kind partitioning exceeded soft feature budget; consolidate before adding more shape variants",
+    );
+}
+
+#[test]
 fn route_grouped_runtime_revalidation_flags_match_baseline() {
     let flags = grouped_ordered_runtime_revalidation_flag_count_guard();
     assert_eq!(
