@@ -312,7 +312,13 @@ impl ExecutionRoutePlan {
     ) -> bool {
         match route {
             FastPathOrder::PrimaryKey => self.pk_order_fast_path_eligible(),
-            FastPathOrder::SecondaryPrefix => self.secondary_fast_path_eligible(),
+            FastPathOrder::SecondaryPrefix => {
+                self.secondary_fast_path_eligible()
+                    // Field-target extrema streaming also consumes this loader-owned
+                    // secondary stream path even when ORDER BY pushdown is not active.
+                    || self.field_min_fast_path_eligible()
+                    || self.field_max_fast_path_eligible()
+            }
             FastPathOrder::IndexRange => self.index_range_limit_fast_path_enabled(),
             FastPathOrder::PrimaryScan | FastPathOrder::Composite => false,
         }

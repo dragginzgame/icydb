@@ -641,6 +641,277 @@ fn aggregate_field_target_values_by_distinct_remains_row_level() {
 }
 
 #[test]
+fn aggregate_field_target_covering_constant_projection_terminals_match_effective_window() {
+    seed_pushdown_entities(&[
+        (8_4011, 7, 10),
+        (8_4012, 7, 20),
+        (8_4013, 7, 30),
+        (8_4014, 7, 40),
+        (8_4015, 8, 50),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let build_plan = || {
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by("rank")
+            .offset(1)
+            .limit(3)
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("covering-constant projection plan should build")
+    };
+
+    let expected_rows = load
+        .execute(build_plan())
+        .expect("covering-constant baseline execute should succeed");
+    let expected_value = Value::Uint(7);
+    let expected_values = vec![expected_value.clone(); expected_rows.len()];
+    let expected_first_or_last = if expected_rows.is_empty() {
+        None
+    } else {
+        Some(expected_value.clone())
+    };
+
+    let values = load
+        .values_by_slot(build_plan(), slot(&load, "group"))
+        .expect("values_by(group) should succeed on covering index-prefix window");
+    let distinct_values = load
+        .distinct_values_by_slot(build_plan(), slot(&load, "group"))
+        .expect("distinct_values_by(group) should succeed on covering index-prefix window");
+    let first_value = load
+        .first_value_by_slot(build_plan(), slot(&load, "group"))
+        .expect("first_value_by(group) should succeed on covering index-prefix window");
+    let last_value = load
+        .last_value_by_slot(build_plan(), slot(&load, "group"))
+        .expect("last_value_by(group) should succeed on covering index-prefix window");
+
+    assert_eq!(
+        values, expected_values,
+        "values_by(group) should preserve effective-window cardinality for covering constant projections",
+    );
+    assert_eq!(
+        distinct_values,
+        expected_first_or_last
+            .clone()
+            .into_iter()
+            .collect::<Vec<_>>(),
+        "distinct_values_by(group) should return one value when the effective window is non-empty",
+    );
+    assert_eq!(
+        first_value, expected_first_or_last,
+        "first_value_by(group) should match the constant covering projection value",
+    );
+    assert_eq!(
+        last_value,
+        if expected_rows.is_empty() {
+            None
+        } else {
+            Some(expected_value)
+        },
+        "last_value_by(group) should match the constant covering projection value",
+    );
+}
+
+#[test]
+fn aggregate_field_target_covering_constant_projection_strict_missing_row_preserves_error_surface()
+{
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<PushdownParityEntity>::new(DB, false);
+    for (id, group, rank) in [(8_4021u128, 7u32, 10u32), (8_4022, 7, 20), (8_4023, 7, 30)] {
+        save.insert(PushdownParityEntity {
+            id: Ulid::from_u128(id),
+            group,
+            rank,
+            label: format!("g{group}-r{rank}"),
+        })
+        .expect("strict covering-projection seed row save should succeed");
+    }
+
+    remove_pushdown_row_data(8_4021);
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let err = load
+        .values_by_slot(
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
+                .filter(u32_eq_predicate_strict("group", 7))
+                .order_by("rank")
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("strict covering-projection plan should build"),
+            slot(&load, "group"),
+        )
+        .expect_err("strict covering projection should fail on missing primary rows");
+
+    assert_eq!(
+        err.class,
+        ErrorClass::Corruption,
+        "strict covering projection must preserve missing-row corruption classification",
+    );
+    assert!(
+        err.message.contains("missing row"),
+        "strict covering projection must preserve missing-row error context",
+    );
+}
+
+#[test]
+fn aggregate_field_target_covering_index_projection_terminals_match_effective_window() {
+    seed_pushdown_entities(&[
+        (8_4031, 7, 10),
+        (8_4032, 7, 20),
+        (8_4033, 7, 20),
+        (8_4034, 7, 30),
+        (8_4035, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let build_plan = || {
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by("rank")
+            .offset(1)
+            .limit(3)
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("covering-index projection plan should build")
+    };
+
+    let expected_response = load
+        .execute(build_plan())
+        .expect("covering-index baseline execute should succeed");
+    let expected_values = expected_values_by_rank(&expected_response);
+    let expected_distinct = expected_distinct_values_by_rank(&expected_response);
+    let expected_first = expected_first_value_by_rank(&expected_response);
+    let expected_last = expected_last_value_by_rank(&expected_response);
+
+    let values = load
+        .values_by_slot(build_plan(), slot(&load, "rank"))
+        .expect("values_by(rank) should succeed on covering index projection");
+    let distinct_values = load
+        .distinct_values_by_slot(build_plan(), slot(&load, "rank"))
+        .expect("distinct_values_by(rank) should succeed on covering index projection");
+    let first_value = load
+        .first_value_by_slot(build_plan(), slot(&load, "rank"))
+        .expect("first_value_by(rank) should succeed on covering index projection");
+    let last_value = load
+        .last_value_by_slot(build_plan(), slot(&load, "rank"))
+        .expect("last_value_by(rank) should succeed on covering index projection");
+
+    assert_eq!(
+        values, expected_values,
+        "values_by(rank) should match effective-window projection under covering index paths",
+    );
+    assert_eq!(
+        distinct_values, expected_distinct,
+        "distinct_values_by(rank) should match first-observed distinct projection under covering index paths",
+    );
+    assert_eq!(
+        first_value, expected_first,
+        "first_value_by(rank) should match effective-window first projection under covering index paths",
+    );
+    assert_eq!(
+        last_value, expected_last,
+        "last_value_by(rank) should match effective-window last projection under covering index paths",
+    );
+}
+
+#[test]
+fn aggregate_field_target_covering_index_distinct_non_leading_component_preserves_first_observed_dedup()
+ {
+    seed_pushdown_entities(&[
+        (8_4039, 7, 10),
+        (8_4040, 7, 20),
+        (8_4041, 8, 10),
+        (8_4042, 8, 30),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let build_plan = || {
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .order_by("group")
+            .order_by("rank")
+            .order_by("id")
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("covering non-leading distinct plan should build")
+    };
+
+    let values = load
+        .values_by_slot(build_plan(), slot(&load, "rank"))
+        .expect("values_by(rank) should succeed for covering non-leading distinct shape");
+    let distinct_values = load
+        .distinct_values_by_slot(build_plan(), slot(&load, "rank"))
+        .expect("distinct_values_by(rank) should succeed for covering non-leading distinct shape");
+
+    let mut expected_distinct_from_values = Vec::new();
+    for value in &values {
+        if expected_distinct_from_values
+            .iter()
+            .any(|existing| existing == value)
+        {
+            continue;
+        }
+        expected_distinct_from_values.push(value.clone());
+    }
+
+    assert_eq!(
+        values,
+        vec![
+            Value::Uint(10),
+            Value::Uint(20),
+            Value::Uint(10),
+            Value::Uint(30),
+        ],
+        "covering non-leading distinct fixture should keep duplicate rank values non-adjacent in index order",
+    );
+    assert_eq!(
+        distinct_values, expected_distinct_from_values,
+        "distinct_values_by(rank) must preserve first-observed semantics when duplicates are non-adjacent in covering order",
+    );
+}
+
+#[test]
+fn aggregate_field_target_covering_index_projection_strict_missing_row_preserves_error_surface() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<PushdownParityEntity>::new(DB, false);
+    for (id, group, rank) in [(8_4041u128, 7u32, 10u32), (8_4042, 7, 20), (8_4043, 7, 30)] {
+        save.insert(PushdownParityEntity {
+            id: Ulid::from_u128(id),
+            group,
+            rank,
+            label: format!("g{group}-r{rank}"),
+        })
+        .expect("strict covering-index projection seed row save should succeed");
+    }
+
+    remove_pushdown_row_data(8_4042);
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let err = load
+        .values_by_slot(
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
+                .filter(u32_eq_predicate_strict("group", 7))
+                .order_by("rank")
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("strict covering-index projection plan should build"),
+            slot(&load, "rank"),
+        )
+        .expect_err("strict covering-index projection should fail on missing primary rows");
+
+    assert_eq!(
+        err.class,
+        ErrorClass::Corruption,
+        "strict covering-index projection must preserve missing-row corruption classification",
+    );
+    assert!(
+        err.message.contains("missing row"),
+        "strict covering-index projection must preserve missing-row error context",
+    );
+}
+
+#[test]
 fn aggregate_field_target_distinct_values_by_matches_effective_window_projection() {
     seed_pushdown_entities(&[
         (8_1971, 7, 10),

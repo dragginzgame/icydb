@@ -143,6 +143,96 @@ impl IndexStore {
         Ok(out)
     }
 
+    pub(in crate::db) fn resolve_data_values_with_component_in_raw_range_limited<E: EntityKind>(
+        &self,
+        index: &IndexModel,
+        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
+        continuation: IndexScanContinuationInput<'_>,
+        limit: usize,
+        component_index: usize,
+        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
+    ) -> Result<Vec<(DataKey, Vec<u8>)>, InternalError> {
+        // Phase 1: validate envelope/anchor preconditions and derive scan bounds.
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        Self::ensure_anchor_within_envelope(
+            continuation.direction(),
+            continuation.anchor(),
+            bounds,
+        )?;
+
+        let (start_raw, end_raw) = match continuation.anchor() {
+            Some(anchor) => {
+                resume_bounds_from_refs(continuation.direction(), bounds.0, bounds.1, anchor)
+            }
+            None => (bounds.0.clone(), bounds.1.clone()),
+        };
+
+        if envelope_is_empty(&start_raw, &end_raw) {
+            return Ok(Vec::new());
+        }
+
+        // Phase 2: scan in directional order and decode entries until limit.
+        let mut out = Vec::new();
+
+        match continuation.direction() {
+            Direction::Asc => {
+                for entry in self.map.range((start_raw, end_raw)) {
+                    let raw_key = entry.key();
+                    let value = entry.value();
+
+                    Self::ensure_continuation_advanced(
+                        continuation.direction(),
+                        raw_key,
+                        continuation.anchor(),
+                    )?;
+
+                    if Self::decode_index_entry_and_push_with_component::<E>(
+                        index,
+                        raw_key,
+                        &value,
+                        &mut out,
+                        Some(limit),
+                        component_index,
+                        "range resolve",
+                        index_predicate_execution,
+                    )? {
+                        return Ok(out);
+                    }
+                }
+            }
+            Direction::Desc => {
+                for entry in self.map.range((start_raw, end_raw)).rev() {
+                    let raw_key = entry.key();
+                    let value = entry.value();
+
+                    Self::ensure_continuation_advanced(
+                        continuation.direction(),
+                        raw_key,
+                        continuation.anchor(),
+                    )?;
+
+                    if Self::decode_index_entry_and_push_with_component::<E>(
+                        index,
+                        raw_key,
+                        &value,
+                        &mut out,
+                        Some(limit),
+                        component_index,
+                        "range resolve",
+                        index_predicate_execution,
+                    )? {
+                        return Ok(out);
+                    }
+                }
+            }
+        }
+
+        Ok(out)
+    }
+
     // Validate strict continuation advancement when an anchor is present.
     //
     // IMPORTANT CROSS-LAYER CONTRACT:
@@ -222,6 +312,64 @@ impl IndexStore {
 
         for storage_key in storage_keys {
             out.push(DataKey::from_key::<E>(storage_key));
+
+            if let Some(limit) = limit
+                && out.len() == limit
+            {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
+
+    #[expect(clippy::too_many_arguments)]
+    fn decode_index_entry_and_push_with_component<E: EntityKind>(
+        index: &IndexModel,
+        raw_key: &RawIndexKey,
+        value: &StoredIndexValue,
+        out: &mut Vec<(DataKey, Vec<u8>)>,
+        limit: Option<usize>,
+        component_index: usize,
+        context: &'static str,
+        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
+    ) -> Result<bool, InternalError> {
+        #[cfg(debug_assertions)]
+        Self::verify_if_debug(raw_key, value);
+
+        // Phase 1: decode key, extract requested component, and evaluate optional
+        // index-only predicate.
+        let decoded_key = IndexKey::try_from_raw(raw_key).map_err(|err| {
+            InternalError::index_corruption(format!("index key corrupted during {context}: {err}"))
+        })?;
+        let Some(component) = decoded_key.component(component_index) else {
+            return Err(InternalError::index_invariant(format!(
+                "index projection referenced missing component: index='{}' component_index={component_index}",
+                index.name
+            )));
+        };
+        let component = component.to_vec();
+
+        if let Some(execution) = index_predicate_execution
+            && !eval_index_execution_on_decoded_key(&decoded_key, execution)?
+        {
+            return Ok(false);
+        }
+
+        // Phase 2: decode entry payload and push bounded `(data_key, component)`.
+        let storage_keys = value
+            .entry
+            .decode_keys()
+            .map_err(|err| InternalError::index_corruption(err.to_string()))?;
+
+        if index.unique && storage_keys.len() != 1 {
+            return Err(InternalError::index_corruption(
+                "unique index entry contains an unexpected number of keys",
+            ));
+        }
+
+        for storage_key in storage_keys {
+            out.push((DataKey::from_key::<E>(storage_key), component.clone()));
 
             if let Some(limit) = limit
                 && out.len() == limit

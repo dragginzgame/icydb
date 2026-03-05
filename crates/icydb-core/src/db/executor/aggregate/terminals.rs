@@ -4,21 +4,31 @@
 //! Boundary: user-facing aggregate terminal helpers on `LoadExecutor`.
 
 use crate::{
-    db::query::plan::FieldSlot as PlannedFieldSlot,
     db::{
+        direction::Direction,
         executor::{
+            AccessExecutionDescriptor, AccessScanContinuationInput, AccessStreamBindings,
             ExecutablePlan, ExecutionKernel,
             aggregate::{
-                AggregateOutput, field::resolve_orderable_aggregate_target_slot_from_planner_slot,
+                AggregateFoldMode, AggregateKind, AggregateOutput,
+                field::resolve_orderable_aggregate_target_slot_from_planner_slot,
             },
             load::LoadExecutor,
+            plan_metrics::record_rows_scanned,
+            validate_executor_plan,
         },
         query::builder::aggregate::{count, exists, first, last, max, max_by, min, min_by},
+        query::plan::FieldSlot as PlannedFieldSlot,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
     types::Id,
 };
+#[cfg(test)]
+use std::sync::atomic::{AtomicU64, Ordering};
+
+#[cfg(test)]
+static COVERING_EXISTS_FAST_PATH_HITS: AtomicU64 = AtomicU64::new(0);
 
 impl<E> LoadExecutor<E>
 where
@@ -29,6 +39,10 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<u32, InternalError> {
+        if Self::index_covering_count_eligible(&plan) {
+            return self.aggregate_count_from_index_covering_stream(plan);
+        }
+
         match ExecutionKernel::execute_aggregate_spec(self, plan, count())? {
             AggregateOutput::Count(value) => Ok(value),
             _ => Err(invariant("aggregate COUNT result kind mismatch")),
@@ -40,6 +54,11 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<bool, InternalError> {
+        if Self::index_covering_exists_eligible(&plan) {
+            Self::record_covering_exists_fast_path_hit_for_tests();
+            return self.aggregate_exists_from_index_covering_stream(plan);
+        }
+
         match ExecutionKernel::execute_aggregate_spec(self, plan, exists())? {
             AggregateOutput::Exists(value) => Ok(value),
             _ => Err(invariant("aggregate EXISTS result kind mismatch")),
@@ -163,6 +182,142 @@ where
             _ => Err(invariant("aggregate LAST result kind mismatch")),
         }
     }
+
+    // Secondary index shapes can count without row materialization by folding
+    // over key streams while still preserving missing-row consistency checks.
+    fn index_covering_count_eligible(plan: &ExecutablePlan<E>) -> bool {
+        // Ordered COUNT windows depend on route/kernel ordering contracts.
+        // Keep this fast path scoped to unordered scalar COUNT shapes.
+        if plan.order_spec().is_some() {
+            return false;
+        }
+
+        // Predicates require row evaluation; index-only counting would be incorrect.
+        if plan.has_predicate() {
+            return false;
+        }
+
+        plan.access().as_index_prefix_path().is_some()
+            || plan.access().as_index_range_path().is_some()
+    }
+
+    // Fold COUNT over an index-backed key stream using `ExistingRows` mode.
+    // This avoids entity decode/materialization while preserving stale-key and
+    // strict-missing-row semantics via `row_exists_for_key`.
+    fn aggregate_count_from_index_covering_stream(
+        &self,
+        plan: ExecutablePlan<E>,
+    ) -> Result<u32, InternalError> {
+        // Phase 1: collect lowered index specs before consuming the executable plan.
+        let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
+        let index_range_specs = plan.index_range_specs()?.to_vec();
+        let logical_plan = plan.into_inner();
+        validate_executor_plan::<E>(&logical_plan)?;
+
+        // Phase 2: resolve the access key stream directly from index-backed bindings.
+        let ctx = self.recovered_context()?;
+        let descriptor = AccessExecutionDescriptor::from_bindings(
+            &logical_plan.access,
+            AccessStreamBindings::new(
+                index_prefix_specs.as_slice(),
+                index_range_specs.as_slice(),
+                AccessScanContinuationInput::new(None, Direction::Asc),
+            ),
+            None,
+            None,
+        );
+        let mut key_stream = ctx.ordered_key_stream_from_access_descriptor(descriptor)?;
+
+        // Phase 3: fold COUNT through existing-row semantics and record scan metrics.
+        let (aggregate_output, rows_scanned) = ExecutionKernel::run_streaming_aggregate_reducer(
+            &ctx,
+            &logical_plan,
+            AggregateKind::Count,
+            Direction::Asc,
+            AggregateFoldMode::ExistingRows,
+            key_stream.as_mut(),
+        )?;
+        record_rows_scanned::<E>(rows_scanned);
+
+        match aggregate_output {
+            AggregateOutput::Count(value) => Ok(value),
+            _ => Err(invariant("covering COUNT reducer result kind mismatch")),
+        }
+    }
+
+    // Secondary index shapes can satisfy EXISTS using key-stream fold semantics
+    // without row materialization when no residual predicate remains.
+    fn index_covering_exists_eligible(plan: &ExecutablePlan<E>) -> bool {
+        // Keep this fast path scoped to unordered scalar EXISTS shapes for now.
+        if plan.order_spec().is_some() {
+            return false;
+        }
+
+        // Residual predicates require row evaluation and must stay on canonical path.
+        if plan.has_predicate() {
+            return false;
+        }
+
+        plan.access().as_index_prefix_path().is_some()
+            || plan.access().as_index_range_path().is_some()
+    }
+
+    // Fold EXISTS over an index-backed key stream using `ExistingRows` mode.
+    // This keeps stale-key and strict-missing-row behavior aligned with the
+    // canonical reducer path while avoiding row decode/materialization.
+    fn aggregate_exists_from_index_covering_stream(
+        &self,
+        plan: ExecutablePlan<E>,
+    ) -> Result<bool, InternalError> {
+        // Phase 1: collect lowered index specs before consuming the executable plan.
+        let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
+        let index_range_specs = plan.index_range_specs()?.to_vec();
+        let logical_plan = plan.into_inner();
+        validate_executor_plan::<E>(&logical_plan)?;
+
+        // Phase 2: resolve the access key stream directly from index-backed bindings.
+        let ctx = self.recovered_context()?;
+        let descriptor = AccessExecutionDescriptor::from_bindings(
+            &logical_plan.access,
+            AccessStreamBindings::new(
+                index_prefix_specs.as_slice(),
+                index_range_specs.as_slice(),
+                AccessScanContinuationInput::new(None, Direction::Asc),
+            ),
+            None,
+            None,
+        );
+        let mut key_stream = ctx.ordered_key_stream_from_access_descriptor(descriptor)?;
+
+        // Phase 3: fold EXISTS through existing-row semantics and record scan metrics.
+        let (aggregate_output, rows_scanned) = ExecutionKernel::run_streaming_aggregate_reducer(
+            &ctx,
+            &logical_plan,
+            AggregateKind::Exists,
+            Direction::Asc,
+            AggregateFoldMode::ExistingRows,
+            key_stream.as_mut(),
+        )?;
+        record_rows_scanned::<E>(rows_scanned);
+
+        match aggregate_output {
+            AggregateOutput::Exists(value) => Ok(value),
+            _ => Err(invariant("covering EXISTS reducer result kind mismatch")),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn take_covering_exists_fast_path_hits_for_tests() -> u64 {
+        COVERING_EXISTS_FAST_PATH_HITS.swap(0, Ordering::Relaxed)
+    }
+
+    #[cfg(test)]
+    fn record_covering_exists_fast_path_hit_for_tests() {
+        COVERING_EXISTS_FAST_PATH_HITS.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[cfg(not(test))]
+    const fn record_covering_exists_fast_path_hit_for_tests() {}
 }
 
 fn invariant(message: impl Into<String>) -> InternalError {

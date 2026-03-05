@@ -15,7 +15,8 @@ use crate::{
         predicate::MissingRowPolicy,
         query::plan::{
             AccessPlannedQuery, ContinuationContract, ExecutionOrdering, ExecutionShapeSignature,
-            GroupedContinuationWindow, GroupedExecutorHandoff, QueryMode, grouped_executor_handoff,
+            GroupedContinuationWindow, GroupedExecutorHandoff, OrderSpec, PageSpec, QueryMode,
+            grouped_executor_handoff,
         },
     },
     error::InternalError,
@@ -178,6 +179,24 @@ impl<E: EntityKind> ExecutablePlan<E> {
     #[must_use]
     pub(in crate::db) const fn consistency(&self) -> MissingRowPolicy {
         self.plan.scalar_plan().consistency
+    }
+
+    /// Borrow scalar ORDER BY contract for this executable plan, if any.
+    #[must_use]
+    pub(in crate::db::executor) const fn order_spec(&self) -> Option<&OrderSpec> {
+        self.plan.scalar_plan().order.as_ref()
+    }
+
+    /// Borrow scalar pagination contract for this executable plan, if any.
+    #[must_use]
+    pub(in crate::db::executor) const fn page_spec(&self) -> Option<&PageSpec> {
+        self.plan.scalar_plan().page.as_ref()
+    }
+
+    /// Return whether this executable plan has a residual predicate.
+    #[must_use]
+    pub(in crate::db::executor) const fn has_predicate(&self) -> bool {
+        self.plan.scalar_plan().predicate.is_some()
     }
 
     #[cfg(test)]

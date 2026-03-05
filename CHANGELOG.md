@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.41.x] - 2026-03-05 - Minor Features Kickoff
 
-- `0.41.0` opens this minor line with scalar `LIMIT` runtime cleanup, including centralized keep/fetch window math, strategy-owned early-stop hint routing, and new no-cursor `LIMIT` parity coverage across primary access shapes.
+- `0.41.0` opens this minor line with scalar `LIMIT` runtime cleanup, strategy-owned early-stop hint routing, no-cursor `LIMIT` parity coverage, covering-index projection fast paths for `values/distinct/first/last` (including adjacent-key `distinct_values_by` dedupe for eligible index-ordered shapes), index-backed `COUNT(*)`/`EXISTS` fast paths that avoid row materialization while preserving missing-row consistency checks, and index-leading `MIN(field)` probe optimization with stale-key-safe fallback coverage.
 
 See detailed breakdown:
 [docs/changelog/0.41.md](docs/changelog/0.41.md)

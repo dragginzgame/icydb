@@ -117,6 +117,70 @@ fn seed_stale_secondary_rows(rows: &[(u128, u32, u32)], stale_ids: &[u128]) {
     }
 }
 
+fn seed_indexed_metrics_rows(rows: &[(u128, u32, &str)]) {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<IndexedMetricsEntity>::new(DB, false);
+    for (id, tag, label) in rows {
+        save.insert(IndexedMetricsEntity {
+            id: Ulid::from_u128(*id),
+            tag: *tag,
+            label: (*label).to_string(),
+        })
+        .expect("seed indexed-metrics row save should succeed");
+    }
+}
+
+fn remove_indexed_metrics_row_data(id: u128) {
+    let raw_key = DataKey::try_new::<IndexedMetricsEntity>(Ulid::from_u128(id))
+        .expect("indexed-metrics data key should build")
+        .to_raw()
+        .expect("indexed-metrics data key should encode");
+
+    DATA_STORE.with(|store| {
+        let removed = store.borrow_mut().remove(&raw_key);
+        assert!(
+            removed.is_some(),
+            "expected indexed-metrics row to exist before data-only removal",
+        );
+    });
+}
+
+fn indexed_metrics_tag_index_range_plan(
+    consistency: MissingRowPolicy,
+) -> ExecutablePlan<IndexedMetricsEntity> {
+    let mut logical_plan = AccessPlannedQuery::new(
+        AccessPath::index_range(
+            INDEXED_METRICS_INDEX_MODELS[0],
+            vec![],
+            Bound::Included(Value::Uint(0)),
+            Bound::Excluded(Value::Uint(1_000)),
+        ),
+        consistency,
+    );
+    logical_plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("tag".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+
+    ExecutablePlan::<IndexedMetricsEntity>::new(logical_plan)
+}
+
+fn secondary_group_prefix_exists_plan(
+    consistency: MissingRowPolicy,
+) -> ExecutablePlan<PushdownParityEntity> {
+    ExecutablePlan::<PushdownParityEntity>::new(AccessPlannedQuery::new(
+        AccessPath::IndexPrefix {
+            index: PUSHDOWN_PARITY_INDEX_MODELS[0],
+            values: vec![Value::Uint(7)],
+        },
+        consistency,
+    ))
+}
+
 fn assert_secondary_id_extrema_missing_ok_stale_fallback(
     rows: &[(u128, u32, u32)],
     stale_ids: &[u128],
@@ -412,6 +476,194 @@ fn aggregate_exists_secondary_index_strict_missing_surfaces_corruption_error() {
 }
 
 #[test]
+fn aggregate_exists_secondary_index_covering_fast_path_matches_materialized_parity_with_stale_keys()
+{
+    seed_stale_secondary_rows(&SECONDARY_STALE_ID_ROWS, &[8851]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let fast_path_exists = load
+        .aggregate_exists(
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .filter(u32_eq_predicate("group", 7))
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("secondary-index covering EXISTS fast-path plan should build"),
+        )
+        .expect("secondary-index covering EXISTS fast path should succeed");
+    let forced_materialized_exists = load
+        .aggregate_exists(
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .filter(u32_eq_predicate("group", 7))
+                .order_by("rank")
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("secondary-index forced materialized EXISTS plan should build"),
+        )
+        .expect("secondary-index forced materialized EXISTS should succeed");
+    let canonical_materialized_exists = !load
+        .execute(
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .filter(u32_eq_predicate("group", 7))
+                .order_by("rank")
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("secondary-index materialized EXISTS baseline plan should build"),
+        )
+        .expect("secondary-index materialized EXISTS baseline should succeed")
+        .is_empty();
+
+    assert_eq!(
+        fast_path_exists, forced_materialized_exists,
+        "secondary-index covering EXISTS must match forced materialized aggregate EXISTS under stale keys",
+    );
+    assert_eq!(
+        fast_path_exists, canonical_materialized_exists,
+        "secondary-index covering EXISTS must match canonical row-materialized EXISTS under stale keys",
+    );
+}
+
+#[test]
+fn aggregate_exists_secondary_index_covering_fast_path_strict_stale_surfaces_corruption_error() {
+    seed_stale_secondary_rows(&SECONDARY_STALE_ID_ROWS, &[8851]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let _ = LoadExecutor::<PushdownParityEntity>::take_covering_exists_fast_path_hits_for_tests();
+    let err = load
+        .aggregate_exists(secondary_group_prefix_exists_plan(MissingRowPolicy::Error))
+        .expect_err("strict covering EXISTS should fail when leading key is stale");
+
+    assert_eq!(
+        err.class,
+        crate::error::ErrorClass::Corruption,
+        "strict covering EXISTS missing row should classify as corruption",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_covering_exists_fast_path_hits_for_tests(),
+        1,
+        "strict stale covering EXISTS should execute through the covering fast-path branch",
+    );
+}
+
+#[test]
+fn aggregate_exists_secondary_index_covering_fast_path_emits_hit_marker_only_for_eligible_shapes() {
+    seed_stale_secondary_rows(&SECONDARY_STALE_ID_ROWS, &[8851]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let _ = LoadExecutor::<PushdownParityEntity>::take_covering_exists_fast_path_hits_for_tests();
+    let (eligible_exists, eligible_scanned) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.aggregate_exists(secondary_group_prefix_exists_plan(MissingRowPolicy::Ignore))
+                .expect("eligible covering EXISTS should succeed")
+        });
+
+    assert!(
+        eligible_exists,
+        "eligible covering EXISTS should short-circuit after the first existing row",
+    );
+    assert_eq!(
+        eligible_scanned, 2,
+        "eligible covering EXISTS should scan one stale key plus one live key before early exit",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_covering_exists_fast_path_hits_for_tests(),
+        1,
+        "eligible covering EXISTS must emit one covering fast-path hit marker",
+    );
+
+    let _ = LoadExecutor::<PushdownParityEntity>::take_covering_exists_fast_path_hits_for_tests();
+    let _forced_exists = load
+        .aggregate_exists(
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .filter(u32_eq_predicate("group", 7))
+                .order_by("rank")
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("forced materialized EXISTS plan should build"),
+        )
+        .expect("forced materialized EXISTS should succeed");
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_covering_exists_fast_path_hits_for_tests(),
+        0,
+        "ordered EXISTS shape should bypass the covering fast-path branch",
+    );
+}
+
+#[test]
+fn aggregate_count_secondary_index_strict_missing_surfaces_corruption_error() {
+    seed_pushdown_entities(&[(8_821, 7, 10), (8_822, 7, 20), (8_823, 7, 30)]);
+    remove_pushdown_row_data(8_821);
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let strict_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
+        .filter(u32_eq_predicate_strict("group", 7))
+        .order_by("rank")
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("strict secondary-index COUNT plan should build");
+
+    let err = load
+        .aggregate_count(strict_plan)
+        .expect_err("strict secondary-index COUNT should fail when row is missing");
+
+    assert_eq!(
+        err.class,
+        crate::error::ErrorClass::Corruption,
+        "strict secondary-index COUNT missing row should classify as corruption",
+    );
+    assert!(
+        err.message.contains("missing row"),
+        "strict secondary-index COUNT should preserve missing-row error context",
+    );
+}
+
+#[test]
+fn aggregate_count_secondary_index_covering_fast_path_matches_materialized_parity_with_stale_keys()
+{
+    seed_stale_secondary_rows(&SECONDARY_STALE_ID_ROWS, &[8851]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let fast_path_count = load
+        .aggregate_count(
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .filter(u32_eq_predicate("group", 7))
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("secondary-index covering COUNT fast-path plan should build"),
+        )
+        .expect("secondary-index covering COUNT fast path should succeed");
+    let forced_materialized_count = load
+        .aggregate_count(
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .filter(u32_eq_predicate("group", 7))
+                .order_by("rank")
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("secondary-index forced materialized COUNT plan should build"),
+        )
+        .expect("secondary-index forced materialized COUNT should succeed");
+    let canonical_materialized_count = load
+        .execute(
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .filter(u32_eq_predicate("group", 7))
+                .order_by("rank")
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("secondary-index materialized COUNT baseline plan should build"),
+        )
+        .expect("secondary-index materialized COUNT baseline should succeed")
+        .count();
+
+    assert_eq!(
+        fast_path_count, forced_materialized_count,
+        "secondary-index covering COUNT must match forced materialized aggregate COUNT under stale keys",
+    );
+    assert_eq!(
+        fast_path_count, canonical_materialized_count,
+        "secondary-index covering COUNT must match canonical row-materialized COUNT under stale keys",
+    );
+}
+
+#[test]
 fn aggregate_secondary_index_extrema_strict_single_step_scans_offset_plus_one() {
     assert_secondary_id_extrema_single_step(
         &SECONDARY_SINGLE_STEP_STRICT_ROWS,
@@ -443,7 +695,6 @@ fn aggregate_field_extrema_secondary_index_eligible_shape_locks_scan_budget() {
         (8_285, 8, 50),
     ]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-
     let (min_by_asc, scanned_min_by_asc) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
             load.aggregate_min_by_slot(
@@ -486,6 +737,64 @@ fn aggregate_field_extrema_secondary_index_eligible_shape_locks_scan_budget() {
     assert_eq!(
         scanned_max_by_desc, 4,
         "missing-ok secondary MAX(field) eligible shape should scan the full group window under current contract"
+    );
+}
+
+#[test]
+fn aggregate_field_extrema_index_leading_min_uses_one_key_probe_hint() {
+    seed_indexed_metrics_rows(&[(8_511, 10, "a"), (8_512, 10, "b"), (8_513, 30, "c")]);
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
+
+    let route = LoadExecutor::<IndexedMetricsEntity>::build_execution_route_plan_for_aggregate_spec(
+        indexed_metrics_tag_index_range_plan(MissingRowPolicy::Ignore).as_inner(),
+        crate::db::query::builder::aggregate::min_by("tag"),
+    );
+    assert!(route.field_min_fast_path_eligible());
+    assert_eq!(route.secondary_extrema_probe_fetch_hint(), Some(1));
+
+    let (min_by_tag, scanned_min_by_tag) =
+        capture_rows_scanned_for_entity(IndexedMetricsEntity::PATH, || {
+            load.aggregate_min_by_slot(
+                indexed_metrics_tag_index_range_plan(MissingRowPolicy::Ignore),
+                slot(&load, "tag"),
+            )
+            .expect("index-leading MIN(field) should succeed")
+        });
+
+    assert_eq!(
+        min_by_tag.map(|id| id.key()),
+        Some(Ulid::from_u128(8_511)),
+        "index-leading MIN(field) should use primary-key ascending tie-break inside the first field-value group",
+    );
+    assert_eq!(
+        scanned_min_by_tag, 1,
+        "index-leading MIN(field) should resolve through one-key bounded probe",
+    );
+}
+
+#[test]
+fn aggregate_field_extrema_index_leading_min_ignore_stale_probe_retries_unbounded() {
+    seed_indexed_metrics_rows(&[(8_521, 10, "a"), (8_522, 20, "b"), (8_523, 30, "c")]);
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
+    remove_indexed_metrics_row_data(8_521);
+
+    let (min_by_tag, scanned_min_by_tag) =
+        capture_rows_scanned_for_entity(IndexedMetricsEntity::PATH, || {
+            load.aggregate_min_by_slot(
+                indexed_metrics_tag_index_range_plan(MissingRowPolicy::Ignore),
+                slot(&load, "tag"),
+            )
+            .expect("stale-leading index-leading MIN(field) should succeed in ignore mode")
+        });
+
+    assert_eq!(
+        min_by_tag.map(|id| id.key()),
+        Some(Ulid::from_u128(8_522)),
+        "ignore-mode index-leading MIN(field) should retry unbounded and skip stale leading keys",
+    );
+    assert!(
+        scanned_min_by_tag >= 2,
+        "ignore-mode stale-leading MIN(field) should scan beyond one-key probe due to fallback retry",
     );
 }
 

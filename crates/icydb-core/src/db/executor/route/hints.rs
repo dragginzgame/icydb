@@ -8,7 +8,7 @@ use crate::{
         direction::Direction,
         executor::{ExecutionKernel, load::LoadExecutor},
         query::builder::AggregateExpr,
-        query::plan::{AccessPlannedQuery, DistinctExecutionStrategy},
+        query::plan::{AccessPlannedQuery, AggregateKind, DistinctExecutionStrategy},
     },
     traits::{EntityKind, EntityValue},
 };
@@ -123,10 +123,18 @@ where
         capabilities: RouteCapabilities,
         route_window: RouteWindowPlan,
     ) -> Option<usize> {
-        if aggregate.target_field().is_some() {
-            return None;
-        }
         let kind = aggregate.kind();
+        // Field-target extrema probe hints are only safe for MIN(field) ASC:
+        // tie-break semantics use primary-key ascending, so MAX(field) DESC
+        // may require scanning additional same-field candidates.
+        if aggregate.target_field().is_some() {
+            if !matches!((kind, direction), (AggregateKind::Min, Direction::Asc)) {
+                return None;
+            }
+            if !capabilities.field_min_fast_path_eligible {
+                return None;
+            }
+        }
         if !aggregate_supports_bounded_probe_hint(kind) {
             return None;
         }

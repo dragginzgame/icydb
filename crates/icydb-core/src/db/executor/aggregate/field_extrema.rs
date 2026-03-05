@@ -9,13 +9,13 @@ use crate::{
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutablePlan, ExecutionKernel,
-            ExecutionPreparation,
+            ExecutionPlan, ExecutionPreparation,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, apply_aggregate_direction,
                 compare_entities_by_orderable_field, compare_entities_for_field_extrema,
                 resolve_orderable_aggregate_target_slot,
             },
-            aggregate::{AggregateKind, AggregateOutput},
+            aggregate::{AggregateKind, AggregateOutput, PreparedAggregateStreamingInputs},
             load::{ExecutionInputs, LoadExecutor},
             plan_metrics::record_rows_scanned,
             route::aggregate_extrema_direction,
@@ -115,6 +115,63 @@ impl ExecutionKernel {
 
         // Reuse shared aggregate streaming setup and route-owned stream resolution.
         let prepared = Self::prepare_aggregate_streaming_inputs(executor, plan)?;
+        let consistency = prepared.logical_plan.scalar_plan().consistency;
+        let (probe_output, probe_rows_scanned) = Self::fold_field_target_extrema_for_route_plan(
+            &prepared,
+            consistency,
+            direction,
+            route_plan,
+            target_field,
+            field_slot,
+            kind,
+        )?;
+        if !Self::field_extrema_probe_requires_fallback(
+            consistency,
+            kind,
+            route_plan.secondary_extrema_probe_fetch_hint(),
+            &probe_output,
+            probe_rows_scanned,
+        ) {
+            record_rows_scanned::<E>(probe_rows_scanned);
+            return Ok(probe_output);
+        }
+
+        // Ignore + bounded field-extrema probe can under-fetch when leading
+        // index entries are stale. Retry unbounded to preserve parity.
+        let mut fallback_route_plan = route_plan.clone();
+        fallback_route_plan.scan_hints.physical_fetch_hint = None;
+        fallback_route_plan.index_range_limit_spec = None;
+        fallback_route_plan.aggregate_secondary_extrema_probe_fetch_hint = None;
+        let (fallback_output, fallback_rows_scanned) =
+            Self::fold_field_target_extrema_for_route_plan(
+                &prepared,
+                consistency,
+                direction,
+                &fallback_route_plan,
+                target_field,
+                field_slot,
+                kind,
+            )?;
+        let total_rows_scanned = probe_rows_scanned.saturating_add(fallback_rows_scanned);
+        record_rows_scanned::<E>(total_rows_scanned);
+
+        Ok(fallback_output)
+    }
+
+    // Run one field-target extrema streaming attempt for one route plan and
+    // return the aggregate output plus scan-accounting rows.
+    fn fold_field_target_extrema_for_route_plan<E>(
+        prepared: &PreparedAggregateStreamingInputs<'_, E>,
+        consistency: MissingRowPolicy,
+        direction: Direction,
+        route_plan: &ExecutionPlan,
+        target_field: &str,
+        field_slot: FieldSlot,
+        kind: AggregateKind,
+    ) -> Result<(AggregateOutput<E>, usize), InternalError>
+    where
+        E: EntityKind + EntityValue,
+    {
         let execution_preparation = ExecutionPreparation::for_plan::<E>(&prepared.logical_plan);
         let execution_inputs = ExecutionInputs::new(
             &prepared.ctx,
@@ -133,18 +190,46 @@ impl ExecutionKernel {
         )?;
         let (aggregate_output, keys_scanned) = LoadExecutor::<E>::fold_streaming_field_extrema(
             &prepared.ctx,
-            prepared.logical_plan.scalar_plan().consistency,
+            consistency,
             resolved.key_stream_mut(),
             target_field,
             field_slot,
             kind,
             direction,
         )?;
-
         let rows_scanned = resolved.rows_scanned_override().unwrap_or(keys_scanned);
-        record_rows_scanned::<E>(rows_scanned);
 
-        Ok(aggregate_output)
+        Ok((aggregate_output, rows_scanned))
+    }
+
+    // Ignore can skip stale leading index entries. If a bounded field-extrema
+    // probe returns None exactly at the fetch boundary, the outcome is
+    // inconclusive and must retry unbounded.
+    const fn field_extrema_probe_requires_fallback<E>(
+        consistency: MissingRowPolicy,
+        kind: AggregateKind,
+        probe_fetch_hint: Option<usize>,
+        probe_output: &AggregateOutput<E>,
+        probe_rows_scanned: usize,
+    ) -> bool
+    where
+        E: EntityKind + EntityValue,
+    {
+        if !matches!(consistency, MissingRowPolicy::Ignore) {
+            return false;
+        }
+        if !kind.is_extrema() {
+            return false;
+        }
+
+        let Some(fetch) = probe_fetch_hint else {
+            return false;
+        };
+        if fetch == 0 || probe_rows_scanned < fetch {
+            return false;
+        }
+
+        kind.is_unresolved_extrema_output(probe_output)
     }
 }
 

@@ -105,6 +105,12 @@ impl<K> AccessPlan<K> {
         matches!(self, Self::Path(path) if path.is_full_scan())
     }
 
+    /// Borrow index-prefix access details when this is a single IndexPrefix path.
+    #[must_use]
+    pub(crate) fn as_index_prefix_path(&self) -> Option<(&IndexModel, &[Value])> {
+        self.as_path().and_then(AccessPath::as_index_prefix)
+    }
+
     /// Borrow index-range access details when this is a single IndexRange path.
     #[must_use]
     pub(crate) fn as_index_range_path(&self) -> Option<IndexRangePathRef<'_>> {
