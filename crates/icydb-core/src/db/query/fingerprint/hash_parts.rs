@@ -6,10 +6,7 @@
 
 use crate::{
     db::{
-        predicate::{
-            MissingRowPolicy, Predicate, hash_predicate as hash_model_predicate,
-            normalize as normalize_predicate,
-        },
+        predicate::{MissingRowPolicy, Predicate, hash_predicate as hash_model_predicate},
         query::{
             explain::{
                 ExplainAccessPath, ExplainDeleteLimit, ExplainGroupHaving,
@@ -134,10 +131,7 @@ pub(super) fn hash_predicate(hasher: &mut Sha256, predicate: Option<&Predicate>)
         return;
     };
 
-    // Hash canonical predicate structure to keep fingerprint identity
-    // independent from commutative AST child insertion order.
-    let normalized = normalize_predicate(predicate);
-    hash_model_predicate(hasher, &normalized);
+    hash_model_predicate(hasher, predicate);
 }
 
 ///

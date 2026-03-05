@@ -46,8 +46,7 @@ icydb-schema-tests           2450           73       2.9%
 - `0.40.20` completes the query intent migration by making `query/intent` the approved intent-state authority and moving planning handoff to explicit access/logical DTO contracts without changing query behavior.
 - `0.40.21` continues planner cleanup by splitting validation and planner internals into smaller modules (`validate/*`, `planner/*`) to reduce branch pressure and make responsibility boundaries clearer while keeping query behavior unchanged.
 - `0.40.22` splits planner expression ownership into `expr/{ast,projection,type_inference}` and tightens continuation-signature wiring so runtime paths consume signature authority from the continuation contract.
-- `0.40.23` keeps query behavior stable while splitting large fluent/predicate files into focused modules and moving cursor/order execution routing behind one planner-owned `ExecutionOrderContract` so session and executor paths stop re-deriving the same policy.
-- `0.40.24` reduces predicate hash drift risk by centralizing predicate/value/coercion encoding in one predicate-local module, forcing canonical predicate normalization before query fingerprint hashing, and hardening map-value sort-key encoding so non-canonical map insertion order cannot perturb plan identity.
+- `0.40.23` keeps query behavior stable while splitting large fluent/predicate files into focused modules, moving cursor/order execution routing behind one planner-owned `ExecutionOrderContract`, and reducing predicate hash drift risk via shared predicate encoding authority plus canonical normalization before fingerprint/signature hashing.
 
 See detailed breakdown:
 [docs/changelog/0.40.md](docs/changelog/0.40.md)

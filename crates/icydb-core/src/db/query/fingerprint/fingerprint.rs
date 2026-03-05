@@ -92,7 +92,7 @@ mod tests {
     use std::ops::Bound;
 
     use crate::db::access::AccessPath;
-    use crate::db::predicate::{MissingRowPolicy, Predicate};
+    use crate::db::predicate::{ComparePredicate, MissingRowPolicy, Predicate};
     use crate::db::query::explain::{ExplainGroupedStrategy, ExplainGrouping};
     use crate::db::query::fingerprint::hash_parts;
     use crate::db::query::intent::{KeyAccess, build_access_plan_from_keys};
@@ -187,6 +187,39 @@ mod tests {
         plan_b.scalar_plan_mut().predicate = Some(predicate_b);
 
         assert_eq!(plan_a.fingerprint(), plan_b.fingerprint());
+    }
+
+    #[test]
+    fn fingerprint_and_signature_are_stable_for_reordered_and_non_canonical_map_predicates() {
+        let map_a = Value::Map(vec![
+            (Value::Text("z".to_string()), Value::Int(9)),
+            (Value::Text("a".to_string()), Value::Int(1)),
+        ]);
+        let map_b = Value::Map(vec![
+            (Value::Text("a".to_string()), Value::Int(1)),
+            (Value::Text("z".to_string()), Value::Int(9)),
+        ]);
+
+        let predicate_a = Predicate::And(vec![
+            FieldRef::new("other").eq(Value::Text("x".to_string())),
+            Predicate::Compare(ComparePredicate::eq("meta".to_string(), map_a)),
+        ]);
+        let predicate_b = Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::eq("meta".to_string(), map_b)),
+            FieldRef::new("other").eq(Value::Text("x".to_string())),
+        ]);
+
+        let mut plan_a: AccessPlannedQuery<Value> = full_scan_query();
+        plan_a.scalar_plan_mut().predicate = Some(predicate_a);
+
+        let mut plan_b: AccessPlannedQuery<Value> = full_scan_query();
+        plan_b.scalar_plan_mut().predicate = Some(predicate_b);
+
+        assert_eq!(plan_a.fingerprint(), plan_b.fingerprint());
+        assert_eq!(
+            plan_a.continuation_signature("tests::Entity"),
+            plan_b.continuation_signature("tests::Entity")
+        );
     }
 
     #[test]
