@@ -137,14 +137,6 @@ impl RouteContinuationPlan {
     pub(in crate::db::executor) const fn index_range_limit_pushdown_allowed(self) -> bool {
         !self.policy.requires_anchor() || !matches!(self.mode, ContinuationMode::CursorBoundary)
     }
-
-    #[must_use]
-    pub(in crate::db::executor) const fn load_scan_budget_hint_allowed(
-        self,
-        capabilities: RouteCapabilities,
-    ) -> bool {
-        !self.applied() && capabilities.streaming_access_shape_safe
-    }
 }
 
 ///

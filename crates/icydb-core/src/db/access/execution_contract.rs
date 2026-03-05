@@ -380,6 +380,31 @@ impl<'a, K> AccessStrategy<'a, K> {
     pub(in crate::db) const fn as_path(&self) -> Option<&ExecutableAccessPath<'a, K>> {
         self.executable.as_path()
     }
+
+    /// Derive a load-window early-stop scan-budget hint for this access shape.
+    ///
+    /// This helper keeps access-shape mechanics (`ordered` stream support)
+    /// centralized under `AccessStrategy`, while callers provide route-owned
+    /// continuation and streaming-safety policy gates.
+    #[must_use]
+    pub(in crate::db) const fn load_window_early_stop_hint(
+        &self,
+        continuation_applied: bool,
+        streaming_access_shape_safe: bool,
+        fetch_count: Option<usize>,
+    ) -> Option<usize> {
+        if continuation_applied {
+            return None;
+        }
+        if !streaming_access_shape_safe {
+            return None;
+        }
+        if !self.class().ordered() {
+            return None;
+        }
+
+        fetch_count
+    }
 }
 
 const fn supports_pk_stream_access(kind: ExecutionPathKind) -> bool {

@@ -65,15 +65,17 @@ where
     }
 
     // Shared load-page scan-budget hint gate.
-    pub(super) const fn load_scan_budget_hint(
+    pub(super) fn load_scan_budget_hint(
+        plan: &AccessPlannedQuery<E::Key>,
         continuation: RouteContinuationPlan,
         capabilities: RouteCapabilities,
     ) -> Option<usize> {
-        if !continuation.load_scan_budget_hint_allowed(capabilities) {
-            return None;
-        }
-
-        continuation.window().fetch_count_for(true)
+        let fetch_count = continuation.window().fetch_count_for(true);
+        plan.access_strategy().load_window_early_stop_hint(
+            continuation.applied(),
+            capabilities.streaming_access_shape_safe,
+            fetch_count,
+        )
     }
 
     // Shared bounded-probe safety gate for aggregate key-stream hints.

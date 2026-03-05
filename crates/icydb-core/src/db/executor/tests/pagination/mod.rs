@@ -967,5 +967,6 @@ mod composite_budget;
 mod cursor_pk;
 mod distinct;
 mod index_range;
+mod limit_no_cursor;
 mod ordering_permutations;
 mod range_edges_trace;

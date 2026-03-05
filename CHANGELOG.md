@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.41.x] - 2026-03-05 - Minor Features Placeholder
+
+- `0.41.0` opens this minor line for small feature/improvement work and starts scalar `LIMIT` cleanup by centralizing route keep/fetch window math and moving load early-stop scan-budget hint gating behind one access-strategy contract.
+
+See detailed breakdown:
+[docs/changelog/0.41.md](docs/changelog/0.41.md)
+
+---
+
 ## [0.40.x] - 2026-03-05 - AUDIT ALL THE THINGS!!!!1
 
 - `0.40.0` split very large runtime/planner files into smaller modules to make the codebase easier to navigate and review.

@@ -56,7 +56,7 @@ pub(super) use stream::{
         VecOrderedKeyStream,
     },
 };
-pub(in crate::db) use window::compute_page_window;
+pub(in crate::db) use window::{compute_page_keep_and_fetch_counts, compute_page_window};
 
 ///
 /// ExecutionPlan

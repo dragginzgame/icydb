@@ -8,7 +8,7 @@ use crate::{
         },
         direction::Direction,
         executor::{
-            AccessScanContinuationInput, ExecutablePlan, compute_page_window,
+            AccessScanContinuationInput, ExecutablePlan, compute_page_keep_and_fetch_counts,
             route::ContinuationMode,
             traversal::{effective_keep_count_for_limit, effective_page_offset_for_window},
         },
@@ -304,8 +304,7 @@ impl ScalarContinuationContext {
         let limit = plan.scalar_plan().page.as_ref().and_then(|page| page.limit);
         let (keep_count, fetch_count) = match limit {
             Some(limit) => {
-                let keep = compute_page_window(effective_offset, limit, false).keep_count;
-                let fetch = compute_page_window(effective_offset, limit, true).fetch_count;
+                let (keep, fetch) = compute_page_keep_and_fetch_counts(effective_offset, limit);
                 (Some(keep), Some(fetch))
             }
             None => (None, None),
