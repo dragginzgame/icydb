@@ -24,6 +24,7 @@ Run scope: all recurring audit definitions under `docs/audits/recurring/` execut
 - Layer-authority checks passed with no comparator leakage outside `index/*` and no cross-layer policy re-derivation findings.
 - Grouped resource-model compliance is now fully green (`PASS=7`) due explicit grouped `HAVING + ORDER + LIMIT` boundedness coverage.
 - Main ongoing pressure remains continuation/anchor coordination spread across runtime files (velocity/complexity concern, not a critical correctness break).
+- Re-ran `complexity-accretion` and `velocity-preservation` after continuation/route contract refactors: both remain at `6/10`; route branch pressure improved (`executor/route if: 82 -> 56`) while continuation/anchor spread remains the dominant drag signal (`849` mentions across `76` runtime files).
 - Boundary semantics edge case `anchor == upper` was explicitly audited; current path short-circuits empty envelopes before range iteration (performance risk `1/10`).
 - Route simplification follow-up now includes explicit `RouteShapeKind`, required `AccessRouteClass`, access-owned pushdown/index-range eligibility methods, and parity-shim retirement after soak.
 - Development hardening assertion for continuation envelope containment is now present in `resume_bounds_from_refs`.
