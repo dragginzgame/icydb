@@ -50,6 +50,7 @@ icydb-schema-tests           2450           73       2.9%
 - `0.40.24` reduces execution-router branching by dispatching through explicit route shapes, moving pushdown/index-range eligibility checks behind one access capability contract, and tightening continuation-envelope debug guards while keeping query behavior unchanged.
 - `0.40.25` continues continuation wiring by making runtime paths consume `ContinuationContract` accessors directly, replacing scalar runtime naming with `ScalarContinuationContext`, routing executor continuation reads and continuation-activation/policy/anchor gates through one `RouteContinuationPlan` projection boundary (without free gate wrappers), removing remaining load fast-path order derivation from plan internals, and hardening grouped fold/stream stage boundaries behind constructor/accessor APIs.
 - `0.40.26` continues continuation cleanup by splitting the access-stream hub into smaller modules, making load entrypoint leaf handlers consume pre-resolved continuation context instead of resolving tokens themselves, and adding structural guard tests to keep those boundaries from drifting.
+- `0.40.27` pre-resolves access execution contracts once in the access layer, so planner/query/executor runtime paths consume one shared access strategy instead of repeatedly re-lowering access shape details.
 
 See detailed breakdown:
 [docs/changelog/0.40.md](docs/changelog/0.40.md)

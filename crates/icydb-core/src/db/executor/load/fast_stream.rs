@@ -119,16 +119,16 @@ mod tests {
             AccessPlan::path(AccessPath::ByKey(id1)),
             AccessPlan::path(AccessPath::ByKey(id2)),
         ]);
-        let descriptor = AccessExecutionDescriptor {
-            executable_access: crate::db::access::lower_executable_access_plan(&access),
-            bindings: AccessStreamBindings {
+        let descriptor = AccessExecutionDescriptor::from_strategy(
+            access.resolve_strategy(),
+            AccessStreamBindings {
                 index_prefix_specs: &[],
                 index_range_specs: &[],
                 continuation: AccessScanContinuationInput::new(None, Direction::Asc),
             },
-            physical_fetch_hint: None,
-            index_predicate_execution: None,
-        };
+            None,
+            None,
+        );
 
         let Err(err) = LoadExecutor::<FastStreamInvariantEntity>::execute_fast_stream_request(
             &ctx,

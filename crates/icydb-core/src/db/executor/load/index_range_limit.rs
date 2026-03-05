@@ -32,8 +32,8 @@ where
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
         // Phase 1: verify access-path and executable spec materialization invariants.
-        let executable_access = plan.to_executable();
-        let Some(executable_path) = executable_access.as_path() else {
+        let access_strategy = plan.access_strategy();
+        let Some(executable_path) = access_strategy.as_path() else {
             return Ok(None);
         };
         let path_capabilities = derive_access_path_capabilities(executable_path);
@@ -53,7 +53,7 @@ where
 
         // Phase 2: bind range/anchor inputs and execute through shared fast-stream helper.
         let descriptor = AccessExecutionDescriptor::from_executable_bindings(
-            executable_access,
+            access_strategy.into_executable(),
             AccessStreamBindings::with_index_range_continuation(index_range_spec, continuation),
             Some(effective_fetch),
             index_predicate_execution,

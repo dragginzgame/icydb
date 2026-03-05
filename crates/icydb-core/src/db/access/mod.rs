@@ -12,16 +12,16 @@ pub(crate) mod validate;
 
 pub(crate) use canonical::normalize_access_plan_value;
 pub(in crate::db) use execution_contract::{
-    AccessRouteClass, ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan,
-    ExecutionBounds, ExecutionDistinctMode, ExecutionMode, ExecutionOrdering, ExecutionPathKind,
-    ExecutionPathPayload,
+    AccessRouteClass, AccessStrategy, ExecutableAccessNode, ExecutableAccessPath,
+    ExecutableAccessPlan, ExecutionBounds, ExecutionDistinctMode, ExecutionMode, ExecutionOrdering,
+    ExecutionPathKind, ExecutionPathPayload,
 };
 #[cfg(test)]
 pub(in crate::db) use lowering::lower_executable_access_path;
 pub(in crate::db) use lowering::{
     LOWERED_INDEX_PREFIX_SPEC_INVALID, LOWERED_INDEX_RANGE_SPEC_INVALID, LoweredIndexPrefixSpec,
     LoweredIndexRangeSpec, LoweredKey, lower_cursor_anchor_index_range_bounds,
-    lower_executable_access_plan, lower_index_prefix_specs, lower_index_range_specs,
+    lower_index_prefix_specs, lower_index_range_specs,
 };
 pub(crate) use path::{AccessPath, IndexRangePathRef, SemanticIndexRangeSpec};
 pub(crate) use plan::{

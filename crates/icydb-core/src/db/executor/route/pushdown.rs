@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        access::{PushdownApplicability, lower_executable_access_plan},
+        access::PushdownApplicability,
         direction::Direction,
         executor::route::direction_from_order,
         query::plan::{AccessPlannedQuery, LogicalPushdownEligibility, OrderDirection, ScalarPlan},
@@ -72,8 +72,7 @@ pub(in crate::db) fn derive_secondary_pushdown_applicability_from_contract<K>(
         return PushdownApplicability::NotApplicable;
     };
 
-    let executable_plan = lower_executable_access_plan(&plan.access);
-    let access_class: crate::db::access::AccessRouteClass = executable_plan.class();
+    let access_class = plan.access_strategy().class();
 
     access_class.secondary_order_pushdown_applicability(model, &order_fields)
 }

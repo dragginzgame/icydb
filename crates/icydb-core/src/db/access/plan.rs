@@ -4,7 +4,7 @@
 //! Boundary: query planner emits these plans for executor routing.
 
 use crate::{
-    db::access::{AccessPath, IndexRangePathRef, SemanticIndexRangeSpec},
+    db::access::{AccessPath, AccessStrategy, IndexRangePathRef, SemanticIndexRangeSpec},
     model::index::IndexModel,
     value::Value,
 };
@@ -109,6 +109,12 @@ impl<K> AccessPlan<K> {
     #[must_use]
     pub(crate) fn as_index_range_path(&self) -> Option<IndexRangePathRef<'_>> {
         self.as_path().and_then(AccessPath::as_index_range)
+    }
+
+    /// Resolve one pre-lowered access strategy contract for runtime execution.
+    #[must_use]
+    pub(in crate::db) fn resolve_strategy(&self) -> AccessStrategy<'_, K> {
+        AccessStrategy::from_plan(self)
     }
 
     /// Map key payloads across this access tree while preserving structural shape.

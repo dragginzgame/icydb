@@ -7,11 +7,11 @@ Run scope: all recurring audit definitions under `docs/audits/recurring/` execut
 1. `access/access-index-integrity` -> `index-integrity.md` (Risk: 3/10)
 2. `contracts/contracts-error-taxonomy` -> `error-taxonomy.md` (Risk: 4/10)
 3. `contracts/contracts-resource-model-compliance` -> `resource-model-compliance.md` (PASS=7, PARTIAL=0, FAIL=0)
-4. `crosscutting/crosscutting-complexity-accretion` -> `complexity-accretion.md` (Risk: 6/10)
+4. `crosscutting/crosscutting-complexity-accretion` -> `complexity-accretion.md` (Risk: 5/10)
 5. `crosscutting/crosscutting-dry-consolidation` -> `dry-consolidation.md` (Risk: 5/10)
 6. `crosscutting/crosscutting-layer-violation` -> `layer-violation.md` (Risk: 5/10)
 7. `crosscutting/crosscutting-module-structure` -> `module-structure.md` (Risk: 5/10)
-8. `crosscutting/crosscutting-velocity-preservation` -> `velocity-preservation.md` (Risk: 6/10)
+8. `crosscutting/crosscutting-velocity-preservation` -> `velocity-preservation.md` (Risk: 5/10)
 9. `cursor/cursor-ordering` -> `cursor-ordering.md` (Risk: 3/10)
 10. `executor/executor-state-machine-integrity` -> `state-machine-integrity.md` (Risk: 4/10)
 11. `invariants/invariants-invariant-preservation` -> `invariant-preservation.md` (Risk: 4/10)
@@ -37,13 +37,17 @@ Run scope: all recurring audit definitions under `docs/audits/recurring/` execut
 31. `follow-up/load-runtime-hub-split` -> `load-runtime-hub-split-followup.md` (Moved grouped runtime context/window types out of `load/mod.rs` into dedicated module)
 32. `follow-up/route-window-math-guard-test` -> `load-runtime-hub-split-followup.md` (Added structural test that fails if `compute_page_window(` appears under `executor/route`)
 31. `follow-up/router-window-math-projection-collapse` -> `load-entrypoints-continuation-contract-followup.md` (router no longer computes keep/fetch window math; continuation runtime now projects full route window inputs)
+33. `rerun/crosscutting-complexity-accretion` -> `complexity-accretion.md` (Risk: 5/10; effective-flow and semantic-layer corrections removed overcounting inflation)
+34. `rerun/crosscutting-velocity-preservation` -> `velocity-preservation.md` (Risk: 5/10; revised CAF + containment + density-adjusted shock radius confirm AccessPath decision surface as the main drag)
 
 ## Global Findings
 
 - Layer-authority checks passed with no comparator leakage outside `index/*` and no cross-layer policy re-derivation findings.
 - Grouped resource-model compliance is now fully green (`PASS=7`) due explicit grouped `HAVING + ORDER + LIMIT` boundedness coverage.
 - Main ongoing pressure remains continuation/anchor coordination spread across runtime files (velocity/complexity concern, not a critical correctness break).
-- Re-ran `complexity-accretion` and `velocity-preservation` after continuation/route contract refactors: both remain at `6/10`; route branch pressure improved (`executor/route if: 82 -> 56`) while continuation/anchor spread remains the dominant drag signal (`849` mentions across `76` runtime files).
+- Re-ran `complexity-accretion` and `velocity-preservation` with upgraded method definitions (decision-owner vs execution-consumer vs plumbing split, effective-flow model, semantic-vs-transport layer split, revised CAF + containment, density-adjusted enum shock radius, and refactor-noise filters): both now score `5/10`; route branch pressure is roughly flat (`executor/route if: 56 -> 57`, `match: 15 -> 13`) while continuation/anchor spread remains the dominant drag signal (`891` mentions across `79` runtime files).
+- Complexity Step 4 overcount correction is now applied: continuation classification is `Decision Owners=10`, `Execution Consumers=48`, `Plumbing=21` (previous owner-only heuristic was inflated).
+- Runtime hub pressure improved at the file-size layer (`>=600 LOC runtime files: 12 -> 11`) due the access-stream module split.
 - Boundary semantics edge case `anchor == upper` was explicitly audited; current path short-circuits empty envelopes before range iteration (performance risk `1/10`).
 - Route simplification follow-up now includes explicit `RouteShapeKind`, required `AccessRouteClass`, access-owned pushdown/index-range eligibility methods, and parity-shim retirement after soak.
 - Development hardening assertion for continuation envelope containment is now present in `resume_bounds_from_refs`.

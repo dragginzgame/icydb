@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        access::{AccessPlan, lower_executable_access_plan},
+        access::{AccessPlan, AccessStrategy},
         direction::Direction,
         executor::{
             Context, ExecutableAccessPlan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
@@ -191,8 +191,24 @@ impl<'a, K> AccessExecutionDescriptor<'a, K> {
         physical_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'a>>,
     ) -> Self {
+        Self::from_strategy(
+            access.resolve_strategy(),
+            bindings,
+            physical_fetch_hint,
+            index_predicate_execution,
+        )
+    }
+
+    /// Build one canonical runtime descriptor from one pre-resolved access strategy.
+    #[must_use]
+    pub(in crate::db::executor) fn from_strategy(
+        access_strategy: AccessStrategy<'a, K>,
+        bindings: AccessStreamBindings<'a>,
+        physical_fetch_hint: Option<usize>,
+        index_predicate_execution: Option<IndexPredicateExecution<'a>>,
+    ) -> Self {
         Self::from_executable_bindings(
-            lower_executable_access_plan(access),
+            access_strategy.into_executable(),
             bindings,
             physical_fetch_hint,
             index_predicate_execution,

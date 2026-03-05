@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        access::{AccessPlan, lower_executable_access_plan},
+        access::AccessPlan,
         direction::Direction,
         executor::{
             ExecutableAccessPath,
@@ -106,8 +106,7 @@ where
 }
 
 fn access_stream_is_pk_ordered<K>(access: &AccessPlan<K>) -> bool {
-    let executable = lower_executable_access_plan(access);
-    executable.class().ordered()
+    access.resolve_strategy().class().ordered()
 }
 
 fn debug_assert_access_route_class_parity<K>(
@@ -249,18 +248,17 @@ where
     }
 
     fn access_supports_reverse_traversal(access: &AccessPlan<E::Key>) -> bool {
-        let executable = lower_executable_access_plan(access);
-        debug_assert_access_route_class_parity(&executable);
+        let access_strategy = access.resolve_strategy();
+        debug_assert_access_route_class_parity(access_strategy.executable());
 
-        executable.class().reverse_supported()
+        access_strategy.class().reverse_supported()
     }
 
     // Route-owned shape gate for index-range limited pushdown eligibility.
     pub(super) fn is_index_range_limit_pushdown_shape_eligible(
         plan: &AccessPlannedQuery<E::Key>,
     ) -> bool {
-        let executable = plan.to_executable();
-        let access_class = executable.class();
+        let access_class = plan.access_strategy().class();
         access_class.index_range_limit_pushdown_shape_eligible_for_order(
             plan.scalar_plan()
                 .order

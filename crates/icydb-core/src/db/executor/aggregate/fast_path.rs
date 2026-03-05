@@ -260,8 +260,8 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
-        let executable_access = plan.to_executable();
-        let Some(executable_path) = executable_access.as_path() else {
+        let access_strategy = plan.access_strategy();
+        let Some(executable_path) = access_strategy.as_path() else {
             return Ok(None);
         };
         let capabilities = derive_access_path_capabilities(executable_path);
@@ -276,7 +276,7 @@ impl ExecutionKernel {
         }
 
         let descriptor = AccessExecutionDescriptor::from_executable_bindings(
-            executable_access,
+            access_strategy.into_executable(),
             AccessStreamBindings::no_index(direction),
             None,
             None,
@@ -352,8 +352,8 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
-        let executable_access = plan.to_executable();
-        let Some(executable_path) = executable_access.as_path() else {
+        let access_strategy = plan.access_strategy();
+        let Some(executable_path) = access_strategy.as_path() else {
             return Ok(None);
         };
         if !derive_access_path_capabilities(executable_path).supports_count_pushdown_shape() {
@@ -368,7 +368,7 @@ impl ExecutionKernel {
             fold_mode,
             RoutedKeyStreamRequest::AccessDescriptor(
                 AccessExecutionDescriptor::from_executable_bindings(
-                    executable_access,
+                    access_strategy.into_executable(),
                     AccessStreamBindings::no_index(direction),
                     physical_fetch_hint,
                     None,

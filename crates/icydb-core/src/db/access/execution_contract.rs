@@ -5,9 +5,12 @@
 
 use crate::{
     db::{
-        access::plan::{
-            PushdownApplicability, SecondaryOrderPushdownEligibility,
-            SecondaryOrderPushdownRejection,
+        access::{
+            lowering::lower_executable_access_plan,
+            plan::{
+                AccessPlan, PushdownApplicability, SecondaryOrderPushdownEligibility,
+                SecondaryOrderPushdownRejection,
+            },
         },
         direction::Direction,
     },
@@ -322,6 +325,60 @@ impl AccessRouteClass {
             .iter()
             .map(|(field, _)| field.as_str())
             .eq(expected)
+    }
+}
+
+///
+/// AccessStrategy
+///
+/// Pre-resolved access execution contract produced once from planner-selected
+/// access shape and consumed by runtime layers. This keeps path lowering and
+/// route-class derivation under one access-owned authority object.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct AccessStrategy<'a, K> {
+    executable: ExecutableAccessPlan<'a, K>,
+    class: AccessRouteClass,
+}
+
+impl<'a, K> AccessStrategy<'a, K> {
+    /// Resolve one access strategy from one planner-selected access plan.
+    #[must_use]
+    pub(in crate::db) fn from_plan(plan: &'a AccessPlan<K>) -> Self {
+        let executable = lower_executable_access_plan(plan);
+        Self::from_executable(executable)
+    }
+
+    /// Resolve one access strategy from one already lowered executable access plan.
+    #[must_use]
+    pub(in crate::db) fn from_executable(executable: ExecutableAccessPlan<'a, K>) -> Self {
+        let class = executable.class();
+        Self { executable, class }
+    }
+
+    /// Borrow the lowered executable access contract.
+    #[must_use]
+    pub(in crate::db) const fn executable(&self) -> &ExecutableAccessPlan<'a, K> {
+        &self.executable
+    }
+
+    /// Consume this strategy and return the lowered executable access contract.
+    #[must_use]
+    pub(in crate::db) fn into_executable(self) -> ExecutableAccessPlan<'a, K> {
+        self.executable
+    }
+
+    /// Return access-owned route class capability snapshot.
+    #[must_use]
+    pub(in crate::db) const fn class(&self) -> AccessRouteClass {
+        self.class
+    }
+
+    /// Borrow direct path payload when this strategy is single-path.
+    #[must_use]
+    pub(in crate::db) const fn as_path(&self) -> Option<&ExecutableAccessPath<'a, K>> {
+        self.executable.as_path()
     }
 }
 

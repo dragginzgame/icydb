@@ -64,6 +64,7 @@ pub(in crate::db::executor) use self::page::PageMaterializationRequest;
 ///
 /// Internal continuation cursor enum for scalar and grouped pagination.
 ///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum PageCursor {
     Scalar(ContinuationToken),
@@ -120,6 +121,7 @@ pub(crate) struct CursorPage<E: EntityKind> {
 ///
 /// Internal grouped page result with grouped rows and continuation cursor payload.
 ///
+
 #[derive(Debug)]
 pub(in crate::db) struct GroupedCursorPage {
     pub(in crate::db) rows: Vec<GroupedRow>,
@@ -160,12 +162,16 @@ pub(crate) struct LoadExecutor<E: EntityKind> {
 }
 
 ///
-/// GroupedRouteStage
+/// IndexSpecBundle
 ///
-/// Route-planning stage payload for grouped execution.
-/// Owns grouped handoff extraction, grouped route contracts, and grouped
-/// execution metadata before runtime stream resolution starts.
+/// Grouped execution lowered index-spec bundle used by grouped stream
+/// resolution. Keeps prefix/range specs grouped to avoid parallel vector drift.
 ///
+
+struct IndexSpecBundle {
+    index_prefix_specs: Vec<crate::db::access::LoweredIndexPrefixSpec>,
+    index_range_specs: Vec<crate::db::access::LoweredIndexRangeSpec>,
+}
 
 ///
 /// GroupedPlannerPayload
@@ -198,16 +204,12 @@ struct GroupedRoutePayload {
 }
 
 ///
-/// IndexSpecBundle
+/// GroupedRouteStage
 ///
-/// Grouped execution lowered index-spec bundle used by grouped stream
-/// resolution. Keeps prefix/range specs grouped to avoid parallel vector drift.
+/// Route-planning stage payload for grouped execution.
+/// Owns grouped handoff extraction, grouped route contracts, and grouped
+/// execution metadata before runtime stream resolution starts.
 ///
-
-struct IndexSpecBundle {
-    index_prefix_specs: Vec<crate::db::access::LoweredIndexPrefixSpec>,
-    index_range_specs: Vec<crate::db::access::LoweredIndexRangeSpec>,
-}
 
 struct GroupedRouteStage<E: EntityKind + EntityValue> {
     planner_payload: GroupedPlannerPayload<E>,

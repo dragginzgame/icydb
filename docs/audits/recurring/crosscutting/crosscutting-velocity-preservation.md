@@ -41,219 +41,267 @@ Velocity degrades when:
 
 ---
 
-# STEP 1 — Change Surface Mapping (Empirical)
+# STEP 0 — Baseline Capture (Mandatory)
 
-Analyze the last 3–5 major feature areas:
+Capture previous-run values first.
 
-Examples:
+| Metric | Previous | Current | Delta |
+| ---- | ----: | ----: | ----: |
+| Velocity Risk Index |  |  |  |
+| Cross-layer leakage crossings |  |  |  |
+| Avg files touched per feature slice |  |  |  |
+| p95 files touched |  |  |  |
+| Top gravity-well fan-in |  |  |  |
 
-* Range pushdown
-* Cursor pagination
-* Reverse relation index
-* Unique enforcement changes
-* Commit marker evolution
+If previous data is unavailable, mark baseline as `N/A`.
 
-For each feature:
+---
 
-Produce:
+# STEP 1 — Change Surface Mapping (Empirical, Revised CAF)
 
-| Feature | Files Modified | Subsystems Touched | Cross-Layer? | Localized? | Change Amplification Factor |
+Analyze the last 3–5 major feature slices.
 
-Change Amplification Factor (CAF):
+For each feature, produce:
 
-= (# subsystems touched) × (# execution flows affected)
+| Feature | Files Modified | Subsystems | Layers | Flow Axes | Revised CAF | ELS | Containment Score | Risk |
+| ---- | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ---- |
+
+Definitions:
+
+* `revised_caf = max(subsystems, layers) × flow_axes`
+* `ELS (Extension Locality Score) = primary_subsystem_files / total_files_modified`
+* `containment_score = subsystems_modified / total_subsystems`
+
+Flow-axis examples:
+
+* cursor presence
+* access path type
+* ordering
+* recovery mode
+* index uniqueness
+
+ELS interpretation:
+
+* `>0.70` good locality
+* `0.40–0.70` moderate
+* `<0.40` poor locality
+
+Containment interpretation:
+
+* `<=0.30` strongly contained
+* `0.30–0.60` moderate
+* `>0.60` cross-system change
 
 Flag:
 
-* CAF > 6
-* Features touching >5 subsystems
-* Features requiring simultaneous edits in:
-
-  * planner
-  * executor
-  * recovery
-  * index
-  * cursor
-
-Identify patterns:
-
-* Does every query feature require touching recovery?
-* Does every index feature require planner changes?
-* Does every ordering change require touching cursor?
+* revised CAF trend up week-over-week
+* low ELS on core slices
+* high containment scores on routine features
 
 ---
 
-# STEP 2 — Layer Boundary Integrity (Velocity-Oriented)
+# STEP 2 — Boundary Leakage (Mechanical)
 
-This is not correctness.
-This is extension friction.
+Track import and type-reference crossings with explicit rules.
 
-Check whether:
+Required checks:
 
-* Planner depends on executor implementation details.
-* Executor matches on plan internals excessively.
-* Recovery reimplements planner validation.
-* Index layer depends on query-layer abstractions.
-* Cursor codec depends on executable plan internals.
-* Commit logic knows query semantics.
+* planner -> executor types
+* executor -> planner validation helpers
+* index -> query-layer AST/types
+* cursor -> executable plan internals
+* recovery -> query semantics
 
 Produce:
 
-| Boundary | Leakage Type | Velocity Impact | Severity |
+| Boundary | Import Crossings | Previous | Delta | Risk |
+| ---- | ----: | ----: | ----: | ---- |
 
-Leakage increases future feature cost.
+This step must be regex/mechanical first, then manually triaged.
 
 ---
 
-# STEP 3 — Growth Vector & Gravity Well Detection
+# STEP 3 — Gravity Well Growth Rate
 
-Identify modules that:
-
-* Grow faster than average.
-* Absorb logic from other subsystems.
-* Contain >3 conceptual domains.
-* Branch on multiple unrelated enums.
-* Are imported by most other modules.
-
-Evaluate:
-
-* `plan/executable.rs`
-* `executor/load.rs`
-* `executor/save.rs`
-* `recovery.rs`
-* `index/store`
-* `cursor/*`
+Identify gravity-well modules using growth-rate signals.
 
 Produce:
 
-| Module | Responsibilities | Import Fan-In | Import Fan-Out | Growth Rate | Bottleneck Risk |
+| Module | LOC | LOC Delta | Fan-In | Fan-In Delta | Domains | Edit Frequency (30d) | Risk |
+| ---- | ----: | ----: | ----: | ----: | ----: | ----: | ---- |
 
-Flag gravity wells:
+Gravity-well condition:
 
-* High fan-in + high fan-out
-* Multi-domain responsibility
-* Increasing branch density
-* Frequent modification history
+* `LOC delta > 2x weekly average` AND `fan-in delta > 1`
 
-## 3A. Hub Import Pressure (Required Metric)
+Escalation condition:
 
-For each gravity-well candidate, add one import-pressure readout:
+* high fan-in + high edit frequency
 
-* Top imported sibling subsystems (top 5)
-* Unique sibling subsystem imports
-* Cross-layer dependency count
-* Delta vs previous audit
+Domain count categories:
 
-Produce:
-
-| Module | Top Imports | Unique Sibling Imports | Cross-Layer Dependency Count | Delta vs Previous | Velocity Risk |
-
-Velocity interpretation:
-
-* Refactors intended to reduce coupling should reduce or hold this count.
-* Rising cross-layer dependency count is architectural debt interest and must be called out explicitly.
+* planner/query
+* executor/runtime
+* cursor/continuation
+* access/index
+* storage/recovery
 
 ---
 
-# STEP 4 — Change Multiplier Analysis
+# STEP 4 — Change Multiplier Matrix (Deterministic)
 
-Evaluate how many places must change if you add:
-
-1. Composite pagination
-2. DESC support
-3. Secondary index ordering
-4. Query caching
-5. Multi-index intersection
-6. New commit phase
-7. New AccessPath variant
-
-For each:
-
-| Feature | Subsystems Likely Impacted | Change Surface Size | Friction Level |
-
-Friction Levels:
-
-* Localized (≤2 subsystems)
-* Moderate (3–4 subsystems)
-* High (5+ subsystems)
-* Surgical cross-system change required
-
----
-
-# STEP 5 — Amplification Hotspots
-
-Identify patterns where:
-
-* Adding enum variant requires executor + planner + cursor + recovery changes.
-* Adding invariant requires edits in multiple layers.
-* Adding index behavior requires both planner and store changes.
-* Cursor logic is tightly bound to plan structure.
+Map feature axes to subsystems, then compute deterministic multiplier.
 
 Produce:
 
-| Amplification Source | Why It Multiplies Change | Risk |
+| Feature Axis | Planner | Executor | Cursor | Index | Recovery | Subsystem Count |
+| ---- | ---- | ---- | ---- | ---- | ---- | ----: |
+
+`subsystem_count = number of checked cells`
+
+Then summarize:
+
+| Candidate Feature | Axes Involved | Subsystem Count | Friction |
+| ---- | ---- | ----: | ---- |
 
 ---
 
-# STEP 6 — Predictive Structural Stress Points
+# STEP 5 — Enum Shock Radius (Density-Adjusted)
 
-Answer:
-
-Which subsystems are most likely to:
-
-* Slow future iteration?
-* Accumulate branching pressure?
-* Become coordination hubs?
+Track enum expansion velocity impact.
 
 Produce:
 
-| Subsystem | Stress Vector | Risk Level |
+| Enum | Variants | Switch Sites | Modules Using Enum | Switch Density | Subsystems | Shock Radius | Risk |
+| ---- | ----: | ----: | ----: | ----: | ----: | ----: | ---- |
+
+Definitions:
+
+* `switch_density = switch_sites / modules_using_enum`
+* `shock_radius = variants × switch_density × subsystems`
+
+Flag:
+
+* high shock-radius enums with upward trend.
 
 ---
 
-# STEP 7 — Velocity Risk Table
+# STEP 6 — Edit Blast Radius (Empirical)
+
+Use feature slices in the current audit window (or PR history when available).
 
 Produce:
 
-| Risk Area | Why It Slows Work | Amplification Factor | Severity | Containment Strategy (High-Level Only) |
+| Metric | Current | Previous | Delta |
+| ---- | ----: | ----: | ----: |
+| average files touched per feature slice |  |  |  |
+| median files touched |  |  |  |
+| p95 files touched |  |  |  |
 
-Containment Strategy must be high-level.
-No redesign proposals.
-No refactors unless structural drag is severe.
+If PR-level history is unavailable locally, compute from audited feature slices and mark as `slice-sampled`.
 
 ---
 
-# STEP 8 — Drift Sensitivity Index
+# STEP 7 — Subsystem Independence Score (Size-Adjusted)
 
-Assess how sensitive velocity is to:
-
-* AccessPath growth
-* Error variant growth
-* Recovery evolution
-* Cursor complexity
-* Index type expansion
+Measure subsystem self-sufficiency with small-module noise suppression.
 
 Produce:
 
-| Growth Vector | Drift Sensitivity | Risk |
+| Subsystem | Internal Imports | External Imports | LOC | Independence | Adjusted Independence | Risk |
+| ---- | ----: | ----: | ----: | ----: | ----: | ---- |
+
+Definitions:
+
+* `independence = internal / (internal + external)`
+* `adjusted_independence = independence × log(module_loc)`
+
+Low adjusted independence means feature work is coupling-driven in materially sized subsystems.
+
+---
+
+# STEP 8 — Decision-Axis Growth (Independence-Aware)
+
+Track axis growth for core operations.
+
+Produce:
+
+| Operation | Axes | Axis Count | Independent Axes | Previous Independent Axes | Delta | Risk |
+| ---- | ---- | ----: | ----: | ----: | ----: | ---- |
+
+Risk should be driven by `independent_axes`, not raw axis count.
+
+---
+
+# STEP 9 — Decision Surface Size
+
+Track where behavior is actually decided for key enums.
+
+Produce:
+
+| Enum | Decision Sites | Previous | Delta | Risk |
+| ---- | ----: | ----: | ----: | ---- |
+
+`decision_sites = match/if decision points over that enum`
+
+This is an early warning for branch growth before variant growth.
+
+---
+
+# STEP 10 — Refactor Noise Filter
+
+Before finalizing risk, classify transient spikes.
+
+Rules:
+
+* If module split increases file count but reduces fan-in, mark `structural improvement`.
+* If change surface grows while revised CAF and shock radius are flat/down, mark `refactor transient`.
+
+Produce:
+
+| Signal | Raw Trend | Noise Classification | Adjusted Interpretation |
+| ---- | ---- | ---- | ---- |
+
+---
+
+# STEP 11 — Velocity Risk Index (Semi-Mechanical)
+
+Score each bucket (1–10), then apply weighted aggregate:
+
+* enum shock radius ×3
+* CAF trend ×2
+* cross-layer leakage ×2
+* gravity-well growth ×2
+* edit blast radius ×1
+
+Produce:
+
+| Area | Score | Weight | Weighted Score |
+| ---- | ----: | ----: | ----: |
+
+`overall_index = weighted_sum / weight_sum`
+
+Interpretation:
+
+* 1–3 = Low risk / structurally healthy
+* 4–6 = Moderate risk / manageable pressure
+* 7–8 = High risk / requires monitoring
+* 9–10 = Critical risk / structural instability
 
 ---
 
 # Final Output
 
 1. Velocity Risk Index (1–10, lower is better)
-
-Interpretation:
-1–3  = Low risk / structurally healthy
-4–6  = Moderate risk / manageable pressure
-7–8  = High risk / requires monitoring
-9–10 = Critical risk / structural instability
-
-2. Architectural Drag Sources
-3. Layer Leakage Findings
-4. Gravity Wells
-5. Feature Friction Map
-6. Change Amplification Summary
+2. Revised CAF + ELS + Containment summary
+3. Boundary Leakage Trend Table
+4. Gravity-Well Growth + Edit Frequency Table
+5. Density-Adjusted Enum Shock Radius Hotspots
+6. Edit Blast Radius Summary
+7. Size-Adjusted Subsystem Independence Scores
+8. Independent-Axis Growth Warnings
+9. Decision Surface Size Trends
+10. Refactor-Transient vs True-Drag Findings
 
 ---
 
@@ -261,14 +309,14 @@ Interpretation:
 
 Do NOT say:
 
-* “Seems modular”
-* “Looks maintainable”
-* “Separation is clear”
+* "Seems modular"
+* "Looks maintainable"
+* "Separation is clear"
 
 Every claim must include:
 
 * Subsystems involved
-* Branch count or dependency count
+* Layer count or dependency count
 * Change multiplier estimate
 * Growth vector
 
@@ -276,12 +324,6 @@ Every claim must include:
 
 # Why This Audit Matters
 
-Complexity audits measure entropy.
-Invariant audits measure safety.
-Recovery audits measure correctness symmetry.
+Velocity audits measure whether the system still bends without breaking when features are added.
 
-Velocity audits measure:
-
-> Whether the system still bends without breaking when features are added.
-
-That’s architectural longevity.
+That is architectural longevity.

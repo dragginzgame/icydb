@@ -200,7 +200,7 @@ pub(in crate::db::executor) fn derive_aggregate_execution_policy<E>(
 where
     E: EntityKind,
 {
-    let access_class = plan.to_executable().class();
+    let access_class = plan.access_strategy().class();
     let field_min_fast_path = assess_field_extrema_fast_path_eligibility::<E>(
         plan,
         direction,
@@ -298,7 +298,7 @@ where
         };
     }
 
-    let access_class = plan.to_executable().class();
+    let access_class = plan.access_strategy().class();
     if access_class.composite() {
         return AggregateFieldExtremaEligibility {
             eligible: false,
@@ -348,7 +348,7 @@ fn field_extrema_target_has_matching_index<E>(
 where
     E: EntityKind,
 {
-    let access_class = plan.to_executable().class();
+    let access_class = plan.access_strategy().class();
     if !access_class.single_path() {
         return false;
     }

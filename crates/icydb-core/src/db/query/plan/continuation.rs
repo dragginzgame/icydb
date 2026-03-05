@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        access::{AccessPlan, lower_executable_access_plan},
+        access::AccessPlan,
         cursor::{
             ContinuationSignature, CursorPlanError, CursorValidationOutcome, GroupedPlannedCursor,
             PlannedCursor,
@@ -192,8 +192,7 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
         let access = if self.is_grouped() {
             None
         } else {
-            let executable_access = lower_executable_access_plan(self.access_plan());
-            executable_access.as_path().cloned()
+            self.access_plan().resolve_strategy().as_path().cloned()
         };
 
         crate::db::cursor::validate_cursor_compatibility::<E>(
@@ -254,10 +253,8 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
             ));
         }
 
-        let executable_access = lower_executable_access_plan(self.access_plan());
-
         crate::db::cursor::revalidate_cursor::<E>(
-            executable_access.as_path().cloned(),
+            self.access_plan().resolve_strategy().as_path().cloned(),
             self.order_contract.order_spec(),
             self.order_contract.direction(),
             self.expected_initial_offset(),

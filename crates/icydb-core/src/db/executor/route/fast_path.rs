@@ -5,7 +5,6 @@
 
 use crate::{
     db::{
-        access::lower_executable_access_plan,
         executor::derive_access_path_capabilities,
         executor::{ExecutionPreparation, aggregate::AggregateKind, load::LoadExecutor},
         index::{IndexCompilePolicy, compile_index_program},
@@ -57,8 +56,8 @@ where
             return false;
         }
 
-        let executable = lower_executable_access_plan(&plan.access);
-        let supports_pk_stream_access = executable
+        let access_strategy = plan.access_strategy();
+        let supports_pk_stream_access = access_strategy
             .as_path()
             .is_some_and(supports_pk_stream_access_executable_path);
         if !supports_pk_stream_access {
@@ -76,8 +75,8 @@ where
     pub(in crate::db::executor) fn verify_pk_stream_fast_path_access(
         plan: &AccessPlannedQuery<E::Key>,
     ) -> Result<(), InternalError> {
-        let executable = lower_executable_access_plan(&plan.access);
-        let access_class = executable.class();
+        let access_strategy = plan.access_strategy();
+        let access_class = access_strategy.class();
         if !access_class.single_path() {
             return Err(invariant(
                 "pk stream fast-path requires direct access-path execution",
@@ -89,7 +88,7 @@ where
             ));
         }
 
-        let access = executable.as_path().ok_or_else(|| {
+        let access = access_strategy.as_path().ok_or_else(|| {
             invariant("pk stream fast-path requires direct access-path execution")
         })?;
         debug_assert_eq!(

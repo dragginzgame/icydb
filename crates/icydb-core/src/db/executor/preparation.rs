@@ -43,8 +43,8 @@ impl ExecutionPreparation {
             .map(PredicateProgram::compile::<E>);
 
         // Phase 2: Resolve access-path slot mapping used by index predicate compilation.
-        let executable_access = plan.to_executable();
-        let slot_map = resolved_index_slots_for_access_path::<E>(&executable_access);
+        let access_strategy = plan.access_strategy();
+        let slot_map = resolved_index_slots_for_access_path::<E>(access_strategy.executable());
 
         // Phase 3: Build strict index predicate program only when both inputs exist.
         let strict_mode = match (compiled_predicate.as_ref(), slot_map.as_deref()) {

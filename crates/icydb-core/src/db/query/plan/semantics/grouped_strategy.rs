@@ -1,5 +1,5 @@
 use crate::db::{
-    access::{AccessPlan, lower_executable_access_plan},
+    access::AccessPlan,
     query::plan::{AccessPlannedQuery, FieldSlot, GroupAggregateSpec, OrderSpec},
 };
 
@@ -77,7 +77,7 @@ fn grouped_access_path_proves_group_order<K>(
 ) -> bool {
     // Derive grouped-order evidence from the normalized executable access contract so
     // planner strategy hints do not branch on raw AccessPath variants directly.
-    let executable = lower_executable_access_plan(access);
+    let executable = access.resolve_strategy();
     let Some(path) = executable.as_path() else {
         return false;
     };

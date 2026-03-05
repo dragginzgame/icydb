@@ -12,8 +12,6 @@ It is NOT a redesign proposal exercise.
 
 Only evaluate conceptual complexity growth.
 
-If structural risk is extreme, you may mark it — but do not propose redesign unless necessary.
-
 ---
 
 # Hard Constraints
@@ -39,7 +37,27 @@ Assume this audit runs weekly and results are diffed.
 
 ---
 
-# STEP 1 — Variant Surface Growth
+# STEP 0 — Baseline Capture (Mandatory)
+
+Capture previous-run values before computing current metrics.
+
+Produce:
+
+| Metric | Previous | Current | Delta |
+| ---- | ----: | ----: | ----: |
+| Total runtime files in scope |  |  |  |
+| Runtime LOC |  |  |  |
+| Files >= 600 LOC |  |  |  |
+| Continuation mentions |  |  |  |
+| Continuation decision owners |  |  |  |
+| Continuation execution consumers |  |  |  |
+| Continuation plumbing modules |  |  |  |
+
+If previous values are unavailable, mark `N/A` and treat this run as baseline.
+
+---
+
+# STEP 1 — Variant Surface Growth + Branch Multiplier
 
 Quantify the following:
 
@@ -56,171 +74,200 @@ Quantify the following:
 
 For each:
 
-| Enum | Variant Count | Domain Scope | Mixed Domains? | Growth Risk |
+| Enum | Variants | Switch Sites | Branch Multiplier | Domain Scope | Mixed Domains? | Growth Risk |
+| ---- | ----: | ----: | ----: | ---- | ---- | ---- |
+
+Definitions:
+
+* `switch_sites` = number of distinct match/switch callsites over that enum in runtime scope.
+* `branch_multiplier` = `variants × switch_sites`.
 
 Flag:
 
-1. Enums that:
-
-   * Mix planning + execution + storage concerns.
-   * Mix policy + invariant + internal failures.
-2. Variants that:
-
-   * Duplicate semantic meaning under different names.
-   * Exist only to wrap other variants.
-3. Enums that are >8–10 variants and still growing.
-
-Identify the fastest-growing enum families.
+* `branch_multiplier` trend up week-over-week.
+* Enums >8 variants and still growing.
+* Enums mixing planning + execution + storage semantics.
 
 ---
 
-# STEP 2 — Execution Branching Pressure
+# STEP 2 — Execution Branching Pressure (Trend-Based)
 
-Identify high-branch-density functions:
-
-Flag functions with:
-
-* > 3 nested `match`
-* > 3 nested conditional layers
-* > 5 invariant guard returns
-* Match-on-enum followed by inner match on another enum
-* Plan-type branching inside executor
+Identify high-branch-density functions and compare against previous run.
 
 For each hotspot:
 
-| Function | Module | Branch Layers | Match Depth | Semantic Domains Mixed | Risk |
+| Function | Module | Branch Layers | Match Depth | Previous Branch Layers | Delta | Domains Mixed | Risk |
+| ---- | ---- | ----: | ----: | ----: | ----: | ----: | ---- |
 
-Also detect:
+Also detect axis coupling in each function:
 
-* Branching that depends on:
-
-  * AccessPath variant
-  * Predicate type
-  * Cursor presence
-  * Plan shape
-  * Unique vs non-unique index
-  * Recovery mode
-
-Flag if:
-
-* A single function handles >3 conceptual domains.
-* Branching grows proportionally with enum expansion.
-
----
-
-# STEP 3 — Execution Path Multiplicity
-
-Count independent execution flows for:
-
-* Save
-* Replace
-* Delete
-* Load
-* Recovery replay
-* Cursor continuation
-* Index mutation
-* Referential integrity enforcement
-
-Define “independent flow” as:
-
-A distinct logical sequence that cannot share the same invariant stack.
-
-Produce:
-
-| Operation | Independent Flows | Shared Core? | Subtle Divergence? | Risk |
+* Access path type
+* Predicate type
+* Cursor presence
+* Plan shape
+* Index uniqueness
+* Recovery mode
 
 Flag:
 
-* Flows that re-implement similar guard logic.
-* Flows that vary only slightly in ordering of steps.
-* Flows that require mental simulation of >3 branching axes.
-
-If total flow count per operation exceeds 4, mark as pressure.
+* Any function with `domains_mixed > 3`.
+* Positive weekly branch-layer growth.
+* Functions where enum growth directly increased branch layers.
 
 ---
 
-# STEP 4 — Cross-Cutting Concern Spread
+# STEP 3 — Execution Path Multiplicity (Effective Flows)
 
-For each concept, count modules implementing it:
+For each core operation (`save`, `replace`, `delete`, `load`, `recovery replay`, `cursor continuation`, `index mutation`), compute flow count via decision axes.
 
-* Index id validation
-* Key namespace validation
-* Component arity enforcement
+Use this model:
+
+1. `theoretical_space = Π(axis cardinalities)`
+2. Apply contract constraints and remove illegal combinations.
+3. `effective_flows = sum(valid combinations)`
+
+Required axis set (add/remove only with explicit note):
+
+* operation type
+* access path type
+* cursor presence
+* recovery mode
+* index uniqueness
+* ordering mode
+
+Produce:
+
+| Operation | Axes Used | Axis Cardinalities | Theoretical Space | Effective Flows | Previous Effective Flows | Delta | Shared Core? | Risk |
+| ---- | ---- | ---- | ----: | ----: | ----: | ----: | ---- | ---- |
+
+Flag:
+
+* `effective_flows > 4` (pressure)
+* `axis_count >= 4` (multiplication onset)
+* growth in effective flows without equivalent owner consolidation
+
+---
+
+# STEP 4 — Cross-Cutting Concern Spread (Authority vs Plumbing)
+
+For each concept, classify usage by ownership and layer.
+
+Target concepts:
+
+* Continuation / cursor anchor semantics
 * Envelope boundary checks
-* Reverse relation mutation
-* Unique constraint enforcement
-* Error origin mapping
-* Plan shape enforcement
-* Anchor validation
 * Bound conversions
+* Plan shape enforcement
+* Error origin mapping
+* Index id / namespace validation
 
 Produce:
 
-| Concept | Modules Involved | Centralized? | Risk |
+| Concept | Decision Owners | Execution Consumers | Plumbing Modules | Total Modules | Semantic Layers | Transport Layers | Risk |
+| ---- | ----: | ----: | ----: | ----: | ---- | ---- | ---- |
 
-Flag if:
+Definitions:
 
-* Appears in >4 modules.
-* Implemented with slight variation.
-* Requires mental linking across layers.
+* `decision owners` = modules that define protocol rules/policies.
+* `execution consumers` = modules that branch on concept state to execute behavior.
+* `plumbing modules` = DTO/transport/projection modules that only carry values.
 
-This measures scattering, not duplication.
+Risk should be driven by `decision owners` and `semantic layers`, not raw mention totals.
+
+Flag:
+
+* `semantic_layer_count >= 3` (architectural leakage).
+* semantic owner growth without explicit boundary consolidation.
 
 ---
 
-# STEP 5 — Cognitive Load Indicators
+# STEP 5 — Cognitive Load Indicators (Hub + Call Depth)
 
-Detect signals of rising mental stack depth:
+Compute structural mental-load signals:
 
-1. Functions >80–100 logical lines.
-2. Test files >3k lines.
-3. Repeated invariant check patterns across files.
-4. Repeated formatted error strings across modules.
-5. Multi-stage validation logic duplicated in different layers.
-6. Deep call stacks that mix 3+ conceptual domains.
+1. Functions > 80–100 logical lines.
+2. Deep core-operation call depth.
+3. Hub pressure modules.
+
+Hub pressure definition:
+
+* `LOC > 600` AND `domain_count >= 3`
+
+Domain count categories:
+
+* cursor/continuation
+* access/index
+* predicate/filter
+* query/plan
+* storage/commit
 
 Produce:
 
-| Area | Indicator Type | Severity | Risk |
+| Module/Operation | LOC or Call Depth | Domain Count | Previous | Delta | Risk |
+| ---- | ----: | ----: | ----: | ----: | ---- |
 
-Flag if:
+Flag:
 
-* A developer must hold >4 invariants simultaneously in a single function.
-* A single change would require edits in >4 modules.
-
----
-
-# STEP 6 — Drift Sensitivity Index
-
-Identify areas where:
-
-* Enum growth directly increases branching.
-* Adding a new AccessPath variant would multiply logic.
-* Adding DESC would multiply branches.
-* Adding composite paths would double flow count.
-
-For each:
-
-| Area | Growth Vector | Drift Sensitivity | Risk |
+* `call_depth > 6` for core operations.
+* rising hub pressure across consecutive runs.
 
 ---
 
-# STEP 7 — Complexity Risk Index
+# STEP 6 — Drift Sensitivity (Axis Count)
 
-Provide:
+Quantify areas where growth vectors multiply structural cost.
 
-| Area | Complexity Type | Accretion Rate | Risk Level |
-| ---- | --------------- | -------------- | ---------- |
+Produce:
 
-Then compute:
+| Area | Decision Axes | Axis Count | Branch Multiplier | Drift Sensitivity | Risk |
+| ---- | ---- | ----: | ----: | ---- | ---- |
 
-### Overall Complexity Risk Index (1–10, lower is better)
+Flag:
+
+* `axis_count >= 4`
+* branch multiplier growth tied to new variants
+
+---
+
+# STEP 7 — Complexity Risk Index (Semi-Mechanical)
+
+Score each bucket 1–10, then compute weighted aggregate:
+
+* variant explosion risk ×2
+* branching pressure trend ×2
+* flow multiplicity ×2
+* cross-layer spread ×3
+* hub pressure + call depth ×2
+
+Produce:
+
+| Area | Score (1-10) | Weight | Weighted Score |
+| ---- | ----: | ----: | ----: |
+
+`overall_index = weighted_sum / weight_sum`
 
 Interpretation:
-1–3  = Low risk / structurally healthy
-4–6  = Moderate risk / manageable pressure
-7–8  = High risk / requires monitoring
-9–10 = Critical risk / structural instability
+
+* 1–3 = Low risk / structurally healthy
+* 4–6 = Moderate risk / manageable pressure
+* 7–8 = High risk / requires monitoring
+* 9–10 = Critical risk / structural instability
+
+---
+
+# STEP 8 — Refactor Noise Filter
+
+Before finalizing risk, apply this filter:
+
+* If concept mentions increase **and** decision owners decrease/hold,
+  mark as `refactor transient`.
+* If file count increases due module split **and** hub pressure decreases,
+  mark as `structural improvement`.
+
+Produce:
+
+| Signal | Raw Trend | Noise Filter Result | Adjusted Interpretation |
+| ---- | ---- | ---- | ---- |
 
 ---
 
@@ -228,11 +275,11 @@ Interpretation:
 
 1. Overall Complexity Risk Index
 2. Fastest Growing Concept Families
-3. Variant Explosion Risks
-4. Branching Hotspots
-5. Flow Multiplication Risks
-6. Cross-Cutting Spread Risks
-7. Early Structural Pressure Signals (only if high risk)
+3. Highest Branch Multipliers
+4. Flow Multiplication Risks (axis-based)
+5. Cross-Layer Spread Risks (owner vs plumbing aware)
+6. Hub Pressure + Call-Depth Warnings
+7. Refactor-Transient vs True-Entropy Findings
 
 ---
 
@@ -240,7 +287,7 @@ Interpretation:
 
 Do NOT:
 
-* Say “code looks clean”
+* Say "code looks clean"
 * Give generic statements
 * Provide unquantified claims
 * Comment on naming
@@ -252,7 +299,7 @@ Every claim must reference:
 * Count
 * Structural pattern
 * Growth vector
-* Branch multiplication factor
+* Branch multiplier or axis product
 
 ---
 
@@ -260,9 +307,9 @@ Every claim must reference:
 
 Detect:
 
-* Variant explosion before it becomes branching explosion.
-* Flow duplication before it becomes semantic divergence.
-* Concept scattering before it becomes drift.
-* Cognitive load before it becomes fragility.
+* Variant explosion before branching explosion
+* Flow multiplication before semantic divergence
+* Concept leakage before cross-layer drift
+* Cognitive load growth before fragility
 
 This audit measures structural entropy, not quality.

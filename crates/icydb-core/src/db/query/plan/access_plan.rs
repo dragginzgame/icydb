@@ -6,7 +6,7 @@
 #[cfg(test)]
 use crate::db::access::AccessPath;
 use crate::db::{
-    access::{AccessPlan, ExecutableAccessPlan, lower_executable_access_plan},
+    access::{AccessPlan, AccessStrategy},
     query::plan::{GroupHavingSpec, GroupPlan, GroupSpec, LogicalPlan},
 };
 #[cfg(test)]
@@ -72,8 +72,8 @@ impl<K> AccessPlannedQuery<K> {
 
     /// Lower the chosen access plan into an access-owned normalized contract.
     #[must_use]
-    pub(in crate::db) fn to_executable(&self) -> ExecutableAccessPlan<'_, K> {
-        lower_executable_access_plan(&self.access)
+    pub(in crate::db) fn access_strategy(&self) -> AccessStrategy<'_, K> {
+        self.access.resolve_strategy()
     }
 
     /// Construct a minimal access-planned query with only an access path.
