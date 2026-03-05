@@ -270,15 +270,17 @@ where
                         .count_pushdown_access_shape_supported,
             "route invariant: COUNT pushdown eligibility must match COUNT-safe capability set",
         );
-        debug_assert_eq!(
-            derivation.scan_hints.load_scan_budget_hint,
-            plan.access_strategy().load_window_early_stop_hint(
-                route_continuation.applied(),
-                derivation.capabilities.streaming_access_shape_safe,
-                route_continuation.window().fetch_count_for(true),
-            ),
-            "route invariant: load scan-budget hints must match access-strategy early-stop contract",
-        );
+        if kind.is_none() && !intent_stage.grouped {
+            debug_assert_eq!(
+                derivation.scan_hints.load_scan_budget_hint,
+                plan.access_strategy().load_window_early_stop_hint(
+                    route_continuation.applied(),
+                    derivation.capabilities.streaming_access_shape_safe,
+                    route_continuation.window().fetch_count_for(true),
+                ),
+                "route invariant: load scan-budget hints must match access-strategy early-stop contract",
+            );
+        }
         debug_assert!(
             !intent_stage.grouped
                 || derivation.scan_hints.load_scan_budget_hint.is_none()

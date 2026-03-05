@@ -57,21 +57,23 @@ fn load_limit_without_cursor_applies_scan_budget_across_primary_access_shapes() 
     let load = LoadExecutor::<SimpleEntity>::new(DB, true);
 
     // Phase 1: ByKey shape still respects page limiting without cursor state.
-    let by_key_id = Ulid::from_u128(41_003);
-    let by_key_plan = build_scalar_limit_plan(AccessPlan::path(AccessPath::ByKey(by_key_id)), 1, 0);
-    let (by_key_ids, by_key_scanned) = execute_page_ids_and_keys_scanned(&load, by_key_plan);
+    let single_lookup_id = Ulid::from_u128(41_003);
+    let single_lookup_plan =
+        build_scalar_limit_plan(AccessPlan::path(AccessPath::ByKey(single_lookup_id)), 1, 0);
+    let (single_lookup_ids, single_lookup_scanned) =
+        execute_page_ids_and_keys_scanned(&load, single_lookup_plan);
     assert_eq!(
-        by_key_ids,
-        vec![by_key_id],
+        single_lookup_ids,
+        vec![single_lookup_id],
         "ByKey should return the selected id"
     );
     assert!(
-        by_key_scanned <= 2,
-        "ByKey limit window should keep scan budget bounded (keys_scanned={by_key_scanned})",
+        single_lookup_scanned <= 2,
+        "ByKey limit window should keep scan budget bounded (keys_scanned={single_lookup_scanned})",
     );
 
     // Phase 2: ByKeys shape should stop after offset+limit(+1) candidate keys.
-    let by_keys_plan = build_scalar_limit_plan(
+    let multi_lookup_plan = build_scalar_limit_plan(
         AccessPlan::path(AccessPath::ByKeys(vec![
             Ulid::from_u128(41_006),
             Ulid::from_u128(41_002),
@@ -82,19 +84,20 @@ fn load_limit_without_cursor_applies_scan_budget_across_primary_access_shapes() 
         2,
         1,
     );
-    let (by_keys_ids, by_keys_scanned) = execute_page_ids_and_keys_scanned(&load, by_keys_plan);
+    let (multi_lookup_ids, multi_lookup_scanned) =
+        execute_page_ids_and_keys_scanned(&load, multi_lookup_plan);
     assert_eq!(
-        by_keys_ids,
+        multi_lookup_ids,
         vec![Ulid::from_u128(41_002), Ulid::from_u128(41_004)],
         "ByKeys pagination should preserve canonical ordered offset/limit rows",
     );
     assert!(
-        by_keys_scanned <= 4,
-        "ByKeys limit window should cap scanned keys at offset+limit+1 (keys_scanned={by_keys_scanned})",
+        multi_lookup_scanned <= 4,
+        "ByKeys limit window should cap scanned keys at offset+limit+1 (keys_scanned={multi_lookup_scanned})",
     );
 
     // Phase 3: KeyRange shape should apply the same no-cursor limit budget.
-    let key_range_plan = build_scalar_limit_plan(
+    let range_scan_plan = build_scalar_limit_plan(
         AccessPlan::path(AccessPath::KeyRange {
             start: Ulid::from_u128(41_002),
             end: Ulid::from_u128(41_005),
@@ -102,29 +105,30 @@ fn load_limit_without_cursor_applies_scan_budget_across_primary_access_shapes() 
         2,
         1,
     );
-    let (key_range_ids, key_range_scanned) =
-        execute_page_ids_and_keys_scanned(&load, key_range_plan);
+    let (range_scan_ids, range_scan_scanned) =
+        execute_page_ids_and_keys_scanned(&load, range_scan_plan);
     assert_eq!(
-        key_range_ids,
+        range_scan_ids,
         vec![Ulid::from_u128(41_003), Ulid::from_u128(41_004)],
         "KeyRange pagination should preserve canonical ordered offset/limit rows",
     );
     assert!(
-        key_range_scanned <= 4,
-        "KeyRange limit window should cap scanned keys at offset+limit+1 (keys_scanned={key_range_scanned})",
+        range_scan_scanned <= 4,
+        "KeyRange limit window should cap scanned keys at offset+limit+1 (keys_scanned={range_scan_scanned})",
     );
 
     // Phase 4: FullScan shape should also honor the no-cursor limit budget.
-    let full_scan_plan = build_scalar_limit_plan(AccessPlan::path(AccessPath::FullScan), 2, 1);
-    let (full_scan_ids, full_scan_scanned) =
-        execute_page_ids_and_keys_scanned(&load, full_scan_plan);
+    let full_scan_window_plan =
+        build_scalar_limit_plan(AccessPlan::path(AccessPath::FullScan), 2, 1);
+    let (full_scan_window_ids, full_scan_window_scanned) =
+        execute_page_ids_and_keys_scanned(&load, full_scan_window_plan);
     assert_eq!(
-        full_scan_ids,
+        full_scan_window_ids,
         vec![Ulid::from_u128(41_002), Ulid::from_u128(41_003)],
         "FullScan pagination should preserve canonical ordered offset/limit rows",
     );
     assert!(
-        full_scan_scanned >= full_scan_ids.len(),
-        "FullScan tracing should report at least the emitted row count (keys_scanned={full_scan_scanned})",
+        full_scan_window_scanned >= full_scan_window_ids.len(),
+        "FullScan tracing should report at least the emitted row count (keys_scanned={full_scan_window_scanned})",
     );
 }
