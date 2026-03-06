@@ -243,7 +243,10 @@ fn aggregate_field_target_top_k_by_direction_invariance_across_forced_access_sha
             .map(crate::db::executor::ExecutablePlan::from)
             .expect("top_k_by full-scan direction-invariance plan should build");
         assert!(
-            matches!(plan.explain().access, ExplainAccessPath::FullScan),
+            matches!(
+                execution_root_node_type(&plan),
+                ExplainExecutionNodeType::FullScan
+            ),
             "top_k_by full-scan direction invariance test must force FullScan"
         );
 
@@ -283,7 +286,10 @@ fn aggregate_field_target_top_k_by_direction_invariance_across_forced_access_sha
             .map(crate::db::executor::ExecutablePlan::from)
             .expect("top_k_by index-range direction-invariance plan should build");
         assert!(
-            matches!(plan.explain().access, ExplainAccessPath::IndexRange { .. }),
+            matches!(
+                execution_root_node_type(&plan),
+                ExplainExecutionNodeType::IndexRangeScan
+            ),
             "top_k_by index-range direction invariance test must force IndexRange"
         );
 

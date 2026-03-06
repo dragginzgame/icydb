@@ -16,7 +16,7 @@ use crate::{
             ExecutablePlan, ExecutionKernel, aggregate::AggregateKind, route::ExecutionMode,
         },
         query::{
-            explain::ExplainAccessPath,
+            explain::ExplainExecutionNodeType,
             plan::{AccessPlannedQuery, FieldSlot, OrderDirection, OrderSpec, PageSpec},
         },
         response::EntityResponse,
@@ -776,17 +776,20 @@ fn id_in_predicate(ids: &[u128]) -> Predicate {
     ))
 }
 
-fn explain_access_supports_count_pushdown(access: &ExplainAccessPath) -> bool {
-    match access {
-        ExplainAccessPath::FullScan | ExplainAccessPath::KeyRange { .. } => true,
-        ExplainAccessPath::Union(_)
-        | ExplainAccessPath::Intersection(_)
-        | ExplainAccessPath::ByKey { .. }
-        | ExplainAccessPath::ByKeys { .. }
-        | ExplainAccessPath::IndexPrefix { .. }
-        | ExplainAccessPath::IndexMultiLookup { .. }
-        | ExplainAccessPath::IndexRange { .. } => false,
-    }
+fn execution_root_node_type<E>(plan: &ExecutablePlan<E>) -> ExplainExecutionNodeType
+where
+    E: EntityKind<Canister = TestCanister> + EntityValue,
+{
+    plan.explain_load_execution_node_descriptor()
+        .expect("execution descriptor root should build for load-mode aggregate test plans")
+        .node_type
+}
+
+fn execution_root_supports_count_pushdown(node_type: ExplainExecutionNodeType) -> bool {
+    matches!(
+        node_type,
+        ExplainExecutionNodeType::FullScan | ExplainExecutionNodeType::PrimaryKeyRangeScan
+    )
 }
 
 fn count_pushdown_contract_eligible<E>(plan: &crate::db::executor::ExecutablePlan<E>) -> bool
@@ -794,7 +797,7 @@ where
     E: EntityKind<Canister = TestCanister> + EntityValue,
 {
     ExecutionKernel::is_streaming_access_shape_safe::<E, _>(plan.as_inner())
-        && explain_access_supports_count_pushdown(&plan.explain().access)
+        && execution_root_supports_count_pushdown(execution_root_node_type(plan))
 }
 
 fn u32_eq_predicate_with_coercion(field: &str, value: u32, coercion: CoercionId) -> Predicate {

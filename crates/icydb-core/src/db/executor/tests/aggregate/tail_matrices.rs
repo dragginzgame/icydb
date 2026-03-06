@@ -288,7 +288,10 @@ fn aggregate_field_target_rank_terminals_forced_shape_execute_oracle_matrix() {
         };
         let full_scan_plan = build_full_scan_plan();
         assert!(
-            matches!(full_scan_plan.explain().access, ExplainAccessPath::FullScan),
+            matches!(
+                execution_root_node_type(&full_scan_plan),
+                ExplainExecutionNodeType::FullScan
+            ),
             "forced-shape FullScan matrix must force FullScan for case={}",
             case.label
         );
@@ -322,8 +325,8 @@ fn aggregate_field_target_rank_terminals_forced_shape_execute_oracle_matrix() {
         let index_range_plan = build_index_range_plan();
         assert!(
             matches!(
-                index_range_plan.explain().access,
-                ExplainAccessPath::IndexRange { .. }
+                execution_root_node_type(&index_range_plan),
+                ExplainExecutionNodeType::IndexRangeScan
             ),
             "forced-shape IndexRange matrix must force IndexRange for case={}",
             case.label
@@ -1127,7 +1130,7 @@ fn aggregate_count_pushdown_contract_matrix_preserves_parity() {
         "residual-filter matrix shape should be streaming-unsafe"
     );
     assert!(
-        explain_access_supports_count_pushdown(&residual_filter_plan.explain().access),
+        execution_root_supports_count_pushdown(execution_root_node_type(&residual_filter_plan)),
         "residual-filter matrix shape should still be access-supported for pushdown paths"
     );
     assert!(
@@ -1182,8 +1185,8 @@ fn aggregate_count_pushdown_contract_matrix_preserves_parity() {
         .expect("composite count matrix plan should build");
     assert!(
         matches!(
-            composite_plan.explain().access,
-            ExplainAccessPath::Union(_) | ExplainAccessPath::Intersection(_)
+            execution_root_node_type(&composite_plan),
+            ExplainExecutionNodeType::Union | ExplainExecutionNodeType::Intersection
         ),
         "composite count matrix shape should compile to a composite access plan"
     );

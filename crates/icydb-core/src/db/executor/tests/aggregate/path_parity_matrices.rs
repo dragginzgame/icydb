@@ -111,8 +111,8 @@ fn assert_composite_terminal_direct_path_scan_does_not_exceed_fallback(
     );
     assert!(
         matches!(
-            direct_plan.explain().access,
-            ExplainAccessPath::Union(_) | ExplainAccessPath::Intersection(_)
+            execution_root_node_type(&direct_plan),
+            ExplainExecutionNodeType::Union | ExplainExecutionNodeType::Intersection
         ),
         "direct {label} shape should compile to a composite access path"
     );
@@ -126,8 +126,8 @@ fn assert_composite_terminal_direct_path_scan_does_not_exceed_fallback(
     );
     assert!(
         matches!(
-            fallback_plan.explain().access,
-            ExplainAccessPath::Union(_) | ExplainAccessPath::Intersection(_)
+            execution_root_node_type(&fallback_plan),
+            ExplainExecutionNodeType::Union | ExplainExecutionNodeType::Intersection
         ),
         "fallback {label} shape should still compile to a composite access path"
     );
