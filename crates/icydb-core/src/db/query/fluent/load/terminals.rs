@@ -125,6 +125,22 @@ where
             .execute_load_query_with(self.query(), |load, plan| load.bytes(plan))
     }
 
+    /// Execute and return the total serialized bytes for `field` over the
+    /// effective result window.
+    pub fn bytes_by(&self, field: impl AsRef<str>) -> Result<u64, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        Self::with_slot(field, |target_slot| {
+            self.session
+                .execute_load_query_with(self.query(), move |load, plan| {
+                    load.bytes_by_slot(plan, target_slot)
+                })
+        })
+    }
+
     /// Execute and return the smallest matching identifier, if any.
     pub fn min(&self) -> Result<Option<Id<E>>, QueryError>
     where

@@ -5,9 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.43.x] - 2026-03-06 - BYTES() and AUDITS
+## [0.43.x] - 2026-03-06 - BYTES and Audits
 
-- The current `0.43.x` line adds scalar load-query `bytes()` so you can measure total persisted payload size for the same filtered/ordered/limited window returned by `execute()`, with saturating accumulation and parity coverage across scan/index/distinct/order windows.
+- `0.43.0` adds scalar load-query `bytes()` so you can measure total persisted payload size for the same filtered/ordered/limited window returned by `execute()`, and starts a dated crosscutting audit cycle for this line.
+- `0.43.1` adds scalar field-size measurement with `BYTES(field)` (`bytes_by("field")`) so you can identify which field dominates storage in a filtered query window.
+
+```rust
+let total_bytes = session.load::<Event>().bytes()?;
+let payload_bytes = session.load::<Event>().bytes_by("payload")?;
+```
 
 See detailed breakdown:
 [docs/changelog/0.43.md](docs/changelog/0.43.md)

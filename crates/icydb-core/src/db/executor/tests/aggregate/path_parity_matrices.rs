@@ -229,6 +229,22 @@ fn assert_distinct_field_terminal_parity(rows: &[(u128, u32, u32)], descending: 
         },
         label,
     );
+
+    assert_bytes_by_parity_for_query(
+        &load,
+        || {
+            let query = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .filter(predicate.clone())
+                .distinct();
+            if descending {
+                query.order_by_desc("id").offset(1).limit(4)
+            } else {
+                query.order_by("id").offset(1).limit(4)
+            }
+        },
+        "rank",
+        label,
+    );
 }
 
 #[test]
@@ -394,6 +410,103 @@ fn aggregate_bytes_path_parity_index_prefix_and_full_scan_equivalent_rows() {
     assert_eq!(
         full_scan_bytes, expected_bytes,
         "forced full-scan bytes total should match canonical query window",
+    );
+}
+
+#[test]
+fn aggregate_bytes_by_path_parity_index_prefix_and_full_scan_equivalent_rows() {
+    seed_pushdown_entities(&[
+        (8_981, 7, 5),
+        (8_982, 7, 10),
+        (8_983, 7, 20),
+        (8_984, 8, 40),
+        (8_985, 7, 30),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let mut index_logical = crate::db::query::plan::AccessPlannedQuery::new(
+        crate::db::access::AccessPath::IndexPrefix {
+            index: PUSHDOWN_PARITY_INDEX_MODELS[0],
+            values: vec![Value::Uint(7)],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    index_logical.scalar_plan_mut().order = Some(crate::db::query::plan::OrderSpec {
+        fields: vec![
+            (
+                "rank".to_string(),
+                crate::db::query::plan::OrderDirection::Asc,
+            ),
+            (
+                "id".to_string(),
+                crate::db::query::plan::OrderDirection::Asc,
+            ),
+        ],
+    });
+    let index_plan =
+        crate::db::executor::ExecutablePlan::<PushdownParityEntity>::new(index_logical);
+
+    let mut full_scan_logical = crate::db::query::plan::AccessPlannedQuery::new(
+        crate::db::access::AccessPath::FullScan,
+        MissingRowPolicy::Ignore,
+    );
+    full_scan_logical.scalar_plan_mut().predicate = Some(u32_eq_predicate("group", 7));
+    full_scan_logical.scalar_plan_mut().order = Some(crate::db::query::plan::OrderSpec {
+        fields: vec![
+            (
+                "rank".to_string(),
+                crate::db::query::plan::OrderDirection::Asc,
+            ),
+            (
+                "id".to_string(),
+                crate::db::query::plan::OrderDirection::Asc,
+            ),
+        ],
+    });
+    let full_scan_plan =
+        crate::db::executor::ExecutablePlan::<PushdownParityEntity>::new(full_scan_logical);
+
+    assert_eq!(
+        execution_root_node_type(&index_plan),
+        ExplainExecutionNodeType::IndexPrefixScan,
+        "group equality filter should route through index-prefix access",
+    );
+    assert_eq!(
+        execution_root_node_type(&full_scan_plan),
+        ExplainExecutionNodeType::FullScan,
+        "non-indexed label IN filter should route through full scan",
+    );
+
+    let index_bytes = load
+        .bytes_by_slot(index_plan, slot(&load, "rank"))
+        .expect("index-prefix bytes_by(rank) terminal should succeed");
+    let full_scan_bytes = load
+        .bytes_by_slot(full_scan_plan, slot(&load, "rank"))
+        .expect("full-scan bytes_by(rank) terminal should succeed");
+
+    assert_eq!(
+        index_bytes, full_scan_bytes,
+        "equivalent index-prefix/full-scan row sets should yield identical bytes_by(rank) totals"
+    );
+
+    let expected_response = load
+        .execute(
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .filter(u32_eq_predicate("group", 7))
+                .order_by("rank")
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("bytes_by expected-baseline plan should build"),
+        )
+        .expect("bytes_by expected-baseline execute should succeed");
+    let expected_bytes = serialized_field_payload_bytes_for_rows(&expected_response, "rank");
+    assert_eq!(
+        index_bytes, expected_bytes,
+        "forced index-prefix bytes_by(rank) total should match canonical query window",
+    );
+    assert_eq!(
+        full_scan_bytes, expected_bytes,
+        "forced full-scan bytes_by(rank) total should match canonical query window",
     );
 }
 

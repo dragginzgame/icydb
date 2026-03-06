@@ -100,6 +100,34 @@ where
     total
 }
 
+fn serialized_field_payload_bytes_for_rows<E>(response: &EntityResponse<E>, field: &str) -> u64
+where
+    E: EntityKind + EntityValue,
+{
+    let field_slot = FieldSlot::resolve(E::MODEL, field)
+        .unwrap_or_else(|| panic!("serialized-field-bytes field should resolve: {field}"));
+    let field_index = field_slot.index();
+    let mut total = 0u64;
+
+    for row in response {
+        let value = row
+            .entity_ref()
+            .get_value_by_index(field_index)
+            .unwrap_or_else(|| {
+                panic!(
+                    "serialized-field-bytes field should exist on row: field={} index={field_index}",
+                    field_slot.field()
+                )
+            });
+        let encoded = crate::serialize::serialize(&value)
+            .expect("serialized-field-bytes value encoding should succeed");
+        let encoded_len = u64::try_from(encoded.len()).unwrap_or(u64::MAX);
+        total = total.saturating_add(encoded_len);
+    }
+
+    total
+}
+
 fn seed_simple_entities(ids: &[u128]) {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
@@ -816,6 +844,40 @@ fn assert_bytes_parity_for_query<E>(
     assert_eq!(
         actual_bytes, expected_bytes,
         "{context}: bytes parity failed"
+    );
+}
+
+fn assert_bytes_by_parity_for_query<E>(
+    load: &LoadExecutor<E>,
+    make_query: impl Fn() -> Query<E>,
+    field: &str,
+    context: &str,
+) where
+    E: EntityKind<Canister = TestCanister> + EntityValue,
+{
+    let expected_response = load
+        .execute(
+            make_query()
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("baseline materialized plan should build"),
+        )
+        .expect("baseline materialized execution should succeed");
+    let expected_bytes = serialized_field_payload_bytes_for_rows(&expected_response, field);
+
+    let actual_bytes = load
+        .bytes_by_slot(
+            make_query()
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("bytes_by terminal plan should build"),
+            field_slot_for_test::<E>(field),
+        )
+        .expect("bytes_by terminal should succeed");
+
+    assert_eq!(
+        actual_bytes, expected_bytes,
+        "{context}: bytes_by({field}) parity failed"
     );
 }
 

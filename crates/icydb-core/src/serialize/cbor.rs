@@ -1,7 +1,39 @@
 use crate::serialize::SerializeError;
 use serde::{Serialize, de::DeserializeOwned};
-use serde_cbor::{from_slice, to_vec};
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use serde_cbor::{from_slice, to_vec, to_writer};
+use std::{
+    io,
+    panic::{AssertUnwindSafe, catch_unwind},
+};
+
+///
+/// ByteCountWriter
+///
+/// Minimal `io::Write` sink that counts emitted bytes without allocation.
+///
+
+#[derive(Default)]
+struct ByteCountWriter {
+    len: usize,
+}
+
+impl ByteCountWriter {
+    #[must_use]
+    const fn into_len(self) -> usize {
+        self.len
+    }
+}
+
+impl io::Write for ByteCountWriter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.len = self.len.saturating_add(buf.len());
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
 
 /// Serialize a value into CBOR bytes.
 pub(super) fn serialize<T>(t: &T) -> Result<Vec<u8>, SerializeError>
@@ -9,6 +41,17 @@ where
     T: Serialize,
 {
     to_vec(t).map_err(|e| SerializeError::Serialize(e.to_string()))
+}
+
+/// Serialize a value to CBOR and return encoded byte length without allocating.
+pub(super) fn serialize_len<T>(t: &T) -> Result<usize, SerializeError>
+where
+    T: Serialize,
+{
+    let mut writer = ByteCountWriter::default();
+    to_writer(&mut writer, t).map_err(|e| SerializeError::Serialize(e.to_string()))?;
+
+    Ok(writer.into_len())
 }
 
 /// Deserialize CBOR bytes into a value without a size limit.

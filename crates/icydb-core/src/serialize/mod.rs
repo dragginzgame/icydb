@@ -81,6 +81,15 @@ where
     cbor::serialize(ty)
 }
 
+/// Return serialized byte length using the default `canic` serializer without
+/// allocating an output buffer.
+pub fn serialized_len<T>(ty: &T) -> Result<usize, SerializeError>
+where
+    T: Serialize,
+{
+    cbor::serialize_len(ty)
+}
+
 /// Deserialize a value produced by [`serialize`].
 pub fn deserialize<T>(bytes: &[u8]) -> Result<T, SerializeError>
 where

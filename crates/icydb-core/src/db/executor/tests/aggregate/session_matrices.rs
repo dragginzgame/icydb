@@ -122,6 +122,123 @@ fn session_load_bytes_empty_window_returns_zero() {
 }
 
 #[test]
+fn session_load_bytes_by_matches_execute_window_serialized_field_sum() {
+    seed_pushdown_entities(&[
+        (8_971, 7, 10),
+        (8_972, 7, 20),
+        (8_973, 7, 35),
+        (8_974, 8, 99),
+        (8_975, 7, 50),
+    ]);
+    let session = DbSession::new(DB);
+    let load_window = || {
+        session
+            .load::<PushdownParityEntity>()
+            .filter(u32_eq_predicate("group", 7))
+            .order_by("rank")
+            .offset(1)
+            .limit(2)
+    };
+
+    let expected_response = load_window()
+        .execute()
+        .expect("baseline execute for bytes_by parity should succeed");
+    let expected_bytes = serialized_field_payload_bytes_for_rows(&expected_response, "rank");
+    let actual_bytes = load_window()
+        .bytes_by("rank")
+        .expect("session bytes_by(rank) terminal should succeed");
+
+    assert_eq!(
+        actual_bytes, expected_bytes,
+        "session bytes_by(rank) parity should match serialized field byte sum of the effective window"
+    );
+}
+
+#[test]
+fn session_load_bytes_by_structured_field_matches_execute_window() {
+    seed_phase_entities(&[(8_981, 10), (8_982, 20), (8_983, 30), (8_984, 40)]);
+    let session = DbSession::new(DB);
+    let load_window = || {
+        session
+            .load::<PhaseEntity>()
+            .order_by("id")
+            .offset(1)
+            .limit(2)
+    };
+
+    let expected_response = load_window()
+        .execute()
+        .expect("baseline execute for structured bytes_by parity should succeed");
+    let expected_bytes = serialized_field_payload_bytes_for_rows(&expected_response, "tags");
+    let actual_bytes = load_window()
+        .bytes_by("tags")
+        .expect("session bytes_by(tags) terminal should succeed");
+
+    assert_eq!(
+        actual_bytes, expected_bytes,
+        "session bytes_by(tags) parity should match serialized structured-field byte sum of the effective window"
+    );
+}
+
+#[test]
+fn session_load_bytes_by_empty_window_returns_zero() {
+    seed_pushdown_entities(&[(8_991, 7, 10), (8_992, 7, 20), (8_993, 8, 99)]);
+    let session = DbSession::new(DB);
+
+    let actual_bytes = session
+        .load::<PushdownParityEntity>()
+        .filter(u32_eq_predicate("group", 999))
+        .order_by("rank")
+        .bytes_by("rank")
+        .expect("session bytes_by(rank) terminal should succeed for empty windows");
+
+    assert_eq!(
+        actual_bytes, 0,
+        "session bytes_by(rank) terminal should return zero for empty windows"
+    );
+}
+
+#[test]
+fn session_load_bytes_by_unknown_field_fails_before_scan_budget_consumption() {
+    seed_pushdown_entities(&[
+        (8_901, 7, 10),
+        (8_902, 7, 20),
+        (8_903, 7, 30),
+        (8_904, 8, 99),
+    ]);
+    let session = DbSession::new(DB);
+    let load_window = || {
+        session
+            .load::<PushdownParityEntity>()
+            .filter(u32_eq_predicate("group", 7))
+            .order_by_desc("id")
+            .offset(0)
+            .limit(3)
+    };
+
+    let (result, scanned_rows) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load_window().bytes_by("missing_field")
+        });
+    let Err(err) = result else {
+        panic!("session bytes_by(missing_field) should be rejected");
+    };
+
+    assert!(
+        matches!(err, QueryError::Execute(_)),
+        "session unknown-field bytes_by should remain an execute-domain error: {err:?}"
+    );
+    assert_eq!(
+        scanned_rows, 0,
+        "session unknown-field bytes_by should fail before scan-budget consumption",
+    );
+    assert!(
+        err.to_string().contains("unknown aggregate target field"),
+        "session unknown-field bytes_by should preserve explicit field taxonomy: {err:?}",
+    );
+}
+
+#[test]
 fn session_load_min_by_unknown_field_fails_before_scan_budget_consumption() {
     seed_pushdown_entities(&[
         (8_901, 7, 10),

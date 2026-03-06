@@ -10,7 +10,7 @@ use crate::{
             ExecutablePlan,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, compare_orderable_field_values,
-                extract_orderable_field_value,
+                extract_orderable_field_value, resolve_any_aggregate_target_slot_from_planner_slot,
                 resolve_orderable_aggregate_target_slot_from_planner_slot,
             },
             load::LoadExecutor,
@@ -19,6 +19,7 @@ use crate::{
         response::EntityResponse,
     },
     error::InternalError,
+    serialize::serialized_len,
     traits::{EntityKind, EntityValue},
     types::Id,
     value::Value,
@@ -58,6 +59,29 @@ where
             let key = DataKey::try_new::<E>(id.key())?;
             let row = ctx.read(&key)?;
             total = saturating_add_payload_len(total, row.len());
+        }
+
+        Ok(total)
+    }
+
+    /// Execute one `bytes(field)` terminal over the canonical load response
+    /// window using one planner-resolved field slot.
+    pub(in crate::db) fn bytes_by_slot(
+        &self,
+        plan: ExecutablePlan<E>,
+        target_field: PlannedFieldSlot,
+    ) -> Result<u64, InternalError> {
+        let field_slot = resolve_any_aggregate_target_slot_from_planner_slot::<E>(&target_field)
+            .map_err(AggregateFieldValueError::into_internal_error)?;
+        let response = self.execute(plan)?;
+        let mut total = 0u64;
+
+        // Fold serialized field payload sizes over the effective response window.
+        for row in response {
+            let value =
+                extract_orderable_field_value(row.entity_ref(), target_field.field(), field_slot)
+                    .map_err(AggregateFieldValueError::into_internal_error)?;
+            total = saturating_add_payload_len(total, serialized_value_len(&value)?);
         }
 
         Ok(total)
@@ -422,6 +446,13 @@ fn saturating_add_payload_len(total: u64, row_len: usize) -> u64 {
     total.saturating_add(row_len)
 }
 
+// Serialize one value using the canonical runtime codec and return payload len.
+fn serialized_value_len(value: &Value) -> Result<usize, InternalError> {
+    serialized_len(value).map_err(|err| {
+        InternalError::serialize_internal(format!("bytes(field) value encode failed: {err}"))
+    })
+}
+
 ///
 /// TESTS
 ///
@@ -440,5 +471,11 @@ mod tests {
     fn payload_len_sum_accumulates_without_overflow() {
         let total = saturating_add_payload_len(11, 5);
         assert_eq!(total, 16);
+    }
+
+    #[test]
+    fn serialized_value_len_encodes_scalar_payload() {
+        let len = serialized_value_len(&Value::Uint(10)).expect("value encode should succeed");
+        assert!(len > 0, "encoded scalar payload should be non-empty");
     }
 }
