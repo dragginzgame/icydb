@@ -95,8 +95,8 @@ fn field_model_with_index<'a>(
 ///
 #[derive(Clone, Copy, Debug)]
 pub(in crate::db::executor) struct FieldSlot {
-    pub index: usize,
-    pub kind: FieldKind,
+    pub(in crate::db::executor) index: usize,
+    pub(in crate::db::executor) kind: FieldKind,
 }
 
 // Return true when one runtime value matches the declared field kind shape.

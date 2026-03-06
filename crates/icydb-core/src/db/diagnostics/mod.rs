@@ -32,11 +32,61 @@ pub use execution_trace::{
 
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
 pub struct StorageReport {
-    pub storage_data: Vec<DataStoreSnapshot>,
-    pub storage_index: Vec<IndexStoreSnapshot>,
-    pub entity_storage: Vec<EntitySnapshot>,
-    pub corrupted_keys: u64,
-    pub corrupted_entries: u64,
+    pub(crate) storage_data: Vec<DataStoreSnapshot>,
+    pub(crate) storage_index: Vec<IndexStoreSnapshot>,
+    pub(crate) entity_storage: Vec<EntitySnapshot>,
+    pub(crate) corrupted_keys: u64,
+    pub(crate) corrupted_entries: u64,
+}
+
+impl StorageReport {
+    /// Construct one storage report payload.
+    #[must_use]
+    pub const fn new(
+        storage_data: Vec<DataStoreSnapshot>,
+        storage_index: Vec<IndexStoreSnapshot>,
+        entity_storage: Vec<EntitySnapshot>,
+        corrupted_keys: u64,
+        corrupted_entries: u64,
+    ) -> Self {
+        Self {
+            storage_data,
+            storage_index,
+            entity_storage,
+            corrupted_keys,
+            corrupted_entries,
+        }
+    }
+
+    /// Borrow data-store snapshots.
+    #[must_use]
+    pub const fn storage_data(&self) -> &[DataStoreSnapshot] {
+        self.storage_data.as_slice()
+    }
+
+    /// Borrow index-store snapshots.
+    #[must_use]
+    pub const fn storage_index(&self) -> &[IndexStoreSnapshot] {
+        self.storage_index.as_slice()
+    }
+
+    /// Borrow entity-level storage snapshots.
+    #[must_use]
+    pub const fn entity_storage(&self) -> &[EntitySnapshot] {
+        self.entity_storage.as_slice()
+    }
+
+    /// Return count of corrupted decoded data keys.
+    #[must_use]
+    pub const fn corrupted_keys(&self) -> u64 {
+        self.corrupted_keys
+    }
+
+    /// Return count of corrupted index entries.
+    #[must_use]
+    pub const fn corrupted_entries(&self) -> u64 {
+        self.corrupted_entries
+    }
 }
 
 ///
@@ -46,9 +96,39 @@ pub struct StorageReport {
 
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
 pub struct DataStoreSnapshot {
-    pub path: String,
-    pub entries: u64,
-    pub memory_bytes: u64,
+    pub(crate) path: String,
+    pub(crate) entries: u64,
+    pub(crate) memory_bytes: u64,
+}
+
+impl DataStoreSnapshot {
+    /// Construct one data-store snapshot row.
+    #[must_use]
+    pub const fn new(path: String, entries: u64, memory_bytes: u64) -> Self {
+        Self {
+            path,
+            entries,
+            memory_bytes,
+        }
+    }
+
+    /// Borrow store path.
+    #[must_use]
+    pub const fn path(&self) -> &str {
+        self.path.as_str()
+    }
+
+    /// Return row count.
+    #[must_use]
+    pub const fn entries(&self) -> u64 {
+        self.entries
+    }
+
+    /// Return memory usage in bytes.
+    #[must_use]
+    pub const fn memory_bytes(&self) -> u64 {
+        self.memory_bytes
+    }
 }
 
 ///
@@ -58,11 +138,61 @@ pub struct DataStoreSnapshot {
 
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
 pub struct IndexStoreSnapshot {
-    pub path: String,
-    pub entries: u64,
-    pub user_entries: u64,
-    pub system_entries: u64,
-    pub memory_bytes: u64,
+    pub(crate) path: String,
+    pub(crate) entries: u64,
+    pub(crate) user_entries: u64,
+    pub(crate) system_entries: u64,
+    pub(crate) memory_bytes: u64,
+}
+
+impl IndexStoreSnapshot {
+    /// Construct one index-store snapshot row.
+    #[must_use]
+    pub const fn new(
+        path: String,
+        entries: u64,
+        user_entries: u64,
+        system_entries: u64,
+        memory_bytes: u64,
+    ) -> Self {
+        Self {
+            path,
+            entries,
+            user_entries,
+            system_entries,
+            memory_bytes,
+        }
+    }
+
+    /// Borrow store path.
+    #[must_use]
+    pub const fn path(&self) -> &str {
+        self.path.as_str()
+    }
+
+    /// Return total entry count.
+    #[must_use]
+    pub const fn entries(&self) -> u64 {
+        self.entries
+    }
+
+    /// Return user-namespace entry count.
+    #[must_use]
+    pub const fn user_entries(&self) -> u64 {
+        self.user_entries
+    }
+
+    /// Return system-namespace entry count.
+    #[must_use]
+    pub const fn system_entries(&self) -> u64 {
+        self.system_entries
+    }
+
+    /// Return memory usage in bytes.
+    #[must_use]
+    pub const fn memory_bytes(&self) -> u64 {
+        self.memory_bytes
+    }
 }
 
 ///
@@ -73,22 +203,80 @@ pub struct IndexStoreSnapshot {
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
 pub struct EntitySnapshot {
     /// Store path (e.g., icydb_schema_tests::schema::TestDataStore)
-    pub store: String,
+    pub(crate) store: String,
 
     /// Entity path (e.g., icydb_schema_tests::canister::db::Index)
-    pub path: String,
+    pub(crate) path: String,
 
     /// Number of rows for this entity in the store
-    pub entries: u64,
+    pub(crate) entries: u64,
 
     /// Approximate bytes used (key + value)
-    pub memory_bytes: u64,
+    pub(crate) memory_bytes: u64,
 
     /// Minimum primary key for this entity (entity-local ordering)
-    pub min_key: Option<Value>,
+    pub(crate) min_key: Option<Value>,
 
     /// Maximum primary key for this entity (entity-local ordering)
-    pub max_key: Option<Value>,
+    pub(crate) max_key: Option<Value>,
+}
+
+impl EntitySnapshot {
+    /// Construct one entity-storage snapshot row.
+    #[must_use]
+    pub const fn new(
+        store: String,
+        path: String,
+        entries: u64,
+        memory_bytes: u64,
+        min_key: Option<Value>,
+        max_key: Option<Value>,
+    ) -> Self {
+        Self {
+            store,
+            path,
+            entries,
+            memory_bytes,
+            min_key,
+            max_key,
+        }
+    }
+
+    /// Borrow store path.
+    #[must_use]
+    pub const fn store(&self) -> &str {
+        self.store.as_str()
+    }
+
+    /// Borrow entity path.
+    #[must_use]
+    pub const fn path(&self) -> &str {
+        self.path.as_str()
+    }
+
+    /// Return row count.
+    #[must_use]
+    pub const fn entries(&self) -> u64 {
+        self.entries
+    }
+
+    /// Return memory usage in bytes.
+    #[must_use]
+    pub const fn memory_bytes(&self) -> u64 {
+        self.memory_bytes
+    }
+
+    /// Borrow optional minimum primary key.
+    #[must_use]
+    pub const fn min_key(&self) -> Option<&Value> {
+        self.min_key.as_ref()
+    }
+
+    /// Borrow optional maximum primary key.
+    #[must_use]
+    pub const fn max_key(&self) -> Option<&Value> {
+        self.max_key.as_ref()
+    }
 }
 
 ///
@@ -153,11 +341,11 @@ pub(crate) fn storage_report<C: CanisterKind>(
         for (path, store_handle) in stores {
             // Phase 1: collect data-store snapshots and per-entity stats.
             store_handle.with_data(|store| {
-                data.push(DataStoreSnapshot {
-                    path: path.to_string(),
-                    entries: store.len(),
-                    memory_bytes: store.memory_bytes(),
-                });
+                data.push(DataStoreSnapshot::new(
+                    path.to_string(),
+                    store.len(),
+                    store.memory_bytes(),
+                ));
 
                 // Track per-entity counts, memory, and min/max Keys (not DataKeys)
                 let mut by_entity: BTreeMap<EntityName, EntityStats> = BTreeMap::new();
@@ -181,14 +369,14 @@ pub(crate) fn storage_report<C: CanisterKind>(
                         .get(entity_name.as_str())
                         .copied()
                         .unwrap_or(entity_name.as_str());
-                    entity_storage.push(EntitySnapshot {
-                        store: path.to_string(),
-                        path: path_name.to_string(),
-                        entries: stats.entries,
-                        memory_bytes: stats.memory_bytes,
-                        min_key: stats.min_key.map(|key| key.as_value()),
-                        max_key: stats.max_key.map(|key| key.as_value()),
-                    });
+                    entity_storage.push(EntitySnapshot::new(
+                        path.to_string(),
+                        path_name.to_string(),
+                        stats.entries,
+                        stats.memory_bytes,
+                        stats.min_key.map(|key| key.as_value()),
+                        stats.max_key.map(|key| key.as_value()),
+                    ));
                 }
             });
 
@@ -214,28 +402,27 @@ pub(crate) fn storage_report<C: CanisterKind>(
                     }
                 }
 
-                index.push(IndexStoreSnapshot {
-                    path: path.to_string(),
-                    entries: store.len(),
+                index.push(IndexStoreSnapshot::new(
+                    path.to_string(),
+                    store.len(),
                     user_entries,
                     system_entries,
-                    memory_bytes: store.memory_bytes(),
-                });
+                    store.memory_bytes(),
+                ));
             });
         }
     });
 
     // Phase 3: enforce deterministic entity snapshot emission order.
     // This remains stable even if outer store traversal internals change.
-    entity_storage.sort_by(|left, right| {
-        (left.store.as_str(), left.path.as_str()).cmp(&(right.store.as_str(), right.path.as_str()))
-    });
+    entity_storage
+        .sort_by(|left, right| (left.store(), left.path()).cmp(&(right.store(), right.path())));
 
-    Ok(StorageReport {
-        storage_data: data,
-        storage_index: index,
+    Ok(StorageReport::new(
+        data,
+        index,
         entity_storage,
         corrupted_keys,
         corrupted_entries,
-    })
+    ))
 }

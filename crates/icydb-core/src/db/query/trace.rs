@@ -26,15 +26,16 @@ pub enum TraceExecutionStrategy {
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct QueryTracePlan {
-    pub plan_hash: String,
-    pub access_strategy: String,
-    pub execution_strategy: Option<TraceExecutionStrategy>,
-    pub explain: ExplainPlan,
+    pub(crate) plan_hash: String,
+    pub(crate) access_strategy: String,
+    pub(crate) execution_strategy: Option<TraceExecutionStrategy>,
+    pub(crate) explain: ExplainPlan,
 }
 
 impl QueryTracePlan {
+    /// Construct one query trace payload.
     #[must_use]
-    pub(in crate::db) const fn new(
+    pub const fn new(
         plan_hash: String,
         access_strategy: String,
         execution_strategy: Option<TraceExecutionStrategy>,
@@ -46,5 +47,29 @@ impl QueryTracePlan {
             execution_strategy,
             explain,
         }
+    }
+
+    /// Borrow the canonical explain fingerprint hash.
+    #[must_use]
+    pub const fn plan_hash(&self) -> &str {
+        self.plan_hash.as_str()
+    }
+
+    /// Borrow the rendered access strategy summary.
+    #[must_use]
+    pub const fn access_strategy(&self) -> &str {
+        self.access_strategy.as_str()
+    }
+
+    /// Return the selected execution strategy classification.
+    #[must_use]
+    pub const fn execution_strategy(&self) -> Option<TraceExecutionStrategy> {
+        self.execution_strategy
+    }
+
+    /// Borrow planner explain output carried in this trace payload.
+    #[must_use]
+    pub const fn explain(&self) -> &ExplainPlan {
+        &self.explain
     }
 }

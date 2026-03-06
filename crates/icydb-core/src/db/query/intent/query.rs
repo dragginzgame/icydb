@@ -298,16 +298,16 @@ impl<E: EntityKind> Query<E> {
         ));
 
         // Phase 3: append logical-plan diagnostics relevant to verbose explain.
-        lines.push(format!("diagnostic.plan.mode={:?}", explain.mode));
+        lines.push(format!("diagnostic.plan.mode={:?}", explain.mode()));
         lines.push(format!(
             "diagnostic.plan.order_pushdown={}",
-            plan_order_pushdown_label(&explain.order_pushdown)
+            plan_order_pushdown_label(explain.order_pushdown())
         ));
-        lines.push(format!("diagnostic.plan.distinct={}", explain.distinct));
-        lines.push(format!("diagnostic.plan.page={:?}", explain.page));
+        lines.push(format!("diagnostic.plan.distinct={}", explain.distinct()));
+        lines.push(format!("diagnostic.plan.page={:?}", explain.page()));
         lines.push(format!(
             "diagnostic.plan.consistency={:?}",
-            explain.consistency
+            explain.consistency()
         ));
 
         Ok(lines.join("\n"))
@@ -346,9 +346,9 @@ fn contains_execution_node_type(
     descriptor: &ExplainExecutionNodeDescriptor,
     target: ExplainExecutionNodeType,
 ) -> bool {
-    descriptor.node_type == target
+    descriptor.node_type() == target
         || descriptor
-            .children
+            .children()
             .iter()
             .any(|child| contains_execution_node_type(child, target))
 }

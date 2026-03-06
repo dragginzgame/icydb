@@ -127,6 +127,26 @@ pub enum IntentError {
     #[error("multiple key access methods were used on the same query")]
     KeyAccessConflict,
 
+    #[error("{0}")]
+    InvalidPagingShape(#[from] PagingIntentError),
+
+    #[error("grouped queries require execute_grouped(...)")]
+    GroupedRequiresExecuteGrouped,
+
+    #[error("HAVING requires GROUP BY")]
+    HavingRequiresGroupBy,
+}
+
+///
+/// PagingIntentError
+///
+/// Canonical intent-level paging contract failures shared by planner and
+/// fluent/execution boundary gates.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ThisError)]
+#[expect(clippy::enum_variant_names)]
+pub enum PagingIntentError {
     #[error(
         "{message}",
         message = CursorPlanError::cursor_requires_order_message()
@@ -141,20 +161,20 @@ pub enum IntentError {
 
     #[error("cursor tokens can only be used with .page().execute()")]
     CursorRequiresPagedExecution,
-
-    #[error("grouped queries require execute_grouped(...)")]
-    GroupedRequiresExecuteGrouped,
-
-    #[error("HAVING requires GROUP BY")]
-    HavingRequiresGroupBy,
 }
 
-impl From<CursorPagingPolicyError> for IntentError {
+impl From<CursorPagingPolicyError> for PagingIntentError {
     fn from(err: CursorPagingPolicyError) -> Self {
         match err {
             CursorPagingPolicyError::CursorRequiresOrder => Self::CursorRequiresOrder,
             CursorPagingPolicyError::CursorRequiresLimit => Self::CursorRequiresLimit,
         }
+    }
+}
+
+impl From<CursorPagingPolicyError> for IntentError {
+    fn from(err: CursorPagingPolicyError) -> Self {
+        Self::InvalidPagingShape(PagingIntentError::from(err))
     }
 }
 
@@ -172,13 +192,17 @@ impl From<FluentLoadPolicyViolation> for IntentError {
     fn from(err: FluentLoadPolicyViolation) -> Self {
         match err {
             FluentLoadPolicyViolation::CursorRequiresPagedExecution => {
-                Self::CursorRequiresPagedExecution
+                Self::InvalidPagingShape(PagingIntentError::CursorRequiresPagedExecution)
             }
             FluentLoadPolicyViolation::GroupedRequiresExecuteGrouped => {
                 Self::GroupedRequiresExecuteGrouped
             }
-            FluentLoadPolicyViolation::CursorRequiresOrder => Self::CursorRequiresOrder,
-            FluentLoadPolicyViolation::CursorRequiresLimit => Self::CursorRequiresLimit,
+            FluentLoadPolicyViolation::CursorRequiresOrder => {
+                Self::InvalidPagingShape(PagingIntentError::CursorRequiresOrder)
+            }
+            FluentLoadPolicyViolation::CursorRequiresLimit => {
+                Self::InvalidPagingShape(PagingIntentError::CursorRequiresLimit)
+            }
         }
     }
 }
@@ -270,5 +294,35 @@ mod tests {
                 "planner-internal mapping must preserve telemetry origin for {origin:?}",
             );
         }
+    }
+
+    #[test]
+    fn cursor_paging_policy_maps_to_invalid_paging_shape_intent_error() {
+        let order = IntentError::from(CursorPagingPolicyError::CursorRequiresOrder);
+        let limit = IntentError::from(CursorPagingPolicyError::CursorRequiresLimit);
+
+        assert!(matches!(
+            order,
+            IntentError::InvalidPagingShape(PagingIntentError::CursorRequiresOrder)
+        ));
+        assert!(matches!(
+            limit,
+            IntentError::InvalidPagingShape(PagingIntentError::CursorRequiresLimit)
+        ));
+    }
+
+    #[test]
+    fn fluent_paging_policy_maps_to_invalid_paging_shape_or_grouped_contract() {
+        let non_paged = IntentError::from(FluentLoadPolicyViolation::CursorRequiresPagedExecution);
+        let grouped = IntentError::from(FluentLoadPolicyViolation::GroupedRequiresExecuteGrouped);
+
+        assert!(matches!(
+            non_paged,
+            IntentError::InvalidPagingShape(PagingIntentError::CursorRequiresPagedExecution)
+        ));
+        assert!(matches!(
+            grouped,
+            IntentError::GroupedRequiresExecuteGrouped
+        ));
     }
 }

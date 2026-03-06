@@ -23,7 +23,7 @@ fn load_single_field_between_equivalent_pushdown_matches_by_ids_fallback() {
         .explain()
         .expect("single-field between-equivalent explain should build");
     assert!(
-        explain_contains_index_range(&explain.access, INDEXED_METRICS_INDEX_MODELS[0].name, 0),
+        explain_contains_index_range(explain.access(), INDEXED_METRICS_INDEX_MODELS[0].name, 0),
         "single-field between-equivalent predicate should plan an IndexRange access path"
     );
 
@@ -53,7 +53,7 @@ fn load_composite_between_equivalent_pushdown_matches_by_ids_fallback() {
         .explain()
         .expect("composite between-equivalent explain should build");
     assert!(
-        explain_contains_index_range(&explain.access, PUSHDOWN_PARITY_INDEX_MODELS[0].name, 1),
+        explain_contains_index_range(explain.access(), PUSHDOWN_PARITY_INDEX_MODELS[0].name, 1),
         "composite between-equivalent predicate should plan an IndexRange access path"
     );
 
@@ -94,7 +94,7 @@ fn load_single_field_range_pushdown_handles_min_and_max_tag_edges() {
         .explain()
         .expect("single-field extreme-edge explain should build");
     assert!(
-        explain_contains_index_range(&explain.access, INDEXED_METRICS_INDEX_MODELS[0].name, 0),
+        explain_contains_index_range(explain.access(), INDEXED_METRICS_INDEX_MODELS[0].name, 0),
         "single-field extreme-edge range should plan an IndexRange access path"
     );
 
@@ -166,7 +166,7 @@ fn load_composite_range_pushdown_handles_min_and_max_rank_edges() {
         .explain()
         .expect("composite extreme-edge explain should build");
     assert!(
-        explain_contains_index_range(&explain.access, PUSHDOWN_PARITY_INDEX_MODELS[0].name, 1),
+        explain_contains_index_range(explain.access(), PUSHDOWN_PARITY_INDEX_MODELS[0].name, 1),
         "composite extreme-edge range should plan an IndexRange access path"
     );
 
@@ -237,7 +237,7 @@ fn load_composite_range_cursor_pagination_matches_fallback_without_duplicates() 
         .explain()
         .expect("composite range pagination explain should build");
     assert!(
-        explain_contains_index_range(&explain.access, PUSHDOWN_PARITY_INDEX_MODELS[0].name, 1),
+        explain_contains_index_range(explain.access(), PUSHDOWN_PARITY_INDEX_MODELS[0].name, 1),
         "composite range pagination should plan an IndexRange access path"
     );
 
@@ -301,7 +301,7 @@ fn load_composite_range_cursor_pagination_matches_unbounded_and_anchor_is_strict
         .explain()
         .expect("composite range monotonicity explain should build");
     assert!(
-        explain_contains_index_range(&explain.access, PUSHDOWN_PARITY_INDEX_MODELS[0].name, 1),
+        explain_contains_index_range(explain.access(), PUSHDOWN_PARITY_INDEX_MODELS[0].name, 1),
         "composite range monotonicity test should plan an IndexRange access path"
     );
 
@@ -440,7 +440,7 @@ proptest! {
             .expect("property matrix explain should build");
         prop_assert!(
             explain_contains_index_range(
-                &explain.access,
+                explain.access(),
                 UNIQUE_INDEX_RANGE_INDEX_MODELS[0].name,
                 0,
             ),
@@ -557,7 +557,7 @@ fn load_unique_index_range_cursor_pagination_matches_unbounded_case_f() {
         .explain()
         .expect("unique index-range explain should build");
     assert!(
-        explain_contains_index_range(&explain.access, UNIQUE_INDEX_RANGE_INDEX_MODELS[0].name, 0),
+        explain_contains_index_range(explain.access(), UNIQUE_INDEX_RANGE_INDEX_MODELS[0].name, 0),
         "unique index-range continuation should plan an IndexRange access path"
     );
 
@@ -665,7 +665,7 @@ fn load_single_field_range_cursor_boundaries_respect_lower_and_upper_edges() {
         .explain()
         .expect("single-field range boundary explain should build");
     assert!(
-        explain_contains_index_range(&explain.access, INDEXED_METRICS_INDEX_MODELS[0].name, 0),
+        explain_contains_index_range(explain.access(), INDEXED_METRICS_INDEX_MODELS[0].name, 0),
         "single-field range boundary test should plan an IndexRange access path"
     );
 
@@ -1089,7 +1089,7 @@ fn load_composite_desc_range_mixed_edges_resume_inside_duplicate_group() {
         .explain()
         .expect("composite mixed-edge desc explain should build");
     assert!(
-        explain_contains_index_range(&explain.access, PUSHDOWN_PARITY_INDEX_MODELS[0].name, 1),
+        explain_contains_index_range(explain.access(), PUSHDOWN_PARITY_INDEX_MODELS[0].name, 1),
         "composite mixed-edge desc should plan an IndexRange access path"
     );
 
@@ -1336,7 +1336,7 @@ fn load_composite_between_cursor_boundaries_respect_duplicate_lower_and_upper_ed
         .explain()
         .expect("composite duplicate-edge explain should build");
     assert!(
-        explain_contains_index_range(&explain.access, PUSHDOWN_PARITY_INDEX_MODELS[0].name, 1),
+        explain_contains_index_range(explain.access(), PUSHDOWN_PARITY_INDEX_MODELS[0].name, 1),
         "composite duplicate-edge boundary test should plan an IndexRange access path"
     );
 
@@ -1470,7 +1470,7 @@ fn load_trace_marks_secondary_order_pushdown_outcomes() {
         let trace = trace.expect("debug trace should be present");
 
         let matched = match case.expected {
-            ExpectedDecision::MaterializedRoute => trace.optimization.is_none(),
+            ExpectedDecision::MaterializedRoute => trace.optimization().is_none(),
         };
 
         assert!(
@@ -1518,7 +1518,7 @@ fn load_trace_marks_composite_index_range_pushdown_rejection_outcome() {
         .execute_paged_with_cursor_traced(plan, None)
         .expect("composite-index-range trace test execution should succeed");
     let trace = trace.expect("debug trace should be present");
-    let matched = trace.optimization.is_none();
+    let matched = trace.optimization().is_none();
     assert!(
         matched,
         "composite access with index-range child should not emit secondary-order pushdown traces"

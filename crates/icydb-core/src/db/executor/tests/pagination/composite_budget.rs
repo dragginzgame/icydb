@@ -47,7 +47,7 @@ fn load_composite_pk_budget_trace_limits_access_rows_for_safe_shape() {
         .expect("composite budget trace execution should succeed");
 
     assert_eq!(
-        trace.map(|trace| trace.keys_scanned),
+        trace.map(|trace| trace.keys_scanned()),
         Some(4),
         "safe composite PK-order shape should apply offset+limit+1 scan budget"
     );
@@ -108,7 +108,7 @@ fn load_composite_pk_budget_disabled_when_cursor_boundary_present() {
         .expect("composite cursor trace execution should succeed");
 
     assert_eq!(
-        trace.map(|trace| trace.keys_scanned),
+        trace.map(|trace| trace.keys_scanned()),
         Some(6),
         "cursor narrowing is post-access for this shape, so scan budgeting must stay disabled"
     );
@@ -166,7 +166,7 @@ fn load_composite_budget_disabled_when_post_access_sort_is_required() {
         .expect("composite post-sort trace execution should succeed");
 
     assert_eq!(
-        trace.map(|trace| trace.keys_scanned),
+        trace.map(|trace| trace.keys_scanned()),
         Some(6),
         "post-access sort requirement must disable scan budgeting for composite paths"
     );
@@ -223,7 +223,7 @@ fn load_composite_budget_disabled_for_offset_with_residual_filter() {
         .expect("offset+filter budget-disable trace execution should succeed");
 
     assert_eq!(
-        trace.map(|trace| trace.keys_scanned),
+        trace.map(|trace| trace.keys_scanned()),
         Some(6),
         "residual filter must disable scan budgeting and preserve full access scan volume"
     );
@@ -285,7 +285,7 @@ fn load_composite_pk_budget_trace_limits_access_rows_for_safe_desc_shape() {
         .expect("composite desc budget trace execution should succeed");
 
     assert_eq!(
-        trace.map(|trace| trace.keys_scanned),
+        trace.map(|trace| trace.keys_scanned()),
         Some(4),
         "safe DESC composite PK-order shape should apply offset+limit+1 scan budget"
     );
@@ -360,7 +360,7 @@ fn load_nested_composite_pk_budget_trace_limits_access_rows_for_safe_shape() {
         .expect("nested composite budget trace execution should succeed");
 
     assert_eq!(
-        trace.map(|trace| trace.keys_scanned),
+        trace.map(|trace| trace.keys_scanned()),
         Some(4),
         "safe nested composite PK-order shape should apply offset+limit+1 scan budget"
     );
@@ -443,12 +443,12 @@ fn load_composite_budgeted_and_fallback_paths_emit_equivalent_continuation_bound
         .expect("fallback trace execution should succeed");
 
     assert_eq!(
-        budgeted_trace.map(|trace| trace.keys_scanned),
+        budgeted_trace.map(|trace| trace.keys_scanned()),
         Some(4),
         "budgeted path should cap keys scanned at offset+limit+1"
     );
     assert_eq!(
-        fallback_trace.map(|trace| trace.keys_scanned),
+        fallback_trace.map(|trace| trace.keys_scanned()),
         Some(6),
         "residual-filter fallback path should preserve full access scan volume"
     );

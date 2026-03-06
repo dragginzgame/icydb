@@ -450,10 +450,10 @@ where
     E: EntityKind,
 {
     let explain = plan.explain_with_model(E::MODEL);
-    if matches!(explain.predicate, ExplainPredicate::None) {
+    if matches!(explain.predicate(), ExplainPredicate::None) {
         None
     } else {
-        Some(explain.predicate)
+        Some(explain.predicate().clone())
     }
 }
 

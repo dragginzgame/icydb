@@ -18,11 +18,11 @@ use crate::db::{
 
 #[derive(Clone, Debug)]
 pub(in crate::db::query::intent) struct ScalarIntent<K> {
-    pub predicate: Option<Predicate>,
-    pub key_access: Option<KeyAccessState<K>>,
-    pub key_access_conflict: bool,
-    pub order: Option<OrderSpec>,
-    pub distinct: bool,
+    pub(in crate::db::query::intent) predicate: Option<Predicate>,
+    pub(in crate::db::query::intent) key_access: Option<KeyAccessState<K>>,
+    pub(in crate::db::query::intent) key_access_conflict: bool,
+    pub(in crate::db::query::intent) order: Option<OrderSpec>,
+    pub(in crate::db::query::intent) distinct: bool,
 }
 
 impl<K> ScalarIntent<K> {
@@ -47,9 +47,9 @@ impl<K> ScalarIntent<K> {
 
 #[derive(Clone, Debug)]
 pub(in crate::db::query::intent) struct GroupedIntent<K> {
-    pub scalar: ScalarIntent<K>,
-    pub group: GroupSpec,
-    pub having: Option<GroupHavingSpec>,
+    pub(in crate::db::query::intent) scalar: ScalarIntent<K>,
+    pub(in crate::db::query::intent) group: GroupSpec,
+    pub(in crate::db::query::intent) having: Option<GroupHavingSpec>,
 }
 
 impl<K> GroupedIntent<K> {

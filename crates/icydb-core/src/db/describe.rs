@@ -19,12 +19,70 @@ use serde::{Deserialize, Serialize};
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct EntitySchemaDescription {
-    pub entity_path: String,
-    pub entity_name: String,
-    pub primary_key: String,
-    pub fields: Vec<EntityFieldDescription>,
-    pub indexes: Vec<EntityIndexDescription>,
-    pub relations: Vec<EntityRelationDescription>,
+    pub(crate) entity_path: String,
+    pub(crate) entity_name: String,
+    pub(crate) primary_key: String,
+    pub(crate) fields: Vec<EntityFieldDescription>,
+    pub(crate) indexes: Vec<EntityIndexDescription>,
+    pub(crate) relations: Vec<EntityRelationDescription>,
+}
+
+impl EntitySchemaDescription {
+    /// Construct one entity schema description payload.
+    #[must_use]
+    pub const fn new(
+        entity_path: String,
+        entity_name: String,
+        primary_key: String,
+        fields: Vec<EntityFieldDescription>,
+        indexes: Vec<EntityIndexDescription>,
+        relations: Vec<EntityRelationDescription>,
+    ) -> Self {
+        Self {
+            entity_path,
+            entity_name,
+            primary_key,
+            fields,
+            indexes,
+            relations,
+        }
+    }
+
+    /// Borrow the entity module path.
+    #[must_use]
+    pub const fn entity_path(&self) -> &str {
+        self.entity_path.as_str()
+    }
+
+    /// Borrow the entity display name.
+    #[must_use]
+    pub const fn entity_name(&self) -> &str {
+        self.entity_name.as_str()
+    }
+
+    /// Borrow the primary-key field name.
+    #[must_use]
+    pub const fn primary_key(&self) -> &str {
+        self.primary_key.as_str()
+    }
+
+    /// Borrow field description entries.
+    #[must_use]
+    pub const fn fields(&self) -> &[EntityFieldDescription] {
+        self.fields.as_slice()
+    }
+
+    /// Borrow index description entries.
+    #[must_use]
+    pub const fn indexes(&self) -> &[EntityIndexDescription] {
+        self.indexes.as_slice()
+    }
+
+    /// Borrow relation description entries.
+    #[must_use]
+    pub const fn relations(&self) -> &[EntityRelationDescription] {
+        self.relations.as_slice()
+    }
 }
 
 ///
@@ -36,10 +94,47 @@ pub struct EntitySchemaDescription {
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct EntityFieldDescription {
-    pub name: String,
-    pub kind: String,
-    pub primary_key: bool,
-    pub queryable: bool,
+    pub(crate) name: String,
+    pub(crate) kind: String,
+    pub(crate) primary_key: bool,
+    pub(crate) queryable: bool,
+}
+
+impl EntityFieldDescription {
+    /// Construct one field description entry.
+    #[must_use]
+    pub const fn new(name: String, kind: String, primary_key: bool, queryable: bool) -> Self {
+        Self {
+            name,
+            kind,
+            primary_key,
+            queryable,
+        }
+    }
+
+    /// Borrow the field name.
+    #[must_use]
+    pub const fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    /// Borrow the rendered field kind label.
+    #[must_use]
+    pub const fn kind(&self) -> &str {
+        self.kind.as_str()
+    }
+
+    /// Return whether this field is the primary key.
+    #[must_use]
+    pub const fn primary_key(&self) -> bool {
+        self.primary_key
+    }
+
+    /// Return whether this field is queryable.
+    #[must_use]
+    pub const fn queryable(&self) -> bool {
+        self.queryable
+    }
 }
 
 ///
@@ -51,9 +146,39 @@ pub struct EntityFieldDescription {
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct EntityIndexDescription {
-    pub name: String,
-    pub unique: bool,
-    pub fields: Vec<String>,
+    pub(crate) name: String,
+    pub(crate) unique: bool,
+    pub(crate) fields: Vec<String>,
+}
+
+impl EntityIndexDescription {
+    /// Construct one index description entry.
+    #[must_use]
+    pub const fn new(name: String, unique: bool, fields: Vec<String>) -> Self {
+        Self {
+            name,
+            unique,
+            fields,
+        }
+    }
+
+    /// Borrow the index name.
+    #[must_use]
+    pub const fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    /// Return whether the index enforces uniqueness.
+    #[must_use]
+    pub const fn unique(&self) -> bool {
+        self.unique
+    }
+
+    /// Borrow ordered index field names.
+    #[must_use]
+    pub const fn fields(&self) -> &[String] {
+        self.fields.as_slice()
+    }
 }
 
 ///
@@ -65,12 +190,70 @@ pub struct EntityIndexDescription {
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct EntityRelationDescription {
-    pub field: String,
-    pub target_path: String,
-    pub target_entity_name: String,
-    pub target_store_path: String,
-    pub strength: EntityRelationStrength,
-    pub cardinality: EntityRelationCardinality,
+    pub(crate) field: String,
+    pub(crate) target_path: String,
+    pub(crate) target_entity_name: String,
+    pub(crate) target_store_path: String,
+    pub(crate) strength: EntityRelationStrength,
+    pub(crate) cardinality: EntityRelationCardinality,
+}
+
+impl EntityRelationDescription {
+    /// Construct one relation description entry.
+    #[must_use]
+    pub const fn new(
+        field: String,
+        target_path: String,
+        target_entity_name: String,
+        target_store_path: String,
+        strength: EntityRelationStrength,
+        cardinality: EntityRelationCardinality,
+    ) -> Self {
+        Self {
+            field,
+            target_path,
+            target_entity_name,
+            target_store_path,
+            strength,
+            cardinality,
+        }
+    }
+
+    /// Borrow the source relation field name.
+    #[must_use]
+    pub const fn field(&self) -> &str {
+        self.field.as_str()
+    }
+
+    /// Borrow the relation target path.
+    #[must_use]
+    pub const fn target_path(&self) -> &str {
+        self.target_path.as_str()
+    }
+
+    /// Borrow the relation target entity name.
+    #[must_use]
+    pub const fn target_entity_name(&self) -> &str {
+        self.target_entity_name.as_str()
+    }
+
+    /// Borrow the relation target store path.
+    #[must_use]
+    pub const fn target_store_path(&self) -> &str {
+        self.target_store_path.as_str()
+    }
+
+    /// Return relation strength.
+    #[must_use]
+    pub const fn strength(&self) -> EntityRelationStrength {
+        self.strength
+    }
+
+    /// Return relation cardinality.
+    #[must_use]
+    pub const fn cardinality(&self) -> EntityRelationCardinality {
+        self.cardinality
+    }
 }
 
 ///
@@ -106,12 +289,12 @@ pub(in crate::db) fn describe_entity_model(model: &EntityModel) -> EntitySchemaD
         let queryable = field.kind.value_kind().is_queryable();
         let primary_key = field.name == model.primary_key.name;
 
-        fields.push(EntityFieldDescription {
-            name: field.name.to_string(),
-            kind: field_kind,
+        fields.push(EntityFieldDescription::new(
+            field.name.to_string(),
+            field_kind,
             primary_key,
             queryable,
-        });
+        ));
 
         if let Some(relation) = relation_from_field_kind(field.name, &field.kind) {
             relations.push(relation);
@@ -120,25 +303,25 @@ pub(in crate::db) fn describe_entity_model(model: &EntityModel) -> EntitySchemaD
 
     let mut indexes = Vec::with_capacity(model.indexes.len());
     for index in model.indexes {
-        indexes.push(EntityIndexDescription {
-            name: index.name.to_string(),
-            unique: index.unique,
-            fields: index
+        indexes.push(EntityIndexDescription::new(
+            index.name.to_string(),
+            index.unique,
+            index
                 .fields
                 .iter()
                 .map(|field| (*field).to_string())
                 .collect(),
-        });
+        ));
     }
 
-    EntitySchemaDescription {
-        entity_path: model.path.to_string(),
-        entity_name: model.entity_name.to_string(),
-        primary_key: model.primary_key.name.to_string(),
+    EntitySchemaDescription::new(
+        model.path.to_string(),
+        model.entity_name.to_string(),
+        model.primary_key.name.to_string(),
         fields,
         indexes,
         relations,
-    }
+    )
 }
 
 // Resolve relation metadata from one field kind, including list/set relation forms.
@@ -153,14 +336,14 @@ fn relation_from_field_kind(
             target_store_path,
             strength,
             ..
-        } => Some(EntityRelationDescription {
-            field: field_name.to_string(),
-            target_path: (*target_path).to_string(),
-            target_entity_name: (*target_entity_name).to_string(),
-            target_store_path: (*target_store_path).to_string(),
-            strength: relation_strength(*strength),
-            cardinality: EntityRelationCardinality::Single,
-        }),
+        } => Some(EntityRelationDescription::new(
+            field_name.to_string(),
+            (*target_path).to_string(),
+            (*target_entity_name).to_string(),
+            (*target_store_path).to_string(),
+            relation_strength(*strength),
+            EntityRelationCardinality::Single,
+        )),
         FieldKind::List(inner) => {
             relation_from_collection_relation(field_name, inner, EntityRelationCardinality::List)
         }
@@ -210,14 +393,14 @@ fn relation_from_collection_relation(
         return None;
     };
 
-    Some(EntityRelationDescription {
-        field: field_name.to_string(),
-        target_path: (*target_path).to_string(),
-        target_entity_name: (*target_entity_name).to_string(),
-        target_store_path: (*target_store_path).to_string(),
-        strength: relation_strength(*strength),
+    Some(EntityRelationDescription::new(
+        field_name.to_string(),
+        (*target_path).to_string(),
+        (*target_entity_name).to_string(),
+        (*target_store_path).to_string(),
+        relation_strength(*strength),
         cardinality,
-    })
+    ))
 }
 
 // Project runtime relation strength into the describe DTO surface.

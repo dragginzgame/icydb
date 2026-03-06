@@ -822,11 +822,11 @@ pub(in crate::db) enum ExecutableAccessNode<'a, K> {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct ExecutableAccessPlan<'a, K> {
-    pub mode: ExecutionMode,
-    pub ordering: ExecutionOrdering,
-    pub bounds: ExecutionBounds,
-    pub distinct: ExecutionDistinctMode,
-    pub requires_decoded_id: bool,
+    pub(in crate::db) mode: ExecutionMode,
+    pub(in crate::db) ordering: ExecutionOrdering,
+    pub(in crate::db) bounds: ExecutionBounds,
+    pub(in crate::db) distinct: ExecutionDistinctMode,
+    pub(in crate::db) requires_decoded_id: bool,
     node: ExecutableAccessNode<'a, K>,
 }
 

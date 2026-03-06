@@ -241,8 +241,8 @@ impl<'a, K> AccessExecutionDescriptor<'a, K> {
 ///
 
 pub(in crate::db) struct IndexStreamConstraints<'a> {
-    pub prefixes: &'a [LoweredIndexPrefixSpec],
-    pub range: Option<&'a LoweredIndexRangeSpec>,
+    pub(in crate::db) prefixes: &'a [LoweredIndexPrefixSpec],
+    pub(in crate::db) range: Option<&'a LoweredIndexRangeSpec>,
 }
 
 ///
@@ -294,8 +294,8 @@ impl<'a> AccessScanContinuationInput<'a> {
 ///
 
 pub(in crate::db) struct StreamExecutionHints<'a> {
-    pub physical_fetch_hint: Option<usize>,
-    pub predicate_execution: Option<IndexPredicateExecution<'a>>,
+    pub(in crate::db) physical_fetch_hint: Option<usize>,
+    pub(in crate::db) predicate_execution: Option<IndexPredicateExecution<'a>>,
 }
 
 fn invariant(message: impl Into<String>) -> InternalError {

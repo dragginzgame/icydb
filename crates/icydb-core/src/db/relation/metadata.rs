@@ -27,9 +27,9 @@ pub(super) struct StrongRelationInfo {
 #[expect(clippy::struct_field_names)]
 #[derive(Clone, Copy)]
 pub(crate) struct StrongRelationTargetInfo {
-    pub target_path: &'static str,
-    pub target_entity_name: &'static str,
-    pub target_store_path: &'static str,
+    pub(in crate::db::relation) target_path: &'static str,
+    pub(in crate::db::relation) target_entity_name: &'static str,
+    pub(in crate::db::relation) target_store_path: &'static str,
 }
 
 // Resolve a model field-kind into strong relation target metadata (if applicable).

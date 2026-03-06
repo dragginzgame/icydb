@@ -172,7 +172,7 @@ fn load_mixed_direction_fallback_matches_uniform_fast_path_when_rank_is_unique()
         .expect("mixed-direction explain should build");
     assert!(
         matches!(
-            mixed_explain.order_pushdown,
+            mixed_explain.order_pushdown(),
             ExplainOrderPushdown::MissingModelContext
         ),
         "query-layer explain should not evaluate secondary pushdown eligibility",
@@ -187,7 +187,7 @@ fn load_mixed_direction_fallback_matches_uniform_fast_path_when_rank_is_unique()
         .expect("uniform-direction explain should build");
     assert!(
         matches!(
-            uniform_explain.order_pushdown,
+            uniform_explain.order_pushdown(),
             ExplainOrderPushdown::MissingModelContext
         ),
         "query-layer explain should not evaluate secondary pushdown eligibility",
@@ -223,7 +223,8 @@ fn load_mixed_direction_fallback_matches_uniform_fast_path_when_rank_is_unique()
         .expect("mixed-direction seed page should execute");
     let mixed_trace = mixed_trace.expect("debug trace should be present");
     assert_eq!(
-        mixed_trace.optimization, None,
+        mixed_trace.optimization(),
+        None,
         "mixed-direction execution should remain fallback-only",
     );
 
@@ -232,7 +233,8 @@ fn load_mixed_direction_fallback_matches_uniform_fast_path_when_rank_is_unique()
         .expect("uniform-direction seed page should execute");
     let uniform_trace = uniform_trace.expect("debug trace should be present");
     assert_eq!(
-        uniform_trace.optimization, None,
+        uniform_trace.optimization(),
+        None,
         "uniform-direction residual-filter execution should remain materialized",
     );
 

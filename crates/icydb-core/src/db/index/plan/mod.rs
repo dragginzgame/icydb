@@ -30,8 +30,8 @@ pub(in crate::db) use private::{SealedIndexEntryReader, SealedPrimaryRowReader};
 
 #[derive(Debug)]
 pub(crate) struct IndexApplyPlan {
-    pub index: &'static IndexModel,
-    pub store: &'static LocalKey<RefCell<IndexStore>>,
+    pub(in crate::db) index: &'static IndexModel,
+    pub(in crate::db) store: &'static LocalKey<RefCell<IndexStore>>,
 }
 
 ///
@@ -40,8 +40,8 @@ pub(crate) struct IndexApplyPlan {
 
 #[derive(Debug)]
 pub(crate) struct IndexMutationPlan {
-    pub apply: Vec<IndexApplyPlan>,
-    pub commit_ops: Vec<CommitIndexOp>,
+    pub(in crate::db) apply: Vec<IndexApplyPlan>,
+    pub(in crate::db) commit_ops: Vec<CommitIndexOp>,
 }
 
 ///

@@ -22,6 +22,8 @@ use crate::db::{
     query::plan::{OrderDirection, OrderSpec},
 };
 
+#[cfg_attr(not(test), expect(unused_imports))]
+pub(crate) use errors::PagingIntentError;
 pub use errors::{IntentError, QueryError, QueryExecuteError};
 #[expect(unused_imports)]
 pub(crate) use key_access::coerce_entity_key;

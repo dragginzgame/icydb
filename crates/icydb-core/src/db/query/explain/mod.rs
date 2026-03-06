@@ -33,17 +33,17 @@ use std::{collections::BTreeMap, fmt::Write, ops::Bound};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExplainPlan {
-    pub mode: QueryMode,
-    pub access: ExplainAccessPath,
-    pub predicate: ExplainPredicate,
+    pub(crate) mode: QueryMode,
+    pub(crate) access: ExplainAccessPath,
+    pub(crate) predicate: ExplainPredicate,
     predicate_model: Option<Predicate>,
-    pub order_by: ExplainOrderBy,
-    pub distinct: bool,
-    pub grouping: ExplainGrouping,
-    pub order_pushdown: ExplainOrderPushdown,
-    pub page: ExplainPagination,
-    pub delete_limit: ExplainDeleteLimit,
-    pub consistency: MissingRowPolicy,
+    pub(crate) order_by: ExplainOrderBy,
+    pub(crate) distinct: bool,
+    pub(crate) grouping: ExplainGrouping,
+    pub(crate) order_pushdown: ExplainOrderPushdown,
+    pub(crate) page: ExplainPagination,
+    pub(crate) delete_limit: ExplainDeleteLimit,
+    pub(crate) consistency: MissingRowPolicy,
 }
 
 ///
@@ -67,10 +67,10 @@ pub enum ExplainAggregateTerminalRoute {
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExplainAggregateTerminalPlan {
-    pub query: ExplainPlan,
-    pub terminal: AggregateKind,
-    pub route: ExplainAggregateTerminalRoute,
-    pub execution: ExplainExecutionDescriptor,
+    pub(crate) query: ExplainPlan,
+    pub(crate) terminal: AggregateKind,
+    pub(crate) route: ExplainAggregateTerminalRoute,
+    pub(crate) execution: ExplainExecutionDescriptor,
 }
 
 ///
@@ -107,14 +107,14 @@ pub enum ExplainExecutionMode {
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExplainExecutionDescriptor {
-    pub access_strategy: ExplainAccessPath,
-    pub covering_projection: bool,
-    pub aggregation: AggregateKind,
-    pub execution_mode: ExplainExecutionMode,
-    pub ordering_source: ExplainExecutionOrderingSource,
-    pub limit: Option<u32>,
-    pub cursor: bool,
-    pub node_properties: BTreeMap<String, Value>,
+    pub(crate) access_strategy: ExplainAccessPath,
+    pub(crate) covering_projection: bool,
+    pub(crate) aggregation: AggregateKind,
+    pub(crate) execution_mode: ExplainExecutionMode,
+    pub(crate) ordering_source: ExplainExecutionOrderingSource,
+    pub(crate) limit: Option<u32>,
+    pub(crate) cursor: bool,
+    pub(crate) node_properties: BTreeMap<String, Value>,
 }
 
 ///
@@ -167,22 +167,108 @@ pub enum ExplainExecutionNodeType {
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExplainExecutionNodeDescriptor {
-    pub node_type: ExplainExecutionNodeType,
-    pub execution_mode: ExplainExecutionMode,
-    pub access_strategy: Option<ExplainAccessPath>,
-    pub predicate_pushdown: Option<String>,
-    pub residual_predicate: Option<ExplainPredicate>,
-    pub projection: Option<String>,
-    pub ordering_source: Option<ExplainExecutionOrderingSource>,
-    pub limit: Option<u32>,
-    pub cursor: Option<bool>,
-    pub covering_scan: Option<bool>,
-    pub rows_expected: Option<u64>,
-    pub children: Vec<Self>,
-    pub node_properties: BTreeMap<String, Value>,
+    pub(crate) node_type: ExplainExecutionNodeType,
+    pub(crate) execution_mode: ExplainExecutionMode,
+    pub(crate) access_strategy: Option<ExplainAccessPath>,
+    pub(crate) predicate_pushdown: Option<String>,
+    pub(crate) residual_predicate: Option<ExplainPredicate>,
+    pub(crate) projection: Option<String>,
+    pub(crate) ordering_source: Option<ExplainExecutionOrderingSource>,
+    pub(crate) limit: Option<u32>,
+    pub(crate) cursor: Option<bool>,
+    pub(crate) covering_scan: Option<bool>,
+    pub(crate) rows_expected: Option<u64>,
+    pub(crate) children: Vec<Self>,
+    pub(crate) node_properties: BTreeMap<String, Value>,
+}
+
+impl ExplainPlan {
+    /// Return query mode projected by this explain plan.
+    #[must_use]
+    pub const fn mode(&self) -> QueryMode {
+        self.mode
+    }
+
+    /// Borrow projected access-path shape.
+    #[must_use]
+    pub const fn access(&self) -> &ExplainAccessPath {
+        &self.access
+    }
+
+    /// Borrow projected predicate shape.
+    #[must_use]
+    pub const fn predicate(&self) -> &ExplainPredicate {
+        &self.predicate
+    }
+
+    /// Borrow projected ORDER BY shape.
+    #[must_use]
+    pub const fn order_by(&self) -> &ExplainOrderBy {
+        &self.order_by
+    }
+
+    /// Return whether DISTINCT is enabled.
+    #[must_use]
+    pub const fn distinct(&self) -> bool {
+        self.distinct
+    }
+
+    /// Borrow projected grouped-shape metadata.
+    #[must_use]
+    pub const fn grouping(&self) -> &ExplainGrouping {
+        &self.grouping
+    }
+
+    /// Borrow projected ORDER pushdown status.
+    #[must_use]
+    pub const fn order_pushdown(&self) -> &ExplainOrderPushdown {
+        &self.order_pushdown
+    }
+
+    /// Borrow projected pagination status.
+    #[must_use]
+    pub const fn page(&self) -> &ExplainPagination {
+        &self.page
+    }
+
+    /// Borrow projected delete-limit status.
+    #[must_use]
+    pub const fn delete_limit(&self) -> &ExplainDeleteLimit {
+        &self.delete_limit
+    }
+
+    /// Return missing-row consistency policy.
+    #[must_use]
+    pub const fn consistency(&self) -> MissingRowPolicy {
+        self.consistency
+    }
 }
 
 impl ExplainAggregateTerminalPlan {
+    /// Borrow the underlying query explain payload.
+    #[must_use]
+    pub const fn query(&self) -> &ExplainPlan {
+        &self.query
+    }
+
+    /// Return terminal aggregate kind.
+    #[must_use]
+    pub const fn terminal(&self) -> AggregateKind {
+        self.terminal
+    }
+
+    /// Return projected aggregate terminal route.
+    #[must_use]
+    pub const fn route(&self) -> ExplainAggregateTerminalRoute {
+        self.route
+    }
+
+    /// Borrow projected execution descriptor.
+    #[must_use]
+    pub const fn execution(&self) -> &ExplainExecutionDescriptor {
+        &self.execution
+    }
+
     #[must_use]
     pub(in crate::db) const fn new(
         query: ExplainPlan,
@@ -201,6 +287,54 @@ impl ExplainAggregateTerminalPlan {
 }
 
 impl ExplainExecutionDescriptor {
+    /// Borrow projected access strategy.
+    #[must_use]
+    pub const fn access_strategy(&self) -> &ExplainAccessPath {
+        &self.access_strategy
+    }
+
+    /// Return whether projection can be served from index payload only.
+    #[must_use]
+    pub const fn covering_projection(&self) -> bool {
+        self.covering_projection
+    }
+
+    /// Return projected aggregate kind.
+    #[must_use]
+    pub const fn aggregation(&self) -> AggregateKind {
+        self.aggregation
+    }
+
+    /// Return projected execution mode.
+    #[must_use]
+    pub const fn execution_mode(&self) -> ExplainExecutionMode {
+        self.execution_mode
+    }
+
+    /// Return projected ordering source.
+    #[must_use]
+    pub const fn ordering_source(&self) -> ExplainExecutionOrderingSource {
+        self.ordering_source
+    }
+
+    /// Return projected execution limit.
+    #[must_use]
+    pub const fn limit(&self) -> Option<u32> {
+        self.limit
+    }
+
+    /// Return whether continuation was applied.
+    #[must_use]
+    pub const fn cursor(&self) -> bool {
+        self.cursor
+    }
+
+    /// Borrow projected execution node properties.
+    #[must_use]
+    pub const fn node_properties(&self) -> &BTreeMap<String, Value> {
+        &self.node_properties
+    }
+
     #[must_use]
     pub(in crate::db) const fn route(&self) -> ExplainAggregateTerminalRoute {
         match self.ordering_source {
@@ -305,6 +439,84 @@ impl ExplainExecutionNodeType {
 }
 
 impl ExplainExecutionNodeDescriptor {
+    /// Return node type.
+    #[must_use]
+    pub const fn node_type(&self) -> ExplainExecutionNodeType {
+        self.node_type
+    }
+
+    /// Return execution mode.
+    #[must_use]
+    pub const fn execution_mode(&self) -> ExplainExecutionMode {
+        self.execution_mode
+    }
+
+    /// Borrow optional access strategy annotation.
+    #[must_use]
+    pub const fn access_strategy(&self) -> Option<&ExplainAccessPath> {
+        self.access_strategy.as_ref()
+    }
+
+    /// Borrow optional predicate pushdown annotation.
+    #[must_use]
+    pub fn predicate_pushdown(&self) -> Option<&str> {
+        self.predicate_pushdown.as_deref()
+    }
+
+    /// Borrow optional residual predicate annotation.
+    #[must_use]
+    pub const fn residual_predicate(&self) -> Option<&ExplainPredicate> {
+        self.residual_predicate.as_ref()
+    }
+
+    /// Borrow optional projection annotation.
+    #[must_use]
+    pub fn projection(&self) -> Option<&str> {
+        self.projection.as_deref()
+    }
+
+    /// Return optional ordering source annotation.
+    #[must_use]
+    pub const fn ordering_source(&self) -> Option<ExplainExecutionOrderingSource> {
+        self.ordering_source
+    }
+
+    /// Return optional limit annotation.
+    #[must_use]
+    pub const fn limit(&self) -> Option<u32> {
+        self.limit
+    }
+
+    /// Return optional continuation annotation.
+    #[must_use]
+    pub const fn cursor(&self) -> Option<bool> {
+        self.cursor
+    }
+
+    /// Return optional covering-scan annotation.
+    #[must_use]
+    pub const fn covering_scan(&self) -> Option<bool> {
+        self.covering_scan
+    }
+
+    /// Return optional row-count expectation annotation.
+    #[must_use]
+    pub const fn rows_expected(&self) -> Option<u64> {
+        self.rows_expected
+    }
+
+    /// Borrow child execution nodes.
+    #[must_use]
+    pub const fn children(&self) -> &[Self] {
+        self.children.as_slice()
+    }
+
+    /// Borrow node properties.
+    #[must_use]
+    pub const fn node_properties(&self) -> &BTreeMap<String, Value> {
+        &self.node_properties
+    }
+
     #[must_use]
     pub fn render_text_tree(&self) -> String {
         let mut lines = Vec::new();
@@ -852,8 +1064,22 @@ impl From<GroupedPlanStrategyHint> for ExplainGroupedStrategy {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExplainGroupField {
-    pub slot_index: usize,
-    pub field: String,
+    pub(crate) slot_index: usize,
+    pub(crate) field: String,
+}
+
+impl ExplainGroupField {
+    /// Return grouped slot index.
+    #[must_use]
+    pub const fn slot_index(&self) -> usize {
+        self.slot_index
+    }
+
+    /// Borrow grouped field name.
+    #[must_use]
+    pub const fn field(&self) -> &str {
+        self.field.as_str()
+    }
 }
 
 ///
@@ -864,9 +1090,29 @@ pub struct ExplainGroupField {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExplainGroupAggregate {
-    pub kind: AggregateKind,
-    pub target_field: Option<String>,
-    pub distinct: bool,
+    pub(crate) kind: AggregateKind,
+    pub(crate) target_field: Option<String>,
+    pub(crate) distinct: bool,
+}
+
+impl ExplainGroupAggregate {
+    /// Return grouped aggregate kind.
+    #[must_use]
+    pub const fn kind(&self) -> AggregateKind {
+        self.kind
+    }
+
+    /// Borrow optional grouped aggregate target field.
+    #[must_use]
+    pub fn target_field(&self) -> Option<&str> {
+        self.target_field.as_deref()
+    }
+
+    /// Return whether grouped aggregate uses DISTINCT input semantics.
+    #[must_use]
+    pub const fn distinct(&self) -> bool {
+        self.distinct
+    }
 }
 
 ///
@@ -877,7 +1123,15 @@ pub struct ExplainGroupAggregate {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExplainGroupHaving {
-    pub clauses: Vec<ExplainGroupHavingClause>,
+    pub(crate) clauses: Vec<ExplainGroupHavingClause>,
+}
+
+impl ExplainGroupHaving {
+    /// Borrow grouped HAVING clauses.
+    #[must_use]
+    pub const fn clauses(&self) -> &[ExplainGroupHavingClause] {
+        self.clauses.as_slice()
+    }
 }
 
 ///
@@ -888,9 +1142,29 @@ pub struct ExplainGroupHaving {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExplainGroupHavingClause {
-    pub symbol: ExplainGroupHavingSymbol,
-    pub op: CompareOp,
-    pub value: Value,
+    pub(crate) symbol: ExplainGroupHavingSymbol,
+    pub(crate) op: CompareOp,
+    pub(crate) value: Value,
+}
+
+impl ExplainGroupHavingClause {
+    /// Borrow grouped HAVING symbol.
+    #[must_use]
+    pub const fn symbol(&self) -> &ExplainGroupHavingSymbol {
+        &self.symbol
+    }
+
+    /// Return grouped HAVING comparison operator.
+    #[must_use]
+    pub const fn op(&self) -> CompareOp {
+        self.op
+    }
+
+    /// Borrow grouped HAVING literal value.
+    #[must_use]
+    pub const fn value(&self) -> &Value {
+        &self.value
+    }
 }
 
 ///
@@ -1021,10 +1295,25 @@ pub enum ExplainOrderBy {
 ///
 /// One canonical ORDER BY field + direction pair.
 ///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExplainOrder {
-    pub field: String,
-    pub direction: OrderDirection,
+    pub(crate) field: String,
+    pub(crate) direction: OrderDirection,
+}
+
+impl ExplainOrder {
+    /// Borrow ORDER BY field name.
+    #[must_use]
+    pub const fn field(&self) -> &str {
+        self.field.as_str()
+    }
+
+    /// Return ORDER BY direction.
+    #[must_use]
+    pub const fn direction(&self) -> OrderDirection {
+        self.direction
+    }
 }
 
 ///
@@ -1032,6 +1321,7 @@ pub struct ExplainOrder {
 ///
 /// Explain-surface projection of pagination window configuration.
 ///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExplainPagination {
     None,
@@ -1043,6 +1333,7 @@ pub enum ExplainPagination {
 ///
 /// Explain-surface projection of delete-limit configuration.
 ///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExplainDeleteLimit {
     None,

@@ -1,14 +1,20 @@
 use crate::{
     db::{
+        DbSession,
+        executor::{ExecutablePlan, LoadExecutor},
         query::fluent::load::FluentLoadQuery,
         query::{
             api::ResponseCardinalityExt,
-            builder::aggregate::{exists, first, last, max, min},
+            builder::{
+                AggregateExpr,
+                aggregate::{exists, first, last, max, min},
+            },
             explain::{ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor},
             intent::QueryError,
         },
         response::EntityResponse,
     },
+    error::InternalError,
     traits::{EntityKind, EntityValue},
     types::{Decimal, Id},
     value::Value,
@@ -34,6 +40,32 @@ where
         self.session.execute_query(self.query())
     }
 
+    // Run one scalar terminal through the canonical non-paged fluent policy
+    // gate before handing execution to the session load-query adapter.
+    fn execute_scalar_non_paged_terminal<T, F>(&self, execute: F) -> Result<T, QueryError>
+    where
+        E: EntityValue,
+        F: FnOnce(LoadExecutor<E>, ExecutablePlan<E>) -> Result<T, InternalError>,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        self.session.execute_load_query_with(self.query(), execute)
+    }
+
+    // Run one scalar aggregate EXPLAIN terminal through the canonical
+    // non-paged fluent policy gate.
+    fn explain_scalar_non_paged_terminal(
+        &self,
+        aggregate: AggregateExpr,
+    ) -> Result<ExplainAggregateTerminalPlan, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        DbSession::<E::Canister>::explain_load_query_terminal_with(self.query(), aggregate)
+    }
+
     // ------------------------------------------------------------------
     // Execution terminals — semantic only
     // ------------------------------------------------------------------
@@ -51,10 +83,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        self.session
-            .execute_load_query_with(self.query(), |load, plan| load.aggregate_exists(plan))
+        self.execute_scalar_non_paged_terminal(|load, plan| load.aggregate_exists(plan))
     }
 
     /// Explain scalar `exists()` routing without executing the terminal.
@@ -62,12 +91,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        crate::db::DbSession::<E::Canister>::explain_load_query_terminal_with(
-            self.query(),
-            exists(),
-        )
+        self.explain_scalar_non_paged_terminal(exists())
     }
 
     /// Explain scalar load execution shape without executing the query.
@@ -107,10 +131,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        self.session
-            .execute_load_query_with(self.query(), |load, plan| load.aggregate_count(plan))
+        self.execute_scalar_non_paged_terminal(|load, plan| load.aggregate_count(plan))
     }
 
     /// Execute and return the total persisted payload bytes for the effective
@@ -119,10 +140,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        self.session
-            .execute_load_query_with(self.query(), |load, plan| load.bytes(plan))
+        self.execute_scalar_non_paged_terminal(|load, plan| load.bytes(plan))
     }
 
     /// Execute and return the total serialized bytes for `field` over the
@@ -146,10 +164,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        self.session
-            .execute_load_query_with(self.query(), |load, plan| load.aggregate_min(plan))
+        self.execute_scalar_non_paged_terminal(|load, plan| load.aggregate_min(plan))
     }
 
     /// Explain scalar `min()` routing without executing the terminal.
@@ -157,9 +172,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        crate::db::DbSession::<E::Canister>::explain_load_query_terminal_with(self.query(), min())
+        self.explain_scalar_non_paged_terminal(min())
     }
 
     /// Execute and return the id of the row with the smallest value for `field`.
@@ -184,10 +197,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        self.session
-            .execute_load_query_with(self.query(), |load, plan| load.aggregate_max(plan))
+        self.execute_scalar_non_paged_terminal(|load, plan| load.aggregate_max(plan))
     }
 
     /// Explain scalar `max()` routing without executing the terminal.
@@ -195,9 +205,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        crate::db::DbSession::<E::Canister>::explain_load_query_terminal_with(self.query(), max())
+        self.explain_scalar_non_paged_terminal(max())
     }
 
     /// Execute and return the id of the row with the largest value for `field`.
@@ -349,10 +357,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        self.session
-            .execute_load_query_with(self.query(), |load, plan| load.take(plan, take_count))
+        self.execute_scalar_non_paged_terminal(|load, plan| load.take(plan, take_count))
     }
 
     /// Execute and return the top `k` rows by `field` under deterministic
@@ -577,10 +582,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        self.session
-            .execute_load_query_with(self.query(), |load, plan| load.aggregate_first(plan))
+        self.execute_scalar_non_paged_terminal(|load, plan| load.aggregate_first(plan))
     }
 
     /// Explain scalar `first()` routing without executing the terminal.
@@ -588,9 +590,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        crate::db::DbSession::<E::Canister>::explain_load_query_terminal_with(self.query(), first())
+        self.explain_scalar_non_paged_terminal(first())
     }
 
     /// Execute and return the last matching identifier in response order, if any.
@@ -598,10 +598,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        self.session
-            .execute_load_query_with(self.query(), |load, plan| load.aggregate_last(plan))
+        self.execute_scalar_non_paged_terminal(|load, plan| load.aggregate_last(plan))
     }
 
     /// Explain scalar `last()` routing without executing the terminal.
@@ -609,9 +606,7 @@ where
     where
         E: EntityValue,
     {
-        self.ensure_non_paged_mode_ready()?;
-
-        crate::db::DbSession::<E::Canister>::explain_load_query_terminal_with(self.query(), last())
+        self.explain_scalar_non_paged_terminal(last())
     }
 
     /// Execute and require exactly one matching row.

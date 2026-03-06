@@ -236,7 +236,12 @@ fn paged_query_builder_requires_explicit_limit() {
     };
 
     assert!(
-        matches!(err, QueryError::Intent(IntentError::CursorRequiresLimit)),
+        matches!(
+            err,
+            QueryError::Intent(IntentError::InvalidPagingShape(
+                crate::db::query::intent::PagingIntentError::CursorRequiresLimit
+            ))
+        ),
         "missing limit should be rejected at page-builder boundary"
     );
 }
@@ -1363,7 +1368,9 @@ fn non_paged_execute_rejects_cursor_token() {
     assert!(
         matches!(
             err,
-            QueryError::Intent(IntentError::CursorRequiresPagedExecution)
+            QueryError::Intent(IntentError::InvalidPagingShape(
+                crate::db::query::intent::PagingIntentError::CursorRequiresPagedExecution
+            ))
         ),
         "non-paged execute should reject cursor tokens as intent misuse"
     );
@@ -1384,7 +1391,9 @@ fn non_paged_aggregate_terminal_rejects_cursor_token() {
     assert!(
         matches!(
             err,
-            QueryError::Intent(IntentError::CursorRequiresPagedExecution)
+            QueryError::Intent(IntentError::InvalidPagingShape(
+                crate::db::query::intent::PagingIntentError::CursorRequiresPagedExecution
+            ))
         ),
         "non-paged aggregate terminal should reject cursor tokens as intent misuse"
     );
@@ -1405,7 +1414,9 @@ fn non_paged_take_terminal_rejects_cursor_token() {
     assert!(
         matches!(
             err,
-            QueryError::Intent(IntentError::CursorRequiresPagedExecution)
+            QueryError::Intent(IntentError::InvalidPagingShape(
+                crate::db::query::intent::PagingIntentError::CursorRequiresPagedExecution
+            ))
         ),
         "non-paged take terminal should reject cursor tokens as intent misuse"
     );
@@ -1426,7 +1437,9 @@ fn non_paged_top_k_by_terminal_rejects_cursor_token() {
     assert!(
         matches!(
             err,
-            QueryError::Intent(IntentError::CursorRequiresPagedExecution)
+            QueryError::Intent(IntentError::InvalidPagingShape(
+                crate::db::query::intent::PagingIntentError::CursorRequiresPagedExecution
+            ))
         ),
         "non-paged top_k_by terminal should reject cursor tokens as intent misuse"
     );
@@ -1447,7 +1460,9 @@ fn non_paged_bottom_k_by_terminal_rejects_cursor_token() {
     assert!(
         matches!(
             err,
-            QueryError::Intent(IntentError::CursorRequiresPagedExecution)
+            QueryError::Intent(IntentError::InvalidPagingShape(
+                crate::db::query::intent::PagingIntentError::CursorRequiresPagedExecution
+            ))
         ),
         "non-paged bottom_k_by terminal should reject cursor tokens as intent misuse"
     );
@@ -1468,7 +1483,9 @@ fn non_paged_top_k_by_values_terminal_rejects_cursor_token() {
     assert!(
         matches!(
             err,
-            QueryError::Intent(IntentError::CursorRequiresPagedExecution)
+            QueryError::Intent(IntentError::InvalidPagingShape(
+                crate::db::query::intent::PagingIntentError::CursorRequiresPagedExecution
+            ))
         ),
         "non-paged top_k_by_values terminal should reject cursor tokens as intent misuse"
     );
@@ -1489,7 +1506,9 @@ fn non_paged_bottom_k_by_values_terminal_rejects_cursor_token() {
     assert!(
         matches!(
             err,
-            QueryError::Intent(IntentError::CursorRequiresPagedExecution)
+            QueryError::Intent(IntentError::InvalidPagingShape(
+                crate::db::query::intent::PagingIntentError::CursorRequiresPagedExecution
+            ))
         ),
         "non-paged bottom_k_by_values terminal should reject cursor tokens as intent misuse"
     );
@@ -1510,7 +1529,9 @@ fn non_paged_top_k_by_with_ids_terminal_rejects_cursor_token() {
     assert!(
         matches!(
             err,
-            QueryError::Intent(IntentError::CursorRequiresPagedExecution)
+            QueryError::Intent(IntentError::InvalidPagingShape(
+                crate::db::query::intent::PagingIntentError::CursorRequiresPagedExecution
+            ))
         ),
         "non-paged top_k_by_with_ids terminal should reject cursor tokens as intent misuse"
     );
@@ -1531,7 +1552,9 @@ fn non_paged_bottom_k_by_with_ids_terminal_rejects_cursor_token() {
     assert!(
         matches!(
             err,
-            QueryError::Intent(IntentError::CursorRequiresPagedExecution)
+            QueryError::Intent(IntentError::InvalidPagingShape(
+                crate::db::query::intent::PagingIntentError::CursorRequiresPagedExecution
+            ))
         ),
         "non-paged bottom_k_by_with_ids terminal should reject cursor tokens as intent misuse"
     );

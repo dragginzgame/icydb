@@ -38,8 +38,8 @@ pub(crate) enum KeyAccessKind {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct KeyAccessState<K> {
-    pub kind: KeyAccessKind,
-    pub access: KeyAccess<K>,
+    pub(in crate::db::query::intent) kind: KeyAccessKind,
+    pub(in crate::db::query::intent) access: KeyAccess<K>,
 }
 
 // Build a model-level access plan for key-only intents.

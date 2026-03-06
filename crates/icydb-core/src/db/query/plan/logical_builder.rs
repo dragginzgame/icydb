@@ -56,13 +56,13 @@ impl LogicalPlanningInputs {
 
 #[derive(Clone, Debug)]
 pub(in crate::db::query) struct LogicalQuery {
-    pub mode: QueryMode,
-    pub normalized_predicate: Option<Predicate>,
-    pub order: Option<OrderSpec>,
-    pub distinct: bool,
-    pub group: Option<GroupSpec>,
-    pub having: Option<GroupHavingSpec>,
-    pub consistency: MissingRowPolicy,
+    pub(in crate::db::query) mode: QueryMode,
+    pub(in crate::db::query) normalized_predicate: Option<Predicate>,
+    pub(in crate::db::query) order: Option<OrderSpec>,
+    pub(in crate::db::query) distinct: bool,
+    pub(in crate::db::query) group: Option<GroupSpec>,
+    pub(in crate::db::query) having: Option<GroupHavingSpec>,
+    pub(in crate::db::query) consistency: MissingRowPolicy,
 }
 
 /// Project one plan-owned `LogicalQuery` DTO from logical-planning inputs.

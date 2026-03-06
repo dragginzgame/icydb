@@ -401,46 +401,44 @@ fn session_load_terminal_explain_projects_seek_labels_for_min_and_max() {
         .order_by("id")
         .explain_min()
         .expect("session explain_min should succeed");
-    assert_eq!(min_terminal_plan.terminal, AggregateKind::Min);
+    assert_eq!(min_terminal_plan.terminal(), AggregateKind::Min);
     assert!(matches!(
-        min_terminal_plan.route,
+        min_terminal_plan.route(),
         crate::db::ExplainAggregateTerminalRoute::IndexSeekFirst { fetch: 1 }
     ));
-    assert_eq!(min_terminal_plan.execution.aggregation, AggregateKind::Min);
+    let min_execution = min_terminal_plan.execution();
+    assert_eq!(min_execution.aggregation(), AggregateKind::Min);
     assert!(matches!(
-        min_terminal_plan.execution.ordering_source,
+        min_execution.ordering_source(),
         crate::db::ExplainExecutionOrderingSource::IndexSeekFirst { fetch: 1 }
     ));
     assert_eq!(
-        min_terminal_plan.execution.access_strategy,
-        min_terminal_plan.query.access
+        min_execution.access_strategy(),
+        min_terminal_plan.query().access()
     );
     assert_eq!(
-        min_terminal_plan.execution.execution_mode,
+        min_execution.execution_mode(),
         crate::db::ExplainExecutionMode::Materialized
     );
-    assert_eq!(min_terminal_plan.execution.limit, None);
-    assert!(!min_terminal_plan.execution.cursor);
+    assert_eq!(min_execution.limit(), None);
+    assert!(!min_execution.cursor());
     assert_eq!(
-        min_terminal_plan.execution.node_properties.get("fetch"),
+        min_execution.node_properties().get("fetch"),
         Some(&Value::from(1u64)),
         "seek explain descriptor should expose seek fetch metadata",
     );
     let min_node = min_terminal_plan.execution_node_descriptor();
     assert_eq!(
-        min_node.node_type,
+        min_node.node_type(),
         crate::db::ExplainExecutionNodeType::AggregateSeekFirst
     );
+    assert_eq!(min_node.execution_mode(), min_execution.execution_mode());
     assert_eq!(
-        min_node.execution_mode,
-        min_terminal_plan.execution.execution_mode
+        min_node.access_strategy(),
+        Some(min_execution.access_strategy())
     );
     assert_eq!(
-        min_node.access_strategy,
-        Some(min_terminal_plan.execution.access_strategy)
-    );
-    assert_eq!(
-        min_node.node_properties.get("fetch"),
+        min_node.node_properties().get("fetch"),
         Some(&Value::from(1u64))
     );
     let min_tree = min_node.render_text_tree();
@@ -467,46 +465,44 @@ fn session_load_terminal_explain_projects_seek_labels_for_min_and_max() {
         .order_by_desc("id")
         .explain_max()
         .expect("session explain_max should succeed");
-    assert_eq!(max_terminal_plan.terminal, AggregateKind::Max);
+    assert_eq!(max_terminal_plan.terminal(), AggregateKind::Max);
     assert!(matches!(
-        max_terminal_plan.route,
+        max_terminal_plan.route(),
         crate::db::ExplainAggregateTerminalRoute::IndexSeekLast { fetch: 1 }
     ));
-    assert_eq!(max_terminal_plan.execution.aggregation, AggregateKind::Max);
+    let max_execution = max_terminal_plan.execution();
+    assert_eq!(max_execution.aggregation(), AggregateKind::Max);
     assert!(matches!(
-        max_terminal_plan.execution.ordering_source,
+        max_execution.ordering_source(),
         crate::db::ExplainExecutionOrderingSource::IndexSeekLast { fetch: 1 }
     ));
     assert_eq!(
-        max_terminal_plan.execution.access_strategy,
-        max_terminal_plan.query.access
+        max_execution.access_strategy(),
+        max_terminal_plan.query().access()
     );
     assert_eq!(
-        max_terminal_plan.execution.execution_mode,
+        max_execution.execution_mode(),
         crate::db::ExplainExecutionMode::Materialized
     );
-    assert_eq!(max_terminal_plan.execution.limit, None);
-    assert!(!max_terminal_plan.execution.cursor);
+    assert_eq!(max_execution.limit(), None);
+    assert!(!max_execution.cursor());
     assert_eq!(
-        max_terminal_plan.execution.node_properties.get("fetch"),
+        max_execution.node_properties().get("fetch"),
         Some(&Value::from(1u64)),
         "seek explain descriptor should expose seek fetch metadata",
     );
     let max_node = max_terminal_plan.execution_node_descriptor();
     assert_eq!(
-        max_node.node_type,
+        max_node.node_type(),
         crate::db::ExplainExecutionNodeType::AggregateSeekLast
     );
+    assert_eq!(max_node.execution_mode(), max_execution.execution_mode());
     assert_eq!(
-        max_node.execution_mode,
-        max_terminal_plan.execution.execution_mode
+        max_node.access_strategy(),
+        Some(max_execution.access_strategy())
     );
     assert_eq!(
-        max_node.access_strategy,
-        Some(max_terminal_plan.execution.access_strategy)
-    );
-    assert_eq!(
-        max_node.node_properties.get("fetch"),
+        max_node.node_properties().get("fetch"),
         Some(&Value::from(1u64))
     );
     let max_tree = max_node.render_text_tree();
@@ -554,14 +550,17 @@ fn session_describe_entity_reports_fields_indexes_and_relations() {
     let session = DbSession::new(DB);
 
     let indexed = session.describe_entity::<PushdownParityEntity>();
-    assert_eq!(indexed.entity_name, "PushdownParityEntity");
-    assert_eq!(indexed.primary_key, "id");
-    assert_eq!(indexed.fields.len(), 4);
-    assert!(indexed.fields.iter().any(|field| {
-        field.name == "rank" && field.kind == "uint" && field.queryable && !field.primary_key
+    assert_eq!(indexed.entity_name(), "PushdownParityEntity");
+    assert_eq!(indexed.primary_key(), "id");
+    assert_eq!(indexed.fields().len(), 4);
+    assert!(indexed.fields().iter().any(|field| {
+        field.name() == "rank"
+            && field.kind() == "uint"
+            && field.queryable()
+            && !field.primary_key()
     }));
     assert_eq!(
-        indexed.indexes,
+        indexed.indexes(),
         vec![crate::db::EntityIndexDescription {
             name: "group_rank".to_string(),
             unique: false,
@@ -569,29 +568,29 @@ fn session_describe_entity_reports_fields_indexes_and_relations() {
         }],
     );
     assert!(
-        indexed.relations.is_empty(),
+        indexed.relations().is_empty(),
         "non-relation entities should not emit relation describe rows",
     );
 
     let relation_session = DbSession::new(REL_DB);
     let weak_list = relation_session.describe_entity::<WeakListRelationSourceEntity>();
     assert!(
-        weak_list.relations.iter().any(|relation| {
-            relation.field == "targets"
-                && relation.target_entity_name == "RelationTargetEntity"
-                && relation.strength == crate::db::EntityRelationStrength::Weak
-                && relation.cardinality == crate::db::EntityRelationCardinality::List
+        weak_list.relations().iter().any(|relation| {
+            relation.field() == "targets"
+                && relation.target_entity_name() == "RelationTargetEntity"
+                && relation.strength() == crate::db::EntityRelationStrength::Weak
+                && relation.cardinality() == crate::db::EntityRelationCardinality::List
         }),
         "list relation metadata should carry target identity, weak strength, and list cardinality",
     );
 
     let strong_single = relation_session.describe_entity::<RelationSourceEntity>();
     assert!(
-        strong_single.relations.iter().any(|relation| {
-            relation.field == "target"
-                && relation.target_entity_name == "RelationTargetEntity"
-                && relation.strength == crate::db::EntityRelationStrength::Strong
-                && relation.cardinality == crate::db::EntityRelationCardinality::Single
+        strong_single.relations().iter().any(|relation| {
+            relation.field() == "target"
+                && relation.target_entity_name() == "RelationTargetEntity"
+                && relation.strength() == crate::db::EntityRelationStrength::Strong
+                && relation.cardinality() == crate::db::EntityRelationCardinality::Single
         }),
         "scalar strong relation metadata should be projected for describe consumers",
     );
@@ -618,37 +617,39 @@ fn session_trace_query_reports_plan_hash_and_route_summary() {
     let expected_hash = query
         .plan_hash_hex()
         .expect("query plan hash should derive from explain model");
+    let trace_explain = trace.explain();
+    let query_explain = query
+        .explain()
+        .expect("query explain for trace parity should succeed");
 
     assert_eq!(
-        trace.plan_hash, expected_hash,
+        trace.plan_hash(),
+        expected_hash,
         "trace payload must project the same hash as direct plan-hash derivation",
     );
     assert_eq!(
-        trace.explain.access,
-        query
-            .explain()
-            .expect("query explain for trace parity should succeed")
-            .access,
+        trace_explain.access(),
+        query_explain.access(),
         "trace explain access path should preserve planner-selected access shape",
     );
     assert!(
-        trace.access_strategy.starts_with("Index")
-            || trace.access_strategy.starts_with("PrimaryKeyRange")
-            || trace.access_strategy == "FullScan"
-            || trace.access_strategy.starts_with("Union(")
-            || trace.access_strategy.starts_with("Intersection("),
+        trace.access_strategy().starts_with("Index")
+            || trace.access_strategy().starts_with("PrimaryKeyRange")
+            || trace.access_strategy() == "FullScan"
+            || trace.access_strategy().starts_with("Union(")
+            || trace.access_strategy().starts_with("Intersection("),
         "trace access strategy summary should provide a human-readable selected access hint",
     );
     assert!(
         matches!(
-            trace.execution_strategy,
+            trace.execution_strategy(),
             Some(crate::db::TraceExecutionStrategy::Ordered)
         ),
         "ordered load shapes should project ordered execution strategy in trace payload",
     );
     assert!(
         matches!(
-            trace.explain.order_pushdown,
+            trace_explain.order_pushdown(),
             crate::db::query::explain::ExplainOrderPushdown::EligibleSecondaryIndex { .. }
                 | crate::db::query::explain::ExplainOrderPushdown::Rejected(_)
                 | crate::db::query::explain::ExplainOrderPushdown::MissingModelContext
@@ -674,49 +675,47 @@ fn session_load_terminal_explain_reports_standard_route_for_exists() {
         .order_by("id")
         .explain_exists()
         .expect("session explain_exists should succeed");
-    assert_eq!(exists_terminal_plan.terminal, AggregateKind::Exists);
+    assert_eq!(exists_terminal_plan.terminal(), AggregateKind::Exists);
     assert!(matches!(
-        exists_terminal_plan.route,
+        exists_terminal_plan.route(),
         crate::db::ExplainAggregateTerminalRoute::Standard
     ));
-    assert_eq!(
-        exists_terminal_plan.execution.aggregation,
-        AggregateKind::Exists
-    );
+    let exists_execution = exists_terminal_plan.execution();
+    assert_eq!(exists_execution.aggregation(), AggregateKind::Exists);
     assert!(matches!(
-        exists_terminal_plan.execution.ordering_source,
+        exists_execution.ordering_source(),
         crate::db::ExplainExecutionOrderingSource::AccessOrder
             | crate::db::ExplainExecutionOrderingSource::Materialized
     ));
     assert_eq!(
-        exists_terminal_plan.execution.access_strategy,
-        exists_terminal_plan.query.access
+        exists_execution.access_strategy(),
+        exists_terminal_plan.query().access()
     );
     assert!(matches!(
-        exists_terminal_plan.execution.execution_mode,
+        exists_execution.execution_mode(),
         crate::db::ExplainExecutionMode::Streaming | crate::db::ExplainExecutionMode::Materialized
     ));
-    assert_eq!(exists_terminal_plan.execution.limit, None);
-    assert!(!exists_terminal_plan.execution.cursor);
+    assert_eq!(exists_execution.limit(), None);
+    assert!(!exists_execution.cursor());
     assert!(
-        exists_terminal_plan.execution.node_properties.is_empty(),
+        exists_execution.node_properties().is_empty(),
         "standard explain descriptor should emit no extra node properties by default",
     );
     let exists_node = exists_terminal_plan.execution_node_descriptor();
     assert_eq!(
-        exists_node.node_type,
+        exists_node.node_type(),
         crate::db::ExplainExecutionNodeType::AggregateExists
     );
     assert_eq!(
-        exists_node.execution_mode,
-        exists_terminal_plan.execution.execution_mode
+        exists_node.execution_mode(),
+        exists_execution.execution_mode()
     );
     assert_eq!(
-        exists_node.access_strategy,
-        Some(exists_terminal_plan.execution.access_strategy)
+        exists_node.access_strategy(),
+        Some(exists_execution.access_strategy())
     );
     assert!(
-        exists_node.node_properties.is_empty(),
+        exists_node.node_properties().is_empty(),
         "standard terminal descriptor should keep node_properties empty",
     );
     let exists_tree = exists_node.render_text_tree();
@@ -774,7 +773,7 @@ fn session_load_explain_execution_projects_descriptor_tree_for_ordered_limited_i
         .expect("session explain_execution should succeed");
 
     assert!(
-        descriptor.access_strategy.is_some(),
+        descriptor.access_strategy().is_some(),
         "execution descriptor root should carry one canonical access projection",
     );
     assert!(
@@ -793,20 +792,20 @@ fn session_load_explain_execution_projects_descriptor_tree_for_ordered_limited_i
         crate::db::ExplainExecutionNodeType::TopNSeek,
     ) {
         assert_eq!(
-            top_n_node.node_properties.get("fetch"),
+            top_n_node.node_properties().get("fetch"),
             Some(&Value::from(3u64)),
             "top-n seek node should report bounded fetch count (offset + limit)",
         );
     }
 
     let limit_node = descriptor
-        .children
+        .children()
         .iter()
-        .find(|child| child.node_type == crate::db::ExplainExecutionNodeType::LimitOffset)
+        .find(|child| child.node_type() == crate::db::ExplainExecutionNodeType::LimitOffset)
         .expect("paged shape should project limit/offset node");
-    assert_eq!(limit_node.limit, Some(2));
+    assert_eq!(limit_node.limit(), Some(2));
     assert_eq!(
-        limit_node.node_properties.get("offset"),
+        limit_node.node_properties().get("offset"),
         Some(&Value::from(1u64)),
         "limit/offset node should keep logical offset metadata",
     );
@@ -860,7 +859,7 @@ fn session_load_explain_execution_access_root_matrix_is_stable() {
         .explain_execution()
         .expect("by-key explain execution should succeed");
     assert_eq!(
-        by_key.node_type,
+        by_key.node_type(),
         crate::db::ExplainExecutionNodeType::ByKeyLookup,
         "single id predicate should keep by-key execution root",
     );
@@ -880,7 +879,7 @@ fn session_load_explain_execution_access_root_matrix_is_stable() {
         .explain_execution()
         .expect("index-prefix explain execution should succeed");
     assert_eq!(
-        prefix.node_type,
+        prefix.node_type(),
         crate::db::ExplainExecutionNodeType::IndexPrefixScan,
         "strict equality on leading index field should keep index-prefix root",
     );
@@ -893,7 +892,7 @@ fn session_load_explain_execution_access_root_matrix_is_stable() {
         .explain_execution()
         .expect("index-multi explain execution should succeed");
     assert_eq!(
-        multi.node_type,
+        multi.node_type(),
         crate::db::ExplainExecutionNodeType::IndexMultiLookup,
         "IN predicate on indexed field should keep index-multi root",
     );
@@ -914,7 +913,7 @@ fn session_load_explain_execution_access_root_matrix_is_stable() {
         .explain_execution()
         .expect("index-range explain execution should succeed");
     assert_eq!(
-        range.node_type,
+        range.node_type(),
         crate::db::ExplainExecutionNodeType::IndexRangeScan,
         "bounded range predicate should keep index-range root",
     );
@@ -989,7 +988,7 @@ fn session_load_explain_execution_predicate_stage_and_limit_zero_matrix_is_stabl
         crate::db::ExplainExecutionNodeType::TopNSeek,
     ) {
         assert_eq!(
-            top_n.node_properties.get("fetch"),
+            top_n.node_properties().get("fetch"),
             Some(&Value::from(0u64)),
             "limit-zero top-n node should freeze fetch=0 contract",
         );
@@ -1007,7 +1006,7 @@ fn session_load_explain_execution_predicate_stage_and_limit_zero_matrix_is_stabl
         crate::db::ExplainExecutionNodeType::LimitOffset,
     )
     .expect("limit-zero route should emit limit/offset node");
-    assert_eq!(limit_node.limit, Some(0));
+    assert_eq!(limit_node.limit(), Some(0));
 }
 
 #[test]

@@ -14,6 +14,7 @@ use crate::{
                 resolve_orderable_aggregate_target_slot_from_planner_slot,
             },
             load::LoadExecutor,
+            saturating_row_len,
         },
         query::plan::FieldSlot as PlannedFieldSlot,
         response::EntityResponse,
@@ -441,9 +442,8 @@ where
 
 // Centralize payload-byte saturation so terminal behavior stays explicit and
 // testable without requiring oversized persisted rows.
-fn saturating_add_payload_len(total: u64, row_len: usize) -> u64 {
-    let row_len = u64::try_from(row_len).unwrap_or(u64::MAX);
-    total.saturating_add(row_len)
+const fn saturating_add_payload_len(total: u64, row_len: usize) -> u64 {
+    total.saturating_add(saturating_row_len(row_len))
 }
 
 // Serialize one value using the canonical runtime codec and return payload len.

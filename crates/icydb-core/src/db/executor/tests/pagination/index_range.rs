@@ -15,7 +15,7 @@ fn load_index_pushdown_eligible_order_matches_index_scan_order() {
         .expect("parity explain should build");
     assert!(
         matches!(
-            explain.order_pushdown,
+            explain.order_pushdown(),
             ExplainOrderPushdown::MissingModelContext
         ),
         "query-layer explain should not evaluate secondary pushdown eligibility"
@@ -122,7 +122,7 @@ fn load_index_pushdown_desc_with_explicit_pk_desc_is_eligible_and_ordered() {
         .expect("descending parity explain should build");
     assert!(
         matches!(
-            explain.order_pushdown,
+            explain.order_pushdown(),
             ExplainOrderPushdown::MissingModelContext
         ),
         "query-layer explain should not evaluate secondary pushdown eligibility"
@@ -439,7 +439,7 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
         .expect("desc explain should build");
     assert!(
         matches!(
-            explain.order_pushdown,
+            explain.order_pushdown(),
             ExplainOrderPushdown::MissingModelContext
         ),
         "query-layer explain should not evaluate secondary pushdown eligibility"
@@ -595,7 +595,7 @@ fn load_single_field_range_pushdown_matches_by_ids_fallback() {
         .explain()
         .expect("single-field range explain should build");
     assert!(
-        explain_contains_index_range(&explain.access, INDEXED_METRICS_INDEX_MODELS[0].name, 0),
+        explain_contains_index_range(explain.access(), INDEXED_METRICS_INDEX_MODELS[0].name, 0),
         "single-field range should plan an IndexRange access path"
     );
 
@@ -625,7 +625,7 @@ fn load_composite_prefix_range_pushdown_matches_by_ids_fallback() {
         .explain()
         .expect("composite range explain should build");
     assert!(
-        explain_contains_index_range(&explain.access, PUSHDOWN_PARITY_INDEX_MODELS[0].name, 1),
+        explain_contains_index_range(explain.access(), PUSHDOWN_PARITY_INDEX_MODELS[0].name, 1),
         "composite prefix+range should plan an IndexRange access path"
     );
 
@@ -665,7 +665,7 @@ fn load_single_field_range_full_asc_reversed_equals_full_desc() {
         .explain()
         .expect("single-field asc explain should build");
     assert!(
-        explain_contains_index_range(&explain.access, INDEXED_METRICS_INDEX_MODELS[0].name, 0),
+        explain_contains_index_range(explain.access(), INDEXED_METRICS_INDEX_MODELS[0].name, 0),
         "single-field asc query should plan an IndexRange access path"
     );
 
@@ -726,7 +726,7 @@ fn load_composite_range_full_asc_reversed_equals_full_desc() {
         .explain()
         .expect("composite asc explain should build");
     assert!(
-        explain_contains_index_range(&explain.access, PUSHDOWN_PARITY_INDEX_MODELS[0].name, 1),
+        explain_contains_index_range(explain.access(), PUSHDOWN_PARITY_INDEX_MODELS[0].name, 1),
         "composite asc query should plan an IndexRange access path"
     );
 
@@ -787,7 +787,7 @@ fn load_unique_index_range_full_asc_reversed_equals_full_desc() {
         .explain()
         .expect("unique asc explain should build");
     assert!(
-        explain_contains_index_range(&explain.access, UNIQUE_INDEX_RANGE_INDEX_MODELS[0].name, 0),
+        explain_contains_index_range(explain.access(), UNIQUE_INDEX_RANGE_INDEX_MODELS[0].name, 0),
         "unique asc query should plan an IndexRange access path"
     );
 
@@ -846,7 +846,7 @@ fn load_single_field_range_limit_matrix_matches_unbounded() {
         .explain()
         .expect("single-field limit matrix explain should build");
     assert!(
-        explain_contains_index_range(&explain.access, INDEXED_METRICS_INDEX_MODELS[0].name, 0),
+        explain_contains_index_range(explain.access(), INDEXED_METRICS_INDEX_MODELS[0].name, 0),
         "single-field limit matrix should plan an IndexRange access path"
     );
 
@@ -885,7 +885,7 @@ fn load_composite_range_limit_matrix_matches_unbounded() {
         .explain()
         .expect("composite limit matrix explain should build");
     assert!(
-        explain_contains_index_range(&explain.access, PUSHDOWN_PARITY_INDEX_MODELS[0].name, 1),
+        explain_contains_index_range(explain.access(), PUSHDOWN_PARITY_INDEX_MODELS[0].name, 1),
         "composite limit matrix should plan an IndexRange access path"
     );
 
@@ -1039,7 +1039,7 @@ fn load_index_range_limit_pushdown_trace_reports_limited_access_rows_for_eligibl
         .execute_paged_with_cursor_traced(page_plan, None)
         .expect("trace limit-pushdown execution should succeed");
 
-    let access_rows = trace.map(|trace| trace.keys_scanned);
+    let access_rows = trace.map(|trace| trace.keys_scanned());
 
     assert_eq!(
         access_rows,
@@ -1088,7 +1088,7 @@ fn load_index_range_limit_pushdown_trace_reports_limited_access_rows_for_desc_el
         .execute_paged_with_cursor_traced(page_plan, None)
         .expect("trace descending limit-pushdown execution should succeed");
 
-    let access_rows = trace.map(|trace| trace.keys_scanned);
+    let access_rows = trace.map(|trace| trace.keys_scanned());
 
     assert_eq!(
         access_rows,
@@ -1134,7 +1134,7 @@ fn load_index_range_limit_zero_short_circuits_access_scan_for_eligible_plan() {
         .execute_paged_with_cursor_traced(page_plan, None)
         .expect("limit=0 trace execution should succeed");
 
-    let access_rows = trace.map(|trace| trace.keys_scanned);
+    let access_rows = trace.map(|trace| trace.keys_scanned());
 
     assert_eq!(
         access_rows,
@@ -1186,7 +1186,7 @@ fn load_index_range_limit_zero_with_offset_short_circuits_access_scan_for_eligib
         .execute_paged_with_cursor_traced(page_plan, None)
         .expect("limit=0 with offset trace execution should succeed");
 
-    let access_rows = trace.map(|trace| trace.keys_scanned);
+    let access_rows = trace.map(|trace| trace.keys_scanned());
 
     assert_eq!(
         access_rows,
@@ -1277,16 +1277,16 @@ fn load_index_range_limit_pushdown_with_residual_predicate_reduces_access_rows()
         "residual-filter index-range pushdown must preserve fallback row parity",
     );
     assert!(
-        fast_trace.keys_scanned <= 3,
+        fast_trace.keys_scanned() <= 3,
         "residual-filter fast path should remain within the bounded fetch window when it can satisfy the page (fast={fast_trace:?}, fallback={fallback_trace:?})",
     );
     assert_eq!(
-        fast_trace.optimization,
+        fast_trace.optimization(),
         Some(ExecutionOptimization::IndexRangeLimitPushdown),
         "residual-filter fast path should report index-range limit pushdown when no retry is needed",
     );
     assert!(
-        fast_trace.keys_scanned < fallback_trace.keys_scanned,
+        fast_trace.keys_scanned() < fallback_trace.keys_scanned(),
         "residual-filter index-range pushdown should reduce scanned rows when early bounded candidates satisfy the page (fast={fast_trace:?}, fallback={fallback_trace:?})",
     );
 }
@@ -1368,15 +1368,16 @@ fn load_index_range_limit_pushdown_residual_underfill_retries_without_pushdown()
         "residual underfill retry path must preserve fallback row parity",
     );
     assert_eq!(
-        fast_trace.optimization, None,
+        fast_trace.optimization(),
+        None,
         "residual underfill should retry without index-range limit pushdown and report fallback optimization outcome",
     );
     assert!(
-        fast_trace.keys_scanned > 3,
+        fast_trace.keys_scanned() > 3,
         "residual underfill should rescan beyond the initial bounded fetch window",
     );
     assert!(
-        fast_trace.keys_scanned > fallback_trace.keys_scanned,
+        fast_trace.keys_scanned() > fallback_trace.keys_scanned(),
         "residual underfill retry should report additional scan work beyond canonical fallback (fast={fast_trace:?}, fallback={fallback_trace:?})",
     );
 }
@@ -1552,31 +1553,34 @@ fn load_index_only_predicate_reduces_access_rows_vs_fallback() {
         "index-only predicate path must preserve fallback result parity",
     );
     assert!(
-        fast_trace.index_predicate_applied,
+        fast_trace.index_predicate_applied(),
         "index-backed strict predicate should activate index-only evaluation"
     );
     assert!(
-        !fallback_trace.index_predicate_applied,
+        !fallback_trace.index_predicate_applied(),
         "by-ids fallback path must not report index-only predicate activation"
     );
     assert!(
-        fast_trace.index_predicate_keys_rejected > 0,
+        fast_trace.index_predicate_keys_rejected() > 0,
         "index-only path should report rejected index keys for non-matching predicate rows",
     );
     assert_eq!(
-        fallback_trace.index_predicate_keys_rejected, 0,
+        fallback_trace.index_predicate_keys_rejected(),
+        0,
         "fallback path must not report index-only rejected-key counts",
     );
     assert_eq!(
-        fast_trace.distinct_keys_deduped, 0,
+        fast_trace.distinct_keys_deduped(),
+        0,
         "non-distinct plans must not report DISTINCT dedup activity",
     );
     assert_eq!(
-        fallback_trace.distinct_keys_deduped, 0,
+        fallback_trace.distinct_keys_deduped(),
+        0,
         "non-distinct fallback plans must not report DISTINCT dedup activity",
     );
     assert!(
-        fast_trace.keys_scanned < fallback_trace.keys_scanned,
+        fast_trace.keys_scanned() < fallback_trace.keys_scanned(),
         "index-only predicate activation should reduce scanned rows for this shape",
     );
 }
@@ -1657,27 +1661,30 @@ fn load_index_only_predicate_distinct_continuation_matches_fallback() {
         "fast and fallback distinct page1 rows should match",
     );
     assert!(
-        fast_trace1.index_predicate_applied && !fast_trace1.continuation_applied,
+        fast_trace1.index_predicate_applied() && !fast_trace1.continuation_applied(),
         "first index-only page should report activation without continuation"
     );
     assert!(
-        !fallback_trace1.index_predicate_applied,
+        !fallback_trace1.index_predicate_applied(),
         "fallback distinct page1 must not report index-only activation"
     );
     assert_eq!(
-        fallback_trace1.optimization, None,
+        fallback_trace1.optimization(),
+        None,
         "fallback distinct page1 should remain non-optimized",
     );
     assert!(
-        fast_trace1.index_predicate_keys_rejected > 0,
+        fast_trace1.index_predicate_keys_rejected() > 0,
         "index-only distinct page1 should report rejected index keys",
     );
     assert_eq!(
-        fallback_trace1.index_predicate_keys_rejected, 0,
+        fallback_trace1.index_predicate_keys_rejected(),
+        0,
         "fallback distinct page1 must not report index-only rejected-key counts",
     );
     assert_eq!(
-        fast_trace1.distinct_keys_deduped, fallback_trace1.distinct_keys_deduped,
+        fast_trace1.distinct_keys_deduped(),
+        fallback_trace1.distinct_keys_deduped(),
         "fast and fallback distinct page1 should report the same DISTINCT dedup count",
     );
 
@@ -1711,23 +1718,26 @@ fn load_index_only_predicate_distinct_continuation_matches_fallback() {
         "fast and fallback distinct page2 rows should match",
     );
     assert!(
-        fast_trace2.index_predicate_applied && fast_trace2.continuation_applied,
+        fast_trace2.index_predicate_applied() && fast_trace2.continuation_applied(),
         "continued index-only page should report both activation and continuation"
     );
     assert!(
-        !fallback_trace2.index_predicate_applied,
+        !fallback_trace2.index_predicate_applied(),
         "fallback distinct page2 must not report index-only activation"
     );
     assert_eq!(
-        fallback_trace2.optimization, None,
+        fallback_trace2.optimization(),
+        None,
         "fallback distinct page2 should remain non-optimized",
     );
     assert_eq!(
-        fallback_trace2.index_predicate_keys_rejected, 0,
+        fallback_trace2.index_predicate_keys_rejected(),
+        0,
         "fallback distinct page2 must not report index-only rejected-key counts",
     );
     assert_eq!(
-        fast_trace2.distinct_keys_deduped, fallback_trace2.distinct_keys_deduped,
+        fast_trace2.distinct_keys_deduped(),
+        fallback_trace2.distinct_keys_deduped(),
         "fast and fallback distinct page2 should report the same DISTINCT dedup count",
     );
     assert_eq!(
@@ -1813,15 +1823,16 @@ fn load_index_only_predicate_distinct_desc_continuation_matches_fallback() {
         "fast and fallback descending distinct page1 rows should match",
     );
     assert!(
-        fast_trace1.index_predicate_applied && !fast_trace1.continuation_applied,
+        fast_trace1.index_predicate_applied() && !fast_trace1.continuation_applied(),
         "first descending index-only page should report activation without continuation"
     );
     assert!(
-        !fallback_trace1.index_predicate_applied,
+        !fallback_trace1.index_predicate_applied(),
         "fallback descending distinct page1 must not report index-only activation"
     );
     assert_eq!(
-        fallback_trace1.optimization, None,
+        fallback_trace1.optimization(),
+        None,
         "fallback descending distinct page1 should remain non-optimized",
     );
 
@@ -1855,15 +1866,16 @@ fn load_index_only_predicate_distinct_desc_continuation_matches_fallback() {
         "fast and fallback descending distinct page2 rows should match",
     );
     assert!(
-        fast_trace2.index_predicate_applied && fast_trace2.continuation_applied,
+        fast_trace2.index_predicate_applied() && fast_trace2.continuation_applied(),
         "continued descending index-only page should report both activation and continuation"
     );
     assert!(
-        !fallback_trace2.index_predicate_applied,
+        !fallback_trace2.index_predicate_applied(),
         "fallback descending distinct page2 must not report index-only activation"
     );
     assert_eq!(
-        fallback_trace2.optimization, None,
+        fallback_trace2.optimization(),
+        None,
         "fallback descending distinct page2 should remain non-optimized",
     );
     assert_eq!(
@@ -1956,23 +1968,24 @@ fn load_index_only_predicate_in_constants_reduces_access_rows_vs_fallback() {
         "strict IN index-only execution must preserve fallback row parity",
     );
     assert!(
-        fast_trace.index_predicate_applied,
+        fast_trace.index_predicate_applied(),
         "strict IN predicate should activate index-only filtering"
     );
     assert!(
-        !fallback_trace.index_predicate_applied,
+        !fallback_trace.index_predicate_applied(),
         "fallback IN path must keep index-only filtering disabled",
     );
     assert!(
-        fast_trace.index_predicate_keys_rejected > 0,
+        fast_trace.index_predicate_keys_rejected() > 0,
         "strict IN index-only path should reject non-matching index keys",
     );
     assert_eq!(
-        fallback_trace.index_predicate_keys_rejected, 0,
+        fallback_trace.index_predicate_keys_rejected(),
+        0,
         "fallback IN path must not report index-only rejected-key counts",
     );
     assert!(
-        fast_trace.keys_scanned < fallback_trace.keys_scanned,
+        fast_trace.keys_scanned() < fallback_trace.keys_scanned(),
         "strict IN index-only filtering should reduce scanned rows for this shape",
     );
 }
@@ -2096,23 +2109,25 @@ fn load_index_only_predicate_bounded_range_distinct_continuation_matches_fallbac
             "fast and fallback bounded-range page1 rows should match for descending={descending}",
         );
         assert!(
-            fast_trace1.index_predicate_applied && !fast_trace1.continuation_applied,
+            fast_trace1.index_predicate_applied() && !fast_trace1.continuation_applied(),
             "fast bounded-range page1 should report index-only activation for descending={descending}",
         );
         assert!(
-            !fallback_trace1.index_predicate_applied,
+            !fallback_trace1.index_predicate_applied(),
             "fallback bounded-range page1 must not report index-only activation for descending={descending}",
         );
         assert_eq!(
-            fallback_trace1.optimization, None,
+            fallback_trace1.optimization(),
+            None,
             "fallback bounded-range page1 should remain non-optimized for descending={descending}",
         );
         assert!(
-            fast_trace1.index_predicate_keys_rejected > 0,
+            fast_trace1.index_predicate_keys_rejected() > 0,
             "fast bounded-range page1 should reject non-matching index keys for descending={descending}",
         );
         assert_eq!(
-            fallback_trace1.index_predicate_keys_rejected, 0,
+            fallback_trace1.index_predicate_keys_rejected(),
+            0,
             "fallback bounded-range page1 must not report index-only rejected-key counts for descending={descending}",
         );
 
@@ -2147,27 +2162,31 @@ fn load_index_only_predicate_bounded_range_distinct_continuation_matches_fallbac
             "fast and fallback bounded-range page2 rows should match for descending={descending}",
         );
         assert!(
-            fast_trace2.index_predicate_applied && fast_trace2.continuation_applied,
+            fast_trace2.index_predicate_applied() && fast_trace2.continuation_applied(),
             "fast bounded-range page2 should report activation with continuation for descending={descending}",
         );
         assert!(
-            !fallback_trace2.index_predicate_applied,
+            !fallback_trace2.index_predicate_applied(),
             "fallback bounded-range page2 must not report index-only activation for descending={descending}",
         );
         assert_eq!(
-            fallback_trace2.optimization, None,
+            fallback_trace2.optimization(),
+            None,
             "fallback bounded-range page2 should remain non-optimized for descending={descending}",
         );
         assert_eq!(
-            fallback_trace2.index_predicate_keys_rejected, 0,
+            fallback_trace2.index_predicate_keys_rejected(),
+            0,
             "fallback bounded-range page2 must not report index-only rejected-key counts for descending={descending}",
         );
         assert_eq!(
-            fast_trace1.distinct_keys_deduped, fallback_trace1.distinct_keys_deduped,
+            fast_trace1.distinct_keys_deduped(),
+            fallback_trace1.distinct_keys_deduped(),
             "fast and fallback bounded-range page1 distinct counts should match for descending={descending}",
         );
         assert_eq!(
-            fast_trace2.distinct_keys_deduped, fallback_trace2.distinct_keys_deduped,
+            fast_trace2.distinct_keys_deduped(),
+            fallback_trace2.distinct_keys_deduped(),
             "fast and fallback bounded-range page2 distinct counts should match for descending={descending}",
         );
         assert_eq!(
@@ -2177,11 +2196,11 @@ fn load_index_only_predicate_bounded_range_distinct_continuation_matches_fallbac
         );
 
         let fast_scanned_total = fast_trace1
-            .keys_scanned
-            .saturating_add(fast_trace2.keys_scanned);
+            .keys_scanned()
+            .saturating_add(fast_trace2.keys_scanned());
         let fallback_scanned_total = fallback_trace1
-            .keys_scanned
-            .saturating_add(fallback_trace2.keys_scanned);
+            .keys_scanned()
+            .saturating_add(fallback_trace2.keys_scanned());
         assert!(
             fast_scanned_total < fallback_scanned_total,
             "fast bounded-range index-only filtering should reduce total scanned rows for descending={descending}",

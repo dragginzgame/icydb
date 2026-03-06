@@ -127,16 +127,16 @@ fn explain_reports_deterministic_index_choice() {
     );
 
     let explain = plan.explain();
-    match explain.access {
+    match explain.access() {
         ExplainAccessPath::IndexPrefix {
             name,
             fields,
             prefix_len,
             ..
         } => {
-            assert_eq!(name, "explain::idx_a");
-            assert_eq!(fields, vec!["idx_a"]);
-            assert_eq!(prefix_len, 1);
+            assert_eq!(*name, "explain::idx_a");
+            assert_eq!(fields.as_slice(), vec!["idx_a"]);
+            assert_eq!(*prefix_len, 1);
         }
         _ => panic!("expected index prefix"),
     }
@@ -160,7 +160,7 @@ fn explain_grouped_strategy_defaults_to_hash_group_for_full_scan_shapes() {
 
     let explain = grouped.explain();
     assert!(matches!(
-        explain.grouping,
+        explain.grouping(),
         ExplainGrouping::Grouped {
             strategy: ExplainGroupedStrategy::HashGroup,
             ..
@@ -192,7 +192,7 @@ fn explain_grouped_strategy_reports_ordered_group_for_aligned_index_prefix_shape
 
     let explain = grouped.explain();
     assert!(matches!(
-        explain.grouping,
+        explain.grouping(),
         ExplainGrouping::Grouped {
             strategy: ExplainGroupedStrategy::OrderedGroup,
             ..
@@ -228,7 +228,7 @@ fn explain_grouped_strategy_downgrades_to_hash_for_residual_predicate_shapes() {
 
     let explain = grouped.explain();
     assert!(matches!(
-        explain.grouping,
+        explain.grouping(),
         ExplainGrouping::Grouped {
             strategy: ExplainGroupedStrategy::HashGroup,
             ..
@@ -269,7 +269,7 @@ fn explain_grouped_strategy_downgrades_to_hash_for_unsupported_having_operator()
 
     let explain = grouped.explain();
     assert!(matches!(
-        explain.grouping,
+        explain.grouping(),
         ExplainGrouping::Grouped {
             strategy: ExplainGroupedStrategy::HashGroup,
             ..
@@ -310,7 +310,7 @@ fn explain_grouped_strategy_keeps_ordered_group_for_supported_having_operator() 
 
     let explain = grouped.explain();
     assert!(matches!(
-        explain.grouping,
+        explain.grouping(),
         ExplainGrouping::Grouped {
             strategy: ExplainGroupedStrategy::OrderedGroup,
             ..
@@ -344,7 +344,7 @@ fn explain_grouped_having_projection_is_reported() {
         );
 
     assert!(matches!(
-        grouped.explain().grouping,
+        grouped.explain().grouping(),
         ExplainGrouping::Grouped {
             having: Some(_),
             ..
@@ -368,7 +368,7 @@ fn explain_grouped_distinct_aggregate_projection_is_reported() {
             execution: GroupedExecutionConfig::unbounded(),
         });
 
-    match grouped.explain().grouping {
+    match grouped.explain().grouping() {
         ExplainGrouping::Grouped { aggregates, .. } => {
             assert_eq!(aggregates.len(), 1, "one grouped aggregate should project");
             assert!(
@@ -411,8 +411,8 @@ fn explain_grouped_ordered_having_projection_shape_is_frozen() {
     );
 
     assert_eq!(
-        grouped.explain().grouping,
-        ExplainGrouping::Grouped {
+        grouped.explain().grouping(),
+        &ExplainGrouping::Grouped {
             strategy: ExplainGroupedStrategy::OrderedGroup,
             group_fields: vec![ExplainGroupField {
                 slot_index: group_field.index(),
@@ -453,8 +453,8 @@ fn explain_grouped_hash_distinct_projection_shape_is_frozen() {
         });
 
     assert_eq!(
-        grouped.explain().grouping,
-        ExplainGrouping::Grouped {
+        grouped.explain().grouping(),
+        &ExplainGrouping::Grouped {
             strategy: ExplainGroupedStrategy::HashGroup,
             group_fields: vec![ExplainGroupField {
                 slot_index: group_field.index(),
@@ -487,8 +487,8 @@ fn explain_global_distinct_sum_projection_is_reported() {
         });
 
     assert_eq!(
-        grouped.explain().grouping,
-        ExplainGrouping::Grouped {
+        grouped.explain().grouping(),
+        &ExplainGrouping::Grouped {
             strategy: crate::db::query::explain::ExplainGroupedStrategy::HashGroup,
             group_fields: Vec::new(),
             aggregates: vec![crate::db::query::explain::ExplainGroupAggregate {

@@ -12,7 +12,7 @@ use crate::{
 };
 use std::{borrow::Cow, cell::RefCell};
 
-use super::{StorageReport, storage_report};
+use super::{DataStoreSnapshot, IndexStoreSnapshot, StorageReport, storage_report};
 
 crate::test_canister! {
     ident = DiagnosticsCanister,
@@ -138,25 +138,25 @@ fn diagnostics_report(name_to_path: &[(&'static str, &'static str)]) -> StorageR
 
 fn data_paths(report: &StorageReport) -> Vec<&str> {
     report
-        .storage_data
+        .storage_data()
         .iter()
-        .map(|snapshot| snapshot.path.as_str())
+        .map(DataStoreSnapshot::path)
         .collect()
 }
 
 fn index_paths(report: &StorageReport) -> Vec<&str> {
     report
-        .storage_index
+        .storage_index()
         .iter()
-        .map(|snapshot| snapshot.path.as_str())
+        .map(IndexStoreSnapshot::path)
         .collect()
 }
 
 fn entity_store_paths(report: &StorageReport) -> Vec<(&str, &str)> {
     report
-        .entity_storage
+        .entity_storage()
         .iter()
-        .map(|snapshot| (snapshot.store.as_str(), snapshot.path.as_str()))
+        .map(|snapshot| (snapshot.store(), snapshot.path()))
         .collect()
 }
 
@@ -166,23 +166,23 @@ fn storage_report_empty_store_snapshot() {
 
     let report = diagnostics_report(&[]);
 
-    assert_eq!(report.corrupted_keys, 0);
-    assert_eq!(report.corrupted_entries, 0);
-    assert!(report.entity_storage.is_empty());
+    assert_eq!(report.corrupted_keys(), 0);
+    assert_eq!(report.corrupted_entries(), 0);
+    assert!(report.entity_storage().is_empty());
 
     assert_eq!(data_paths(&report), vec![STORE_A_PATH, STORE_Z_PATH]);
     assert_eq!(index_paths(&report), vec![STORE_A_PATH, STORE_Z_PATH]);
     assert!(
         report
-            .storage_data
+            .storage_data()
             .iter()
-            .all(|snapshot| snapshot.entries == 0)
+            .all(|snapshot| snapshot.entries() == 0)
     );
     assert!(
         report
-            .storage_index
+            .storage_index()
             .iter()
-            .all(|snapshot| snapshot.entries == 0)
+            .all(|snapshot| snapshot.entries() == 0)
     );
 }
 
@@ -196,12 +196,12 @@ fn storage_report_single_entity_multiple_rows() {
 
     let report = diagnostics_report(&[(SINGLE_ENTITY_NAME, SINGLE_ENTITY_PATH)]);
     let entity_snapshot = report
-        .entity_storage
+        .entity_storage()
         .iter()
-        .find(|snapshot| snapshot.store == STORE_A_PATH && snapshot.path == SINGLE_ENTITY_PATH)
+        .find(|snapshot| snapshot.store() == STORE_A_PATH && snapshot.path() == SINGLE_ENTITY_PATH)
         .expect("single-entity snapshot should exist");
 
-    assert_eq!(entity_snapshot.entries, 3);
+    assert_eq!(entity_snapshot.entries(), 3);
 }
 
 #[test]
@@ -218,18 +218,18 @@ fn storage_report_multiple_entities_in_same_store() {
     ]);
 
     let first = report
-        .entity_storage
+        .entity_storage()
         .iter()
-        .find(|snapshot| snapshot.store == STORE_A_PATH && snapshot.path == FIRST_ENTITY_PATH)
+        .find(|snapshot| snapshot.store() == STORE_A_PATH && snapshot.path() == FIRST_ENTITY_PATH)
         .expect("first-entity snapshot should exist");
     let second = report
-        .entity_storage
+        .entity_storage()
         .iter()
-        .find(|snapshot| snapshot.store == STORE_A_PATH && snapshot.path == SECOND_ENTITY_PATH)
+        .find(|snapshot| snapshot.store() == STORE_A_PATH && snapshot.path() == SECOND_ENTITY_PATH)
         .expect("second-entity snapshot should exist");
 
-    assert_eq!(first.entries, 2);
-    assert_eq!(second.entries, 1);
+    assert_eq!(first.entries(), 2);
+    assert_eq!(second.entries(), 1);
 }
 
 #[test]
@@ -265,16 +265,19 @@ fn storage_report_min_max_key_correctness() {
 
     let report = diagnostics_report(&[(MINMAX_ENTITY_NAME, MINMAX_ENTITY_PATH)]);
     let entity_snapshot = report
-        .entity_storage
+        .entity_storage()
         .iter()
-        .find(|snapshot| snapshot.store == STORE_A_PATH && snapshot.path == MINMAX_ENTITY_PATH)
+        .find(|snapshot| snapshot.store() == STORE_A_PATH && snapshot.path() == MINMAX_ENTITY_PATH)
         .expect("min/max snapshot should exist");
 
     assert_eq!(
-        entity_snapshot.min_key,
-        Some(StorageKey::Int(-5).as_value())
+        entity_snapshot.min_key(),
+        Some(&StorageKey::Int(-5).as_value())
     );
-    assert_eq!(entity_snapshot.max_key, Some(StorageKey::Int(9).as_value()));
+    assert_eq!(
+        entity_snapshot.max_key(),
+        Some(&StorageKey::Int(9).as_value())
+    );
 }
 
 #[test]
@@ -286,13 +289,13 @@ fn storage_report_corrupted_key_detection() {
 
     let report = diagnostics_report(&[(VALID_ENTITY_NAME, VALID_ENTITY_PATH)]);
 
-    assert_eq!(report.corrupted_keys, 1);
+    assert_eq!(report.corrupted_keys(), 1);
     let entity_snapshot = report
-        .entity_storage
+        .entity_storage()
         .iter()
-        .find(|snapshot| snapshot.store == STORE_A_PATH && snapshot.path == VALID_ENTITY_PATH)
+        .find(|snapshot| snapshot.store() == STORE_A_PATH && snapshot.path() == VALID_ENTITY_PATH)
         .expect("valid-entity snapshot should exist");
-    assert_eq!(entity_snapshot.entries, 1);
+    assert_eq!(entity_snapshot.entries(), 1);
 }
 
 #[test]
@@ -305,15 +308,15 @@ fn storage_report_corrupted_index_value_detection() {
 
     let report = diagnostics_report(&[]);
     let index_snapshot = report
-        .storage_index
+        .storage_index()
         .iter()
-        .find(|snapshot| snapshot.path == STORE_A_PATH)
+        .find(|snapshot| snapshot.path() == STORE_A_PATH)
         .expect("index snapshot should exist");
 
-    assert_eq!(report.corrupted_entries, 1);
-    assert_eq!(index_snapshot.entries, 1);
-    assert_eq!(index_snapshot.user_entries, 1);
-    assert_eq!(index_snapshot.system_entries, 0);
+    assert_eq!(report.corrupted_entries(), 1);
+    assert_eq!(index_snapshot.entries(), 1);
+    assert_eq!(index_snapshot.user_entries(), 1);
+    assert_eq!(index_snapshot.system_entries(), 0);
 }
 
 #[test]
@@ -331,13 +334,13 @@ fn storage_report_system_vs_user_namespace_split() {
 
     let report = diagnostics_report(&[]);
     let index_snapshot = report
-        .storage_index
+        .storage_index()
         .iter()
-        .find(|snapshot| snapshot.path == STORE_A_PATH)
+        .find(|snapshot| snapshot.path() == STORE_A_PATH)
         .expect("index snapshot should exist");
 
-    assert_eq!(report.corrupted_entries, 0);
-    assert_eq!(index_snapshot.entries, 2);
-    assert_eq!(index_snapshot.user_entries, 1);
-    assert_eq!(index_snapshot.system_entries, 1);
+    assert_eq!(report.corrupted_entries(), 0);
+    assert_eq!(index_snapshot.entries(), 2);
+    assert_eq!(index_snapshot.user_entries(), 1);
+    assert_eq!(index_snapshot.system_entries(), 1);
 }

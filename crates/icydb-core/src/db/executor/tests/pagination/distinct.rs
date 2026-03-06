@@ -229,7 +229,8 @@ fn load_distinct_desc_secondary_pushdown_resume_matrix_is_boundary_complete() {
             .expect("distinct secondary DESC seed page should execute");
         let seed_trace = seed_trace.expect("debug trace should be present");
         assert_eq!(
-            seed_trace.optimization, None,
+            seed_trace.optimization(),
+            None,
             "distinct DESC residual-filter plan should remain materialized for limit={limit}",
         );
         let _ = seed_page;
@@ -300,7 +301,8 @@ fn load_distinct_desc_secondary_fast_path_and_fallback_match_ids_and_boundaries(
             .expect("distinct DESC fast-path seed page should execute");
         let fast_trace = fast_trace.expect("debug trace should be present");
         assert_eq!(
-            fast_trace.optimization, None,
+            fast_trace.optimization(),
+            None,
             "distinct DESC residual-filter seed execution should remain materialized for limit={limit}",
         );
 
@@ -321,7 +323,8 @@ fn load_distinct_desc_secondary_fast_path_and_fallback_match_ids_and_boundaries(
             .expect("distinct DESC fallback seed page should execute");
         let fallback_trace = fallback_trace.expect("debug trace should be present");
         assert_eq!(
-            fallback_trace.optimization, None,
+            fallback_trace.optimization(),
+            None,
             "distinct DESC by-ids fallback seed execution should not report fast-path optimization for limit={limit}",
         );
 
@@ -429,7 +432,7 @@ fn load_distinct_desc_index_range_limit_pushdown_resume_matrix_and_fallback_pari
             .expect("distinct DESC index-range seed page should execute");
         let seed_trace = seed_trace.expect("debug trace should be present");
         assert_eq!(
-            seed_trace.optimization,
+            seed_trace.optimization(),
             Some(ExecutionOptimization::IndexRangeLimitPushdown),
             "distinct DESC index-range seed execution should use limit pushdown for limit={limit}",
         );
@@ -543,7 +546,7 @@ fn load_distinct_desc_pk_fast_path_and_fallback_match_ids_and_boundaries() {
             .expect("distinct DESC PK fast-path seed page should execute");
         let fast_trace = fast_trace.expect("debug trace should be present");
         assert_eq!(
-            fast_trace.optimization,
+            fast_trace.optimization(),
             Some(ExecutionOptimization::PrimaryKey),
             "distinct DESC full-scan seed execution should use PK fast path for limit={limit}",
         );
@@ -565,7 +568,8 @@ fn load_distinct_desc_pk_fast_path_and_fallback_match_ids_and_boundaries() {
             .expect("distinct DESC PK fallback seed page should execute");
         let fallback_trace = fallback_trace.expect("debug trace should be present");
         assert_eq!(
-            fallback_trace.optimization, None,
+            fallback_trace.optimization(),
+            None,
             "distinct DESC by-ids seed execution should not report fast-path optimization for limit={limit}",
         );
 
@@ -675,7 +679,8 @@ fn load_distinct_offset_fast_path_and_fallback_match_ids_and_boundaries() {
             .expect("distinct secondary offset fast-path seed should execute");
         let trace_fast = trace_fast.expect("debug trace should be present");
         assert_eq!(
-            trace_fast.optimization, None,
+            trace_fast.optimization(),
+            None,
             "distinct secondary offset residual-filter path should remain materialized for case={case_name}",
         );
 
@@ -684,7 +689,8 @@ fn load_distinct_offset_fast_path_and_fallback_match_ids_and_boundaries() {
             .expect("distinct secondary offset fallback seed should execute");
         let trace_fallback = trace_fallback.expect("debug trace should be present");
         assert_eq!(
-            trace_fallback.optimization, None,
+            trace_fallback.optimization(),
+            None,
             "distinct secondary offset fallback should remain non-optimized for case={case_name}",
         );
 
@@ -787,7 +793,7 @@ fn load_distinct_offset_fast_path_and_fallback_match_ids_and_boundaries() {
             .expect("distinct index-range offset fast-path seed should execute");
         let trace_fast = trace_fast.expect("debug trace should be present");
         assert_eq!(
-            trace_fast.optimization,
+            trace_fast.optimization(),
             Some(ExecutionOptimization::IndexRangeLimitPushdown),
             "distinct index-range offset fast path should use limit pushdown for case={case_name}",
         );
@@ -797,7 +803,8 @@ fn load_distinct_offset_fast_path_and_fallback_match_ids_and_boundaries() {
             .expect("distinct index-range offset fallback seed should execute");
         let trace_fallback = trace_fallback.expect("debug trace should be present");
         assert_eq!(
-            trace_fallback.optimization, None,
+            trace_fallback.optimization(),
+            None,
             "distinct index-range offset fallback should remain non-optimized for case={case_name}",
         );
 
@@ -851,7 +858,7 @@ fn load_distinct_mixed_direction_secondary_shape_rejects_pushdown_and_matches_fa
         .expect("distinct mixed-direction explain should build");
     assert!(
         matches!(
-            explain.order_pushdown,
+            explain.order_pushdown(),
             ExplainOrderPushdown::MissingModelContext
         ),
         "query-layer explain should not evaluate secondary pushdown eligibility"
@@ -876,7 +883,8 @@ fn load_distinct_mixed_direction_secondary_shape_rejects_pushdown_and_matches_fa
             .expect("distinct mixed-direction index-shape seed page should execute");
         let index_seed_trace = index_seed_trace.expect("debug trace should be present");
         assert_eq!(
-            index_seed_trace.optimization, None,
+            index_seed_trace.optimization(),
+            None,
             "distinct mixed-direction index-shape seed execution should not report fast-path optimization for limit={limit}",
         );
 

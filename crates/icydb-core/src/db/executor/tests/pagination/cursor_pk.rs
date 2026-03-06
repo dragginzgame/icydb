@@ -369,7 +369,8 @@ fn load_cursor_with_offset_desc_secondary_pushdown_resume_matrix_is_boundary_com
             .expect("secondary offset seed page should execute");
         let seed_trace = seed_trace.expect("debug trace should be present");
         assert_eq!(
-            seed_trace.optimization, None,
+            seed_trace.optimization(),
+            None,
             "materialized secondary offset shape should not emit fast-path optimization for case={case_name}",
         );
 
@@ -447,7 +448,7 @@ fn load_cursor_with_offset_index_range_pushdown_resume_matrix_is_boundary_comple
             .expect("index-range offset seed page should execute");
         let seed_trace = seed_trace.expect("debug trace should be present");
         assert_eq!(
-            seed_trace.optimization,
+            seed_trace.optimization(),
             Some(ExecutionOptimization::IndexRangeLimitPushdown),
             "index-range offset shape should use limit pushdown for case={case_name}",
         );
@@ -531,7 +532,8 @@ fn load_cursor_with_offset_fallback_resume_matrix_is_boundary_complete() {
             .expect("fallback offset seed page should execute");
         let seed_trace = seed_trace.expect("debug trace should be present");
         assert_eq!(
-            seed_trace.optimization, None,
+            seed_trace.optimization(),
+            None,
             "fallback by-ids offset shape should remain non-optimized for case={case_name}",
         );
 
@@ -1114,12 +1116,13 @@ fn load_cursor_pagination_pk_order_inverted_key_range_returns_empty_without_scan
             format!("inverted pk-range should not emit a continuation cursor for case={case_name}"),
         );
         assert_eq!(
-            trace.optimization,
+            trace.optimization(),
             Some(ExecutionOptimization::PrimaryKey),
             "inverted pk-range should remain on PK fast path for case={case_name}",
         );
         assert_eq!(
-            trace.keys_scanned, 0,
+            trace.keys_scanned(),
+            0,
             "inverted pk-range should not scan any keys for case={case_name}",
         );
     }
@@ -1158,13 +1161,14 @@ fn load_cursor_pagination_pk_fast_path_scan_accounting_tracks_access_candidates(
         let trace = trace.expect("debug trace should be present");
 
         assert_eq!(
-            trace.optimization,
+            trace.optimization(),
             Some(ExecutionOptimization::PrimaryKey),
             "pk trace should report PK fast path for case={case_name}",
         );
         // PK fast-path trace accounting reports access-phase candidate count.
         assert_eq!(
-            trace.keys_scanned, seeded_count,
+            trace.keys_scanned(),
+            seeded_count,
             "pk fast-path trace should count all access candidates for case={case_name}",
         );
     }

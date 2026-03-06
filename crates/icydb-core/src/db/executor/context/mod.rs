@@ -37,7 +37,7 @@ use std::{collections::BTreeSet, ops::Bound};
 ///
 
 pub(crate) struct Context<'a, E: EntityKind + EntityValue> {
-    pub db: &'a Db<E::Canister>,
+    pub(in crate::db::executor) db: &'a Db<E::Canister>,
 }
 
 impl<'a, E> Context<'a, E>

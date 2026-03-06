@@ -941,7 +941,7 @@ fn run_range_pushdown_parity_matrix<E, Row>(
         .explain()
         .expect("range matrix explain should build");
         assert!(
-            explain_contains_index_range(&explain.access, index_name, index_range_slots),
+            explain_contains_index_range(explain.access(), index_name, index_range_slots),
             "{} case '{}' should plan an IndexRange access path",
             matrix_name,
             case.name

@@ -25,10 +25,10 @@ use crate::{
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct ContinuationContract<K> {
-    pub shape_signature: ExecutionShapeSignature,
-    pub boundary_arity: usize,
-    pub window_size: usize,
-    pub order_contract: ExecutionOrderContract,
+    pub(in crate::db) shape_signature: ExecutionShapeSignature,
+    pub(in crate::db) boundary_arity: usize,
+    pub(in crate::db) window_size: usize,
+    pub(in crate::db) order_contract: ExecutionOrderContract,
     page_limit: Option<usize>,
     access: AccessPlan<K>,
     grouped_cursor_policy_violation: Option<GroupedCursorPolicyViolation>,

@@ -50,18 +50,18 @@ pub enum ExecutionOptimization {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ExecutionTrace {
-    pub access_path_variant: ExecutionAccessPathVariant,
-    pub direction: OrderDirection,
-    pub optimization: Option<ExecutionOptimization>,
-    pub keys_scanned: u64,
-    pub rows_materialized: u64,
-    pub rows_returned: u64,
-    pub execution_time_micros: u64,
-    pub index_only: bool,
-    pub continuation_applied: bool,
-    pub index_predicate_applied: bool,
-    pub index_predicate_keys_rejected: u64,
-    pub distinct_keys_deduped: u64,
+    pub(crate) access_path_variant: ExecutionAccessPathVariant,
+    pub(crate) direction: OrderDirection,
+    pub(crate) optimization: Option<ExecutionOptimization>,
+    pub(crate) keys_scanned: u64,
+    pub(crate) rows_materialized: u64,
+    pub(crate) rows_returned: u64,
+    pub(crate) execution_time_micros: u64,
+    pub(crate) index_only: bool,
+    pub(crate) continuation_applied: bool,
+    pub(crate) index_predicate_applied: bool,
+    pub(crate) index_predicate_keys_rejected: u64,
+    pub(crate) distinct_keys_deduped: u64,
 }
 
 ///
@@ -73,10 +73,10 @@ pub struct ExecutionTrace {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ExecutionMetrics {
-    pub rows_scanned: u64,
-    pub rows_materialized: u64,
-    pub execution_time_micros: u64,
-    pub index_only: bool,
+    pub(crate) rows_scanned: u64,
+    pub(crate) rows_materialized: u64,
+    pub(crate) execution_time_micros: u64,
+    pub(crate) index_only: bool,
 }
 
 impl ExecutionTrace {
@@ -143,6 +143,104 @@ impl ExecutionTrace {
             index_only: self.index_only,
         }
     }
+
+    /// Return the coarse executed access-path variant.
+    #[must_use]
+    pub const fn access_path_variant(&self) -> ExecutionAccessPathVariant {
+        self.access_path_variant
+    }
+
+    /// Return executed order direction.
+    #[must_use]
+    pub const fn direction(&self) -> OrderDirection {
+        self.direction
+    }
+
+    /// Return selected optimization, if any.
+    #[must_use]
+    pub const fn optimization(&self) -> Option<ExecutionOptimization> {
+        self.optimization
+    }
+
+    /// Return number of keys scanned.
+    #[must_use]
+    pub const fn keys_scanned(&self) -> u64 {
+        self.keys_scanned
+    }
+
+    /// Return number of rows materialized.
+    #[must_use]
+    pub const fn rows_materialized(&self) -> u64 {
+        self.rows_materialized
+    }
+
+    /// Return number of rows returned.
+    #[must_use]
+    pub const fn rows_returned(&self) -> u64 {
+        self.rows_returned
+    }
+
+    /// Return execution time in microseconds.
+    #[must_use]
+    pub const fn execution_time_micros(&self) -> u64 {
+        self.execution_time_micros
+    }
+
+    /// Return whether execution remained index-only.
+    #[must_use]
+    pub const fn index_only(&self) -> bool {
+        self.index_only
+    }
+
+    /// Return whether continuation was applied.
+    #[must_use]
+    pub const fn continuation_applied(&self) -> bool {
+        self.continuation_applied
+    }
+
+    /// Return whether index predicate pushdown was applied.
+    #[must_use]
+    pub const fn index_predicate_applied(&self) -> bool {
+        self.index_predicate_applied
+    }
+
+    /// Return number of keys rejected by index predicate pushdown.
+    #[must_use]
+    pub const fn index_predicate_keys_rejected(&self) -> u64 {
+        self.index_predicate_keys_rejected
+    }
+
+    /// Return number of deduplicated keys under DISTINCT processing.
+    #[must_use]
+    pub const fn distinct_keys_deduped(&self) -> u64 {
+        self.distinct_keys_deduped
+    }
+}
+
+impl ExecutionMetrics {
+    /// Return number of rows scanned.
+    #[must_use]
+    pub const fn rows_scanned(&self) -> u64 {
+        self.rows_scanned
+    }
+
+    /// Return number of rows materialized.
+    #[must_use]
+    pub const fn rows_materialized(&self) -> u64 {
+        self.rows_materialized
+    }
+
+    /// Return execution time in microseconds.
+    #[must_use]
+    pub const fn execution_time_micros(&self) -> u64 {
+        self.execution_time_micros
+    }
+
+    /// Return whether execution remained index-only.
+    #[must_use]
+    pub const fn index_only(&self) -> bool {
+        self.index_only
+    }
 }
 
 fn access_path_variant<K>(access: &AccessPlan<K>) -> ExecutionAccessPathVariant {
@@ -208,7 +306,8 @@ mod tests {
             "metrics projection must expose rows_scanned/rows_materialized/execution_time/index_only",
         );
         assert_eq!(
-            trace.rows_returned, 2,
+            trace.rows_returned(),
+            2,
             "trace should preserve returned-row counters independently from materialization counters",
         );
     }

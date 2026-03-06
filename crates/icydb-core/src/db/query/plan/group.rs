@@ -28,8 +28,8 @@ use crate::{
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct PlannedProjectionLayout {
-    pub group_field_positions: Vec<usize>,
-    pub aggregate_positions: Vec<usize>,
+    pub(in crate::db) group_field_positions: Vec<usize>,
+    pub(in crate::db) aggregate_positions: Vec<usize>,
 }
 
 impl PlannedProjectionLayout {

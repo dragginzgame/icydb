@@ -21,6 +21,7 @@ mod stream;
 #[cfg(test)]
 mod tests;
 mod traversal;
+mod util;
 mod window;
 
 use crate::db::access::{
@@ -52,6 +53,7 @@ pub(super) use stream::{
         VecOrderedKeyStream,
     },
 };
+pub(in crate::db::executor) use util::saturating_row_len;
 pub(in crate::db) use window::{compute_page_keep_and_fetch_counts, compute_page_window};
 
 ///

@@ -580,11 +580,11 @@ fn explain_execution_find_first_node(
 ) -> Option<&ExplainExecutionNodeDescriptor> {
     // Walk descriptor trees recursively so tests can assert by node type
     // without coupling to child depth or sibling ordering.
-    if descriptor.node_type == node_type {
+    if descriptor.node_type() == node_type {
         return Some(descriptor);
     }
 
-    for child in &descriptor.children {
+    for child in descriptor.children() {
         if let Some(found) = explain_execution_find_first_node(child, node_type) {
             return Some(found);
         }

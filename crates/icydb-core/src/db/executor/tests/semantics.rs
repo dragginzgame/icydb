@@ -61,8 +61,8 @@ fn collect_execution_node_types(
     descriptor: &crate::db::ExplainExecutionNodeDescriptor,
     out: &mut BTreeSet<&'static str>,
 ) {
-    out.insert(descriptor.node_type.as_str());
-    for child in &descriptor.children {
+    out.insert(descriptor.node_type().as_str());
+    for child in descriptor.children() {
         collect_execution_node_types(child, out);
     }
 }
@@ -177,7 +177,7 @@ fn load_union_or_predicate_dedups_overlapping_pk_paths() {
         .expect("union explain should build");
     assert!(
         matches!(
-            explain.access,
+            explain.access(),
             crate::db::query::explain::ExplainAccessPath::Union(_)
         ),
         "OR predicate over PK paths should plan as union access"
@@ -237,7 +237,7 @@ fn load_union_or_predicate_explain_execution_projects_recursive_access_children(
         .expect("union explain execution should build");
 
     assert_eq!(
-        descriptor.node_type,
+        descriptor.node_type(),
         ExplainExecutionNodeType::Union,
         "OR predicate over PK paths should project union root access node",
     );
@@ -280,7 +280,7 @@ fn load_intersection_asc_keeps_overlap_in_canonical_order() {
         .explain()
         .expect("intersection explain should build");
     assert!(
-        matches!(explain.access, ExplainAccessPath::Intersection(_)),
+        matches!(explain.access(), ExplainAccessPath::Intersection(_)),
         "AND predicate over key sets should plan as intersection access"
     );
 
@@ -330,13 +330,13 @@ fn load_intersection_explain_execution_projects_recursive_access_children() {
         .expect("intersection explain execution should build");
 
     assert_eq!(
-        descriptor.node_type,
+        descriptor.node_type(),
         ExplainExecutionNodeType::Intersection,
         "AND predicate over PK sets should project intersection root access node",
     );
     assert!(
         matches!(
-            descriptor.access_strategy,
+            descriptor.access_strategy(),
             Some(ExplainAccessPath::Intersection(_))
         ),
         "intersection descriptor root should retain intersection access projection",
@@ -376,7 +376,7 @@ fn load_intersection_desc_keeps_overlap_in_desc_order() {
         .explain()
         .expect("intersection DESC explain should build");
     assert!(
-        matches!(explain.access, ExplainAccessPath::Intersection(_)),
+        matches!(explain.access(), ExplainAccessPath::Intersection(_)),
         "AND predicate over key sets should plan as intersection access"
     );
 
@@ -425,7 +425,7 @@ fn load_intersection_no_overlap_returns_empty() {
         .explain()
         .expect("intersection no-overlap explain should build");
     assert!(
-        matches!(explain.access, ExplainAccessPath::Intersection(_)),
+        matches!(explain.access(), ExplainAccessPath::Intersection(_)),
         "disjoint AND key predicates should still plan as intersection access"
     );
 
@@ -468,7 +468,7 @@ fn load_intersection_suppresses_duplicate_keys() {
         .explain()
         .expect("intersection duplicate explain should build");
     assert!(
-        matches!(explain.access, ExplainAccessPath::Intersection(_)),
+        matches!(explain.access(), ExplainAccessPath::Intersection(_)),
         "duplicate AND key predicates should still plan as intersection access"
     );
 
@@ -528,7 +528,7 @@ fn load_intersection_nested_union_children_matches_expected_overlap() {
         .order_by("id")
         .explain()
         .expect("nested intersection explain should build");
-    let ExplainAccessPath::Intersection(children) = explain.access else {
+    let ExplainAccessPath::Intersection(children) = explain.access() else {
         panic!("nested AND predicate should plan as intersection access");
     };
     assert_eq!(
@@ -591,7 +591,7 @@ fn load_intersection_desc_limit_continuation_has_no_duplicate_or_omission() {
         .explain()
         .expect("intersection pagination explain should build");
     assert!(
-        matches!(explain.access, ExplainAccessPath::Intersection(_)),
+        matches!(explain.access(), ExplainAccessPath::Intersection(_)),
         "overlapping AND predicate should plan as intersection access"
     );
 
@@ -694,7 +694,7 @@ fn load_union_desc_limit_continuation_has_no_duplicate_or_omission() {
         .expect("union pagination explain should build");
     assert!(
         matches!(
-            explain.access,
+            explain.access(),
             crate::db::query::explain::ExplainAccessPath::Union(_)
         ),
         "overlapping OR predicate should plan as union access"
@@ -811,7 +811,7 @@ fn load_union_three_children_desc_limit_continuation_has_no_duplicate_or_omissio
         .expect("three-child union pagination explain should build");
     assert!(
         matches!(
-            explain.access,
+            explain.access(),
             crate::db::query::explain::ExplainAccessPath::Union(_)
         ),
         "three-child overlapping OR predicate should plan as union access"
@@ -1073,7 +1073,7 @@ fn secondary_in_explain_uses_index_multi_lookup_access_shape() {
         .expect("secondary IN explain should build");
 
     assert!(
-        matches!(explain.access, ExplainAccessPath::IndexMultiLookup { .. }),
+        matches!(explain.access(), ExplainAccessPath::IndexMultiLookup { .. }),
         "secondary IN predicates should lower to the dedicated index-multi-lookup access shape",
     );
 }
@@ -1529,7 +1529,7 @@ fn load_secondary_index_missing_ok_skips_stale_keys_by_reading_primary_rows() {
         .explain()
         .expect("missing-ok stale-secondary explain should build");
     assert!(
-        matches!(explain.access, ExplainAccessPath::IndexPrefix { .. }),
+        matches!(explain.access(), ExplainAccessPath::IndexPrefix { .. }),
         "group equality with rank order should plan as secondary index-prefix access",
     );
 

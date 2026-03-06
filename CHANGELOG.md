@@ -5,7 +5,7 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.43.x] - 2026-03-06 - BYTES and Audits
+## [0.43.x] - 2026-03-07 - BYTES and Audits
 
 - `0.43.0` adds scalar load-query `bytes()` so you can measure total persisted payload size for the same filtered/ordered/limited window returned by `execute()`, and starts a dated crosscutting audit cycle for this line.
 - `0.43.1` adds scalar field-size measurement with `BYTES(field)` (`bytes_by("field")`) so you can identify which field dominates storage in a filtered query window.
@@ -17,6 +17,7 @@ let payload_bytes = session.load::<Event>().bytes_by("payload")?;
 
 - `0.43.2` improves runtime plan stability by centralizing access-shape capability checks behind one shared access boundary, reducing duplicate routing logic and tightening guard coverage for raw access-path usage.
 - `0.43.3` continues the architecture cleanup by removing duplicate access-shape type definitions, eliminating dead plan-shape storage, and dropping no-op wrapper layers while keeping query and cursor behavior unchanged.
+- `0.43.4` tightens internal API boundaries by moving diagnostics/trace/explain DTO reads to accessor methods and reducing direct field coupling, with no query behavior changes.
 
 
 See detailed breakdown:

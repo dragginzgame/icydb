@@ -14,6 +14,7 @@ use crate::{
         data::DataKey,
         executor::{
             ExecutablePlan, ExecutionKernel, aggregate::AggregateKind, route::ExecutionMode,
+            saturating_row_len,
         },
         query::{
             explain::ExplainExecutionNodeType,
@@ -79,6 +80,10 @@ fn persisted_payload_bytes_for_ids<E>(ids: impl IntoIterator<Item = Id<E>>) -> u
 where
     E: EntityKind,
 {
+    // NOTE:
+    // This helper intentionally re-derives payload-byte accounting from raw
+    // stored rows instead of calling runtime `bytes()` terminals so test
+    // parity assertions fail closed on runtime regressions.
     let mut total = 0u64;
 
     for id in ids {
@@ -93,8 +98,7 @@ where
                 .expect("persisted-bytes row should exist for execute() id")
                 .len()
         });
-        let row_len = u64::try_from(row_len).unwrap_or(u64::MAX);
-        total = total.saturating_add(row_len);
+        total = total.saturating_add(saturating_row_len(row_len));
     }
 
     total
@@ -121,8 +125,7 @@ where
             });
         let encoded = crate::serialize::serialize(&value)
             .expect("serialized-field-bytes value encoding should succeed");
-        let encoded_len = u64::try_from(encoded.len()).unwrap_or(u64::MAX);
-        total = total.saturating_add(encoded_len);
+        total = total.saturating_add(saturating_row_len(encoded.len()));
     }
 
     total

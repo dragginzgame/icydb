@@ -86,7 +86,7 @@ fn execute_page_ids_and_keys_scanned(
         .execute_paged_with_cursor_traced(plan, None)
         .expect("paged trace execution should succeed");
     let keys_scanned = trace
-        .map(|trace| trace.keys_scanned)
+        .map(|trace| trace.keys_scanned())
         .expect("traced execution should emit keys_scanned");
     let keys_scanned =
         usize::try_from(keys_scanned).expect("keys_scanned should fit within usize in test scope");

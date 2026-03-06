@@ -163,8 +163,8 @@ pub(super) fn hash_order(hasher: &mut Sha256, order: &ExplainOrderBy) {
             write_tag(hasher, 0x31);
             write_u32(hasher, fields.len() as u32);
             for field in fields {
-                write_str(hasher, &field.field);
-                write_tag(hasher, order_direction_tag(field.direction));
+                write_str(hasher, field.field());
+                write_tag(hasher, order_direction_tag(field.direction()));
             }
         }
     }
@@ -383,19 +383,19 @@ fn hash_explain_field(
             let entity_path = entity_path.expect("entity path required by hash profile");
             write_str(hasher, entity_path);
         }
-        ExplainHashField::Mode => hash_mode(hasher, plan.mode),
-        ExplainHashField::Access => hash_access(hasher, &plan.access),
+        ExplainHashField::Mode => hash_mode(hasher, plan.mode()),
+        ExplainHashField::Access => hash_access(hasher, plan.access()),
         ExplainHashField::Predicate => hash_predicate(hasher, plan.predicate_model_for_hash()),
-        ExplainHashField::Order => hash_order(hasher, &plan.order_by),
-        ExplainHashField::Distinct => hash_distinct(hasher, plan.distinct),
-        ExplainHashField::Page => hash_page(hasher, &plan.page),
-        ExplainHashField::DeleteLimit => hash_delete_limit(hasher, &plan.delete_limit),
-        ExplainHashField::Consistency => hash_consistency(hasher, plan.consistency),
+        ExplainHashField::Order => hash_order(hasher, plan.order_by()),
+        ExplainHashField::Distinct => hash_distinct(hasher, plan.distinct()),
+        ExplainHashField::Page => hash_page(hasher, plan.page()),
+        ExplainHashField::DeleteLimit => hash_delete_limit(hasher, plan.delete_limit()),
+        ExplainHashField::Consistency => hash_consistency(hasher, plan.consistency()),
         ExplainHashField::GroupingShapeV1 => {
-            hash_grouping_shape_v1(hasher, &plan.grouping, include_group_strategy);
+            hash_grouping_shape_v1(hasher, plan.grouping(), include_group_strategy);
         }
         ExplainHashField::ProjectionSpecV1 => {
-            hash_projection_spec_v1(hasher, projection, &plan.grouping, include_group_strategy);
+            hash_projection_spec_v1(hasher, projection, plan.grouping(), include_group_strategy);
         }
     }
 }
@@ -510,8 +510,8 @@ fn hash_grouping_shape_v1(
             for field in group_fields {
                 // Hash declared group field order using stable slot identity first,
                 // then canonical field label as an additional guardrail.
-                write_u32(hasher, field.slot_index as u32);
-                write_str(hasher, &field.field);
+                write_u32(hasher, field.slot_index() as u32);
+                write_str(hasher, field.field());
             }
 
             write_u32(hasher, aggregates.len() as u32);
@@ -519,9 +519,9 @@ fn hash_grouping_shape_v1(
                 hash_group_aggregate_structural_fingerprint_v1(
                     hasher,
                     &AggregateHashShape::semantic(
-                        aggregate.kind,
-                        aggregate.target_field.as_deref(),
-                        aggregate.distinct,
+                        aggregate.kind(),
+                        aggregate.target_field(),
+                        aggregate.distinct(),
                     ),
                 );
             }
@@ -563,14 +563,14 @@ fn hash_group_having(hasher: &mut Sha256, having: Option<&ExplainGroupHaving>) {
     };
 
     write_tag(hasher, 0x75);
-    write_u32(hasher, having.clauses.len() as u32);
-    for clause in &having.clauses {
+    write_u32(hasher, having.clauses().len() as u32);
+    for clause in having.clauses() {
         hash_group_having_clause(hasher, clause);
     }
 }
 
 fn hash_group_having_clause(hasher: &mut Sha256, clause: &ExplainGroupHavingClause) {
-    match &clause.symbol {
+    match clause.symbol() {
         ExplainGroupHavingSymbol::GroupField { slot_index, field } => {
             write_tag(hasher, 0x76);
             write_u32(hasher, *slot_index as u32);
@@ -581,8 +581,8 @@ fn hash_group_having_clause(hasher: &mut Sha256, clause: &ExplainGroupHavingClau
             write_u32(hasher, *index as u32);
         }
     }
-    write_tag(hasher, clause.op.tag());
-    write_value(hasher, &clause.value);
+    write_tag(hasher, clause.op().tag());
+    write_value(hasher, clause.value());
 }
 
 fn write_u64(hasher: &mut Sha256, value: u64) {
