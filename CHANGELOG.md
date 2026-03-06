@@ -5,6 +5,12 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.42.x] - 2026-03-06 - Pre-EXPLAIN Features
+
+-
+
+---
+
 ## [0.41.x] - 2026-03-05 - Minor Features Kickoff
 
 - `0.41.0` improved basic `LIMIT` handling and added the first index-covering projection fast paths for common scalar value terminals.
