@@ -116,9 +116,10 @@ where
             &mut route_plan,
         );
         let continuation = route_plan.continuation();
-        let continuation_applied = continuation.applied();
+        let continuation_capabilities = continuation.capabilities();
+        let continuation_applied = continuation_capabilities.applied();
         let continuation_invariants = ScalarRouteContinuationInvariantProjection::new(
-            continuation.strict_advance_required_when_applied(),
+            continuation_capabilities.strict_advance_required_when_applied(),
             continuation.window().effective_offset,
         );
         resolved_continuation

@@ -19,9 +19,8 @@ use crate::{
         },
         predicate::MissingRowPolicy,
         query::plan::{
-            AccessPlannedQuery, ContinuationContract, ExecutionOrdering, ExecutionShapeSignature,
-            GroupedContinuationWindow, GroupedExecutorHandoff, OrderSpec, PageSpec, QueryMode,
-            grouped_executor_handoff,
+            AccessPlannedQuery, ContinuationContract, ExecutionOrdering, GroupedContinuationWindow,
+            GroupedExecutorHandoff, OrderSpec, PageSpec, QueryMode, grouped_executor_handoff,
         },
         query::{
             builder::AggregateExpr,
@@ -55,7 +54,6 @@ pub(in crate::db) enum ExecutionStrategy {
 #[derive(Debug)]
 pub(crate) struct ExecutablePlan<E: EntityKind> {
     plan: AccessPlannedQuery<E::Key>,
-    execution_shape_signature: ExecutionShapeSignature,
     continuation: Option<ContinuationContract<E::Key>>,
     index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
     index_prefix_spec_invalid: bool,
@@ -75,8 +73,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
     }
 
     fn build(plan: AccessPlannedQuery<E::Key>) -> Self {
-        // Phase 0: derive immutable execution-shape signature once from planner semantics.
-        let execution_shape_signature = plan.execution_shape_signature(E::PATH);
+        // Phase 0: derive immutable continuation contract once from planner semantics.
         let continuation = plan.continuation_contract(E::PATH);
 
         // Phase 1: Lower index-prefix specs once and retain invariant state.
@@ -95,7 +92,6 @@ impl<E: EntityKind> ExecutablePlan<E> {
 
         Self {
             plan,
-            execution_shape_signature,
             continuation,
             index_prefix_specs,
             index_prefix_spec_invalid,
@@ -160,13 +156,6 @@ impl<E: EntityKind> ExecutablePlan<E> {
                 panic!("continuation signature requires load-mode continuation contract")
             }
         }
-    }
-
-    /// Borrow the immutable execution-shape signature for this executable plan.
-    #[must_use]
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(in crate::db) const fn execution_shape_signature(&self) -> ExecutionShapeSignature {
-        self.execution_shape_signature
     }
 
     /// Validate and decode a continuation cursor into executor-ready cursor state.

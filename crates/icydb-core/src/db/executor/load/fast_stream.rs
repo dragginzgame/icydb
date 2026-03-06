@@ -116,8 +116,8 @@ mod tests {
         let id1 = Ulid::from_u128(1);
         let id2 = Ulid::from_u128(2);
         let access = AccessPlan::Union(vec![AccessPlan::by_key(id1), AccessPlan::by_key(id2)]);
-        let descriptor = AccessExecutionDescriptor::from_strategy(
-            access.resolve_strategy(),
+        let descriptor = AccessExecutionDescriptor::from_executable_bindings(
+            access.resolve_strategy().into_executable(),
             AccessStreamBindings {
                 index_prefix_specs: &[],
                 index_range_specs: &[],

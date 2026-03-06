@@ -36,10 +36,11 @@ where
         capabilities: RouteCapabilities,
     ) -> Option<IndexRangeLimitSpec> {
         let route_window = continuation.window();
+        let continuation_capabilities = continuation.capabilities();
         if !capabilities.index_range_limit_pushdown_shape_eligible {
             return None;
         }
-        if !continuation.index_range_limit_pushdown_allowed() {
+        if !continuation_capabilities.index_range_limit_pushdown_allowed() {
             return None;
         }
         if let Some(fetch) = probe_fetch_hint {
@@ -74,6 +75,7 @@ where
         continuation: RouteContinuationPlan,
         capabilities: RouteCapabilities,
     ) -> Option<usize> {
+        let continuation_capabilities = continuation.capabilities();
         let limit_zero = plan
             .scalar_plan()
             .page
@@ -81,7 +83,7 @@ where
             .is_some_and(|page| page.limit == Some(0));
         if limit_zero {
             return plan.access_strategy().load_window_early_stop_hint(
-                continuation.applied(),
+                continuation_capabilities.applied(),
                 capabilities.streaming_access_shape_safe,
                 Some(0),
             );
@@ -89,7 +91,7 @@ where
 
         let fetch_count = continuation.window().fetch_count_for(true);
         plan.access_strategy().load_window_early_stop_hint(
-            continuation.applied(),
+            continuation_capabilities.applied(),
             capabilities.streaming_access_shape_safe,
             fetch_count,
         )
@@ -102,6 +104,7 @@ where
         continuation: RouteContinuationPlan,
         capabilities: RouteCapabilities,
     ) -> Option<TopNSeekSpec> {
+        let continuation_capabilities = continuation.capabilities();
         let logical = plan.scalar_plan();
         let has_order = logical
             .order
@@ -113,7 +116,7 @@ where
         if !capabilities.streaming_access_shape_safe {
             return None;
         }
-        if continuation.applied() {
+        if continuation_capabilities.applied() {
             return None;
         }
 

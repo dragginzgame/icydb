@@ -5,29 +5,12 @@
 
 use crate::{
     db::access::{
-        ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan, ExecutionPathKind,
-        ExecutionPathPayload,
+        AccessPathKind, ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan,
+        ExecutionPathKind, ExecutionPathPayload,
     },
     model::index::IndexModel,
     obs::sink::PlanKind,
 };
-
-///
-/// AccessPathKind
-///
-/// Canonical runtime discriminant for executable access paths.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum AccessPathKind {
-    ByKey,
-    ByKeys,
-    KeyRange,
-    IndexPrefix,
-    IndexMultiLookup,
-    IndexRange,
-    FullScan,
-}
 
 ///
 /// AccessScanKind
@@ -69,19 +52,6 @@ impl AccessPathKind {
             Self::FullScan => AccessScanKind::FullScan,
         }
     }
-
-    /// Return true when this path kind semantically relies on ordered traversal.
-    #[must_use]
-    pub(in crate::db) const fn requires_order(self) -> bool {
-        !matches!(self, Self::ByKey | Self::ByKeys)
-    }
-
-    /// Return true when this path kind supports strict continuation advancement.
-    #[must_use]
-    #[expect(clippy::unused_self)]
-    pub(in crate::db) const fn supports_strict_resume(self) -> bool {
-        true
-    }
 }
 
 impl AccessPlanKind {
@@ -91,24 +61,6 @@ impl AccessPlanKind {
         match self {
             Self::Path(kind) => kind.scan_kind(),
             Self::Union | Self::Intersection => AccessScanKind::Composite,
-        }
-    }
-
-    /// Return true when this plan kind semantically relies on ordered traversal.
-    #[must_use]
-    pub(in crate::db) const fn requires_order(self) -> bool {
-        match self {
-            Self::Path(kind) => kind.requires_order(),
-            Self::Union | Self::Intersection => true,
-        }
-    }
-
-    /// Return true when this plan kind supports strict continuation advancement.
-    #[must_use]
-    pub(in crate::db) const fn supports_strict_resume(self) -> bool {
-        match self {
-            Self::Path(kind) => kind.supports_strict_resume(),
-            Self::Union | Self::Intersection => true,
         }
     }
 
@@ -152,14 +104,13 @@ pub(in crate::db) struct SinglePathAccessCapabilities {
 /// SinglePathStreamCapabilities
 ///
 /// Stream-oriented capability flags for one executable access path.
-/// These flags represent access feasibility and ordering guarantees.
+/// These flags represent access feasibility guarantees.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct SinglePathStreamCapabilities {
     supports_pk_stream_access: bool,
     supports_reverse_traversal: bool,
-    is_pk_ordered_stream: bool,
 }
 
 ///
@@ -200,13 +151,6 @@ impl SinglePathAccessCapabilities {
     #[must_use]
     pub(in crate::db) const fn supports_reverse_traversal(&self) -> bool {
         self.stream.supports_reverse_traversal
-    }
-
-    /// Return true when this path guarantees stream order by primary key.
-    /// This does not imply fast-path PK stream access is available.
-    #[must_use]
-    pub(in crate::db) const fn is_pk_ordered_stream(&self) -> bool {
-        self.stream.is_pk_ordered_stream
     }
 
     #[must_use]
@@ -305,7 +249,6 @@ pub(in crate::db) struct AccessCapabilities {
     single_path: Option<SinglePathAccessCapabilities>,
     first_index_range_details: Option<IndexShapeDetails>,
     all_paths_support_reverse_traversal: bool,
-    all_paths_pk_ordered_stream: bool,
 }
 
 impl AccessCapabilities {
@@ -330,11 +273,6 @@ impl AccessCapabilities {
     #[must_use]
     pub(in crate::db) const fn all_paths_support_reverse_traversal(&self) -> bool {
         self.all_paths_support_reverse_traversal
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn all_paths_pk_ordered_stream(&self) -> bool {
-        self.all_paths_pk_ordered_stream
     }
 }
 
@@ -375,10 +313,6 @@ const fn supports_reverse_traversal(kind: AccessPathKind) -> bool {
             | AccessPathKind::IndexRange
             | AccessPathKind::FullScan
     )
-}
-
-const fn is_pk_ordered_stream() -> bool {
-    true
 }
 
 const fn is_key_direct_access(kind: AccessPathKind) -> bool {
@@ -426,7 +360,6 @@ const fn derive_access_path_capabilities<K>(
         stream: SinglePathStreamCapabilities {
             supports_pk_stream_access: supports_pk_stream_access(kind),
             supports_reverse_traversal: supports_reverse_traversal(kind),
-            is_pk_ordered_stream: is_pk_ordered_stream(),
         },
         pushdown: SinglePathPushdownCapabilities {
             supports_count_pushdown_shape: supports_count_pushdown_shape(kind),
@@ -468,25 +401,10 @@ fn access_plan_supports_reverse_traversal_internal<K>(
     }
 }
 
-fn access_plan_is_pk_ordered_stream_internal<K>(access: &ExecutableAccessPlan<'_, K>) -> bool {
-    match access.node() {
-        ExecutableAccessNode::Path(path) => path.capabilities().is_pk_ordered_stream(),
-        ExecutableAccessNode::Union(children) | ExecutableAccessNode::Intersection(children) => {
-            children
-                .iter()
-                .all(access_plan_is_pk_ordered_stream_internal)
-        }
-    }
-}
-
 /// Derive immutable runtime access capabilities for one executable access plan.
 #[must_use]
 fn derive_access_capabilities<K>(access: &ExecutableAccessPlan<'_, K>) -> AccessCapabilities {
     let plan_kind = dispatch_access_plan_kind(access);
-    debug_assert!(
-        !plan_kind.requires_order() || plan_kind.supports_strict_resume(),
-        "access invariant: ordered scan families must preserve strict resume support",
-    );
     let single_path = match access.node() {
         ExecutableAccessNode::Path(path) => Some(path.capabilities()),
         ExecutableAccessNode::Union(_) | ExecutableAccessNode::Intersection(_) => None,
@@ -499,7 +417,6 @@ fn derive_access_capabilities<K>(access: &ExecutableAccessPlan<'_, K>) -> Access
         all_paths_support_reverse_traversal: access_plan_supports_reverse_traversal_internal(
             access,
         ),
-        all_paths_pk_ordered_stream: access_plan_is_pk_ordered_stream_internal(access),
     }
 }
 

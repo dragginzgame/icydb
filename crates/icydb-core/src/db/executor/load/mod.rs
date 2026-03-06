@@ -55,8 +55,8 @@ pub(in crate::db::executor) use self::execute::{
     ResolvedExecutionKeyStream,
 };
 pub(in crate::db::executor::load) use self::grouped_runtime::{
-    GroupedContinuationContext, GroupedExecutionContext, GroupedPaginationWindow,
-    GroupedRuntimeProjection,
+    GroupedContinuationCapabilities, GroupedContinuationContext, GroupedExecutionContext,
+    GroupedPaginationWindow, GroupedRuntimeProjection,
 };
 pub(in crate::db::executor) use self::page::PageMaterializationRequest;
 
@@ -335,6 +335,9 @@ where
     /// Borrow grouped runtime pagination projection.
     fn grouped_pagination_window(&self) -> &GroupedPaginationWindow;
 
+    /// Return grouped continuation capabilities for this execution window.
+    fn grouped_continuation_capabilities(&self) -> GroupedContinuationCapabilities;
+
     /// Build grouped next cursor after grouped boundary validation.
     fn grouped_next_cursor(&self, last_group_key: Vec<Value>) -> Result<PageCursor, InternalError>;
 
@@ -401,6 +404,10 @@ where
         self.execution_context
             .continuation()
             .grouped_pagination_window()
+    }
+
+    fn grouped_continuation_capabilities(&self) -> GroupedContinuationCapabilities {
+        self.execution_context.continuation().capabilities()
     }
 
     fn grouped_next_cursor(&self, last_group_key: Vec<Value>) -> Result<PageCursor, InternalError> {

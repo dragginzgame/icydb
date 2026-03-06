@@ -7,11 +7,11 @@ use crate::db::{
     access::PushdownApplicability,
     direction::Direction,
     executor::{
-        AccessExecutionDescriptor, ScalarRouteWindowProjection,
+        AccessExecutionDescriptor, ContinuationCapabilities, ScalarRouteWindowProjection,
         aggregate::{AggregateFoldMode, capability::AggregateFieldExtremaIneligibilityReason},
     },
     query::builder::AggregateExpr,
-    query::plan::{ContinuationPolicy, GroupedPlanStrategyHint},
+    query::plan::GroupedPlanStrategyHint,
 };
 
 ///
@@ -128,27 +128,24 @@ pub(in crate::db::executor) enum ContinuationMode {
 /// RouteContinuationPlan
 ///
 /// Route-owned continuation projection bundle.
-/// Keeps continuation mode, planner continuation policy, and route window
+/// Keeps continuation capabilities and route-window
 /// semantics under one immutable routing contract.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) struct RouteContinuationPlan {
-    mode: ContinuationMode,
-    policy: ContinuationPolicy,
+    capabilities: ContinuationCapabilities,
     window: RouteWindowPlan,
 }
 
 impl RouteContinuationPlan {
     #[must_use]
     pub(in crate::db::executor::route) const fn new(
-        mode: ContinuationMode,
-        policy: ContinuationPolicy,
+        capabilities: ContinuationCapabilities,
         window: RouteWindowPlan,
     ) -> Self {
         Self {
-            mode,
-            policy,
+            capabilities,
             window,
         }
     }
@@ -156,7 +153,7 @@ impl RouteContinuationPlan {
     #[must_use]
     #[cfg(test)]
     pub(in crate::db::executor) const fn mode(self) -> ContinuationMode {
-        self.mode
+        self.capabilities.mode()
     }
 
     #[must_use]
@@ -165,23 +162,8 @@ impl RouteContinuationPlan {
     }
 
     #[must_use]
-    pub(in crate::db::executor) const fn applied(self) -> bool {
-        !matches!(self.mode, ContinuationMode::Initial)
-    }
-
-    #[must_use]
-    pub(in crate::db::executor) const fn strict_advance_required_when_applied(self) -> bool {
-        !self.applied() || self.policy.requires_strict_advance()
-    }
-
-    #[must_use]
-    pub(in crate::db::executor) const fn grouped_safe_when_applied(self) -> bool {
-        !self.applied() || self.policy.is_grouped_safe()
-    }
-
-    #[must_use]
-    pub(in crate::db::executor) const fn index_range_limit_pushdown_allowed(self) -> bool {
-        !self.policy.requires_anchor() || !matches!(self.mode, ContinuationMode::CursorBoundary)
+    pub(in crate::db::executor) const fn capabilities(self) -> ContinuationCapabilities {
+        self.capabilities
     }
 }
 

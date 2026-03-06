@@ -907,7 +907,7 @@ impl<'a, K> ExecutableAccessPlan<'a, K> {
             composite: capabilities.is_composite(),
             range_scan: single_path_index_range_details.is_some(),
             prefix_scan: single_path_index_prefix_details.is_some(),
-            ordered: capabilities.all_paths_pk_ordered_stream(),
+            ordered: true,
             reverse_supported: capabilities.all_paths_support_reverse_traversal(),
             single_path_supports_pk_stream_access: single_path
                 .is_some_and(|path| path.supports_pk_stream_access()),

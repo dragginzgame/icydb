@@ -9,9 +9,10 @@ use crate::{
         executor::{
             ExecutablePlan, ExecutionTrace,
             load::{
-                GroupedContinuationContext, GroupedExecutionContext, GroupedPaginationWindow,
-                GroupedPlannerPayload, GroupedRoutePayload, GroupedRouteStage,
-                GroupedRuntimeProjection, IndexSpecBundle, LoadExecutor,
+                GroupedContinuationCapabilities, GroupedContinuationContext,
+                GroupedExecutionContext, GroupedPaginationWindow, GroupedPlannerPayload,
+                GroupedRoutePayload, GroupedRouteStage, GroupedRuntimeProjection, IndexSpecBundle,
+                LoadExecutor,
             },
             plan_metrics::GroupedPlanMetricsStrategy,
         },
@@ -92,16 +93,23 @@ where
         );
 
         let direction = grouped_route_plan.direction();
-        let continuation_applied = !cursor.is_empty();
+        let grouped_continuation_window = plan.grouped_continuation_window(&cursor)?;
+        let grouped_pagination_window =
+            GroupedPaginationWindow::from_contract(grouped_continuation_window);
+        let continuation_capabilities = GroupedContinuationCapabilities::from_window(
+            !cursor.is_empty(),
+            &grouped_pagination_window,
+        );
+        let continuation_applied = continuation_capabilities.applied();
         let execution_trace =
             debug.then(|| ExecutionTrace::new(plan.access(), direction, continuation_applied));
         let continuation_signature = plan.continuation_signature_for_runtime()?;
         let continuation_boundary_arity = plan.grouped_cursor_boundary_arity()?;
-        let grouped_continuation_window = plan.grouped_continuation_window(&cursor)?;
         let continuation = GroupedContinuationContext::new(
+            continuation_capabilities,
             continuation_signature,
             continuation_boundary_arity,
-            GroupedPaginationWindow::from_contract(grouped_continuation_window),
+            grouped_pagination_window,
         );
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();

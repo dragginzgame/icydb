@@ -101,7 +101,7 @@ where
         let mut node =
             empty_execution_node_descriptor(ExplainExecutionNodeType::LimitOffset, execution_mode);
         node.limit = page.limit;
-        node.cursor = Some(route_plan.continuation().applied());
+        node.cursor = Some(route_plan.continuation().capabilities().applied());
         node.node_properties.insert(
             "offset".to_string(),
             Value::from(u64_from_usize(page.offset as usize)),
@@ -109,7 +109,7 @@ where
         root.children.push(node);
     }
 
-    if route_plan.continuation().applied() {
+    if route_plan.continuation().capabilities().applied() {
         let mut node =
             empty_execution_node_descriptor(ExplainExecutionNodeType::CursorResume, execution_mode);
         node.cursor = Some(true);
@@ -144,7 +144,7 @@ where
         ),
         format!(
             "diagnostic.route.continuation_applied={}",
-            route_plan.continuation().applied()
+            route_plan.continuation().capabilities().applied()
         ),
         format!(
             "diagnostic.route.limit={:?}",
@@ -229,7 +229,7 @@ where
         execution_mode,
         ordering_source,
         limit: route_plan.continuation().window().limit(),
-        cursor: route_plan.continuation().applied(),
+        cursor: route_plan.continuation().capabilities().applied(),
         node_properties,
     }
 }

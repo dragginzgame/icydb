@@ -216,6 +216,7 @@ where
         let continuation_policy = *planner_route_profile.continuation_policy();
         let route_continuation =
             Self::derive_route_continuation(plan, continuation, continuation_policy);
+        let continuation_capabilities = route_continuation.capabilities();
         let derivation = Self::derive_route_derivation_context(
             plan,
             intent_stage,
@@ -286,11 +287,11 @@ where
             "route invariant: grouped intent must not derive load/aggregate scan hints or index-range pushdown specs",
         );
         debug_assert!(
-            route_continuation.strict_advance_required_when_applied(),
+            continuation_capabilities.strict_advance_required_when_applied(),
             "route invariant: continuation executions must require strict advancement",
         );
         debug_assert!(
-            !intent_stage.grouped || route_continuation.grouped_safe_when_applied(),
+            !intent_stage.grouped || continuation_capabilities.grouped_safe_when_applied(),
             "route invariant: grouped continuation executions must satisfy planner-projected continuation policy safety",
         );
 

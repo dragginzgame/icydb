@@ -34,8 +34,8 @@ pub(in crate::db) use crate::db::access::{
 pub(in crate::db::executor) use crate::db::diagnostics::{ExecutionOptimization, ExecutionTrace};
 pub(super) use context::*;
 pub(in crate::db::executor) use continuation::{
-    ContinuationEngine, LoadCursorInput, PreparedLoadCursor, RequestedLoadExecutionShape,
-    ResolvedScalarContinuationContext, ScalarContinuationBindings,
+    ContinuationCapabilities, ContinuationEngine, LoadCursorInput, PreparedLoadCursor,
+    RequestedLoadExecutionShape, ResolvedScalarContinuationContext, ScalarContinuationBindings,
     ScalarRouteContinuationInvariantProjection, ScalarRouteWindowProjection,
 };
 pub(super) use delete::DeleteExecutor;

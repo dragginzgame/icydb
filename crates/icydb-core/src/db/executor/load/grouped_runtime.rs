@@ -82,6 +82,55 @@ impl GroupedPaginationWindow {
 }
 
 ///
+/// GroupedContinuationCapabilities
+///
+/// Immutable grouped continuation capability projection derived from grouped
+/// cursor-application state and grouped pagination window shape.
+/// Grouped route/fold layers consume this capability contract instead of
+/// re-deriving continuation gates from raw window primitives.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor::load) struct GroupedContinuationCapabilities {
+    applied: bool,
+    resume_boundary_applied: bool,
+    selection_bound_applied: bool,
+}
+
+impl GroupedContinuationCapabilities {
+    /// Construct one grouped continuation capability projection from grouped paging window shape.
+    #[must_use]
+    pub(in crate::db::executor::load) const fn from_window(
+        applied: bool,
+        window: &GroupedPaginationWindow,
+    ) -> Self {
+        Self {
+            applied,
+            resume_boundary_applied: window.resume_boundary().is_some(),
+            selection_bound_applied: window.selection_bound().is_some(),
+        }
+    }
+
+    /// Return whether grouped continuation is applied for this execution.
+    #[must_use]
+    pub(in crate::db::executor::load) const fn applied(self) -> bool {
+        self.applied
+    }
+
+    /// Return whether grouped resume-boundary filtering is active.
+    #[must_use]
+    pub(in crate::db::executor::load) const fn resume_boundary_applied(self) -> bool {
+        self.resume_boundary_applied
+    }
+
+    /// Return whether grouped candidate selection bound is active.
+    #[must_use]
+    pub(in crate::db::executor::load) const fn selection_bound_applied(self) -> bool {
+        self.selection_bound_applied
+    }
+}
+
+///
 /// GroupedContinuationContext
 ///
 /// Runtime grouped continuation context derived from immutable continuation
@@ -90,6 +139,7 @@ impl GroupedPaginationWindow {
 ///
 
 pub(in crate::db::executor::load) struct GroupedContinuationContext {
+    capabilities: GroupedContinuationCapabilities,
     continuation_signature: ContinuationSignature,
     continuation_boundary_arity: usize,
     grouped_pagination_window: GroupedPaginationWindow,
@@ -99,15 +149,25 @@ impl GroupedContinuationContext {
     /// Construct grouped continuation runtime context from grouped contract values.
     #[must_use]
     pub(in crate::db::executor::load) const fn new(
+        capabilities: GroupedContinuationCapabilities,
         continuation_signature: ContinuationSignature,
         continuation_boundary_arity: usize,
         grouped_pagination_window: GroupedPaginationWindow,
     ) -> Self {
         Self {
+            capabilities,
             continuation_signature,
             continuation_boundary_arity,
             grouped_pagination_window,
         }
+    }
+
+    /// Return immutable grouped continuation capabilities for this execution.
+    #[must_use]
+    pub(in crate::db::executor::load) const fn capabilities(
+        &self,
+    ) -> GroupedContinuationCapabilities {
+        self.capabilities
     }
 
     /// Borrow grouped runtime pagination projection.
@@ -260,4 +320,45 @@ impl GroupedExecutionContext {
 
 fn invariant(message: impl Into<String>) -> InternalError {
     InternalError::query_executor_invariant(message)
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use crate::db::executor::load::{GroupedContinuationCapabilities, GroupedPaginationWindow};
+
+    #[test]
+    fn grouped_continuation_capabilities_mark_initial_window_as_unapplied() {
+        let window = GroupedPaginationWindow {
+            limit: Some(3),
+            initial_offset_for_page: 2,
+            selection_bound: Some(6),
+            resume_initial_offset: 2,
+            resume_boundary: None,
+        };
+        let capabilities = GroupedContinuationCapabilities::from_window(false, &window);
+
+        assert!(!capabilities.applied());
+        assert!(!capabilities.resume_boundary_applied());
+        assert!(capabilities.selection_bound_applied());
+    }
+
+    #[test]
+    fn grouped_continuation_capabilities_mark_resume_window_as_applied() {
+        let window = GroupedPaginationWindow {
+            limit: Some(3),
+            initial_offset_for_page: 0,
+            selection_bound: Some(4),
+            resume_initial_offset: 2,
+            resume_boundary: Some(crate::value::Value::List(Vec::new())),
+        };
+        let capabilities = GroupedContinuationCapabilities::from_window(true, &window);
+
+        assert!(capabilities.applied());
+        assert!(capabilities.resume_boundary_applied());
+        assert!(capabilities.selection_bound_applied());
+    }
 }

@@ -431,28 +431,23 @@ fn load_cursor_accepts_matching_offset_window_at_plan_time() {
 }
 
 #[test]
-fn executable_plan_execution_shape_signature_contract_is_stable_and_shape_sensitive() {
-    // Phase 1: derive one executable plan shape signature from canonical planner semantics.
+fn executable_plan_continuation_signature_is_stable_and_shape_sensitive() {
+    // Phase 1: derive one executable plan continuation signature from canonical planner semantics.
     let plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("rank")
         .limit(1)
         .plan()
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("plan should build");
-    let shape_signature = plan.execution_shape_signature();
+    let signature = plan.continuation_signature();
 
     assert_eq!(
-        shape_signature.continuation_signature(),
         plan.continuation_signature(),
-        "executable continuation signatures must read from immutable execution-shape contract",
-    );
-    assert_eq!(
-        shape_signature,
-        plan.execution_shape_signature(),
-        "execution-shape signatures must be stable across repeated reads",
+        signature,
+        "executable continuation signatures must be stable across repeated reads",
     );
 
-    // Phase 2: semantic shape drift must produce a distinct execution-shape signature.
+    // Phase 2: semantic shape drift must produce a distinct continuation signature.
     let drifted_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("label")
         .limit(1)
@@ -461,11 +456,9 @@ fn executable_plan_execution_shape_signature_contract_is_stable_and_shape_sensit
         .expect("drifted plan should build");
 
     assert_ne!(
-        shape_signature.continuation_signature(),
-        drifted_plan
-            .execution_shape_signature()
-            .continuation_signature(),
-        "execution-shape signature must invalidate when planner shape changes",
+        signature,
+        drifted_plan.continuation_signature(),
+        "continuation signature must invalidate when planner shape changes",
     );
 }
 

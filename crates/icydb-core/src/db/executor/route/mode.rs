@@ -49,12 +49,12 @@ where
         continuation: &ScalarContinuationContext,
         continuation_policy: ContinuationPolicy,
     ) -> RouteContinuationPlan {
-        let continuation_mode = continuation.route_continuation_mode();
+        let continuation_capabilities = continuation.continuation_capabilities(continuation_policy);
         let route_window = RouteWindowPlan::from_scalar_route_window_projection(
             continuation.route_window_projection_for_plan(plan),
         );
 
-        RouteContinuationPlan::new(continuation_mode, continuation_policy, route_window)
+        RouteContinuationPlan::new(continuation_capabilities, route_window)
     }
 
     // Route-owned aggregate non-count streaming gate.

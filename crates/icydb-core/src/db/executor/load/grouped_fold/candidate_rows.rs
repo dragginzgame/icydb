@@ -38,8 +38,17 @@ where
         R: GroupedRouteStageProjection<E>,
     {
         let limit = pagination_window.limit();
-        let selection_bound = pagination_window.selection_bound();
-        let resume_boundary = pagination_window.resume_boundary();
+        let continuation_capabilities = route.grouped_continuation_capabilities();
+        let selection_bound = if continuation_capabilities.selection_bound_applied() {
+            pagination_window.selection_bound()
+        } else {
+            None
+        };
+        let resume_boundary = if continuation_capabilities.resume_boundary_applied() {
+            pagination_window.resume_boundary()
+        } else {
+            None
+        };
         if aggregate_count == 0 {
             return Err(crate::db::executor::load::invariant(
                 "grouped execution requires at least one aggregate terminal",

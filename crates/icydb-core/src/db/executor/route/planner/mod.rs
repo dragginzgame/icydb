@@ -15,7 +15,8 @@ use crate::{
         access::PushdownApplicability,
         direction::Direction,
         executor::{
-            Context, ExecutionPlan, ExecutionPreparation, OrderedKeyStreamBox,
+            Context, ContinuationCapabilities, ExecutionPlan, ExecutionPreparation,
+            OrderedKeyStreamBox,
             aggregate::{AggregateFoldMode, AggregateKind},
             continuation::ScalarContinuationContext,
             load::LoadExecutor,
@@ -127,8 +128,10 @@ impl ExecutionRoutePlan {
             direction: Direction::Asc,
             route_shape_kind: RouteShapeKind::MutationDelete,
             continuation: RouteContinuationPlan::new(
-                ContinuationMode::Initial,
-                ContinuationPolicy::new(true, true, true),
+                ContinuationCapabilities::new(
+                    ContinuationMode::Initial,
+                    ContinuationPolicy::new(true, true, true),
+                ),
                 RouteWindowPlan {
                     effective_offset: 0,
                     limit: None,
