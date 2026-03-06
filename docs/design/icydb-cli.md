@@ -298,6 +298,11 @@ This connects directly to your future Observability (17).
 
 ---
 
+> Status note (2026-03-06):
+> This is a CLI design draft. As of `0.42.x`, EXPLAIN is already shipped on the
+> core query API (`explain_execution*` surfaces). A standalone CLI crate is not
+> part of the current workspace yet.
+
 # 🔐 Error Model
 
 * Parser errors → CLI parse error
@@ -349,7 +354,7 @@ It transforms system understanding.
 
 ### Phase 5 — REPL + pretty printer
 
-### Phase 6 — Optional EXPLAIN
+### Phase 6 — EXPLAIN (core shipped in `0.42.x`; CLI integration optional)
 
 That’s it.
 

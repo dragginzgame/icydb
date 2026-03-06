@@ -26,7 +26,7 @@ If you are new to this space: think of IcyDB as a way to get "database-like" str
 
 ## Current Release
 
-- Workspace version: `0.24.7`
+- Workspace version: `0.42.1`
 - Changelog: `CHANGELOG.md`
 
 ---
@@ -57,7 +57,7 @@ Use a pinned git tag so builds are repeatable:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.24.7" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.42.1" }
 ```
 
 ---
@@ -98,6 +98,23 @@ pub fn users_named_ann() -> Result<Vec<View<User>>, icydb::Error> {
 }
 ```
 
+### Explain execution shape (`0.42.x`)
+
+```rust
+use icydb::prelude::*;
+
+pub fn explain_users_named_ann() -> Result<String, icydb::Error> {
+    let explain = db!()
+        .load::<User>()
+        .filter_expr(FilterExpr::eq(User::NAME, "ann"))?
+        .order_by("name")
+        .limit(25)
+        .explain_execution_verbose()?;
+
+    Ok(explain)
+}
+```
+
 ---
 
 ## Helpful Notes
@@ -114,7 +131,7 @@ For deeper rules and behavior:
 - `docs/contracts/IDENTITY_CONTRACT.md`
 - `docs/contracts/TRANSACTION_SEMANTICS.md`
 
-### Execution & Aggregate Guarantees (0.25 milestone line)
+### Execution & Aggregate Guarantees (historical `0.25` milestone line)
 
 - Aggregate terminals include field-based operations (`min_by`, `max_by`, `nth_by`, `sum_by`, `avg_by`, `median_by`, `count_distinct_by`, `min_max_by`) with explicit capability boundaries.
 - Field-extrema tie-break behavior is deterministic: `(field_value, primary_key_asc)`.
