@@ -12,6 +12,7 @@ use crate::model::{field::FieldKind, index::IndexModel};
 use crate::traits::EntitySchema;
 use crate::types::Ulid;
 use crate::value::Value;
+use std::collections::BTreeMap;
 
 const PUSHDOWN_INDEX_FIELDS: [&str; 1] = ["tag"];
 const PUSHDOWN_INDEX: IndexModel = IndexModel::new(
@@ -721,4 +722,124 @@ fn explain_pushdown_conversion_covers_all_variants() {
     for (input, expected) in cases {
         assert_eq!(ExplainOrderPushdown::from(input), expected);
     }
+}
+
+#[test]
+fn explain_execution_node_type_vocabulary_is_frozen() {
+    let actual = [
+        ExplainExecutionNodeType::ByKeyLookup.as_str(),
+        ExplainExecutionNodeType::ByKeysLookup.as_str(),
+        ExplainExecutionNodeType::PrimaryKeyRangeScan.as_str(),
+        ExplainExecutionNodeType::IndexPrefixScan.as_str(),
+        ExplainExecutionNodeType::IndexRangeScan.as_str(),
+        ExplainExecutionNodeType::IndexMultiLookup.as_str(),
+        ExplainExecutionNodeType::FullScan.as_str(),
+        ExplainExecutionNodeType::Union.as_str(),
+        ExplainExecutionNodeType::Intersection.as_str(),
+        ExplainExecutionNodeType::IndexPredicatePrefilter.as_str(),
+        ExplainExecutionNodeType::ResidualPredicateFilter.as_str(),
+        ExplainExecutionNodeType::OrderByAccessSatisfied.as_str(),
+        ExplainExecutionNodeType::OrderByMaterializedSort.as_str(),
+        ExplainExecutionNodeType::DistinctPreOrdered.as_str(),
+        ExplainExecutionNodeType::DistinctMaterialized.as_str(),
+        ExplainExecutionNodeType::ProjectionMaterialized.as_str(),
+        ExplainExecutionNodeType::ProjectionIndexOnly.as_str(),
+        ExplainExecutionNodeType::LimitOffset.as_str(),
+        ExplainExecutionNodeType::CursorResume.as_str(),
+        ExplainExecutionNodeType::IndexRangeLimitPushdown.as_str(),
+        ExplainExecutionNodeType::TopNSeek.as_str(),
+        ExplainExecutionNodeType::AggregateCount.as_str(),
+        ExplainExecutionNodeType::AggregateExists.as_str(),
+        ExplainExecutionNodeType::AggregateMin.as_str(),
+        ExplainExecutionNodeType::AggregateMax.as_str(),
+        ExplainExecutionNodeType::AggregateFirst.as_str(),
+        ExplainExecutionNodeType::AggregateLast.as_str(),
+        ExplainExecutionNodeType::AggregateSum.as_str(),
+        ExplainExecutionNodeType::AggregateSeekFirst.as_str(),
+        ExplainExecutionNodeType::AggregateSeekLast.as_str(),
+        ExplainExecutionNodeType::GroupedAggregateHashMaterialized.as_str(),
+        ExplainExecutionNodeType::GroupedAggregateOrderedMaterialized.as_str(),
+        ExplainExecutionNodeType::SecondaryOrderPushdown.as_str(),
+    ];
+    let expected = [
+        "ByKeyLookup",
+        "ByKeysLookup",
+        "PrimaryKeyRangeScan",
+        "IndexPrefixScan",
+        "IndexRangeScan",
+        "IndexMultiLookup",
+        "FullScan",
+        "Union",
+        "Intersection",
+        "IndexPredicatePrefilter",
+        "ResidualPredicateFilter",
+        "OrderByAccessSatisfied",
+        "OrderByMaterializedSort",
+        "DistinctPreOrdered",
+        "DistinctMaterialized",
+        "ProjectionMaterialized",
+        "ProjectionIndexOnly",
+        "LimitOffset",
+        "CursorResume",
+        "IndexRangeLimitPushdown",
+        "TopNSeek",
+        "AggregateCount",
+        "AggregateExists",
+        "AggregateMin",
+        "AggregateMax",
+        "AggregateFirst",
+        "AggregateLast",
+        "AggregateSum",
+        "AggregateSeekFirst",
+        "AggregateSeekLast",
+        "GroupedAggregateHashMaterialized",
+        "GroupedAggregateOrderedMaterialized",
+        "SecondaryOrderPushdown",
+    ];
+
+    assert_eq!(
+        actual, expected,
+        "execution-node vocabulary drifted; node names are a stable EXPLAIN contract",
+    );
+}
+
+#[test]
+fn execution_descriptor_verbose_text_renders_all_optional_fields() {
+    let mut node_properties = BTreeMap::new();
+    node_properties.insert("fetch".to_string(), Value::from(7_u64));
+    let descriptor = ExplainExecutionNodeDescriptor {
+        node_type: ExplainExecutionNodeType::TopNSeek,
+        execution_mode: ExplainExecutionMode::Streaming,
+        access_strategy: Some(ExplainAccessPath::FullScan),
+        predicate_pushdown: Some("strict_all_or_none".to_string()),
+        residual_predicate: Some(ExplainPredicate::IsNull {
+            field: "rank".to_string(),
+        }),
+        projection: Some("index_only".to_string()),
+        ordering_source: Some(ExplainExecutionOrderingSource::AccessOrder),
+        limit: Some(3),
+        cursor: Some(false),
+        covering_scan: Some(true),
+        rows_expected: Some(3),
+        children: Vec::new(),
+        node_properties,
+    };
+
+    let verbose = descriptor.render_text_tree_verbose();
+    assert!(
+        verbose.contains("TopNSeek execution_mode=Streaming"),
+        "verbose execution text should render root node heading",
+    );
+    assert!(
+        verbose.contains("access_strategy=FullScan"),
+        "verbose execution text should render access strategy details",
+    );
+    assert!(
+        verbose.contains("predicate_pushdown=strict_all_or_none"),
+        "verbose execution text should render predicate pushdown details",
+    );
+    assert!(
+        verbose.contains("node_properties=fetch="),
+        "verbose execution text should render node properties",
+    );
 }

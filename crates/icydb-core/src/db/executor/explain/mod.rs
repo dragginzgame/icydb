@@ -7,4 +7,5 @@ mod descriptor;
 
 pub(in crate::db::executor) use descriptor::{
     assemble_aggregate_terminal_execution_descriptor, assemble_load_execution_node_descriptor,
+    assemble_load_execution_verbose_diagnostics,
 };

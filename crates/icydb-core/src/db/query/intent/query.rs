@@ -3,7 +3,10 @@ use crate::{
         predicate::{CompareOp, MissingRowPolicy, Predicate},
         query::{
             builder::aggregate::AggregateExpr,
-            explain::{ExplainExecutionNodeDescriptor, ExplainPlan},
+            explain::{
+                ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainOrderPushdown,
+                ExplainPlan,
+            },
             expr::{FilterExpr, SortExpr},
             intent::{QueryError, access_plan_to_entity_keys, model::QueryModel},
             plan::{AccessPlannedQuery, LoadSpec, QueryMode},
@@ -233,6 +236,83 @@ impl<E: EntityKind> Query<E> {
             .map_err(QueryError::execute)
     }
 
+    /// Explain executor-selected scalar load execution shape as deterministic text.
+    pub fn explain_execution_text(&self) -> Result<String, QueryError>
+    where
+        E: EntityValue,
+    {
+        Ok(self.explain_execution()?.render_text_tree())
+    }
+
+    /// Explain executor-selected scalar load execution shape as canonical JSON.
+    pub fn explain_execution_json(&self) -> Result<String, QueryError>
+    where
+        E: EntityValue,
+    {
+        Ok(self.explain_execution()?.render_json_canonical())
+    }
+
+    /// Explain executor-selected scalar load execution shape with route diagnostics.
+    pub fn explain_execution_verbose(&self) -> Result<String, QueryError>
+    where
+        E: EntityValue,
+    {
+        let executable = self.plan()?.into_executable();
+        let descriptor = executable
+            .explain_load_execution_node_descriptor()
+            .map_err(QueryError::execute)?;
+        let route_diagnostics = executable
+            .explain_load_execution_verbose_diagnostics()
+            .map_err(QueryError::execute)?;
+        let explain = self.explain()?;
+
+        // Phase 1: render descriptor tree with node-local metadata.
+        let mut lines = vec![descriptor.render_text_tree_verbose()];
+        lines.extend(route_diagnostics);
+
+        // Phase 2: add descriptor-stage summaries for key execution operators.
+        lines.push(format!(
+            "diagnostic.descriptor.has_top_n_seek={}",
+            contains_execution_node_type(&descriptor, ExplainExecutionNodeType::TopNSeek)
+        ));
+        lines.push(format!(
+            "diagnostic.descriptor.has_index_range_limit_pushdown={}",
+            contains_execution_node_type(
+                &descriptor,
+                ExplainExecutionNodeType::IndexRangeLimitPushdown,
+            )
+        ));
+        lines.push(format!(
+            "diagnostic.descriptor.has_index_predicate_prefilter={}",
+            contains_execution_node_type(
+                &descriptor,
+                ExplainExecutionNodeType::IndexPredicatePrefilter,
+            )
+        ));
+        lines.push(format!(
+            "diagnostic.descriptor.has_residual_predicate_filter={}",
+            contains_execution_node_type(
+                &descriptor,
+                ExplainExecutionNodeType::ResidualPredicateFilter,
+            )
+        ));
+
+        // Phase 3: append logical-plan diagnostics relevant to verbose explain.
+        lines.push(format!("diagnostic.plan.mode={:?}", explain.mode));
+        lines.push(format!(
+            "diagnostic.plan.order_pushdown={}",
+            plan_order_pushdown_label(&explain.order_pushdown)
+        ));
+        lines.push(format!("diagnostic.plan.distinct={}", explain.distinct));
+        lines.push(format!("diagnostic.plan.page={:?}", explain.page));
+        lines.push(format!(
+            "diagnostic.plan.consistency={:?}",
+            explain.consistency
+        ));
+
+        Ok(lines.join("\n"))
+    }
+
     /// Plan this intent into a neutral planned query contract.
     pub fn planned(&self) -> Result<PlannedQuery<E>, QueryError> {
         let plan = self.build_plan()?;
@@ -259,6 +339,27 @@ impl<E: EntityKind> Query<E> {
         let plan = AccessPlannedQuery::from_parts(logical, access);
 
         Ok(plan)
+    }
+}
+
+fn contains_execution_node_type(
+    descriptor: &ExplainExecutionNodeDescriptor,
+    target: ExplainExecutionNodeType,
+) -> bool {
+    descriptor.node_type == target
+        || descriptor
+            .children
+            .iter()
+            .any(|child| contains_execution_node_type(child, target))
+}
+
+fn plan_order_pushdown_label(order_pushdown: &ExplainOrderPushdown) -> String {
+    match order_pushdown {
+        ExplainOrderPushdown::MissingModelContext => "missing_model_context".to_string(),
+        ExplainOrderPushdown::EligibleSecondaryIndex { index, prefix_len } => {
+            format!("eligible(index={index},prefix_len={prefix_len})",)
+        }
+        ExplainOrderPushdown::Rejected(reason) => format!("rejected({reason:?})"),
     }
 }
 

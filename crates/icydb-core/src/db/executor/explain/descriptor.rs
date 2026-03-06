@@ -5,7 +5,10 @@
 
 use crate::{
     db::{
-        access::{PushdownApplicability, SecondaryOrderPushdownEligibility},
+        access::{
+            PushdownApplicability, SecondaryOrderPushdownEligibility,
+            SecondaryOrderPushdownRejection,
+        },
         executor::{
             ExecutionPreparation, LoadExecutor,
             continuation::ScalarContinuationContext,
@@ -114,6 +117,72 @@ where
     }
 
     Ok(root)
+}
+
+/// Assemble canonical verbose diagnostics for one scalar load execution route.
+pub(in crate::db::executor) fn assemble_load_execution_verbose_diagnostics<E>(
+    plan: &AccessPlannedQuery<E::Key>,
+) -> Result<Vec<String>, InternalError>
+where
+    E: EntityKind + EntityValue,
+{
+    // Phase 1: build canonical route authority inputs for load mode.
+    let execution_preparation = ExecutionPreparation::for_plan::<E>(plan);
+    let continuation = ScalarContinuationContext::initial();
+    let route_plan =
+        LoadExecutor::<E>::build_execution_route_plan_for_load(plan, &continuation, None)?;
+
+    // Phase 2: emit deterministic route-level diagnostics used by verbose surfaces.
+    let mut lines = vec![
+        format!(
+            "diagnostic.route.execution_mode={:?}",
+            route_plan.execution_mode
+        ),
+        format!(
+            "diagnostic.route.fast_path_order={:?}",
+            route_plan.fast_path_order()
+        ),
+        format!(
+            "diagnostic.route.continuation_applied={}",
+            route_plan.continuation().applied()
+        ),
+        format!(
+            "diagnostic.route.limit={:?}",
+            route_plan.continuation().window().limit()
+        ),
+        secondary_order_pushdown_verbose_line(&route_plan),
+    ];
+
+    if let Some(spec) = route_plan.top_n_seek_spec() {
+        lines.push(format!(
+            "diagnostic.route.top_n_seek=fetch({})",
+            u64_from_usize(spec.fetch())
+        ));
+    } else {
+        lines.push("diagnostic.route.top_n_seek=disabled".to_string());
+    }
+
+    if let Some(spec) = route_plan.index_range_limit_spec {
+        lines.push(format!(
+            "diagnostic.route.index_range_limit_pushdown=fetch({})",
+            u64_from_usize(spec.fetch)
+        ));
+    } else {
+        lines.push("diagnostic.route.index_range_limit_pushdown=disabled".to_string());
+    }
+
+    let predicate_stage = if plan.scalar_plan().predicate.is_none() {
+        "none".to_string()
+    } else if execution_preparation.strict_mode().is_some() {
+        "index_prefilter(strict_all_or_none)".to_string()
+    } else {
+        "residual_post_access".to_string()
+    };
+    lines.push(format!(
+        "diagnostic.route.predicate_stage={predicate_stage}"
+    ));
+
+    Ok(lines)
 }
 
 // Assemble one canonical scalar aggregate execution descriptor through route authority.
@@ -252,6 +321,69 @@ fn secondary_order_pushdown_descriptor(
     );
 
     Some(node)
+}
+
+fn secondary_order_pushdown_verbose_line(route_plan: &ExecutionRoutePlan) -> String {
+    match &route_plan.secondary_pushdown_applicability {
+        PushdownApplicability::NotApplicable => {
+            "diagnostic.route.secondary_order_pushdown=not_applicable".to_string()
+        }
+        PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Eligible {
+            index,
+            prefix_len,
+        }) => format!(
+            "diagnostic.route.secondary_order_pushdown=eligible(index={index},prefix_len={})",
+            u64_from_usize(*prefix_len)
+        ),
+        PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Rejected(reason)) => {
+            format!(
+                "diagnostic.route.secondary_order_pushdown=rejected({})",
+                secondary_order_pushdown_rejection_label(reason)
+            )
+        }
+    }
+}
+
+fn secondary_order_pushdown_rejection_label(reason: &SecondaryOrderPushdownRejection) -> String {
+    match reason {
+        SecondaryOrderPushdownRejection::NoOrderBy => "NoOrderBy".to_string(),
+        SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix => {
+            "AccessPathNotSingleIndexPrefix".to_string()
+        }
+        SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported { index, prefix_len } => {
+            format!(
+                "AccessPathIndexRangeUnsupported(index={index},prefix_len={})",
+                u64_from_usize(*prefix_len)
+            )
+        }
+        SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
+            prefix_len,
+            index_field_len,
+        } => format!(
+            "InvalidIndexPrefixBounds(prefix_len={},index_field_len={})",
+            u64_from_usize(*prefix_len),
+            u64_from_usize(*index_field_len)
+        ),
+        SecondaryOrderPushdownRejection::MissingPrimaryKeyTieBreak { field } => {
+            format!("MissingPrimaryKeyTieBreak(field={field})")
+        }
+        SecondaryOrderPushdownRejection::PrimaryKeyDirectionNotAscending { field } => {
+            format!("PrimaryKeyDirectionNotAscending(field={field})")
+        }
+        SecondaryOrderPushdownRejection::MixedDirectionNotEligible { field } => {
+            format!("MixedDirectionNotEligible(field={field})")
+        }
+        SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
+            index,
+            prefix_len,
+            expected_suffix,
+            expected_full,
+            actual,
+        } => format!(
+            "OrderFieldsDoNotMatchIndex(index={index},prefix_len={},expected_suffix={expected_suffix:?},expected_full={expected_full:?},actual={actual:?})",
+            u64_from_usize(*prefix_len)
+        ),
+    }
 }
 
 fn index_range_limit_pushdown_descriptor(

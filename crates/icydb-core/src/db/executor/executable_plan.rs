@@ -13,6 +13,7 @@ use crate::{
             explain::{
                 assemble_aggregate_terminal_execution_descriptor,
                 assemble_load_execution_node_descriptor,
+                assemble_load_execution_verbose_diagnostics,
             },
             lower_index_prefix_specs, lower_index_range_specs, validate_executor_plan,
         },
@@ -136,6 +137,22 @@ impl<E: EntityKind> ExecutablePlan<E> {
         }
 
         assemble_load_execution_node_descriptor::<E>(&self.plan)
+    }
+
+    /// Explain scalar load execution route diagnostics for verbose surfaces.
+    pub(in crate::db) fn explain_load_execution_verbose_diagnostics(
+        &self,
+    ) -> Result<Vec<String>, InternalError>
+    where
+        E: EntityValue,
+    {
+        if !self.mode().is_load() {
+            return Err(invariant(
+                "load execution verbose diagnostics require load-mode executable plans",
+            ));
+        }
+
+        assemble_load_execution_verbose_diagnostics::<E>(&self.plan)
     }
 
     /// Compute a stable continuation signature for cursor compatibility checks.

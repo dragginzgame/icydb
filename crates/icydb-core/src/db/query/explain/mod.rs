@@ -319,6 +319,13 @@ impl ExplainExecutionNodeDescriptor {
         out
     }
 
+    #[must_use]
+    pub fn render_text_tree_verbose(&self) -> String {
+        let mut lines = Vec::new();
+        self.render_text_tree_verbose_into(0, &mut lines);
+        lines.join("\n")
+    }
+
     fn render_text_tree_into(&self, depth: usize, lines: &mut Vec<String>) {
         let mut line = format!(
             "{}{} execution_mode={}",
@@ -370,6 +377,67 @@ impl ExplainExecutionNodeDescriptor {
 
         for child in &self.children {
             child.render_text_tree_into(depth.saturating_add(1), lines);
+        }
+    }
+
+    fn render_text_tree_verbose_into(&self, depth: usize, lines: &mut Vec<String>) {
+        // Emit the node heading line first so child metadata stays visually scoped.
+        let node_indent = "  ".repeat(depth);
+        let field_indent = "  ".repeat(depth.saturating_add(1));
+        lines.push(format!(
+            "{}{} execution_mode={}",
+            node_indent,
+            self.node_type.as_str(),
+            execution_mode_label(self.execution_mode)
+        ));
+
+        // Emit all optional node-local fields in a deterministic order.
+        if let Some(access_strategy) = self.access_strategy.as_ref() {
+            lines.push(format!("{field_indent}access_strategy={access_strategy:?}"));
+        }
+        if let Some(predicate_pushdown) = self.predicate_pushdown.as_ref() {
+            lines.push(format!(
+                "{field_indent}predicate_pushdown={predicate_pushdown}"
+            ));
+        }
+        if let Some(residual_predicate) = self.residual_predicate.as_ref() {
+            lines.push(format!(
+                "{field_indent}residual_predicate={residual_predicate:?}"
+            ));
+        }
+        if let Some(projection) = self.projection.as_ref() {
+            lines.push(format!("{field_indent}projection={projection}"));
+        }
+        if let Some(ordering_source) = self.ordering_source {
+            lines.push(format!(
+                "{}ordering_source={}",
+                field_indent,
+                ordering_source_label(ordering_source)
+            ));
+        }
+        if let Some(limit) = self.limit {
+            lines.push(format!("{field_indent}limit={limit}"));
+        }
+        if let Some(cursor) = self.cursor {
+            lines.push(format!("{field_indent}cursor={cursor}"));
+        }
+        if let Some(covering_scan) = self.covering_scan {
+            lines.push(format!("{field_indent}covering_scan={covering_scan}"));
+        }
+        if let Some(rows_expected) = self.rows_expected {
+            lines.push(format!("{field_indent}rows_expected={rows_expected}"));
+        }
+        if !self.node_properties.is_empty() {
+            lines.push(format!(
+                "{}node_properties={}",
+                field_indent,
+                render_node_properties(&self.node_properties)
+            ));
+        }
+
+        // Recurse in execution order to preserve stable tree topology.
+        for child in &self.children {
+            child.render_text_tree_verbose_into(depth.saturating_add(1), lines);
         }
     }
 }

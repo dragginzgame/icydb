@@ -675,3 +675,210 @@ fn session_load_explain_execution_projects_descriptor_tree_for_ordered_limited_i
         "json rendering should include pipeline nodes from descriptor tree",
     );
 }
+
+#[test]
+fn session_load_explain_execution_access_root_matrix_is_stable() {
+    seed_simple_entities(&[9_701, 9_702]);
+    let simple_session = DbSession::new(DB);
+    let by_key = simple_session
+        .load::<SimpleEntity>()
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "id",
+            CompareOp::Eq,
+            Value::Ulid(Ulid::from_u128(9_701)),
+            CoercionId::Strict,
+        )))
+        .order_by("id")
+        .explain_execution()
+        .expect("by-key explain execution should succeed");
+    assert_eq!(
+        by_key.node_type,
+        crate::db::ExplainExecutionNodeType::ByKeyLookup,
+        "single id predicate should keep by-key execution root",
+    );
+
+    seed_pushdown_entities(&[
+        (9_711, 7, 10),
+        (9_712, 7, 20),
+        (9_713, 8, 30),
+        (9_714, 8, 40),
+    ]);
+    let pushdown_session = DbSession::new(DB);
+    let prefix = pushdown_session
+        .load::<PushdownParityEntity>()
+        .filter(u32_eq_predicate_strict("group", 7))
+        .order_by("rank")
+        .order_by("id")
+        .explain_execution()
+        .expect("index-prefix explain execution should succeed");
+    assert_eq!(
+        prefix.node_type,
+        crate::db::ExplainExecutionNodeType::IndexPrefixScan,
+        "strict equality on leading index field should keep index-prefix root",
+    );
+
+    let multi = pushdown_session
+        .load::<PushdownParityEntity>()
+        .filter(u32_in_predicate_strict("group", &[7, 8]))
+        .order_by("rank")
+        .order_by("id")
+        .explain_execution()
+        .expect("index-multi explain execution should succeed");
+    assert_eq!(
+        multi.node_type,
+        crate::db::ExplainExecutionNodeType::IndexMultiLookup,
+        "IN predicate on indexed field should keep index-multi root",
+    );
+
+    seed_unique_index_range_entities(&[
+        (9_721, 101),
+        (9_722, 102),
+        (9_723, 103),
+        (9_724, 104),
+        (9_725, 105),
+    ]);
+    let range_session = DbSession::new(DB);
+    let range = range_session
+        .load::<UniqueIndexRangeEntity>()
+        .filter(u32_range_predicate("code", 101, 105))
+        .order_by("code")
+        .order_by("id")
+        .explain_execution()
+        .expect("index-range explain execution should succeed");
+    assert_eq!(
+        range.node_type,
+        crate::db::ExplainExecutionNodeType::IndexRangeScan,
+        "bounded range predicate should keep index-range root",
+    );
+}
+
+#[test]
+fn session_load_explain_execution_predicate_stage_and_limit_zero_matrix_is_stable() {
+    seed_pushdown_entities(&[
+        (9_731, 7, 10),
+        (9_732, 7, 20),
+        (9_733, 7, 30),
+        (9_734, 8, 40),
+    ]);
+    let session = DbSession::new(DB);
+
+    let strict_prefilter = session
+        .load::<PushdownParityEntity>()
+        .filter(u32_eq_predicate_strict("group", 7))
+        .order_by("rank")
+        .order_by("id")
+        .explain_execution()
+        .expect("strict prefilter explain execution should succeed");
+    assert!(
+        strict_prefilter
+            .children
+            .iter()
+            .any(|child| child.node_type
+                == crate::db::ExplainExecutionNodeType::IndexPredicatePrefilter),
+        "strict index-compatible predicate should emit prefilter stage node",
+    );
+    assert!(
+        !strict_prefilter
+            .children
+            .iter()
+            .any(|child| child.node_type
+                == crate::db::ExplainExecutionNodeType::ResidualPredicateFilter),
+        "strict index-compatible predicate should not emit residual stage node",
+    );
+
+    let residual_predicate = Predicate::And(vec![
+        u32_eq_predicate_strict("group", 7),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "label",
+            CompareOp::Eq,
+            Value::Text("g7-r20".to_string()),
+            CoercionId::Strict,
+        )),
+    ]);
+    let residual = session
+        .load::<PushdownParityEntity>()
+        .filter(residual_predicate)
+        .order_by("rank")
+        .order_by("id")
+        .explain_execution()
+        .expect("residual predicate explain execution should succeed");
+    assert!(
+        residual
+            .children
+            .iter()
+            .any(|child| child.node_type
+                == crate::db::ExplainExecutionNodeType::ResidualPredicateFilter),
+        "mixed index/non-index predicate should emit residual stage node",
+    );
+
+    let limit_zero = session
+        .load::<PushdownParityEntity>()
+        .filter(u32_eq_predicate_strict("group", 7))
+        .order_by("rank")
+        .order_by("id")
+        .limit(0)
+        .explain_execution()
+        .expect("limit-zero explain execution should succeed");
+    if let Some(top_n) = limit_zero
+        .children
+        .iter()
+        .find(|child| child.node_type == crate::db::ExplainExecutionNodeType::TopNSeek)
+    {
+        assert_eq!(
+            top_n.node_properties.get("fetch"),
+            Some(&Value::from(0u64)),
+            "limit-zero top-n node should freeze fetch=0 contract",
+        );
+    } else {
+        assert!(
+            limit_zero.children.iter().any(|child| child.node_type
+                == crate::db::ExplainExecutionNodeType::OrderByMaterializedSort),
+            "limit-zero routes without top-n seek should still expose materialized order fallback",
+        );
+    }
+    let limit_node = limit_zero
+        .children
+        .iter()
+        .find(|child| child.node_type == crate::db::ExplainExecutionNodeType::LimitOffset)
+        .expect("limit-zero route should emit limit/offset node");
+    assert_eq!(limit_node.limit, Some(0));
+}
+
+#[test]
+fn session_load_explain_execution_text_and_json_snapshot_for_strict_index_prefix_shape() {
+    seed_pushdown_entities(&[
+        (9_741, 7, 10),
+        (9_742, 7, 20),
+        (9_743, 7, 30),
+        (9_744, 8, 40),
+    ]);
+    let session = DbSession::new(DB);
+
+    let descriptor = session
+        .load::<PushdownParityEntity>()
+        .filter(u32_eq_predicate_strict("group", 7))
+        .order_by("rank")
+        .order_by("id")
+        .offset(1)
+        .limit(2)
+        .explain_execution()
+        .expect("strict index-prefix explain execution should succeed");
+
+    let text_tree = descriptor.render_text_tree();
+    let expected_text = r#"IndexPrefixScan execution_mode=Materialized access=IndexPrefix(group_rank)
+  IndexPredicatePrefilter execution_mode=Materialized predicate_pushdown=strict_all_or_none
+  SecondaryOrderPushdown execution_mode=Materialized node_properties=index=Text("group_rank"),prefix_len=Uint(1)
+  OrderByMaterializedSort execution_mode=Materialized
+  LimitOffset execution_mode=Materialized limit=2 cursor=false node_properties=offset=Uint(1)"#;
+    assert_eq!(
+        text_tree, expected_text,
+        "execution text-tree snapshot drifted: actual={text_tree}",
+    );
+
+    let descriptor_json = descriptor.render_json_canonical();
+    let expected_json = r#"{"node_type":"IndexPrefixScan","execution_mode":"Materialized","access_strategy":{"type":"IndexPrefix","name":"group_rank","fields":["group","rank"],"prefix_len":1,"values":["Uint(7)"]},"predicate_pushdown":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[{"node_type":"IndexPredicatePrefilter","execution_mode":"Materialized","access_strategy":null,"predicate_pushdown":"strict_all_or_none","residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{}},{"node_type":"SecondaryOrderPushdown","execution_mode":"Materialized","access_strategy":null,"predicate_pushdown":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"index":"Text(\"group_rank\")","prefix_len":"Uint(1)"}},{"node_type":"OrderByMaterializedSort","execution_mode":"Materialized","access_strategy":null,"predicate_pushdown":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{}},{"node_type":"LimitOffset","execution_mode":"Materialized","access_strategy":null,"predicate_pushdown":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":2,"cursor":false,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"offset":"Uint(1)"}}],"node_properties":{}}"#;
+    assert_eq!(
+        descriptor_json, expected_json,
+        "execution json snapshot drifted: actual={descriptor_json}",
+    );
+}

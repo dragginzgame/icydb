@@ -5,7 +5,7 @@ use crate::db::{
     data::DataKey,
     query::explain::{ExplainAccessPath, ExplainExecutionNodeType},
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 fn id_in_predicate(ids: &[u128]) -> Predicate {
     Predicate::Compare(ComparePredicate::with_coercion(
@@ -35,6 +35,36 @@ fn remove_pushdown_row_data(id: u128) {
             "expected pushdown row to exist before data-only removal"
         );
     });
+}
+
+fn verbose_diagnostics_lines(verbose: &str) -> Vec<String> {
+    verbose
+        .lines()
+        .filter(|line| line.starts_with("diagnostic."))
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn verbose_diagnostics_map(verbose: &str) -> BTreeMap<String, String> {
+    let mut diagnostics = BTreeMap::new();
+    for line in verbose_diagnostics_lines(verbose) {
+        let Some((key, value)) = line.split_once('=') else {
+            panic!("diagnostic line must contain '=': {line}");
+        };
+        diagnostics.insert(key.to_string(), value.to_string());
+    }
+
+    diagnostics
+}
+
+fn collect_execution_node_types(
+    descriptor: &crate::db::ExplainExecutionNodeDescriptor,
+    out: &mut BTreeSet<&'static str>,
+) {
+    out.insert(descriptor.node_type.as_str());
+    for child in &descriptor.children {
+        collect_execution_node_types(child, out);
+    }
 }
 
 #[test]
@@ -1040,6 +1070,265 @@ fn secondary_in_explain_uses_index_multi_lookup_access_shape() {
     assert!(
         matches!(explain.access, ExplainAccessPath::IndexMultiLookup { .. }),
         "secondary IN predicates should lower to the dedicated index-multi-lookup access shape",
+    );
+}
+
+#[test]
+fn query_explain_execution_text_and_json_surfaces_are_stable() {
+    let id = Ulid::from_u128(9_101);
+    let query = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore).by_id(id);
+
+    let text = query
+        .explain_execution_text()
+        .expect("execution text explain should build");
+    assert!(
+        text.contains("ByKeyLookup"),
+        "execution text surface should expose access-root node type"
+    );
+
+    let json = query
+        .explain_execution_json()
+        .expect("execution json explain should build");
+    assert!(
+        json.contains("\"node_type\":\"ByKeyLookup\""),
+        "execution json surface should expose canonical root node type"
+    );
+}
+
+#[test]
+fn query_explain_execution_verbose_includes_route_diagnostics() {
+    let query = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "group",
+            CompareOp::Eq,
+            Value::Uint(7),
+            CoercionId::Strict,
+        )))
+        .order_by("label");
+
+    let verbose = query
+        .explain_execution_verbose()
+        .expect("execution verbose explain should build");
+
+    let diagnostics = verbose_diagnostics_map(&verbose);
+    assert_eq!(
+        diagnostics.get("diagnostic.route.secondary_order_pushdown"),
+        Some(&"rejected(OrderFieldsDoNotMatchIndex(index=group_rank,prefix_len=1,expected_suffix=[\"rank\"],expected_full=[\"group\", \"rank\"],actual=[\"label\"]))".to_string()),
+        "verbose execution explain should expose explicit route rejection reason",
+    );
+    assert_eq!(
+        diagnostics.get("diagnostic.plan.mode"),
+        Some(&"Load(LoadSpec { limit: None, offset: 0 })".to_string()),
+        "verbose execution explain should include logical plan mode diagnostics",
+    );
+}
+
+#[test]
+fn query_explain_execution_verbose_reports_top_n_seek_hints() {
+    let verbose = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+        .order_by_desc("id")
+        .offset(2)
+        .limit(3)
+        .explain_execution_verbose()
+        .expect("top-n verbose explain should build");
+
+    let diagnostics = verbose_diagnostics_map(&verbose);
+    assert_eq!(
+        diagnostics.get("diagnostic.route.top_n_seek"),
+        Some(&"fetch(6)".to_string()),
+        "verbose execution explain should freeze top-n seek fetch diagnostics",
+    );
+    assert_eq!(
+        diagnostics.get("diagnostic.descriptor.has_top_n_seek"),
+        Some(&"true".to_string()),
+        "descriptor diagnostics should report TopNSeek node presence",
+    );
+}
+
+#[test]
+fn query_explain_execution_verbose_reports_index_range_limit_pushdown_hints() {
+    let range_predicate = Predicate::And(vec![
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "code",
+            CompareOp::Gte,
+            Value::Uint(100),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "code",
+            CompareOp::Lt,
+            Value::Uint(200),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "label",
+            CompareOp::Eq,
+            Value::Text("keep".to_string()),
+            CoercionId::Strict,
+        )),
+    ]);
+
+    let verbose = Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
+        .filter(range_predicate)
+        .order_by("code")
+        .order_by("id")
+        .limit(2)
+        .explain_execution_verbose()
+        .expect("index-range verbose explain should build");
+
+    let diagnostics = verbose_diagnostics_map(&verbose);
+    assert_eq!(
+        diagnostics.get("diagnostic.route.index_range_limit_pushdown"),
+        Some(&"fetch(3)".to_string()),
+        "verbose execution explain should freeze index-range pushdown fetch diagnostics",
+    );
+    assert_eq!(
+        diagnostics.get("diagnostic.descriptor.has_index_range_limit_pushdown"),
+        Some(&"true".to_string()),
+        "descriptor diagnostics should report index-range pushdown node presence",
+    );
+    assert_eq!(
+        diagnostics.get("diagnostic.route.predicate_stage"),
+        Some(&"residual_post_access".to_string()),
+        "verbose execution explain should freeze predicate-stage diagnostics",
+    );
+}
+
+#[test]
+fn query_explain_execution_verbose_diagnostics_snapshot_for_rejection_shape() {
+    let verbose = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "group",
+            CompareOp::Eq,
+            Value::Uint(7),
+            CoercionId::Strict,
+        )))
+        .order_by("label")
+        .explain_execution_verbose()
+        .expect("execution verbose explain should build");
+
+    let diagnostics = verbose_diagnostics_lines(&verbose);
+    let expected = vec![
+        "diagnostic.route.execution_mode=Materialized",
+        "diagnostic.route.fast_path_order=[PrimaryKey, SecondaryPrefix, IndexRange]",
+        "diagnostic.route.continuation_applied=false",
+        "diagnostic.route.limit=None",
+        "diagnostic.route.secondary_order_pushdown=rejected(OrderFieldsDoNotMatchIndex(index=group_rank,prefix_len=1,expected_suffix=[\"rank\"],expected_full=[\"group\", \"rank\"],actual=[\"label\"]))",
+        "diagnostic.route.top_n_seek=disabled",
+        "diagnostic.route.index_range_limit_pushdown=disabled",
+        "diagnostic.route.predicate_stage=index_prefilter(strict_all_or_none)",
+        "diagnostic.descriptor.has_top_n_seek=false",
+        "diagnostic.descriptor.has_index_range_limit_pushdown=false",
+        "diagnostic.descriptor.has_index_predicate_prefilter=true",
+        "diagnostic.descriptor.has_residual_predicate_filter=false",
+        "diagnostic.plan.mode=Load(LoadSpec { limit: None, offset: 0 })",
+        "diagnostic.plan.order_pushdown=missing_model_context",
+        "diagnostic.plan.distinct=false",
+        "diagnostic.plan.page=None",
+        "diagnostic.plan.consistency=Ignore",
+    ]
+    .into_iter()
+    .map(ToOwned::to_owned)
+    .collect::<Vec<_>>();
+
+    assert_eq!(
+        diagnostics, expected,
+        "verbose diagnostics snapshot drifted; output ordering and values are part of the explain contract",
+    );
+}
+
+#[test]
+fn query_explain_execution_scalar_surface_defers_projection_and_grouped_node_families() {
+    let by_key = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+        .by_id(Ulid::from_u128(9_301))
+        .explain_execution()
+        .expect("by-key execution descriptor should build");
+    let pushdown_rejected = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "group",
+            CompareOp::Eq,
+            Value::Uint(7),
+            CoercionId::Strict,
+        )))
+        .order_by("label")
+        .explain_execution()
+        .expect("pushdown-rejected descriptor should build");
+    let index_range = Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "code",
+                CompareOp::Gte,
+                Value::Uint(100),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "code",
+                CompareOp::Lt,
+                Value::Uint(200),
+                CoercionId::Strict,
+            )),
+        ]))
+        .order_by("code")
+        .order_by("id")
+        .limit(2)
+        .explain_execution()
+        .expect("index-range descriptor should build");
+
+    let mut emitted = BTreeSet::new();
+    collect_execution_node_types(&by_key, &mut emitted);
+    collect_execution_node_types(&pushdown_rejected, &mut emitted);
+    collect_execution_node_types(&index_range, &mut emitted);
+
+    let deferred = [
+        ExplainExecutionNodeType::ProjectionMaterialized.as_str(),
+        ExplainExecutionNodeType::ProjectionIndexOnly.as_str(),
+        ExplainExecutionNodeType::GroupedAggregateHashMaterialized.as_str(),
+        ExplainExecutionNodeType::GroupedAggregateOrderedMaterialized.as_str(),
+    ];
+
+    for node_type in deferred {
+        assert!(
+            !emitted.contains(node_type),
+            "scalar execution descriptors intentionally defer node family {node_type} in 0.42.x",
+        );
+    }
+}
+
+#[test]
+fn fluent_load_explain_execution_surface_adapters_are_available() {
+    let session = DbSession::new(DB);
+    let query = session
+        .load::<SimpleEntity>()
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "id",
+            CompareOp::Eq,
+            Value::Ulid(Ulid::from_u128(9_201)),
+            CoercionId::Strict,
+        )))
+        .order_by("id");
+
+    let text = query
+        .explain_execution_text()
+        .expect("fluent execution text explain should build");
+    assert!(
+        text.contains("ByKeyLookup"),
+        "fluent execution text surface should include root node type",
+    );
+
+    let json = query
+        .explain_execution_json()
+        .expect("fluent execution json explain should build");
+    assert!(
+        json.contains("\"node_type\":\"ByKeyLookup\""),
+        "fluent execution json surface should include canonical root node type",
+    );
+
+    let verbose = query
+        .explain_execution_verbose()
+        .expect("fluent execution verbose explain should build");
+    assert!(
+        verbose.contains("diagnostic.route.secondary_order_pushdown="),
+        "fluent execution verbose surface should include diagnostics",
     );
 }
 

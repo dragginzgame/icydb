@@ -78,6 +78,30 @@ where
         self.query().explain_execution()
     }
 
+    /// Explain scalar load execution shape as deterministic text.
+    pub fn explain_execution_text(&self) -> Result<String, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.query().explain_execution_text()
+    }
+
+    /// Explain scalar load execution shape as canonical JSON.
+    pub fn explain_execution_json(&self) -> Result<String, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.query().explain_execution_json()
+    }
+
+    /// Explain scalar load execution shape as verbose text with diagnostics.
+    pub fn explain_execution_verbose(&self) -> Result<String, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.query().explain_execution_verbose()
+    }
+
     /// Execute and return the number of matching rows.
     pub fn count(&self) -> Result<u32, QueryError>
     where
