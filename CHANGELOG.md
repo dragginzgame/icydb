@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 - `0.43.0` adds scalar load-query `bytes()` so you can measure total persisted payload size for the same filtered/ordered/limited window returned by `execute()`, and starts a dated crosscutting audit cycle for this line.
 - `0.43.1` adds scalar field-size measurement with `BYTES(field)` (`bytes_by("field")`) so you can identify which field dominates storage in a filtered query window.
+- `0.43.3` improves runtime plan stability by centralizing access-shape capability checks behind one shared access boundary, reducing duplicate routing logic and tightening guard coverage for raw access-path usage.
 
 ```rust
 let total_bytes = session.load::<Event>().bytes()?;
