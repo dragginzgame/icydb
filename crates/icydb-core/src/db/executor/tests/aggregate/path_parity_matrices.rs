@@ -175,6 +175,21 @@ fn assert_distinct_parity_for_simple_rows(rows: &[u128], descending: bool, label
         },
         label,
     );
+
+    assert_bytes_parity_for_query(
+        &load,
+        || {
+            let query = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+                .filter(predicate.clone())
+                .distinct();
+            if descending {
+                query.order_by_desc("id").offset(1).limit(3)
+            } else {
+                query.order_by("id").offset(1).limit(3)
+            }
+        },
+        label,
+    );
 }
 
 fn assert_distinct_field_terminal_parity(rows: &[(u128, u32, u32)], descending: bool, label: &str) {
@@ -199,6 +214,21 @@ fn assert_distinct_field_terminal_parity(rows: &[(u128, u32, u32)], descending: 
         },
         label,
     );
+
+    assert_bytes_parity_for_query(
+        &load,
+        || {
+            let query = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .filter(predicate.clone())
+                .distinct();
+            if descending {
+                query.order_by_desc("id").offset(1).limit(4)
+            } else {
+                query.order_by("id").offset(1).limit(4)
+            }
+        },
+        label,
+    );
 }
 
 #[test]
@@ -207,6 +237,17 @@ fn aggregate_parity_ordered_page_window_desc() {
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
 
     assert_aggregate_parity_for_query(
+        &load,
+        || {
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+                .order_by_desc("id")
+                .offset(1)
+                .limit(4)
+        },
+        "ordered DESC page window",
+    );
+
+    assert_bytes_parity_for_query(
         &load,
         || {
             Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
@@ -239,6 +280,120 @@ fn aggregate_parity_by_id_and_by_ids_paths() {
             ])
         },
         "by_ids path",
+    );
+}
+
+#[test]
+fn aggregate_bytes_parity_ordered_page_window_asc() {
+    seed_simple_entities(&[8_981, 8_982, 8_983, 8_984, 8_985, 8_986, 8_987, 8_988]);
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    assert_bytes_parity_for_query(
+        &load,
+        || {
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+                .order_by("id")
+                .offset(2)
+                .limit(3)
+        },
+        "ordered ASC page window",
+    );
+}
+
+#[test]
+fn aggregate_bytes_path_parity_index_prefix_and_full_scan_equivalent_rows() {
+    seed_pushdown_entities(&[
+        (8_971, 7, 10),
+        (8_972, 7, 20),
+        (8_973, 7, 30),
+        (8_974, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let mut index_logical = crate::db::query::plan::AccessPlannedQuery::new(
+        crate::db::access::AccessPath::IndexPrefix {
+            index: PUSHDOWN_PARITY_INDEX_MODELS[0],
+            values: vec![Value::Uint(7)],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    index_logical.scalar_plan_mut().order = Some(crate::db::query::plan::OrderSpec {
+        fields: vec![
+            (
+                "rank".to_string(),
+                crate::db::query::plan::OrderDirection::Asc,
+            ),
+            (
+                "id".to_string(),
+                crate::db::query::plan::OrderDirection::Asc,
+            ),
+        ],
+    });
+    let index_plan =
+        crate::db::executor::ExecutablePlan::<PushdownParityEntity>::new(index_logical);
+
+    let mut full_scan_logical = crate::db::query::plan::AccessPlannedQuery::new(
+        crate::db::access::AccessPath::FullScan,
+        MissingRowPolicy::Ignore,
+    );
+    full_scan_logical.scalar_plan_mut().predicate = Some(u32_eq_predicate("group", 7));
+    full_scan_logical.scalar_plan_mut().order = Some(crate::db::query::plan::OrderSpec {
+        fields: vec![
+            (
+                "rank".to_string(),
+                crate::db::query::plan::OrderDirection::Asc,
+            ),
+            (
+                "id".to_string(),
+                crate::db::query::plan::OrderDirection::Asc,
+            ),
+        ],
+    });
+    let full_scan_plan =
+        crate::db::executor::ExecutablePlan::<PushdownParityEntity>::new(full_scan_logical);
+
+    assert_eq!(
+        execution_root_node_type(&index_plan),
+        ExplainExecutionNodeType::IndexPrefixScan,
+        "group equality filter should route through index-prefix access",
+    );
+    assert_eq!(
+        execution_root_node_type(&full_scan_plan),
+        ExplainExecutionNodeType::FullScan,
+        "non-indexed label IN filter should route through full scan",
+    );
+
+    let index_bytes = load
+        .bytes(index_plan)
+        .expect("index-prefix bytes terminal should succeed");
+    let full_scan_bytes = load
+        .bytes(full_scan_plan)
+        .expect("full-scan bytes terminal should succeed");
+
+    assert_eq!(
+        index_bytes, full_scan_bytes,
+        "equivalent index-prefix/full-scan row sets should yield identical bytes totals"
+    );
+
+    let expected_bytes = persisted_payload_bytes_for_ids::<PushdownParityEntity>(
+        load.execute(
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .filter(u32_eq_predicate("group", 7))
+                .order_by("rank")
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("bytes expected-baseline plan should build"),
+        )
+        .expect("bytes expected-baseline execute should succeed")
+        .ids(),
+    );
+    assert_eq!(
+        index_bytes, expected_bytes,
+        "forced index-prefix bytes total should match canonical query window",
+    );
+    assert_eq!(
+        full_scan_bytes, expected_bytes,
+        "forced full-scan bytes total should match canonical query window",
     );
 }
 

@@ -113,6 +113,18 @@ where
             .execute_load_query_with(self.query(), |load, plan| load.aggregate_count(plan))
     }
 
+    /// Execute and return the total persisted payload bytes for the effective
+    /// result window.
+    pub fn bytes(&self) -> Result<u64, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        self.session
+            .execute_load_query_with(self.query(), |load, plan| load.bytes(plan))
+    }
+
     /// Execute and return the smallest matching identifier, if any.
     pub fn min(&self) -> Result<Option<Id<E>>, QueryError>
     where

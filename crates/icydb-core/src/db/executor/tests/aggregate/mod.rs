@@ -75,6 +75,31 @@ fn capture_rows_scanned_for_entity<R>(
     (output, rows_scanned)
 }
 
+fn persisted_payload_bytes_for_ids<E>(ids: impl IntoIterator<Item = Id<E>>) -> u64
+where
+    E: EntityKind,
+{
+    let mut total = 0u64;
+
+    for id in ids {
+        let raw_key = DataKey::try_new::<E>(id.key())
+            .expect("persisted-bytes key should build")
+            .to_raw()
+            .expect("persisted-bytes key should encode");
+        let row_len = DATA_STORE.with(|store| {
+            store
+                .borrow()
+                .get(&raw_key)
+                .expect("persisted-bytes row should exist for execute() id")
+                .len()
+        });
+        let row_len = u64::try_from(row_len).unwrap_or(u64::MAX);
+        total = total.saturating_add(row_len);
+    }
+
+    total
+}
+
 fn seed_simple_entities(ids: &[u128]) {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
@@ -759,6 +784,38 @@ fn assert_count_parity_for_query<E>(
     assert_eq!(
         actual_count, expected_count,
         "{context}: count parity failed"
+    );
+}
+
+fn assert_bytes_parity_for_query<E>(
+    load: &LoadExecutor<E>,
+    make_query: impl Fn() -> Query<E>,
+    context: &str,
+) where
+    E: EntityKind<Canister = TestCanister> + EntityValue,
+{
+    let expected_response = load
+        .execute(
+            make_query()
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("baseline materialized plan should build"),
+        )
+        .expect("baseline materialized execution should succeed");
+    let expected_bytes = persisted_payload_bytes_for_ids::<E>(expected_response.ids());
+
+    let actual_bytes = load
+        .bytes(
+            make_query()
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("bytes terminal plan should build"),
+        )
+        .expect("bytes terminal should succeed");
+
+    assert_eq!(
+        actual_bytes, expected_bytes,
+        "{context}: bytes parity failed"
     );
 }
 

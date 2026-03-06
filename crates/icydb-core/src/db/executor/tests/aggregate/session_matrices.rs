@@ -69,6 +69,59 @@ fn session_load_aggregate_terminals_match_execute() {
 }
 
 #[test]
+fn session_load_bytes_matches_execute_window_persisted_payload_sum() {
+    seed_pushdown_entities(&[
+        (8_951, 7, 10),
+        (8_952, 7, 20),
+        (8_953, 7, 35),
+        (8_954, 8, 99),
+        (8_955, 7, 50),
+    ]);
+    let session = DbSession::new(DB);
+    let load_window = || {
+        session
+            .load::<PushdownParityEntity>()
+            .filter(u32_eq_predicate("group", 7))
+            .order_by("rank")
+            .offset(1)
+            .limit(2)
+    };
+
+    let expected_ids: Vec<_> = load_window()
+        .execute()
+        .expect("baseline execute for bytes parity should succeed")
+        .ids()
+        .collect();
+    let expected_bytes = persisted_payload_bytes_for_ids::<PushdownParityEntity>(expected_ids);
+    let actual_bytes = load_window()
+        .bytes()
+        .expect("session bytes terminal should succeed");
+
+    assert_eq!(
+        actual_bytes, expected_bytes,
+        "session bytes parity should match persisted payload byte sum of the effective window"
+    );
+}
+
+#[test]
+fn session_load_bytes_empty_window_returns_zero() {
+    seed_pushdown_entities(&[(8_961, 7, 10), (8_962, 7, 20), (8_963, 8, 99)]);
+    let session = DbSession::new(DB);
+
+    let actual_bytes = session
+        .load::<PushdownParityEntity>()
+        .filter(u32_eq_predicate("group", 999))
+        .order_by("rank")
+        .bytes()
+        .expect("session bytes terminal should succeed for empty windows");
+
+    assert_eq!(
+        actual_bytes, 0,
+        "session bytes terminal should return zero for empty windows"
+    );
+}
+
+#[test]
 fn session_load_min_by_unknown_field_fails_before_scan_budget_consumption() {
     seed_pushdown_entities(&[
         (8_901, 7, 10),

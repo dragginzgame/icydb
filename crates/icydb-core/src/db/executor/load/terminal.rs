@@ -5,6 +5,7 @@
 
 use crate::{
     db::{
+        data::DataKey,
         executor::{
             ExecutablePlan,
             aggregate::field::{
@@ -46,6 +47,22 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
+    /// Execute one `bytes()` terminal over the canonical load response.
+    pub(in crate::db) fn bytes(&self, plan: ExecutablePlan<E>) -> Result<u64, InternalError> {
+        let response = self.execute(plan)?;
+        let ctx = self.recovered_context()?;
+        let mut total = 0u64;
+
+        // Sum persisted row payload sizes for the effective response window.
+        for id in response.ids() {
+            let key = DataKey::try_new::<E>(id.key())?;
+            let row = ctx.read(&key)?;
+            total = saturating_add_payload_len(total, row.len());
+        }
+
+        Ok(total)
+    }
+
     /// Execute one `take(k)` terminal over the canonical load response.
     pub(in crate::db) fn take(
         &self,
@@ -395,5 +412,33 @@ where
             .collect();
 
         Ok(projected_values)
+    }
+}
+
+// Centralize payload-byte saturation so terminal behavior stays explicit and
+// testable without requiring oversized persisted rows.
+fn saturating_add_payload_len(total: u64, row_len: usize) -> u64 {
+    let row_len = u64::try_from(row_len).unwrap_or(u64::MAX);
+    total.saturating_add(row_len)
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn payload_len_sum_saturates_on_overflow() {
+        let total = saturating_add_payload_len(u64::MAX - 2, 10);
+        assert_eq!(total, u64::MAX);
+    }
+
+    #[test]
+    fn payload_len_sum_accumulates_without_overflow() {
+        let total = saturating_add_payload_len(11, 5);
+        assert_eq!(total, 16);
     }
 }

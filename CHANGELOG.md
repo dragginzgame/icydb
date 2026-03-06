@@ -5,10 +5,21 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.43.x] - 2026-03-06 - BYTES() and AUDITS
+
+- The current `0.43.x` line adds scalar load-query `bytes()` so you can measure total persisted payload size for the same filtered/ordered/limited window returned by `execute()`, with saturating accumulation and parity coverage across scan/index/distinct/order windows.
+
+See detailed breakdown:
+[docs/changelog/0.43.md](docs/changelog/0.43.md)
+
+---
+
 ## [0.42.x] - 2026-03-06 - EXPLAIN
 
 - `0.42.0` adds `EXPLAIN` execution output so you can see how a query will run (index/path, filtering stage, ordering, and limit handling) before execution.
 - `0.42.1` completes the EXPLAIN follow-up by freezing descriptor vocabulary, adding fluent/runtime explain adapters (text/json/verbose), and surfacing deterministic verbose route diagnostics with guard coverage for deferred scalar node families.
+- `0.42.2` strengthens EXPLAIN stability by refactoring runtime explain tests around stable output surfaces and broadening aggregate-path regression matrices.
+- `0.42.3` keeps the EXPLAIN release line warning-clean by removing an unused internal explain helper that broke strict `-D warnings` test builds.
 
 See detailed breakdown:
 [docs/changelog/0.42.md](docs/changelog/0.42.md)

@@ -145,6 +145,14 @@ impl<'a, E: EntityKind> FluentLoadQuery<'a, E> {
         Ok(self.inner.first()?)
     }
 
+    /// Return total persisted payload bytes for the effective result window.
+    pub fn bytes(&self) -> Result<u64, Error>
+    where
+        E: EntityValue,
+    {
+        Ok(self.inner.bytes()?)
+    }
+
     /// Return the last matching identifier in response order.
     pub fn last(&self) -> Result<Option<Id<E>>, Error>
     where
