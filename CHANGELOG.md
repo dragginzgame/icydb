@@ -7,10 +7,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.42.x] - 2026-03-06 - EXPLAIN
 
-- `0.42.3` expands `EXPLAIN VERBOSE` with explicit route diagnostics for secondary-order pushdown outcomes, predicate stage routing, bounded seek/pushdown hints, and guard tests that freeze deferred scalar descriptor node families.
-- `0.42.2` adds first-class execution explain adapters for text, JSON, and verbose output so callers can inspect runtime plan shape without manual descriptor rendering.
-- `0.42.1` freezes the EXPLAIN node vocabulary and adds snapshot/matrix tests so execution-plan output stays stable across key query shapes.
 - `0.42.0` adds `EXPLAIN` execution output so you can see how a query will run (index/path, filtering stage, ordering, and limit handling) before execution.
+- `0.42.1` completes the EXPLAIN follow-up by freezing descriptor vocabulary, adding fluent/runtime explain adapters (text/json/verbose), and surfacing deterministic verbose route diagnostics with guard coverage for deferred scalar node families.
 
 See detailed breakdown:
 [docs/changelog/0.42.md](docs/changelog/0.42.md)
