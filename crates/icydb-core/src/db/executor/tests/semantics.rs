@@ -917,6 +917,24 @@ fn load_in_and_text_ops_respect_ordered_pagination() {
 }
 
 #[test]
+fn secondary_in_explain_uses_index_multi_lookup_access_shape() {
+    let explain = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "group",
+            CompareOp::In,
+            Value::List(vec![Value::Uint(7), Value::Uint(8), Value::Uint(9)]),
+            CoercionId::Strict,
+        )))
+        .explain()
+        .expect("secondary IN explain should build");
+
+    assert!(
+        matches!(explain.access, ExplainAccessPath::IndexMultiLookup { .. }),
+        "secondary IN predicates should lower to the dedicated index-multi-lookup access shape",
+    );
+}
+
+#[test]
 fn load_ordering_treats_missing_values_consistently_with_direction() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();

@@ -264,6 +264,45 @@ fn validate_index_prefix(
     Ok(())
 }
 
+/// Validate that an index multi-lookup path is valid for execution.
+fn validate_index_multi_lookup(
+    schema: &SchemaInfo,
+    model: &EntityModel,
+    index: &IndexModel,
+    values: &[Value],
+) -> Result<(), AccessPlanError> {
+    if !model.indexes.contains(&index) {
+        return Err(AccessPlanError::IndexNotFound { index: *index });
+    }
+
+    if values.is_empty() {
+        return Err(AccessPlanError::IndexPrefixEmpty);
+    }
+
+    let Some(field) = index.fields.first() else {
+        return Err(AccessPlanError::IndexPrefixTooLong {
+            prefix_len: 1,
+            field_len: 0,
+        });
+    };
+    let field_type =
+        schema
+            .field(field)
+            .ok_or_else(|| AccessPlanError::IndexPrefixValueMismatch {
+                field: field.to_string(),
+            })?;
+
+    for value in values {
+        if !literal_matches_type(value, field_type) {
+            return Err(AccessPlanError::IndexPrefixValueMismatch {
+                field: field.to_string(),
+            });
+        }
+    }
+
+    Ok(())
+}
+
 /// Validate that an index range path is valid for execution.
 fn validate_index_range(
     schema: &SchemaInfo,
@@ -401,6 +440,9 @@ impl<K> AccessPath<K> {
             Self::KeyRange { start, end } => adapter.validate_key_range(schema, model, start, end),
             Self::IndexPrefix { index, values } => {
                 validate_index_prefix(schema, model, index, values)
+            }
+            Self::IndexMultiLookup { index, values } => {
+                validate_index_multi_lookup(schema, model, index, values)
             }
             Self::IndexRange { spec } => validate_index_range(schema, model, spec),
             Self::FullScan => Ok(()),

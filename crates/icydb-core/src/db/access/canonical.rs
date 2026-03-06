@@ -30,6 +30,12 @@ fn canonicalize_key_values(keys: &mut Vec<Value>) {
     keys.dedup();
 }
 
+/// Canonicalize a list of index literal values for deterministic set semantics.
+fn canonicalize_index_literal_values(values: &mut Vec<Value>) {
+    values.sort_by(Value::canonical_cmp);
+    values.dedup();
+}
+
 /// Normalize one value-keyed access plan into deterministic canonical shape.
 #[must_use]
 pub(crate) fn normalize_access_plan_value(plan: AccessPlan<Value>) -> AccessPlan<Value> {
@@ -210,6 +216,19 @@ impl AccessPath<Value> {
 
                 Self::ByKeys(keys)
             }
+            Self::IndexMultiLookup { index, mut values } => {
+                canonicalize_index_literal_values(&mut values);
+                if let Some(first) = values.first()
+                    && values.len() == 1
+                {
+                    return Self::IndexPrefix {
+                        index,
+                        values: vec![first.clone()],
+                    };
+                }
+
+                Self::IndexMultiLookup { index, values }
+            }
             other => other,
         }
     }
@@ -302,6 +321,35 @@ impl AccessPath<Value> {
 
                 canonical_cmp_value_list(left_values, right_values)
             }
+            Self::IndexMultiLookup {
+                index: left_index,
+                values: left_values,
+            } => {
+                let Self::IndexMultiLookup {
+                    index: right_index,
+                    values: right_values,
+                } = right
+                else {
+                    debug_assert_eq!(
+                        self.canonical_rank(),
+                        right.canonical_rank(),
+                        "canonical access path rank mismatch"
+                    );
+                    return Ordering::Equal;
+                };
+
+                let cmp = left_index.name.cmp(right_index.name);
+                if cmp != Ordering::Equal {
+                    return cmp;
+                }
+
+                let cmp = left_index.fields.cmp(right_index.fields);
+                if cmp != Ordering::Equal {
+                    return cmp;
+                }
+
+                canonical_cmp_value_list(left_values, right_values)
+            }
             Self::IndexRange { spec: left_spec } => {
                 let Self::IndexRange { spec: right_spec } = right else {
                     debug_assert_eq!(
@@ -372,6 +420,7 @@ impl AccessPath<Value> {
                     2
                 },
             },
+            Self::IndexMultiLookup { .. } => AccessPathRank { tier: 1, detail: 3 },
             Self::FullScan => AccessPathRank { tier: 2, detail: 0 },
         }
     }
@@ -556,6 +605,40 @@ mod tests {
             normalize_access_plan_value(AccessPlan::path(AccessPath::ByKeys(vec![key.clone()])));
 
         assert_eq!(normalized, AccessPlan::path(AccessPath::ByKey(key)));
+    }
+
+    #[test]
+    fn normalize_index_multi_lookup_singleton_collapses_to_index_prefix() {
+        let normalized =
+            normalize_access_plan_value(AccessPlan::path(AccessPath::IndexMultiLookup {
+                index: TEST_INDEX,
+                values: vec![Value::Uint(7)],
+            }));
+
+        assert_eq!(
+            normalized,
+            AccessPlan::path(AccessPath::IndexPrefix {
+                index: TEST_INDEX,
+                values: vec![Value::Uint(7)],
+            }),
+        );
+    }
+
+    #[test]
+    fn normalize_index_multi_lookup_canonicalizes_value_set() {
+        let normalized =
+            normalize_access_plan_value(AccessPlan::path(AccessPath::IndexMultiLookup {
+                index: TEST_INDEX,
+                values: vec![Value::Uint(9), Value::Uint(7), Value::Uint(9)],
+            }));
+
+        assert_eq!(
+            normalized,
+            AccessPlan::path(AccessPath::IndexMultiLookup {
+                index: TEST_INDEX,
+                values: vec![Value::Uint(7), Value::Uint(9)],
+            }),
+        );
     }
 
     #[test]

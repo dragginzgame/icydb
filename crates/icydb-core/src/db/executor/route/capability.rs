@@ -117,10 +117,14 @@ where
     {
         return false;
     }
-    let Some((index, _)) = access_class.single_path_index_prefix_details() else {
+    let index_prefix_details = access_class.single_path_index_prefix_details();
+    let index_range_details = access_class.single_path_index_range_details();
+    if index_prefix_details.is_none() && index_range_details.is_none() {
         return false;
-    };
-    if !index.unique {
+    }
+    if let Some((index, _)) = index_prefix_details
+        && !index.unique
+    {
         return false;
     }
 

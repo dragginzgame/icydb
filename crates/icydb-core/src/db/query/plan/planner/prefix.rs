@@ -31,6 +31,34 @@ pub(super) fn index_prefix_for_eq(
     if out.is_empty() { None } else { Some(out) }
 }
 
+pub(super) fn index_multi_lookup_for_in(
+    model: &EntityModel,
+    schema: &SchemaInfo,
+    field: &str,
+    values: &[Value],
+) -> Option<Vec<AccessPlan<Value>>> {
+    let mut out = Vec::new();
+    for index in sorted_indexes(model) {
+        if index.fields.first() != Some(&field) || !index.is_field_indexable(field, CompareOp::Eq) {
+            continue;
+        }
+
+        let mut compatible_values = Vec::new();
+        for value in values {
+            if index_literal_matches_schema(schema, field, value) {
+                compatible_values.push(value.clone());
+            }
+        }
+        if compatible_values.is_empty() {
+            continue;
+        }
+
+        out.push(AccessPlan::index_multi_lookup(*index, compatible_values));
+    }
+
+    if out.is_empty() { None } else { Some(out) }
+}
+
 pub(super) fn index_prefix_from_and(
     model: &EntityModel,
     schema: &SchemaInfo,

@@ -90,6 +90,19 @@ pub(in crate::db) const fn lower_executable_access_path<K>(
             true,
             ExecutionPathPayload::IndexPrefix,
         ),
+        AccessPath::IndexMultiLookup { index, values } => ExecutableAccessPath::new(
+            ExecutionMode::Composite,
+            ExecutionOrdering::Natural,
+            ExecutionBounds::IndexPrefix {
+                index: *index,
+                prefix_len: 1,
+            },
+            ExecutionDistinctMode::RequiresMaterialization,
+            true,
+            ExecutionPathPayload::IndexMultiLookup {
+                value_count: values.len(),
+            },
+        ),
         AccessPath::IndexRange { spec } => {
             let index = *spec.index();
             let prefix_len = spec.prefix_values().len();
@@ -274,16 +287,24 @@ fn collect_index_prefix_specs<E: EntityKind>(
 ) -> Result<(), InternalError> {
     match access {
         AccessPlan::Path(path) => {
-            if let AccessPath::IndexPrefix { index, values } = path.as_ref() {
-                let prefix_components = EncodedValue::try_encode_all(values)
-                    .map_err(|_| invariant(LOWERED_INDEX_PREFIX_VALUE_NOT_INDEXABLE))?;
-                let (lower, upper) =
-                    raw_keys_for_encoded_prefix::<E>(index, prefix_components.as_slice());
-                specs.push(LoweredIndexPrefixSpec::new(
-                    *index,
-                    Bound::Included(lower),
-                    Bound::Included(upper),
-                ));
+            match path.as_ref() {
+                AccessPath::IndexPrefix { index, values } => {
+                    lower_index_prefix_values_for_specs::<E>(*index, values, specs)?;
+                }
+                AccessPath::IndexMultiLookup { index, values } => {
+                    for value in values {
+                        lower_index_prefix_values_for_specs::<E>(
+                            *index,
+                            std::slice::from_ref(value),
+                            specs,
+                        )?;
+                    }
+                }
+                AccessPath::ByKey(_)
+                | AccessPath::ByKeys(_)
+                | AccessPath::KeyRange { .. }
+                | AccessPath::IndexRange { .. }
+                | AccessPath::FullScan => {}
             }
 
             Ok(())
@@ -296,6 +317,23 @@ fn collect_index_prefix_specs<E: EntityKind>(
             Ok(())
         }
     }
+}
+
+fn lower_index_prefix_values_for_specs<E: EntityKind>(
+    index: IndexModel,
+    values: &[Value],
+    specs: &mut Vec<LoweredIndexPrefixSpec>,
+) -> Result<(), InternalError> {
+    let prefix_components = EncodedValue::try_encode_all(values)
+        .map_err(|_| invariant(LOWERED_INDEX_PREFIX_VALUE_NOT_INDEXABLE))?;
+    let (lower, upper) = raw_keys_for_encoded_prefix::<E>(&index, prefix_components.as_slice());
+    specs.push(LoweredIndexPrefixSpec::new(
+        index,
+        Bound::Included(lower),
+        Bound::Included(upper),
+    ));
+
+    Ok(())
 }
 
 // Collect index-range specs in deterministic depth-first traversal order.

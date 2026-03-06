@@ -27,6 +27,12 @@ pub(crate) trait AccessPlanProjection<K> {
         prefix_len: usize,
         values: &[Value],
     ) -> Self::Output;
+    fn index_multi_lookup(
+        &mut self,
+        index_name: &'static str,
+        index_fields: &[&'static str],
+        values: &[Value],
+    ) -> Self::Output;
     fn index_range(
         &mut self,
         index_name: &'static str,
@@ -88,6 +94,9 @@ impl<K> AccessPath<K> {
             Self::IndexPrefix { index, values } => {
                 projection.index_prefix(index.name, index.fields, values.len(), values)
             }
+            Self::IndexMultiLookup { index, values } => {
+                projection.index_multi_lookup(index.name, index.fields, values)
+            }
             Self::IndexRange { spec } => projection.index_range(
                 spec.index().name,
                 spec.index().fields,
@@ -118,6 +127,11 @@ where
             prefix_len,
             values,
         } => projection.index_prefix(name, fields, *prefix_len, values),
+        ExplainAccessPath::IndexMultiLookup {
+            name,
+            fields,
+            values,
+        } => projection.index_multi_lookup(name, fields, values),
         ExplainAccessPath::IndexRange {
             name,
             fields,
@@ -197,6 +211,16 @@ mod access_projection_tests {
             self.seen_index = Some((index_name, index_fields.len(), prefix_len, values.len()));
         }
 
+        fn index_multi_lookup(
+            &mut self,
+            index_name: &'static str,
+            index_fields: &[&'static str],
+            values: &[Value],
+        ) -> Self::Output {
+            self.events.push("index_multi_lookup");
+            self.seen_index = Some((index_name, index_fields.len(), 1, values.len()));
+        }
+
         fn index_range(
             &mut self,
             index_name: &'static str,
@@ -237,6 +261,10 @@ mod access_projection_tests {
                 index: TEST_INDEX,
                 values: vec![Value::Uint(7)],
             }),
+            AccessPlan::path(AccessPath::IndexMultiLookup {
+                index: TEST_INDEX,
+                values: vec![Value::Uint(7), Value::Uint(9)],
+            }),
             AccessPlan::path(AccessPath::index_range(
                 TEST_INDEX,
                 vec![Value::Uint(7)],
@@ -252,7 +280,7 @@ mod access_projection_tests {
         let mut projection = AccessPlanEventProjection::default();
         project_access_plan(&plan, &mut projection);
 
-        assert_eq!(projection.union_child_counts, vec![6]);
+        assert_eq!(projection.union_child_counts, vec![7]);
         assert_eq!(projection.intersection_child_counts, vec![2]);
         assert_eq!(projection.seen_index, Some((TEST_INDEX.name, 2, 1, 1)));
         assert!(
@@ -274,6 +302,10 @@ mod access_projection_tests {
         assert!(
             projection.events.contains(&"index_range"),
             "projection must visit index-range variants"
+        );
+        assert!(
+            projection.events.contains(&"index_multi_lookup"),
+            "projection must visit index-multi-lookup variants",
         );
         assert!(
             projection.events.contains(&"full_scan"),
@@ -316,6 +348,16 @@ mod access_projection_tests {
         ) -> Self::Output {
             self.events.push("index_prefix");
             self.seen_index = Some((index_name, index_fields.len(), prefix_len, values.len()));
+        }
+
+        fn index_multi_lookup(
+            &mut self,
+            index_name: &'static str,
+            index_fields: &[&'static str],
+            values: &[Value],
+        ) -> Self::Output {
+            self.events.push("index_multi_lookup");
+            self.seen_index = Some((index_name, index_fields.len(), 1, values.len()));
         }
 
         fn index_range(
@@ -367,6 +409,11 @@ mod access_projection_tests {
                 prefix_len: 1,
                 values: vec![Value::Uint(7)],
             },
+            ExplainAccessPath::IndexMultiLookup {
+                name: TEST_INDEX.name,
+                fields: vec!["group", "rank"],
+                values: vec![Value::Uint(7), Value::Uint(9)],
+            },
             ExplainAccessPath::IndexRange {
                 name: TEST_INDEX.name,
                 fields: vec!["group", "rank"],
@@ -386,7 +433,7 @@ mod access_projection_tests {
         let mut projection = ExplainAccessEventProjection::default();
         project_explain_access_path(&access, &mut projection);
 
-        assert_eq!(projection.union_child_counts, vec![6]);
+        assert_eq!(projection.union_child_counts, vec![7]);
         assert_eq!(projection.intersection_child_counts, vec![2]);
         assert_eq!(projection.seen_index, Some((TEST_INDEX.name, 2, 1, 1)));
         assert!(
@@ -408,6 +455,10 @@ mod access_projection_tests {
         assert!(
             projection.events.contains(&"index_range"),
             "projection must visit index-range variants"
+        );
+        assert!(
+            projection.events.contains(&"index_multi_lookup"),
+            "projection must visit index-multi-lookup variants",
         );
         assert!(
             projection.events.contains(&"full_scan"),

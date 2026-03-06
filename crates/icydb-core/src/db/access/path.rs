@@ -18,6 +18,10 @@ pub(crate) type IndexRangePathRef<'a> = (
 );
 
 ///
+/// IndexMultiLookupPathRef
+///
+
+///
 /// SemanticIndexRangeSpec
 ///
 /// Semantic index-range request for one secondary index path.
@@ -134,6 +138,17 @@ pub(crate) enum AccessPath<K> {
         values: Vec<Value>,
     },
 
+    /// Index multi-lookup over one leading index field and multiple literal values.
+    ///
+    /// Contract guarantees:
+    /// - `values` are canonicalized as a set (sorted, deduplicated)
+    /// - each value targets the leading index slot (`prefix_len == 1`)
+    /// - execution semantics are equivalent to a union of one-field index-prefix lookups
+    IndexMultiLookup {
+        index: IndexModel,
+        values: Vec<Value>,
+    },
+
     /// Index scan using an equality prefix plus one bounded range component.
     ///
     /// This variant is dedicated to secondary range traversal and wraps
@@ -213,6 +228,9 @@ impl<K> AccessPath<K> {
                 end: map_key(end)?,
             }),
             Self::IndexPrefix { index, values } => Ok(AccessPath::IndexPrefix { index, values }),
+            Self::IndexMultiLookup { index, values } => {
+                Ok(AccessPath::IndexMultiLookup { index, values })
+            }
             Self::IndexRange { spec } => Ok(AccessPath::IndexRange { spec }),
             Self::FullScan => Ok(AccessPath::FullScan),
         }

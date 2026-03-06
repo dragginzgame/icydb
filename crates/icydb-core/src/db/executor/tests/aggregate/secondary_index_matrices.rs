@@ -773,6 +773,52 @@ fn aggregate_field_extrema_index_leading_min_uses_one_key_probe_hint() {
 }
 
 #[test]
+fn aggregate_field_extrema_unique_index_leading_max_uses_one_key_probe_hint() {
+    seed_unique_index_range_entities(&[(8_531, 10), (8_532, 20), (8_533, 30)]);
+    let load = LoadExecutor::<UniqueIndexRangeEntity>::new(DB, false);
+    let mut logical_plan = AccessPlannedQuery::new(
+        AccessPath::index_range(
+            UNIQUE_INDEX_RANGE_INDEX_MODELS[0],
+            vec![],
+            Bound::Included(Value::Uint(0)),
+            Bound::Excluded(Value::Uint(100)),
+        ),
+        MissingRowPolicy::Ignore,
+    );
+    logical_plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("code".to_string(), OrderDirection::Desc),
+            ("id".to_string(), OrderDirection::Desc),
+        ],
+    });
+    let plan = ExecutablePlan::<UniqueIndexRangeEntity>::new(logical_plan);
+
+    let route =
+        LoadExecutor::<UniqueIndexRangeEntity>::build_execution_route_plan_for_aggregate_spec(
+            plan.as_inner(),
+            crate::db::query::builder::aggregate::max_by("code"),
+        );
+    assert!(route.field_max_fast_path_eligible());
+    assert_eq!(route.secondary_extrema_probe_fetch_hint(), Some(1));
+
+    let (max_by_code, scanned_max_by_code) =
+        capture_rows_scanned_for_entity(UniqueIndexRangeEntity::PATH, || {
+            load.aggregate_max_by_slot(plan, slot(&load, "code"))
+                .expect("unique-index MAX(field) should succeed")
+        });
+
+    assert_eq!(
+        max_by_code.map(|id| id.key()),
+        Some(Ulid::from_u128(8_533)),
+        "unique-index MAX(field) should resolve to the highest ordered code",
+    );
+    assert_eq!(
+        scanned_max_by_code, 1,
+        "unique-index MAX(field) should resolve through one-key bounded probe",
+    );
+}
+
+#[test]
 fn aggregate_field_extrema_index_leading_min_ignore_stale_probe_retries_unbounded() {
     seed_indexed_metrics_rows(&[(8_521, 10, "a"), (8_522, 20, "b"), (8_523, 30, "c")]);
     let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);

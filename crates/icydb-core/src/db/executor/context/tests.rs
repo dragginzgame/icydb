@@ -105,7 +105,7 @@ fn index_range_path_requires_pre_lowered_spec() {
     let Err(err) = ctx.ordered_key_stream_from_access(
         &access,
         IndexStreamConstraints {
-            prefix: None,
+            prefixes: &[],
             range: None,
         },
         AccessScanContinuationInput::initial_asc(),
@@ -136,7 +136,7 @@ fn index_prefix_path_direct_resolution_skips_alignment_invariant_check() {
     let result = ctx.ordered_key_stream_from_access(
         &access,
         IndexStreamConstraints {
-            prefix: Some(&spec),
+            prefixes: std::slice::from_ref(&spec),
             range: None,
         },
         AccessScanContinuationInput::initial_asc(),
@@ -169,7 +169,7 @@ fn index_range_path_direct_resolution_skips_alignment_invariant_check() {
     let result = ctx.ordered_key_stream_from_access(
         &access,
         IndexStreamConstraints {
-            prefix: None,
+            prefixes: &[],
             range: Some(&spec),
         },
         AccessScanContinuationInput::initial_asc(),

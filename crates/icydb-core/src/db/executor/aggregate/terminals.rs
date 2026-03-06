@@ -9,7 +9,7 @@ use crate::{
         direction::Direction,
         executor::{
             AccessExecutionDescriptor, AccessScanContinuationInput, AccessStreamBindings,
-            ExecutablePlan, ExecutionKernel,
+            ExecutablePlan, ExecutionKernel, ExecutionPreparation,
             aggregate::{
                 AggregateFoldMode, AggregateKind, AggregateOutput,
                 field::resolve_orderable_aggregate_target_slot_from_planner_slot,
@@ -18,6 +18,7 @@ use crate::{
             plan_metrics::record_rows_scanned,
             validate_executor_plan,
         },
+        index::predicate::IndexPredicateExecution,
         query::builder::aggregate::{count, exists, first, last, max, max_by, min, min_by},
         query::plan::FieldSlot as PlannedFieldSlot,
     },
@@ -217,13 +218,18 @@ where
             return false;
         }
 
-        // Predicates require row evaluation; index-only counting would be incorrect.
-        if plan.has_predicate() {
+        // COUNT prefilter pushdown requires one strict all-or-none index
+        // predicate program when a residual predicate exists.
+        let index_shape_supported = plan.access().as_index_prefix_path().is_some()
+            || plan.access().as_index_range_path().is_some();
+        if !index_shape_supported {
             return false;
         }
+        if !plan.has_predicate() {
+            return true;
+        }
 
-        plan.access().as_index_prefix_path().is_some()
-            || plan.access().as_index_range_path().is_some()
+        plan.execution_preparation().strict_mode().is_some()
     }
 
     // Fold COUNT over one key stream using `ExistingRows` mode.
@@ -238,6 +244,14 @@ where
         let index_range_specs = plan.index_range_specs()?.to_vec();
         let logical_plan = plan.into_inner();
         validate_executor_plan::<E>(&logical_plan)?;
+        let execution_preparation = ExecutionPreparation::for_plan::<E>(&logical_plan);
+        let index_predicate_execution =
+            execution_preparation
+                .strict_mode()
+                .map(|program| IndexPredicateExecution {
+                    program,
+                    rejected_keys_counter: None,
+                });
 
         // Phase 2: resolve the access key stream directly from index-backed bindings.
         let ctx = self.recovered_context()?;
@@ -249,7 +263,7 @@ where
                 AccessScanContinuationInput::new(None, Direction::Asc),
             ),
             None,
-            None,
+            index_predicate_execution,
         );
         let mut key_stream = ctx.ordered_key_stream_from_access_descriptor(descriptor)?;
 

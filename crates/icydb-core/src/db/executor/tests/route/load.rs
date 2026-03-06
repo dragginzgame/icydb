@@ -43,6 +43,12 @@ fn route_matrix_load_pk_desc_with_page_uses_streaming_budget_and_reverse() {
     assert!(route_plan.desc_physical_reverse_supported());
     assert_eq!(route_plan.scan_hints.physical_fetch_hint, None);
     assert_eq!(route_plan.scan_hints.load_scan_budget_hint, Some(6));
+    assert_eq!(
+        route_plan
+            .top_n_seek_spec()
+            .map(crate::db::executor::route::TopNSeekSpec::fetch),
+        Some(6)
+    );
     assert!(route_plan.index_range_limit_spec.is_none());
 }
 
@@ -76,7 +82,7 @@ fn route_matrix_load_index_range_cursor_without_anchor_disables_pushdown() {
     )
     .expect("load route plan should build");
 
-    assert_eq!(route_plan.execution_mode, ExecutionMode::Materialized);
+    assert_eq!(route_plan.execution_mode, ExecutionMode::Streaming);
     assert_eq!(
         route_plan.continuation().mode(),
         ContinuationMode::CursorBoundary
@@ -84,6 +90,7 @@ fn route_matrix_load_index_range_cursor_without_anchor_disables_pushdown() {
     assert_eq!(route_plan.continuation().window().effective_offset, 0);
     assert!(route_plan.desc_physical_reverse_supported());
     assert!(route_plan.index_range_limit_spec.is_none());
+    assert!(route_plan.top_n_seek_spec().is_none());
     assert_eq!(route_plan.scan_hints.load_scan_budget_hint, None);
 }
 
@@ -219,10 +226,17 @@ fn route_matrix_load_unique_secondary_order_limit_one_uses_bounded_scan_budget_h
 
     assert_eq!(route_plan.execution_mode, ExecutionMode::Streaming);
     assert_eq!(route_plan.direction(), Direction::Desc);
+    assert_eq!(route_plan.scan_hints.physical_fetch_hint, None);
     assert_eq!(
         route_plan.scan_hints.load_scan_budget_hint,
         Some(2),
         "secondary ORDER BY DESC LIMIT 1 should bound access scanning to keep+continuation fetch",
+    );
+    assert_eq!(
+        route_plan
+            .top_n_seek_spec()
+            .map(crate::db::executor::route::TopNSeekSpec::fetch),
+        Some(2)
     );
 }
 

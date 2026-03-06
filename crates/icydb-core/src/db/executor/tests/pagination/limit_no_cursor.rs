@@ -199,3 +199,30 @@ fn load_execute_order_by_limit_one_seeks_single_row_without_cursor() {
         "unpaged ORDER BY LIMIT 1 should scan exactly one row under seek hint",
     );
 }
+
+#[test]
+fn load_execute_order_by_limit_window_uses_keep_count_seek_budget_without_cursor() {
+    setup_pagination_test();
+    seed_simple_rows(&[41_201, 41_202, 41_203, 41_204, 41_205, 41_206]);
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    let plan = build_scalar_limit_plan(AccessPlan::path(AccessPath::FullScan), 3, 1);
+    let (response, scanned) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
+        load.execute(plan)
+            .expect("unpaged ORDER BY LIMIT window execution should succeed")
+    });
+
+    assert_eq!(
+        ids_from_items(&response),
+        vec![
+            Ulid::from_u128(41_202),
+            Ulid::from_u128(41_203),
+            Ulid::from_u128(41_204),
+        ],
+        "unpaged ORDER BY LIMIT window should preserve offset/limit ordering semantics",
+    );
+    assert_eq!(
+        scanned, 4,
+        "unpaged ORDER BY LIMIT window should scan keep-count rows (offset+limit) without continuation lookahead",
+    );
+}

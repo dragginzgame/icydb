@@ -1,5 +1,6 @@
 use crate::{
     db::{
+        access::ExecutionPathKind,
         executor::{
             AccessStreamBindings, ExecutablePlan, ExecutionKernel, ExecutionPreparation,
             ExecutionTrace, LoadCursorInput, ResolvedScalarContinuationContext,
@@ -14,7 +15,6 @@ use crate::{
             validate_executor_plan,
         },
         index::IndexCompilePolicy,
-        query::plan::AccessPlannedQuery,
         response::EntityResponse,
     },
     error::InternalError,
@@ -94,15 +94,25 @@ where
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
         let logical_plan = plan.into_inner();
+        let top_n_seek_requires_lookahead =
+            logical_plan
+                .access_strategy()
+                .as_path()
+                .is_some_and(|path| {
+                    matches!(
+                        path.kind(),
+                        ExecutionPathKind::ByKeys | ExecutionPathKind::IndexMultiLookup
+                    )
+                });
         let mut route_plan = Self::build_execution_route_plan_for_load(
             &logical_plan,
             resolved_continuation.route_context(),
             None,
         )?;
-        Self::apply_unpaged_limit_one_seek_hints(
-            &logical_plan,
+        Self::apply_unpaged_top_n_seek_hints(
             &resolved_continuation,
             unpaged_rows_mode,
+            top_n_seek_requires_lookahead,
             &mut route_plan,
         );
         let continuation = route_plan.continuation();
@@ -161,40 +171,53 @@ where
     }
 
     // Unpaged `execute()` does not need continuation lookahead rows. For
-    // streaming-safe first-page `ORDER BY ... LIMIT 1` shapes, constrain both
-    // access probe and load scan-budget hints to one row so fast paths can
-    // seek and stop immediately.
-    fn apply_unpaged_limit_one_seek_hints(
-        plan: &AccessPlannedQuery<E::Key>,
+    // route-eligible top-N seek windows, constrain both access probe and load
+    // scan-budget hints to the keep-count window (without continuation +1).
+    const fn apply_unpaged_top_n_seek_hints(
         resolved_continuation: &ResolvedScalarContinuationContext,
         unpaged_rows_mode: bool,
+        top_n_seek_requires_lookahead: bool,
         route_plan: &mut crate::db::executor::ExecutionPlan,
     ) {
         if !unpaged_rows_mode {
-            return;
-        }
-        if !matches!(route_plan.execution_mode, ExecutionMode::Streaming) {
-            return;
-        }
-        if !route_plan.streaming_access_shape_safe() {
             return;
         }
         if resolved_continuation.cursor_boundary().is_some() {
             return;
         }
 
-        let scalar = plan.scalar_plan();
-        if scalar.order.is_none() || scalar.predicate.is_some() || scalar.distinct {
-            return;
-        }
-        let Some(page) = scalar.page.as_ref() else {
-            return;
-        };
-        if page.offset != 0 || page.limit != Some(1) {
+        if let Some(top_n_seek_spec) = route_plan.top_n_seek_spec() {
+            if !matches!(route_plan.execution_mode, ExecutionMode::Streaming) {
+                return;
+            }
+            if !route_plan.streaming_access_shape_safe() {
+                return;
+            }
+            let fetch = if top_n_seek_spec.fetch() == 0 {
+                0
+            } else if !top_n_seek_requires_lookahead {
+                let Some(fetch) = route_plan.continuation().window().fetch_count_for(false) else {
+                    return;
+                };
+
+                fetch
+            } else {
+                // Deduplicating lookup shapes need one extra lookahead row to
+                // preserve parity after key normalization before windowing.
+                top_n_seek_spec.fetch()
+            };
+
+            route_plan.scan_hints.physical_fetch_hint = Some(fetch);
+            route_plan.scan_hints.load_scan_budget_hint = Some(fetch);
             return;
         }
 
-        route_plan.scan_hints.physical_fetch_hint = Some(1);
-        route_plan.scan_hints.load_scan_budget_hint = Some(1);
+        // Unpaged ordered secondary scans without a top-N window still need to
+        // preserve raw index traversal order for ORDER BY parity.
+        if route_plan.secondary_fast_path_eligible()
+            && route_plan.scan_hints.physical_fetch_hint.is_none()
+        {
+            route_plan.scan_hints.physical_fetch_hint = Some(usize::MAX);
+        }
     }
 }

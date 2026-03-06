@@ -8,7 +8,9 @@ use crate::{
     db::MissingRowPolicy,
     model::{field::FieldKind, index::IndexModel},
     types::Ulid,
+    value::Value,
 };
+use std::ops::Bound;
 
 static BUDGET_METADATA_RANK_INDEX_FIELDS: [&str; 1] = ["rank"];
 static BUDGET_METADATA_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
@@ -140,5 +142,37 @@ fn budget_safety_metadata_marks_secondary_index_order_plan_as_access_order_satis
     assert!(
         !metadata.requires_post_access_sort,
         "index-order-compatible plans should skip post-access sort requirements",
+    );
+}
+
+#[test]
+fn budget_safety_metadata_marks_index_range_order_plan_as_access_order_satisfied() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::<Ulid>::index_range(
+            BUDGET_METADATA_INDEX_MODELS[0],
+            vec![],
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(30)),
+        ),
+        MissingRowPolicy::Ignore,
+    );
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("rank".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+
+    let metadata = crate::db::executor::ExecutionKernel::budget_safety_metadata::<
+        BudgetMetadataEntity,
+        _,
+    >(&plan);
+    assert!(
+        metadata.access_order_satisfied_by_path,
+        "index-range order-compatible plans should be marked access-order-satisfied",
+    );
+    assert!(
+        !metadata.requires_post_access_sort,
+        "index-range order-compatible plans should skip post-access sort requirements",
     );
 }

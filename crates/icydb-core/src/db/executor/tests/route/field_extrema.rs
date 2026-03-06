@@ -33,6 +33,24 @@ fn route_matrix_field_extrema_capability_flags_enable_for_eligible_shapes() {
 }
 
 #[test]
+fn route_matrix_field_target_max_pk_shape_enables_single_step_probe_hint() {
+    let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Desc)],
+    });
+
+    let route = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
+        &plan,
+        crate::db::query::builder::aggregate::max_by("id"),
+    );
+
+    assert_eq!(route.execution_mode, ExecutionMode::Streaming);
+    assert!(route.field_max_fast_path_eligible());
+    assert_eq!(route.scan_hints.physical_fetch_hint, Some(1));
+    assert_eq!(route.secondary_extrema_probe_fetch_hint(), Some(1));
+}
+
+#[test]
 fn route_matrix_field_extrema_capability_rejects_unknown_target_field() {
     let plan = field_extrema_index_range_plan(OrderDirection::Asc, 0, false);
 

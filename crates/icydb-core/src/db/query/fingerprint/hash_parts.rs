@@ -83,6 +83,24 @@ impl AccessPlanProjection<Value> for HashAccessProjection<'_> {
         }
     }
 
+    fn index_multi_lookup(
+        &mut self,
+        index_name: &'static str,
+        index_fields: &[&'static str],
+        values: &[Value],
+    ) -> Self::Output {
+        write_tag(self.hasher, 0x18);
+        write_str(self.hasher, index_name);
+        write_u32(self.hasher, index_fields.len() as u32);
+        for field in index_fields {
+            write_str(self.hasher, field);
+        }
+        write_u32(self.hasher, values.len() as u32);
+        for value in values {
+            write_value(self.hasher, value);
+        }
+    }
+
     fn index_range(
         &mut self,
         index_name: &'static str,

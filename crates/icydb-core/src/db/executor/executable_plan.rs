@@ -252,6 +252,15 @@ impl<E: EntityKind> ExecutablePlan<E> {
         self.plan.scalar_plan().predicate.is_some()
     }
 
+    /// Build canonical execution preparation for this executable plan.
+    #[must_use]
+    pub(in crate::db::executor) fn execution_preparation(&self) -> ExecutionPreparation
+    where
+        E: EntityValue,
+    {
+        ExecutionPreparation::for_plan::<E>(&self.plan)
+    }
+
     #[cfg(test)]
     #[must_use]
     pub(crate) const fn as_inner(&self) -> &AccessPlannedQuery<E::Key> {

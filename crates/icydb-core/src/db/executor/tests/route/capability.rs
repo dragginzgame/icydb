@@ -61,3 +61,31 @@ fn route_capabilities_by_keys_desc_distinct_offset_disable_probe_hint() {
     assert!(!route_plan.field_min_fast_path_eligible());
     assert!(!route_plan.field_max_fast_path_eligible());
 }
+
+#[test]
+fn route_capabilities_index_range_order_compatible_shape_is_streaming_safe() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::<Ulid>::index_range(
+            ROUTE_MATRIX_INDEX_MODELS[0],
+            vec![],
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(30)),
+        ),
+        MissingRowPolicy::Ignore,
+    );
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("rank".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
+        &plan,
+        &initial_scalar_continuation_context(),
+        None,
+    )
+    .expect("load route plan should build");
+
+    assert!(route_plan.streaming_access_shape_safe());
+    assert!(route_plan.index_range_limit_pushdown_shape_eligible());
+}

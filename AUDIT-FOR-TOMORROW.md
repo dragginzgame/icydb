@@ -499,3 +499,298 @@ limit operator representation
   - GroupedAggregateOrderedMaterialized
   - IndexRangeLimitPushdown
   - SecondaryOrderPushdown
+
+  -----------------------------------------------AUDIT AUDIT----------------------------------------
+
+  1. What absolutely must land before EXPLAIN
+
+These are the only items that materially change execution nodes.
+
+If these land after EXPLAIN, you'll end up rewriting explain output.
+
+A. COUNT(predicate) index prefilter pushdown
+
+Scope: small
+
+Changes:
+
+aggregate/terminals.rs
+
+index/predicate/compile.rs
+
+route/feasibility.rs
+
+Adds node:
+
+IndexPredicatePrefilter
+
+Estimated effort:
+
+~1–2 days
+
+Low planner risk.
+
+B. Field-target MAX probe parity
+
+Scope: small
+
+You already have most machinery.
+
+Changes:
+
+route/hints.rs
+
+aggregate/field_extrema.rs
+
+Adds no new node — just more consistent use of
+
+AggregateSeekLast
+
+Estimated effort:
+
+~1 day
+
+C. Index-range ORDER satisfaction extension
+
+Scope: small–medium
+
+Currently:
+
+IndexRange
+ → materialized sort
+
+Extend to:
+
+IndexRange
+ → OrderByAccessSatisfied
+
+Modules:
+
+execution_contract.rs
+
+route/pushdown.rs
+
+kernel/post_access
+
+Estimated effort:
+
+~2 days
+
+2. The two medium items that SHOULD land before EXPLAIN
+
+These affect planner output shape, so they are worth doing before EXPLAIN.
+
+D. Secondary-index IN pushdown (multi-key lookup)
+
+Current:
+
+Union
+  IndexPrefix
+  IndexPrefix
+  IndexPrefix
+
+Better:
+
+IndexMultiLookup
+
+Changes:
+
+Planner:
+
+query/plan
+
+Access layer:
+
+AccessPath::IndexMultiLookup
+
+Executor:
+
+resolve_index_multi_lookup
+
+Estimated effort:
+
+~2–3 days
+
+This is actually simpler than it looks because your PK version already exists (ByKeys).
+
+E. ORDER BY + LIMIT top-N seek
+
+Current:
+
+IndexRange
+ → materialize
+ → sort
+ → limit
+
+Better:
+
+TopNSeek
+
+Modules:
+
+route/hints.rs
+
+execution_contract.rs
+
+load execution terminal
+
+Estimated effort:
+
+~3–4 days
+
+This is the largest remaining operator change.
+
+3. Items you can safely postpone AFTER EXPLAIN
+
+These do not require new execution nodes, so they won't break explain.
+
+Safe to postpone:
+
+Covering DISTINCT generalization
+
+Explain still shows:
+
+DistinctMaterialized
+
+Even if later optimized.
+
+Projection pruning for scalar loads
+
+Explain still shows:
+
+ProjectionMaterialized
+
+You can later switch to:
+
+ProjectionIndexOnly
+
+without breaking explain schema.
+
+4. Total realistic effort
+
+If you focus only on the explain-blocking work:
+
+Feature	Effort
+COUNT predicate pushdown	1–2 days
+MAX probe parity	1 day
+Index-range order extension	2 days
+Secondary IN pushdown	2–3 days
+Top-N seek	3–4 days
+
+Total:
+
+~9–12 days of work
+
+Which is very reasonable for a single release.
+
+5. What 0.41 would represent
+
+0.41 becomes the execution completeness release.
+
+It would include:
+
+Full access vocabulary
+Full aggregate vocabulary
+Index-aware ordering
+Top-N index seek
+Multi-key index lookup
+Predicate index prefilter
+
+That means the engine execution model is basically complete.
+
+6. Then 0.42 can be pure EXPLAIN
+
+That is a very clean milestone.
+
+0.42 would only include:
+
+Explain infrastructure
+
+Modules:
+
+query/explain
+executor/explain
+Stable execution descriptor
+
+Single canonical structure:
+
+ExecutionNodeDescriptor
+
+Fields like:
+
+node_type
+index_used
+predicate_pushdown
+residual_predicate
+projection
+covering_scan
+rows_expected
+children
+Output formats
+
+You can support:
+
+EXPLAIN
+EXPLAIN VERBOSE
+EXPLAIN JSON
+
+later.
+
+7. Why this ordering is ideal
+
+Doing EXPLAIN after execution vocabulary stabilizes means:
+
+You never have to change:
+
+node names
+node hierarchy
+pushdown flags
+
+This saves enormous maintenance pain.
+
+Many databases regret not doing this.
+
+8. Strategic impact
+
+If you land EXPLAIN after these improvements, IcyDB immediately gains:
+
+Professional debugging surface
+
+Users will see:
+
+AggregateCount
+  IndexPredicatePrefilter(user_email_idx)
+  IndexRangeScan
+Planner transparency
+
+People can see:
+
+IndexRangeScan
+  OrderByAccessSatisfied
+
+instead of guessing.
+
+Regression protection
+
+Explain trees can become planner snapshot tests.
+
+Extremely powerful.
+
+9. My recommendation
+
+Yes — do exactly this:
+
+0.41  → execution completeness
+0.42  → explain
+
+That will make 0.42 look like a major capability jump even though the heavy lifting happened in 0.41.
+
+10. Final honest assessment
+
+Your current architecture is already extremely strong.
+
+Once EXPLAIN lands, the system will reach the level where it becomes much easier to evolve safely.
+
+Right now you're at the stage where the engine is powerful but opaque.
+
+EXPLAIN fixes that permanently.

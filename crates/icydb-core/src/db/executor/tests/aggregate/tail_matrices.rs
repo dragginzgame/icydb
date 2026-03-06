@@ -850,6 +850,7 @@ fn aggregate_secondary_index_strict_prefilter_preserves_parity_across_window_sha
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum StrictPrefilterAggregate {
+    Count,
     Exists,
     MinBy,
     MaxBy,
@@ -859,6 +860,7 @@ enum StrictPrefilterAggregate {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum StrictPrefilterOutput {
+    Count(u32),
     Exists(bool),
     Id(Option<Id<PushdownParityEntity>>),
 }
@@ -907,7 +909,8 @@ fn run_strict_prefilter_aggregate(
             .plan()
             .map(crate::db::executor::ExecutablePlan::from)
             .expect("strict prefilter DESC aggregate plan should build"),
-        StrictPrefilterAggregate::Exists
+        StrictPrefilterAggregate::Count
+        | StrictPrefilterAggregate::Exists
         | StrictPrefilterAggregate::MinBy
         | StrictPrefilterAggregate::First
         | StrictPrefilterAggregate::Last => query
@@ -918,6 +921,9 @@ fn run_strict_prefilter_aggregate(
     };
 
     match aggregate {
+        StrictPrefilterAggregate::Count => {
+            load.aggregate_count(plan).map(StrictPrefilterOutput::Count)
+        }
         StrictPrefilterAggregate::Exists => load
             .aggregate_exists(plan)
             .map(StrictPrefilterOutput::Exists),
@@ -970,6 +976,13 @@ fn assert_strict_prefilter_scan_reduction(
 fn aggregate_strict_prefilter_reduces_scan_vs_uncertain_fallback() {
     seed_pushdown_group_rank_fixture(10_601, 160, 10_901, 40);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let strict_count_scanned =
+        assert_strict_prefilter_scan_reduction(&load, StrictPrefilterAggregate::Count, "count");
+    assert!(
+        strict_count_scanned <= 3,
+        "strict aggregate COUNT prefilter should bound scans to matching index candidates"
+    );
 
     let strict_exists_scanned =
         assert_strict_prefilter_scan_reduction(&load, StrictPrefilterAggregate::Exists, "exists");

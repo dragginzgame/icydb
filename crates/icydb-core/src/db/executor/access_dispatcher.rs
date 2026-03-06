@@ -24,6 +24,7 @@ pub(in crate::db::executor) enum AccessPathKind {
     ByKeys,
     KeyRange,
     IndexPrefix,
+    IndexMultiLookup,
     IndexRange,
     FullScan,
 }
@@ -64,7 +65,7 @@ impl AccessPathKind {
         match self {
             Self::ByKey | Self::ByKeys => AccessScanKind::Keys,
             Self::KeyRange => AccessScanKind::Range,
-            Self::IndexPrefix | Self::IndexRange => AccessScanKind::Index,
+            Self::IndexPrefix | Self::IndexMultiLookup | Self::IndexRange => AccessScanKind::Index,
             Self::FullScan => AccessScanKind::FullScan,
         }
     }
@@ -143,7 +144,7 @@ pub(in crate::db::executor) struct SinglePathAccessCapabilities {
     index_prefix_details: Option<IndexShapeDetails>,
     index_range_details: Option<IndexShapeDetails>,
     index_fields_for_slot_map: Option<&'static [&'static str]>,
-    consumes_index_prefix_spec: bool,
+    index_prefix_spec_count: usize,
     consumes_index_range_spec: bool,
 }
 
@@ -252,8 +253,8 @@ impl SinglePathAccessCapabilities {
     }
 
     #[must_use]
-    pub(in crate::db::executor) const fn consumes_index_prefix_spec(&self) -> bool {
-        self.consumes_index_prefix_spec
+    pub(in crate::db::executor) const fn index_prefix_spec_count(&self) -> usize {
+        self.index_prefix_spec_count
     }
 
     #[must_use]
@@ -349,6 +350,7 @@ const fn derive_access_path_kind_from_execution_kind(kind: ExecutionPathKind) ->
         ExecutionPathKind::ByKeys => AccessPathKind::ByKeys,
         ExecutionPathKind::KeyRange => AccessPathKind::KeyRange,
         ExecutionPathKind::IndexPrefix => AccessPathKind::IndexPrefix,
+        ExecutionPathKind::IndexMultiLookup => AccessPathKind::IndexMultiLookup,
         ExecutionPathKind::IndexRange => AccessPathKind::IndexRange,
         ExecutionPathKind::FullScan => AccessPathKind::FullScan,
     }
@@ -375,6 +377,7 @@ const fn supports_reverse_traversal(kind: AccessPathKind) -> bool {
         AccessPathKind::ByKey
             | AccessPathKind::KeyRange
             | AccessPathKind::IndexPrefix
+            | AccessPathKind::IndexMultiLookup
             | AccessPathKind::IndexRange
             | AccessPathKind::FullScan
     )
@@ -390,6 +393,18 @@ const fn is_key_direct_access(kind: AccessPathKind) -> bool {
 
 const fn is_by_keys_empty_from_payload<K>(payload: &ExecutionPathPayload<'_, K>) -> bool {
     matches!(payload, ExecutionPathPayload::ByKeys(keys) if keys.is_empty())
+}
+
+const fn index_prefix_spec_count_from_payload<K>(payload: &ExecutionPathPayload<'_, K>) -> usize {
+    match payload {
+        ExecutionPathPayload::IndexPrefix => 1,
+        ExecutionPathPayload::IndexMultiLookup { value_count } => *value_count,
+        ExecutionPathPayload::ByKey(_)
+        | ExecutionPathPayload::ByKeys(_)
+        | ExecutionPathPayload::KeyRange { .. }
+        | ExecutionPathPayload::IndexRange { .. }
+        | ExecutionPathPayload::FullScan => 0,
+    }
 }
 
 const fn index_prefix_details_from_bounds(bounds: ExecutionBounds) -> Option<IndexShapeDetails> {
@@ -449,7 +464,7 @@ pub(in crate::db::executor) const fn derive_access_path_capabilities<K>(
         index_prefix_details: index_prefix_details_from_bounds(bounds),
         index_range_details: index_range_details_from_bounds(bounds),
         index_fields_for_slot_map: index_fields_for_slot_map_from_bounds(bounds),
-        consumes_index_prefix_spec: matches!(bounds, ExecutionBounds::IndexPrefix { .. }),
+        index_prefix_spec_count: index_prefix_spec_count_from_payload(path.payload()),
         consumes_index_range_spec: matches!(bounds, ExecutionBounds::IndexRange { .. }),
     }
 }

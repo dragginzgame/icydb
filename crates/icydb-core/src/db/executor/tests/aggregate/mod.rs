@@ -784,6 +784,7 @@ fn explain_access_supports_count_pushdown(access: &ExplainAccessPath) -> bool {
         | ExplainAccessPath::ByKey { .. }
         | ExplainAccessPath::ByKeys { .. }
         | ExplainAccessPath::IndexPrefix { .. }
+        | ExplainAccessPath::IndexMultiLookup { .. }
         | ExplainAccessPath::IndexRange { .. } => false,
     }
 }

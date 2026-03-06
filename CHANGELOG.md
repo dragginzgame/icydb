@@ -5,18 +5,18 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.42.x] - 2026-03-06 - Pre-EXPLAIN Features
+## [0.42.x] - 2026-03-06 - EXPLAIN (coming soon)
 
 -
 
 ---
 
-## [0.41.x] - 2026-03-05 - Minor Features Kickoff
+## [0.41.x] - 2026-03-05 - Minor Features & Pre-EXPLAIN
 
 - `0.41.0` improved basic `LIMIT` handling and added the first index-covering projection fast paths for common scalar value terminals.
 - `0.41.1` sped up index-backed aggregate terminals (`count`, `exists`, and targeted `min`) while keeping strict correctness and stale-key safety checks.
 - `0.41.2` improved ordered-query execution and predicate pushdown groundwork for the next observability slice.
-- `0.41.3` delivers the pre-EXPLAIN developer slice: stable execution descriptors, plan hash + trace surfaces, schema introspection (`show_indexes`/`describe_entity`), execution metrics, and final ordered aggregate routing polish.
+- `0.41.3` closes pre-EXPLAIN execution completeness by finishing the last query-shape features (`IN` on secondary indexes as one multi-lookup path, and smarter `ORDER BY + LIMIT` top-N index seeks) and adds stable developer diagnostics (`trace`, plan hash, execution metrics, and schema introspection).
 
 See detailed breakdown:
 [docs/changelog/0.41.md](docs/changelog/0.41.md)

@@ -46,6 +46,12 @@ impl<K> AccessPlan<K> {
         Self::path(AccessPath::IndexPrefix { index, values })
     }
 
+    /// Construct an index multi-lookup access plan.
+    #[must_use]
+    pub(crate) fn index_multi_lookup(index: IndexModel, values: Vec<Value>) -> Self {
+        Self::path(AccessPath::IndexMultiLookup { index, values })
+    }
+
     /// Construct an index-range access plan from one semantic range descriptor.
     #[must_use]
     pub(crate) fn index_range(spec: SemanticIndexRangeSpec) -> Self {

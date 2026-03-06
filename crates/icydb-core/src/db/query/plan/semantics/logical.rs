@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        access::AccessPlan,
+        access::{AccessPath, AccessPlan},
         query::plan::{
             AccessPlannedQuery, ContinuationPolicy, DistinctExecutionStrategy,
             ExecutionShapeSignature, GroupPlan, LogicalPlan, PlannerRouteProfile, QueryMode,
@@ -98,7 +98,7 @@ impl<K> AccessPlannedQuery<K> {
 
     /// Lower scalar DISTINCT semantics into one executor-facing execution strategy.
     #[must_use]
-    pub(in crate::db) const fn distinct_execution_strategy(&self) -> DistinctExecutionStrategy {
+    pub(in crate::db) fn distinct_execution_strategy(&self) -> DistinctExecutionStrategy {
         if !self.scalar_plan().distinct {
             return DistinctExecutionStrategy::None;
         }
@@ -153,8 +153,11 @@ impl<K> AccessPlannedQuery<K> {
     }
 }
 
-const fn access_shape_requires_distinct_materialization<K>(access: &AccessPlan<K>) -> bool {
-    matches!(access, AccessPlan::Union(_) | AccessPlan::Intersection(_))
+fn access_shape_requires_distinct_materialization<K>(access: &AccessPlan<K>) -> bool {
+    match access {
+        AccessPlan::Union(_) | AccessPlan::Intersection(_) => true,
+        AccessPlan::Path(path) => matches!(path.as_ref(), AccessPath::IndexMultiLookup { .. }),
+    }
 }
 
 fn derive_continuation_policy_validated<K>(plan: &AccessPlannedQuery<K>) -> ContinuationPolicy {

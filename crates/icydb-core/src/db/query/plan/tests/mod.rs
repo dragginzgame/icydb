@@ -169,7 +169,7 @@ fn plan_access_uses_index_prefix_for_exact_match() {
 }
 
 #[test]
-fn plan_access_uses_index_prefix_union_for_secondary_in() {
+fn plan_access_uses_index_multi_lookup_for_secondary_in() {
     let model = model_with_index();
     let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
     let predicate = compare_strict(
@@ -185,16 +185,34 @@ fn plan_access_uses_index_prefix_union_for_secondary_in() {
 
     assert_eq!(
         plan,
-        AccessPlan::Union(vec![
-            AccessPlan::path(AccessPath::IndexPrefix {
-                index: INDEX_MODEL,
-                values: vec![Value::Text("alpha".to_string())],
-            }),
-            AccessPlan::path(AccessPath::IndexPrefix {
-                index: INDEX_MODEL,
-                values: vec![Value::Text("beta".to_string())],
-            }),
-        ]),
+        AccessPlan::path(AccessPath::IndexMultiLookup {
+            index: INDEX_MODEL,
+            values: vec![
+                Value::Text("alpha".to_string()),
+                Value::Text("beta".to_string()),
+            ],
+        }),
+    );
+}
+
+#[test]
+fn plan_access_secondary_in_singleton_collapses_to_index_prefix() {
+    let model = model_with_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = compare_strict(
+        "tag",
+        CompareOp::In,
+        Value::List(vec![Value::Text("alpha".to_string())]),
+    );
+
+    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+
+    assert_eq!(
+        plan,
+        AccessPlan::path(AccessPath::IndexPrefix {
+            index: INDEX_MODEL,
+            values: vec![Value::Text("alpha".to_string())],
+        }),
     );
 }
 

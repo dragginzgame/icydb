@@ -46,7 +46,7 @@ where
     E: EntityKind + EntityValue,
 {
     pub(super) ctx: &'a Context<'ctx, E>,
-    pub(super) index_prefix_spec: Option<&'a LoweredIndexPrefixSpec>,
+    pub(super) index_prefix_specs: &'a [LoweredIndexPrefixSpec],
     pub(super) index_range_spec: Option<&'a LoweredIndexRangeSpec>,
     pub(super) continuation: AccessScanContinuationInput<'a>,
     pub(super) physical_fetch_hint: Option<usize>,
@@ -67,7 +67,7 @@ impl<K> ExecutableAccessPath<'_, K> {
     {
         let PhysicalStreamRequest {
             ctx,
-            index_prefix_spec,
+            index_prefix_specs,
             index_range_spec,
             continuation,
             physical_fetch_hint,
@@ -98,11 +98,21 @@ impl<K> ExecutableAccessPath<'_, K> {
             ExecutionPathPayload::IndexPrefix => Self::resolve_index_prefix::<E>(
                 ctx,
                 self.index_prefix_details().map(|(index, _)| index),
-                index_prefix_spec,
+                index_prefix_specs,
                 continuation.direction(),
                 physical_fetch_hint,
                 index_predicate_execution,
             )?,
+            ExecutionPathPayload::IndexMultiLookup { value_count } => {
+                Self::resolve_index_multi_lookup::<E>(
+                    ctx,
+                    self.index_prefix_details().map(|(index, _)| index),
+                    index_prefix_specs,
+                    *value_count,
+                    continuation.direction(),
+                    index_predicate_execution,
+                )?
+            }
             ExecutionPathPayload::IndexRange { .. } => Self::resolve_index_range::<E>(
                 ctx,
                 self.index_range_details().map(|(index, _)| index),
@@ -216,7 +226,7 @@ impl<K> ExecutableAccessPath<'_, K> {
     fn resolve_index_prefix<E>(
         ctx: &Context<'_, E>,
         _index: Option<IndexModel>,
-        index_prefix_spec: Option<&LoweredIndexPrefixSpec>,
+        index_prefix_specs: &[LoweredIndexPrefixSpec],
         direction: Direction,
         index_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
@@ -225,7 +235,7 @@ impl<K> ExecutableAccessPath<'_, K> {
         E: EntityKind<Key = K> + EntityValue,
         K: Copy + Ord,
     {
-        let Some(spec) = index_prefix_spec else {
+        let [spec] = index_prefix_specs else {
             return Err(invariant(
                 "index-prefix execution requires pre-lowered index-prefix spec",
             ));
@@ -242,6 +252,42 @@ impl<K> ExecutableAccessPath<'_, K> {
         };
 
         Ok((keys, key_order_state))
+    }
+
+    // Resolve one index multi-lookup traversal by scanning each pre-lowered
+    // one-field index-prefix bucket and unioning emitted keys.
+    fn resolve_index_multi_lookup<E>(
+        ctx: &Context<'_, E>,
+        _index: Option<IndexModel>,
+        index_prefix_specs: &[LoweredIndexPrefixSpec],
+        value_count: usize,
+        direction: Direction,
+        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
+    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError>
+    where
+        E: EntityKind<Key = K> + EntityValue,
+        K: Copy + Ord,
+    {
+        if index_prefix_specs.len() != value_count {
+            return Err(invariant(
+                "index-multi-lookup execution requires one pre-lowered prefix spec per lookup value",
+            ));
+        }
+
+        let mut keys = Vec::new();
+        for spec in index_prefix_specs {
+            keys.extend(IndexScan::prefix::<E>(
+                ctx,
+                spec,
+                direction,
+                usize::MAX,
+                index_predicate_execution,
+            )?);
+        }
+        keys.sort_unstable();
+        keys.dedup();
+
+        Ok((keys, KeyOrderState::AscendingSorted))
     }
 
     // Resolve one index-range traversal using a pre-lowered index-range spec.

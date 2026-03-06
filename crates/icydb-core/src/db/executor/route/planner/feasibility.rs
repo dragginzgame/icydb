@@ -273,11 +273,7 @@ where
         if kind.is_none() && !intent_stage.grouped {
             debug_assert_eq!(
                 derivation.scan_hints.load_scan_budget_hint,
-                plan.access_strategy().load_window_early_stop_hint(
-                    route_continuation.applied(),
-                    derivation.capabilities.streaming_access_shape_safe,
-                    route_continuation.window().fetch_count_for(true),
-                ),
+                Self::load_scan_budget_hint(plan, route_continuation, derivation.capabilities),
                 "route invariant: load scan-budget hints must match access-strategy early-stop contract",
             );
         }
@@ -285,6 +281,7 @@ where
             !intent_stage.grouped
                 || derivation.scan_hints.load_scan_budget_hint.is_none()
                     && derivation.scan_hints.physical_fetch_hint.is_none()
+                    && derivation.top_n_seek_spec.is_none()
                     && index_range_limit_spec.is_none(),
             "route invariant: grouped intent must not derive load/aggregate scan hints or index-range pushdown specs",
         );
@@ -309,6 +306,7 @@ where
         }
     }
 
+    #[expect(clippy::too_many_lines)]
     pub(in crate::db::executor::route::planner) fn derive_route_derivation_context(
         plan: &AccessPlannedQuery<E::Key>,
         intent_stage: &RouteIntentStage,
@@ -346,6 +344,7 @@ where
         };
         let aggregate_terminal_probe_fetch_hint = aggregate_expr.and_then(|aggregate| {
             Self::aggregate_probe_fetch_hint(
+                plan,
                 aggregate,
                 direction,
                 capabilities,
@@ -353,12 +352,23 @@ where
             )
         });
         let aggregate_seek_spec = aggregate_expr.and_then(|aggregate| {
-            Self::aggregate_seek_spec(aggregate, direction, capabilities, continuation.window())
+            Self::aggregate_seek_spec(
+                plan,
+                aggregate,
+                direction,
+                capabilities,
+                continuation.window(),
+            )
         });
         let aggregate_physical_fetch_hint =
             count_pushdown_probe_fetch_hint.or(aggregate_terminal_probe_fetch_hint);
         let aggregate_secondary_extrema_probe_fetch_hint =
             aggregate_seek_spec.map(AggregateSeekSpec::fetch);
+        let top_n_seek_spec = if load_scan_hint_gate_rejection.is_none() && kind.is_none() {
+            Self::top_n_seek_spec(plan, continuation, capabilities)
+        } else {
+            None
+        };
 
         let load_physical_fetch_hint = if load_scan_hint_gate_rejection.is_some() {
             None
@@ -412,6 +422,7 @@ where
                 physical_fetch_hint,
                 load_scan_budget_hint,
             },
+            top_n_seek_spec,
             count_pushdown_eligible,
             aggregate_physical_fetch_hint,
             aggregate_seek_spec,

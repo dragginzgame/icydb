@@ -87,6 +87,30 @@ impl AggregateSeekSpec {
 }
 
 ///
+/// TopNSeekSpec
+///
+/// Canonical route contract for ordered load `LIMIT` seek windows.
+/// Encodes the bounded fetch size for one top-N access pass.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) struct TopNSeekSpec {
+    fetch: usize,
+}
+
+impl TopNSeekSpec {
+    #[must_use]
+    pub(in crate::db::executor::route) const fn new(fetch: usize) -> Self {
+        Self { fetch }
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn fetch(self) -> usize {
+        self.fetch
+    }
+}
+
+///
 /// ContinuationMode
 ///
 /// Route-owned continuation classification used to keep resume-policy decisions
@@ -227,6 +251,7 @@ pub(in crate::db::executor) struct ExecutionRoutePlan {
     pub(in crate::db::executor) index_range_limit_spec: Option<IndexRangeLimitSpec>,
     pub(in crate::db::executor::route) capabilities: RouteCapabilities,
     pub(in crate::db::executor) fast_path_order: &'static [FastPathOrder],
+    pub(in crate::db::executor) top_n_seek_spec: Option<TopNSeekSpec>,
     pub(in crate::db::executor) aggregate_seek_spec: Option<AggregateSeekSpec>,
     pub(in crate::db::executor) aggregate_secondary_extrema_probe_fetch_hint: Option<usize>,
     pub(in crate::db::executor) scan_hints: ScanHintPlan,
@@ -358,6 +383,12 @@ impl ExecutionRoutePlan {
     #[must_use]
     pub(in crate::db::executor) fn aggregate_seek_fetch_hint(&self) -> Option<usize> {
         self.aggregate_seek_spec().map(AggregateSeekSpec::fetch)
+    }
+
+    // Route-owned bounded fetch contract for ordered load top-N seek windows.
+    #[must_use]
+    pub(in crate::db::executor) const fn top_n_seek_spec(&self) -> Option<TopNSeekSpec> {
+        self.top_n_seek_spec
     }
 
     // Compatibility accessor kept while aggregate runtimes migrate to explicit

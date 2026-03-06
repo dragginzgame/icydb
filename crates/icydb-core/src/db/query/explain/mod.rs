@@ -303,6 +303,11 @@ pub enum ExplainAccessPath {
         prefix_len: usize,
         values: Vec<Value>,
     },
+    IndexMultiLookup {
+        name: &'static str,
+        fields: Vec<&'static str>,
+        values: Vec<Value>,
+    },
     IndexRange {
         name: &'static str,
         fields: Vec<&'static str>,
@@ -594,6 +599,19 @@ where
             name: index_name,
             fields: index_fields.to_vec(),
             prefix_len,
+            values: values.to_vec(),
+        }
+    }
+
+    fn index_multi_lookup(
+        &mut self,
+        index_name: &'static str,
+        index_fields: &[&'static str],
+        values: &[Value],
+    ) -> Self::Output {
+        ExplainAccessPath::IndexMultiLookup {
+            name: index_name,
+            fields: index_fields.to_vec(),
             values: values.to_vec(),
         }
     }

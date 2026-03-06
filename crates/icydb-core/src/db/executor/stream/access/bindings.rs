@@ -51,10 +51,12 @@ where
 
     // Build one mutable spec-consumption cursor over prefix/range slices.
     #[must_use]
-    pub(super) fn spec_cursor(&self) -> AccessSpecCursor<'a> {
+    pub(super) const fn spec_cursor(&self) -> AccessSpecCursor<'a> {
         AccessSpecCursor {
-            index_prefix_specs: self.index_prefix_specs.iter(),
-            index_range_specs: self.index_range_specs.iter(),
+            index_prefix_specs: self.index_prefix_specs,
+            index_range_specs: self.index_range_specs,
+            index_prefix_offset: 0,
+            index_range_offset: 0,
         }
     }
 }
@@ -66,34 +68,48 @@ where
 /// Keeps consumption order explicit and exposes one end-of-traversal invariant check.
 ///
 
+#[expect(clippy::struct_field_names)]
 pub(in crate::db::executor) struct AccessSpecCursor<'a> {
-    index_prefix_specs: std::slice::Iter<'a, LoweredIndexPrefixSpec>,
-    index_range_specs: std::slice::Iter<'a, LoweredIndexRangeSpec>,
+    index_prefix_specs: &'a [LoweredIndexPrefixSpec],
+    index_range_specs: &'a [LoweredIndexRangeSpec],
+    index_prefix_offset: usize,
+    index_range_offset: usize,
 }
 
 impl<'a> AccessSpecCursor<'a> {
-    /// Consume the next lowered index-prefix spec in traversal order.
-    pub(in crate::db::executor) fn next_index_prefix_spec(
+    /// Consume the next `count` lowered index-prefix specs in traversal order.
+    pub(in crate::db::executor) fn next_index_prefix_specs(
         &mut self,
-    ) -> Option<&'a LoweredIndexPrefixSpec> {
-        self.index_prefix_specs.next()
+        count: usize,
+    ) -> Option<&'a [LoweredIndexPrefixSpec]> {
+        let start = self.index_prefix_offset;
+        let end = start.saturating_add(count);
+        let slice = self.index_prefix_specs.get(start..end)?;
+        self.index_prefix_offset = end;
+
+        Some(slice)
     }
 
     /// Consume the next lowered index-range spec in traversal order.
     pub(in crate::db::executor) fn next_index_range_spec(
         &mut self,
     ) -> Option<&'a LoweredIndexRangeSpec> {
-        self.index_range_specs.next()
+        let spec = self.index_range_specs.get(self.index_range_offset);
+        if spec.is_some() {
+            self.index_range_offset = self.index_range_offset.saturating_add(1);
+        }
+
+        spec
     }
 
     /// Enforce that all lowered specs were consumed during access-plan traversal.
-    pub(in crate::db::executor) fn validate_consumed(&mut self) -> Result<(), InternalError> {
-        if self.index_prefix_specs.next().is_some() {
+    pub(in crate::db::executor) fn validate_consumed(&self) -> Result<(), InternalError> {
+        if self.index_prefix_offset < self.index_prefix_specs.len() {
             return Err(invariant(
                 "unused index-prefix executable specs after access-plan traversal",
             ));
         }
-        if self.index_range_specs.next().is_some() {
+        if self.index_range_offset < self.index_range_specs.len() {
             return Err(invariant(
                 "unused index-range executable specs after access-plan traversal",
             ));
@@ -241,7 +257,7 @@ impl<'a, K> AccessExecutionDescriptor<'a, K> {
 ///
 
 pub(in crate::db) struct IndexStreamConstraints<'a> {
-    pub prefix: Option<&'a LoweredIndexPrefixSpec>,
+    pub prefixes: &'a [LoweredIndexPrefixSpec],
     pub range: Option<&'a LoweredIndexRangeSpec>,
 }
 

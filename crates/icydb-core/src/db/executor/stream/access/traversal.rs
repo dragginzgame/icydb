@@ -67,7 +67,7 @@ where
     {
         access.resolve_physical_key_stream(physical::PhysicalStreamRequest {
             ctx: self,
-            index_prefix_spec: constraints.prefix,
+            index_prefix_specs: constraints.prefixes,
             index_range_spec: constraints.range,
             continuation,
             physical_fetch_hint: hints.physical_fetch_hint,
@@ -162,7 +162,7 @@ impl AccessPlanStreamResolver {
     fn lower_path_access<E, K>(
         path: &ExecutableAccessPath<'_, K>,
         inputs: &AccessStreamInputs<'_, '_, E>,
-        index_prefix_spec: Option<&LoweredIndexPrefixSpec>,
+        index_prefix_specs: &[LoweredIndexPrefixSpec],
         index_range_spec: Option<&LoweredIndexRangeSpec>,
     ) -> Result<OrderedKeyStreamBox, InternalError>
     where
@@ -170,7 +170,7 @@ impl AccessPlanStreamResolver {
         K: Copy,
     {
         let constraints = IndexStreamConstraints {
-            prefix: index_prefix_spec,
+            prefixes: index_prefix_specs,
             range: index_range_spec,
         };
         let hints = StreamExecutionHints {
@@ -188,16 +188,17 @@ impl AccessPlanStreamResolver {
     // Validate that a consumed prefix spec belongs to the same index path node.
     fn validate_index_prefix_spec_alignment<K>(
         path: &ExecutableAccessPath<'_, K>,
-        index_prefix_spec: Option<&LoweredIndexPrefixSpec>,
+        index_prefix_specs: &[LoweredIndexPrefixSpec],
     ) -> Result<(), InternalError> {
         let path_capabilities = derive_access_path_capabilities(path);
-        if let Some(spec) = index_prefix_spec
-            && let Some(index) = path_capabilities.index_prefix_model()
-            && spec.index() != &index
-        {
-            return Err(invariant(
-                "index-prefix spec does not match access path index",
-            ));
+        if let Some(index) = path_capabilities.index_prefix_model() {
+            for spec in index_prefix_specs {
+                if spec.index() != &index {
+                    return Err(invariant(
+                        "index-prefix spec does not match access path index",
+                    ));
+                }
+            }
         }
 
         Ok(())
@@ -290,20 +291,24 @@ impl AccessPlanStreamResolver {
         match access.node() {
             ExecutableAccessNode::Path(path) => {
                 let path_capabilities = derive_access_path_capabilities(path);
-                let index_prefix_spec = if path_capabilities.consumes_index_prefix_spec() {
-                    spec_cursor.next_index_prefix_spec()
+                let index_prefix_specs = if path_capabilities.index_prefix_spec_count() > 0 {
+                    spec_cursor
+                        .next_index_prefix_specs(path_capabilities.index_prefix_spec_count())
+                        .ok_or_else(|| {
+                            invariant("index-prefix execution requires pre-lowered specs")
+                        })?
                 } else {
-                    None
+                    &[]
                 };
                 let index_range_spec = if path_capabilities.consumes_index_range_spec() {
                     spec_cursor.next_index_range_spec()
                 } else {
                     None
                 };
-                Self::validate_index_prefix_spec_alignment(path, index_prefix_spec)?;
+                Self::validate_index_prefix_spec_alignment(path, index_prefix_specs)?;
                 Self::validate_index_range_spec_alignment(path, index_range_spec)?;
 
-                Self::lower_path_access(path, inputs, index_prefix_spec, index_range_spec)
+                Self::lower_path_access(path, inputs, index_prefix_specs, index_range_spec)
             }
             ExecutableAccessNode::Union(children) => {
                 Self::produce_union_key_stream(children, inputs, spec_cursor)

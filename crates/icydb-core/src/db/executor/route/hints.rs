@@ -6,7 +6,11 @@
 use crate::{
     db::{
         direction::Direction,
-        executor::{ExecutionKernel, load::LoadExecutor, route::AggregateSeekSpec},
+        executor::{
+            ExecutionKernel,
+            load::LoadExecutor,
+            route::{AggregateSeekSpec, TopNSeekSpec},
+        },
         query::builder::AggregateExpr,
         query::plan::{AccessPlannedQuery, AggregateKind, DistinctExecutionStrategy},
     },
@@ -70,12 +74,55 @@ where
         continuation: RouteContinuationPlan,
         capabilities: RouteCapabilities,
     ) -> Option<usize> {
+        let limit_zero = plan
+            .scalar_plan()
+            .page
+            .as_ref()
+            .is_some_and(|page| page.limit == Some(0));
+        if limit_zero {
+            return plan.access_strategy().load_window_early_stop_hint(
+                continuation.applied(),
+                capabilities.streaming_access_shape_safe,
+                Some(0),
+            );
+        }
+
         let fetch_count = continuation.window().fetch_count_for(true);
         plan.access_strategy().load_window_early_stop_hint(
             continuation.applied(),
             capabilities.streaming_access_shape_safe,
             fetch_count,
         )
+    }
+
+    // Build an explicit top-N seek contract for ordered load windows when
+    // route eligibility permits bounded access traversal.
+    pub(super) fn top_n_seek_spec(
+        plan: &AccessPlannedQuery<E::Key>,
+        continuation: RouteContinuationPlan,
+        capabilities: RouteCapabilities,
+    ) -> Option<TopNSeekSpec> {
+        let logical = plan.scalar_plan();
+        let has_order = logical
+            .order
+            .as_ref()
+            .is_some_and(|order| !order.fields.is_empty());
+        if !logical.mode.is_load() || !has_order {
+            return None;
+        }
+        if !capabilities.streaming_access_shape_safe {
+            return None;
+        }
+        if continuation.applied() {
+            return None;
+        }
+
+        let route_window = continuation.window();
+        if route_window.limit() == Some(0) {
+            return Some(TopNSeekSpec::new(0));
+        }
+
+        route_window.fetch_count_for(true).map(TopNSeekSpec::new)
     }
 
     // Shared bounded-probe safety gate for aggregate key-stream hints.
@@ -118,20 +165,29 @@ where
     }
 
     pub(super) fn aggregate_probe_fetch_hint(
+        plan: &AccessPlannedQuery<E::Key>,
         aggregate: &AggregateExpr,
         direction: Direction,
         capabilities: RouteCapabilities,
         route_window: RouteWindowPlan,
     ) -> Option<usize> {
         let kind = aggregate.kind();
-        // Field-target extrema probe hints are only safe for MIN(field) ASC:
-        // tie-break semantics use primary-key ascending, so MAX(field) DESC
-        // may require scanning additional same-field candidates.
+        // Field-target extrema probe hints require deterministic tie coverage.
+        // MIN(field) ASC can always short-circuit on the first existing row.
+        // MAX(field) DESC can short-circuit only when ties are impossible.
         if aggregate.target_field().is_some() {
-            if !matches!((kind, direction), (AggregateKind::Min, Direction::Asc)) {
-                return None;
-            }
-            if !capabilities.field_min_fast_path_eligible {
+            if matches!((kind, direction), (AggregateKind::Min, Direction::Asc)) {
+                if !capabilities.field_min_fast_path_eligible {
+                    return None;
+                }
+            } else if matches!((kind, direction), (AggregateKind::Max, Direction::Desc)) {
+                if !capabilities.field_max_fast_path_eligible {
+                    return None;
+                }
+                if !Self::field_target_max_probe_shape_is_tie_free(plan, aggregate) {
+                    return None;
+                }
+            } else {
                 return None;
             }
         }
@@ -162,6 +218,7 @@ where
     // Build an explicit aggregate seek contract when bounded aggregate probe
     // hints are eligible for one extrema terminal shape.
     pub(super) fn aggregate_seek_spec(
+        plan: &AccessPlannedQuery<E::Key>,
         aggregate: &AggregateExpr,
         direction: Direction,
         capabilities: RouteCapabilities,
@@ -170,12 +227,60 @@ where
         if !aggregate.kind().is_extrema() {
             return None;
         }
-        let fetch =
-            Self::aggregate_probe_fetch_hint(aggregate, direction, capabilities, route_window)?;
+        let fetch = Self::aggregate_probe_fetch_hint(
+            plan,
+            aggregate,
+            direction,
+            capabilities,
+            route_window,
+        )?;
 
         Some(match direction {
             Direction::Asc => AggregateSeekSpec::First { fetch },
             Direction::Desc => AggregateSeekSpec::Last { fetch },
         })
+    }
+
+    // Field-target MAX probe hints are safe only when the chosen path guarantees
+    // no duplicate target values can appear in traversal order.
+    fn field_target_max_probe_shape_is_tie_free(
+        plan: &AccessPlannedQuery<E::Key>,
+        aggregate: &AggregateExpr,
+    ) -> bool {
+        let Some(target_field) = aggregate.target_field() else {
+            return false;
+        };
+
+        let access_class = plan.access_strategy().class();
+        let index_model = access_class
+            .single_path_index_prefix_details()
+            .or_else(|| access_class.single_path_index_range_details())
+            .map(|(index, _)| index);
+
+        Self::is_tie_free_probe_target(target_field, index_model)
+    }
+
+    // One canonical tie-free target guard for bounded MAX(field) probe hints.
+    // Tie-free means:
+    // - target is primary key, or
+    // - target is backed by a unique single-field leading index.
+    fn is_tie_free_probe_target(
+        target_field: &str,
+        index_model: Option<crate::model::index::IndexModel>,
+    ) -> bool {
+        if target_field == E::MODEL.primary_key.name {
+            return true;
+        }
+
+        let Some(index_model) = index_model else {
+            return false;
+        };
+
+        index_model.unique
+            && index_model.fields.len() == 1
+            && index_model
+                .fields
+                .first()
+                .is_some_and(|field| *field == target_field)
     }
 }

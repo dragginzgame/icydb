@@ -3,7 +3,9 @@ use crate::{
         access::{AccessPlan, SemanticIndexRangeSpec},
         predicate::{CoercionId, CompareOp, ComparePredicate, SchemaInfo, literal_matches_type},
         query::plan::planner::{
-            index_literal_matches_schema, prefix::index_prefix_for_eq, sorted_indexes,
+            index_literal_matches_schema,
+            prefix::{index_multi_lookup_for_in, index_prefix_for_eq},
+            sorted_indexes,
         },
     },
     model::entity::EntityModel,
@@ -33,16 +35,10 @@ pub(super) fn plan_compare(
             }
         }
         CompareOp::In => {
-            if let Value::List(items) = &cmp.value {
-                let mut plans = Vec::new();
-                for item in items {
-                    if let Some(paths) = index_prefix_for_eq(model, schema, &cmp.field, item) {
-                        plans.extend(paths);
-                    }
-                }
-                if !plans.is_empty() {
-                    return AccessPlan::union(plans);
-                }
+            if let Value::List(items) = &cmp.value
+                && let Some(paths) = index_multi_lookup_for_in(model, schema, &cmp.field, items)
+            {
+                return AccessPlan::union(paths);
             }
         }
         CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte => {

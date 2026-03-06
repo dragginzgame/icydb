@@ -98,6 +98,7 @@ pub(in crate::db) enum ExecutionPathKind {
     ByKeys,
     KeyRange,
     IndexPrefix,
+    IndexMultiLookup,
     IndexRange,
     FullScan,
 }
@@ -118,6 +119,9 @@ pub(in crate::db) enum ExecutionPathPayload<'a, K> {
         end: &'a K,
     },
     IndexPrefix,
+    IndexMultiLookup {
+        value_count: usize,
+    },
     IndexRange {
         prefix_values: &'a [Value],
         lower: &'a Bound<Value>,
@@ -269,12 +273,37 @@ impl AccessRouteClass {
                 );
                 return PushdownApplicability::NotApplicable;
             };
-            return PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Rejected(
-                SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                    index: index.name,
-                    prefix_len,
-                },
-            ));
+            if prefix_len > index.fields.len() {
+                return PushdownApplicability::Applicable(
+                    SecondaryOrderPushdownEligibility::Rejected(
+                        SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
+                            prefix_len,
+                            index_field_len: index.fields.len(),
+                        },
+                    ),
+                );
+            }
+
+            let eligibility = match_secondary_order_pushdown_core(
+                model,
+                order_fields,
+                index.name,
+                index.fields,
+                prefix_len,
+            );
+            return match eligibility {
+                SecondaryOrderPushdownEligibility::Eligible { .. } => {
+                    PushdownApplicability::Applicable(eligibility)
+                }
+                SecondaryOrderPushdownEligibility::Rejected(_) => {
+                    PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Rejected(
+                        SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
+                            index: index.name,
+                            prefix_len,
+                        },
+                    ))
+                }
+            };
         }
 
         PushdownApplicability::NotApplicable
@@ -483,6 +512,13 @@ where
                 "IndexPrefix".to_string()
             }
         }
+        ExecutionPathPayload::IndexMultiLookup { value_count } => {
+            if let Some((index, _)) = path.index_prefix_details() {
+                format!("IndexMultiLookup({} values={value_count})", index.name)
+            } else {
+                format!("IndexMultiLookup(values={value_count})")
+            }
+        }
         ExecutionPathPayload::IndexRange {
             prefix_values,
             lower,
@@ -576,6 +612,7 @@ const fn supports_reverse_traversal(kind: ExecutionPathKind) -> bool {
         ExecutionPathKind::ByKey
             | ExecutionPathKind::KeyRange
             | ExecutionPathKind::IndexPrefix
+            | ExecutionPathKind::IndexMultiLookup
             | ExecutionPathKind::IndexRange
             | ExecutionPathKind::FullScan
     )
@@ -732,6 +769,7 @@ impl<'a, K> ExecutableAccessPath<'a, K> {
             ExecutionPathPayload::ByKeys(_) => ExecutionPathKind::ByKeys,
             ExecutionPathPayload::KeyRange { .. } => ExecutionPathKind::KeyRange,
             ExecutionPathPayload::IndexPrefix => ExecutionPathKind::IndexPrefix,
+            ExecutionPathPayload::IndexMultiLookup { .. } => ExecutionPathKind::IndexMultiLookup,
             ExecutionPathPayload::IndexRange { .. } => ExecutionPathKind::IndexRange,
             ExecutionPathPayload::FullScan => ExecutionPathKind::FullScan,
         }
@@ -782,6 +820,7 @@ impl<'a, K> ExecutableAccessPath<'a, K> {
             | ExecutionPathPayload::ByKeys(_)
             | ExecutionPathPayload::KeyRange { .. }
             | ExecutionPathPayload::IndexPrefix
+            | ExecutionPathPayload::IndexMultiLookup { .. }
             | ExecutionPathPayload::FullScan => None,
         }
     }
@@ -968,7 +1007,13 @@ fn access_plan_is_pk_ordered_stream_internal<K>(access: &ExecutableAccessPlan<'_
 
 #[cfg(test)]
 mod tests {
-    use crate::db::access::{AccessPlan, AccessStrategy};
+    use crate::{
+        db::access::{AccessPlan, AccessStrategy},
+        model::index::IndexModel,
+        value::Value,
+    };
+
+    const INDEX_MULTI_LOOKUP_TEST_FIELDS: [&str; 1] = ["group"];
 
     #[test]
     fn access_strategy_debug_summary_reports_scalar_path_shape() {
@@ -999,6 +1044,24 @@ mod tests {
         assert!(
             format!("{strategy:?}").contains("summary"),
             "debug output should include the summarized route label",
+        );
+    }
+
+    #[test]
+    fn access_strategy_debug_summary_reports_index_multi_lookup_shape() {
+        let index = IndexModel::new(
+            "tests::idx_group",
+            "tests::store",
+            &INDEX_MULTI_LOOKUP_TEST_FIELDS,
+            false,
+        );
+        let plan: AccessPlan<u64> =
+            AccessPlan::index_multi_lookup(index, vec![Value::Uint(7), Value::Uint(9)]);
+        let strategy = AccessStrategy::from_plan(&plan);
+
+        assert!(
+            strategy.debug_summary().contains("IndexMultiLookup"),
+            "index multi-lookup strategies should render dedicated path summaries",
         );
     }
 }
