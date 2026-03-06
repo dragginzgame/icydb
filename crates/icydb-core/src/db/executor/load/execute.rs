@@ -442,8 +442,9 @@ where
         metrics: ExecutionOutcomeMetrics,
         span: &mut Span<E>,
         execution_trace: &mut Option<ExecutionTrace>,
+        execution_time_micros: u64,
     ) -> CursorPage<E> {
-        Self::finalize_path_outcome(execution_trace, metrics, false);
+        Self::finalize_path_outcome(execution_trace, metrics, false, execution_time_micros);
         set_rows_from_len(span, page.items.len());
 
         page

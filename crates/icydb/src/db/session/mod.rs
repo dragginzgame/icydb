@@ -4,7 +4,8 @@ mod macros;
 
 use crate::{
     db::{
-        query::{MissingRowPolicy, Query},
+        EntitySchemaDescription,
+        query::{MissingRowPolicy, Query, QueryTracePlan},
         response::{PagedGroupedResponse, Response, WriteBatchResponse, WriteResponse},
     },
     error::Error,
@@ -101,6 +102,24 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
+    /// Return one stable, human-readable index listing for the entity schema.
+    #[must_use]
+    pub fn show_indexes<E>(&self) -> Vec<String>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        self.inner.show_indexes::<E>()
+    }
+
+    /// Return one structured schema description for the entity.
+    #[must_use]
+    pub fn describe_entity<E>(&self) -> EntitySchemaDescription
+    where
+        E: EntityKind<Canister = C>,
+    {
+        self.inner.describe_entity::<E>()
+    }
+
     // ------------------------------------------------------------------
     // Execution
     // ------------------------------------------------------------------
@@ -110,6 +129,14 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C> + EntityValue,
     {
         Ok(Response::from_core(self.inner.execute_query(query)?))
+    }
+
+    /// Build one trace payload for a query without executing it.
+    pub fn trace_query<E>(&self, query: &Query<E>) -> Result<QueryTracePlan, Error>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        Ok(self.inner.trace_query(query)?)
     }
 
     /// Execute one grouped query page with optional continuation cursor.

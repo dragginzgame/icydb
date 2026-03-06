@@ -33,6 +33,7 @@ where
     pub(super) fn finalize_grouped_output<R>(
         mut route: R,
         folded: GroupedFoldStage,
+        execution_time_micros: u64,
     ) -> (GroupedCursorPage, Option<ExecutionTrace>)
     where
         R: GroupedRouteStageProjection<E>,
@@ -46,7 +47,12 @@ where
             index_predicate_keys_rejected: folded.index_predicate_keys_rejected(),
             distinct_keys_deduped: folded.distinct_keys_deduped(),
         };
-        Self::finalize_path_outcome(route.execution_trace_mut(), metrics, false);
+        Self::finalize_path_outcome(
+            route.execution_trace_mut(),
+            metrics,
+            false,
+            execution_time_micros,
+        );
 
         let mut span = crate::obs::sink::Span::<E>::new(crate::obs::sink::ExecKind::Load);
         span.set_rows(u64::try_from(rows_returned).unwrap_or(u64::MAX));
@@ -159,6 +165,7 @@ where
         execution_trace: &mut Option<ExecutionTrace>,
         metrics: ExecutionOutcomeMetrics,
         index_only: bool,
+        execution_time_micros: u64,
     ) {
         let ExecutionOutcomeMetrics {
             optimization,
@@ -175,6 +182,7 @@ where
                 rows_scanned,
                 rows_scanned,
                 post_access_rows,
+                execution_time_micros,
                 index_only,
                 index_predicate_applied,
                 index_predicate_keys_rejected,

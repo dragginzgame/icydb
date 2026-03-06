@@ -212,3 +212,236 @@ fn session_load_new_field_aggregates_match_execute() {
         "session min_max_by(rank) parity failed"
     );
 }
+
+#[test]
+fn session_load_terminal_explain_projects_seek_labels_for_min_and_max() {
+    seed_pushdown_entities(&[
+        (9_401, 7, 10),
+        (9_402, 7, 20),
+        (9_403, 7, 30),
+        (9_404, 8, 99),
+    ]);
+    let session = DbSession::new(DB);
+
+    let min_terminal_plan = session
+        .load::<PushdownParityEntity>()
+        .filter(u32_eq_predicate("group", 7))
+        .order_by("rank")
+        .order_by("id")
+        .explain_min()
+        .expect("session explain_min should succeed");
+    assert_eq!(min_terminal_plan.terminal, AggregateKind::Min);
+    assert!(matches!(
+        min_terminal_plan.route,
+        crate::db::ExplainAggregateTerminalRoute::IndexSeekFirst { fetch: 1 }
+    ));
+    assert_eq!(min_terminal_plan.execution.aggregation, AggregateKind::Min);
+    assert!(matches!(
+        min_terminal_plan.execution.ordering_source,
+        crate::db::ExplainExecutionOrderingSource::IndexSeekFirst { fetch: 1 }
+    ));
+    assert_eq!(
+        min_terminal_plan.execution.access_strategy,
+        min_terminal_plan.query.access
+    );
+    assert_eq!(min_terminal_plan.execution.limit, None);
+    assert!(!min_terminal_plan.execution.cursor);
+
+    let max_terminal_plan = session
+        .load::<PushdownParityEntity>()
+        .filter(u32_eq_predicate("group", 7))
+        .order_by_desc("rank")
+        .order_by_desc("id")
+        .explain_max()
+        .expect("session explain_max should succeed");
+    assert_eq!(max_terminal_plan.terminal, AggregateKind::Max);
+    assert!(matches!(
+        max_terminal_plan.route,
+        crate::db::ExplainAggregateTerminalRoute::IndexSeekLast { fetch: 1 }
+    ));
+    assert_eq!(max_terminal_plan.execution.aggregation, AggregateKind::Max);
+    assert!(matches!(
+        max_terminal_plan.execution.ordering_source,
+        crate::db::ExplainExecutionOrderingSource::IndexSeekLast { fetch: 1 }
+    ));
+    assert_eq!(
+        max_terminal_plan.execution.access_strategy,
+        max_terminal_plan.query.access
+    );
+    assert_eq!(max_terminal_plan.execution.limit, None);
+    assert!(!max_terminal_plan.execution.cursor);
+}
+
+#[test]
+fn session_show_indexes_reports_primary_and_secondary_indexes() {
+    let session = DbSession::new(DB);
+
+    assert_eq!(
+        session.show_indexes::<SimpleEntity>(),
+        vec!["PRIMARY KEY (id)".to_string()],
+        "entities without secondary indexes should only report primary key metadata",
+    );
+    assert_eq!(
+        session.show_indexes::<PushdownParityEntity>(),
+        vec![
+            "PRIMARY KEY (id)".to_string(),
+            "INDEX group_rank (group, rank)".to_string(),
+        ],
+        "entities with one non-unique secondary index should report both primary and index rows",
+    );
+    assert_eq!(
+        session.show_indexes::<UniqueIndexRangeEntity>(),
+        vec![
+            "PRIMARY KEY (id)".to_string(),
+            "UNIQUE INDEX code_unique (code)".to_string(),
+        ],
+        "unique secondary indexes should be explicitly labeled as unique",
+    );
+}
+
+#[test]
+fn session_describe_entity_reports_fields_indexes_and_relations() {
+    let session = DbSession::new(DB);
+
+    let indexed = session.describe_entity::<PushdownParityEntity>();
+    assert_eq!(indexed.entity_name, "PushdownParityEntity");
+    assert_eq!(indexed.primary_key, "id");
+    assert_eq!(indexed.fields.len(), 4);
+    assert!(indexed.fields.iter().any(|field| {
+        field.name == "rank" && field.kind == "uint" && field.queryable && !field.primary_key
+    }));
+    assert_eq!(
+        indexed.indexes,
+        vec![crate::db::EntityIndexDescription {
+            name: "group_rank".to_string(),
+            unique: false,
+            fields: vec!["group".to_string(), "rank".to_string()],
+        }],
+    );
+    assert!(
+        indexed.relations.is_empty(),
+        "non-relation entities should not emit relation describe rows",
+    );
+
+    let relation_session = DbSession::new(REL_DB);
+    let weak_list = relation_session.describe_entity::<WeakListRelationSourceEntity>();
+    assert!(
+        weak_list.relations.iter().any(|relation| {
+            relation.field == "targets"
+                && relation.target_entity_name == "RelationTargetEntity"
+                && relation.strength == crate::db::EntityRelationStrength::Weak
+                && relation.cardinality == crate::db::EntityRelationCardinality::List
+        }),
+        "list relation metadata should carry target identity, weak strength, and list cardinality",
+    );
+
+    let strong_single = relation_session.describe_entity::<RelationSourceEntity>();
+    assert!(
+        strong_single.relations.iter().any(|relation| {
+            relation.field == "target"
+                && relation.target_entity_name == "RelationTargetEntity"
+                && relation.strength == crate::db::EntityRelationStrength::Strong
+                && relation.cardinality == crate::db::EntityRelationCardinality::Single
+        }),
+        "scalar strong relation metadata should be projected for describe consumers",
+    );
+}
+
+#[test]
+fn session_trace_query_reports_plan_hash_and_route_summary() {
+    seed_pushdown_entities(&[
+        (9_501, 7, 10),
+        (9_502, 7, 20),
+        (9_503, 7, 30),
+        (9_504, 8, 99),
+    ]);
+    let session = DbSession::new(DB);
+    let query = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(u32_eq_predicate("group", 7))
+        .order_by("rank")
+        .order_by("id")
+        .limit(2);
+
+    let trace = session
+        .trace_query(&query)
+        .expect("session trace_query should succeed");
+    let expected_hash = query
+        .plan_hash_hex()
+        .expect("query plan hash should derive from explain model");
+
+    assert_eq!(
+        trace.plan_hash, expected_hash,
+        "trace payload must project the same hash as direct plan-hash derivation",
+    );
+    assert_eq!(
+        trace.explain.access,
+        query
+            .explain()
+            .expect("query explain for trace parity should succeed")
+            .access,
+        "trace explain access path should preserve planner-selected access shape",
+    );
+    assert!(
+        trace.access_strategy.starts_with("Index")
+            || trace.access_strategy.starts_with("PrimaryKeyRange")
+            || trace.access_strategy == "FullScan"
+            || trace.access_strategy.starts_with("Union(")
+            || trace.access_strategy.starts_with("Intersection("),
+        "trace access strategy summary should provide a human-readable selected access hint",
+    );
+    assert!(
+        matches!(
+            trace.execution_strategy,
+            Some(crate::db::TraceExecutionStrategy::Ordered)
+        ),
+        "ordered load shapes should project ordered execution strategy in trace payload",
+    );
+    assert!(
+        matches!(
+            trace.explain.order_pushdown,
+            crate::db::query::explain::ExplainOrderPushdown::EligibleSecondaryIndex { .. }
+                | crate::db::query::explain::ExplainOrderPushdown::Rejected(_)
+                | crate::db::query::explain::ExplainOrderPushdown::MissingModelContext
+        ),
+        "trace explain output must carry planner pushdown eligibility diagnostics",
+    );
+}
+
+#[test]
+fn session_load_terminal_explain_reports_standard_route_for_exists() {
+    seed_pushdown_entities(&[
+        (9_421, 7, 10),
+        (9_422, 7, 20),
+        (9_423, 7, 30),
+        (9_424, 8, 99),
+    ]);
+    let session = DbSession::new(DB);
+
+    let exists_terminal_plan = session
+        .load::<PushdownParityEntity>()
+        .filter(u32_eq_predicate("group", 7))
+        .order_by("rank")
+        .order_by("id")
+        .explain_exists()
+        .expect("session explain_exists should succeed");
+    assert_eq!(exists_terminal_plan.terminal, AggregateKind::Exists);
+    assert!(matches!(
+        exists_terminal_plan.route,
+        crate::db::ExplainAggregateTerminalRoute::Standard
+    ));
+    assert_eq!(
+        exists_terminal_plan.execution.aggregation,
+        AggregateKind::Exists
+    );
+    assert!(matches!(
+        exists_terminal_plan.execution.ordering_source,
+        crate::db::ExplainExecutionOrderingSource::AccessOrder
+            | crate::db::ExplainExecutionOrderingSource::Materialized
+    ));
+    assert_eq!(
+        exists_terminal_plan.execution.access_strategy,
+        exists_terminal_plan.query.access
+    );
+    assert_eq!(exists_terminal_plan.execution.limit, None);
+    assert!(!exists_terminal_plan.execution.cursor);
+}

@@ -6,7 +6,7 @@
 use crate::{
     db::{
         direction::Direction,
-        executor::{ExecutionKernel, load::LoadExecutor},
+        executor::{ExecutionKernel, load::LoadExecutor, route::AggregateSeekSpec},
         query::builder::AggregateExpr,
         query::plan::{AccessPlannedQuery, AggregateKind, DistinctExecutionStrategy},
     },
@@ -157,5 +157,25 @@ where
             .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
 
         aggregate_bounded_probe_fetch_hint(kind, direction, offset, page_limit)
+    }
+
+    // Build an explicit aggregate seek contract when bounded aggregate probe
+    // hints are eligible for one extrema terminal shape.
+    pub(super) fn aggregate_seek_spec(
+        aggregate: &AggregateExpr,
+        direction: Direction,
+        capabilities: RouteCapabilities,
+        route_window: RouteWindowPlan,
+    ) -> Option<AggregateSeekSpec> {
+        if !aggregate.kind().is_extrema() {
+            return None;
+        }
+        let fetch =
+            Self::aggregate_probe_fetch_hint(aggregate, direction, capabilities, route_window)?;
+
+        Some(match direction {
+            Direction::Asc => AggregateSeekSpec::First { fetch },
+            Direction::Desc => AggregateSeekSpec::Last { fetch },
+        })
     }
 }

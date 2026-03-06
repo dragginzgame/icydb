@@ -46,6 +46,100 @@ pub struct ExplainPlan {
     pub consistency: MissingRowPolicy,
 }
 
+///
+/// ExplainAggregateTerminalRoute
+///
+/// Executor-projected scalar aggregate terminal route label for explain output.
+/// Keeps seek-edge fast-path labels explicit without exposing route internals.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExplainAggregateTerminalRoute {
+    Standard,
+    IndexSeekFirst { fetch: usize },
+    IndexSeekLast { fetch: usize },
+}
+
+///
+/// ExplainAggregateTerminalPlan
+///
+/// Combined explain payload for one scalar aggregate terminal request.
+/// Includes logical explain projection plus executor route label.
+///
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExplainAggregateTerminalPlan {
+    pub query: ExplainPlan,
+    pub terminal: AggregateKind,
+    pub route: ExplainAggregateTerminalRoute,
+    pub execution: ExplainExecutionDescriptor,
+}
+
+///
+/// ExplainExecutionOrderingSource
+///
+/// Stable ordering-origin projection used by terminal execution explain output.
+/// This keeps index-seek labels and materialized fallback labels explicit.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExplainExecutionOrderingSource {
+    AccessOrder,
+    Materialized,
+    IndexSeekFirst { fetch: usize },
+    IndexSeekLast { fetch: usize },
+}
+
+///
+/// ExplainExecutionDescriptor
+///
+/// Stable scalar execution descriptor consumed by terminal EXPLAIN surfaces.
+/// This keeps execution authority projection centralized and avoids ad-hoc
+/// terminal-specific explain branching at call sites.
+///
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExplainExecutionDescriptor {
+    pub access_strategy: ExplainAccessPath,
+    pub covering_projection: bool,
+    pub aggregation: AggregateKind,
+    pub ordering_source: ExplainExecutionOrderingSource,
+    pub limit: Option<u32>,
+    pub cursor: bool,
+}
+
+impl ExplainAggregateTerminalPlan {
+    #[must_use]
+    pub(in crate::db) const fn new(
+        query: ExplainPlan,
+        terminal: AggregateKind,
+        execution: ExplainExecutionDescriptor,
+    ) -> Self {
+        let route = execution.route();
+
+        Self {
+            query,
+            terminal,
+            route,
+            execution,
+        }
+    }
+}
+
+impl ExplainExecutionDescriptor {
+    #[must_use]
+    pub(in crate::db) const fn route(&self) -> ExplainAggregateTerminalRoute {
+        match self.ordering_source {
+            ExplainExecutionOrderingSource::IndexSeekFirst { fetch } => {
+                ExplainAggregateTerminalRoute::IndexSeekFirst { fetch }
+            }
+            ExplainExecutionOrderingSource::IndexSeekLast { fetch } => {
+                ExplainAggregateTerminalRoute::IndexSeekLast { fetch }
+            }
+            ExplainExecutionOrderingSource::AccessOrder
+            | ExplainExecutionOrderingSource::Materialized => {
+                ExplainAggregateTerminalRoute::Standard
+            }
+        }
+    }
+}
+
 impl ExplainPlan {
     /// Return the canonical predicate model used for hashing/fingerprints.
     ///
@@ -537,7 +631,7 @@ where
 }
 
 impl ExplainAccessPath {
-    fn from_access_plan<K>(access: &AccessPlan<K>) -> Self
+    pub(in crate::db) fn from_access_plan<K>(access: &AccessPlan<K>) -> Self
     where
         K: FieldValue,
     {

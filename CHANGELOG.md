@@ -7,9 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.41.x] - 2026-03-05 - Minor Features Kickoff
 
-- `0.41.0` opens this minor line with scalar `LIMIT` runtime cleanup, strategy-owned early-stop hint routing, no-cursor `LIMIT` parity coverage, and covering-index projection fast paths for `values/distinct/first/last`.
-- `0.41.1` adds aggregate speedups for index-backed scalar shapes (`count()`/`exists()`, parity-safe `COUNT WHERE pk = ?`, bounded index-leading `MIN(field)` probe hints, and faster covering `distinct_values_by`) while preserving stale-key and strict missing-row semantics.
-- `0.41.2` adds ordered-path planner/executor optimizations (`ORDER BY` sort-skip, bounded `ORDER BY ... LIMIT` windows, unpaged `ORDER BY ... LIMIT 1` seek hints), extends covering projection to `values_by_with_ids`, improves pushdown/simplification (`starts_with` range lowering, secondary `IN`/`BETWEEN` coverage, redundant `ByKey` predicate + `LIMIT 1` cleanup), and adds pre-EXPLAIN observability surfaces (`AccessStrategy` debug summary + response execution metrics).
+- `0.41.0` improved basic `LIMIT` handling and added the first index-covering projection fast paths for common scalar value terminals.
+- `0.41.1` sped up index-backed aggregate terminals (`count`, `exists`, and targeted `min`) while keeping strict correctness and stale-key safety checks.
+- `0.41.2` improved ordered-query execution and predicate pushdown groundwork for the next observability slice.
+- `0.41.3` delivers the pre-EXPLAIN developer slice: stable execution descriptors, plan hash + trace surfaces, schema introspection (`show_indexes`/`describe_entity`), execution metrics, and final ordered aggregate routing polish.
 
 See detailed breakdown:
 [docs/changelog/0.41.md](docs/changelog/0.41.md)

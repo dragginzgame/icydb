@@ -21,6 +21,7 @@ use crate::{
     obs::sink::{ExecKind, Span},
     traits::{EntityKind, EntityValue},
 };
+use std::time::Instant;
 
 impl<E> LoadExecutor<E>
 where
@@ -118,6 +119,7 @@ where
             .debug
             .then(|| ExecutionTrace::new(&logical_plan.access, direction, continuation_applied));
         let execution_preparation = ExecutionPreparation::for_plan::<E>(&logical_plan);
+        let execution_started_at = Instant::now();
 
         let result = (|| {
             let mut span = Span::<E>::new(ExecKind::Load);
@@ -143,12 +145,15 @@ where
                 IndexCompilePolicy::ConservativeSubset,
             )?;
             let (page, metrics) = materialized.into_page_and_metrics();
+            let execution_time_micros =
+                u64::try_from(execution_started_at.elapsed().as_micros()).unwrap_or(u64::MAX);
 
             Ok(Self::finalize_execution(
                 page,
                 metrics,
                 &mut span,
                 &mut execution_trace,
+                execution_time_micros,
             ))
         })();
 

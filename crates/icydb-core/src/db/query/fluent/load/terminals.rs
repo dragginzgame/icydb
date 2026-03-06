@@ -1,7 +1,12 @@
 use crate::{
     db::{
         query::fluent::load::FluentLoadQuery,
-        query::{api::ResponseCardinalityExt, intent::QueryError},
+        query::{
+            api::ResponseCardinalityExt,
+            builder::aggregate::{exists, first, last, max, min},
+            explain::ExplainAggregateTerminalPlan,
+            intent::QueryError,
+        },
         response::EntityResponse,
     },
     traits::{EntityKind, EntityValue},
@@ -52,6 +57,19 @@ where
             .execute_load_query_with(self.query(), |load, plan| load.aggregate_exists(plan))
     }
 
+    /// Explain scalar `exists()` routing without executing the terminal.
+    pub fn explain_exists(&self) -> Result<ExplainAggregateTerminalPlan, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        crate::db::DbSession::<E::Canister>::explain_load_query_terminal_with(
+            self.query(),
+            exists(),
+        )
+    }
+
     /// Execute and return the number of matching rows.
     pub fn count(&self) -> Result<u32, QueryError>
     where
@@ -72,6 +90,16 @@ where
 
         self.session
             .execute_load_query_with(self.query(), |load, plan| load.aggregate_min(plan))
+    }
+
+    /// Explain scalar `min()` routing without executing the terminal.
+    pub fn explain_min(&self) -> Result<ExplainAggregateTerminalPlan, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        crate::db::DbSession::<E::Canister>::explain_load_query_terminal_with(self.query(), min())
     }
 
     /// Execute and return the id of the row with the smallest value for `field`.
@@ -100,6 +128,16 @@ where
 
         self.session
             .execute_load_query_with(self.query(), |load, plan| load.aggregate_max(plan))
+    }
+
+    /// Explain scalar `max()` routing without executing the terminal.
+    pub fn explain_max(&self) -> Result<ExplainAggregateTerminalPlan, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        crate::db::DbSession::<E::Canister>::explain_load_query_terminal_with(self.query(), max())
     }
 
     /// Execute and return the id of the row with the largest value for `field`.
@@ -485,6 +523,16 @@ where
             .execute_load_query_with(self.query(), |load, plan| load.aggregate_first(plan))
     }
 
+    /// Explain scalar `first()` routing without executing the terminal.
+    pub fn explain_first(&self) -> Result<ExplainAggregateTerminalPlan, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        crate::db::DbSession::<E::Canister>::explain_load_query_terminal_with(self.query(), first())
+    }
+
     /// Execute and return the last matching identifier in response order, if any.
     pub fn last(&self) -> Result<Option<Id<E>>, QueryError>
     where
@@ -494,6 +542,16 @@ where
 
         self.session
             .execute_load_query_with(self.query(), |load, plan| load.aggregate_last(plan))
+    }
+
+    /// Explain scalar `last()` routing without executing the terminal.
+    pub fn explain_last(&self) -> Result<ExplainAggregateTerminalPlan, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        crate::db::DbSession::<E::Canister>::explain_load_query_terminal_with(self.query(), last())
     }
 
     /// Execute and require exactly one matching row.

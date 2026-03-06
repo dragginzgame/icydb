@@ -7,16 +7,22 @@
 use crate::db::{DataStore, IndexStore};
 use crate::{
     db::{
-        Db, EntityResponse, FluentDeleteQuery, FluentLoadQuery, MissingRowPolicy,
-        PagedGroupedExecutionWithTrace, PagedLoadExecutionWithTrace, PlanError, Query, QueryError,
-        StoreRegistry, WriteBatchResponse,
+        Db, EntityResponse, EntitySchemaDescription, FluentDeleteQuery, FluentLoadQuery,
+        MissingRowPolicy, PagedGroupedExecutionWithTrace, PagedLoadExecutionWithTrace, PlanError,
+        Query, QueryError, QueryTracePlan, StoreRegistry, TraceExecutionStrategy,
+        WriteBatchResponse,
+        access::AccessStrategy,
         commit::EntityRuntimeHooks,
         cursor::decode_optional_cursor_token,
+        describe::describe_entity_model,
         executor::{
             DeleteExecutor, ExecutablePlan, ExecutionStrategy, ExecutorPlanError, LoadExecutor,
             SaveExecutor,
         },
-        query::plan::QueryMode,
+        query::{
+            builder::aggregate::AggregateExpr, explain::ExplainAggregateTerminalPlan,
+            plan::QueryMode,
+        },
     },
     error::InternalError,
     obs::sink::{MetricsSink, with_metrics_sink},
@@ -182,6 +188,45 @@ impl<C: CanisterKind> DbSession<C> {
         FluentDeleteQuery::new(self, Query::new(consistency).delete())
     }
 
+    /// Return one stable, human-readable index listing for the entity schema.
+    ///
+    /// Output format mirrors SQL-style introspection:
+    /// - `PRIMARY KEY (field)`
+    /// - `INDEX name (field_a, field_b)`
+    /// - `UNIQUE INDEX name (field_a, field_b)`
+    #[must_use]
+    pub fn show_indexes<E>(&self) -> Vec<String>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let mut indexes = Vec::with_capacity(E::MODEL.indexes.len().saturating_add(1));
+        indexes.push(format!("PRIMARY KEY ({})", E::MODEL.primary_key.name));
+
+        for index in E::MODEL.indexes {
+            let kind = if index.unique {
+                "UNIQUE INDEX"
+            } else {
+                "INDEX"
+            };
+            let fields = index.fields.join(", ");
+            indexes.push(format!("{kind} {} ({fields})", index.name));
+        }
+
+        indexes
+    }
+
+    /// Return one structured schema description for the entity.
+    ///
+    /// This is a typed `DESCRIBE`-style introspection surface consumed by
+    /// developer tooling and pre-EXPLAIN debugging.
+    #[must_use]
+    pub fn describe_entity<E>(&self) -> EntitySchemaDescription
+    where
+        E: EntityKind<Canister = C>,
+    {
+        describe_entity_model(E::MODEL)
+    }
+
     // ---------------------------------------------------------------------
     // Low-level executors (crate-internal; execution primitives)
     // ---------------------------------------------------------------------
@@ -243,6 +288,61 @@ impl<C: CanisterKind> DbSession<C> {
 
         self.with_metrics(|| op(self.load_executor::<E>(), plan))
             .map_err(QueryError::execute)
+    }
+
+    /// Build one trace payload for a query without executing it.
+    ///
+    /// This lightweight surface is intended for developer diagnostics:
+    /// plan hash, access strategy summary, and planner/executor route shape.
+    pub fn trace_query<E>(&self, query: &Query<E>) -> Result<QueryTracePlan, QueryError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let compiled = query.plan()?;
+        let explain = compiled.explain();
+        let plan_hash = explain.fingerprint().to_string();
+
+        let executable = compiled.into_executable();
+        let access_strategy = AccessStrategy::from_plan(executable.access()).debug_summary();
+        let execution_strategy = match query.mode() {
+            QueryMode::Load(_) => Some(trace_execution_strategy(
+                executable
+                    .execution_strategy()
+                    .map_err(QueryError::execute)?,
+            )),
+            QueryMode::Delete(_) => None,
+        };
+
+        Ok(QueryTracePlan::new(
+            plan_hash,
+            access_strategy,
+            execution_strategy,
+            explain,
+        ))
+    }
+
+    /// Build one aggregate-terminal explain payload without executing the query.
+    pub(crate) fn explain_load_query_terminal_with<E>(
+        query: &Query<E>,
+        aggregate: AggregateExpr,
+    ) -> Result<ExplainAggregateTerminalPlan, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        // Phase 1: build one compiled query once and project logical explain output.
+        let compiled = query.plan()?;
+        let query_explain = compiled.explain();
+        let terminal = aggregate.kind();
+
+        // Phase 2: derive the executor route label for this aggregate terminal.
+        let executable = compiled.into_executable();
+        let execution = executable.explain_aggregate_terminal_execution_descriptor(aggregate);
+
+        Ok(ExplainAggregateTerminalPlan::new(
+            query_explain,
+            terminal,
+            execution,
+        ))
     }
 
     /// Execute one scalar paged load query and return optional continuation cursor plus trace.
@@ -520,6 +620,14 @@ impl<C: CanisterKind> DbSession<C> {
 
 fn invariant(message: impl Into<String>) -> InternalError {
     InternalError::query_executor_invariant(message)
+}
+
+const fn trace_execution_strategy(strategy: ExecutionStrategy) -> TraceExecutionStrategy {
+    match strategy {
+        ExecutionStrategy::PrimaryKey => TraceExecutionStrategy::PrimaryKey,
+        ExecutionStrategy::Ordered => TraceExecutionStrategy::Ordered,
+        ExecutionStrategy::Grouped => TraceExecutionStrategy::Grouped,
+    }
 }
 
 ///

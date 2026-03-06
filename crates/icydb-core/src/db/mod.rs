@@ -7,6 +7,7 @@
 pub(crate) mod access;
 pub(crate) mod contracts;
 pub(crate) mod cursor;
+pub(crate) mod describe;
 pub(crate) mod diagnostics;
 pub(crate) mod identity;
 pub(crate) mod predicate;
@@ -42,6 +43,10 @@ pub use codec::cursor::{decode_cursor, encode_cursor};
 pub use commit::EntityRuntimeHooks;
 pub use data::DataStore;
 pub(crate) use data::StorageKey;
+pub use describe::{
+    EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
+    EntityRelationDescription, EntityRelationStrength, EntitySchemaDescription,
+};
 pub use diagnostics::{
     ExecutionAccessPathVariant, ExecutionMetrics, ExecutionOptimization, ExecutionTrace,
     StorageReport,
@@ -58,6 +63,10 @@ pub use query::{
         AggregateExpr, FieldRef, count, count_by, exists, first, last, max, max_by, min, min_by,
         sum,
     },
+    explain::{
+        ExplainAggregateTerminalPlan, ExplainAggregateTerminalRoute, ExplainExecutionDescriptor,
+        ExplainExecutionOrderingSource, ExplainPlan,
+    },
     expr::{FilterExpr, SortExpr},
     fluent::{
         delete::FluentDeleteQuery,
@@ -65,6 +74,7 @@ pub use query::{
     },
     intent::{CompiledQuery, IntentError, Query, QueryError, QueryExecuteError},
     plan::{DeleteSpec, LoadSpec, OrderDirection, PlanError, QueryMode},
+    trace::{QueryTracePlan, TraceExecutionStrategy},
 };
 pub use registry::StoreRegistry;
 pub use response::{

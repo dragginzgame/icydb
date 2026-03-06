@@ -1,8 +1,10 @@
 use super::*;
 use crate::db::{
     executor::{
-        ExecutionPreparation, load::LoadExecutor, plan_metrics::GroupedPlanMetricsStrategy,
-        route::GroupedExecutionStrategy,
+        ExecutionPreparation,
+        load::LoadExecutor,
+        plan_metrics::GroupedPlanMetricsStrategy,
+        route::{AggregateSeekSpec, GroupedExecutionStrategy},
     },
     index::{IndexCompilePolicy, compile_index_program},
     query::explain::{
@@ -822,6 +824,11 @@ fn route_matrix_aggregate_secondary_extrema_probe_hints_lock_offset_plus_one() {
     assert_eq!(max_asc.scan_hints.physical_fetch_hint, None);
     assert_eq!(min_asc.secondary_extrema_probe_fetch_hint(), Some(3));
     assert_eq!(max_asc.secondary_extrema_probe_fetch_hint(), None);
+    assert_eq!(
+        min_asc.aggregate_seek_spec(),
+        Some(AggregateSeekSpec::First { fetch: 3 }),
+    );
+    assert_eq!(max_asc.aggregate_seek_spec(), None);
 
     let first_asc = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
         &plan,
@@ -851,6 +858,11 @@ fn route_matrix_aggregate_secondary_extrema_probe_hints_lock_offset_plus_one() {
     assert_eq!(min_desc.scan_hints.physical_fetch_hint, None);
     assert_eq!(max_desc.secondary_extrema_probe_fetch_hint(), Some(3));
     assert_eq!(min_desc.secondary_extrema_probe_fetch_hint(), None);
+    assert_eq!(
+        max_desc.aggregate_seek_spec(),
+        Some(AggregateSeekSpec::Last { fetch: 3 }),
+    );
+    assert_eq!(min_desc.aggregate_seek_spec(), None);
 }
 
 #[test]
@@ -1031,6 +1043,14 @@ fn route_matrix_secondary_extrema_probe_eligibility_is_min_max_only() {
     assert_eq!(first_asc.secondary_extrema_probe_fetch_hint(), None);
     assert_eq!(exists_asc.secondary_extrema_probe_fetch_hint(), None);
     assert_eq!(last_asc.secondary_extrema_probe_fetch_hint(), None);
+    assert_eq!(
+        min_asc.aggregate_seek_spec(),
+        Some(AggregateSeekSpec::First { fetch: 3 }),
+    );
+    assert_eq!(max_asc.aggregate_seek_spec(), None);
+    assert_eq!(first_asc.aggregate_seek_spec(), None);
+    assert_eq!(exists_asc.aggregate_seek_spec(), None);
+    assert_eq!(last_asc.aggregate_seek_spec(), None);
 
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
@@ -1048,6 +1068,11 @@ fn route_matrix_secondary_extrema_probe_eligibility_is_min_max_only() {
     );
     assert_eq!(min_desc.secondary_extrema_probe_fetch_hint(), None);
     assert_eq!(max_desc.secondary_extrema_probe_fetch_hint(), Some(3));
+    assert_eq!(min_desc.aggregate_seek_spec(), None);
+    assert_eq!(
+        max_desc.aggregate_seek_spec(),
+        Some(AggregateSeekSpec::Last { fetch: 3 }),
+    );
 }
 
 #[test]

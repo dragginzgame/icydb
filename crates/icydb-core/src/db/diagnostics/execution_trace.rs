@@ -55,6 +55,7 @@ pub struct ExecutionTrace {
     pub keys_scanned: u64,
     pub rows_materialized: u64,
     pub rows_returned: u64,
+    pub execution_time_micros: u64,
     pub index_only: bool,
     pub continuation_applied: bool,
     pub index_predicate_applied: bool,
@@ -73,6 +74,7 @@ pub struct ExecutionTrace {
 pub struct ExecutionMetrics {
     pub rows_scanned: u64,
     pub rows_materialized: u64,
+    pub execution_time_micros: u64,
     pub index_only: bool,
 }
 
@@ -91,6 +93,7 @@ impl ExecutionTrace {
             keys_scanned: 0,
             rows_materialized: 0,
             rows_returned: 0,
+            execution_time_micros: 0,
             index_only: false,
             continuation_applied,
             index_predicate_applied: false,
@@ -107,6 +110,7 @@ impl ExecutionTrace {
         keys_scanned: usize,
         rows_materialized: usize,
         rows_returned: usize,
+        execution_time_micros: u64,
         index_only: bool,
         index_predicate_applied: bool,
         index_predicate_keys_rejected: u64,
@@ -116,6 +120,7 @@ impl ExecutionTrace {
         self.keys_scanned = u64::try_from(keys_scanned).unwrap_or(u64::MAX);
         self.rows_materialized = u64::try_from(rows_materialized).unwrap_or(u64::MAX);
         self.rows_returned = u64::try_from(rows_returned).unwrap_or(u64::MAX);
+        self.execution_time_micros = execution_time_micros;
         self.index_only = index_only;
         self.index_predicate_applied = index_predicate_applied;
         self.index_predicate_keys_rejected = index_predicate_keys_rejected;
@@ -133,6 +138,7 @@ impl ExecutionTrace {
         ExecutionMetrics {
             rows_scanned: self.keys_scanned,
             rows_materialized: self.rows_materialized,
+            execution_time_micros: self.execution_time_micros,
             index_only: self.index_only,
         }
     }
@@ -181,6 +187,7 @@ mod tests {
             5,
             3,
             2,
+            42,
             true,
             true,
             7,
@@ -193,9 +200,10 @@ mod tests {
             ExecutionMetrics {
                 rows_scanned: 5,
                 rows_materialized: 3,
+                execution_time_micros: 42,
                 index_only: true,
             },
-            "metrics projection must expose rows_scanned/rows_materialized/index_only",
+            "metrics projection must expose rows_scanned/rows_materialized/execution_time/index_only",
         );
         assert_eq!(
             trace.rows_returned, 2,

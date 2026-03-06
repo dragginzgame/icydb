@@ -467,14 +467,18 @@ where
     K: fmt::Debug,
 {
     match path.payload() {
-        ExecutionPathPayload::ByKey(key) => format!("ByKey({key:?})"),
-        ExecutionPathPayload::ByKeys(keys) => format!("ByKeys(count={})", keys.len()),
+        ExecutionPathPayload::ByKey(key) => format!("IndexLookup(pk={key:?})"),
+        ExecutionPathPayload::ByKeys(keys) => format!("IndexLookupMany(pk_count={})", keys.len()),
         ExecutionPathPayload::KeyRange { start, end } => {
-            format!("KeyRange(start={start:?}, end={end:?})")
+            format!("PrimaryKeyRange([{start:?}, {end:?}))")
         }
         ExecutionPathPayload::IndexPrefix => {
             if let Some((index, prefix_len)) = path.index_prefix_details() {
-                format!("IndexPrefix({} prefix_len={prefix_len})", index.name)
+                if prefix_len == 0 {
+                    format!("IndexPrefix({})", index.name)
+                } else {
+                    format!("IndexPrefix({} prefix_len={prefix_len})", index.name)
+                }
             } else {
                 "IndexPrefix".to_string()
             }
@@ -485,17 +489,11 @@ where
             upper,
         } => {
             if let Some((index, prefix_len)) = path.index_range_details() {
-                format!(
-                    "IndexRange({} prefix={prefix_values:?} lower={} upper={} prefix_len={prefix_len})",
-                    index.name,
-                    summarize_bound(lower),
-                    summarize_bound(upper),
-                )
+                summarize_index_range_with_model(index, prefix_len, prefix_values, lower, upper)
             } else {
                 format!(
-                    "IndexRange(prefix={prefix_values:?} lower={} upper={})",
-                    summarize_bound(lower),
-                    summarize_bound(upper),
+                    "IndexRange(prefix={prefix_values:?} {})",
+                    summarize_interval(lower, upper),
                 )
             }
         }
@@ -503,11 +501,58 @@ where
     }
 }
 
-fn summarize_bound(bound: &Bound<Value>) -> String {
-    match bound {
-        Bound::Unbounded => "Unbounded".to_string(),
-        Bound::Included(value) => format!("Included({value:?})"),
-        Bound::Excluded(value) => format!("Excluded({value:?})"),
+fn summarize_index_range_with_model(
+    index: IndexModel,
+    prefix_len: usize,
+    prefix_values: &[Value],
+    lower: &Bound<Value>,
+    upper: &Bound<Value>,
+) -> String {
+    let prefix = summarize_index_prefix_terms(index.fields, prefix_values);
+    let interval = summarize_interval(lower, upper);
+
+    if let Some(range_field) = index.fields.get(prefix_len) {
+        if prefix.is_empty() {
+            format!("IndexRange({range_field} {interval})")
+        } else {
+            format!("IndexRange({prefix}; {range_field} {interval})")
+        }
+    } else if prefix.is_empty() {
+        format!("IndexRange({interval})")
+    } else {
+        format!("IndexRange({prefix}; {interval})")
+    }
+}
+
+fn summarize_index_prefix_terms(index_fields: &[&'static str], values: &[Value]) -> String {
+    index_fields
+        .iter()
+        .copied()
+        .zip(values.iter())
+        .map(|(field, value)| format!("{field}={}", summarize_value(value)))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn summarize_interval(lower: &Bound<Value>, upper: &Bound<Value>) -> String {
+    let (lower_bracket, lower_value) = match lower {
+        Bound::Included(value) => ("[", summarize_value(value)),
+        Bound::Excluded(value) => ("(", summarize_value(value)),
+        Bound::Unbounded => ("(", "-inf".to_string()),
+    };
+    let (upper_value, upper_bracket) = match upper {
+        Bound::Included(value) => (summarize_value(value), "]"),
+        Bound::Excluded(value) => (summarize_value(value), ")"),
+        Bound::Unbounded => ("+inf".to_string(), ")"),
+    };
+
+    format!("{lower_bracket}{lower_value}, {upper_value}{upper_bracket}")
+}
+
+fn summarize_value(value: &Value) -> String {
+    match value {
+        Value::Text(text) => format!("{text:?}"),
+        _ => format!("{value:?}"),
     }
 }
 
@@ -932,7 +977,7 @@ mod tests {
 
         assert_eq!(
             strategy.debug_summary(),
-            "ByKey(7)",
+            "IndexLookup(pk=7)",
             "single-key strategies should render concise path summaries",
         );
     }
@@ -948,7 +993,7 @@ mod tests {
             "composite strategies should render union summary headings",
         );
         assert!(
-            summary.contains("ByKey(1)") && summary.contains("ByKey(2)"),
+            summary.contains("IndexLookup(pk=1)") && summary.contains("IndexLookup(pk=2)"),
             "composite strategy summaries should include child path summaries",
         );
         assert!(

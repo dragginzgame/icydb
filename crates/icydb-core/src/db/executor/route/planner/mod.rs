@@ -31,10 +31,11 @@ use crate::{
 };
 
 use crate::db::executor::route::{
-    ContinuationMode, ExecutionMode, ExecutionModeRouteCase, ExecutionRoutePlan, FastPathOrder,
-    GroupedExecutionStrategy, GroupedRouteDecisionOutcome, GroupedRouteObservability,
-    GroupedRouteRejectionReason, IndexRangeLimitSpec, MUTATION_FAST_PATH_ORDER, RouteCapabilities,
-    RouteContinuationPlan, RouteIntent, RouteShapeKind, RouteWindowPlan, ScanHintPlan,
+    AggregateSeekSpec, ContinuationMode, ExecutionMode, ExecutionModeRouteCase, ExecutionRoutePlan,
+    FastPathOrder, GroupedExecutionStrategy, GroupedRouteDecisionOutcome,
+    GroupedRouteObservability, GroupedRouteRejectionReason, IndexRangeLimitSpec,
+    MUTATION_FAST_PATH_ORDER, RouteCapabilities, RouteContinuationPlan, RouteIntent,
+    RouteShapeKind, RouteWindowPlan, ScanHintPlan,
 };
 
 ///
@@ -53,6 +54,7 @@ pub(in crate::db::executor::route::planner) struct RouteDerivationContext {
     pub(in crate::db::executor::route::planner) scan_hints: ScanHintPlan,
     pub(in crate::db::executor::route::planner) count_pushdown_eligible: bool,
     pub(in crate::db::executor::route::planner) aggregate_physical_fetch_hint: Option<usize>,
+    pub(in crate::db::executor::route::planner) aggregate_seek_spec: Option<AggregateSeekSpec>,
     pub(in crate::db::executor::route::planner) aggregate_secondary_extrema_probe_fetch_hint:
         Option<usize>,
     pub(in crate::db::executor::route::planner) grouped_execution_strategy:
@@ -139,6 +141,7 @@ impl ExecutionRoutePlan {
             index_range_limit_spec: None,
             capabilities,
             fast_path_order: &MUTATION_FAST_PATH_ORDER,
+            aggregate_seek_spec: None,
             aggregate_secondary_extrema_probe_fetch_hint: None,
             scan_hints: ScanHintPlan {
                 physical_fetch_hint: None,
@@ -382,6 +385,7 @@ where
             index_range_limit_spec: execution_stage.index_range_limit_spec,
             capabilities: derivation.capabilities,
             fast_path_order: intent_stage.fast_path_order,
+            aggregate_seek_spec: derivation.aggregate_seek_spec,
             aggregate_secondary_extrema_probe_fetch_hint: derivation
                 .aggregate_secondary_extrema_probe_fetch_hint,
             scan_hints: derivation.scan_hints,

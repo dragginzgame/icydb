@@ -12,6 +12,7 @@ use crate::{
             explain::ExplainPlan,
             expr::{FilterExpr, SortExpr},
             intent::{CompiledQuery, PlannedQuery, Query, QueryError},
+            trace::QueryTracePlan,
         },
         response::EntityResponse,
     },
@@ -121,6 +122,16 @@ where
 
     pub fn explain(&self) -> Result<ExplainPlan, QueryError> {
         self.query.explain()
+    }
+
+    /// Return the stable plan hash for this query.
+    pub fn plan_hash_hex(&self) -> Result<String, QueryError> {
+        self.query.plan_hash_hex()
+    }
+
+    /// Build one trace payload without executing the query.
+    pub fn trace(&self) -> Result<QueryTracePlan, QueryError> {
+        self.session.trace_query(self.query())
     }
 
     pub fn planned(&self) -> Result<PlannedQuery<E>, QueryError> {

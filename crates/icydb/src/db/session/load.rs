@@ -1,7 +1,7 @@
 use crate::{
     db::{
         Row,
-        query::{AggregateExpr, FilterExpr, Predicate, Query, SortExpr},
+        query::{AggregateExpr, FilterExpr, Predicate, Query, QueryTracePlan, SortExpr},
         response::{PagedGroupedResponse, PagedResponse, Response},
         session::macros::{impl_session_materialization_methods, impl_session_query_shape_methods},
     },
@@ -121,6 +121,16 @@ impl<'a, E: EntityKind> FluentLoadQuery<'a, E> {
             next_cursor,
             execution_trace: execution.execution_trace().copied(),
         })
+    }
+
+    /// Return the stable plan hash for this query.
+    pub fn plan_hash_hex(&self) -> Result<String, Error> {
+        Ok(self.inner.plan_hash_hex()?)
+    }
+
+    /// Build one trace payload without executing the query.
+    pub fn trace(&self) -> Result<QueryTracePlan, Error> {
+        Ok(self.inner.trace()?)
     }
 
     // ------------------------------------------------------------------

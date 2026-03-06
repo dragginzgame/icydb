@@ -65,6 +65,28 @@ pub(in crate::db::executor) struct IndexRangeLimitSpec {
 }
 
 ///
+/// AggregateSeekSpec
+///
+/// Canonical route contract for aggregate index-edge seek execution.
+/// Encodes seek edge (`first`/`last`) and bounded fetch budget in one payload.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) enum AggregateSeekSpec {
+    First { fetch: usize },
+    Last { fetch: usize },
+}
+
+impl AggregateSeekSpec {
+    #[must_use]
+    pub(in crate::db::executor) const fn fetch(self) -> usize {
+        match self {
+            Self::First { fetch } | Self::Last { fetch } => fetch,
+        }
+    }
+}
+
+///
 /// ContinuationMode
 ///
 /// Route-owned continuation classification used to keep resume-policy decisions
@@ -205,6 +227,7 @@ pub(in crate::db::executor) struct ExecutionRoutePlan {
     pub(in crate::db::executor) index_range_limit_spec: Option<IndexRangeLimitSpec>,
     pub(in crate::db::executor::route) capabilities: RouteCapabilities,
     pub(in crate::db::executor) fast_path_order: &'static [FastPathOrder],
+    pub(in crate::db::executor) aggregate_seek_spec: Option<AggregateSeekSpec>,
     pub(in crate::db::executor) aggregate_secondary_extrema_probe_fetch_hint: Option<usize>,
     pub(in crate::db::executor) scan_hints: ScanHintPlan,
     pub(in crate::db::executor) aggregate_fold_mode: AggregateFoldMode,
@@ -326,10 +349,22 @@ impl ExecutionRoutePlan {
 
     // Route-owned bounded probe hint for secondary Min/Max single-step probing.
     // This prevents executor-local hint math from drifting outside routing.
-    pub(in crate::db::executor) const fn secondary_extrema_probe_fetch_hint(
-        &self,
-    ) -> Option<usize> {
-        self.aggregate_secondary_extrema_probe_fetch_hint
+    #[must_use]
+    pub(in crate::db::executor) const fn aggregate_seek_spec(&self) -> Option<AggregateSeekSpec> {
+        self.aggregate_seek_spec
+    }
+
+    // Route-owned bounded fetch hint derived from aggregate seek contract.
+    #[must_use]
+    pub(in crate::db::executor) fn aggregate_seek_fetch_hint(&self) -> Option<usize> {
+        self.aggregate_seek_spec().map(AggregateSeekSpec::fetch)
+    }
+
+    // Compatibility accessor kept while aggregate runtimes migrate to explicit
+    // seek contracts.
+    pub(in crate::db::executor) fn secondary_extrema_probe_fetch_hint(&self) -> Option<usize> {
+        self.aggregate_seek_fetch_hint()
+            .or(self.aggregate_secondary_extrema_probe_fetch_hint)
     }
 }
 

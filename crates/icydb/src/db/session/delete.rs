@@ -2,7 +2,7 @@ use crate::{
     db::{
         Row,
         query::{
-            Query,
+            Query, QueryTracePlan,
             expr::{FilterExpr, SortExpr},
             predicate::Predicate,
         },
@@ -49,6 +49,16 @@ impl<E: EntityKind> SessionDeleteQuery<'_, E> {
     // Execution primitives
     // ------------------------------------------------------------------
     impl_session_materialization_methods!();
+
+    /// Return the stable plan hash for this query.
+    pub fn plan_hash_hex(&self) -> Result<String, Error> {
+        Ok(self.inner.plan_hash_hex()?)
+    }
+
+    /// Build one trace payload without executing the query.
+    pub fn trace(&self) -> Result<QueryTracePlan, Error> {
+        Ok(self.inner.trace()?)
+    }
 }
 
 impl<E: EntityKind + SingletonEntity> SessionDeleteQuery<'_, E> {

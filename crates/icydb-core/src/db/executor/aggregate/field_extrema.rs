@@ -141,6 +141,7 @@ impl ExecutionKernel {
         let mut fallback_route_plan = route_plan.clone();
         fallback_route_plan.scan_hints.physical_fetch_hint = None;
         fallback_route_plan.index_range_limit_spec = None;
+        fallback_route_plan.aggregate_seek_spec = None;
         fallback_route_plan.aggregate_secondary_extrema_probe_fetch_hint = None;
         let (fallback_output, fallback_rows_scanned) =
             Self::fold_field_target_extrema_for_route_plan(
