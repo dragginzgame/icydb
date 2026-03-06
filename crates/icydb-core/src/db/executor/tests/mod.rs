@@ -26,7 +26,10 @@ use crate::{
         },
         index::IndexStore,
         predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
-        query::intent::{IntentError, Query, QueryError},
+        query::{
+            explain::{ExplainExecutionNodeDescriptor, ExplainExecutionNodeType},
+            intent::{IntentError, Query, QueryError},
+        },
         registry::StoreRegistry,
         relation::validate_delete_strong_relations_for_source,
     },
@@ -568,4 +571,30 @@ fn reset_relation_stores() {
             })
             .expect("relation target store access should succeed");
     });
+}
+
+fn explain_execution_find_first_node(
+    descriptor: &ExplainExecutionNodeDescriptor,
+    node_type: ExplainExecutionNodeType,
+) -> Option<&ExplainExecutionNodeDescriptor> {
+    // Walk descriptor trees recursively so tests can assert by node type
+    // without coupling to child depth or sibling ordering.
+    if descriptor.node_type == node_type {
+        return Some(descriptor);
+    }
+
+    for child in &descriptor.children {
+        if let Some(found) = explain_execution_find_first_node(child, node_type) {
+            return Some(found);
+        }
+    }
+
+    None
+}
+
+fn explain_execution_contains_node_type(
+    descriptor: &ExplainExecutionNodeDescriptor,
+    node_type: ExplainExecutionNodeType,
+) -> bool {
+    explain_execution_find_first_node(descriptor, node_type).is_some()
 }

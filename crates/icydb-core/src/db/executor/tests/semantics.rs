@@ -67,6 +67,15 @@ fn collect_execution_node_types(
     }
 }
 
+const DIAG_ROUTE_SECONDARY_ORDER_PUSHDOWN: &str = "diagnostic.route.secondary_order_pushdown";
+const DIAG_ROUTE_TOP_N_SEEK: &str = "diagnostic.route.top_n_seek";
+const DIAG_ROUTE_INDEX_RANGE_LIMIT_PUSHDOWN: &str = "diagnostic.route.index_range_limit_pushdown";
+const DIAG_ROUTE_PREDICATE_STAGE: &str = "diagnostic.route.predicate_stage";
+const DIAG_DESCRIPTOR_HAS_TOP_N_SEEK: &str = "diagnostic.descriptor.has_top_n_seek";
+const DIAG_DESCRIPTOR_HAS_INDEX_RANGE_LIMIT_PUSHDOWN: &str =
+    "diagnostic.descriptor.has_index_range_limit_pushdown";
+const DIAG_PLAN_MODE: &str = "diagnostic.plan.mode";
+
 #[test]
 fn singleton_unit_key_insert_and_only_load_round_trip() {
     init_commit_store_for_tests().expect("commit store init should succeed");
@@ -233,12 +242,11 @@ fn load_union_or_predicate_explain_execution_projects_recursive_access_children(
         "OR predicate over PK paths should project union root access node",
     );
     assert!(
-        descriptor.children.iter().any(|child| {
-            matches!(
-                child.node_type,
-                ExplainExecutionNodeType::ByKeyLookup | ExplainExecutionNodeType::ByKeysLookup
-            )
-        }),
+        explain_execution_contains_node_type(&descriptor, ExplainExecutionNodeType::ByKeyLookup)
+            || explain_execution_contains_node_type(
+                &descriptor,
+                ExplainExecutionNodeType::ByKeysLookup,
+            ),
         "union access descriptor should retain recursive access children",
     );
     let descriptor_json = descriptor.render_json_canonical();
@@ -334,10 +342,7 @@ fn load_intersection_explain_execution_projects_recursive_access_children() {
         "intersection descriptor root should retain intersection access projection",
     );
     assert!(
-        descriptor
-            .children
-            .iter()
-            .any(|child| child.node_type == ExplainExecutionNodeType::ByKeysLookup),
+        explain_execution_contains_node_type(&descriptor, ExplainExecutionNodeType::ByKeysLookup),
         "intersection descriptor should include recursive key-set access children",
     );
     let descriptor_json = descriptor.render_json_canonical();
@@ -1077,6 +1082,9 @@ fn secondary_in_explain_uses_index_multi_lookup_access_shape() {
 fn query_explain_execution_text_and_json_surfaces_are_stable() {
     let id = Ulid::from_u128(9_101);
     let query = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore).by_id(id);
+    let descriptor = query
+        .explain_execution()
+        .expect("execution descriptor explain should build");
 
     let text = query
         .explain_execution_text()
@@ -1085,6 +1093,11 @@ fn query_explain_execution_text_and_json_surfaces_are_stable() {
         text.contains("ByKeyLookup"),
         "execution text surface should expose access-root node type"
     );
+    assert_eq!(
+        text,
+        descriptor.render_text_tree(),
+        "execution text surface should be canonical descriptor text rendering",
+    );
 
     let json = query
         .explain_execution_json()
@@ -1092,6 +1105,11 @@ fn query_explain_execution_text_and_json_surfaces_are_stable() {
     assert!(
         json.contains("\"node_type\":\"ByKeyLookup\""),
         "execution json surface should expose canonical root node type"
+    );
+    assert_eq!(
+        json,
+        descriptor.render_json_canonical(),
+        "execution json surface should be canonical descriptor json rendering",
     );
 }
 
@@ -1112,12 +1130,12 @@ fn query_explain_execution_verbose_includes_route_diagnostics() {
 
     let diagnostics = verbose_diagnostics_map(&verbose);
     assert_eq!(
-        diagnostics.get("diagnostic.route.secondary_order_pushdown"),
+        diagnostics.get(DIAG_ROUTE_SECONDARY_ORDER_PUSHDOWN),
         Some(&"rejected(OrderFieldsDoNotMatchIndex(index=group_rank,prefix_len=1,expected_suffix=[\"rank\"],expected_full=[\"group\", \"rank\"],actual=[\"label\"]))".to_string()),
         "verbose execution explain should expose explicit route rejection reason",
     );
     assert_eq!(
-        diagnostics.get("diagnostic.plan.mode"),
+        diagnostics.get(DIAG_PLAN_MODE),
         Some(&"Load(LoadSpec { limit: None, offset: 0 })".to_string()),
         "verbose execution explain should include logical plan mode diagnostics",
     );
@@ -1134,12 +1152,12 @@ fn query_explain_execution_verbose_reports_top_n_seek_hints() {
 
     let diagnostics = verbose_diagnostics_map(&verbose);
     assert_eq!(
-        diagnostics.get("diagnostic.route.top_n_seek"),
+        diagnostics.get(DIAG_ROUTE_TOP_N_SEEK),
         Some(&"fetch(6)".to_string()),
         "verbose execution explain should freeze top-n seek fetch diagnostics",
     );
     assert_eq!(
-        diagnostics.get("diagnostic.descriptor.has_top_n_seek"),
+        diagnostics.get(DIAG_DESCRIPTOR_HAS_TOP_N_SEEK),
         Some(&"true".to_string()),
         "descriptor diagnostics should report TopNSeek node presence",
     );
@@ -1178,17 +1196,17 @@ fn query_explain_execution_verbose_reports_index_range_limit_pushdown_hints() {
 
     let diagnostics = verbose_diagnostics_map(&verbose);
     assert_eq!(
-        diagnostics.get("diagnostic.route.index_range_limit_pushdown"),
+        diagnostics.get(DIAG_ROUTE_INDEX_RANGE_LIMIT_PUSHDOWN),
         Some(&"fetch(3)".to_string()),
         "verbose execution explain should freeze index-range pushdown fetch diagnostics",
     );
     assert_eq!(
-        diagnostics.get("diagnostic.descriptor.has_index_range_limit_pushdown"),
+        diagnostics.get(DIAG_DESCRIPTOR_HAS_INDEX_RANGE_LIMIT_PUSHDOWN),
         Some(&"true".to_string()),
         "descriptor diagnostics should report index-range pushdown node presence",
     );
     assert_eq!(
-        diagnostics.get("diagnostic.route.predicate_stage"),
+        diagnostics.get(DIAG_ROUTE_PREDICATE_STAGE),
         Some(&"residual_post_access".to_string()),
         "verbose execution explain should freeze predicate-stage diagnostics",
     );
@@ -1306,6 +1324,9 @@ fn fluent_load_explain_execution_surface_adapters_are_available() {
             CoercionId::Strict,
         )))
         .order_by("id");
+    let descriptor = query
+        .explain_execution()
+        .expect("fluent execution descriptor explain should build");
 
     let text = query
         .explain_execution_text()
@@ -1314,6 +1335,11 @@ fn fluent_load_explain_execution_surface_adapters_are_available() {
         text.contains("ByKeyLookup"),
         "fluent execution text surface should include root node type",
     );
+    assert_eq!(
+        text,
+        descriptor.render_text_tree(),
+        "fluent execution text surface should be canonical descriptor text rendering",
+    );
 
     let json = query
         .explain_execution_json()
@@ -1321,6 +1347,11 @@ fn fluent_load_explain_execution_surface_adapters_are_available() {
     assert!(
         json.contains("\"node_type\":\"ByKeyLookup\""),
         "fluent execution json surface should include canonical root node type",
+    );
+    assert_eq!(
+        json,
+        descriptor.render_json_canonical(),
+        "fluent execution json surface should be canonical descriptor json rendering",
     );
 
     let verbose = query

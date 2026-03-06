@@ -608,21 +608,20 @@ fn session_load_explain_execution_projects_descriptor_tree_for_ordered_limited_i
         "execution descriptor root should carry one canonical access projection",
     );
     assert!(
-        descriptor.children.iter().any(|child| {
-            matches!(
-                child.node_type,
-                crate::db::ExplainExecutionNodeType::IndexPredicatePrefilter
-                    | crate::db::ExplainExecutionNodeType::ResidualPredicateFilter
-            )
-        }),
+        explain_execution_contains_node_type(
+            &descriptor,
+            crate::db::ExplainExecutionNodeType::IndexPredicatePrefilter,
+        ) || explain_execution_contains_node_type(
+            &descriptor,
+            crate::db::ExplainExecutionNodeType::ResidualPredicateFilter,
+        ),
         "predicate-bearing shapes should surface at least one predicate execution node",
     );
 
-    if let Some(top_n_node) = descriptor
-        .children
-        .iter()
-        .find(|child| child.node_type == crate::db::ExplainExecutionNodeType::TopNSeek)
-    {
+    if let Some(top_n_node) = explain_execution_find_first_node(
+        &descriptor,
+        crate::db::ExplainExecutionNodeType::TopNSeek,
+    ) {
         assert_eq!(
             top_n_node.node_properties.get("fetch"),
             Some(&Value::from(3u64)),
@@ -655,11 +654,10 @@ fn session_load_explain_execution_projects_descriptor_tree_for_ordered_limited_i
         text_tree.contains("LimitOffset execution_mode=") && text_tree.contains("limit=2"),
         "base text rendering should include limit node details",
     );
-    if descriptor
-        .children
-        .iter()
-        .any(|child| child.node_type == crate::db::ExplainExecutionNodeType::TopNSeek)
-    {
+    if explain_execution_contains_node_type(
+        &descriptor,
+        crate::db::ExplainExecutionNodeType::TopNSeek,
+    ) {
         assert!(
             text_tree.contains("TopNSeek execution_mode="),
             "base text rendering should include top-n seek node label when present",
@@ -770,19 +768,17 @@ fn session_load_explain_execution_predicate_stage_and_limit_zero_matrix_is_stabl
         .explain_execution()
         .expect("strict prefilter explain execution should succeed");
     assert!(
-        strict_prefilter
-            .children
-            .iter()
-            .any(|child| child.node_type
-                == crate::db::ExplainExecutionNodeType::IndexPredicatePrefilter),
+        explain_execution_contains_node_type(
+            &strict_prefilter,
+            crate::db::ExplainExecutionNodeType::IndexPredicatePrefilter,
+        ),
         "strict index-compatible predicate should emit prefilter stage node",
     );
     assert!(
-        !strict_prefilter
-            .children
-            .iter()
-            .any(|child| child.node_type
-                == crate::db::ExplainExecutionNodeType::ResidualPredicateFilter),
+        !explain_execution_contains_node_type(
+            &strict_prefilter,
+            crate::db::ExplainExecutionNodeType::ResidualPredicateFilter,
+        ),
         "strict index-compatible predicate should not emit residual stage node",
     );
 
@@ -803,11 +799,10 @@ fn session_load_explain_execution_predicate_stage_and_limit_zero_matrix_is_stabl
         .explain_execution()
         .expect("residual predicate explain execution should succeed");
     assert!(
-        residual
-            .children
-            .iter()
-            .any(|child| child.node_type
-                == crate::db::ExplainExecutionNodeType::ResidualPredicateFilter),
+        explain_execution_contains_node_type(
+            &residual,
+            crate::db::ExplainExecutionNodeType::ResidualPredicateFilter,
+        ),
         "mixed index/non-index predicate should emit residual stage node",
     );
 
@@ -819,11 +814,10 @@ fn session_load_explain_execution_predicate_stage_and_limit_zero_matrix_is_stabl
         .limit(0)
         .explain_execution()
         .expect("limit-zero explain execution should succeed");
-    if let Some(top_n) = limit_zero
-        .children
-        .iter()
-        .find(|child| child.node_type == crate::db::ExplainExecutionNodeType::TopNSeek)
-    {
+    if let Some(top_n) = explain_execution_find_first_node(
+        &limit_zero,
+        crate::db::ExplainExecutionNodeType::TopNSeek,
+    ) {
         assert_eq!(
             top_n.node_properties.get("fetch"),
             Some(&Value::from(0u64)),
@@ -831,16 +825,18 @@ fn session_load_explain_execution_predicate_stage_and_limit_zero_matrix_is_stabl
         );
     } else {
         assert!(
-            limit_zero.children.iter().any(|child| child.node_type
-                == crate::db::ExplainExecutionNodeType::OrderByMaterializedSort),
+            explain_execution_contains_node_type(
+                &limit_zero,
+                crate::db::ExplainExecutionNodeType::OrderByMaterializedSort,
+            ),
             "limit-zero routes without top-n seek should still expose materialized order fallback",
         );
     }
-    let limit_node = limit_zero
-        .children
-        .iter()
-        .find(|child| child.node_type == crate::db::ExplainExecutionNodeType::LimitOffset)
-        .expect("limit-zero route should emit limit/offset node");
+    let limit_node = explain_execution_find_first_node(
+        &limit_zero,
+        crate::db::ExplainExecutionNodeType::LimitOffset,
+    )
+    .expect("limit-zero route should emit limit/offset node");
     assert_eq!(limit_node.limit, Some(0));
 }
 
@@ -853,18 +849,17 @@ fn session_load_explain_execution_text_and_json_snapshot_for_strict_index_prefix
         (9_744, 8, 40),
     ]);
     let session = DbSession::new(DB);
-
-    let descriptor = session
+    let query = session
         .load::<PushdownParityEntity>()
         .filter(u32_eq_predicate_strict("group", 7))
         .order_by("rank")
         .order_by("id")
         .offset(1)
-        .limit(2)
-        .explain_execution()
-        .expect("strict index-prefix explain execution should succeed");
+        .limit(2);
 
-    let text_tree = descriptor.render_text_tree();
+    let text_tree = query
+        .explain_execution_text()
+        .expect("strict index-prefix execution text explain should succeed");
     let expected_text = r#"IndexPrefixScan execution_mode=Materialized access=IndexPrefix(group_rank)
   IndexPredicatePrefilter execution_mode=Materialized predicate_pushdown=strict_all_or_none
   SecondaryOrderPushdown execution_mode=Materialized node_properties=index=Text("group_rank"),prefix_len=Uint(1)
@@ -875,7 +870,9 @@ fn session_load_explain_execution_text_and_json_snapshot_for_strict_index_prefix
         "execution text-tree snapshot drifted: actual={text_tree}",
     );
 
-    let descriptor_json = descriptor.render_json_canonical();
+    let descriptor_json = query
+        .explain_execution_json()
+        .expect("strict index-prefix execution json explain should succeed");
     let expected_json = r#"{"node_type":"IndexPrefixScan","execution_mode":"Materialized","access_strategy":{"type":"IndexPrefix","name":"group_rank","fields":["group","rank"],"prefix_len":1,"values":["Uint(7)"]},"predicate_pushdown":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[{"node_type":"IndexPredicatePrefilter","execution_mode":"Materialized","access_strategy":null,"predicate_pushdown":"strict_all_or_none","residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{}},{"node_type":"SecondaryOrderPushdown","execution_mode":"Materialized","access_strategy":null,"predicate_pushdown":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"index":"Text(\"group_rank\")","prefix_len":"Uint(1)"}},{"node_type":"OrderByMaterializedSort","execution_mode":"Materialized","access_strategy":null,"predicate_pushdown":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{}},{"node_type":"LimitOffset","execution_mode":"Materialized","access_strategy":null,"predicate_pushdown":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":2,"cursor":false,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"offset":"Uint(1)"}}],"node_properties":{}}"#;
     assert_eq!(
         descriptor_json, expected_json,
