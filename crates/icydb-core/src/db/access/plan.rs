@@ -114,13 +114,13 @@ impl<K> AccessPlan<K> {
     /// Borrow index-prefix access details when this is a single IndexPrefix path.
     #[must_use]
     pub(crate) fn as_index_prefix_path(&self) -> Option<(&IndexModel, &[Value])> {
-        self.as_path().and_then(AccessPath::as_index_prefix)
+        self.as_path().and_then(|path| path.as_index_prefix())
     }
 
     /// Borrow index-range access details when this is a single IndexRange path.
     #[must_use]
     pub(crate) fn as_index_range_path(&self) -> Option<IndexRangePathRef<'_>> {
-        self.as_path().and_then(AccessPath::as_index_range)
+        self.as_path().and_then(|path| path.as_index_range())
     }
 
     /// Resolve one pre-lowered access strategy contract for runtime execution.

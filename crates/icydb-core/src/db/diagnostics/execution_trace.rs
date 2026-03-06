@@ -4,7 +4,7 @@
 //! Boundary: shared trace surface used by executor and response APIs.
 
 use crate::db::{
-    access::{AccessPath, AccessPlan},
+    access::{AccessPathKind, AccessPlan, AccessPlanDispatch, dispatch_access_plan},
     direction::Direction,
     query::plan::OrderDirection,
 };
@@ -146,18 +146,18 @@ impl ExecutionTrace {
 }
 
 fn access_path_variant<K>(access: &AccessPlan<K>) -> ExecutionAccessPathVariant {
-    match access {
-        AccessPlan::Path(path) => match path.as_ref() {
-            AccessPath::ByKey(_) => ExecutionAccessPathVariant::ByKey,
-            AccessPath::ByKeys(_) => ExecutionAccessPathVariant::ByKeys,
-            AccessPath::KeyRange { .. } => ExecutionAccessPathVariant::KeyRange,
-            AccessPath::IndexPrefix { .. } => ExecutionAccessPathVariant::IndexPrefix,
-            AccessPath::IndexMultiLookup { .. } => ExecutionAccessPathVariant::IndexMultiLookup,
-            AccessPath::IndexRange { .. } => ExecutionAccessPathVariant::IndexRange,
-            AccessPath::FullScan => ExecutionAccessPathVariant::FullScan,
+    match dispatch_access_plan(access) {
+        AccessPlanDispatch::Path(path) => match path.kind() {
+            AccessPathKind::ByKey => ExecutionAccessPathVariant::ByKey,
+            AccessPathKind::ByKeys => ExecutionAccessPathVariant::ByKeys,
+            AccessPathKind::KeyRange => ExecutionAccessPathVariant::KeyRange,
+            AccessPathKind::IndexPrefix => ExecutionAccessPathVariant::IndexPrefix,
+            AccessPathKind::IndexMultiLookup => ExecutionAccessPathVariant::IndexMultiLookup,
+            AccessPathKind::IndexRange => ExecutionAccessPathVariant::IndexRange,
+            AccessPathKind::FullScan => ExecutionAccessPathVariant::FullScan,
         },
-        AccessPlan::Union(_) => ExecutionAccessPathVariant::Union,
-        AccessPlan::Intersection(_) => ExecutionAccessPathVariant::Intersection,
+        AccessPlanDispatch::Union(_) => ExecutionAccessPathVariant::Union,
+        AccessPlanDispatch::Intersection(_) => ExecutionAccessPathVariant::Intersection,
     }
 }
 

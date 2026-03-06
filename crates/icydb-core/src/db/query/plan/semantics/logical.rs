@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        access::{AccessPath, AccessPlan},
+        access::AccessPlan,
         query::plan::{
             AccessPlannedQuery, ContinuationPolicy, DistinctExecutionStrategy,
             ExecutionShapeSignature, GroupPlan, LogicalPlan, PlannerRouteProfile, QueryMode,
@@ -156,7 +156,7 @@ impl<K> AccessPlannedQuery<K> {
 fn access_shape_requires_distinct_materialization<K>(access: &AccessPlan<K>) -> bool {
     match access {
         AccessPlan::Union(_) | AccessPlan::Intersection(_) => true,
-        AccessPlan::Path(path) => matches!(path.as_ref(), AccessPath::IndexMultiLookup { .. }),
+        AccessPlan::Path(path) => path.as_ref().is_index_multi_lookup(),
     }
 }
 

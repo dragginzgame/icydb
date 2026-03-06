@@ -5,11 +5,12 @@
 
 use crate::{
     db::{
+        access::{ExecutableAccessPathDispatch, dispatch_executable_access_path},
         data::DataKey,
         direction::Direction,
         executor::stream::access::AccessScanContinuationInput,
         executor::{
-            Context, ExecutableAccessPath, ExecutionPathPayload, IndexScan, LoweredIndexPrefixSpec,
+            Context, ExecutableAccessPath, IndexScan, LoweredIndexPrefixSpec,
             LoweredIndexRangeSpec, OrderedKeyStreamBox, PrimaryScan, VecOrderedKeyStream,
             route::primary_scan_fetch_hint_for_executable_access_path,
         },
@@ -80,47 +81,49 @@ impl<K> ExecutableAccessPath<'_, K> {
             primary_scan_fetch_hint_for_executable_access_path(self, physical_fetch_hint);
 
         // Resolve candidate keys and track explicit ordering state.
-        let (mut candidates, key_order_state) = match self.payload() {
-            ExecutionPathPayload::ByKey(key) => Self::resolve_by_key::<E>(**key)?,
-            ExecutionPathPayload::ByKeys(keys) => Self::resolve_by_keys::<E>(keys)?,
-            ExecutionPathPayload::KeyRange { start, end } => Self::resolve_key_range::<E>(
+        let (mut candidates, key_order_state) = match dispatch_executable_access_path(self) {
+            ExecutableAccessPathDispatch::ByKey(key) => Self::resolve_by_key::<E>(*key)?,
+            ExecutableAccessPathDispatch::ByKeys(keys) => Self::resolve_by_keys::<E>(keys)?,
+            ExecutableAccessPathDispatch::KeyRange { start, end } => Self::resolve_key_range::<E>(
                 ctx,
-                **start,
-                **end,
+                *start,
+                *end,
                 continuation.direction(),
                 primary_scan_fetch_hint,
             )?,
-            ExecutionPathPayload::FullScan => Self::resolve_full_scan::<E>(
+            ExecutableAccessPathDispatch::FullScan => Self::resolve_full_scan::<E>(
                 ctx,
                 continuation.direction(),
                 primary_scan_fetch_hint,
             )?,
-            ExecutionPathPayload::IndexPrefix => Self::resolve_index_prefix::<E>(
+            ExecutableAccessPathDispatch::IndexPrefix { index } => Self::resolve_index_prefix::<E>(
                 ctx,
-                self.index_prefix_details().map(|(index, _)| index),
+                index,
                 index_prefix_specs,
                 continuation.direction(),
                 physical_fetch_hint,
                 index_predicate_execution,
             )?,
-            ExecutionPathPayload::IndexMultiLookup { value_count } => {
+            ExecutableAccessPathDispatch::IndexMultiLookup { index, value_count } => {
                 Self::resolve_index_multi_lookup::<E>(
                     ctx,
-                    self.index_prefix_details().map(|(index, _)| index),
+                    index,
                     index_prefix_specs,
-                    *value_count,
+                    value_count,
                     continuation.direction(),
                     index_predicate_execution,
                 )?
             }
-            ExecutionPathPayload::IndexRange { .. } => Self::resolve_index_range::<E>(
-                ctx,
-                self.index_range_details().map(|(index, _)| index),
-                index_range_spec,
-                continuation.index_scan_continuation(),
-                physical_fetch_hint,
-                index_predicate_execution,
-            )?,
+            ExecutableAccessPathDispatch::IndexRange { index, .. } => {
+                Self::resolve_index_range::<E>(
+                    ctx,
+                    index,
+                    index_range_spec,
+                    continuation.index_scan_continuation(),
+                    physical_fetch_hint,
+                    index_predicate_execution,
+                )?
+            }
         };
 
         Self::normalize_ordered_keys(&mut candidates, continuation.direction(), key_order_state);

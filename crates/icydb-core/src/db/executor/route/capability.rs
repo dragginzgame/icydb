@@ -12,7 +12,6 @@ use crate::{
             aggregate::capability::{
                 AggregateExecutionPolicyInputs, derive_aggregate_execution_policy,
             },
-            derive_access_capabilities, derive_access_path_capabilities,
             load::LoadExecutor,
         },
         query::{
@@ -30,7 +29,7 @@ use crate::db::executor::route::{ExecutionRoutePlan, RouteCapabilities};
 pub(in crate::db::executor) const fn supports_pk_stream_access_executable_path<K>(
     path: &ExecutableAccessPath<'_, K>,
 ) -> bool {
-    derive_access_path_capabilities(path).supports_pk_stream_access()
+    path.capabilities().supports_pk_stream_access()
 }
 
 /// Return bounded primary-scan fetch hints for executable path mechanics only.
@@ -38,7 +37,7 @@ pub(in crate::db::executor) const fn primary_scan_fetch_hint_for_executable_acce
     path: &ExecutableAccessPath<'_, K>,
     physical_fetch_hint: Option<usize>,
 ) -> Option<usize> {
-    if derive_access_path_capabilities(path).supports_primary_scan_fetch_hint() {
+    if path.capabilities().supports_primary_scan_fetch_hint() {
         physical_fetch_hint
     } else {
         None
@@ -158,67 +157,6 @@ const fn order_direction(direction: OrderDirection) -> Direction {
     }
 }
 
-fn debug_assert_access_route_class_parity<K>(
-    executable: &crate::db::access::ExecutableAccessPlan<'_, K>,
-) {
-    let access_class: crate::db::access::AccessRouteClass = executable.class();
-    let access_capabilities = derive_access_capabilities(executable);
-    let legacy_single_path = access_capabilities.single_path();
-    let legacy_prefix_details =
-        legacy_single_path.and_then(|single_path| single_path.index_prefix_details());
-    let legacy_range_details =
-        legacy_single_path.and_then(|single_path| single_path.index_range_details());
-    let legacy_first_index_range_details = access_capabilities
-        .first_index_range_details()
-        .map(|details| (details.index(), details.slot_arity()));
-
-    debug_assert_eq!(
-        access_class.single_path(),
-        legacy_single_path.is_some(),
-        "access route class parity: single-path classification drifted from legacy capabilities",
-    );
-    debug_assert_eq!(
-        access_class.composite(),
-        access_capabilities.is_composite(),
-        "access route class parity: composite classification drifted from legacy capabilities",
-    );
-    debug_assert_eq!(
-        access_class.reverse_supported(),
-        access_capabilities.all_paths_support_reverse_traversal(),
-        "access route class parity: reverse-traversal classification drifted from legacy capabilities",
-    );
-    debug_assert_eq!(
-        access_class.ordered(),
-        access_capabilities.all_paths_pk_ordered_stream(),
-        "access route class parity: ordered-stream classification drifted from legacy capabilities",
-    );
-    debug_assert_eq!(
-        access_class.first_index_range_details(),
-        legacy_first_index_range_details,
-        "access route class parity: first index-range details drifted from legacy capabilities",
-    );
-    debug_assert_eq!(
-        access_class.single_path_index_prefix_details(),
-        legacy_prefix_details.map(|details| (details.index(), details.slot_arity())),
-        "access route class parity: single-path index-prefix details drifted from legacy capabilities",
-    );
-    debug_assert_eq!(
-        access_class.single_path_index_range_details(),
-        legacy_range_details.map(|details| (details.index(), details.slot_arity())),
-        "access route class parity: single-path index-range details drifted from legacy capabilities",
-    );
-    debug_assert_eq!(
-        access_class.single_path_supports_pk_stream_access(),
-        legacy_single_path.is_some_and(|single_path| single_path.supports_pk_stream_access()),
-        "access route class parity: PK-stream support drifted from legacy capabilities",
-    );
-    debug_assert_eq!(
-        access_class.single_path_supports_count_pushdown_shape(),
-        legacy_single_path.is_some_and(|single_path| single_path.supports_count_pushdown_shape()),
-        "access route class parity: COUNT-pushdown support drifted from legacy capabilities",
-    );
-}
-
 /// Return true when bounded physical fetch hints are valid for this direction.
 pub(in crate::db::executor::route) const fn direction_allows_physical_fetch_hint(
     direction: Direction,
@@ -298,7 +236,6 @@ where
 
     fn access_supports_reverse_traversal(access: &AccessPlan<E::Key>) -> bool {
         let access_strategy = access.resolve_strategy();
-        debug_assert_access_route_class_parity(access_strategy.executable());
 
         access_strategy.class().reverse_supported()
     }

@@ -592,54 +592,6 @@ fn summarize_value(value: &Value) -> String {
     }
 }
 
-const fn supports_pk_stream_access(kind: ExecutionPathKind) -> bool {
-    matches!(
-        kind,
-        ExecutionPathKind::KeyRange | ExecutionPathKind::FullScan
-    )
-}
-
-const fn supports_count_pushdown_shape(kind: ExecutionPathKind) -> bool {
-    matches!(
-        kind,
-        ExecutionPathKind::KeyRange | ExecutionPathKind::FullScan
-    )
-}
-
-const fn supports_reverse_traversal(kind: ExecutionPathKind) -> bool {
-    matches!(
-        kind,
-        ExecutionPathKind::ByKey
-            | ExecutionPathKind::KeyRange
-            | ExecutionPathKind::IndexPrefix
-            | ExecutionPathKind::IndexMultiLookup
-            | ExecutionPathKind::IndexRange
-            | ExecutionPathKind::FullScan
-    )
-}
-
-const fn is_pk_ordered_stream(_kind: ExecutionPathKind) -> bool {
-    true
-}
-
-const fn index_prefix_details_from_bounds(bounds: ExecutionBounds) -> Option<(IndexModel, usize)> {
-    match bounds {
-        ExecutionBounds::IndexPrefix { index, prefix_len } => Some((index, prefix_len)),
-        ExecutionBounds::Unbounded
-        | ExecutionBounds::PrimaryKeyRange
-        | ExecutionBounds::IndexRange { .. } => None,
-    }
-}
-
-const fn index_range_details_from_bounds(bounds: ExecutionBounds) -> Option<(IndexModel, usize)> {
-    match bounds {
-        ExecutionBounds::IndexRange { index, prefix_len } => Some((index, prefix_len)),
-        ExecutionBounds::Unbounded
-        | ExecutionBounds::PrimaryKeyRange
-        | ExecutionBounds::IndexPrefix { .. } => None,
-    }
-}
-
 // Core matcher for secondary ORDER BY pushdown eligibility.
 fn match_secondary_order_pushdown_core(
     model: &EntityModel,
@@ -936,67 +888,34 @@ impl<'a, K> ExecutableAccessPlan<'a, K> {
     /// Derive one access-owned route class from this lowered executable plan.
     #[must_use]
     pub(in crate::db) fn class(&self) -> AccessRouteClass {
-        let single_path = self.as_path();
-        let single_path_kind = single_path.map(ExecutableAccessPath::kind);
-        let single_path_bounds = single_path.map(ExecutableAccessPath::bounds);
+        // Route-class capability projection is delegated to access/capabilities.
+        // This keeps route-shape predicates under one authority surface.
+        let capabilities = self.capabilities();
+        let single_path = capabilities.single_path();
+        let single_path_index_prefix_details = single_path
+            .and_then(|path| path.index_prefix_details())
+            .map(|details| (details.index(), details.slot_arity()));
+        let single_path_index_range_details = single_path
+            .and_then(|path| path.index_range_details())
+            .map(|details| (details.index(), details.slot_arity()));
+        let first_index_range_details = capabilities
+            .first_index_range_details()
+            .map(|details| (details.index(), details.slot_arity()));
 
         AccessRouteClass {
             single_path: single_path.is_some(),
-            composite: matches!(
-                self.node(),
-                ExecutableAccessNode::Union(_) | ExecutableAccessNode::Intersection(_)
-            ),
-            range_scan: single_path_kind.is_some_and(|kind| kind == ExecutionPathKind::IndexRange),
-            prefix_scan: single_path_kind
-                .is_some_and(|kind| kind == ExecutionPathKind::IndexPrefix),
-            ordered: access_plan_is_pk_ordered_stream_internal(self),
-            reverse_supported: access_plan_supports_reverse_traversal_internal(self),
-            single_path_supports_pk_stream_access: single_path_kind
-                .is_some_and(supports_pk_stream_access),
-            single_path_supports_count_pushdown_shape: single_path_kind
-                .is_some_and(supports_count_pushdown_shape),
-            single_path_index_prefix_details: single_path_bounds
-                .and_then(index_prefix_details_from_bounds),
-            single_path_index_range_details: single_path_bounds
-                .and_then(index_range_details_from_bounds),
-            first_index_range_details: access_plan_first_index_range_details_internal(self),
-        }
-    }
-}
-
-fn access_plan_first_index_range_details_internal<K>(
-    access: &ExecutableAccessPlan<'_, K>,
-) -> Option<(IndexModel, usize)> {
-    match access.node() {
-        ExecutableAccessNode::Path(path) => index_range_details_from_bounds(path.bounds()),
-        ExecutableAccessNode::Union(children) | ExecutableAccessNode::Intersection(children) => {
-            children
-                .iter()
-                .find_map(access_plan_first_index_range_details_internal)
-        }
-    }
-}
-
-fn access_plan_supports_reverse_traversal_internal<K>(
-    access: &ExecutableAccessPlan<'_, K>,
-) -> bool {
-    match access.node() {
-        ExecutableAccessNode::Path(path) => supports_reverse_traversal(path.kind()),
-        ExecutableAccessNode::Union(children) | ExecutableAccessNode::Intersection(children) => {
-            children
-                .iter()
-                .all(access_plan_supports_reverse_traversal_internal)
-        }
-    }
-}
-
-fn access_plan_is_pk_ordered_stream_internal<K>(access: &ExecutableAccessPlan<'_, K>) -> bool {
-    match access.node() {
-        ExecutableAccessNode::Path(path) => is_pk_ordered_stream(path.kind()),
-        ExecutableAccessNode::Union(children) | ExecutableAccessNode::Intersection(children) => {
-            children
-                .iter()
-                .all(access_plan_is_pk_ordered_stream_internal)
+            composite: capabilities.is_composite(),
+            range_scan: single_path_index_range_details.is_some(),
+            prefix_scan: single_path_index_prefix_details.is_some(),
+            ordered: capabilities.all_paths_pk_ordered_stream(),
+            reverse_supported: capabilities.all_paths_support_reverse_traversal(),
+            single_path_supports_pk_stream_access: single_path
+                .is_some_and(|path| path.supports_pk_stream_access()),
+            single_path_supports_count_pushdown_shape: single_path
+                .is_some_and(|path| path.supports_count_pushdown_shape()),
+            single_path_index_prefix_details,
+            single_path_index_range_details,
+            first_index_range_details,
         }
     }
 }

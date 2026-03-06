@@ -60,7 +60,7 @@ mod tests {
     use crate::{
         db::{
             Db,
-            access::{AccessPath, AccessPlan},
+            access::AccessPlan,
             direction::Direction,
             executor::{
                 AccessExecutionDescriptor, AccessScanContinuationInput, AccessStreamBindings,
@@ -115,10 +115,7 @@ mod tests {
         let ctx = Context::<FastStreamInvariantEntity>::new(&FAST_STREAM_INVARIANT_DB);
         let id1 = Ulid::from_u128(1);
         let id2 = Ulid::from_u128(2);
-        let access = AccessPlan::Union(vec![
-            AccessPlan::path(AccessPath::ByKey(id1)),
-            AccessPlan::path(AccessPath::ByKey(id2)),
-        ]);
+        let access = AccessPlan::Union(vec![AccessPlan::by_key(id1), AccessPlan::by_key(id2)]);
         let descriptor = AccessExecutionDescriptor::from_strategy(
             access.resolve_strategy(),
             AccessStreamBindings {

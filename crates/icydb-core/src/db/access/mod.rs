@@ -4,13 +4,21 @@
 //! Boundary: query planning produces access plans; executor consumes lowered forms.
 
 pub(crate) mod canonical;
+pub(in crate::db) mod capabilities;
+pub(in crate::db) mod dispatch;
 pub(in crate::db) mod execution_contract;
 pub(crate) mod lowering;
 pub(crate) mod path;
 pub(crate) mod plan;
+#[cfg(test)]
+mod tests;
 pub(crate) mod validate;
 
 pub(crate) use canonical::normalize_access_plan_value;
+pub(in crate::db) use dispatch::{
+    AccessPathDispatch, AccessPathKind, AccessPlanDispatch, dispatch_access_plan,
+};
+pub(in crate::db) use dispatch::{ExecutableAccessPathDispatch, dispatch_executable_access_path};
 pub(in crate::db) use execution_contract::{
     AccessRouteClass, AccessStrategy, ExecutableAccessNode, ExecutableAccessPath,
     ExecutableAccessPlan, ExecutionBounds, ExecutionDistinctMode, ExecutionMode, ExecutionOrdering,

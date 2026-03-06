@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        access::{AccessPath, AccessPlan},
+        access::AccessPlan,
         predicate::{CompareOp, MissingRowPolicy, Predicate, SchemaInfo},
         query::{
             builder::aggregate::AggregateExpr,
@@ -290,7 +290,7 @@ fn strip_redundant_primary_key_equality_predicate_for_by_key_access(
     normalized_predicate: Option<Predicate>,
 ) -> Option<Predicate> {
     let predicate = normalized_predicate?;
-    let Some(AccessPath::ByKey(access_key)) = access.as_path() else {
+    let Some(access_key) = access.as_path().and_then(|path| path.as_by_key()) else {
         return Some(predicate);
     };
     let Predicate::Compare(cmp) = &predicate else {
@@ -308,8 +308,9 @@ fn strip_redundant_primary_key_equality_predicate_for_by_key_access(
 
 // Collapse `LIMIT 1` pagination overhead when access is already one exact
 // primary-key lookup and no offset is requested.
+#[expect(clippy::redundant_closure_for_method_calls)]
 fn simplify_limit_one_page_for_by_key_access(plan: &mut AccessPlannedQuery<Value>) {
-    if !matches!(plan.access.as_path(), Some(AccessPath::ByKey(_))) {
+    if !plan.access.as_path().is_some_and(|path| path.is_by_key()) {
         return;
     }
 

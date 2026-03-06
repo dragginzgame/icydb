@@ -8,7 +8,7 @@ use crate::{
         Context,
         executor::{
             AccessExecutionDescriptor, AccessScanContinuationInput, AccessStreamBindings,
-            ExecutionOptimization, LoweredIndexRangeSpec, derive_access_path_capabilities,
+            ExecutionOptimization, LoweredIndexRangeSpec,
             load::{FastPathKeyResult, LoadExecutor},
         },
         index::predicate::IndexPredicateExecution,
@@ -36,7 +36,7 @@ where
         let Some(executable_path) = access_strategy.as_path() else {
             return Ok(None);
         };
-        let path_capabilities = derive_access_path_capabilities(executable_path);
+        let path_capabilities = executable_path.capabilities();
         let Some(index) = path_capabilities.index_range_model() else {
             return Ok(None);
         };

@@ -6,7 +6,7 @@ use crate::{
         data::DataRow,
         executor::{
             Context, ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan,
-            LoweredIndexPrefixSpec, LoweredIndexRangeSpec, derive_access_path_capabilities,
+            LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             stream::{
                 access::{
                     bindings::{
@@ -190,7 +190,7 @@ impl AccessPlanStreamResolver {
         path: &ExecutableAccessPath<'_, K>,
         index_prefix_specs: &[LoweredIndexPrefixSpec],
     ) -> Result<(), InternalError> {
-        let path_capabilities = derive_access_path_capabilities(path);
+        let path_capabilities = path.capabilities();
         if let Some(index) = path_capabilities.index_prefix_model() {
             for spec in index_prefix_specs {
                 if spec.index() != &index {
@@ -209,7 +209,7 @@ impl AccessPlanStreamResolver {
         path: &ExecutableAccessPath<'_, K>,
         index_range_spec: Option<&LoweredIndexRangeSpec>,
     ) -> Result<(), InternalError> {
-        let path_capabilities = derive_access_path_capabilities(path);
+        let path_capabilities = path.capabilities();
         if let Some(spec) = index_range_spec
             && let Some(index) = path_capabilities.index_range_model()
             && spec.index() != &index
@@ -290,7 +290,7 @@ impl AccessPlanStreamResolver {
     {
         match access.node() {
             ExecutableAccessNode::Path(path) => {
-                let path_capabilities = derive_access_path_capabilities(path);
+                let path_capabilities = path.capabilities();
                 let index_prefix_specs = if path_capabilities.index_prefix_spec_count() > 0 {
                     spec_cursor
                         .next_index_prefix_specs(path_capabilities.index_prefix_spec_count())

@@ -185,6 +185,32 @@ impl<K> AccessPath<K> {
         matches!(self, Self::FullScan)
     }
 
+    /// Return true when this path is a direct primary-key lookup.
+    #[must_use]
+    pub(crate) const fn is_by_key(&self) -> bool {
+        matches!(self, Self::ByKey(_))
+    }
+
+    /// Return true when this path is an index multi-lookup.
+    #[must_use]
+    pub(crate) const fn is_index_multi_lookup(&self) -> bool {
+        matches!(self, Self::IndexMultiLookup { .. })
+    }
+
+    /// Borrow the primary key payload when this path is `ByKey`.
+    #[must_use]
+    pub(crate) const fn as_by_key(&self) -> Option<&K> {
+        match self {
+            Self::ByKey(key) => Some(key),
+            Self::ByKeys(_)
+            | Self::KeyRange { .. }
+            | Self::IndexPrefix { .. }
+            | Self::IndexMultiLookup { .. }
+            | Self::IndexRange { .. }
+            | Self::FullScan => None,
+        }
+    }
+
     /// Borrow index-prefix details when this path is `IndexPrefix`.
     #[must_use]
     pub(crate) const fn as_index_prefix(&self) -> Option<(&IndexModel, &[Value])> {

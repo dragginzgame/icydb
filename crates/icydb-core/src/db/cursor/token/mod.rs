@@ -14,7 +14,7 @@ pub(in crate::db::cursor::token) use wire::{
 
 ///
 /// IndexRangeCursorAnchor
-/// Dedicated continuation anchor for `AccessPath::IndexRange`.
+/// Dedicated continuation anchor for index-range access paths.
 ///
 /// This tracks the exact raw index key of the last emitted row so continuation
 /// can resume from `Bound::Excluded(last_raw_key)` in store traversal space.

@@ -4,7 +4,7 @@
 //! Boundary: metric projection utilities for executor call sites.
 
 use crate::{
-    db::{access::AccessPlan, executor::access_plan_metrics_kind},
+    db::access::AccessPlan,
     obs::sink::{GroupedPlanStrategy, MetricsEvent, PlanKind, Span, record},
     traits::EntityKind,
 };
@@ -60,7 +60,7 @@ pub(super) fn record_grouped_plan_metrics<K>(
 fn access_plan_kind<K>(access: &AccessPlan<K>) -> PlanKind {
     let executable = access.resolve_strategy();
 
-    access_plan_metrics_kind(executable.executable())
+    executable.executable().metrics_kind()
 }
 
 /// Convenience: set span rows from a usize length.

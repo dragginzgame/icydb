@@ -5,7 +5,6 @@
 
 use crate::{
     db::{
-        executor::derive_access_path_capabilities,
         executor::{ExecutionPreparation, aggregate::AggregateKind, load::LoadExecutor},
         index::{IndexCompilePolicy, compile_index_program},
         query::plan::AccessPlannedQuery,
@@ -92,7 +91,7 @@ where
             invariant("pk stream fast-path requires direct access-path execution")
         })?;
         debug_assert_eq!(
-            derive_access_path_capabilities(access).supports_pk_stream_access(),
+            access.capabilities().supports_pk_stream_access(),
             access_class.single_path_supports_pk_stream_access(),
             "route invariant: descriptor and path capability snapshots must stay aligned",
         );

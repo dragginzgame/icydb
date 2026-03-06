@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        executor::{ExecutableAccessPlan, derive_access_path_capabilities},
+        executor::ExecutableAccessPlan,
         index::{IndexCompilePolicy, IndexPredicateProgram, compile_index_program},
         predicate::PredicateProgram,
         query::plan::AccessPlannedQuery,
@@ -87,7 +87,7 @@ where
     E: EntityKind + EntityValue,
 {
     let path = access.as_path()?;
-    let path_capabilities = derive_access_path_capabilities(path);
+    let path_capabilities = path.capabilities();
     let index_fields = path_capabilities.index_fields_for_slot_map()?;
 
     let mut slots = Vec::with_capacity(index_fields.len());

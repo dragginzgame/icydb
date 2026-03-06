@@ -6,8 +6,9 @@
 use crate::{
     db::{
         access::{
-            AccessPath, AccessPlan, ExecutableAccessPath, ExecutableAccessPlan, ExecutionBounds,
-            ExecutionDistinctMode, ExecutionMode, ExecutionOrdering, ExecutionPathPayload,
+            AccessPathDispatch, AccessPlan, AccessPlanDispatch, ExecutableAccessPath,
+            ExecutableAccessPlan, ExecutionBounds, ExecutionDistinctMode, ExecutionMode,
+            ExecutionOrdering, ExecutionPathPayload, dispatch_access_plan,
         },
         direction::Direction,
         index::{
@@ -21,6 +22,9 @@ use crate::{
     value::Value,
 };
 use std::ops::Bound;
+
+#[cfg(test)]
+use crate::db::access::{AccessPath, dispatch::dispatch_access_path};
 
 pub(in crate::db) const LOWERED_INDEX_RANGE_SPEC_INVALID: &str =
     "validated index-range plan could not be lowered to raw bounds";
@@ -36,14 +40,14 @@ pub(in crate::db) type LoweredKey = RawIndexKey;
 pub(in crate::db) fn lower_executable_access_plan<K>(
     access: &AccessPlan<K>,
 ) -> ExecutableAccessPlan<'_, K> {
-    match access {
-        AccessPlan::Path(path) => {
-            ExecutableAccessPlan::for_path(lower_executable_access_path(path.as_ref()))
+    match dispatch_access_plan(access) {
+        AccessPlanDispatch::Path(path) => {
+            ExecutableAccessPlan::for_path(lower_executable_path_dispatch(path))
         }
-        AccessPlan::Union(children) => {
+        AccessPlanDispatch::Union(children) => {
             ExecutableAccessPlan::union(children.iter().map(lower_executable_access_plan).collect())
         }
-        AccessPlan::Intersection(children) => ExecutableAccessPlan::intersection(
+        AccessPlanDispatch::Intersection(children) => ExecutableAccessPlan::intersection(
             children.iter().map(lower_executable_access_plan).collect(),
         ),
     }
@@ -51,11 +55,19 @@ pub(in crate::db) fn lower_executable_access_plan<K>(
 
 /// Lower one structural `AccessPath` into its normalized executable contract.
 #[must_use]
+#[cfg(test)]
 pub(in crate::db) const fn lower_executable_access_path<K>(
     path: &AccessPath<K>,
 ) -> ExecutableAccessPath<'_, K> {
+    lower_executable_path_dispatch(dispatch_access_path(path))
+}
+
+// Lower one access-path dispatch payload into executable path contracts.
+const fn lower_executable_path_dispatch<K>(
+    path: AccessPathDispatch<'_, K>,
+) -> ExecutableAccessPath<'_, K> {
     match path {
-        AccessPath::ByKey(key) => ExecutableAccessPath::new(
+        AccessPathDispatch::ByKey(key) => ExecutableAccessPath::new(
             ExecutionMode::FullScan,
             ExecutionOrdering::Natural,
             ExecutionBounds::Unbounded,
@@ -63,15 +75,15 @@ pub(in crate::db) const fn lower_executable_access_path<K>(
             false,
             ExecutionPathPayload::ByKey(key),
         ),
-        AccessPath::ByKeys(keys) => ExecutableAccessPath::new(
+        AccessPathDispatch::ByKeys(keys) => ExecutableAccessPath::new(
             ExecutionMode::FullScan,
             ExecutionOrdering::Natural,
             ExecutionBounds::Unbounded,
             ExecutionDistinctMode::None,
             false,
-            ExecutionPathPayload::ByKeys(keys.as_slice()),
+            ExecutionPathPayload::ByKeys(keys),
         ),
-        AccessPath::KeyRange { start, end } => ExecutableAccessPath::new(
+        AccessPathDispatch::KeyRange { start, end } => ExecutableAccessPath::new(
             ExecutionMode::FullScan,
             ExecutionOrdering::Natural,
             ExecutionBounds::PrimaryKeyRange,
@@ -79,22 +91,22 @@ pub(in crate::db) const fn lower_executable_access_path<K>(
             false,
             ExecutionPathPayload::KeyRange { start, end },
         ),
-        AccessPath::IndexPrefix { index, values } => ExecutableAccessPath::new(
+        AccessPathDispatch::IndexPrefix { index, values } => ExecutableAccessPath::new(
             ExecutionMode::OrderedIndexScan,
             ExecutionOrdering::ByIndex(Direction::Asc),
             ExecutionBounds::IndexPrefix {
-                index: *index,
+                index,
                 prefix_len: values.len(),
             },
             ExecutionDistinctMode::PreOrdered,
             true,
             ExecutionPathPayload::IndexPrefix,
         ),
-        AccessPath::IndexMultiLookup { index, values } => ExecutableAccessPath::new(
+        AccessPathDispatch::IndexMultiLookup { index, values } => ExecutableAccessPath::new(
             ExecutionMode::Composite,
             ExecutionOrdering::Natural,
             ExecutionBounds::IndexPrefix {
-                index: *index,
+                index,
                 prefix_len: 1,
             },
             ExecutionDistinctMode::RequiresMaterialization,
@@ -103,7 +115,7 @@ pub(in crate::db) const fn lower_executable_access_path<K>(
                 value_count: values.len(),
             },
         ),
-        AccessPath::IndexRange { spec } => {
+        AccessPathDispatch::IndexRange { spec } => {
             let index = *spec.index();
             let prefix_len = spec.prefix_values().len();
 
@@ -120,7 +132,7 @@ pub(in crate::db) const fn lower_executable_access_path<K>(
                 },
             )
         }
-        AccessPath::FullScan => ExecutableAccessPath::new(
+        AccessPathDispatch::FullScan => ExecutableAccessPath::new(
             ExecutionMode::FullScan,
             ExecutionOrdering::Natural,
             ExecutionBounds::Unbounded,
@@ -285,31 +297,31 @@ fn collect_index_prefix_specs<E: EntityKind>(
     access: &AccessPlan<E::Key>,
     specs: &mut Vec<LoweredIndexPrefixSpec>,
 ) -> Result<(), InternalError> {
-    match access {
-        AccessPlan::Path(path) => {
-            match path.as_ref() {
-                AccessPath::IndexPrefix { index, values } => {
-                    lower_index_prefix_values_for_specs::<E>(*index, values, specs)?;
+    match dispatch_access_plan(access) {
+        AccessPlanDispatch::Path(path) => {
+            match path {
+                AccessPathDispatch::IndexPrefix { index, values } => {
+                    lower_index_prefix_values_for_specs::<E>(index, values, specs)?;
                 }
-                AccessPath::IndexMultiLookup { index, values } => {
+                AccessPathDispatch::IndexMultiLookup { index, values } => {
                     for value in values {
                         lower_index_prefix_values_for_specs::<E>(
-                            *index,
+                            index,
                             std::slice::from_ref(value),
                             specs,
                         )?;
                     }
                 }
-                AccessPath::ByKey(_)
-                | AccessPath::ByKeys(_)
-                | AccessPath::KeyRange { .. }
-                | AccessPath::IndexRange { .. }
-                | AccessPath::FullScan => {}
+                AccessPathDispatch::ByKey(_)
+                | AccessPathDispatch::ByKeys(_)
+                | AccessPathDispatch::KeyRange { .. }
+                | AccessPathDispatch::IndexRange { .. }
+                | AccessPathDispatch::FullScan => {}
             }
 
             Ok(())
         }
-        AccessPlan::Union(children) | AccessPlan::Intersection(children) => {
+        AccessPlanDispatch::Union(children) | AccessPlanDispatch::Intersection(children) => {
             for child in children {
                 collect_index_prefix_specs::<E>(child, specs)?;
             }
@@ -341,9 +353,9 @@ fn collect_index_range_specs<E: EntityKind>(
     access: &AccessPlan<E::Key>,
     specs: &mut Vec<LoweredIndexRangeSpec>,
 ) -> Result<(), InternalError> {
-    match access {
-        AccessPlan::Path(path) => {
-            if let AccessPath::IndexRange { spec } = path.as_ref() {
+    match dispatch_access_plan(access) {
+        AccessPlanDispatch::Path(path) => {
+            if let AccessPathDispatch::IndexRange { spec } = path {
                 debug_assert_eq!(
                     spec.field_slots().len(),
                     spec.prefix_values().len().saturating_add(1),
@@ -362,7 +374,7 @@ fn collect_index_range_specs<E: EntityKind>(
 
             Ok(())
         }
-        AccessPlan::Union(children) | AccessPlan::Intersection(children) => {
+        AccessPlanDispatch::Union(children) | AccessPlanDispatch::Intersection(children) => {
             for child in children {
                 collect_index_range_specs::<E>(child, specs)?;
             }

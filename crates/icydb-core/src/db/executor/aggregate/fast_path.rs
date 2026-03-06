@@ -13,7 +13,6 @@ use crate::{
             aggregate::{
                 AggregateFastPathInputs, AggregateFoldMode, AggregateKind, AggregateOutput,
             },
-            derive_access_path_capabilities,
             load::{FastPathKeyResult, LoadExecutor},
             route::{
                 FastPathOrder, RoutedKeyStreamRequest,
@@ -264,7 +263,7 @@ impl ExecutionKernel {
         let Some(executable_path) = access_strategy.as_path() else {
             return Ok(None);
         };
-        let capabilities = derive_access_path_capabilities(executable_path);
+        let capabilities = executable_path.capabilities();
         if capabilities.is_by_keys_empty() {
             return Ok(None);
         }
@@ -356,7 +355,10 @@ impl ExecutionKernel {
         let Some(executable_path) = access_strategy.as_path() else {
             return Ok(None);
         };
-        if !derive_access_path_capabilities(executable_path).supports_count_pushdown_shape() {
+        if !executable_path
+            .capabilities()
+            .supports_count_pushdown_shape()
+        {
             return Ok(None);
         }
 
