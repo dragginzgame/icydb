@@ -104,13 +104,6 @@ impl<E: EntityKind> ExecutablePlan<E> {
         }
     }
 
-    /// Explain this plan without executing it.
-    #[must_use]
-    #[cfg(test)]
-    pub(crate) fn explain(&self) -> crate::db::query::explain::ExplainPlan {
-        self.plan.explain_with_model(E::MODEL)
-    }
-
     /// Explain one scalar aggregate execution descriptor without executing it.
     #[must_use]
     pub(in crate::db) fn explain_aggregate_terminal_execution_descriptor(
