@@ -9,6 +9,7 @@ mod context;
 mod continuation;
 mod delete;
 mod executable_plan;
+mod explain;
 pub(in crate::db) mod group;
 mod kernel;
 pub(super) mod load;

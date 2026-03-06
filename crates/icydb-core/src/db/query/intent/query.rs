@@ -3,13 +3,13 @@ use crate::{
         predicate::{CompareOp, MissingRowPolicy, Predicate},
         query::{
             builder::aggregate::AggregateExpr,
-            explain::ExplainPlan,
+            explain::{ExplainExecutionNodeDescriptor, ExplainPlan},
             expr::{FilterExpr, SortExpr},
             intent::{QueryError, access_plan_to_entity_keys, model::QueryModel},
             plan::{AccessPlannedQuery, LoadSpec, QueryMode},
         },
     },
-    traits::{EntityKind, SingletonEntity},
+    traits::{EntityKind, EntityValue, SingletonEntity},
     value::Value,
 };
 
@@ -219,6 +219,18 @@ impl<E: EntityKind> Query<E> {
     /// for diagnostics, explain diffing, and cache key construction.
     pub fn plan_hash_hex(&self) -> Result<String, QueryError> {
         Ok(self.explain()?.fingerprint().to_string())
+    }
+
+    /// Explain executor-selected scalar load execution shape without running it.
+    pub fn explain_execution(&self) -> Result<ExplainExecutionNodeDescriptor, QueryError>
+    where
+        E: EntityValue,
+    {
+        let executable = self.plan()?.into_executable();
+
+        executable
+            .explain_load_execution_node_descriptor()
+            .map_err(QueryError::execute)
     }
 
     /// Plan this intent into a neutral planned query contract.

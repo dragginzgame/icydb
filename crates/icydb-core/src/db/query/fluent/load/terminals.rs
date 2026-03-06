@@ -4,7 +4,7 @@ use crate::{
         query::{
             api::ResponseCardinalityExt,
             builder::aggregate::{exists, first, last, max, min},
-            explain::ExplainAggregateTerminalPlan,
+            explain::{ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor},
             intent::QueryError,
         },
         response::EntityResponse,
@@ -68,6 +68,14 @@ where
             self.query(),
             exists(),
         )
+    }
+
+    /// Explain scalar load execution shape without executing the query.
+    pub fn explain_execution(&self) -> Result<ExplainExecutionNodeDescriptor, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.query().explain_execution()
     }
 
     /// Execute and return the number of matching rows.

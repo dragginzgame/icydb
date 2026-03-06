@@ -23,7 +23,7 @@ use crate::{
     traits::FieldValue,
     value::Value,
 };
-use std::ops::Bound;
+use std::{collections::BTreeMap, fmt::Write, ops::Bound};
 
 ///
 /// ExplainPlan
@@ -88,6 +88,17 @@ pub enum ExplainExecutionOrderingSource {
 }
 
 ///
+/// ExplainExecutionMode
+///
+/// Stable execution-mode projection used by execution explain descriptors.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExplainExecutionMode {
+    Streaming,
+    Materialized,
+}
+
+///
 /// ExplainExecutionDescriptor
 ///
 /// Stable scalar execution descriptor consumed by terminal EXPLAIN surfaces.
@@ -99,9 +110,76 @@ pub struct ExplainExecutionDescriptor {
     pub access_strategy: ExplainAccessPath,
     pub covering_projection: bool,
     pub aggregation: AggregateKind,
+    pub execution_mode: ExplainExecutionMode,
     pub ordering_source: ExplainExecutionOrderingSource,
     pub limit: Option<u32>,
     pub cursor: bool,
+    pub node_properties: BTreeMap<String, Value>,
+}
+
+///
+/// ExplainExecutionNodeType
+///
+/// Stable execution-node vocabulary for EXPLAIN descriptor projection.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExplainExecutionNodeType {
+    ByKeyLookup,
+    ByKeysLookup,
+    PrimaryKeyRangeScan,
+    IndexPrefixScan,
+    IndexRangeScan,
+    IndexMultiLookup,
+    FullScan,
+    Union,
+    Intersection,
+    IndexPredicatePrefilter,
+    ResidualPredicateFilter,
+    OrderByAccessSatisfied,
+    OrderByMaterializedSort,
+    DistinctPreOrdered,
+    DistinctMaterialized,
+    ProjectionMaterialized,
+    ProjectionIndexOnly,
+    LimitOffset,
+    CursorResume,
+    IndexRangeLimitPushdown,
+    TopNSeek,
+    AggregateCount,
+    AggregateExists,
+    AggregateMin,
+    AggregateMax,
+    AggregateFirst,
+    AggregateLast,
+    AggregateSum,
+    AggregateSeekFirst,
+    AggregateSeekLast,
+    GroupedAggregateHashMaterialized,
+    GroupedAggregateOrderedMaterialized,
+    SecondaryOrderPushdown,
+}
+
+///
+/// ExplainExecutionNodeDescriptor
+///
+/// Canonical execution-node descriptor used by EXPLAIN text/verbose/json
+/// renderers. Optional fields are node-family specific and are additive.
+///
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExplainExecutionNodeDescriptor {
+    pub node_type: ExplainExecutionNodeType,
+    pub execution_mode: ExplainExecutionMode,
+    pub access_strategy: Option<ExplainAccessPath>,
+    pub predicate_pushdown: Option<String>,
+    pub residual_predicate: Option<ExplainPredicate>,
+    pub projection: Option<String>,
+    pub ordering_source: Option<ExplainExecutionOrderingSource>,
+    pub limit: Option<u32>,
+    pub cursor: Option<bool>,
+    pub covering_scan: Option<bool>,
+    pub rows_expected: Option<u64>,
+    pub children: Vec<Self>,
+    pub node_properties: BTreeMap<String, Value>,
 }
 
 impl ExplainAggregateTerminalPlan {
@@ -137,6 +215,502 @@ impl ExplainExecutionDescriptor {
                 ExplainAggregateTerminalRoute::Standard
             }
         }
+    }
+}
+
+impl ExplainAggregateTerminalPlan {
+    #[must_use]
+    pub fn execution_node_descriptor(&self) -> ExplainExecutionNodeDescriptor {
+        ExplainExecutionNodeDescriptor {
+            node_type: aggregate_execution_node_type(self.terminal, self.execution.ordering_source),
+            execution_mode: self.execution.execution_mode,
+            access_strategy: Some(self.execution.access_strategy.clone()),
+            predicate_pushdown: None,
+            residual_predicate: None,
+            projection: None,
+            ordering_source: Some(self.execution.ordering_source),
+            limit: self.execution.limit,
+            cursor: Some(self.execution.cursor),
+            covering_scan: Some(self.execution.covering_projection),
+            rows_expected: None,
+            children: Vec::new(),
+            node_properties: self.execution.node_properties.clone(),
+        }
+    }
+}
+
+const fn aggregate_execution_node_type(
+    terminal: AggregateKind,
+    ordering_source: ExplainExecutionOrderingSource,
+) -> ExplainExecutionNodeType {
+    match ordering_source {
+        ExplainExecutionOrderingSource::IndexSeekFirst { .. } => {
+            ExplainExecutionNodeType::AggregateSeekFirst
+        }
+        ExplainExecutionOrderingSource::IndexSeekLast { .. } => {
+            ExplainExecutionNodeType::AggregateSeekLast
+        }
+        ExplainExecutionOrderingSource::AccessOrder
+        | ExplainExecutionOrderingSource::Materialized => match terminal {
+            AggregateKind::Count => ExplainExecutionNodeType::AggregateCount,
+            AggregateKind::Exists => ExplainExecutionNodeType::AggregateExists,
+            AggregateKind::Min => ExplainExecutionNodeType::AggregateMin,
+            AggregateKind::Max => ExplainExecutionNodeType::AggregateMax,
+            AggregateKind::First => ExplainExecutionNodeType::AggregateFirst,
+            AggregateKind::Last => ExplainExecutionNodeType::AggregateLast,
+            AggregateKind::Sum => ExplainExecutionNodeType::AggregateSum,
+        },
+    }
+}
+
+impl ExplainExecutionNodeType {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ByKeyLookup => "ByKeyLookup",
+            Self::ByKeysLookup => "ByKeysLookup",
+            Self::PrimaryKeyRangeScan => "PrimaryKeyRangeScan",
+            Self::IndexPrefixScan => "IndexPrefixScan",
+            Self::IndexRangeScan => "IndexRangeScan",
+            Self::IndexMultiLookup => "IndexMultiLookup",
+            Self::FullScan => "FullScan",
+            Self::Union => "Union",
+            Self::Intersection => "Intersection",
+            Self::IndexPredicatePrefilter => "IndexPredicatePrefilter",
+            Self::ResidualPredicateFilter => "ResidualPredicateFilter",
+            Self::OrderByAccessSatisfied => "OrderByAccessSatisfied",
+            Self::OrderByMaterializedSort => "OrderByMaterializedSort",
+            Self::DistinctPreOrdered => "DistinctPreOrdered",
+            Self::DistinctMaterialized => "DistinctMaterialized",
+            Self::ProjectionMaterialized => "ProjectionMaterialized",
+            Self::ProjectionIndexOnly => "ProjectionIndexOnly",
+            Self::LimitOffset => "LimitOffset",
+            Self::CursorResume => "CursorResume",
+            Self::IndexRangeLimitPushdown => "IndexRangeLimitPushdown",
+            Self::TopNSeek => "TopNSeek",
+            Self::AggregateCount => "AggregateCount",
+            Self::AggregateExists => "AggregateExists",
+            Self::AggregateMin => "AggregateMin",
+            Self::AggregateMax => "AggregateMax",
+            Self::AggregateFirst => "AggregateFirst",
+            Self::AggregateLast => "AggregateLast",
+            Self::AggregateSum => "AggregateSum",
+            Self::AggregateSeekFirst => "AggregateSeekFirst",
+            Self::AggregateSeekLast => "AggregateSeekLast",
+            Self::GroupedAggregateHashMaterialized => "GroupedAggregateHashMaterialized",
+            Self::GroupedAggregateOrderedMaterialized => "GroupedAggregateOrderedMaterialized",
+            Self::SecondaryOrderPushdown => "SecondaryOrderPushdown",
+        }
+    }
+}
+
+impl ExplainExecutionNodeDescriptor {
+    #[must_use]
+    pub fn render_text_tree(&self) -> String {
+        let mut lines = Vec::new();
+        self.render_text_tree_into(0, &mut lines);
+        lines.join("\n")
+    }
+
+    #[must_use]
+    pub fn render_json_canonical(&self) -> String {
+        let mut out = String::new();
+        write_execution_node_json(self, &mut out);
+        out
+    }
+
+    fn render_text_tree_into(&self, depth: usize, lines: &mut Vec<String>) {
+        let mut line = format!(
+            "{}{} execution_mode={}",
+            "  ".repeat(depth),
+            self.node_type.as_str(),
+            execution_mode_label(self.execution_mode)
+        );
+
+        if let Some(access_strategy) = self.access_strategy.as_ref() {
+            let _ = write!(line, " access={}", access_strategy_label(access_strategy));
+        }
+        if let Some(predicate_pushdown) = self.predicate_pushdown.as_ref() {
+            let _ = write!(line, " predicate_pushdown={predicate_pushdown}");
+        }
+        if let Some(residual_predicate) = self.residual_predicate.as_ref() {
+            let _ = write!(line, " residual_predicate={residual_predicate:?}");
+        }
+        if let Some(projection) = self.projection.as_ref() {
+            let _ = write!(line, " projection={projection}");
+        }
+        if let Some(ordering_source) = self.ordering_source {
+            let _ = write!(
+                line,
+                " ordering_source={}",
+                ordering_source_label(ordering_source)
+            );
+        }
+        if let Some(limit) = self.limit {
+            let _ = write!(line, " limit={limit}");
+        }
+        if let Some(cursor) = self.cursor {
+            let _ = write!(line, " cursor={cursor}");
+        }
+        if let Some(covering_scan) = self.covering_scan {
+            let _ = write!(line, " covering_scan={covering_scan}");
+        }
+        if let Some(rows_expected) = self.rows_expected {
+            let _ = write!(line, " rows_expected={rows_expected}");
+        }
+        if !self.node_properties.is_empty() {
+            let _ = write!(
+                line,
+                " node_properties={}",
+                render_node_properties(&self.node_properties)
+            );
+        }
+
+        lines.push(line);
+
+        for child in &self.children {
+            child.render_text_tree_into(depth.saturating_add(1), lines);
+        }
+    }
+}
+
+const fn execution_mode_label(mode: ExplainExecutionMode) -> &'static str {
+    match mode {
+        ExplainExecutionMode::Streaming => "Streaming",
+        ExplainExecutionMode::Materialized => "Materialized",
+    }
+}
+
+fn render_node_properties(node_properties: &BTreeMap<String, Value>) -> String {
+    let mut rendered = String::new();
+    let mut first = true;
+    for (key, value) in node_properties {
+        if first {
+            first = false;
+        } else {
+            rendered.push(',');
+        }
+        let _ = write!(rendered, "{key}={value:?}");
+    }
+    rendered
+}
+
+fn write_execution_node_json(node: &ExplainExecutionNodeDescriptor, out: &mut String) {
+    out.push('{');
+
+    write_json_field_name(out, "node_type");
+    write_json_string(out, node.node_type.as_str());
+    out.push(',');
+
+    write_json_field_name(out, "execution_mode");
+    write_json_string(out, execution_mode_label(node.execution_mode));
+    out.push(',');
+
+    write_json_field_name(out, "access_strategy");
+    match node.access_strategy.as_ref() {
+        Some(access) => write_access_json(access, out),
+        None => out.push_str("null"),
+    }
+    out.push(',');
+
+    write_json_field_name(out, "predicate_pushdown");
+    match node.predicate_pushdown.as_ref() {
+        Some(predicate_pushdown) => write_json_string(out, predicate_pushdown),
+        None => out.push_str("null"),
+    }
+    out.push(',');
+
+    write_json_field_name(out, "residual_predicate");
+    match node.residual_predicate.as_ref() {
+        Some(residual_predicate) => write_json_string(out, &format!("{residual_predicate:?}")),
+        None => out.push_str("null"),
+    }
+    out.push(',');
+
+    write_json_field_name(out, "projection");
+    match node.projection.as_ref() {
+        Some(projection) => write_json_string(out, projection),
+        None => out.push_str("null"),
+    }
+    out.push(',');
+
+    write_json_field_name(out, "ordering_source");
+    match node.ordering_source {
+        Some(ordering_source) => write_json_string(out, ordering_source_label(ordering_source)),
+        None => out.push_str("null"),
+    }
+    out.push(',');
+
+    write_json_field_name(out, "limit");
+    match node.limit {
+        Some(limit) => out.push_str(&limit.to_string()),
+        None => out.push_str("null"),
+    }
+    out.push(',');
+
+    write_json_field_name(out, "cursor");
+    match node.cursor {
+        Some(cursor) => out.push_str(if cursor { "true" } else { "false" }),
+        None => out.push_str("null"),
+    }
+    out.push(',');
+
+    write_json_field_name(out, "covering_scan");
+    match node.covering_scan {
+        Some(covering_scan) => out.push_str(if covering_scan { "true" } else { "false" }),
+        None => out.push_str("null"),
+    }
+    out.push(',');
+
+    write_json_field_name(out, "rows_expected");
+    match node.rows_expected {
+        Some(rows_expected) => out.push_str(&rows_expected.to_string()),
+        None => out.push_str("null"),
+    }
+    out.push(',');
+
+    write_json_field_name(out, "children");
+    out.push('[');
+    for (index, child) in node.children.iter().enumerate() {
+        if index > 0 {
+            out.push(',');
+        }
+        write_execution_node_json(child, out);
+    }
+    out.push(']');
+    out.push(',');
+
+    write_json_field_name(out, "node_properties");
+    write_node_properties_json(&node.node_properties, out);
+
+    out.push('}');
+}
+
+#[expect(clippy::too_many_lines)]
+fn write_access_json(access: &ExplainAccessPath, out: &mut String) {
+    match access {
+        ExplainAccessPath::ByKey { key } => {
+            out.push('{');
+            write_json_field_name(out, "type");
+            write_json_string(out, "ByKey");
+            out.push(',');
+            write_json_field_name(out, "key");
+            write_json_string(out, &format!("{key:?}"));
+            out.push('}');
+        }
+        ExplainAccessPath::ByKeys { keys } => {
+            out.push('{');
+            write_json_field_name(out, "type");
+            write_json_string(out, "ByKeys");
+            out.push(',');
+            write_json_field_name(out, "keys");
+            write_value_vec_as_debug_json(keys, out);
+            out.push('}');
+        }
+        ExplainAccessPath::KeyRange { start, end } => {
+            out.push('{');
+            write_json_field_name(out, "type");
+            write_json_string(out, "KeyRange");
+            out.push(',');
+            write_json_field_name(out, "start");
+            write_json_string(out, &format!("{start:?}"));
+            out.push(',');
+            write_json_field_name(out, "end");
+            write_json_string(out, &format!("{end:?}"));
+            out.push('}');
+        }
+        ExplainAccessPath::IndexPrefix {
+            name,
+            fields,
+            prefix_len,
+            values,
+        } => {
+            out.push('{');
+            write_json_field_name(out, "type");
+            write_json_string(out, "IndexPrefix");
+            out.push(',');
+            write_json_field_name(out, "name");
+            write_json_string(out, name);
+            out.push(',');
+            write_json_field_name(out, "fields");
+            write_str_vec_json(fields, out);
+            out.push(',');
+            write_json_field_name(out, "prefix_len");
+            out.push_str(&prefix_len.to_string());
+            out.push(',');
+            write_json_field_name(out, "values");
+            write_value_vec_as_debug_json(values, out);
+            out.push('}');
+        }
+        ExplainAccessPath::IndexMultiLookup {
+            name,
+            fields,
+            values,
+        } => {
+            out.push('{');
+            write_json_field_name(out, "type");
+            write_json_string(out, "IndexMultiLookup");
+            out.push(',');
+            write_json_field_name(out, "name");
+            write_json_string(out, name);
+            out.push(',');
+            write_json_field_name(out, "fields");
+            write_str_vec_json(fields, out);
+            out.push(',');
+            write_json_field_name(out, "values");
+            write_value_vec_as_debug_json(values, out);
+            out.push('}');
+        }
+        ExplainAccessPath::IndexRange {
+            name,
+            fields,
+            prefix_len,
+            prefix,
+            lower,
+            upper,
+        } => {
+            out.push('{');
+            write_json_field_name(out, "type");
+            write_json_string(out, "IndexRange");
+            out.push(',');
+            write_json_field_name(out, "name");
+            write_json_string(out, name);
+            out.push(',');
+            write_json_field_name(out, "fields");
+            write_str_vec_json(fields, out);
+            out.push(',');
+            write_json_field_name(out, "prefix_len");
+            out.push_str(&prefix_len.to_string());
+            out.push(',');
+            write_json_field_name(out, "prefix");
+            write_value_vec_as_debug_json(prefix, out);
+            out.push(',');
+            write_json_field_name(out, "lower");
+            write_json_string(out, &format!("{lower:?}"));
+            out.push(',');
+            write_json_field_name(out, "upper");
+            write_json_string(out, &format!("{upper:?}"));
+            out.push('}');
+        }
+        ExplainAccessPath::FullScan => {
+            out.push('{');
+            write_json_field_name(out, "type");
+            write_json_string(out, "FullScan");
+            out.push('}');
+        }
+        ExplainAccessPath::Union(children) => {
+            out.push('{');
+            write_json_field_name(out, "type");
+            write_json_string(out, "Union");
+            out.push(',');
+            write_json_field_name(out, "children");
+            out.push('[');
+            for (index, child) in children.iter().enumerate() {
+                if index > 0 {
+                    out.push(',');
+                }
+                write_access_json(child, out);
+            }
+            out.push(']');
+            out.push('}');
+        }
+        ExplainAccessPath::Intersection(children) => {
+            out.push('{');
+            write_json_field_name(out, "type");
+            write_json_string(out, "Intersection");
+            out.push(',');
+            write_json_field_name(out, "children");
+            out.push('[');
+            for (index, child) in children.iter().enumerate() {
+                if index > 0 {
+                    out.push(',');
+                }
+                write_access_json(child, out);
+            }
+            out.push(']');
+            out.push('}');
+        }
+    }
+}
+
+fn write_node_properties_json(node_properties: &BTreeMap<String, Value>, out: &mut String) {
+    out.push('{');
+    for (index, (key, value)) in node_properties.iter().enumerate() {
+        if index > 0 {
+            out.push(',');
+        }
+        write_json_field_name(out, key);
+        write_json_string(out, &format!("{value:?}"));
+    }
+    out.push('}');
+}
+
+fn write_value_vec_as_debug_json(values: &[Value], out: &mut String) {
+    out.push('[');
+    for (index, value) in values.iter().enumerate() {
+        if index > 0 {
+            out.push(',');
+        }
+        write_json_string(out, &format!("{value:?}"));
+    }
+    out.push(']');
+}
+
+fn write_str_vec_json(values: &[&str], out: &mut String) {
+    out.push('[');
+    for (index, value) in values.iter().enumerate() {
+        if index > 0 {
+            out.push(',');
+        }
+        write_json_string(out, value);
+    }
+    out.push(']');
+}
+
+fn write_json_field_name(out: &mut String, key: &str) {
+    write_json_string(out, key);
+    out.push(':');
+}
+
+fn write_json_string(out: &mut String, value: &str) {
+    out.push('"');
+    for ch in value.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{08}' => out.push_str("\\b"),
+            '\u{0C}' => out.push_str("\\f"),
+            _ => out.push(ch),
+        }
+    }
+    out.push('"');
+}
+
+fn access_strategy_label(access: &ExplainAccessPath) -> String {
+    match access {
+        ExplainAccessPath::ByKey { .. } => "ByKey".to_string(),
+        ExplainAccessPath::ByKeys { .. } => "ByKeys".to_string(),
+        ExplainAccessPath::KeyRange { .. } => "KeyRange".to_string(),
+        ExplainAccessPath::IndexPrefix { name, .. } => format!("IndexPrefix({name})"),
+        ExplainAccessPath::IndexMultiLookup { name, .. } => {
+            format!("IndexMultiLookup({name})")
+        }
+        ExplainAccessPath::IndexRange { name, .. } => format!("IndexRange({name})"),
+        ExplainAccessPath::FullScan => "FullScan".to_string(),
+        ExplainAccessPath::Union(children) => format!("Union({})", children.len()),
+        ExplainAccessPath::Intersection(children) => format!("Intersection({})", children.len()),
+    }
+}
+
+const fn ordering_source_label(ordering_source: ExplainExecutionOrderingSource) -> &'static str {
+    match ordering_source {
+        ExplainExecutionOrderingSource::AccessOrder => "AccessOrder",
+        ExplainExecutionOrderingSource::Materialized => "Materialized",
+        ExplainExecutionOrderingSource::IndexSeekFirst { .. } => "IndexSeekFirst",
+        ExplainExecutionOrderingSource::IndexSeekLast { .. } => "IndexSeekLast",
     }
 }
 

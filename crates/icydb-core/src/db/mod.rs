@@ -65,6 +65,7 @@ pub use query::{
     },
     explain::{
         ExplainAggregateTerminalPlan, ExplainAggregateTerminalRoute, ExplainExecutionDescriptor,
+        ExplainExecutionMode, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
         ExplainExecutionOrderingSource, ExplainPlan,
     },
     expr::{FilterExpr, SortExpr},

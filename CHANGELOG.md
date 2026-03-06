@@ -5,9 +5,12 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.42.x] - 2026-03-06 - EXPLAIN (coming soon)
+## [0.42.x] - 2026-03-06 - EXPLAIN Descriptor Foundations
 
--
+- `0.42.0` starts the EXPLAIN freeze by adding stable execution descriptor contracts (`execution_mode`, `node_properties`), routing load/terminal descriptor assembly through one executor-owned path, introducing query/fluent `.explain_execution()` for descriptor-tree inspection, and adding canonical descriptor JSON rendering with fixed key ordering.
+
+See detailed breakdown:
+[docs/changelog/0.42.md](docs/changelog/0.42.md)
 
 ---
 
@@ -16,7 +19,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `0.41.0` improved basic `LIMIT` handling and added the first index-covering projection fast paths for common scalar value terminals.
 - `0.41.1` sped up index-backed aggregate terminals (`count`, `exists`, and targeted `min`) while keeping strict correctness and stale-key safety checks.
 - `0.41.2` improved ordered-query execution and predicate pushdown groundwork for the next observability slice.
-- `0.41.3` closes pre-EXPLAIN execution completeness by finishing the last query-shape features (`IN` on secondary indexes as one multi-lookup path, and smarter `ORDER BY + LIMIT` top-N index seeks) and adds stable developer diagnostics (`trace`, plan hash, execution metrics, and schema introspection).
+- `0.41.4` closes pre-EXPLAIN execution completeness by finishing the last query-shape features (`IN` on secondary indexes as one multi-lookup path, and smarter `ORDER BY + LIMIT` top-N index seeks) and adds stable developer diagnostics (`trace`, plan hash, execution metrics, and schema introspection).
 
 See detailed breakdown:
 [docs/changelog/0.41.md](docs/changelog/0.41.md)

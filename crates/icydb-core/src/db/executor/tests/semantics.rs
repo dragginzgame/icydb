@@ -1,6 +1,10 @@
 #![expect(clippy::similar_names)]
 use super::*;
-use crate::db::{IndexStore, data::DataKey, query::explain::ExplainAccessPath};
+use crate::db::{
+    IndexStore,
+    data::DataKey,
+    query::explain::{ExplainAccessPath, ExplainExecutionNodeType},
+};
 use std::collections::BTreeSet;
 
 fn id_in_predicate(ids: &[u128]) -> Predicate {
@@ -161,6 +165,61 @@ fn load_union_or_predicate_dedups_overlapping_pk_paths() {
 }
 
 #[test]
+fn load_union_or_predicate_explain_execution_projects_recursive_access_children() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<SimpleEntity>::new(DB, false);
+    let id_a = Ulid::from_u128(2201);
+    let id_b = Ulid::from_u128(2202);
+    for id in [id_a, id_b] {
+        save.insert(SimpleEntity { id })
+            .expect("seed row save should succeed");
+    }
+
+    let predicate = Predicate::Or(vec![
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "id",
+            CompareOp::Eq,
+            Value::Ulid(id_a),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "id",
+            CompareOp::In,
+            Value::List(vec![Value::Ulid(id_a), Value::Ulid(id_b)]),
+            CoercionId::Strict,
+        )),
+    ]);
+    let descriptor = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate)
+        .order_by("id")
+        .explain_execution()
+        .expect("union explain execution should build");
+
+    assert_eq!(
+        descriptor.node_type,
+        ExplainExecutionNodeType::Union,
+        "OR predicate over PK paths should project union root access node",
+    );
+    assert!(
+        descriptor.children.iter().any(|child| {
+            matches!(
+                child.node_type,
+                ExplainExecutionNodeType::ByKeyLookup | ExplainExecutionNodeType::ByKeysLookup
+            )
+        }),
+        "union access descriptor should retain recursive access children",
+    );
+    let descriptor_json = descriptor.render_json_canonical();
+    assert!(
+        descriptor_json.contains("\"type\":\"Union\"")
+            && descriptor_json.contains("\"children\":["),
+        "union execution descriptor json should preserve recursive access shape",
+    );
+}
+
+#[test]
 fn load_intersection_asc_keeps_overlap_in_canonical_order() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
@@ -206,6 +265,56 @@ fn load_intersection_asc_keeps_overlap_in_canonical_order() {
         ids,
         vec![Ulid::from_u128(1213), Ulid::from_u128(1214)],
         "intersection execution should emit the overlap in ascending canonical order"
+    );
+}
+
+#[test]
+fn load_intersection_explain_execution_projects_recursive_access_children() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<SimpleEntity>::new(DB, false);
+    for id in [2211_u128, 2212, 2213, 2214, 2215, 2216] {
+        save.insert(SimpleEntity {
+            id: Ulid::from_u128(id),
+        })
+        .expect("seed row save should succeed");
+    }
+
+    let predicate = Predicate::And(vec![
+        id_in_predicate(&[2211, 2212, 2213, 2214]),
+        id_in_predicate(&[2213, 2214, 2215, 2216]),
+    ]);
+    let descriptor = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate)
+        .order_by("id")
+        .explain_execution()
+        .expect("intersection explain execution should build");
+
+    assert_eq!(
+        descriptor.node_type,
+        ExplainExecutionNodeType::Intersection,
+        "AND predicate over PK sets should project intersection root access node",
+    );
+    assert!(
+        matches!(
+            descriptor.access_strategy,
+            Some(ExplainAccessPath::Intersection(_))
+        ),
+        "intersection descriptor root should retain intersection access projection",
+    );
+    assert!(
+        descriptor
+            .children
+            .iter()
+            .any(|child| child.node_type == ExplainExecutionNodeType::ByKeysLookup),
+        "intersection descriptor should include recursive key-set access children",
+    );
+    let descriptor_json = descriptor.render_json_canonical();
+    assert!(
+        descriptor_json.contains("\"type\":\"Intersection\"")
+            && descriptor_json.contains("\"children\":["),
+        "intersection execution descriptor json should preserve recursive access shape",
     );
 }
 

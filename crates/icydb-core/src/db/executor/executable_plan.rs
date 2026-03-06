@@ -9,10 +9,12 @@ use crate::{
         cursor::{ContinuationSignature, CursorPlanError, GroupedPlannedCursor, PlannedCursor},
         executor::{
             ExecutionPreparation, ExecutorPlanError, LOWERED_INDEX_PREFIX_SPEC_INVALID,
-            LOWERED_INDEX_RANGE_SPEC_INVALID, LoadExecutor, LoweredIndexPrefixSpec,
-            LoweredIndexRangeSpec, lower_index_prefix_specs, lower_index_range_specs,
-            route::{AggregateSeekSpec, ExecutionMode},
-            validate_executor_plan,
+            LOWERED_INDEX_RANGE_SPEC_INVALID, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
+            explain::{
+                assemble_aggregate_terminal_execution_descriptor,
+                assemble_load_execution_node_descriptor,
+            },
+            lower_index_prefix_specs, lower_index_range_specs, validate_executor_plan,
         },
         predicate::MissingRowPolicy,
         query::plan::{
@@ -22,10 +24,7 @@ use crate::{
         },
         query::{
             builder::AggregateExpr,
-            explain::{
-                ExplainAccessPath as ExplainAccessRoute, ExplainExecutionDescriptor,
-                ExplainExecutionOrderingSource,
-            },
+            explain::{ExplainExecutionDescriptor, ExplainExecutionNodeDescriptor},
         },
     },
     error::InternalError,
@@ -120,39 +119,23 @@ impl<E: EntityKind> ExecutablePlan<E> {
     where
         E: EntityValue,
     {
-        let aggregation = aggregate.kind();
+        assemble_aggregate_terminal_execution_descriptor::<E>(&self.plan, aggregate)
+    }
 
-        // Derive one aggregate route plan through the canonical route planner.
-        let execution_preparation = ExecutionPreparation::for_plan::<E>(&self.plan);
-        let route_plan =
-            LoadExecutor::<E>::build_execution_route_plan_for_aggregate_spec_with_preparation(
-                &self.plan,
-                aggregate,
-                &execution_preparation,
-            );
-
-        let ordering_source = match route_plan.aggregate_seek_spec() {
-            Some(AggregateSeekSpec::First { fetch }) => {
-                ExplainExecutionOrderingSource::IndexSeekFirst { fetch }
-            }
-            Some(AggregateSeekSpec::Last { fetch }) => {
-                ExplainExecutionOrderingSource::IndexSeekLast { fetch }
-            }
-            None if matches!(route_plan.execution_mode, ExecutionMode::Materialized) => {
-                ExplainExecutionOrderingSource::Materialized
-            }
-            None => ExplainExecutionOrderingSource::AccessOrder,
-        };
-
-        ExplainExecutionDescriptor {
-            access_strategy: ExplainAccessRoute::from_access_plan(self.access()),
-            // Scalar aggregate id/exists/count terminals do not project row fields.
-            covering_projection: false,
-            aggregation,
-            ordering_source,
-            limit: route_plan.continuation().window().limit(),
-            cursor: route_plan.continuation().applied(),
+    /// Explain scalar load execution shape as one canonical execution-node descriptor tree.
+    pub(in crate::db) fn explain_load_execution_node_descriptor(
+        &self,
+    ) -> Result<ExplainExecutionNodeDescriptor, InternalError>
+    where
+        E: EntityValue,
+    {
+        if !self.mode().is_load() {
+            return Err(invariant(
+                "load execution descriptor requires load-mode executable plans",
+            ));
         }
+
+        assemble_load_execution_node_descriptor::<E>(&self.plan)
     }
 
     /// Compute a stable continuation signature for cursor compatibility checks.

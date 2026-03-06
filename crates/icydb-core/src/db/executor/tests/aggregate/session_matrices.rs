@@ -214,6 +214,7 @@ fn session_load_new_field_aggregates_match_execute() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines)]
 fn session_load_terminal_explain_projects_seek_labels_for_min_and_max() {
     seed_pushdown_entities(&[
         (9_401, 7, 10),
@@ -244,8 +245,50 @@ fn session_load_terminal_explain_projects_seek_labels_for_min_and_max() {
         min_terminal_plan.execution.access_strategy,
         min_terminal_plan.query.access
     );
+    assert_eq!(
+        min_terminal_plan.execution.execution_mode,
+        crate::db::ExplainExecutionMode::Materialized
+    );
     assert_eq!(min_terminal_plan.execution.limit, None);
     assert!(!min_terminal_plan.execution.cursor);
+    assert_eq!(
+        min_terminal_plan.execution.node_properties.get("fetch"),
+        Some(&Value::from(1u64)),
+        "seek explain descriptor should expose seek fetch metadata",
+    );
+    let min_node = min_terminal_plan.execution_node_descriptor();
+    assert_eq!(
+        min_node.node_type,
+        crate::db::ExplainExecutionNodeType::AggregateSeekFirst
+    );
+    assert_eq!(
+        min_node.execution_mode,
+        min_terminal_plan.execution.execution_mode
+    );
+    assert_eq!(
+        min_node.access_strategy,
+        Some(min_terminal_plan.execution.access_strategy)
+    );
+    assert_eq!(
+        min_node.node_properties.get("fetch"),
+        Some(&Value::from(1u64))
+    );
+    let min_tree = min_node.render_text_tree();
+    assert!(
+        min_tree.contains("AggregateSeekFirst execution_mode=Materialized"),
+        "text tree should render seek node label and execution mode",
+    );
+    assert!(
+        min_tree.contains("node_properties=fetch=Uint(1)"),
+        "text tree should render seek fetch metadata in deterministic key order",
+    );
+    let min_json = min_node.render_json_canonical();
+    assert!(
+        min_json.contains("\"node_type\":\"AggregateSeekFirst\"")
+            && min_json.contains("\"execution_mode\":\"Materialized\"")
+            && min_json.contains("\"node_properties\":{\"fetch\":\"Uint(1)\"}"),
+        "json rendering should expose canonical aggregate seek descriptor fields",
+    );
 
     let max_terminal_plan = session
         .load::<PushdownParityEntity>()
@@ -268,8 +311,45 @@ fn session_load_terminal_explain_projects_seek_labels_for_min_and_max() {
         max_terminal_plan.execution.access_strategy,
         max_terminal_plan.query.access
     );
+    assert_eq!(
+        max_terminal_plan.execution.execution_mode,
+        crate::db::ExplainExecutionMode::Materialized
+    );
     assert_eq!(max_terminal_plan.execution.limit, None);
     assert!(!max_terminal_plan.execution.cursor);
+    assert_eq!(
+        max_terminal_plan.execution.node_properties.get("fetch"),
+        Some(&Value::from(1u64)),
+        "seek explain descriptor should expose seek fetch metadata",
+    );
+    let max_node = max_terminal_plan.execution_node_descriptor();
+    assert_eq!(
+        max_node.node_type,
+        crate::db::ExplainExecutionNodeType::AggregateSeekLast
+    );
+    assert_eq!(
+        max_node.execution_mode,
+        max_terminal_plan.execution.execution_mode
+    );
+    assert_eq!(
+        max_node.access_strategy,
+        Some(max_terminal_plan.execution.access_strategy)
+    );
+    assert_eq!(
+        max_node.node_properties.get("fetch"),
+        Some(&Value::from(1u64))
+    );
+    let max_tree = max_node.render_text_tree();
+    assert!(
+        max_tree.contains("AggregateSeekLast execution_mode=Materialized"),
+        "text tree should render seek node label and execution mode",
+    );
+    let max_json = max_node.render_json_canonical();
+    assert!(
+        max_json.contains("\"node_type\":\"AggregateSeekLast\"")
+            && max_json.contains("\"node_properties\":{\"fetch\":\"Uint(1)\"}"),
+        "json rendering should expose canonical aggregate seek descriptor fields",
+    );
 }
 
 #[test]
@@ -442,6 +522,156 @@ fn session_load_terminal_explain_reports_standard_route_for_exists() {
         exists_terminal_plan.execution.access_strategy,
         exists_terminal_plan.query.access
     );
+    assert!(matches!(
+        exists_terminal_plan.execution.execution_mode,
+        crate::db::ExplainExecutionMode::Streaming | crate::db::ExplainExecutionMode::Materialized
+    ));
     assert_eq!(exists_terminal_plan.execution.limit, None);
     assert!(!exists_terminal_plan.execution.cursor);
+    assert!(
+        exists_terminal_plan.execution.node_properties.is_empty(),
+        "standard explain descriptor should emit no extra node properties by default",
+    );
+    let exists_node = exists_terminal_plan.execution_node_descriptor();
+    assert_eq!(
+        exists_node.node_type,
+        crate::db::ExplainExecutionNodeType::AggregateExists
+    );
+    assert_eq!(
+        exists_node.execution_mode,
+        exists_terminal_plan.execution.execution_mode
+    );
+    assert_eq!(
+        exists_node.access_strategy,
+        Some(exists_terminal_plan.execution.access_strategy)
+    );
+    assert!(
+        exists_node.node_properties.is_empty(),
+        "standard terminal descriptor should keep node_properties empty",
+    );
+    let exists_tree = exists_node.render_text_tree();
+    assert!(
+        exists_tree.contains("AggregateExists execution_mode="),
+        "text tree should render standard aggregate node label",
+    );
+    let exists_json = exists_node.render_json_canonical();
+    let key_order = [
+        "\"node_type\"",
+        "\"execution_mode\"",
+        "\"access_strategy\"",
+        "\"predicate_pushdown\"",
+        "\"residual_predicate\"",
+        "\"projection\"",
+        "\"ordering_source\"",
+        "\"limit\"",
+        "\"cursor\"",
+        "\"covering_scan\"",
+        "\"rows_expected\"",
+        "\"children\"",
+        "\"node_properties\"",
+    ];
+    let mut last = 0usize;
+    for key in key_order {
+        let pos = exists_json
+            .find(key)
+            .expect("json rendering should include canonical key");
+        assert!(
+            pos >= last,
+            "json canonical key order must stay stable for explain snapshots",
+        );
+        last = pos;
+    }
+}
+
+#[test]
+fn session_load_explain_execution_projects_descriptor_tree_for_ordered_limited_index_access() {
+    seed_pushdown_entities(&[
+        (9_501, 7, 10),
+        (9_502, 7, 20),
+        (9_503, 7, 30),
+        (9_504, 8, 99),
+    ]);
+    let session = DbSession::new(DB);
+
+    let descriptor = session
+        .load::<PushdownParityEntity>()
+        .filter(u32_eq_predicate("group", 7))
+        .order_by("rank")
+        .order_by("id")
+        .offset(1)
+        .limit(2)
+        .explain_execution()
+        .expect("session explain_execution should succeed");
+
+    assert!(
+        descriptor.access_strategy.is_some(),
+        "execution descriptor root should carry one canonical access projection",
+    );
+    assert!(
+        descriptor.children.iter().any(|child| {
+            matches!(
+                child.node_type,
+                crate::db::ExplainExecutionNodeType::IndexPredicatePrefilter
+                    | crate::db::ExplainExecutionNodeType::ResidualPredicateFilter
+            )
+        }),
+        "predicate-bearing shapes should surface at least one predicate execution node",
+    );
+
+    if let Some(top_n_node) = descriptor
+        .children
+        .iter()
+        .find(|child| child.node_type == crate::db::ExplainExecutionNodeType::TopNSeek)
+    {
+        assert_eq!(
+            top_n_node.node_properties.get("fetch"),
+            Some(&Value::from(3u64)),
+            "top-n seek node should report bounded fetch count (offset + limit)",
+        );
+    }
+
+    let limit_node = descriptor
+        .children
+        .iter()
+        .find(|child| child.node_type == crate::db::ExplainExecutionNodeType::LimitOffset)
+        .expect("paged shape should project limit/offset node");
+    assert_eq!(limit_node.limit, Some(2));
+    assert_eq!(
+        limit_node.node_properties.get("offset"),
+        Some(&Value::from(1u64)),
+        "limit/offset node should keep logical offset metadata",
+    );
+
+    let text_tree = descriptor.render_text_tree();
+    assert!(
+        text_tree.contains(" execution_mode="),
+        "base text rendering should include root access node label",
+    );
+    assert!(
+        text_tree.contains(" access="),
+        "base text rendering should include projected access summary",
+    );
+    assert!(
+        text_tree.contains("LimitOffset execution_mode=") && text_tree.contains("limit=2"),
+        "base text rendering should include limit node details",
+    );
+    if descriptor
+        .children
+        .iter()
+        .any(|child| child.node_type == crate::db::ExplainExecutionNodeType::TopNSeek)
+    {
+        assert!(
+            text_tree.contains("TopNSeek execution_mode="),
+            "base text rendering should include top-n seek node label when present",
+        );
+    }
+    let descriptor_json = descriptor.render_json_canonical();
+    assert!(
+        descriptor_json.contains("\"children\":["),
+        "json rendering should include descriptor children array",
+    );
+    assert!(
+        descriptor_json.contains("\"LimitOffset\""),
+        "json rendering should include pipeline nodes from descriptor tree",
+    );
 }
