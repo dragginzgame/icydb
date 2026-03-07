@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `0.45.0` starts the feature-cleanup line by tightening internal API boundaries, locking error/serialization contracts, enforcing relation naming/type checks in schema macros, and reducing duplicate planner-vs-executor routing logic without changing query behavior.
 - `0.45.1` continues cleanup by making cursor and EXPLAIN behavior more stable under refactors, consolidating duplicate internal hashing/encoding paths, and splitting large executor modules to make future changes safer.
 - `0.45.2` is a checkpoint cleanup patch that finishes another round of module splits, adds more serialization-shape stability tests for public DTOs, and fixes CI invariant paths after file-to-module moves.
+- `0.45.3` continues cleanup by tightening grouped-query planner validation, keeping cursor token replay behavior stable across equivalent execution paths, and reducing direct field coupling in public paged/error response DTOs.
 
 See detailed breakdown:
 [docs/changelog/0.45.md](docs/changelog/0.45.md)
