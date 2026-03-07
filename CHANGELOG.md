@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `0.45.1` continues cleanup by making cursor and EXPLAIN behavior more stable under refactors, consolidating duplicate internal hashing/encoding paths, and splitting large executor modules to make future changes safer.
 - `0.45.2` is a checkpoint cleanup patch that finishes another round of module splits, adds more serialization-shape stability tests for public DTOs, and fixes CI invariant paths after file-to-module moves.
 - `0.45.3` continues cleanup by tightening grouped-query planner validation, keeping cursor token replay behavior stable across equivalent execution paths, and reducing direct field coupling in public paged/error response DTOs.
+- `0.45.4` hardens query identity stability by making equivalent numeric/text coercion filters resolve to the same fingerprint/cursor signature, and adds compile-fail schema tests that lock `_id`/`_ids` relation naming enforcement.
 
 See detailed breakdown:
 [docs/changelog/0.45.md](docs/changelog/0.45.md)
