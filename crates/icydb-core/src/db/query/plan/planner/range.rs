@@ -109,7 +109,7 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
             None => best = Some((prefix_len, index, range_slot, prefix, range)),
             Some((best_len, best_index, _, _, _))
                 if prefix_len > best_len
-                    || (prefix_len == best_len && index.name < best_index.name) =>
+                    || (prefix_len == best_len && index.name() < best_index.name()) =>
             {
                 best = Some((prefix_len, index, range_slot, prefix, range));
             }
@@ -133,7 +133,7 @@ fn index_range_candidate_for_index(
     let constraints = classify_index_field_constraints(index, compares)?;
 
     // Phase 2: materialize deterministic prefix+range shape from constraints.
-    select_prefix_and_range(index.fields.len(), &constraints)
+    select_prefix_and_range(index.fields().len(), &constraints)
 }
 
 // Build per-field constraint classes for one index from compare predicates.
@@ -141,12 +141,12 @@ fn classify_index_field_constraints(
     index: &'static IndexModel,
     compares: &[CachedCompare<'_>],
 ) -> Option<Vec<IndexFieldConstraint>> {
-    let mut constraints = vec![IndexFieldConstraint::None; index.fields.len()];
+    let mut constraints = vec![IndexFieldConstraint::None; index.fields().len()];
 
     for cached in compares {
         let cmp = cached.cmp;
         let Some(position) = index
-            .fields
+            .fields()
             .iter()
             .position(|field| *field == cmp.field.as_str())
         else {

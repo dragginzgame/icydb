@@ -111,7 +111,7 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
     // Phase 2: per-index load, validate, and synthesize commit ops.
     for index in E::INDEXES {
         let store = db
-            .with_store_registry(|registry| registry.try_get_store(index.store))?
+            .with_store_registry(|registry| registry.try_get_store(index.store()))?
             .index_store();
 
         let old_key = match old {
@@ -137,16 +137,16 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
                 InternalError::index_plan_index_corruption(format!(
                     "index corrupted: {} ({}) -> {}",
                     E::PATH,
-                    index.fields.join(", "),
+                    index.fields().join(", "),
                     IndexEntryCorruption::missing_key(old_key.to_raw(), old_entity_key)
                 ))
             })?;
 
-            if index.unique && entry.len() > 1 {
+            if index.is_unique() && entry.len() > 1 {
                 return Err(InternalError::index_plan_index_corruption(format!(
                     "index corrupted: {} ({}) -> {}",
                     E::PATH,
-                    index.fields.join(", "),
+                    index.fields().join(", "),
                     IndexEntryCorruption::NonUniqueEntry { keys: entry.len() }
                 )));
             }
@@ -155,7 +155,7 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
                 return Err(InternalError::index_plan_index_corruption(format!(
                     "index corrupted: {} ({}) -> {}",
                     E::PATH,
-                    index.fields.join(", "),
+                    index.fields().join(", "),
                     IndexEntryCorruption::missing_key(old_key.to_raw(), old_entity_key)
                 )));
             }
@@ -222,7 +222,7 @@ pub(super) fn load_existing_entry<E: EntityKind + EntityValue>(
                 InternalError::index_plan_index_corruption(format!(
                     "index corrupted: {} ({}) -> {}",
                     E::PATH,
-                    index.fields.join(", "),
+                    index.fields().join(", "),
                     err
                 ))
             })

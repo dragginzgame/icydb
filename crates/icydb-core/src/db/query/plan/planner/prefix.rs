@@ -22,7 +22,8 @@ pub(super) fn index_prefix_for_eq(
 
     let mut out = Vec::new();
     for index in sorted_indexes(model) {
-        if index.fields.first() != Some(&field) || !index.is_field_indexable(field, CompareOp::Eq) {
+        if index.fields().first() != Some(&field) || !index.is_field_indexable(field, CompareOp::Eq)
+        {
             continue;
         }
         out.push(AccessPlan::index_prefix(*index, vec![value.clone()]));
@@ -39,7 +40,8 @@ pub(super) fn index_multi_lookup_for_in(
 ) -> Option<Vec<AccessPlan<Value>>> {
     let mut out = Vec::new();
     for index in sorted_indexes(model) {
-        if index.fields.first() != Some(&field) || !index.is_field_indexable(field, CompareOp::Eq) {
+        if index.fields().first() != Some(&field) || !index.is_field_indexable(field, CompareOp::Eq)
+        {
             continue;
         }
 
@@ -88,7 +90,7 @@ pub(super) fn index_prefix_from_and(
     let mut best: Option<(usize, bool, &IndexModel, Vec<Value>)> = None;
     for index in sorted_indexes(model) {
         let mut prefix = Vec::new();
-        for field in index.fields {
+        for field in index.fields() {
             // NOTE: duplicate equality predicates on the same field are assumed
             // to have been validated upstream (no conflict). Planner picks the first.
             let Some(cached) = field_values.iter().find(|cached| cached.field == *field) else {
@@ -105,7 +107,7 @@ pub(super) fn index_prefix_from_and(
             continue;
         }
 
-        let exact = prefix.len() == index.fields.len();
+        let exact = prefix.len() == index.fields().len();
         match &best {
             None => best = Some((prefix.len(), exact, index, prefix)),
             Some((best_len, best_exact, best_index, _)) => {

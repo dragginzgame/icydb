@@ -92,14 +92,14 @@ impl<K> AccessPath<K> {
             Self::ByKeys(keys) => projection.by_keys(keys),
             Self::KeyRange { start, end } => projection.key_range(start, end),
             Self::IndexPrefix { index, values } => {
-                projection.index_prefix(index.name, index.fields, values.len(), values)
+                projection.index_prefix(index.name(), index.fields(), values.len(), values)
             }
             Self::IndexMultiLookup { index, values } => {
-                projection.index_multi_lookup(index.name, index.fields, values)
+                projection.index_multi_lookup(index.name(), index.fields(), values)
             }
             Self::IndexRange { spec } => projection.index_range(
-                spec.index().name,
-                spec.index().fields,
+                spec.index().name(),
+                spec.index().fields(),
                 spec.prefix_values().len(),
                 spec.prefix_values(),
                 spec.lower(),
@@ -282,7 +282,7 @@ mod access_projection_tests {
 
         assert_eq!(projection.union_child_counts, vec![7]);
         assert_eq!(projection.intersection_child_counts, vec![2]);
-        assert_eq!(projection.seen_index, Some((TEST_INDEX.name, 2, 1, 1)));
+        assert_eq!(projection.seen_index, Some((TEST_INDEX.name(), 2, 1, 1)));
         assert!(
             projection.events.contains(&"by_key"),
             "projection must visit by-key variants"
@@ -404,18 +404,18 @@ mod access_projection_tests {
                 end: Value::Uint(90),
             },
             ExplainAccessPath::IndexPrefix {
-                name: TEST_INDEX.name,
+                name: TEST_INDEX.name(),
                 fields: vec!["group", "rank"],
                 prefix_len: 1,
                 values: vec![Value::Uint(7)],
             },
             ExplainAccessPath::IndexMultiLookup {
-                name: TEST_INDEX.name,
+                name: TEST_INDEX.name(),
                 fields: vec!["group", "rank"],
                 values: vec![Value::Uint(7), Value::Uint(9)],
             },
             ExplainAccessPath::IndexRange {
-                name: TEST_INDEX.name,
+                name: TEST_INDEX.name(),
                 fields: vec!["group", "rank"],
                 prefix_len: 1,
                 prefix: vec![Value::Uint(7)],
@@ -435,7 +435,7 @@ mod access_projection_tests {
 
         assert_eq!(projection.union_child_counts, vec![7]);
         assert_eq!(projection.intersection_child_counts, vec![2]);
-        assert_eq!(projection.seen_index, Some((TEST_INDEX.name, 2, 1, 1)));
+        assert_eq!(projection.seen_index, Some((TEST_INDEX.name(), 2, 1, 1)));
         assert!(
             projection.events.contains(&"by_key"),
             "projection must visit by-key variants"

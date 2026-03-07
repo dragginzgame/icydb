@@ -136,7 +136,7 @@ fn validate_anchor_identity<E: EntityKind>(
             "index-range continuation anchor key namespace mismatch",
         ));
     }
-    if decoded_key.component_count() != index.fields.len() {
+    if decoded_key.component_count() != index.fields().len() {
         return Err(CursorPlanError::invalid_continuation_cursor_payload(
             "index-range continuation anchor component arity mismatch",
         ));

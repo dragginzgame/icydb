@@ -35,7 +35,7 @@ pub(super) fn build_commit_ops_for_index<E: EntityKind>(
 ) -> Result<(), InternalError> {
     // Phase 1: model old/new membership transitions in memory.
     let mut touched: BTreeMap<RawIndexKey, Option<IndexEntry<E>>> = BTreeMap::new();
-    let fields = index.fields.join(", ");
+    let fields = index.fields().join(", ");
 
     // Removal phase.
     if let Some(old_key) = old_key {
@@ -105,7 +105,7 @@ pub(super) fn build_commit_ops_for_index<E: EntityKind>(
         };
 
         commit_ops.push(CommitIndexOp {
-            store: index.store.to_string(),
+            store: index.store().to_string(),
             key: raw_key.as_bytes().to_vec(),
             value,
         });

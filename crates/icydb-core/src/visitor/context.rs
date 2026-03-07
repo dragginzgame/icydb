@@ -11,18 +11,11 @@ pub trait VisitorContext {
 
 impl dyn VisitorContext + '_ {
     pub fn issue(&mut self, msg: impl Into<String>) {
-        self.add_issue(Issue {
-            message: msg.into(),
-        });
+        self.add_issue(Issue::new(msg));
     }
 
     pub fn issue_at(&mut self, seg: PathSegment, msg: impl Into<String>) {
-        self.add_issue_at(
-            seg,
-            Issue {
-                message: msg.into(),
-            },
-        );
+        self.add_issue_at(seg, Issue::new(msg));
     }
 }
 
@@ -55,7 +48,26 @@ impl VisitorContext for ScopedContext<'_> {
 
 #[derive(Clone, Debug, Default)]
 pub struct Issue {
-    pub message: String,
+    message: String,
+}
+
+impl Issue {
+    #[must_use]
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+
+    #[must_use]
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    #[must_use]
+    pub fn into_message(self) -> String {
+        self.message
+    }
 }
 
 ///

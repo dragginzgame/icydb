@@ -76,9 +76,9 @@ impl Error {
 impl From<InternalError> for Error {
     fn from(err: InternalError) -> Self {
         Self::new(
-            ErrorKind::Runtime(map_class(err.class)),
-            err.origin.into(),
-            err.message,
+            ErrorKind::Runtime(map_class(err.class())),
+            err.origin().into(),
+            err.into_message(),
         )
     }
 }

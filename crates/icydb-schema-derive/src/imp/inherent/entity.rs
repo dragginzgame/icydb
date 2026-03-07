@@ -45,10 +45,7 @@ impl Imp<Entity> for InherentTrait {
 
                 quote! {
                     const #ident: ::icydb::model::field::FieldModel =
-                        ::icydb::model::field::FieldModel {
-                            name: #name,
-                            kind: #kind,
-                        };
+                        ::icydb::model::field::FieldModel::new(#name, #kind);
                 }
             })
             .collect();
@@ -72,13 +69,13 @@ impl Imp<Entity> for InherentTrait {
         };
         let entity_model = quote! {
             const #model_ident: ::icydb::model::entity::EntityModel =
-                ::icydb::model::entity::EntityModel {
-                    path: <Self as ::icydb::traits::Path>::PATH,
-                    entity_name: <Self as ::icydb::traits::EntityIdentity>::ENTITY_NAME,
-                    primary_key: &Self::#model_fields_ident[#pk_index],
-                    fields: &Self::#model_fields_ident,
-                    indexes: <Self as ::icydb::traits::EntitySchema>::INDEXES,
-                };
+                ::icydb::model::entity::EntityModel::new(
+                    <Self as ::icydb::traits::Path>::PATH,
+                    <Self as ::icydb::traits::EntityIdentity>::ENTITY_NAME,
+                    &Self::#model_fields_ident[#pk_index],
+                    &Self::#model_fields_ident,
+                    <Self as ::icydb::traits::EntitySchema>::INDEXES,
+                );
         };
 
         // Emit typed relation ID accessors for relation-backed fields.

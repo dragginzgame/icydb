@@ -32,13 +32,14 @@ pub(super) fn push_decimal_payload(
 
     let parts = normalized.parts();
     let mut digits_buf = [0u8; DECIMAL_DIGIT_BUFFER_LEN];
-    let digit_len = write_u128_decimal_digits(parts.mantissa.unsigned_abs(), &mut digits_buf);
-    let exponent = decimal_exponent(parts.scale, digit_len)?;
+    let mantissa = parts.mantissa();
+    let digit_len = write_u128_decimal_digits(mantissa.unsigned_abs(), &mut digits_buf);
+    let exponent = decimal_exponent(parts.scale(), digit_len)?;
 
     let exponent_bytes = ordered_i32_bytes(exponent);
     let digits_bytes = &digits_buf[..digit_len];
 
-    if parts.mantissa.is_negative() {
+    if mantissa.is_negative() {
         out.push(NEGATIVE_MARKER);
         push_inverted(out, &exponent_bytes);
         push_inverted(out, digits_bytes);

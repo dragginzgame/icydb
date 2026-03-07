@@ -113,13 +113,13 @@ use thiserror::Error as ThisError;
 #[derive(Debug, ThisError)]
 #[error("{message}")]
 pub struct InternalError {
-    pub class: ErrorClass,
-    pub origin: ErrorOrigin,
-    pub message: String,
+    pub(crate) class: ErrorClass,
+    pub(crate) origin: ErrorOrigin,
+    pub(crate) message: String,
 
     /// Optional structured error detail.
     /// The variant (if present) must correspond to `origin`.
-    pub detail: Option<ErrorDetail>,
+    pub(crate) detail: Option<ErrorDetail>,
 }
 
 impl InternalError {
@@ -149,6 +149,36 @@ impl InternalError {
             message,
             detail,
         }
+    }
+
+    /// Return the internal error class taxonomy.
+    #[must_use]
+    pub const fn class(&self) -> ErrorClass {
+        self.class
+    }
+
+    /// Return the internal error origin taxonomy.
+    #[must_use]
+    pub const fn origin(&self) -> ErrorOrigin {
+        self.origin
+    }
+
+    /// Return the rendered internal error message.
+    #[must_use]
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    /// Return the optional structured detail payload.
+    #[must_use]
+    pub const fn detail(&self) -> Option<&ErrorDetail> {
+        self.detail.as_ref()
+    }
+
+    /// Consume and return the rendered internal error message.
+    #[must_use]
+    pub fn into_message(self) -> String {
+        self.message
     }
 
     /// Construct an error while preserving an explicit class/origin taxonomy pair.

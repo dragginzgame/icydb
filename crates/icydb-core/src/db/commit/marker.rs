@@ -207,11 +207,11 @@ fn hash_entity_model_for_commit(hasher: &mut Xxh3, model: &EntityModel) {
     // Phase 2: hash index contract details (names, stores, uniqueness, fields).
     hash_labeled_len(hasher, "index_count", model.indexes.len());
     for index in model.indexes {
-        hash_labeled_str(hasher, "index_name", index.name);
-        hash_labeled_str(hasher, "index_store", index.store);
-        hasher.update(&[u8::from(index.unique)]);
-        hash_labeled_len(hasher, "index_field_count", index.fields.len());
-        for field in index.fields {
+        hash_labeled_str(hasher, "index_name", index.name());
+        hash_labeled_str(hasher, "index_store", index.store());
+        hasher.update(&[u8::from(index.is_unique())]);
+        hash_labeled_len(hasher, "index_field_count", index.fields().len());
+        for field in index.fields() {
             hash_labeled_str(hasher, "index_field_name", field);
         }
     }

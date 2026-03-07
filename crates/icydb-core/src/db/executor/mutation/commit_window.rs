@@ -180,7 +180,7 @@ where
                 InternalError::index_plan_index_corruption(format!(
                     "index corrupted: {} ({}) -> {}",
                     E::PATH,
-                    index.fields.join(", "),
+                    index.fields().join(", "),
                     err
                 ))
             })?;

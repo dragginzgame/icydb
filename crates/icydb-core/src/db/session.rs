@@ -203,13 +203,13 @@ impl<C: CanisterKind> DbSession<C> {
         indexes.push(format!("PRIMARY KEY ({})", E::MODEL.primary_key.name));
 
         for index in E::MODEL.indexes {
-            let kind = if index.unique {
+            let kind = if index.is_unique() {
                 "UNIQUE INDEX"
             } else {
                 "INDEX"
             };
-            let fields = index.fields.join(", ");
-            indexes.push(format!("{kind} {} ({fields})", index.name));
+            let fields = index.fields().join(", ");
+            indexes.push(format!("{kind} {} ({fields})", index.name()));
         }
 
         indexes

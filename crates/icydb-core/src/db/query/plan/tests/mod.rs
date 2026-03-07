@@ -229,7 +229,7 @@ fn plan_access_emits_index_range_for_single_field_between_equivalent_bounds() {
     let (index, prefix, lower, upper) =
         find_index_range(&plan).expect("plan should include index range");
 
-    assert_eq!(index.name, INDEX_MODEL.name);
+    assert_eq!(index.name(), INDEX_MODEL.name());
     assert!(
         prefix.is_empty(),
         "single-field ranges should use empty prefixes"
@@ -248,7 +248,7 @@ fn plan_access_emits_index_range_for_text_starts_with() {
     let (index, prefix, lower, upper) =
         find_index_range(&plan).expect("plan should include index range");
 
-    assert_eq!(index.name, INDEX_MODEL.name);
+    assert_eq!(index.name(), INDEX_MODEL.name());
     assert!(
         prefix.is_empty(),
         "starts-with index range should use an empty equality prefix"
@@ -312,7 +312,7 @@ fn plan_access_emits_index_range_for_single_field_gt() {
     let (index, prefix, lower, upper) =
         find_index_range(&plan).expect("plan should include index range");
 
-    assert_eq!(index.name, INDEX_MODEL.name);
+    assert_eq!(index.name(), INDEX_MODEL.name());
     assert!(
         prefix.is_empty(),
         "single-field ranges should use empty prefixes"
@@ -331,7 +331,7 @@ fn plan_access_emits_index_range_for_single_field_lte() {
     let (index, prefix, lower, upper) =
         find_index_range(&plan).expect("plan should include index range");
 
-    assert_eq!(index.name, INDEX_MODEL.name);
+    assert_eq!(index.name(), INDEX_MODEL.name());
     assert!(
         prefix.is_empty(),
         "single-field ranges should use empty prefixes"
@@ -370,7 +370,7 @@ fn plan_access_emits_index_range_for_prefix_plus_range() {
     let (index, prefix, lower, upper) =
         find_index_range(&plan).expect("plan should include index range");
 
-    assert_eq!(index.name, RANGE_INDEX_MODEL.name);
+    assert_eq!(index.name(), RANGE_INDEX_MODEL.name());
     assert_eq!(prefix, [Value::Uint(7)].as_slice());
     assert_eq!(lower, &Bound::Included(Value::Uint(100)));
     assert_eq!(upper, &Bound::Excluded(Value::Uint(200)));
@@ -397,7 +397,7 @@ fn plan_access_emits_only_one_composite_index_range_for_and_eq_plus_gt() {
     let lower = spec.lower();
     let upper = spec.upper();
 
-    assert_eq!(index.name, RANGE_INDEX_MODEL.name);
+    assert_eq!(index.name(), RANGE_INDEX_MODEL.name());
     assert_eq!(prefix, [Value::Uint(1)].as_slice());
     assert_eq!(lower, &Bound::Excluded(Value::Uint(5)));
     assert_eq!(upper, &Bound::Unbounded);
@@ -446,7 +446,7 @@ fn plan_access_emits_index_range_for_between_equivalent_bounds() {
     let (index, prefix, lower, upper) =
         find_index_range(&plan).expect("plan should include index range");
 
-    assert_eq!(index.name, RANGE_INDEX_MODEL.name);
+    assert_eq!(index.name(), RANGE_INDEX_MODEL.name());
     assert_eq!(prefix, [Value::Uint(7)].as_slice());
     assert_eq!(lower, &Bound::Included(Value::Uint(100)));
     assert_eq!(upper, &Bound::Included(Value::Uint(200)));
@@ -466,7 +466,7 @@ fn plan_access_emits_index_range_for_prefix_plus_range_edge_bounds() {
     let (index, prefix, lower, upper) =
         find_index_range(&plan).expect("plan should include index range");
 
-    assert_eq!(index.name, RANGE_INDEX_MODEL.name);
+    assert_eq!(index.name(), RANGE_INDEX_MODEL.name());
     assert_eq!(prefix, [Value::Uint(7)].as_slice());
     assert_eq!(lower, &Bound::Included(Value::Uint(0)));
     assert_eq!(upper, &Bound::Excluded(Value::Uint(u64::from(u32::MAX))));
@@ -486,7 +486,7 @@ fn plan_access_emits_index_range_for_between_equivalent_edge_bounds() {
     let (index, prefix, lower, upper) =
         find_index_range(&plan).expect("plan should include index range");
 
-    assert_eq!(index.name, RANGE_INDEX_MODEL.name);
+    assert_eq!(index.name(), RANGE_INDEX_MODEL.name());
     assert_eq!(prefix, [Value::Uint(7)].as_slice());
     assert_eq!(lower, &Bound::Included(Value::Uint(0)));
     assert_eq!(upper, &Bound::Included(Value::Uint(u64::from(u32::MAX))));

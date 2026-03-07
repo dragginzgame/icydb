@@ -886,9 +886,9 @@ impl PartialOrd for Value {
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, PartialOrd, Serialize)]
 pub struct ValueEnum {
-    pub variant: String,
-    pub path: Option<String>,
-    pub payload: Option<Box<Value>>,
+    variant: String,
+    path: Option<String>,
+    payload: Option<Box<Value>>,
 }
 
 impl ValueEnum {
@@ -926,5 +926,24 @@ impl ValueEnum {
     pub fn with_payload(mut self, payload: Value) -> Self {
         self.payload = Some(Box::new(payload));
         self
+    }
+
+    #[must_use]
+    pub fn variant(&self) -> &str {
+        &self.variant
+    }
+
+    #[must_use]
+    pub fn path(&self) -> Option<&str> {
+        self.path.as_deref()
+    }
+
+    #[must_use]
+    pub fn payload(&self) -> Option<&Value> {
+        self.payload.as_deref()
+    }
+
+    pub(crate) fn set_path(&mut self, path: Option<String>) {
+        self.path = path;
     }
 }

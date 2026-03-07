@@ -575,7 +575,7 @@ mod tests {
 
         let report = metrics_report(None);
         let counters = report
-            .counters
+            .counters()
             .expect("metrics report should include counters without since filter");
         assert_eq!(counters.ops.plan_index, 1);
     }
@@ -591,7 +591,7 @@ mod tests {
 
         let report = metrics_report(Some(window_start.saturating_sub(1)));
         let counters = report
-            .counters
+            .counters()
             .expect("metrics report should include counters when window_start_ms is before window");
         assert_eq!(counters.ops.plan_keys, 1);
     }
@@ -606,8 +606,8 @@ mod tests {
         });
 
         let report = metrics_report(Some(window_start.saturating_add(1)));
-        assert!(report.counters.is_none());
-        assert!(report.entity_counters.is_empty());
+        assert!(report.counters().is_none());
+        assert!(report.entity_counters().is_empty());
     }
 
     #[test]
@@ -622,8 +622,9 @@ mod tests {
             grouped_strategy: Some(GroupedPlanStrategy::OrderedMaterialized),
         });
 
-        let counters = metrics_report(None)
-            .counters
+        let report = metrics_report(None);
+        let counters = report
+            .counters()
             .expect("metrics report should include counters");
         assert_eq!(counters.ops.plan_index, 1);
         assert_eq!(counters.ops.plan_range, 1);
@@ -646,8 +647,9 @@ mod tests {
             blocked_deletes: 1,
         });
 
-        let counters = metrics_report(None)
-            .counters
+        let report = metrics_report(None);
+        let counters = report
+            .counters()
             .expect("metrics report should include counters");
         assert_eq!(counters.ops.reverse_index_inserts, 3);
         assert_eq!(counters.ops.reverse_index_removes, 2);

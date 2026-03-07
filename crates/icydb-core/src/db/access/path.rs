@@ -56,7 +56,7 @@ impl SemanticIndexRangeSpec {
             "semantic index-range slots must include one slot per prefix field plus range slot",
         );
         debug_assert!(
-            prefix_values.len() < index.fields.len(),
+            prefix_values.len() < index.fields().len(),
             "semantic index-range prefix must be shorter than index arity",
         );
 
@@ -131,7 +131,7 @@ pub(crate) enum AccessPath<K> {
     /// Index scan using a prefix of index fields and bound values.
     ///
     /// Contract guarantees:
-    /// - `values.len() <= index.fields.len()`
+    /// - `values.len() <= index.fields().len()`
     /// - All values correspond to strict coercions
     IndexPrefix {
         index: IndexModel,

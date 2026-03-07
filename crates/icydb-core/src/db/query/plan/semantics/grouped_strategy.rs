@@ -85,12 +85,12 @@ fn grouped_access_path_proves_group_order<K>(
         return false;
     };
     let required_end = prefix_len.saturating_add(group_fields.len());
-    if required_end > index.fields.len() {
+    if required_end > index.fields().len() {
         return false;
     }
 
     group_fields
         .iter()
-        .zip(index.fields[prefix_len..required_end].iter())
+        .zip(index.fields()[prefix_len..required_end].iter())
         .all(|(group_field, index_field)| group_field.field() == *index_field)
 }

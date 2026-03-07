@@ -304,12 +304,12 @@ impl AccessPath<Value> {
                     return Ordering::Equal;
                 };
 
-                let cmp = left_index.name.cmp(right_index.name);
+                let cmp = left_index.name().cmp(right_index.name());
                 if cmp != Ordering::Equal {
                     return cmp;
                 }
 
-                let cmp = left_index.fields.cmp(right_index.fields);
+                let cmp = left_index.fields().cmp(right_index.fields());
                 if cmp != Ordering::Equal {
                     return cmp;
                 }
@@ -338,12 +338,12 @@ impl AccessPath<Value> {
                     return Ordering::Equal;
                 };
 
-                let cmp = left_index.name.cmp(right_index.name);
+                let cmp = left_index.name().cmp(right_index.name());
                 if cmp != Ordering::Equal {
                     return cmp;
                 }
 
-                let cmp = left_index.fields.cmp(right_index.fields);
+                let cmp = left_index.fields().cmp(right_index.fields());
                 if cmp != Ordering::Equal {
                     return cmp;
                 }
@@ -360,12 +360,12 @@ impl AccessPath<Value> {
                     return Ordering::Equal;
                 };
 
-                let cmp = left_spec.index().name.cmp(right_spec.index().name);
+                let cmp = left_spec.index().name().cmp(right_spec.index().name());
                 if cmp != Ordering::Equal {
                     return cmp;
                 }
 
-                let cmp = left_spec.index().fields.cmp(right_spec.index().fields);
+                let cmp = left_spec.index().fields().cmp(right_spec.index().fields());
                 if cmp != Ordering::Equal {
                     return cmp;
                 }
@@ -414,7 +414,7 @@ impl AccessPath<Value> {
             Self::IndexRange { .. } => AccessPathRank { tier: 1, detail: 0 },
             Self::IndexPrefix { index, values } => AccessPathRank {
                 tier: 1,
-                detail: if values.len() == index.fields.len() {
+                detail: if values.len() == index.fields().len() {
                     1
                 } else {
                     2

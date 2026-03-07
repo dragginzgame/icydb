@@ -27,7 +27,7 @@ impl IndexId {
         let entity = EntityName::try_from_str(E::ENTITY_NAME)
             .expect("EntityKind::ENTITY_NAME must be a valid EntityName");
 
-        let name = IndexName::try_from_parts(&entity, index.fields)
+        let name = IndexName::try_from_parts(&entity, index.fields())
             .expect("IndexModel must define a valid IndexName");
 
         Self(name)
@@ -42,18 +42,18 @@ impl IndexKey {
         index: &IndexModel,
     ) -> Result<Option<Self>, InternalError> {
         // Phase 1: validate declared index shape and collect encoded components.
-        if index.fields.len() > MAX_INDEX_FIELDS {
+        if index.fields().len() > MAX_INDEX_FIELDS {
             return Err(InternalError::index_invariant(format!(
                 "index '{}' has {} fields (max {})",
-                index.name,
-                index.fields.len(),
+                index.name(),
+                index.fields().len(),
                 MAX_INDEX_FIELDS
             )));
         }
 
-        let mut components = Vec::with_capacity(index.fields.len());
+        let mut components = Vec::with_capacity(index.fields().len());
 
-        for field in index.fields {
+        for field in index.fields() {
             let Some(field_index) = resolve_field_slot(E::MODEL, field) else {
                 return Err(InternalError::index_invariant(format!(
                     "index field missing on entity model: {} ({})",

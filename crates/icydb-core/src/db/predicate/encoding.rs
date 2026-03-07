@@ -4,7 +4,10 @@
 //! Boundary: consumed by normalization sort-key generation and fingerprint hashing.
 
 use crate::{
-    db::predicate::{CoercionId, CoercionSpec, CompareOp, Predicate},
+    db::{
+        numeric::coerce_numeric_decimal,
+        predicate::{CoercionId, CoercionSpec, CompareOp, Predicate},
+    },
     value::{Value, ValueEnum, hash_value},
 };
 use sha2::{Digest, Sha256};
@@ -61,7 +64,7 @@ fn encode_predicate_sort_key_into(out: &mut Vec<u8>, predicate: &Predicate) {
             push_str_u64(out, &cmp.field);
             out.push(cmp.op.tag());
             push_framed(out, |buf| {
-                encode_compare_value_sort_key_into(buf, cmp.op, &cmp.value);
+                encode_compare_value_sort_key_into(buf, cmp.op, cmp.coercion.id, &cmp.value);
             });
             push_framed(out, |buf| encode_coercion_sort_key_into(buf, &cmp.coercion));
         }
@@ -99,8 +102,8 @@ fn encode_value_sort_key_into(out: &mut Vec<u8>, value: &Value) {
 
     match value {
         Value::Account(v) => {
-            push_bytes_u64(out, v.owner.as_slice());
-            match v.subaccount {
+            push_bytes_u64(out, v.owner().as_slice());
+            match v.subaccount() {
                 Some(sub) => {
                     out.push(1);
                     push_bytes_u64(out, &sub.to_bytes());
@@ -157,12 +160,20 @@ fn encode_value_sort_key_into(out: &mut Vec<u8>, value: &Value) {
     }
 }
 
-fn encode_compare_value_sort_key_into(out: &mut Vec<u8>, op: CompareOp, value: &Value) {
+fn encode_compare_value_sort_key_into(
+    out: &mut Vec<u8>,
+    op: CompareOp,
+    coercion: CoercionId,
+    value: &Value,
+) {
     if matches!(op, CompareOp::In | CompareOp::NotIn)
         && let Value::List(items) = value
     {
         out.push(value.canonical_tag().to_u8());
-        let mut ordered = items.clone();
+        let mut ordered = items
+            .iter()
+            .map(|item| canonicalize_compare_literal_for_coercion(coercion, item))
+            .collect::<Vec<_>>();
         ordered.sort_by(Value::canonical_cmp);
         ordered.dedup_by(|left, right| Value::canonical_cmp(left, right).is_eq());
 
@@ -173,19 +184,48 @@ fn encode_compare_value_sort_key_into(out: &mut Vec<u8>, op: CompareOp, value: &
         return;
     }
 
-    encode_value_sort_key_into(out, value);
+    let canonical = canonicalize_compare_literal_for_coercion(coercion, value);
+    encode_value_sort_key_into(out, &canonical);
+}
+
+fn canonicalize_compare_literal_for_coercion(coercion: CoercionId, value: &Value) -> Value {
+    match coercion {
+        CoercionId::Strict | CoercionId::CollectionElement => value.clone(),
+        CoercionId::NumericWiden => {
+            if let Some(decimal) = coerce_numeric_decimal(value) {
+                return Value::Decimal(decimal);
+            }
+
+            value.clone()
+        }
+        CoercionId::TextCasefold => {
+            if let Value::Text(text) = value {
+                return Value::Text(casefold_for_identity(text));
+            }
+
+            value.clone()
+        }
+    }
+}
+
+fn casefold_for_identity(input: &str) -> String {
+    if input.is_ascii() {
+        return input.to_ascii_lowercase();
+    }
+
+    input.to_lowercase()
 }
 
 fn encode_enum_sort_key_into(out: &mut Vec<u8>, value: &ValueEnum) {
-    match &value.path {
+    match value.path() {
         Some(path) => {
             out.push(1);
             push_str_u64(out, path);
         }
         None => out.push(0),
     }
-    push_str_u64(out, &value.variant);
-    match &value.payload {
+    push_str_u64(out, value.variant());
+    match value.payload() {
         Some(payload) => {
             out.push(1);
             push_framed(out, |buf| encode_value_sort_key_into(buf, payload));
@@ -244,7 +284,7 @@ pub(in crate::db::predicate) fn hash_predicate_fingerprint(
             write_tag_u8(hasher, 0x26);
             write_str_u32(hasher, &compare.field);
             write_tag_u8(hasher, compare.op.tag());
-            hash_compare_value_fingerprint(hasher, compare.op, &compare.value);
+            hash_compare_value_fingerprint(hasher, compare.op, compare.coercion.id, &compare.value);
             hash_coercion_fingerprint(hasher, compare.coercion.id, &compare.coercion.params);
         }
         Predicate::IsNull { field } => {
@@ -302,18 +342,27 @@ fn hash_value_fingerprint(hasher: &mut Sha256, value: &Value) {
     }
 }
 
-fn hash_compare_value_fingerprint(hasher: &mut Sha256, op: CompareOp, value: &Value) {
+fn hash_compare_value_fingerprint(
+    hasher: &mut Sha256,
+    op: CompareOp,
+    coercion: CoercionId,
+    value: &Value,
+) {
     if matches!(op, CompareOp::In | CompareOp::NotIn)
         && let Value::List(items) = value
     {
-        let mut ordered = items.clone();
+        let mut ordered = items
+            .iter()
+            .map(|item| canonicalize_compare_literal_for_coercion(coercion, item))
+            .collect::<Vec<_>>();
         ordered.sort_by(Value::canonical_cmp);
         ordered.dedup_by(|left, right| Value::canonical_cmp(left, right).is_eq());
         hash_value_fingerprint(hasher, &Value::List(ordered));
         return;
     }
 
-    hash_value_fingerprint(hasher, value);
+    let canonical = canonicalize_compare_literal_for_coercion(coercion, value);
+    hash_value_fingerprint(hasher, &canonical);
 }
 
 fn push_len_u64(out: &mut Vec<u8>, len: usize) {
@@ -366,7 +415,9 @@ fn write_str_u32(hasher: &mut Sha256, value: &str) {
 #[cfg(test)]
 mod tests {
     use crate::{
-        db::predicate::{ComparePredicate, Predicate, encoding::encode_predicate_sort_key},
+        db::predicate::{
+            CoercionId, CompareOp, ComparePredicate, Predicate, encoding::encode_predicate_sort_key,
+        },
         value::Value,
     };
 
@@ -444,6 +495,118 @@ mod tests {
         assert_eq!(
             encode_predicate_sort_key(&predicate_a),
             encode_predicate_sort_key(&predicate_b)
+        );
+    }
+
+    #[test]
+    fn predicate_sort_key_numeric_widen_treats_equivalent_literal_subtypes_as_identical() {
+        let predicate_int = Predicate::Compare(ComparePredicate::with_coercion(
+            "rank",
+            CompareOp::Eq,
+            Value::Int(1),
+            CoercionId::NumericWiden,
+        ));
+        let predicate_decimal = Predicate::Compare(ComparePredicate::with_coercion(
+            "rank",
+            CompareOp::Eq,
+            Value::Decimal(crate::types::Decimal::new(10, 1)),
+            CoercionId::NumericWiden,
+        ));
+
+        assert_eq!(
+            encode_predicate_sort_key(&predicate_int),
+            encode_predicate_sort_key(&predicate_decimal)
+        );
+    }
+
+    #[test]
+    fn predicate_sort_key_strict_keeps_numeric_literal_subtypes_distinct() {
+        let predicate_int = Predicate::Compare(ComparePredicate::with_coercion(
+            "rank",
+            CompareOp::Eq,
+            Value::Int(1),
+            CoercionId::Strict,
+        ));
+        let predicate_decimal = Predicate::Compare(ComparePredicate::with_coercion(
+            "rank",
+            CompareOp::Eq,
+            Value::Decimal(crate::types::Decimal::new(10, 1)),
+            CoercionId::Strict,
+        ));
+
+        assert_ne!(
+            encode_predicate_sort_key(&predicate_int),
+            encode_predicate_sort_key(&predicate_decimal)
+        );
+    }
+
+    #[test]
+    fn predicate_sort_key_text_casefold_treats_case_only_literals_as_identical() {
+        let predicate_lower = Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::Eq,
+            Value::Text("ada".to_string()),
+            CoercionId::TextCasefold,
+        ));
+        let predicate_upper = Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::Eq,
+            Value::Text("ADA".to_string()),
+            CoercionId::TextCasefold,
+        ));
+
+        assert_eq!(
+            encode_predicate_sort_key(&predicate_lower),
+            encode_predicate_sort_key(&predicate_upper)
+        );
+    }
+
+    #[test]
+    fn predicate_sort_key_strict_keeps_text_case_variants_distinct() {
+        let predicate_lower = Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::Eq,
+            Value::Text("ada".to_string()),
+            CoercionId::Strict,
+        ));
+        let predicate_upper = Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::Eq,
+            Value::Text("ADA".to_string()),
+            CoercionId::Strict,
+        ));
+
+        assert_ne!(
+            encode_predicate_sort_key(&predicate_lower),
+            encode_predicate_sort_key(&predicate_upper)
+        );
+    }
+
+    #[test]
+    fn predicate_sort_key_text_casefold_normalizes_in_list_case_variants() {
+        let predicate_mixed = Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::In,
+            Value::List(vec![
+                Value::Text("ADA".to_string()),
+                Value::Text("ada".to_string()),
+                Value::Text("Bob".to_string()),
+            ]),
+            CoercionId::TextCasefold,
+        ));
+        let predicate_canonical = Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::In,
+            Value::List(vec![
+                Value::Text("ada".to_string()),
+                Value::Text("bob".to_string()),
+            ]),
+            CoercionId::TextCasefold,
+        ));
+
+        assert_eq!(
+            encode_predicate_sort_key(&predicate_mixed),
+            encode_predicate_sort_key(&predicate_canonical)
         );
     }
 }

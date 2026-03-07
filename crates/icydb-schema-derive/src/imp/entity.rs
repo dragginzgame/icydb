@@ -100,15 +100,15 @@ impl Imp<Entity> for EntityKindTrait {
                     let model = <#ident as ::icydb::traits::EntitySchema>::MODEL;
                     let names = <#ident as ::icydb::traits::EntitySchema>::FIELDS;
 
-                    assert_eq!(model.fields.len(), names.len());
-                    for (field, name) in model.fields.iter().zip(names.iter()) {
-                        assert_eq!(field.name, *name);
+                    assert_eq!(model.fields().len(), names.len());
+                    for (field, name) in model.fields().iter().zip(names.iter()) {
+                        assert_eq!(field.name(), *name);
                     }
 
                     assert!(model
-                        .fields
+                        .fields()
                         .iter()
-                        .any(|field| ::core::ptr::eq(field, model.primary_key)));
+                        .any(|field| ::core::ptr::eq(field, model.primary_key())));
                 }
             }
         });

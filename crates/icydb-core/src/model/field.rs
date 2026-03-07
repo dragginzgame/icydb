@@ -12,9 +12,29 @@ use crate::traits::FieldValueKind;
 #[derive(Debug)]
 pub struct FieldModel {
     /// Field name as used in predicates and indexing.
-    pub name: &'static str,
+    pub(crate) name: &'static str,
     /// Runtime type shape (no schema-layer graph nodes).
-    pub kind: FieldKind,
+    pub(crate) kind: FieldKind,
+}
+
+impl FieldModel {
+    /// Build one runtime field descriptor.
+    #[must_use]
+    pub const fn new(name: &'static str, kind: FieldKind) -> Self {
+        Self { name, kind }
+    }
+
+    /// Return the stable field name.
+    #[must_use]
+    pub const fn name(&self) -> &'static str {
+        self.name
+    }
+
+    /// Return the runtime type-kind descriptor.
+    #[must_use]
+    pub const fn kind(&self) -> FieldKind {
+        self.kind
+    }
 }
 
 ///

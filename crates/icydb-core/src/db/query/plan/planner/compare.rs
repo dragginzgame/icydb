@@ -54,8 +54,8 @@ pub(super) fn plan_compare(
                 };
 
                 for index in sorted_indexes(model) {
-                    if index.fields.len() == 1
-                        && index.fields[0] == cmp.field.as_str()
+                    if index.fields().len() == 1
+                        && index.fields()[0] == cmp.field.as_str()
                         && index.is_field_indexable(&cmp.field, cmp.op)
                     {
                         let semantic_range = SemanticIndexRangeSpec::new(
@@ -149,7 +149,7 @@ fn plan_starts_with_compare(
     let lower = Bound::Included(Value::Text(prefix.clone()));
     let upper = strict_text_prefix_upper_bound(prefix);
     for index in sorted_indexes(model) {
-        if index.fields.first() != Some(&cmp.field.as_str())
+        if index.fields().first() != Some(&cmp.field.as_str())
             || !index.is_field_indexable(cmp.field.as_str(), CompareOp::StartsWith)
         {
             continue;

@@ -41,7 +41,7 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
     new_entity: Option<&E>,
 ) -> Result<(), InternalError> {
     // Phase 1: fast exits for non-unique or non-insert/update paths.
-    if !index.unique {
+    if !index.is_unique() {
         return Ok(());
     }
 
@@ -57,8 +57,8 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
     };
 
     // Phase 2: resolve indexed slots and encode unique-prefix components.
-    let mut indexed_field_slots = Vec::with_capacity(index.fields.len());
-    for field in index.fields {
+    let mut indexed_field_slots = Vec::with_capacity(index.fields().len());
+    for field in index.fields() {
         let Some(field_index) = resolve_field_slot(E::MODEL, field) else {
             return Err(InternalError::index_invariant(format!(
                 "index field missing on entity model: {} ({})",
@@ -71,7 +71,7 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
     }
 
     // Build and validate the semantic unique prefix for the incoming entity.
-    let mut encoded_prefix = Vec::with_capacity(index.fields.len());
+    let mut encoded_prefix = Vec::with_capacity(index.fields().len());
     for (field, field_index) in indexed_field_slots.iter().copied() {
         let expected = new_entity.get_value_by_index(field_index).ok_or_else(|| {
             InternalError::index_invariant(format!(
@@ -89,7 +89,7 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
 
     let index_id = IndexId::new::<E>(index);
     let (lower, upper) =
-        IndexKey::bounds_for_prefix(&index_id, index.fields.len(), encoded_prefix.as_slice());
+        IndexKey::bounds_for_prefix(&index_id, index.fields().len(), encoded_prefix.as_slice());
     let lower = Bound::Included(lower.to_raw());
     let upper = Bound::Included(upper.to_raw());
 
@@ -115,7 +115,7 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
         return Err(InternalError::index_plan_index_corruption(format!(
             "index corrupted: {} ({}) -> {} keys",
             E::PATH,
-            index.fields.join(", "),
+            index.fields().join(", "),
             matching_keys.len()
         )));
     }
@@ -128,7 +128,7 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
         InternalError::index_plan_index_corruption(format!(
             "index corrupted: {} ({}) -> failed to resolve existing key",
             E::PATH,
-            index.fields.join(", "),
+            index.fields().join(", "),
         ))
     })?;
 
@@ -152,7 +152,7 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
         return Err(InternalError::index_plan_store_invariant(format!(
             "index invariant violated: {} ({}) -> {}",
             E::PATH,
-            index.fields.join(", "),
+            index.fields().join(", "),
             IndexEntryCorruption::RowKeyMismatch {
                 indexed_key: Box::new(existing_key.to_value()),
                 row_key: Box::new(stored_key.to_value()),
@@ -189,5 +189,5 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
         entity_path: E::PATH,
     });
 
-    Err(InternalError::index_violation(E::PATH, index.fields))
+    Err(InternalError::index_violation(E::PATH, index.fields()))
 }

@@ -132,7 +132,7 @@ fn secondary_order_pushdown_core_cases() {
             ),
             expected: PushdownApplicability::Applicable(
                 SecondaryOrderPushdownEligibility::Eligible {
-                    index: INDEX_MODEL.name,
+                    index: INDEX_MODEL.name(),
                     prefix_len: 1,
                 },
             ),
@@ -149,7 +149,7 @@ fn secondary_order_pushdown_core_cases() {
             expected: PushdownApplicability::Applicable(
                 SecondaryOrderPushdownEligibility::Rejected(
                     SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
-                        index: INDEX_MODEL.name,
+                        index: INDEX_MODEL.name(),
                         prefix_len: 1,
                         expected_suffix: vec![],
                         expected_full: vec!["tag".to_string()],
@@ -177,7 +177,7 @@ fn secondary_order_pushdown_core_cases() {
             expected: PushdownApplicability::Applicable(
                 SecondaryOrderPushdownEligibility::Rejected(
                     SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                        index: INDEX_MODEL.name,
+                        index: INDEX_MODEL.name(),
                         prefix_len: 0,
                     },
                 ),
@@ -196,7 +196,7 @@ fn secondary_order_pushdown_core_cases() {
             ),
             expected: PushdownApplicability::Applicable(
                 SecondaryOrderPushdownEligibility::Eligible {
-                    index: INDEX_MODEL.name,
+                    index: INDEX_MODEL.name(),
                     prefix_len: 0,
                 },
             ),
@@ -218,7 +218,7 @@ fn secondary_order_pushdown_core_cases() {
             expected: PushdownApplicability::Applicable(
                 SecondaryOrderPushdownEligibility::Rejected(
                     SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                        index: INDEX_MODEL.name,
+                        index: INDEX_MODEL.name(),
                         prefix_len: 0,
                     },
                 ),
@@ -232,7 +232,7 @@ fn secondary_order_pushdown_core_cases() {
             ),
             expected: PushdownApplicability::Applicable(
                 SecondaryOrderPushdownEligibility::Eligible {
-                    index: INDEX_MODEL.name,
+                    index: INDEX_MODEL.name(),
                     prefix_len: 1,
                 },
             ),
@@ -305,7 +305,7 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
             expected: PushdownApplicability::Applicable(
                 SecondaryOrderPushdownEligibility::Rejected(
                     SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                        index: INDEX_MODEL.name,
+                        index: INDEX_MODEL.name(),
                         prefix_len: 0,
                     },
                 ),
@@ -326,7 +326,7 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
             ),
             expected: PushdownApplicability::Applicable(
                 SecondaryOrderPushdownEligibility::Eligible {
-                    index: INDEX_MODEL.name,
+                    index: INDEX_MODEL.name(),
                     prefix_len: 0,
                 },
             ),
@@ -350,7 +350,7 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
             expected: PushdownApplicability::Applicable(
                 SecondaryOrderPushdownEligibility::Rejected(
                     SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                        index: INDEX_MODEL.name,
+                        index: INDEX_MODEL.name(),
                         prefix_len: 0,
                     },
                 ),
@@ -422,7 +422,7 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
             expected: PushdownApplicability::Applicable(
                 SecondaryOrderPushdownEligibility::Rejected(
                     SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
-                        index: INDEX_MODEL.name,
+                        index: INDEX_MODEL.name(),
                         prefix_len: 1,
                         expected_suffix: vec![],
                         expected_full: vec!["tag".to_string()],
@@ -474,7 +474,7 @@ fn secondary_order_pushdown_contract_cases() {
             ),
             expected: PushdownApplicability::Applicable(
                 SecondaryOrderPushdownEligibility::Eligible {
-                    index: INDEX_MODEL.name,
+                    index: INDEX_MODEL.name(),
                     prefix_len: 1,
                 },
             ),
@@ -490,7 +490,7 @@ fn secondary_order_pushdown_contract_cases() {
             expected: PushdownApplicability::Applicable(
                 SecondaryOrderPushdownEligibility::Rejected(
                     SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                        index: INDEX_MODEL.name,
+                        index: INDEX_MODEL.name(),
                         prefix_len: 0,
                     },
                 ),
@@ -513,7 +513,7 @@ fn secondary_order_pushdown_contract_cases() {
             expected: PushdownApplicability::Applicable(
                 SecondaryOrderPushdownEligibility::Rejected(
                     SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                        index: INDEX_MODEL.name,
+                        index: INDEX_MODEL.name(),
                         prefix_len: 0,
                     },
                 ),

@@ -1170,8 +1170,9 @@ fn batch_lane_metrics_atomic_success_failure_and_non_atomic_partial_are_distinct
         },
     ])
     .expect("atomic insert batch should succeed");
-    let after_atomic_success = metrics_report(None)
-        .counters
+    let after_atomic_success_report = metrics_report(None);
+    let after_atomic_success = after_atomic_success_report
+        .counters()
         .expect("metrics counters should exist after atomic success");
     assert_eq!(
         after_atomic_success.ops.index_inserts, 2,
@@ -1193,8 +1194,9 @@ fn batch_lane_metrics_atomic_success_failure_and_non_atomic_partial_are_distinct
         ])
         .expect_err("atomic duplicate-key batch should fail pre-commit");
     assert_eq!(err.class, ErrorClass::Unsupported);
-    let after_atomic_failure = metrics_report(None)
-        .counters
+    let after_atomic_failure_report = metrics_report(None);
+    let after_atomic_failure = after_atomic_failure_report
+        .counters()
         .expect("metrics counters should exist after atomic failure");
     assert_eq!(
         after_atomic_failure.ops.index_inserts, 0,
@@ -1224,8 +1226,9 @@ fn batch_lane_metrics_atomic_success_failure_and_non_atomic_partial_are_distinct
         },
     ])
     .expect_err("non-atomic batch should fail after prefix commit");
-    let after_non_atomic_partial = metrics_report(None)
-        .counters
+    let after_non_atomic_partial_report = metrics_report(None);
+    let after_non_atomic_partial = after_non_atomic_partial_report
+        .counters()
         .expect("metrics counters should exist after non-atomic partial failure");
     assert_eq!(
         after_non_atomic_partial.ops.index_inserts, 2,

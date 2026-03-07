@@ -111,7 +111,7 @@ impl AccessRouteClass {
                 return PushdownApplicability::Applicable(
                     SecondaryOrderPushdownEligibility::Rejected(
                         SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                            index: index.name,
+                            index: index.name(),
                             prefix_len,
                         },
                     ),
@@ -129,12 +129,12 @@ impl AccessRouteClass {
                 );
                 return PushdownApplicability::NotApplicable;
             };
-            if prefix_len > index.fields.len() {
+            if prefix_len > index.fields().len() {
                 return PushdownApplicability::Applicable(
                     SecondaryOrderPushdownEligibility::Rejected(
                         SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
                             prefix_len,
-                            index_field_len: index.fields.len(),
+                            index_field_len: index.fields().len(),
                         },
                     ),
                 );
@@ -143,8 +143,8 @@ impl AccessRouteClass {
             return PushdownApplicability::Applicable(match_secondary_order_pushdown_core(
                 model,
                 order_fields,
-                index.name,
-                index.fields,
+                index.name(),
+                index.fields(),
                 prefix_len,
             ));
         }
@@ -157,12 +157,12 @@ impl AccessRouteClass {
                 );
                 return PushdownApplicability::NotApplicable;
             };
-            if prefix_len > index.fields.len() {
+            if prefix_len > index.fields().len() {
                 return PushdownApplicability::Applicable(
                     SecondaryOrderPushdownEligibility::Rejected(
                         SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
                             prefix_len,
-                            index_field_len: index.fields.len(),
+                            index_field_len: index.fields().len(),
                         },
                     ),
                 );
@@ -171,8 +171,8 @@ impl AccessRouteClass {
             let eligibility = match_secondary_order_pushdown_core(
                 model,
                 order_fields,
-                index.name,
-                index.fields,
+                index.name(),
+                index.fields(),
                 prefix_len,
             );
             return match eligibility {
@@ -182,7 +182,7 @@ impl AccessRouteClass {
                 SecondaryOrderPushdownEligibility::Rejected(_) => {
                     PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Rejected(
                         SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                            index: index.name,
+                            index: index.name(),
                             prefix_len,
                         },
                     ))
@@ -210,7 +210,7 @@ impl AccessRouteClass {
         let Some((index, prefix_len)) = self.single_path_index_range_details() else {
             return false;
         };
-        let index_fields = index.fields;
+        let index_fields = index.fields();
 
         let Some(order_fields) = order_fields else {
             return true;

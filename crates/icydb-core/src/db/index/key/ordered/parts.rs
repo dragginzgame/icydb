@@ -20,7 +20,8 @@ pub(super) fn push_account_payload(
     out: &mut Vec<u8>,
     account: &Account,
 ) -> Result<(), OrderedValueEncodeError> {
-    let owner = account.owner.as_slice();
+    let owner_principal = account.owner();
+    let owner = owner_principal.as_slice();
     let owner_len = owner.len();
     if owner_len > ACCOUNT_OWNER_MAX_LEN {
         return Err(OrderedValueEncodeError::AccountOwnerTooLarge {
@@ -31,7 +32,7 @@ pub(super) fn push_account_payload(
 
     let mut ordering_tag =
         u8::try_from(owner_len).expect("account owner length should fit in one byte");
-    if account.subaccount.is_some() {
+    if account.subaccount().is_some() {
         ordering_tag |= ACCOUNT_SUBACCOUNT_TAG;
     }
 
@@ -41,7 +42,7 @@ pub(super) fn push_account_payload(
     owner_padded[..owner_len].copy_from_slice(&owner[..owner_len]);
     out.extend_from_slice(&owner_padded);
 
-    let subaccount = account.subaccount.unwrap_or_default().to_array();
+    let subaccount = account.subaccount().unwrap_or_default().to_array();
     let _ = ACCOUNT_SUBACCOUNT_LEN;
     out.extend_from_slice(&subaccount);
 
@@ -53,9 +54,9 @@ pub(super) fn push_enum_payload(
     out: &mut Vec<u8>,
     value: &ValueEnum,
 ) -> Result<(), OrderedValueEncodeError> {
-    push_terminated_bytes(out, value.variant.as_bytes());
+    push_terminated_bytes(out, value.variant().as_bytes());
 
-    match &value.path {
+    match value.path() {
         Some(path) => {
             out.push(1);
             push_terminated_bytes(out, path.as_bytes());
@@ -63,7 +64,7 @@ pub(super) fn push_enum_payload(
         None => out.push(0),
     }
 
-    match &value.payload {
+    match value.payload() {
         Some(payload) => {
             out.push(1);
 

@@ -304,10 +304,10 @@ pub(in crate::db) fn describe_entity_model(model: &EntityModel) -> EntitySchemaD
     let mut indexes = Vec::with_capacity(model.indexes.len());
     for index in model.indexes {
         indexes.push(EntityIndexDescription::new(
-            index.name.to_string(),
-            index.unique,
+            index.name().to_string(),
+            index.is_unique(),
             index
-                .fields
+                .fields()
                 .iter()
                 .map(|field| (*field).to_string())
                 .collect(),

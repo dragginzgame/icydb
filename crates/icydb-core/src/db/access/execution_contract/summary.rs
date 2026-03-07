@@ -54,9 +54,9 @@ where
         ExecutionPathPayload::IndexPrefix => {
             if let Some((index, prefix_len)) = path.index_prefix_details() {
                 if prefix_len == 0 {
-                    format!("IndexPrefix({})", index.name)
+                    format!("IndexPrefix({})", index.name())
                 } else {
-                    format!("IndexPrefix({} prefix_len={prefix_len})", index.name)
+                    format!("IndexPrefix({} prefix_len={prefix_len})", index.name())
                 }
             } else {
                 "IndexPrefix".to_string()
@@ -64,7 +64,7 @@ where
         }
         ExecutionPathPayload::IndexMultiLookup { value_count } => {
             if let Some((index, _)) = path.index_prefix_details() {
-                format!("IndexMultiLookup({} values={value_count})", index.name)
+                format!("IndexMultiLookup({} values={value_count})", index.name())
             } else {
                 format!("IndexMultiLookup(values={value_count})")
             }
@@ -94,10 +94,10 @@ fn summarize_index_range_with_model(
     lower: &Bound<Value>,
     upper: &Bound<Value>,
 ) -> String {
-    let prefix = summarize_index_prefix_terms(index.fields, prefix_values);
+    let prefix = summarize_index_prefix_terms(index.fields(), prefix_values);
     let interval = summarize_interval(lower, upper);
 
-    if let Some(range_field) = index.fields.get(prefix_len) {
+    if let Some(range_field) = index.fields().get(prefix_len) {
         if prefix.is_empty() {
             format!("IndexRange({range_field} {interval})")
         } else {

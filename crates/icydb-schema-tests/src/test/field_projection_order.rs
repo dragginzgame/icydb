@@ -4,7 +4,7 @@ use crate::prelude::*;
 /// ProjectionOrderEntity
 ///
 /// Representative entity used to lock field-order alignment between
-/// `EntityModel.fields` and `FieldProjection::get_value_by_index` output.
+/// `EntityModel::fields()` and `FieldProjection::get_value_by_index` output.
 ///
 
 #[entity(
@@ -63,8 +63,8 @@ mod tests {
         ];
 
         for (slot, (name, expected_value)) in expected.iter().enumerate() {
-            let model_field = &ProjectionOrderEntity::MODEL.fields[slot];
-            assert_eq!(model_field.name, *name);
+            let model_field = &ProjectionOrderEntity::MODEL.fields()[slot];
+            assert_eq!(model_field.name(), *name);
 
             let projected = entity
                 .get_value_by_index(slot)

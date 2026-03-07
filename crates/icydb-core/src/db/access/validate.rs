@@ -239,14 +239,14 @@ fn validate_index_prefix(
         return Err(AccessPlanError::IndexPrefixEmpty);
     }
 
-    if values.len() > index.fields.len() {
+    if values.len() > index.fields().len() {
         return Err(AccessPlanError::IndexPrefixTooLong {
             prefix_len: values.len(),
-            field_len: index.fields.len(),
+            field_len: index.fields().len(),
         });
     }
 
-    for (field, value) in index.fields.iter().zip(values.iter()) {
+    for (field, value) in index.fields().iter().zip(values.iter()) {
         let field_type =
             schema
                 .field(field)
@@ -279,7 +279,7 @@ fn validate_index_multi_lookup(
         return Err(AccessPlanError::IndexPrefixEmpty);
     }
 
-    let Some(field) = index.fields.first() else {
+    let Some(field) = index.fields().first() else {
         return Err(AccessPlanError::IndexPrefixTooLong {
             prefix_len: 1,
             field_len: 0,
@@ -318,10 +318,10 @@ fn validate_index_range(
         return Err(AccessPlanError::IndexNotFound { index: *index });
     }
 
-    if prefix.len() >= index.fields.len() {
+    if prefix.len() >= index.fields().len() {
         return Err(AccessPlanError::IndexPrefixTooLong {
             prefix_len: prefix.len(),
-            field_len: index.fields.len().saturating_sub(1),
+            field_len: index.fields().len().saturating_sub(1),
         });
     }
 
@@ -335,7 +335,7 @@ fn validate_index_range(
         }
     }
 
-    for (field, value) in index.fields.iter().zip(prefix.iter()) {
+    for (field, value) in index.fields().iter().zip(prefix.iter()) {
         let field_type =
             schema
                 .field(field)
@@ -350,7 +350,7 @@ fn validate_index_range(
         }
     }
 
-    let range_field = index.fields[range_slot];
+    let range_field = index.fields()[range_slot];
     validate_index_range_bound_value(schema, range_field, lower)?;
     validate_index_range_bound_value(schema, range_field, upper)?;
 

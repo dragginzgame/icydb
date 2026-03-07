@@ -12,10 +12,10 @@ use std::fmt::{self, Display};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct IndexModel {
     /// Stable index name used for diagnostics and planner identity.
-    pub name: &'static str,
-    pub store: &'static str,
-    pub fields: &'static [&'static str],
-    pub unique: bool,
+    name: &'static str,
+    store: &'static str,
+    fields: &'static [&'static str],
+    unique: bool,
 }
 
 impl IndexModel {
@@ -34,21 +34,45 @@ impl IndexModel {
         }
     }
 
+    /// Return the stable index name.
+    #[must_use]
+    pub const fn name(&self) -> &'static str {
+        self.name
+    }
+
+    /// Return the backing index store path.
+    #[must_use]
+    pub const fn store(&self) -> &'static str {
+        self.store
+    }
+
+    /// Return the canonical index field list.
+    #[must_use]
+    pub const fn fields(&self) -> &'static [&'static str] {
+        self.fields
+    }
+
+    /// Return whether the index enforces value uniqueness.
+    #[must_use]
+    pub const fn is_unique(&self) -> bool {
+        self.unique
+    }
+
     #[must_use]
     /// Whether this index's field prefix matches the start of another index.
     pub fn is_prefix_of(&self, other: &Self) -> bool {
-        self.fields.len() < other.fields.len() && other.fields.starts_with(self.fields)
+        self.fields().len() < other.fields().len() && other.fields().starts_with(self.fields())
     }
 }
 
 impl Display for IndexModel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let fields = self.fields.join(", ");
+        let fields = self.fields().join(", ");
 
-        if self.unique {
-            write!(f, "{}: UNIQUE {}({})", self.name, self.store, fields)
+        if self.is_unique() {
+            write!(f, "{}: UNIQUE {}({})", self.name(), self.store(), fields)
         } else {
-            write!(f, "{}: {}({})", self.name, self.store, fields)
+            write!(f, "{}: {}({})", self.name(), self.store(), fields)
         }
     }
 }

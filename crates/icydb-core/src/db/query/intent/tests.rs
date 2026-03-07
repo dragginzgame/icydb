@@ -1366,7 +1366,7 @@ fn filter_expr_resolves_loose_enum_stage_filters() {
     let Value::Enum(stage) = &cmp.value else {
         panic!("expected enum literal");
     };
-    assert_eq!(stage.path.as_deref(), Some("intent_tests::Stage"));
+    assert_eq!(stage.path(), Some("intent_tests::Stage"));
 }
 
 #[test]
@@ -1409,5 +1409,5 @@ fn direct_stage_filter_resolves_loose_enum_path() {
     let Value::Enum(stage) = &cmp.value else {
         panic!("expected enum literal");
     };
-    assert_eq!(stage.path.as_deref(), Some("intent_tests::Stage"));
+    assert_eq!(stage.path(), Some("intent_tests::Stage"));
 }

@@ -274,7 +274,7 @@ fn normalize_enum_value(
         return Ok(value.clone());
     };
 
-    if let Some(path) = enum_value.path.as_deref() {
+    if let Some(path) = enum_value.path() {
         if path != expected_path {
             return Err(ValidateError::invalid_literal(
                 field,
@@ -286,7 +286,7 @@ fn normalize_enum_value(
     }
 
     let mut normalized = enum_value.clone();
-    normalized.path = Some(expected_path.to_string());
+    normalized.set_path(Some(expected_path.to_string()));
     Ok(Value::Enum(normalized))
 }
 

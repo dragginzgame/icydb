@@ -109,17 +109,17 @@ fn canonical_cmp_value_map(left: &[(Value, Value)], right: &[(Value, Value)]) ->
 }
 
 fn canonical_cmp_value_enum(left: &ValueEnum, right: &ValueEnum) -> Ordering {
-    let cmp = left.variant.cmp(&right.variant);
+    let cmp = left.variant().cmp(right.variant());
     if cmp != Ordering::Equal {
         return cmp;
     }
 
-    let cmp = left.path.cmp(&right.path);
+    let cmp = left.path().cmp(&right.path());
     if cmp != Ordering::Equal {
         return cmp;
     }
 
-    match (&left.payload, &right.payload) {
+    match (left.payload(), right.payload()) {
         (None, None) => Ordering::Equal,
         (None, Some(_)) => Ordering::Less,
         (Some(_), None) => Ordering::Greater,

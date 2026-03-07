@@ -40,9 +40,9 @@ pub mod test {
 
         match FieldValue::to_value(&v) {
             Value::Enum(e) => {
-                assert_eq!(e.variant, "Icp");
+                assert_eq!(e.variant(), "Icp");
                 assert_eq!(
-                    e.payload.as_deref(),
+                    e.payload(),
                     Some(&FieldValue::to_value(&Tokens::from(123_u64)))
                 );
             }

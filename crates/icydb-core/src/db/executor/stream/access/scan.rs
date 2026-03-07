@@ -141,7 +141,7 @@ impl IndexScan {
     {
         Self::resolve_limited::<E>(
             ctx,
-            spec.index().store,
+            spec.index().store(),
             spec.index(),
             spec.lower(),
             spec.upper(),
@@ -164,7 +164,7 @@ impl IndexScan {
     {
         Self::resolve_limited::<E>(
             ctx,
-            spec.index().store,
+            spec.index().store(),
             spec.index(),
             spec.lower(),
             spec.upper(),

@@ -213,7 +213,7 @@ mod tests {
             self.issues
                 .entry(String::new())
                 .or_default()
-                .push(issue.message);
+                .push(issue.into_message());
         }
 
         fn add_issue_at(&mut self, _: crate::visitor::PathSegment, issue: crate::visitor::Issue) {

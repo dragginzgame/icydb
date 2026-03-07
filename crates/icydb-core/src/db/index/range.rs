@@ -37,7 +37,12 @@ pub(in crate::db) fn raw_keys_for_encoded_prefix<E: EntityKind>(
     prefix: &[EncodedValue],
 ) -> (RawIndexKey, RawIndexKey) {
     let index_id = IndexId::new::<E>(index);
-    raw_keys_for_encoded_prefix_with_kind(&index_id, IndexKeyKind::User, index.fields.len(), prefix)
+    raw_keys_for_encoded_prefix_with_kind(
+        &index_id,
+        IndexKeyKind::User,
+        index.fields().len(),
+        prefix,
+    )
 }
 
 ///
@@ -76,7 +81,7 @@ pub(in crate::db) fn raw_bounds_for_encoded_index_component_range<E: EntityKind>
     let upper_component = encoded_component_bound(upper);
     let (start, end) = IndexKey::bounds_for_prefix_component_range(
         &index_id,
-        index.fields.len(),
+        index.fields().len(),
         prefix,
         &lower_component,
         &upper_component,

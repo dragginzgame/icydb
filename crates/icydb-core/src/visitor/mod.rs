@@ -139,12 +139,18 @@ struct AdapterContext<'a> {
 impl VisitorContext for AdapterContext<'_> {
     fn add_issue(&mut self, issue: Issue) {
         let key = render_path(self.path, None);
-        self.issues.entry(key).or_default().push(issue.message);
+        self.issues
+            .entry(key)
+            .or_default()
+            .push(issue.into_message());
     }
 
     fn add_issue_at(&mut self, seg: PathSegment, issue: Issue) {
         let key = render_path(self.path, Some(seg));
-        self.issues.entry(key).or_default().push(issue.message);
+        self.issues
+            .entry(key)
+            .or_default()
+            .push(issue.into_message());
     }
 }
 

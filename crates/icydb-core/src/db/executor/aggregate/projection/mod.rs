@@ -513,7 +513,7 @@ where
         if let [spec] = prefix_specs {
             let store = ctx
                 .db
-                .with_store_registry(|registry| registry.try_get_store(spec.index().store))?;
+                .with_store_registry(|registry| registry.try_get_store(spec.index().store()))?;
             return store.with_index(|index_store| {
                 index_store.resolve_data_values_with_component_in_raw_range_limited::<E>(
                     spec.index(),
@@ -535,7 +535,7 @@ where
         if let [spec] = range_specs {
             let store = ctx
                 .db
-                .with_store_registry(|registry| registry.try_get_store(spec.index().store))?;
+                .with_store_registry(|registry| registry.try_get_store(spec.index().store()))?;
             return store.with_index(|index_store| {
                 index_store.resolve_data_values_with_component_in_raw_range_limited::<E>(
                     spec.index(),
@@ -624,10 +624,10 @@ fn constant_projection_value_from_access<K>(
     target_field: &str,
 ) -> Option<Value> {
     if let Some((index, values)) = access.as_index_prefix_path() {
-        return constant_projection_value_from_prefix(index.fields, values, target_field);
+        return constant_projection_value_from_prefix(index.fields(), values, target_field);
     }
     if let Some((index, prefix_values, _, _)) = access.as_index_range_path() {
-        return constant_projection_value_from_prefix(index.fields, prefix_values, target_field);
+        return constant_projection_value_from_prefix(index.fields(), prefix_values, target_field);
     }
 
     None

@@ -156,7 +156,7 @@ fn prepare_row_commit_for_entity_impl<E: EntityKind + EntityValue>(
     }
     let mut index_stores = BTreeMap::new();
     for apply in &index_plan.apply {
-        index_stores.insert(apply.index.store, apply.store);
+        index_stores.insert(apply.index.store(), apply.store);
     }
 
     // Phase 4: materialize prepared index mutations with resolved store handles.

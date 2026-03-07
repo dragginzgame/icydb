@@ -8,7 +8,7 @@ pub(in crate::db::query::plan::planner) fn sorted_indexes(
     model: &EntityModel,
 ) -> Vec<&'static IndexModel> {
     let mut indexes = model.indexes.to_vec();
-    indexes.sort_by(|left, right| left.name.cmp(right.name));
+    indexes.sort_by(|left, right| left.name().cmp(right.name()));
 
     indexes
 }
@@ -22,7 +22,9 @@ pub(in crate::db::query::plan::planner) fn better_index(
 
     cand_len > best_len
         || (cand_len == best_len && cand_exact && !best_exact)
-        || (cand_len == best_len && cand_exact == best_exact && cand_index.name < best_index.name)
+        || (cand_len == best_len
+            && cand_exact == best_exact
+            && cand_index.name() < best_index.name())
 }
 
 pub(in crate::db::query::plan::planner) fn index_literal_matches_schema(
@@ -48,7 +50,7 @@ impl IndexModel {
         field: &str,
         op: CompareOp,
     ) -> bool {
-        if !self.fields.contains(&field) {
+        if !self.fields().contains(&field) {
             return false;
         }
 

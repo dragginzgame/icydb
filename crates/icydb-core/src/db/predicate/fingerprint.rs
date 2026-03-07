@@ -28,7 +28,7 @@ fn hash_predicate_structural(hasher: &mut Sha256, predicate: &Predicate) {
 mod tests {
     use super::{hash_predicate, hash_predicate_structural};
     use crate::{
-        db::predicate::{ComparePredicate, Predicate, normalize},
+        db::predicate::{CompareOp, ComparePredicate, Predicate, coercion::CoercionId, normalize},
         value::Value,
     };
     use sha2::{Digest, Sha256};
@@ -75,6 +75,74 @@ mod tests {
 
         assert_eq!(normalize(&left), normalize(&right));
         assert_eq!(digest(&left), digest(&right));
+    }
+
+    #[test]
+    fn canonical_hash_is_order_insensitive_for_in_list_literals() {
+        let left = Predicate::Compare(ComparePredicate::in_(
+            "rank".to_string(),
+            vec![Value::Uint(3), Value::Uint(1), Value::Uint(2)],
+        ));
+        let right = Predicate::Compare(ComparePredicate::in_(
+            "rank".to_string(),
+            vec![Value::Uint(1), Value::Uint(2), Value::Uint(3)],
+        ));
+
+        assert_ne!(normalize(&left), normalize(&right));
+        assert_eq!(digest(&left), digest(&right));
+    }
+
+    #[test]
+    fn canonical_hash_normalizes_in_list_duplicate_literals() {
+        let left = Predicate::Compare(ComparePredicate::in_(
+            "rank".to_string(),
+            vec![
+                Value::Uint(3),
+                Value::Uint(1),
+                Value::Uint(3),
+                Value::Uint(2),
+            ],
+        ));
+        let right = Predicate::Compare(ComparePredicate::in_(
+            "rank".to_string(),
+            vec![Value::Uint(1), Value::Uint(2), Value::Uint(3)],
+        ));
+
+        assert_ne!(normalize(&left), normalize(&right));
+        assert_eq!(digest(&left), digest(&right));
+    }
+
+    #[test]
+    fn canonical_hash_treats_implicit_and_explicit_strict_coercion_as_equivalent() {
+        let left = Predicate::Compare(ComparePredicate::eq("rank".to_string(), Value::Int(7)));
+        let right = Predicate::Compare(ComparePredicate::with_coercion(
+            "rank",
+            CompareOp::Eq,
+            Value::Int(7),
+            CoercionId::Strict,
+        ));
+
+        assert_eq!(normalize(&left), normalize(&right));
+        assert_eq!(digest(&left), digest(&right));
+    }
+
+    #[test]
+    fn canonical_hash_distinguishes_different_coercion_ids() {
+        let strict = Predicate::Compare(ComparePredicate::with_coercion(
+            "rank",
+            CompareOp::Eq,
+            Value::Int(7),
+            CoercionId::Strict,
+        ));
+        let numeric_widen = Predicate::Compare(ComparePredicate::with_coercion(
+            "rank",
+            CompareOp::Eq,
+            Value::Int(7),
+            CoercionId::NumericWiden,
+        ));
+
+        assert_ne!(normalize(&strict), normalize(&numeric_widen));
+        assert_ne!(digest(&strict), digest(&numeric_widen));
     }
 
     fn digest(predicate: &Predicate) -> [u8; 32] {

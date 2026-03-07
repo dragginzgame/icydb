@@ -370,9 +370,9 @@ const fn derive_access_path_capabilities<K>(
         None => None,
     };
     let index_fields_for_slot_map = match (index_prefix_details, index_range_details) {
-        (Some(details), None) | (None, Some(details)) => Some(details.index().fields),
+        (Some(details), None) | (None, Some(details)) => Some(details.index().fields()),
         (None, None) => None,
-        (Some(prefix_details), Some(_)) => Some(prefix_details.index().fields),
+        (Some(prefix_details), Some(_)) => Some(prefix_details.index().fields()),
     };
 
     SinglePathAccessCapabilities {

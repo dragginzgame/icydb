@@ -671,7 +671,7 @@ fn load_single_field_range_pushdown_matches_by_ids_fallback() {
         .explain()
         .expect("single-field range explain should build");
     assert!(
-        explain_contains_index_range(explain.access(), INDEXED_METRICS_INDEX_MODELS[0].name, 0),
+        explain_contains_index_range(explain.access(), INDEXED_METRICS_INDEX_MODELS[0].name(), 0),
         "single-field range should plan an IndexRange access path"
     );
 
@@ -701,7 +701,7 @@ fn load_composite_prefix_range_pushdown_matches_by_ids_fallback() {
         .explain()
         .expect("composite range explain should build");
     assert!(
-        explain_contains_index_range(explain.access(), PUSHDOWN_PARITY_INDEX_MODELS[0].name, 1),
+        explain_contains_index_range(explain.access(), PUSHDOWN_PARITY_INDEX_MODELS[0].name(), 1),
         "composite prefix+range should plan an IndexRange access path"
     );
 
@@ -741,7 +741,7 @@ fn load_single_field_range_full_asc_reversed_equals_full_desc() {
         .explain()
         .expect("single-field asc explain should build");
     assert!(
-        explain_contains_index_range(explain.access(), INDEXED_METRICS_INDEX_MODELS[0].name, 0),
+        explain_contains_index_range(explain.access(), INDEXED_METRICS_INDEX_MODELS[0].name(), 0),
         "single-field asc query should plan an IndexRange access path"
     );
 
@@ -802,7 +802,7 @@ fn load_composite_range_full_asc_reversed_equals_full_desc() {
         .explain()
         .expect("composite asc explain should build");
     assert!(
-        explain_contains_index_range(explain.access(), PUSHDOWN_PARITY_INDEX_MODELS[0].name, 1),
+        explain_contains_index_range(explain.access(), PUSHDOWN_PARITY_INDEX_MODELS[0].name(), 1),
         "composite asc query should plan an IndexRange access path"
     );
 
@@ -863,7 +863,11 @@ fn load_unique_index_range_full_asc_reversed_equals_full_desc() {
         .explain()
         .expect("unique asc explain should build");
     assert!(
-        explain_contains_index_range(explain.access(), UNIQUE_INDEX_RANGE_INDEX_MODELS[0].name, 0),
+        explain_contains_index_range(
+            explain.access(),
+            UNIQUE_INDEX_RANGE_INDEX_MODELS[0].name(),
+            0
+        ),
         "unique asc query should plan an IndexRange access path"
     );
 
@@ -922,7 +926,7 @@ fn load_single_field_range_limit_matrix_matches_unbounded() {
         .explain()
         .expect("single-field limit matrix explain should build");
     assert!(
-        explain_contains_index_range(explain.access(), INDEXED_METRICS_INDEX_MODELS[0].name, 0),
+        explain_contains_index_range(explain.access(), INDEXED_METRICS_INDEX_MODELS[0].name(), 0),
         "single-field limit matrix should plan an IndexRange access path"
     );
 
@@ -961,7 +965,7 @@ fn load_composite_range_limit_matrix_matches_unbounded() {
         .explain()
         .expect("composite limit matrix explain should build");
     assert!(
-        explain_contains_index_range(explain.access(), PUSHDOWN_PARITY_INDEX_MODELS[0].name, 1),
+        explain_contains_index_range(explain.access(), PUSHDOWN_PARITY_INDEX_MODELS[0].name(), 1),
         "composite limit matrix should plan an IndexRange access path"
     );
 

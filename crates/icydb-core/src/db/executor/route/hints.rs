@@ -279,10 +279,10 @@ where
             return false;
         };
 
-        index_model.unique
-            && index_model.fields.len() == 1
+        index_model.is_unique()
+            && index_model.fields().len() == 1
             && index_model
-                .fields
+                .fields()
                 .first()
                 .is_some_and(|field| *field == target_field)
     }

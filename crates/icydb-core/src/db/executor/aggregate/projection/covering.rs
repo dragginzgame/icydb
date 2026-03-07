@@ -59,9 +59,9 @@ where
 {
     let (index_fields, prefix_len, path_kind_is_range) =
         if let Some((index, values)) = access.as_index_prefix_path() {
-            (index.fields, values.len(), false)
+            (index.fields(), values.len(), false)
         } else if let Some((index, prefix_values, _, _)) = access.as_index_range_path() {
-            (index.fields, prefix_values.len(), true)
+            (index.fields(), prefix_values.len(), true)
         } else {
             return None;
         };

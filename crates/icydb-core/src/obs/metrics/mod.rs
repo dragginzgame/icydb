@@ -13,10 +13,47 @@ use std::{cell::RefCell, cmp::Ordering, collections::BTreeMap};
 
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize)]
 pub struct EventState {
-    pub ops: EventOps,
-    pub perf: EventPerf,
-    pub entities: BTreeMap<String, EntityCounters>,
-    pub window_start_ms: u64,
+    pub(crate) ops: EventOps,
+    pub(crate) perf: EventPerf,
+    pub(crate) entities: BTreeMap<String, EntityCounters>,
+    pub(crate) window_start_ms: u64,
+}
+
+impl EventState {
+    #[must_use]
+    pub const fn new(
+        ops: EventOps,
+        perf: EventPerf,
+        entities: BTreeMap<String, EntityCounters>,
+        window_start_ms: u64,
+    ) -> Self {
+        Self {
+            ops,
+            perf,
+            entities,
+            window_start_ms,
+        }
+    }
+
+    #[must_use]
+    pub const fn ops(&self) -> &EventOps {
+        &self.ops
+    }
+
+    #[must_use]
+    pub const fn perf(&self) -> &EventPerf {
+        &self.perf
+    }
+
+    #[must_use]
+    pub const fn entities(&self) -> &BTreeMap<String, EntityCounters> {
+        &self.entities
+    }
+
+    #[must_use]
+    pub const fn window_start_ms(&self) -> u64 {
+        self.window_start_ms
+    }
 }
 
 impl Default for EventState {
@@ -38,33 +75,140 @@ impl Default for EventState {
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
 pub struct EventOps {
     // Executor entrypoints
-    pub load_calls: u64,
-    pub save_calls: u64,
-    pub delete_calls: u64,
+    pub(crate) load_calls: u64,
+    pub(crate) save_calls: u64,
+    pub(crate) delete_calls: u64,
 
     // Planner kinds
-    pub plan_index: u64,
-    pub plan_keys: u64,
-    pub plan_range: u64,
-    pub plan_full_scan: u64,
-    pub plan_grouped_hash_materialized: u64,
-    pub plan_grouped_ordered_materialized: u64,
+    pub(crate) plan_index: u64,
+    pub(crate) plan_keys: u64,
+    pub(crate) plan_range: u64,
+    pub(crate) plan_full_scan: u64,
+    pub(crate) plan_grouped_hash_materialized: u64,
+    pub(crate) plan_grouped_ordered_materialized: u64,
 
     // Rows touched
-    pub rows_loaded: u64,
-    pub rows_scanned: u64,
-    pub rows_deleted: u64,
+    pub(crate) rows_loaded: u64,
+    pub(crate) rows_scanned: u64,
+    pub(crate) rows_deleted: u64,
 
     // Index maintenance
-    pub index_inserts: u64,
-    pub index_removes: u64,
-    pub reverse_index_inserts: u64,
-    pub reverse_index_removes: u64,
-    pub relation_reverse_lookups: u64,
-    pub relation_delete_blocks: u64,
-    pub unique_violations: u64,
-    pub non_atomic_partial_commits: u64,
-    pub non_atomic_partial_rows_committed: u64,
+    pub(crate) index_inserts: u64,
+    pub(crate) index_removes: u64,
+    pub(crate) reverse_index_inserts: u64,
+    pub(crate) reverse_index_removes: u64,
+    pub(crate) relation_reverse_lookups: u64,
+    pub(crate) relation_delete_blocks: u64,
+    pub(crate) unique_violations: u64,
+    pub(crate) non_atomic_partial_commits: u64,
+    pub(crate) non_atomic_partial_rows_committed: u64,
+}
+
+impl EventOps {
+    #[must_use]
+    pub const fn load_calls(&self) -> u64 {
+        self.load_calls
+    }
+
+    #[must_use]
+    pub const fn save_calls(&self) -> u64 {
+        self.save_calls
+    }
+
+    #[must_use]
+    pub const fn delete_calls(&self) -> u64 {
+        self.delete_calls
+    }
+
+    #[must_use]
+    pub const fn plan_index(&self) -> u64 {
+        self.plan_index
+    }
+
+    #[must_use]
+    pub const fn plan_keys(&self) -> u64 {
+        self.plan_keys
+    }
+
+    #[must_use]
+    pub const fn plan_range(&self) -> u64 {
+        self.plan_range
+    }
+
+    #[must_use]
+    pub const fn plan_full_scan(&self) -> u64 {
+        self.plan_full_scan
+    }
+
+    #[must_use]
+    pub const fn plan_grouped_hash_materialized(&self) -> u64 {
+        self.plan_grouped_hash_materialized
+    }
+
+    #[must_use]
+    pub const fn plan_grouped_ordered_materialized(&self) -> u64 {
+        self.plan_grouped_ordered_materialized
+    }
+
+    #[must_use]
+    pub const fn rows_loaded(&self) -> u64 {
+        self.rows_loaded
+    }
+
+    #[must_use]
+    pub const fn rows_scanned(&self) -> u64 {
+        self.rows_scanned
+    }
+
+    #[must_use]
+    pub const fn rows_deleted(&self) -> u64 {
+        self.rows_deleted
+    }
+
+    #[must_use]
+    pub const fn index_inserts(&self) -> u64 {
+        self.index_inserts
+    }
+
+    #[must_use]
+    pub const fn index_removes(&self) -> u64 {
+        self.index_removes
+    }
+
+    #[must_use]
+    pub const fn reverse_index_inserts(&self) -> u64 {
+        self.reverse_index_inserts
+    }
+
+    #[must_use]
+    pub const fn reverse_index_removes(&self) -> u64 {
+        self.reverse_index_removes
+    }
+
+    #[must_use]
+    pub const fn relation_reverse_lookups(&self) -> u64 {
+        self.relation_reverse_lookups
+    }
+
+    #[must_use]
+    pub const fn relation_delete_blocks(&self) -> u64 {
+        self.relation_delete_blocks
+    }
+
+    #[must_use]
+    pub const fn unique_violations(&self) -> u64 {
+        self.unique_violations
+    }
+
+    #[must_use]
+    pub const fn non_atomic_partial_commits(&self) -> u64 {
+        self.non_atomic_partial_commits
+    }
+
+    #[must_use]
+    pub const fn non_atomic_partial_rows_committed(&self) -> u64 {
+        self.non_atomic_partial_rows_committed
+    }
 }
 
 /// EntityCounters
@@ -73,21 +217,98 @@ pub struct EventOps {
 
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
 pub struct EntityCounters {
-    pub load_calls: u64,
-    pub save_calls: u64,
-    pub delete_calls: u64,
-    pub rows_loaded: u64,
-    pub rows_scanned: u64,
-    pub rows_deleted: u64,
-    pub index_inserts: u64,
-    pub index_removes: u64,
-    pub reverse_index_inserts: u64,
-    pub reverse_index_removes: u64,
-    pub relation_reverse_lookups: u64,
-    pub relation_delete_blocks: u64,
-    pub unique_violations: u64,
-    pub non_atomic_partial_commits: u64,
-    pub non_atomic_partial_rows_committed: u64,
+    pub(crate) load_calls: u64,
+    pub(crate) save_calls: u64,
+    pub(crate) delete_calls: u64,
+    pub(crate) rows_loaded: u64,
+    pub(crate) rows_scanned: u64,
+    pub(crate) rows_deleted: u64,
+    pub(crate) index_inserts: u64,
+    pub(crate) index_removes: u64,
+    pub(crate) reverse_index_inserts: u64,
+    pub(crate) reverse_index_removes: u64,
+    pub(crate) relation_reverse_lookups: u64,
+    pub(crate) relation_delete_blocks: u64,
+    pub(crate) unique_violations: u64,
+    pub(crate) non_atomic_partial_commits: u64,
+    pub(crate) non_atomic_partial_rows_committed: u64,
+}
+
+impl EntityCounters {
+    #[must_use]
+    pub const fn load_calls(&self) -> u64 {
+        self.load_calls
+    }
+
+    #[must_use]
+    pub const fn save_calls(&self) -> u64 {
+        self.save_calls
+    }
+
+    #[must_use]
+    pub const fn delete_calls(&self) -> u64 {
+        self.delete_calls
+    }
+
+    #[must_use]
+    pub const fn rows_loaded(&self) -> u64 {
+        self.rows_loaded
+    }
+
+    #[must_use]
+    pub const fn rows_scanned(&self) -> u64 {
+        self.rows_scanned
+    }
+
+    #[must_use]
+    pub const fn rows_deleted(&self) -> u64 {
+        self.rows_deleted
+    }
+
+    #[must_use]
+    pub const fn index_inserts(&self) -> u64 {
+        self.index_inserts
+    }
+
+    #[must_use]
+    pub const fn index_removes(&self) -> u64 {
+        self.index_removes
+    }
+
+    #[must_use]
+    pub const fn reverse_index_inserts(&self) -> u64 {
+        self.reverse_index_inserts
+    }
+
+    #[must_use]
+    pub const fn reverse_index_removes(&self) -> u64 {
+        self.reverse_index_removes
+    }
+
+    #[must_use]
+    pub const fn relation_reverse_lookups(&self) -> u64 {
+        self.relation_reverse_lookups
+    }
+
+    #[must_use]
+    pub const fn relation_delete_blocks(&self) -> u64 {
+        self.relation_delete_blocks
+    }
+
+    #[must_use]
+    pub const fn unique_violations(&self) -> u64 {
+        self.unique_violations
+    }
+
+    #[must_use]
+    pub const fn non_atomic_partial_commits(&self) -> u64 {
+        self.non_atomic_partial_commits
+    }
+
+    #[must_use]
+    pub const fn non_atomic_partial_rows_committed(&self) -> u64 {
+        self.non_atomic_partial_rows_committed
+    }
 }
 
 /// EventPerf
@@ -98,14 +319,65 @@ pub struct EntityCounters {
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
 pub struct EventPerf {
     // Instruction totals per executor (ic_cdk::api::performance_counter(1))
-    pub load_inst_total: u128,
-    pub save_inst_total: u128,
-    pub delete_inst_total: u128,
+    pub(crate) load_inst_total: u128,
+    pub(crate) save_inst_total: u128,
+    pub(crate) delete_inst_total: u128,
 
     // Maximum observed instruction deltas
-    pub load_inst_max: u64,
-    pub save_inst_max: u64,
-    pub delete_inst_max: u64,
+    pub(crate) load_inst_max: u64,
+    pub(crate) save_inst_max: u64,
+    pub(crate) delete_inst_max: u64,
+}
+
+impl EventPerf {
+    #[must_use]
+    pub const fn new(
+        load_inst_total: u128,
+        save_inst_total: u128,
+        delete_inst_total: u128,
+        load_inst_max: u64,
+        save_inst_max: u64,
+        delete_inst_max: u64,
+    ) -> Self {
+        Self {
+            load_inst_total,
+            save_inst_total,
+            delete_inst_total,
+            load_inst_max,
+            save_inst_max,
+            delete_inst_max,
+        }
+    }
+
+    #[must_use]
+    pub const fn load_inst_total(&self) -> u128 {
+        self.load_inst_total
+    }
+
+    #[must_use]
+    pub const fn save_inst_total(&self) -> u128 {
+        self.save_inst_total
+    }
+
+    #[must_use]
+    pub const fn delete_inst_total(&self) -> u128 {
+        self.delete_inst_total
+    }
+
+    #[must_use]
+    pub const fn load_inst_max(&self) -> u64 {
+        self.load_inst_max
+    }
+
+    #[must_use]
+    pub const fn save_inst_max(&self) -> u64 {
+        self.save_inst_max
+    }
+
+    #[must_use]
+    pub const fn delete_inst_max(&self) -> u64 {
+        self.delete_inst_max
+    }
 }
 
 thread_local! {
@@ -147,9 +419,42 @@ pub(super) fn add_instructions(total: &mut u128, max: &mut u64, delta_inst: u64)
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
 pub struct EventReport {
     /// Ephemeral runtime counters since `window_start_ms`.
-    pub counters: Option<EventState>,
+    counters: Option<EventState>,
     /// Per-entity ephemeral counters and averages.
-    pub entity_counters: Vec<EntitySummary>,
+    entity_counters: Vec<EntitySummary>,
+}
+
+impl EventReport {
+    #[must_use]
+    pub(crate) const fn new(
+        counters: Option<EventState>,
+        entity_counters: Vec<EntitySummary>,
+    ) -> Self {
+        Self {
+            counters,
+            entity_counters,
+        }
+    }
+
+    #[must_use]
+    pub const fn counters(&self) -> Option<&EventState> {
+        self.counters.as_ref()
+    }
+
+    #[must_use]
+    pub fn entity_counters(&self) -> &[EntitySummary] {
+        &self.entity_counters
+    }
+
+    #[must_use]
+    pub fn into_counters(self) -> Option<EventState> {
+        self.counters
+    }
+
+    #[must_use]
+    pub fn into_entity_counters(self) -> Vec<EntitySummary> {
+        self.entity_counters
+    }
 }
 
 /// EntitySummary
@@ -158,24 +463,116 @@ pub struct EventReport {
 
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
 pub struct EntitySummary {
-    pub path: String,
-    pub load_calls: u64,
-    pub delete_calls: u64,
-    pub rows_loaded: u64,
-    pub rows_scanned: u64,
-    pub rows_deleted: u64,
-    pub avg_rows_per_load: f64,
-    pub avg_rows_scanned_per_load: f64,
-    pub avg_rows_per_delete: f64,
-    pub index_inserts: u64,
-    pub index_removes: u64,
-    pub reverse_index_inserts: u64,
-    pub reverse_index_removes: u64,
-    pub relation_reverse_lookups: u64,
-    pub relation_delete_blocks: u64,
-    pub unique_violations: u64,
-    pub non_atomic_partial_commits: u64,
-    pub non_atomic_partial_rows_committed: u64,
+    path: String,
+    load_calls: u64,
+    delete_calls: u64,
+    rows_loaded: u64,
+    rows_scanned: u64,
+    rows_deleted: u64,
+    avg_rows_per_load: f64,
+    avg_rows_scanned_per_load: f64,
+    avg_rows_per_delete: f64,
+    index_inserts: u64,
+    index_removes: u64,
+    reverse_index_inserts: u64,
+    reverse_index_removes: u64,
+    relation_reverse_lookups: u64,
+    relation_delete_blocks: u64,
+    unique_violations: u64,
+    non_atomic_partial_commits: u64,
+    non_atomic_partial_rows_committed: u64,
+}
+
+impl EntitySummary {
+    #[must_use]
+    pub const fn path(&self) -> &str {
+        self.path.as_str()
+    }
+
+    #[must_use]
+    pub const fn load_calls(&self) -> u64 {
+        self.load_calls
+    }
+
+    #[must_use]
+    pub const fn delete_calls(&self) -> u64 {
+        self.delete_calls
+    }
+
+    #[must_use]
+    pub const fn rows_loaded(&self) -> u64 {
+        self.rows_loaded
+    }
+
+    #[must_use]
+    pub const fn rows_scanned(&self) -> u64 {
+        self.rows_scanned
+    }
+
+    #[must_use]
+    pub const fn rows_deleted(&self) -> u64 {
+        self.rows_deleted
+    }
+
+    #[must_use]
+    pub const fn avg_rows_per_load(&self) -> f64 {
+        self.avg_rows_per_load
+    }
+
+    #[must_use]
+    pub const fn avg_rows_scanned_per_load(&self) -> f64 {
+        self.avg_rows_scanned_per_load
+    }
+
+    #[must_use]
+    pub const fn avg_rows_per_delete(&self) -> f64 {
+        self.avg_rows_per_delete
+    }
+
+    #[must_use]
+    pub const fn index_inserts(&self) -> u64 {
+        self.index_inserts
+    }
+
+    #[must_use]
+    pub const fn index_removes(&self) -> u64 {
+        self.index_removes
+    }
+
+    #[must_use]
+    pub const fn reverse_index_inserts(&self) -> u64 {
+        self.reverse_index_inserts
+    }
+
+    #[must_use]
+    pub const fn reverse_index_removes(&self) -> u64 {
+        self.reverse_index_removes
+    }
+
+    #[must_use]
+    pub const fn relation_reverse_lookups(&self) -> u64 {
+        self.relation_reverse_lookups
+    }
+
+    #[must_use]
+    pub const fn relation_delete_blocks(&self) -> u64 {
+        self.relation_delete_blocks
+    }
+
+    #[must_use]
+    pub const fn unique_violations(&self) -> u64 {
+        self.unique_violations
+    }
+
+    #[must_use]
+    pub const fn non_atomic_partial_commits(&self) -> u64 {
+        self.non_atomic_partial_commits
+    }
+
+    #[must_use]
+    pub const fn non_atomic_partial_rows_committed(&self) -> u64 {
+        self.non_atomic_partial_rows_committed
+    }
 }
 
 /// Build a metrics report gated by `window_start_ms`.
@@ -251,10 +648,7 @@ pub(super) fn report_window_start(window_start_ms: Option<u64>) -> EventReport {
         }
     });
 
-    EventReport {
-        counters: Some(snap),
-        entity_counters,
-    }
+    EventReport::new(Some(snap), entity_counters)
 }
 
 ///

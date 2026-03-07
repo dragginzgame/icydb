@@ -360,7 +360,7 @@ where
         .or_else(|| access_class.single_path_index_range_details())
         .is_some_and(|(index, _)| {
             index
-                .fields
+                .fields()
                 .first()
                 .is_some_and(|field| field == &target_field)
         })

@@ -30,19 +30,69 @@ use crate::model::{field::FieldModel, index::IndexModel};
 #[derive(Debug)]
 pub struct EntityModel {
     /// Fully-qualified Rust type path (for diagnostics).
-    pub path: &'static str,
+    pub(crate) path: &'static str,
 
     /// Stable external name used in keys and routing.
-    pub entity_name: &'static str,
+    pub(crate) entity_name: &'static str,
 
     /// Primary key field (points at an entry in `fields`).
-    pub primary_key: &'static FieldModel,
+    pub(crate) primary_key: &'static FieldModel,
 
     /// Ordered field list (authoritative for runtime planning).
-    pub fields: &'static [FieldModel],
+    pub(crate) fields: &'static [FieldModel],
 
     /// Index definitions (field order is significant).
-    pub indexes: &'static [&'static IndexModel],
+    pub(crate) indexes: &'static [&'static IndexModel],
+}
+
+impl EntityModel {
+    /// Build one runtime entity schema descriptor.
+    #[must_use]
+    pub const fn new(
+        path: &'static str,
+        entity_name: &'static str,
+        primary_key: &'static FieldModel,
+        fields: &'static [FieldModel],
+        indexes: &'static [&'static IndexModel],
+    ) -> Self {
+        Self {
+            path,
+            entity_name,
+            primary_key,
+            fields,
+            indexes,
+        }
+    }
+
+    /// Return the fully-qualified Rust path for this entity.
+    #[must_use]
+    pub const fn path(&self) -> &'static str {
+        self.path
+    }
+
+    /// Return the stable external entity name.
+    #[must_use]
+    pub const fn entity_name(&self) -> &'static str {
+        self.entity_name
+    }
+
+    /// Return the primary-key field descriptor.
+    #[must_use]
+    pub const fn primary_key(&self) -> &'static FieldModel {
+        self.primary_key
+    }
+
+    /// Return the ordered runtime field descriptors.
+    #[must_use]
+    pub const fn fields(&self) -> &'static [FieldModel] {
+        self.fields
+    }
+
+    /// Return the runtime index descriptors.
+    #[must_use]
+    pub const fn indexes(&self) -> &'static [&'static IndexModel] {
+        self.indexes
+    }
 }
 
 /// Resolve one schema field name into its stable slot index.

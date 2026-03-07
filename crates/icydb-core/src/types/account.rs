@@ -21,8 +21,8 @@ use thiserror::Error as ThisError;
 
 #[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct Account {
-    pub owner: Principal,
-    pub subaccount: Option<Subaccount>,
+    owner: Principal,
+    subaccount: Option<Subaccount>,
 }
 
 ///
@@ -54,6 +54,24 @@ impl Account {
             owner: owner.into(),
             subaccount: subaccount.map(Into::into),
         }
+    }
+
+    /// Build an account from normalized runtime value parts.
+    #[must_use]
+    pub const fn from_parts(owner: Principal, subaccount: Option<Subaccount>) -> Self {
+        Self { owner, subaccount }
+    }
+
+    /// Return the account owner principal.
+    #[must_use]
+    pub const fn owner(&self) -> Principal {
+        self.owner
+    }
+
+    /// Return the optional account subaccount.
+    #[must_use]
+    pub const fn subaccount(&self) -> Option<Subaccount> {
+        self.subaccount
     }
 
     /// Convert to the ICRC account representation.

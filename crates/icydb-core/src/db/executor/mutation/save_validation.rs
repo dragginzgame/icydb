@@ -332,7 +332,7 @@ impl CachedInvariant {
 fn indexed_field_set<E: EntityKind>() -> BTreeSet<&'static str> {
     let mut fields = BTreeSet::new();
     for index in E::INDEXES {
-        fields.extend(index.fields.iter().copied());
+        fields.extend(index.fields().iter().copied());
     }
 
     fields

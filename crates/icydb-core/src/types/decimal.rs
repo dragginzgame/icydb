@@ -36,8 +36,22 @@ const DECIMAL_DIGIT_BUFFER_LEN: usize = 39;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DecimalParts {
-    pub mantissa: i128,
-    pub scale: u32,
+    mantissa: i128,
+    scale: u32,
+}
+
+impl DecimalParts {
+    /// Return the canonical decimal mantissa component.
+    #[must_use]
+    pub const fn mantissa(&self) -> i128 {
+        self.mantissa
+    }
+
+    /// Return the canonical decimal scale component.
+    #[must_use]
+    pub const fn scale(&self) -> u32 {
+        self.scale
+    }
 }
 
 ///

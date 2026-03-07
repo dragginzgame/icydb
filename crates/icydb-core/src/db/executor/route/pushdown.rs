@@ -122,7 +122,7 @@ where
         return false;
     }
     if let Some((index, _)) = index_prefix_details
-        && !index.unique
+        && !index.is_unique()
     {
         return false;
     }

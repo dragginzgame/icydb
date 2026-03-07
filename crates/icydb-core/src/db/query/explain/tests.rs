@@ -115,7 +115,7 @@ fn explain_reports_deterministic_index_choice() {
         IndexModel::new("explain::idx_a_alt", "explain::store", &INDEX_FIELDS, false);
 
     let mut indexes = [INDEX_B, INDEX_A];
-    indexes.sort_by(|left, right| left.name.cmp(right.name));
+    indexes.sort_by(|left, right| left.name().cmp(right.name()));
     let chosen = indexes[0];
 
     let plan: AccessPlannedQuery<Value> = AccessPlannedQuery::new(

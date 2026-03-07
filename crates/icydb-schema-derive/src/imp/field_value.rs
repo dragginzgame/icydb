@@ -60,7 +60,7 @@ impl Imp<Enum> for FieldValueTrait {
 
                 quote! {
                     #v_name => {
-                        let payload = v.payload.as_deref()?;
+                        let payload = v.payload()?;
                         let value =
                             <#payload_ty as ::icydb::traits::FieldValue>::from_value(payload)?;
                         Some(Self::#v_ident(value))
@@ -86,13 +86,13 @@ impl Imp<Enum> for FieldValueTrait {
                 let ::icydb::value::Value::Enum(v) = value else {
                     return None;
                 };
-                if let Some(path) = &v.path
+                if let Some(path) = v.path()
                     && path != <Self as ::icydb::traits::Path>::PATH
                 {
                     return None;
                 }
 
-                match v.variant.as_str() {
+                match v.variant() {
                     #(#from_arms),*,
                     _ => None,
                 }

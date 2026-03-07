@@ -16,15 +16,15 @@ fn validate_index_fields(
 ) -> Result<(), ValidateError> {
     let mut seen_names = BTreeSet::new();
     for index in indexes {
-        if seen_names.contains(index.name) {
+        if seen_names.contains(index.name()) {
             return Err(ValidateError::DuplicateIndexName {
-                name: index.name.to_string(),
+                name: index.name().to_string(),
             });
         }
-        seen_names.insert(index.name);
+        seen_names.insert(index.name());
 
         let mut seen = BTreeSet::new();
-        for field in index.fields {
+        for field in index.fields() {
             if !fields.contains_key(*field) {
                 return Err(ValidateError::IndexFieldUnknown {
                     index: **index,
@@ -130,7 +130,7 @@ impl SchemaInfo {
 
         validate_index_fields(&fields, model.indexes)?;
         for index in model.indexes {
-            IndexName::try_from_parts(&entity_name, index.fields).map_err(|err| {
+            IndexName::try_from_parts(&entity_name, index.fields()).map_err(|err| {
                 ValidateError::InvalidIndexName {
                     index: **index,
                     source: err,
