@@ -470,6 +470,101 @@ fn aggregate_bytes_key_range_fast_path_emits_hit_marker_only_without_residual_pr
 }
 
 #[test]
+fn aggregate_bytes_unordered_secondary_stream_fast_path_emits_hit_marker_with_parity() {
+    seed_pushdown_entities(&[
+        (9_031, 7, 10),
+        (9_032, 7, 20),
+        (9_033, 7, 30),
+        (9_034, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let build_plan = || {
+        let mut logical_plan = AccessPlannedQuery::new(
+            AccessPath::IndexPrefix {
+                index: PUSHDOWN_PARITY_INDEX_MODELS[0],
+                values: vec![Value::Uint(7)],
+            },
+            MissingRowPolicy::Ignore,
+        );
+        logical_plan.scalar_plan_mut().page = Some(PageSpec {
+            limit: Some(2),
+            offset: 1,
+        });
+
+        ExecutablePlan::<PushdownParityEntity>::new(logical_plan)
+    };
+    let expected_response = load
+        .execute(build_plan())
+        .expect("baseline unordered secondary bytes execute should succeed");
+    let expected_bytes =
+        persisted_payload_bytes_for_ids::<PushdownParityEntity>(expected_response.ids());
+
+    let _ = LoadExecutor::<PushdownParityEntity>::take_bytes_pk_fast_path_hits_for_tests();
+    let _ = LoadExecutor::<PushdownParityEntity>::take_bytes_stream_fast_path_hits_for_tests();
+    let bytes = load
+        .bytes(build_plan())
+        .expect("unordered secondary bytes fast path should succeed");
+    assert_eq!(
+        bytes, expected_bytes,
+        "unordered secondary bytes stream fast path should preserve execute() parity",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_bytes_pk_fast_path_hits_for_tests(),
+        0,
+        "secondary bytes shape should bypass PK-only bytes fast-path markers",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_bytes_stream_fast_path_hits_for_tests(),
+        1,
+        "unordered secondary bytes shape should emit one stream-fast-path hit marker",
+    );
+}
+
+#[test]
+fn aggregate_bytes_stream_fast_path_bypasses_ordered_secondary_shape() {
+    seed_pushdown_entities(&[
+        (9_041, 7, 10),
+        (9_042, 7, 20),
+        (9_043, 7, 30),
+        (9_044, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let mut logical_plan = AccessPlannedQuery::new(
+        AccessPath::IndexPrefix {
+            index: PUSHDOWN_PARITY_INDEX_MODELS[0],
+            values: vec![Value::Uint(7)],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    logical_plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("rank".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    logical_plan.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(2),
+        offset: 0,
+    });
+
+    let _ = LoadExecutor::<PushdownParityEntity>::take_bytes_stream_fast_path_hits_for_tests();
+    let bytes = load
+        .bytes(ExecutablePlan::<PushdownParityEntity>::new(logical_plan))
+        .expect("ordered secondary bytes execution should succeed");
+    assert!(
+        bytes > 0,
+        "ordered secondary bytes fallback should still return persisted payload bytes",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_bytes_stream_fast_path_hits_for_tests(),
+        0,
+        "ordered secondary bytes shape should bypass unordered stream fast-path branch",
+    );
+}
+
+#[test]
 fn aggregate_bytes_path_parity_index_prefix_and_full_scan_equivalent_rows() {
     seed_pushdown_entities(&[
         (8_971, 7, 10),

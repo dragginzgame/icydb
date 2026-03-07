@@ -187,6 +187,43 @@ where
         })?
     }
 
+    /// Fold persisted row payload bytes over one ordered key stream page window.
+    pub(crate) fn sum_row_payload_bytes_from_ordered_key_stream(
+        &self,
+        key_stream: &mut dyn OrderedKeyStream,
+        consistency: MissingRowPolicy,
+        offset: usize,
+        limit: Option<usize>,
+    ) -> Result<u64, InternalError> {
+        let mut total = 0u64;
+        let mut offset_remaining = offset;
+        let mut limit_remaining = limit;
+        while let Some(key) = key_stream.next_key()? {
+            if payload_window_limit_exhausted(limit_remaining) {
+                break;
+            }
+
+            // Index-backed and composite stream rows remain row-authoritative:
+            // missing-row ignore skips stale keys, strict mode fails closed.
+            let row = match consistency {
+                MissingRowPolicy::Error => self.read_strict(&key),
+                MissingRowPolicy::Ignore => self.read(&key),
+            };
+            let row = match row {
+                Ok(row) => row,
+                Err(err) if err.is_not_found() => continue,
+                Err(err) => return Err(err),
+            };
+            if !payload_window_accept_row(&mut offset_remaining, &mut limit_remaining) {
+                continue;
+            }
+
+            total = total.saturating_add(saturating_row_len(row.len()));
+        }
+
+        Ok(total)
+    }
+
     // Load rows for an ordered key stream by preserving the stream order.
     /// Materialize rows for an ordered key stream while preserving stream order.
     pub(crate) fn rows_from_ordered_key_stream(

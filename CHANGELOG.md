@@ -8,7 +8,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ## [0.44.x] - 2026-03-07 - Optimization Closure
 
 - `0.44.0` starts the optimization-closure line by making common `count()` and `bytes()` queries faster on primary-key full scans and key ranges, improving LIMIT/covering diagnostics and tests, and moving the workspace toolchain to Rust `1.94.0`.
-- `0.44.1` completes the first follow-up by enabling COUNT index-range LIMIT pushdown for eligible shapes and expanding EXISTS covering fast paths to strict-compatible secondary predicate shapes, while keeping safe fallback behavior for uncertain or ordered cases.
+- `0.44.1` makes more `count()` and `exists()` index-backed queries faster, while keeping the same results and safe fallback behavior when a fast path is not guaranteed.
+- `0.44.2` makes more `bytes()` queries faster for safe unordered secondary-index windows by summing persisted payload sizes directly from streamed keys, with ordered or predicate-heavy shapes still using the canonical fallback path.
 
 See detailed breakdown:
 [docs/changelog/0.44.md](docs/changelog/0.44.md)

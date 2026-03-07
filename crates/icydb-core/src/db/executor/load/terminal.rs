@@ -9,6 +9,7 @@ use crate::{
         data::DataKey,
         direction::Direction,
         executor::{
+            AccessExecutionDescriptor, AccessScanContinuationInput, AccessStreamBindings,
             ExecutablePlan,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, compare_orderable_field_values,
@@ -34,6 +35,7 @@ use std::cmp::Ordering;
 #[cfg(test)]
 thread_local! {
     static BYTES_PK_FAST_PATH_HITS: Cell<u64> = const { Cell::new(0) };
+    static BYTES_STREAM_FAST_PATH_HITS: Cell<u64> = const { Cell::new(0) };
 }
 
 // Field ranking direction for k-selection terminals.
@@ -63,6 +65,10 @@ where
         if let Some(direction) = Self::bytes_pk_window_fast_path_direction(&plan) {
             Self::record_bytes_pk_fast_path_hit_for_tests();
             return self.bytes_from_pk_store_window(plan, direction);
+        }
+        if Self::bytes_stream_window_fast_path_eligible(&plan) {
+            Self::record_bytes_stream_fast_path_hit_for_tests();
+            return self.bytes_from_ordered_key_stream_window(plan);
         }
 
         let response = self.execute(plan)?;
@@ -490,6 +496,12 @@ where
         Some(direction)
     }
 
+    // Return whether one unordered scalar shape can fold bytes directly from
+    // routed ordered key streams without entity materialization.
+    const fn bytes_stream_window_fast_path_eligible(plan: &ExecutablePlan<E>) -> bool {
+        !plan.has_predicate() && !plan.is_distinct() && plan.order_spec().is_none()
+    }
+
     // Fold `bytes()` directly from persisted primary rows over the canonical
     // page window for safe PK full-scan/key-range shapes.
     fn bytes_from_pk_store_window(
@@ -526,9 +538,53 @@ where
         }
     }
 
+    // Fold `bytes()` from an ordered key stream over the canonical page window
+    // for unordered scalar shapes where row materialization is unnecessary.
+    fn bytes_from_ordered_key_stream_window(
+        &self,
+        plan: ExecutablePlan<E>,
+    ) -> Result<u64, InternalError> {
+        // Phase 1: materialize immutable stream bindings before stream resolution.
+        let page = plan.page_spec().cloned();
+        let consistency = plan.consistency();
+        let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
+        let index_range_specs = plan.index_range_specs()?.to_vec();
+        let descriptor = AccessExecutionDescriptor::from_bindings(
+            plan.access(),
+            AccessStreamBindings::new(
+                index_prefix_specs.as_slice(),
+                index_range_specs.as_slice(),
+                AccessScanContinuationInput::new(None, Direction::Asc),
+            ),
+            None,
+            None,
+        );
+        let (offset, limit) = bytes_page_window_state(page.as_ref());
+
+        // Phase 2: stream keys and sum persisted payload lengths over the page window.
+        let ctx = self.recovered_context()?;
+        let mut key_stream = ctx.ordered_key_stream_from_access_descriptor(descriptor)?;
+
+        ctx.sum_row_payload_bytes_from_ordered_key_stream(
+            key_stream.as_mut(),
+            consistency,
+            offset,
+            limit,
+        )
+    }
+
     #[cfg(test)]
     pub(crate) fn take_bytes_pk_fast_path_hits_for_tests() -> u64 {
         BYTES_PK_FAST_PATH_HITS.with(|counter| {
+            let hits = counter.get();
+            counter.set(0);
+            hits
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn take_bytes_stream_fast_path_hits_for_tests() -> u64 {
+        BYTES_STREAM_FAST_PATH_HITS.with(|counter| {
             let hits = counter.get();
             counter.set(0);
             hits
@@ -542,8 +598,18 @@ where
         });
     }
 
+    #[cfg(test)]
+    fn record_bytes_stream_fast_path_hit_for_tests() {
+        BYTES_STREAM_FAST_PATH_HITS.with(|counter| {
+            counter.set(counter.get().saturating_add(1));
+        });
+    }
+
     #[cfg(not(test))]
     const fn record_bytes_pk_fast_path_hit_for_tests() {}
+
+    #[cfg(not(test))]
+    const fn record_bytes_stream_fast_path_hit_for_tests() {}
 }
 
 // Centralize payload-byte saturation so terminal behavior stays explicit and
