@@ -20,6 +20,7 @@ fn route_capabilities_full_scan_desc_pk_order_reflect_expected_flags() {
     assert!(route_plan.streaming_access_shape_safe());
     assert!(route_plan.desc_physical_reverse_supported());
     assert!(route_plan.count_pushdown_access_shape_supported());
+    assert!(!route_plan.count_pushdown_existing_rows_shape_supported());
     assert!(!route_plan.index_range_limit_pushdown_shape_eligible());
     assert!(!route_plan.composite_aggregate_fast_path_eligible());
     assert!(route_plan.bounded_probe_hint_safe());
@@ -55,6 +56,7 @@ fn route_capabilities_by_keys_desc_distinct_offset_disable_probe_hint() {
     assert!(route_plan.streaming_access_shape_safe());
     assert!(!route_plan.desc_physical_reverse_supported());
     assert!(!route_plan.count_pushdown_access_shape_supported());
+    assert!(!route_plan.count_pushdown_existing_rows_shape_supported());
     assert!(!route_plan.index_range_limit_pushdown_shape_eligible());
     assert!(!route_plan.composite_aggregate_fast_path_eligible());
     assert!(!route_plan.bounded_probe_hint_safe());
@@ -87,5 +89,58 @@ fn route_capabilities_index_range_order_compatible_shape_is_streaming_safe() {
     .expect("load route plan should build");
 
     assert!(route_plan.streaming_access_shape_safe());
+    assert!(route_plan.count_pushdown_existing_rows_shape_supported());
     assert!(route_plan.index_range_limit_pushdown_shape_eligible());
+}
+
+#[test]
+fn route_capabilities_index_range_without_order_remains_limit_pushdown_eligible() {
+    let plan = AccessPlannedQuery::new(
+        AccessPath::<Ulid>::index_range(
+            ROUTE_MATRIX_INDEX_MODELS[0],
+            vec![],
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(30)),
+        ),
+        MissingRowPolicy::Ignore,
+    );
+    let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
+        &plan,
+        &initial_scalar_continuation_context(),
+        None,
+    )
+    .expect("load route plan should build");
+
+    assert!(
+        route_plan.index_range_limit_pushdown_shape_eligible(),
+        "no-order index-range shapes remain eligible for limit pushdown",
+    );
+}
+
+#[test]
+fn route_capabilities_index_range_with_empty_order_rejects_limit_pushdown_shape() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::<Ulid>::index_range(
+            ROUTE_MATRIX_INDEX_MODELS[0],
+            vec![],
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(30)),
+        ),
+        MissingRowPolicy::Ignore,
+    );
+    // Planner validation rejects empty ORDER BY, but route capability checks
+    // must still fail closed if a bypassed plan shape reaches this boundary.
+    plan.scalar_plan_mut().order = Some(OrderSpec { fields: Vec::new() });
+
+    let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
+        &plan,
+        &initial_scalar_continuation_context(),
+        None,
+    )
+    .expect("load route plan should build");
+
+    assert!(
+        !route_plan.index_range_limit_pushdown_shape_eligible(),
+        "empty-order planner-bypass shapes must not be treated as limit-pushdown eligible",
+    );
 }

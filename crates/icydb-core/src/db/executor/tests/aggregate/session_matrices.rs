@@ -698,6 +698,10 @@ fn session_load_terminal_explain_reports_standard_route_for_exists() {
     assert_eq!(exists_execution.limit(), None);
     assert!(!exists_execution.cursor());
     assert!(
+        !exists_execution.covering_projection(),
+        "ordered exists explain shape should not mark index-only covering projection",
+    );
+    assert!(
         exists_execution.node_properties().is_empty(),
         "standard explain descriptor should emit no extra node properties by default",
     );

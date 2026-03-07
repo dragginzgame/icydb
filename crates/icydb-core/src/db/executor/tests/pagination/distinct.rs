@@ -547,7 +547,7 @@ fn load_distinct_desc_pk_fast_path_and_fallback_match_ids_and_boundaries() {
         let fast_trace = fast_trace.expect("debug trace should be present");
         assert_eq!(
             fast_trace.optimization(),
-            Some(ExecutionOptimization::PrimaryKey),
+            Some(ExecutionOptimization::PrimaryKeyTopNSeek),
             "distinct DESC full-scan seed execution should use PK fast path for limit={limit}",
         );
 

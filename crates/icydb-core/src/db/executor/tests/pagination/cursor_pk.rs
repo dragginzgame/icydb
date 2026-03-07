@@ -1117,7 +1117,7 @@ fn load_cursor_pagination_pk_order_inverted_key_range_returns_empty_without_scan
         );
         assert_eq!(
             trace.optimization(),
-            Some(ExecutionOptimization::PrimaryKey),
+            Some(ExecutionOptimization::PrimaryKeyTopNSeek),
             "inverted pk-range should remain on PK fast path for case={case_name}",
         );
         assert_eq!(
@@ -1162,7 +1162,7 @@ fn load_cursor_pagination_pk_fast_path_scan_accounting_tracks_access_candidates(
 
         assert_eq!(
             trace.optimization(),
-            Some(ExecutionOptimization::PrimaryKey),
+            Some(ExecutionOptimization::PrimaryKeyTopNSeek),
             "pk trace should report PK fast path for case={case_name}",
         );
         // PK fast-path trace accounting reports access-phase candidate count.
@@ -1172,6 +1172,42 @@ fn load_cursor_pagination_pk_fast_path_scan_accounting_tracks_access_candidates(
             "pk fast-path trace should count all access candidates for case={case_name}",
         );
     }
+}
+
+#[test]
+fn load_cursor_pagination_pk_trace_reports_non_top_n_variant_without_page_limit() {
+    setup_pagination_test();
+
+    let save = SaveExecutor::<SimpleEntity>::new(DB, false);
+    for id in [1_u128, 2_u128, 3_u128, 4_u128] {
+        save.insert(SimpleEntity {
+            id: Ulid::from_u128(id),
+        })
+        .expect("save should succeed");
+    }
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, true);
+    let plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+        .order_by("id")
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("pk non-top-n trace plan should build");
+
+    let (page, trace) = load
+        .execute_paged_with_cursor_traced(plan, None)
+        .expect("pk non-top-n trace execution should succeed");
+    let trace = trace.expect("debug trace should be present");
+
+    assert_eq!(
+        trace.optimization(),
+        Some(ExecutionOptimization::PrimaryKey),
+        "unpaged PK ordered shapes should report non-top-n PK optimization labels",
+    );
+    assert_eq!(
+        page.items.len(),
+        4,
+        "unpaged PK ordered execution should return all seeded rows",
+    );
 }
 
 #[test]

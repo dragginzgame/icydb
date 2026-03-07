@@ -317,6 +317,159 @@ fn aggregate_bytes_parity_ordered_page_window_asc() {
 }
 
 #[test]
+fn aggregate_bytes_key_range_window_parity_desc() {
+    seed_simple_entities(&[8_989, 8_990, 8_991, 8_992, 8_993, 8_994, 8_995]);
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    let mut logical_plan = crate::db::query::plan::AccessPlannedQuery::new(
+        crate::db::access::AccessPath::KeyRange {
+            start: Ulid::from_u128(8_990),
+            end: Ulid::from_u128(8_994),
+        },
+        MissingRowPolicy::Ignore,
+    );
+    logical_plan.scalar_plan_mut().order = Some(crate::db::query::plan::OrderSpec {
+        fields: vec![(
+            "id".to_string(),
+            crate::db::query::plan::OrderDirection::Desc,
+        )],
+    });
+    logical_plan.scalar_plan_mut().page = Some(crate::db::query::plan::PageSpec {
+        limit: Some(2),
+        offset: 1,
+    });
+
+    let expected_response = load
+        .execute(crate::db::executor::ExecutablePlan::<SimpleEntity>::new(
+            logical_plan.clone(),
+        ))
+        .expect("baseline key-range bytes parity execute should succeed");
+    let expected_bytes = persisted_payload_bytes_for_ids::<SimpleEntity>(expected_response.ids());
+    let bytes = load
+        .bytes(crate::db::executor::ExecutablePlan::<SimpleEntity>::new(
+            logical_plan,
+        ))
+        .expect("key-range bytes terminal should succeed");
+
+    assert_eq!(
+        bytes, expected_bytes,
+        "key-range DESC bytes window should match canonical execute parity",
+    );
+}
+
+#[test]
+fn aggregate_bytes_pk_fast_path_emits_hit_marker_only_for_eligible_shapes() {
+    seed_simple_entities(&[9_011, 9_012, 9_013, 9_014]);
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    let _ = LoadExecutor::<SimpleEntity>::take_bytes_pk_fast_path_hits_for_tests();
+    let _eligible_bytes = load
+        .bytes(
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+                .order_by("id")
+                .offset(1)
+                .limit(2)
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("eligible bytes fast-path plan should build"),
+        )
+        .expect("eligible bytes fast-path execution should succeed");
+    assert_eq!(
+        LoadExecutor::<SimpleEntity>::take_bytes_pk_fast_path_hits_for_tests(),
+        1,
+        "PK full-scan bytes shape should emit one fast-path hit marker",
+    );
+
+    let _ = LoadExecutor::<SimpleEntity>::take_bytes_pk_fast_path_hits_for_tests();
+    let _fallback_bytes = load
+        .bytes(
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+                .by_id(Ulid::from_u128(9_011))
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("ineligible bytes fallback plan should build"),
+        )
+        .expect("ineligible bytes fallback execution should succeed");
+    assert_eq!(
+        LoadExecutor::<SimpleEntity>::take_bytes_pk_fast_path_hits_for_tests(),
+        0,
+        "by-id bytes shape should bypass the PK fast-path branch",
+    );
+}
+
+#[test]
+fn aggregate_bytes_key_range_fast_path_emits_hit_marker_only_without_residual_predicates() {
+    seed_simple_entities(&[9_021, 9_022, 9_023, 9_024, 9_025]);
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    let eligible_plan = || {
+        let mut logical_plan = AccessPlannedQuery::new(
+            AccessPath::KeyRange {
+                start: Ulid::from_u128(9_021),
+                end: Ulid::from_u128(9_025),
+            },
+            MissingRowPolicy::Ignore,
+        );
+        logical_plan.scalar_plan_mut().order = Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Desc)],
+        });
+        logical_plan.scalar_plan_mut().page = Some(PageSpec {
+            limit: Some(2),
+            offset: 1,
+        });
+
+        ExecutablePlan::<SimpleEntity>::new(logical_plan)
+    };
+    let ineligible_plan = || {
+        let mut logical_plan = AccessPlannedQuery::new(
+            AccessPath::KeyRange {
+                start: Ulid::from_u128(9_021),
+                end: Ulid::from_u128(9_025),
+            },
+            MissingRowPolicy::Ignore,
+        );
+        logical_plan.scalar_plan_mut().predicate = Some(id_in_predicate(&[9_022, 9_023, 9_024]));
+        logical_plan.scalar_plan_mut().order = Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Desc)],
+        });
+        logical_plan.scalar_plan_mut().page = Some(PageSpec {
+            limit: Some(2),
+            offset: 0,
+        });
+
+        ExecutablePlan::<SimpleEntity>::new(logical_plan)
+    };
+
+    let _ = LoadExecutor::<SimpleEntity>::take_bytes_pk_fast_path_hits_for_tests();
+    let eligible_bytes = load
+        .bytes(eligible_plan())
+        .expect("eligible key-range bytes fast-path execution should succeed");
+    assert!(
+        eligible_bytes > 0,
+        "eligible key-range bytes fast-path should return a non-zero payload sum",
+    );
+    assert_eq!(
+        LoadExecutor::<SimpleEntity>::take_bytes_pk_fast_path_hits_for_tests(),
+        1,
+        "key-range bytes shape without residual predicates should emit one fast-path hit marker",
+    );
+
+    let _ = LoadExecutor::<SimpleEntity>::take_bytes_pk_fast_path_hits_for_tests();
+    let fallback_bytes = load
+        .bytes(ineligible_plan())
+        .expect("residual key-range bytes fallback execution should succeed");
+    assert!(
+        fallback_bytes > 0,
+        "residual key-range bytes fallback should still return payload bytes",
+    );
+    assert_eq!(
+        LoadExecutor::<SimpleEntity>::take_bytes_pk_fast_path_hits_for_tests(),
+        0,
+        "residual key-range bytes shape should bypass the PK fast-path branch",
+    );
+}
+
+#[test]
 fn aggregate_bytes_path_parity_index_prefix_and_full_scan_equivalent_rows() {
     seed_pushdown_entities(&[
         (8_971, 7, 10),
@@ -699,6 +852,46 @@ fn aggregate_by_ids_strict_missing_surfaces_corruption_error() {
         err.class,
         crate::error::ErrorClass::Corruption,
         "strict by_ids aggregate missing row should classify as corruption"
+    );
+}
+
+#[test]
+fn aggregate_count_pk_cardinality_fast_path_emits_hit_marker_only_for_eligible_shapes() {
+    seed_simple_entities(&[8_671, 8_672, 8_673, 8_674]);
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    let _ = LoadExecutor::<SimpleEntity>::take_pk_cardinality_count_fast_path_hits_for_tests();
+    let _eligible_count = load
+        .aggregate_count(
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+                .order_by("id")
+                .offset(1)
+                .limit(2)
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("eligible COUNT PK-cardinality plan should build"),
+        )
+        .expect("eligible COUNT PK-cardinality execution should succeed");
+    assert_eq!(
+        LoadExecutor::<SimpleEntity>::take_pk_cardinality_count_fast_path_hits_for_tests(),
+        1,
+        "PK full-scan COUNT shape should emit one PK-cardinality fast-path hit marker",
+    );
+
+    let _ = LoadExecutor::<SimpleEntity>::take_pk_cardinality_count_fast_path_hits_for_tests();
+    let _ineligible_count = load
+        .aggregate_count(
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+                .by_id(Ulid::from_u128(8_671))
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("ineligible COUNT fallback plan should build"),
+        )
+        .expect("ineligible COUNT fallback execution should succeed");
+    assert_eq!(
+        LoadExecutor::<SimpleEntity>::take_pk_cardinality_count_fast_path_hits_for_tests(),
+        0,
+        "by-id COUNT shape should bypass the PK-cardinality fast-path branch",
     );
 }
 

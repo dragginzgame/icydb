@@ -265,10 +265,12 @@ where
         debug_assert!(
             !derivation.count_pushdown_eligible
                 || kind.is_some_and(AggregateKind::is_count)
-                    && derivation.capabilities.streaming_access_shape_safe
-                    && derivation
+                    && (derivation
                         .capabilities
-                        .count_pushdown_access_shape_supported,
+                        .count_pushdown_access_shape_supported
+                        || derivation
+                            .capabilities
+                            .count_pushdown_existing_rows_shape_supported),
             "route invariant: COUNT pushdown eligibility must match COUNT-safe capability set",
         );
         if kind.is_none() && !intent_stage.grouped {

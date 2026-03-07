@@ -37,7 +37,9 @@ pub enum ExecutionAccessPathVariant {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExecutionOptimization {
     PrimaryKey,
+    PrimaryKeyTopNSeek,
     SecondaryOrderPushdown,
+    SecondaryOrderTopNSeek,
     IndexRangeLimitPushdown,
 }
 

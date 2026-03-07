@@ -11,7 +11,7 @@ use crate::{
             format_entity_key_for_mismatch,
         },
         direction::Direction,
-        executor::{ExecutorError, OrderedKeyStream},
+        executor::{ExecutorError, OrderedKeyStream, saturating_row_len},
         index::{
             IndexEntryReader, IndexScanContinuationInput, IndexStore, PrimaryRowReader,
             RawIndexEntry, RawIndexKey, SealedIndexEntryReader, SealedPrimaryRowReader,
@@ -89,6 +89,101 @@ where
             s.get(&raw).ok_or_else(|| {
                 ExecutorError::store_corruption(format!("missing row: {key}")).into()
             })
+        })?
+    }
+
+    /// Fold persisted row payload bytes over one full-scan page window.
+    pub(crate) fn sum_row_payload_bytes_full_scan_window(
+        &self,
+        direction: Direction,
+        offset: usize,
+        limit: Option<usize>,
+    ) -> Result<u64, InternalError> {
+        self.with_store(|store| -> Result<u64, InternalError> {
+            let mut total = 0u64;
+            let mut offset_remaining = offset;
+            let mut limit_remaining = limit;
+
+            match direction {
+                Direction::Asc => {
+                    for entry in store.iter() {
+                        if payload_window_limit_exhausted(limit_remaining) {
+                            break;
+                        }
+                        if !payload_window_accept_row(&mut offset_remaining, &mut limit_remaining) {
+                            continue;
+                        }
+
+                        total = total.saturating_add(saturating_row_len(entry.value().len()));
+                    }
+                }
+                Direction::Desc => {
+                    for entry in store.iter().rev() {
+                        if payload_window_limit_exhausted(limit_remaining) {
+                            break;
+                        }
+                        if !payload_window_accept_row(&mut offset_remaining, &mut limit_remaining) {
+                            continue;
+                        }
+
+                        total = total.saturating_add(saturating_row_len(entry.value().len()));
+                    }
+                }
+            }
+
+            Ok(total)
+        })?
+    }
+
+    /// Fold persisted row payload bytes over one key-range page window.
+    pub(crate) fn sum_row_payload_bytes_key_range_window(
+        &self,
+        start: &DataKey,
+        end: &DataKey,
+        direction: Direction,
+        offset: usize,
+        limit: Option<usize>,
+    ) -> Result<u64, InternalError> {
+        let start_raw = start.to_raw()?;
+        let end_raw = end.to_raw()?;
+
+        self.with_store(|store| -> Result<u64, InternalError> {
+            let mut total = 0u64;
+            let mut offset_remaining = offset;
+            let mut limit_remaining = limit;
+
+            match direction {
+                Direction::Asc => {
+                    for entry in store.range((Bound::Included(start_raw), Bound::Included(end_raw)))
+                    {
+                        if payload_window_limit_exhausted(limit_remaining) {
+                            break;
+                        }
+                        if !payload_window_accept_row(&mut offset_remaining, &mut limit_remaining) {
+                            continue;
+                        }
+
+                        total = total.saturating_add(saturating_row_len(entry.value().len()));
+                    }
+                }
+                Direction::Desc => {
+                    for entry in store
+                        .range((Bound::Included(start_raw), Bound::Included(end_raw)))
+                        .rev()
+                    {
+                        if payload_window_limit_exhausted(limit_remaining) {
+                            break;
+                        }
+                        if !payload_window_accept_row(&mut offset_remaining, &mut limit_remaining) {
+                            continue;
+                        }
+
+                        total = total.saturating_add(saturating_row_len(entry.value().len()));
+                    }
+                }
+            }
+
+            Ok(total)
         })?
     }
 
@@ -203,6 +298,29 @@ where
         // Phase 1: decode each row payload and enforce key/entity alignment invariants.
         rows.into_iter().map(Self::deserialize_row).collect()
     }
+}
+
+const fn payload_window_limit_exhausted(limit_remaining: Option<usize>) -> bool {
+    matches!(limit_remaining, Some(0))
+}
+
+const fn payload_window_accept_row(
+    offset_remaining: &mut usize,
+    limit_remaining: &mut Option<usize>,
+) -> bool {
+    if *offset_remaining > 0 {
+        *offset_remaining = offset_remaining.saturating_sub(1);
+        return false;
+    }
+
+    if let Some(remaining) = limit_remaining.as_mut() {
+        if *remaining == 0 {
+            return false;
+        }
+        *remaining = remaining.saturating_sub(1);
+    }
+
+    true
 }
 
 impl<E> PrimaryRowReader<E> for Context<'_, E>

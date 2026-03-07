@@ -304,6 +304,14 @@ impl ExecutionRoutePlan {
     }
 
     #[cfg(test)]
+    pub(in crate::db::executor) const fn count_pushdown_existing_rows_shape_supported(
+        &self,
+    ) -> bool {
+        self.capabilities
+            .count_pushdown_existing_rows_shape_supported
+    }
+
+    #[cfg(test)]
     pub(in crate::db::executor) const fn index_range_limit_pushdown_shape_eligible(&self) -> bool {
         self.capabilities.index_range_limit_pushdown_shape_eligible
     }
@@ -581,6 +589,7 @@ pub(in crate::db::executor) struct RouteCapabilities {
     pub(in crate::db::executor) pk_order_fast_path_eligible: bool,
     pub(in crate::db::executor) desc_physical_reverse_supported: bool,
     pub(in crate::db::executor) count_pushdown_access_shape_supported: bool,
+    pub(in crate::db::executor) count_pushdown_existing_rows_shape_supported: bool,
     pub(in crate::db::executor) index_range_limit_pushdown_shape_eligible: bool,
     pub(in crate::db::executor) composite_aggregate_fast_path_eligible: bool,
     pub(in crate::db::executor) bounded_probe_hint_safe: bool,
@@ -599,6 +608,7 @@ pub(in crate::db::executor) const fn route_capability_flag_count_guard() -> usiz
         pk_order_fast_path_eligible: false,
         desc_physical_reverse_supported: false,
         count_pushdown_access_shape_supported: false,
+        count_pushdown_existing_rows_shape_supported: false,
         index_range_limit_pushdown_shape_eligible: false,
         composite_aggregate_fast_path_eligible: false,
         bounded_probe_hint_safe: false,
@@ -608,7 +618,7 @@ pub(in crate::db::executor) const fn route_capability_flag_count_guard() -> usiz
         field_max_fast_path_ineligibility_reason: None,
     };
 
-    9
+    10
 }
 
 #[cfg(test)]

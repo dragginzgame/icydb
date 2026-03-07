@@ -678,7 +678,7 @@ fn route_matrix_aggregate_fold_mode_contract_maps_non_count_to_existing_rows() {
 }
 
 #[test]
-fn route_matrix_aggregate_count_secondary_shape_materializes() {
+fn route_matrix_aggregate_count_secondary_shape_streams_with_existing_rows() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::<Ulid>::IndexPrefix {
             index: ROUTE_MATRIX_INDEX_MODELS[0],
@@ -697,10 +697,60 @@ fn route_matrix_aggregate_count_secondary_shape_materializes() {
         AggregateKind::Count,
     );
 
+    assert_eq!(route_plan.execution_mode, ExecutionMode::Streaming);
+    assert!(matches!(
+        route_plan.aggregate_fold_mode,
+        AggregateFoldMode::ExistingRows
+    ));
+}
+
+#[test]
+fn route_matrix_aggregate_count_secondary_shape_with_strict_predicate_streams() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::<Ulid>::IndexPrefix {
+            index: ROUTE_MATRIX_INDEX_MODELS[0],
+            values: vec![Value::Uint(7)],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.scalar_plan_mut().predicate = Some(Predicate::eq("rank".to_string(), Value::Uint(7)));
+    let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+        &plan,
+        AggregateKind::Count,
+    );
+
+    assert_eq!(route_plan.execution_mode, ExecutionMode::Streaming);
+    assert!(matches!(
+        route_plan.aggregate_fold_mode,
+        AggregateFoldMode::ExistingRows
+    ));
+}
+
+#[test]
+fn route_matrix_aggregate_count_secondary_shape_with_strict_uncertainty_materializes() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::<Ulid>::IndexPrefix {
+            index: ROUTE_MATRIX_INDEX_MODELS[0],
+            values: vec![Value::Uint(7)],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.scalar_plan_mut().predicate = Some(Predicate::And(vec![
+        Predicate::eq("rank".to_string(), Value::Uint(7)),
+        Predicate::TextContains {
+            field: "label".to_string(),
+            value: Value::Text("keep".to_string()),
+        },
+    ]));
+    let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+        &plan,
+        AggregateKind::Count,
+    );
+
     assert_eq!(route_plan.execution_mode, ExecutionMode::Materialized);
     assert!(matches!(
         route_plan.aggregate_fold_mode,
-        AggregateFoldMode::KeysOnly
+        AggregateFoldMode::ExistingRows
     ));
 }
 
@@ -957,10 +1007,10 @@ fn route_matrix_aggregate_count_pushdown_boundary_matrix() {
             &secondary,
             AggregateKind::Count,
         );
-    assert_eq!(secondary_route.execution_mode, ExecutionMode::Materialized);
+    assert_eq!(secondary_route.execution_mode, ExecutionMode::Streaming);
     assert!(matches!(
         secondary_route.aggregate_fold_mode,
-        AggregateFoldMode::KeysOnly
+        AggregateFoldMode::ExistingRows
     ));
 
     let mut index_range = AccessPlannedQuery::new(
@@ -987,14 +1037,11 @@ fn route_matrix_aggregate_count_pushdown_boundary_matrix() {
             &index_range,
             AggregateKind::Count,
         );
-    assert_eq!(
-        index_range_route.execution_mode,
-        ExecutionMode::Materialized
-    );
+    assert_eq!(index_range_route.execution_mode, ExecutionMode::Streaming);
     assert!(index_range_route.index_range_limit_spec.is_none());
     assert!(matches!(
         index_range_route.aggregate_fold_mode,
-        AggregateFoldMode::KeysOnly
+        AggregateFoldMode::ExistingRows
     ));
 }
 

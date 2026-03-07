@@ -11,6 +11,7 @@ use crate::{
         },
         executor::{
             ExecutionPreparation, LoadExecutor,
+            aggregate::AggregateFoldMode,
             continuation::ScalarContinuationContext,
             route::{AggregateSeekSpec, ExecutionMode, ExecutionRoutePlan},
         },
@@ -21,7 +22,7 @@ use crate::{
                 ExplainExecutionMode, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
                 ExplainExecutionOrderingSource, ExplainPredicate,
             },
-            plan::{AccessPlannedQuery, DistinctExecutionStrategy},
+            plan::{AccessPlannedQuery, AggregateKind, DistinctExecutionStrategy},
         },
     },
     error::InternalError,
@@ -218,13 +219,16 @@ where
         None => ExplainExecutionOrderingSource::AccessOrder,
     };
     let execution_mode = explain_execution_mode(route_plan.execution_mode);
-    let node_properties = explain_node_properties_for_route(&route_plan);
+    let covering_projection =
+        aggregate_covering_projection_for_terminal(plan, aggregation, &execution_preparation);
+    let node_properties = explain_node_properties_for_route(&route_plan, aggregation);
 
     // Phase 3: emit one stable descriptor payload consumed by explain surfaces.
     ExplainExecutionDescriptor {
         access_strategy: ExplainAccessRoute::from_access_plan(&plan.access),
-        // Scalar aggregate id/exists/count terminals do not project row fields.
-        covering_projection: false,
+        // Covering flag reflects index-only aggregate fast-path eligibility for
+        // scalar aggregate terminals.
+        covering_projection,
         aggregation,
         execution_mode,
         ordering_source,
@@ -464,7 +468,10 @@ const fn explain_execution_mode(mode: ExecutionMode) -> ExplainExecutionMode {
     }
 }
 
-fn explain_node_properties_for_route(route_plan: &ExecutionRoutePlan) -> BTreeMap<String, Value> {
+fn explain_node_properties_for_route(
+    route_plan: &ExecutionRoutePlan,
+    aggregation: AggregateKind,
+) -> BTreeMap<String, Value> {
     let mut node_properties = BTreeMap::new();
 
     // Keep seek metadata additive and node-local so explain schema can evolve
@@ -472,8 +479,76 @@ fn explain_node_properties_for_route(route_plan: &ExecutionRoutePlan) -> BTreeMa
     if let Some(fetch) = route_plan.aggregate_seek_fetch_hint() {
         node_properties.insert("fetch".to_string(), Value::from(u64_from_usize(fetch)));
     }
+    if matches!(aggregation, AggregateKind::Count) {
+        node_properties.insert(
+            "count_fold_mode".to_string(),
+            Value::from(aggregate_fold_mode_label(route_plan.aggregate_fold_mode)),
+        );
+    }
 
     node_properties
+}
+
+const fn aggregate_fold_mode_label(mode: AggregateFoldMode) -> &'static str {
+    match mode {
+        AggregateFoldMode::ExistingRows => "existing_rows",
+        AggregateFoldMode::KeysOnly => "keys_only",
+    }
+}
+
+// Return whether one scalar aggregate terminal can remain index-only under the
+// current plan and executor preparation contracts.
+fn aggregate_covering_projection_for_terminal<K>(
+    plan: &AccessPlannedQuery<K>,
+    aggregation: AggregateKind,
+    execution_preparation: &ExecutionPreparation,
+) -> bool {
+    match aggregation {
+        AggregateKind::Count => {
+            aggregate_count_covering_projection_eligible(plan, execution_preparation)
+        }
+        AggregateKind::Exists => aggregate_exists_covering_projection_eligible(plan),
+        AggregateKind::Min
+        | AggregateKind::Max
+        | AggregateKind::First
+        | AggregateKind::Last
+        | AggregateKind::Sum => false,
+    }
+}
+
+// Match COUNT index-covering fast-path eligibility used by aggregate terminals
+// so EXPLAIN reports when COUNT can remain index-only.
+fn aggregate_count_covering_projection_eligible<K>(
+    plan: &AccessPlannedQuery<K>,
+    execution_preparation: &ExecutionPreparation,
+) -> bool {
+    if plan.scalar_plan().order.is_some() {
+        return false;
+    }
+
+    let index_shape_supported =
+        plan.access.as_index_prefix_path().is_some() || plan.access.as_index_range_path().is_some();
+    if !index_shape_supported {
+        return false;
+    }
+    if plan.scalar_plan().predicate.is_none() {
+        return true;
+    }
+
+    execution_preparation.strict_mode().is_some()
+}
+
+// Match EXISTS index-covering fast-path eligibility used by aggregate terminals
+// so EXPLAIN reports index-only EXISTS routes consistently.
+fn aggregate_exists_covering_projection_eligible<K>(plan: &AccessPlannedQuery<K>) -> bool {
+    if plan.scalar_plan().order.is_some() {
+        return false;
+    }
+    if plan.scalar_plan().predicate.is_some() {
+        return false;
+    }
+
+    plan.access.as_index_prefix_path().is_some() || plan.access.as_index_range_path().is_some()
 }
 
 const fn u64_from_usize(value: usize) -> u64 {

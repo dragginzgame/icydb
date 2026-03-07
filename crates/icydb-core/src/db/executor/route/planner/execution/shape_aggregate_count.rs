@@ -44,12 +44,35 @@ where
             index_range_limit_spec.is_none(),
             "route invariant: COUNT terminals must not route through index-range limit pushdown",
         );
+        let aggregate_fold_mode = if feasibility_stage
+            .derivation
+            .capabilities
+            .count_pushdown_access_shape_supported
+        {
+            AggregateFoldMode::KeysOnly
+        } else if feasibility_stage
+            .derivation
+            .capabilities
+            .count_pushdown_existing_rows_shape_supported
+        {
+            AggregateFoldMode::ExistingRows
+        } else {
+            AggregateFoldMode::KeysOnly
+        };
+        debug_assert!(
+            !matches!(execution_mode, ExecutionMode::Streaming)
+                || matches!(
+                    aggregate_fold_mode,
+                    AggregateFoldMode::KeysOnly | AggregateFoldMode::ExistingRows
+                ),
+            "route invariant: streaming COUNT execution must select one supported fold mode",
+        );
 
         RouteExecutionStage {
             route_shape_kind: RouteShapeKind::AggregateCount,
             execution_mode_case: ExecutionModeRouteCase::AggregateCount,
             execution_mode,
-            aggregate_fold_mode: AggregateFoldMode::KeysOnly,
+            aggregate_fold_mode,
             index_range_limit_spec,
         }
     }

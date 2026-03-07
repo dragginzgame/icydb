@@ -234,6 +234,12 @@ impl<E: EntityKind> ExecutablePlan<E> {
         self.plan.scalar_plan().predicate.is_some()
     }
 
+    /// Return whether this executable plan enables scalar DISTINCT semantics.
+    #[must_use]
+    pub(in crate::db::executor) const fn is_distinct(&self) -> bool {
+        self.plan.scalar_plan().distinct
+    }
+
     /// Build canonical execution preparation for this executable plan.
     #[must_use]
     pub(in crate::db::executor) fn execution_preparation(&self) -> ExecutionPreparation

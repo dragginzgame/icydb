@@ -190,6 +190,7 @@ where
         direction: Direction,
         aggregate_expr: Option<&AggregateExpr>,
     ) -> RouteCapabilities {
+        let access_class = plan.access_strategy().class();
         let (has_residual_filter, _, requires_post_access_sort) =
             derive_budget_safety_flags::<E, _>(plan);
         let aggregate_execution_policy = derive_aggregate_execution_policy::<E>(
@@ -210,6 +211,8 @@ where
             ),
             count_pushdown_access_shape_supported: aggregate_execution_policy
                 .count_pushdown_access_shape_supported(),
+            count_pushdown_existing_rows_shape_supported:
+                Self::count_pushdown_existing_rows_shape_supported(access_class),
             index_range_limit_pushdown_shape_eligible:
                 Self::is_index_range_limit_pushdown_shape_eligible(plan),
             composite_aggregate_fast_path_eligible: aggregate_execution_policy
@@ -240,16 +243,33 @@ where
         access_strategy.class().reverse_supported()
     }
 
+    // Route-owned gate for COUNT streaming paths that must preserve stale-key
+    // safety through `ExistingRows` fold mode on secondary index traversal.
+    const fn count_pushdown_existing_rows_shape_supported(
+        access_class: crate::db::access::AccessRouteClass,
+    ) -> bool {
+        access_class.single_path() && (access_class.prefix_scan() || access_class.range_scan())
+    }
+
     // Route-owned shape gate for index-range limited pushdown eligibility.
     pub(super) fn is_index_range_limit_pushdown_shape_eligible(
         plan: &AccessPlannedQuery<E::Key>,
     ) -> bool {
+        let order = plan.scalar_plan().order.as_ref();
+        if order.is_some() {
+            let logical_pushdown_eligibility = plan
+                .planner_route_profile(E::MODEL)
+                .logical_pushdown_eligibility();
+            if !logical_pushdown_eligibility.secondary_order_allowed()
+                || logical_pushdown_eligibility.requires_full_materialization()
+            {
+                return false;
+            }
+        }
+
         let access_class = plan.access_strategy().class();
         access_class.index_range_limit_pushdown_shape_eligible_for_order(
-            plan.scalar_plan()
-                .order
-                .as_ref()
-                .map(|order| order.fields.as_slice()),
+            order.map(|order| order.fields.as_slice()),
             E::MODEL.primary_key.name,
         )
     }

@@ -178,6 +178,42 @@ fn route_matrix_load_index_range_residual_predicate_large_window_disables_pushdo
 }
 
 #[test]
+fn route_matrix_load_index_range_incompatible_order_disables_limit_pushdown() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::<Ulid>::index_range(
+            ROUTE_MATRIX_INDEX_MODELS[0],
+            vec![],
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(20)),
+        ),
+        MissingRowPolicy::Ignore,
+    );
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("label".to_string(), OrderDirection::Asc)],
+    });
+    plan.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(2),
+        offset: 0,
+    });
+
+    let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
+        &plan,
+        &initial_scalar_continuation_context(),
+        None,
+    )
+    .expect("load route plan should build");
+
+    assert!(
+        !route_plan.index_range_limit_pushdown_shape_eligible(),
+        "index-range LIMIT pushdown shape must be rejected when ORDER BY is not planner-compatible",
+    );
+    assert!(
+        route_plan.index_range_limit_spec.is_none(),
+        "incompatible ordered index-range shapes must not derive index-range limit pushdown specs",
+    );
+}
+
+#[test]
 fn route_matrix_load_non_pk_order_disables_scan_budget_hint() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {

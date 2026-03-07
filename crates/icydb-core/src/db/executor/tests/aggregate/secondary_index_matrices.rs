@@ -589,6 +589,186 @@ fn aggregate_exists_secondary_index_covering_fast_path_emits_hit_marker_only_for
 }
 
 #[test]
+fn aggregate_count_secondary_index_covering_fast_path_emits_hit_marker_only_for_eligible_shapes() {
+    seed_stale_secondary_rows(&SECONDARY_STALE_ID_ROWS, &[8851]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let _ = LoadExecutor::<PushdownParityEntity>::take_covering_count_fast_path_hits_for_tests();
+    let _eligible_count = load
+        .aggregate_count(
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .filter(u32_eq_predicate_strict("group", 7))
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("eligible covering COUNT plan should build"),
+        )
+        .expect("eligible covering COUNT should succeed");
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_covering_count_fast_path_hits_for_tests(),
+        1,
+        "eligible covering COUNT must emit one covering fast-path hit marker",
+    );
+
+    let _ = LoadExecutor::<PushdownParityEntity>::take_covering_count_fast_path_hits_for_tests();
+    let _forced_count = load
+        .aggregate_count(
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .filter(u32_eq_predicate_strict("group", 7))
+                .order_by("rank")
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("forced materialized COUNT plan should build"),
+        )
+        .expect("forced materialized COUNT should succeed");
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_covering_count_fast_path_hits_for_tests(),
+        0,
+        "ordered COUNT shape should bypass the covering fast-path branch",
+    );
+}
+
+#[test]
+#[expect(clippy::too_many_lines)]
+fn aggregate_terminal_execution_descriptor_reports_covering_scan_for_index_covering_shapes() {
+    let covering_exists_descriptor = secondary_group_prefix_exists_plan(MissingRowPolicy::Ignore)
+        .explain_aggregate_terminal_execution_descriptor(
+            crate::db::query::builder::aggregate::exists(),
+        );
+    assert!(
+        covering_exists_descriptor.covering_projection(),
+        "index-prefix EXISTS descriptor should report covering projection for eligible index-only shapes",
+    );
+    assert!(
+        !covering_exists_descriptor
+            .node_properties()
+            .contains_key("count_fold_mode"),
+        "non-COUNT descriptors must not emit count fold metadata",
+    );
+
+    let ordered_exists_descriptor = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(u32_eq_predicate("group", 7))
+        .order_by("rank")
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("ordered EXISTS descriptor test plan should build")
+        .explain_aggregate_terminal_execution_descriptor(
+            crate::db::query::builder::aggregate::exists(),
+        );
+    assert!(
+        !ordered_exists_descriptor.covering_projection(),
+        "ordered EXISTS descriptor should report non-covering projection when fast path is ineligible",
+    );
+    assert!(
+        !ordered_exists_descriptor
+            .node_properties()
+            .contains_key("count_fold_mode"),
+        "non-COUNT descriptors must not emit count fold metadata",
+    );
+
+    let pk_count_descriptor = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("pk COUNT descriptor test plan should build")
+        .explain_aggregate_terminal_execution_descriptor(
+            crate::db::query::builder::aggregate::count(),
+        );
+    assert_eq!(
+        pk_count_descriptor.node_properties().get("count_fold_mode"),
+        Some(&Value::from("keys_only")),
+        "PK COUNT descriptor should expose keys-only fold mode metadata",
+    );
+
+    let covering_count_descriptor = secondary_group_prefix_exists_plan(MissingRowPolicy::Ignore)
+        .explain_aggregate_terminal_execution_descriptor(
+            crate::db::query::builder::aggregate::count(),
+        );
+    assert!(
+        covering_count_descriptor.covering_projection(),
+        "index-prefix COUNT descriptor should report covering projection for eligible index-only shapes",
+    );
+    assert_eq!(
+        covering_count_descriptor
+            .node_properties()
+            .get("count_fold_mode"),
+        Some(&Value::from("existing_rows")),
+        "secondary COUNT descriptor should expose existing-rows fold mode metadata",
+    );
+
+    let ordered_count_descriptor = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(u32_eq_predicate("group", 7))
+        .order_by("rank")
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("ordered COUNT descriptor test plan should build")
+        .explain_aggregate_terminal_execution_descriptor(
+            crate::db::query::builder::aggregate::count(),
+        );
+    assert!(
+        !ordered_count_descriptor.covering_projection(),
+        "ordered COUNT descriptor should report non-covering projection when fast path is ineligible",
+    );
+    let ordered_count_fold_mode = ordered_count_descriptor
+        .node_properties()
+        .get("count_fold_mode");
+    if let Some(Value::Text(mode)) = ordered_count_fold_mode {
+        assert!(
+            mode == "keys_only" || mode == "existing_rows",
+            "ordered COUNT descriptor should expose one supported fold mode label",
+        );
+    } else {
+        panic!("ordered COUNT descriptor should expose count fold mode metadata");
+    }
+
+    let strict_compatible_count_descriptor =
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .filter(u32_eq_predicate_strict("group", 7))
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("strict-compatible COUNT descriptor test plan should build")
+            .explain_aggregate_terminal_execution_descriptor(
+                crate::db::query::builder::aggregate::count(),
+            );
+    assert!(
+        strict_compatible_count_descriptor.covering_projection(),
+        "strict-compatible secondary COUNT descriptor should report covering projection",
+    );
+    assert_eq!(
+        strict_compatible_count_descriptor
+            .node_properties()
+            .get("count_fold_mode"),
+        Some(&Value::from("existing_rows")),
+        "strict-compatible secondary COUNT descriptor should expose existing-rows fold mode metadata",
+    );
+
+    let strict_uncertain_count_descriptor =
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .filter(Predicate::And(vec![
+                u32_eq_predicate_strict("group", 7),
+                Predicate::TextContains {
+                    field: "label".to_string(),
+                    value: Value::Text("keep".to_string()),
+                },
+            ]))
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("strict-uncertain COUNT descriptor test plan should build")
+            .explain_aggregate_terminal_execution_descriptor(
+                crate::db::query::builder::aggregate::count(),
+            );
+    assert!(
+        !strict_uncertain_count_descriptor.covering_projection(),
+        "strict-uncertain secondary COUNT descriptor should report non-covering projection",
+    );
+    assert_eq!(
+        strict_uncertain_count_descriptor
+            .node_properties()
+            .get("count_fold_mode"),
+        Some(&Value::from("existing_rows")),
+        "strict-uncertain secondary COUNT descriptor should preserve existing-rows fold mode metadata",
+    );
+}
+
+#[test]
 fn aggregate_count_secondary_index_strict_missing_surfaces_corruption_error() {
     seed_pushdown_entities(&[(8_821, 7, 10), (8_822, 7, 20), (8_823, 7, 30)]);
     remove_pushdown_row_data(8_821);

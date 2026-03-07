@@ -5,7 +5,9 @@
 
 use crate::{
     db::{
+        access::{ExecutionPathKind, ExecutionPathPayload},
         data::DataKey,
+        direction::Direction,
         executor::{
             ExecutablePlan,
             aggregate::field::{
@@ -16,7 +18,7 @@ use crate::{
             load::LoadExecutor,
             saturating_row_len,
         },
-        query::plan::FieldSlot as PlannedFieldSlot,
+        query::plan::{FieldSlot as PlannedFieldSlot, OrderDirection, PageSpec},
         response::EntityResponse,
     },
     error::InternalError,
@@ -25,7 +27,14 @@ use crate::{
     types::Id,
     value::Value,
 };
+#[cfg(test)]
+use std::cell::Cell;
 use std::cmp::Ordering;
+
+#[cfg(test)]
+thread_local! {
+    static BYTES_PK_FAST_PATH_HITS: Cell<u64> = const { Cell::new(0) };
+}
 
 // Field ranking direction for k-selection terminals.
 #[derive(Clone, Copy)]
@@ -51,6 +60,11 @@ where
 {
     /// Execute one `bytes()` terminal over the canonical load response.
     pub(in crate::db) fn bytes(&self, plan: ExecutablePlan<E>) -> Result<u64, InternalError> {
+        if let Some(direction) = Self::bytes_pk_window_fast_path_direction(&plan) {
+            Self::record_bytes_pk_fast_path_hit_for_tests();
+            return self.bytes_from_pk_store_window(plan, direction);
+        }
+
         let response = self.execute(plan)?;
         let ctx = self.recovered_context()?;
         let mut total = 0u64;
@@ -438,12 +452,145 @@ where
 
         Ok(projected_values)
     }
+
+    // Return the safe PK-shape traversal direction for `bytes()` fast-path
+    // execution when no residual semantics require materialized execution.
+    fn bytes_pk_window_fast_path_direction(plan: &ExecutablePlan<E>) -> Option<Direction> {
+        if plan.has_predicate() || plan.is_distinct() {
+            return None;
+        }
+
+        let direction = match plan.order_spec() {
+            None => Direction::Asc,
+            Some(order) => {
+                if order.fields.len() != 1 {
+                    return None;
+                }
+                let (field, order_direction) = &order.fields[0];
+                if field != E::MODEL.primary_key.name {
+                    return None;
+                }
+
+                match order_direction {
+                    OrderDirection::Asc => Direction::Asc,
+                    OrderDirection::Desc => Direction::Desc,
+                }
+            }
+        };
+
+        let access_strategy = plan.access().resolve_strategy();
+        let path = access_strategy.as_path()?;
+        if !matches!(
+            path.kind(),
+            ExecutionPathKind::FullScan | ExecutionPathKind::KeyRange
+        ) {
+            return None;
+        }
+
+        Some(direction)
+    }
+
+    // Fold `bytes()` directly from persisted primary rows over the canonical
+    // page window for safe PK full-scan/key-range shapes.
+    fn bytes_from_pk_store_window(
+        &self,
+        plan: ExecutablePlan<E>,
+        direction: Direction,
+    ) -> Result<u64, InternalError> {
+        // Phase 1: snapshot paging + executable payload before store traversal.
+        let page = plan.page_spec().cloned();
+        let access_strategy = plan.access().resolve_strategy();
+        let Some(path) = access_strategy.as_path() else {
+            return Err(invariant(
+                "bytes PK fast path requires single-path access strategy",
+            ));
+        };
+        let (offset, limit) = bytes_page_window_state(page.as_ref());
+        let ctx = self.recovered_context()?;
+
+        // Phase 2: fold payload bytes through context traversal adapters.
+        match path.payload() {
+            ExecutionPathPayload::FullScan => {
+                ctx.sum_row_payload_bytes_full_scan_window(direction, offset, limit)
+            }
+            ExecutionPathPayload::KeyRange { start, end } => {
+                let start_key = DataKey::try_new::<E>(**start)?;
+                let end_key = DataKey::try_new::<E>(**end)?;
+                ctx.sum_row_payload_bytes_key_range_window(
+                    &start_key, &end_key, direction, offset, limit,
+                )
+            }
+            _ => Err(invariant(
+                "bytes PK fast path requires full-scan or key-range access",
+            )),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn take_bytes_pk_fast_path_hits_for_tests() -> u64 {
+        BYTES_PK_FAST_PATH_HITS.with(|counter| {
+            let hits = counter.get();
+            counter.set(0);
+            hits
+        })
+    }
+
+    #[cfg(test)]
+    fn record_bytes_pk_fast_path_hit_for_tests() {
+        BYTES_PK_FAST_PATH_HITS.with(|counter| {
+            counter.set(counter.get().saturating_add(1));
+        });
+    }
+
+    #[cfg(not(test))]
+    const fn record_bytes_pk_fast_path_hit_for_tests() {}
 }
 
 // Centralize payload-byte saturation so terminal behavior stays explicit and
 // testable without requiring oversized persisted rows.
 const fn saturating_add_payload_len(total: u64, row_len: usize) -> u64 {
     total.saturating_add(saturating_row_len(row_len))
+}
+
+fn bytes_page_window_state(page: Option<&PageSpec>) -> (usize, Option<usize>) {
+    let Some(page) = page else {
+        return (0, None);
+    };
+    let offset = usize::try_from(page.offset).unwrap_or(usize::MAX);
+    let limit = page
+        .limit
+        .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
+
+    (offset, limit)
+}
+
+#[cfg(test)]
+const fn bytes_window_limit_exhausted(limit_remaining: Option<usize>) -> bool {
+    matches!(limit_remaining, Some(0))
+}
+
+#[cfg(test)]
+const fn bytes_window_accept_row(
+    offset_remaining: &mut usize,
+    limit_remaining: &mut Option<usize>,
+) -> bool {
+    if *offset_remaining > 0 {
+        *offset_remaining = offset_remaining.saturating_sub(1);
+        return false;
+    }
+
+    if let Some(remaining) = limit_remaining.as_mut() {
+        if *remaining == 0 {
+            return false;
+        }
+        *remaining = remaining.saturating_sub(1);
+    }
+
+    true
+}
+
+fn invariant(message: impl Into<String>) -> InternalError {
+    InternalError::query_executor_invariant(message)
 }
 
 // Serialize one value using the canonical runtime codec and return payload len.
@@ -471,6 +618,34 @@ mod tests {
     fn payload_len_sum_accumulates_without_overflow() {
         let total = saturating_add_payload_len(11, 5);
         assert_eq!(total, 16);
+    }
+
+    #[test]
+    fn bytes_window_accept_row_respects_offset_and_limit() {
+        let mut offset_remaining = 2usize;
+        let mut limit_remaining = Some(2usize);
+
+        assert!(!bytes_window_accept_row(
+            &mut offset_remaining,
+            &mut limit_remaining
+        ));
+        assert!(!bytes_window_accept_row(
+            &mut offset_remaining,
+            &mut limit_remaining
+        ));
+        assert!(bytes_window_accept_row(
+            &mut offset_remaining,
+            &mut limit_remaining
+        ));
+        assert!(bytes_window_accept_row(
+            &mut offset_remaining,
+            &mut limit_remaining
+        ));
+        assert!(!bytes_window_accept_row(
+            &mut offset_remaining,
+            &mut limit_remaining
+        ));
+        assert!(bytes_window_limit_exhausted(limit_remaining));
     }
 
     #[test]

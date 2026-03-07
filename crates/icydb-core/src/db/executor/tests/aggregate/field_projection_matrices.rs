@@ -724,6 +724,89 @@ fn aggregate_field_target_covering_constant_projection_terminals_match_effective
 }
 
 #[test]
+fn aggregate_field_target_covering_constant_projection_emits_hit_marker_only_for_eligible_shapes() {
+    seed_pushdown_entities(&[
+        (8_4011, 7, 10),
+        (8_4012, 7, 20),
+        (8_4013, 7, 30),
+        (8_4014, 7, 40),
+        (8_4015, 8, 50),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let constant_eligible_plan = || {
+        let mut logical_plan = AccessPlannedQuery::new(
+            AccessPath::IndexPrefix {
+                index: PUSHDOWN_PARITY_INDEX_MODELS[0],
+                values: vec![Value::Uint(7)],
+            },
+            MissingRowPolicy::Ignore,
+        );
+        logical_plan.scalar_plan_mut().predicate = Some(Predicate::TextContainsCi {
+            field: "label".to_string(),
+            value: Value::Text("g7".to_string()),
+        });
+        logical_plan.scalar_plan_mut().order = Some(OrderSpec {
+            fields: vec![
+                ("rank".to_string(), OrderDirection::Desc),
+                ("id".to_string(), OrderDirection::Asc),
+            ],
+        });
+        logical_plan.scalar_plan_mut().page = Some(PageSpec {
+            limit: Some(2),
+            offset: 1,
+        });
+
+        crate::db::executor::ExecutablePlan::new(logical_plan)
+    };
+    let ineligible_plan = || {
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .filter(id_in_predicate(&[8_4011]))
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("constant covering-projection ineligible by-id plan should build")
+    };
+
+    let _ =
+        LoadExecutor::<PushdownParityEntity>::take_covering_index_projection_fast_path_hits_for_tests();
+    let _ = LoadExecutor::<PushdownParityEntity>::take_covering_constant_projection_fast_path_hits_for_tests();
+    let values = load
+        .values_by_slot(constant_eligible_plan(), slot(&load, "group"))
+        .expect("values_by(group) should succeed for constant covering projection");
+    assert_eq!(
+        values,
+        vec![Value::Uint(7), Value::Uint(7)],
+        "constant covering projection should preserve effective-window output values",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_covering_constant_projection_fast_path_hits_for_tests(),
+        1,
+        "eligible constant covering projection should emit exactly one constant fast-path hit marker",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_covering_index_projection_fast_path_hits_for_tests(),
+        0,
+        "constant covering projection marker should remain isolated from index-projection markers",
+    );
+
+    let _ =
+        LoadExecutor::<PushdownParityEntity>::take_covering_index_projection_fast_path_hits_for_tests();
+    let _ = LoadExecutor::<PushdownParityEntity>::take_covering_constant_projection_fast_path_hits_for_tests();
+    let _ = load
+        .values_by_slot(ineligible_plan(), slot(&load, "group"))
+        .expect("values_by(group) should succeed for ineligible covering shape");
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_covering_constant_projection_fast_path_hits_for_tests(),
+        0,
+        "ineligible covering shapes must not emit constant covering-projection hit markers",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_covering_index_projection_fast_path_hits_for_tests(),
+        0,
+        "ineligible covering shapes must not emit index covering-projection hit markers",
+    );
+}
+
+#[test]
 fn aggregate_field_target_covering_constant_projection_strict_missing_row_preserves_error_surface()
 {
     init_commit_store_for_tests().expect("commit store init should succeed");
@@ -856,6 +939,80 @@ fn aggregate_field_target_covering_index_projection_terminals_match_effective_wi
     assert_eq!(
         last_value, expected_last,
         "last_value_by(rank) should match effective-window last projection under covering index paths",
+    );
+}
+
+#[test]
+fn aggregate_field_target_covering_index_projection_emits_hit_marker_only_for_eligible_shapes() {
+    seed_pushdown_entities(&[
+        (8_4031, 7, 10),
+        (8_4032, 7, 20),
+        (8_4033, 7, 20),
+        (8_4034, 7, 30),
+        (8_4035, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let index_eligible_plan = || {
+        let mut logical_plan = AccessPlannedQuery::new(
+            AccessPath::IndexPrefix {
+                index: PUSHDOWN_PARITY_INDEX_MODELS[0],
+                values: vec![Value::Uint(7)],
+            },
+            MissingRowPolicy::Ignore,
+        );
+        logical_plan.scalar_plan_mut().order = Some(OrderSpec {
+            fields: vec![
+                ("rank".to_string(), OrderDirection::Asc),
+                ("id".to_string(), OrderDirection::Asc),
+            ],
+        });
+        logical_plan.scalar_plan_mut().page = Some(PageSpec {
+            limit: Some(2),
+            offset: 1,
+        });
+
+        crate::db::executor::ExecutablePlan::new(logical_plan)
+    };
+    let ineligible_plan = || {
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .filter(id_in_predicate(&[8_4031]))
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("index covering-projection ineligible by-id plan should build")
+    };
+
+    let _ =
+        LoadExecutor::<PushdownParityEntity>::take_covering_index_projection_fast_path_hits_for_tests();
+    let _ = LoadExecutor::<PushdownParityEntity>::take_covering_constant_projection_fast_path_hits_for_tests();
+    let _ = load
+        .values_by_slot(index_eligible_plan(), slot(&load, "rank"))
+        .expect("values_by(rank) should succeed for index covering projection");
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_covering_index_projection_fast_path_hits_for_tests(),
+        1,
+        "eligible index covering projection should emit exactly one index fast-path hit marker",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_covering_constant_projection_fast_path_hits_for_tests(),
+        0,
+        "index covering projection marker should not emit constant-projection hits",
+    );
+
+    let _ =
+        LoadExecutor::<PushdownParityEntity>::take_covering_index_projection_fast_path_hits_for_tests();
+    let _ = LoadExecutor::<PushdownParityEntity>::take_covering_constant_projection_fast_path_hits_for_tests();
+    let _ = load
+        .values_by_slot(ineligible_plan(), slot(&load, "rank"))
+        .expect("values_by(rank) should succeed for ineligible covering shape");
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_covering_index_projection_fast_path_hits_for_tests(),
+        0,
+        "ineligible covering shapes must not emit index covering-projection hit markers",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_covering_constant_projection_fast_path_hits_for_tests(),
+        0,
+        "ineligible covering shapes must not emit constant covering-projection hit markers",
     );
 }
 

@@ -5,10 +5,10 @@
 
 use crate::{
     db::{
-        access::ExecutionPathKind,
+        access::{ExecutionPathKind, ExecutionPathPayload},
         direction::Direction,
         executor::{
-            AccessExecutionDescriptor, AccessScanContinuationInput, AccessStreamBindings,
+            AccessExecutionDescriptor, AccessScanContinuationInput, AccessStreamBindings, Context,
             ExecutablePlan, ExecutionKernel, ExecutionPreparation,
             aggregate::{
                 AggregateFoldMode, AggregateKind, AggregateOutput,
@@ -20,17 +20,22 @@ use crate::{
         },
         index::predicate::IndexPredicateExecution,
         query::builder::aggregate::{count, exists, first, last, max, max_by, min, min_by},
-        query::plan::FieldSlot as PlannedFieldSlot,
+        query::plan::{FieldSlot as PlannedFieldSlot, PageSpec},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
     types::Id,
 };
 #[cfg(test)]
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::cell::Cell;
+use std::ops::Bound;
 
 #[cfg(test)]
-static COVERING_EXISTS_FAST_PATH_HITS: AtomicU64 = AtomicU64::new(0);
+thread_local! {
+    static COVERING_EXISTS_FAST_PATH_HITS: Cell<u64> = const { Cell::new(0) };
+    static COVERING_COUNT_FAST_PATH_HITS: Cell<u64> = const { Cell::new(0) };
+    static PK_CARDINALITY_COUNT_FAST_PATH_HITS: Cell<u64> = const { Cell::new(0) };
+}
 
 impl<E> LoadExecutor<E>
 where
@@ -41,11 +46,17 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<u32, InternalError> {
+        if Self::pk_cardinality_count_eligible(&plan) {
+            Self::record_pk_cardinality_count_fast_path_hit_for_tests();
+            return self.aggregate_count_from_pk_cardinality(plan);
+        }
+
         if Self::primary_key_count_eligible(&plan) {
             return self.aggregate_count_from_existing_row_stream(plan);
         }
 
         if Self::index_covering_count_eligible(&plan) {
+            Self::record_covering_count_fast_path_hit_for_tests();
             return self.aggregate_count_from_existing_row_stream(plan);
         }
 
@@ -187,6 +198,76 @@ where
             AggregateOutput::Last(value) => Ok(value),
             _ => Err(invariant("aggregate LAST result kind mismatch")),
         }
+    }
+
+    // Full-scan and key-range primary-key shapes can compute COUNT from
+    // primary-store cardinality without row materialization or key decoding.
+    fn pk_cardinality_count_eligible(plan: &ExecutablePlan<E>) -> bool {
+        if plan.is_distinct() {
+            return false;
+        }
+        if plan.has_predicate() {
+            return false;
+        }
+
+        let access_strategy = plan.access().resolve_strategy();
+        let Some(path) = access_strategy.as_path() else {
+            return false;
+        };
+
+        matches!(
+            path.kind(),
+            ExecutionPathKind::FullScan | ExecutionPathKind::KeyRange
+        )
+    }
+
+    // Resolve COUNT for PK full-scan/key-range shapes from store cardinality
+    // while preserving canonical page-window and scan-accounting semantics.
+    fn aggregate_count_from_pk_cardinality(
+        &self,
+        plan: ExecutablePlan<E>,
+    ) -> Result<u32, InternalError> {
+        // Phase 1: snapshot pagination + access payload before resolving store cardinality.
+        let page = plan.page_spec().cloned();
+        let access_strategy = plan.access().resolve_strategy();
+        let Some(path) = access_strategy.as_path() else {
+            return Err(invariant(
+                "pk cardinality COUNT fast path requires single-path access strategy",
+            ));
+        };
+
+        // Phase 2: read candidate-row cardinality directly from primary storage.
+        let available_rows = match path.payload() {
+            ExecutionPathPayload::FullScan => self.recovered_context()?.with_store(
+                |store| -> Result<usize, InternalError> {
+                    let store_len = store.len();
+
+                    Ok(usize::try_from(store_len).unwrap_or(usize::MAX))
+                },
+            )??,
+            ExecutionPathPayload::KeyRange { start, end } => self
+                .recovered_context()?
+                .with_store(|store| -> Result<usize, InternalError> {
+                    let start_raw = Context::<E>::data_key_from_key(**start)?.to_raw()?;
+                    let end_raw = Context::<E>::data_key_from_key(**end)?.to_raw()?;
+                    let count = store
+                        .range((Bound::Included(start_raw), Bound::Included(end_raw)))
+                        .count();
+
+                    Ok(count)
+                })??,
+            _ => {
+                return Err(invariant(
+                    "pk cardinality COUNT fast path requires full-scan or key-range access",
+                ));
+            }
+        };
+
+        // Phase 3: apply canonical COUNT window semantics and emit scan metrics.
+        let (count, rows_scanned) = count_window_result_from_page(page.as_ref(), available_rows);
+        record_rows_scanned::<E>(rows_scanned);
+
+        Ok(count)
     }
 
     // Primary-key point lookups can count without row materialization by
@@ -347,16 +428,88 @@ where
 
     #[cfg(test)]
     pub(crate) fn take_covering_exists_fast_path_hits_for_tests() -> u64 {
-        COVERING_EXISTS_FAST_PATH_HITS.swap(0, Ordering::Relaxed)
+        COVERING_EXISTS_FAST_PATH_HITS.with(|counter| {
+            let hits = counter.get();
+            counter.set(0);
+            hits
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn take_covering_count_fast_path_hits_for_tests() -> u64 {
+        COVERING_COUNT_FAST_PATH_HITS.with(|counter| {
+            let hits = counter.get();
+            counter.set(0);
+            hits
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn take_pk_cardinality_count_fast_path_hits_for_tests() -> u64 {
+        PK_CARDINALITY_COUNT_FAST_PATH_HITS.with(|counter| {
+            let hits = counter.get();
+            counter.set(0);
+            hits
+        })
     }
 
     #[cfg(test)]
     fn record_covering_exists_fast_path_hit_for_tests() {
-        COVERING_EXISTS_FAST_PATH_HITS.fetch_add(1, Ordering::Relaxed);
+        COVERING_EXISTS_FAST_PATH_HITS.with(|counter| {
+            counter.set(counter.get().saturating_add(1));
+        });
+    }
+
+    #[cfg(test)]
+    fn record_covering_count_fast_path_hit_for_tests() {
+        COVERING_COUNT_FAST_PATH_HITS.with(|counter| {
+            counter.set(counter.get().saturating_add(1));
+        });
+    }
+
+    #[cfg(test)]
+    fn record_pk_cardinality_count_fast_path_hit_for_tests() {
+        PK_CARDINALITY_COUNT_FAST_PATH_HITS.with(|counter| {
+            counter.set(counter.get().saturating_add(1));
+        });
     }
 
     #[cfg(not(test))]
     const fn record_covering_exists_fast_path_hit_for_tests() {}
+
+    #[cfg(not(test))]
+    const fn record_covering_count_fast_path_hit_for_tests() {}
+
+    #[cfg(not(test))]
+    const fn record_pk_cardinality_count_fast_path_hit_for_tests() {}
+}
+
+// Map one candidate cardinality and optional page contract to canonical COUNT
+// result and scan accounting (`rows_scanned`) semantics.
+fn count_window_result_from_page(page: Option<&PageSpec>, available_rows: usize) -> (u32, usize) {
+    let Some(page) = page else {
+        return (usize_to_u32_saturating(available_rows), available_rows);
+    };
+    let offset = usize::try_from(page.offset).unwrap_or(usize::MAX);
+
+    match page.limit {
+        Some(0) => (0, 0),
+        Some(limit) => {
+            let limit = usize::try_from(limit).unwrap_or(usize::MAX);
+            let rows_scanned = available_rows.min(offset.saturating_add(limit));
+            let count = available_rows.saturating_sub(offset).min(limit);
+
+            (usize_to_u32_saturating(count), rows_scanned)
+        }
+        None => {
+            let count = available_rows.saturating_sub(offset);
+            (usize_to_u32_saturating(count), available_rows)
+        }
+    }
+}
+
+fn usize_to_u32_saturating(value: usize) -> u32 {
+    u32::try_from(value).unwrap_or(u32::MAX)
 }
 
 fn invariant(message: impl Into<String>) -> InternalError {

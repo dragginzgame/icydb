@@ -314,7 +314,10 @@ where
         let resolved = match fast_path_decision {
             FastPathDecision::Hit(fast) => ResolvedExecutionKeyStream::new(
                 fast.ordered_key_stream,
-                Some(fast.optimization),
+                Some(Self::decorate_fast_path_optimization_for_route(
+                    fast.optimization,
+                    route_plan,
+                )),
                 Some(fast.rows_scanned),
                 index_predicate_applied,
                 index_predicate_rejected_counter.get(),
@@ -448,6 +451,27 @@ where
         set_rows_from_len(span, page.items.len());
 
         page
+    }
+
+    // Project one fast-path optimization label through route-level top-N seek
+    // metadata so trace taxonomy keeps top-N assisted fast paths explicit.
+    const fn decorate_fast_path_optimization_for_route(
+        optimization: ExecutionOptimization,
+        route_plan: &ExecutionPlan,
+    ) -> ExecutionOptimization {
+        if route_plan.top_n_seek_spec().is_none() {
+            return optimization;
+        }
+
+        match optimization {
+            ExecutionOptimization::PrimaryKey => ExecutionOptimization::PrimaryKeyTopNSeek,
+            ExecutionOptimization::SecondaryOrderPushdown => {
+                ExecutionOptimization::SecondaryOrderTopNSeek
+            }
+            ExecutionOptimization::PrimaryKeyTopNSeek
+            | ExecutionOptimization::SecondaryOrderTopNSeek
+            | ExecutionOptimization::IndexRangeLimitPushdown => optimization,
+        }
     }
 }
 

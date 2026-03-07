@@ -891,3 +891,92 @@ fn load_intersection_child_order_permutation_matrix_preserves_rows_and_boundarie
         );
     }
 }
+
+#[test]
+fn load_secondary_order_top_n_seek_trace_optimization_is_explicit() {
+    setup_pagination_test();
+
+    let rows = [
+        (42_201, 40, "code-40"),
+        (42_202, 10, "code-10"),
+        (42_203, 30, "code-30"),
+        (42_204, 20, "code-20"),
+        (42_205, 50, "code-50"),
+    ];
+    seed_unique_index_range_rows(&rows);
+
+    let mut logical_plan = AccessPlannedQuery::new(
+        AccessPath::<Ulid>::IndexPrefix {
+            index: UNIQUE_INDEX_RANGE_INDEX_MODELS[0],
+            values: vec![Value::Uint(20)],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    logical_plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("code".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    logical_plan.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(2),
+        offset: 0,
+    });
+
+    let load = LoadExecutor::<UniqueIndexRangeEntity>::new(DB, true);
+    let plan = ExecutablePlan::<UniqueIndexRangeEntity>::new(logical_plan);
+
+    let (_page, trace) = load
+        .execute_paged_with_cursor_traced(plan, None)
+        .expect("unique secondary top-n trace execution should succeed");
+    let trace = trace.expect("debug trace should be present");
+    assert_eq!(
+        trace.optimization(),
+        Some(ExecutionOptimization::SecondaryOrderTopNSeek),
+        "secondary ordered limit windows should report explicit top-n-assisted secondary optimization",
+    );
+}
+
+#[test]
+fn load_secondary_order_trace_reports_non_top_n_variant_without_page_limit() {
+    setup_pagination_test();
+
+    let rows = [
+        (42_301, 10, "code-10"),
+        (42_302, 20, "code-20"),
+        (42_303, 30, "code-30"),
+    ];
+    seed_unique_index_range_rows(&rows);
+
+    let mut logical_plan = AccessPlannedQuery::new(
+        AccessPath::<Ulid>::IndexPrefix {
+            index: UNIQUE_INDEX_RANGE_INDEX_MODELS[0],
+            values: vec![Value::Uint(20)],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    logical_plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("code".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+
+    let load = LoadExecutor::<UniqueIndexRangeEntity>::new(DB, true);
+    let plan = ExecutablePlan::<UniqueIndexRangeEntity>::new(logical_plan);
+
+    let (page, trace) = load
+        .execute_paged_with_cursor_traced(plan, None)
+        .expect("unique secondary non-top-n trace execution should succeed");
+    let trace = trace.expect("debug trace should be present");
+    assert_eq!(
+        trace.optimization(),
+        Some(ExecutionOptimization::SecondaryOrderPushdown),
+        "unpaged secondary ordered shapes should report non-top-n secondary optimization labels",
+    );
+    assert_eq!(
+        page.items.len(),
+        1,
+        "unpaged secondary ordered execution should return the prefix-matching seeded row",
+    );
+}

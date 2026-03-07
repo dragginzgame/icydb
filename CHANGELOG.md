@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.44.x] - 2026-03-07 - Optimization Closure
+
+- `0.44.0` starts the optimization-closure line by adding safe primary-key `count()` and `bytes()` fast paths for full scans and key ranges (with deterministic thread-local fast-path diagnostics in tests), aligning secondary COUNT routing with stale-key-safe streaming fold behavior, exposing COUNT fold-mode metadata in aggregate EXPLAIN descriptors, closing ordered index-range `LIMIT` pushdown guard coverage (including incompatible-order, residual-retry, and cursor-boundary cases), adding explicit covering-projection fast-path diagnostics for index/constant projection paths, making load trace optimization taxonomy explicit for base and top-N variants, explicitly deferring grouped bounded fast-path expansion to avoid half-finished grouped optimization surfaces, and moving the workspace toolchain/MSRV to Rust `1.94.0`.
+
+See detailed breakdown:
+[docs/changelog/0.44.md](docs/changelog/0.44.md)
+
+---
+
 ## [0.43.x] - 2026-03-07 - BYTES and Audits
 
 - `0.43.0` adds scalar load-query `bytes()` so you can measure total persisted payload size for the same filtered/ordered/limited window returned by `execute()`, and starts a dated crosscutting audit cycle for this line.
@@ -2241,7 +2250,7 @@ The focus is **correctness, determinism, and architectural hardening**, not new 
 * Improved index store error typing and auditing by preserving error class/origin for index resolution failures.
 * Documented unique index NULL/Unsupported semantics: non-indexable values skip indexing and do not participate in uniqueness.
 * Removed legacy integration docs and consolidated guidance into README and contract-level documents.
-* Updated minimum supported Rust version to **1.93.1** (edition 2024).
+* Updated minimum supported Rust version to **1.94.0** (edition 2024).
 
 ---
 

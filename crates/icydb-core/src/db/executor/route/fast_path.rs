@@ -6,7 +6,6 @@
 use crate::{
     db::{
         executor::{ExecutionPreparation, aggregate::AggregateKind, load::LoadExecutor},
-        index::{IndexCompilePolicy, compile_index_program},
         query::plan::AccessPlannedQuery,
     },
     error::InternalError,
@@ -104,30 +103,21 @@ where
         capabilities: RouteCapabilities,
     ) -> bool {
         kind.is_count()
-            && capabilities.streaming_access_shape_safe
-            && capabilities.count_pushdown_access_shape_supported
+            && (capabilities.count_pushdown_access_shape_supported
+                || capabilities.count_pushdown_existing_rows_shape_supported)
     }
 
     /// Return whether aggregate routing must force materialized mode due to predicate uncertainty.
-    pub(super) fn aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
+    pub(super) const fn aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
         execution_preparation: &ExecutionPreparation,
     ) -> bool {
-        let Some(compiled_predicate) = execution_preparation.compiled_predicate() else {
+        if execution_preparation.compiled_predicate().is_none() {
             return false;
-        };
-        let Some(slot_map) = execution_preparation.slot_map() else {
-            return false;
-        };
+        }
 
         // Route strict-mode uncertainty must remain aligned with the shared
         // kernel predicate compiler boundary.
         execution_preparation.strict_mode().is_none()
-            && compile_index_program(
-                compiled_predicate.resolved(),
-                slot_map,
-                IndexCompilePolicy::StrictAllOrNone,
-            )
-            .is_none()
     }
 }
 
