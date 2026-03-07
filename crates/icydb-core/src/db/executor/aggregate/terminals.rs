@@ -368,18 +368,24 @@ where
     // Secondary index shapes can satisfy EXISTS using key-stream fold semantics
     // without row materialization when no residual predicate remains.
     fn index_covering_exists_eligible(plan: &ExecutablePlan<E>) -> bool {
-        // Keep this fast path scoped to unordered scalar EXISTS shapes for now.
+        // Ordered EXISTS windows depend on route/kernel ordering contracts.
+        // Keep this fast path scoped to unordered scalar EXISTS shapes.
         if plan.order_spec().is_some() {
             return false;
         }
 
-        // Residual predicates require row evaluation and must stay on canonical path.
-        if plan.has_predicate() {
+        // EXISTS prefilter pushdown requires one strict all-or-none index
+        // predicate program when a residual predicate exists.
+        let index_shape_supported = plan.access().as_index_prefix_path().is_some()
+            || plan.access().as_index_range_path().is_some();
+        if !index_shape_supported {
             return false;
         }
+        if !plan.has_predicate() {
+            return true;
+        }
 
-        plan.access().as_index_prefix_path().is_some()
-            || plan.access().as_index_range_path().is_some()
+        plan.execution_preparation().strict_mode().is_some()
     }
 
     // Fold EXISTS over an index-backed key stream using `ExistingRows` mode.
@@ -394,6 +400,14 @@ where
         let index_range_specs = plan.index_range_specs()?.to_vec();
         let logical_plan = plan.into_inner();
         validate_executor_plan::<E>(&logical_plan)?;
+        let execution_preparation = ExecutionPreparation::for_plan::<E>(&logical_plan);
+        let index_predicate_execution =
+            execution_preparation
+                .strict_mode()
+                .map(|program| IndexPredicateExecution {
+                    program,
+                    rejected_keys_counter: None,
+                });
 
         // Phase 2: resolve the access key stream directly from index-backed bindings.
         let ctx = self.recovered_context()?;
@@ -405,7 +419,7 @@ where
                 AccessScanContinuationInput::new(None, Direction::Asc),
             ),
             None,
-            None,
+            index_predicate_execution,
         );
         let mut key_stream = ctx.ordered_key_stream_from_access_descriptor(descriptor)?;
 

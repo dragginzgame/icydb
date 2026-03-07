@@ -412,7 +412,6 @@ impl ExecutionKernel {
             inputs.fold_mode,
             fast,
         )?;
-
         Ok(Some((aggregate_output, rows_scanned)))
     }
 

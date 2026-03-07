@@ -31,7 +31,7 @@ where
         feasibility_stage: &RouteFeasibilityStage,
         aggregate_force_materialized_due_to_predicate_uncertainty: bool,
     ) -> RouteExecutionStage {
-        // COUNT routes can stream, but never through index-range limit pushdown.
+        // COUNT routes can stream. Index-range bounded pushdown remains route-gated.
         let execution_mode = Self::derive_execution_mode_for_aggregate_count(
             feasibility_stage,
             aggregate_force_materialized_due_to_predicate_uncertainty,
@@ -40,10 +40,6 @@ where
             ExecutionMode::Streaming => feasibility_stage.index_range_limit_spec,
             ExecutionMode::Materialized => None,
         };
-        debug_assert!(
-            index_range_limit_spec.is_none(),
-            "route invariant: COUNT terminals must not route through index-range limit pushdown",
-        );
         let aggregate_fold_mode = if feasibility_stage
             .derivation
             .capabilities

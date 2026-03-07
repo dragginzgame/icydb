@@ -1038,7 +1038,13 @@ fn route_matrix_aggregate_count_pushdown_boundary_matrix() {
             AggregateKind::Count,
         );
     assert_eq!(index_range_route.execution_mode, ExecutionMode::Streaming);
-    assert!(index_range_route.index_range_limit_spec.is_none());
+    assert_eq!(
+        index_range_route
+            .index_range_limit_spec
+            .map(|spec| spec.fetch),
+        Some(3),
+        "index-range COUNT with page window should inherit bounded pushdown fetch",
+    );
     assert!(matches!(
         index_range_route.aggregate_fold_mode,
         AggregateFoldMode::ExistingRows

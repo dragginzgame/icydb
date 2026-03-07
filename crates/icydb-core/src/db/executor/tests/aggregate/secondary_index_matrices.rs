@@ -181,6 +181,34 @@ fn secondary_group_prefix_exists_plan(
     ))
 }
 
+fn secondary_group_rank_index_range_count_plan(
+    consistency: MissingRowPolicy,
+    offset: u32,
+    limit: u32,
+) -> ExecutablePlan<PushdownParityEntity> {
+    let mut logical_plan = AccessPlannedQuery::new(
+        AccessPath::index_range(
+            PUSHDOWN_PARITY_INDEX_MODELS[0],
+            vec![Value::Uint(7)],
+            Bound::Included(Value::Uint(10)),
+            Bound::Included(Value::Uint(40)),
+        ),
+        consistency,
+    );
+    logical_plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("rank".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    logical_plan.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(limit),
+        offset,
+    });
+
+    ExecutablePlan::<PushdownParityEntity>::new(logical_plan)
+}
+
 fn assert_secondary_id_extrema_missing_ok_stale_fallback(
     rows: &[(u128, u32, u32)],
     stale_ids: &[u128],
@@ -589,6 +617,58 @@ fn aggregate_exists_secondary_index_covering_fast_path_emits_hit_marker_only_for
 }
 
 #[test]
+fn aggregate_exists_secondary_index_covering_fast_path_strict_predicate_matrix() {
+    seed_stale_secondary_rows(&SECONDARY_STALE_ID_ROWS, &[8851]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let _ = LoadExecutor::<PushdownParityEntity>::take_covering_exists_fast_path_hits_for_tests();
+    let strict_exists = load
+        .aggregate_exists(
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .filter(u32_eq_predicate_strict("group", 7))
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("strict-compatible EXISTS plan should build"),
+        )
+        .expect("strict-compatible EXISTS should succeed");
+    assert!(
+        strict_exists,
+        "strict-compatible EXISTS should keep the covering fast path and return true",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_covering_exists_fast_path_hits_for_tests(),
+        1,
+        "strict-compatible EXISTS must emit one covering fast-path hit marker",
+    );
+
+    let _ = LoadExecutor::<PushdownParityEntity>::take_covering_exists_fast_path_hits_for_tests();
+    let strict_uncertain_exists = load
+        .aggregate_exists(
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .filter(Predicate::And(vec![
+                    u32_eq_predicate_strict("group", 7),
+                    Predicate::TextContains {
+                        field: "label".to_string(),
+                        value: Value::Text("g7".to_string()),
+                    },
+                ]))
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("strict-uncertain EXISTS plan should build"),
+        )
+        .expect("strict-uncertain EXISTS should succeed through fallback");
+    assert!(
+        strict_uncertain_exists,
+        "strict-uncertain EXISTS should still return true through fallback semantics",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_covering_exists_fast_path_hits_for_tests(),
+        0,
+        "strict-uncertain EXISTS must bypass the covering fast-path branch",
+    );
+}
+
+#[test]
 fn aggregate_count_secondary_index_covering_fast_path_emits_hit_marker_only_for_eligible_shapes() {
     seed_stale_secondary_rows(&SECONDARY_STALE_ID_ROWS, &[8851]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
@@ -628,6 +708,39 @@ fn aggregate_count_secondary_index_covering_fast_path_emits_hit_marker_only_for_
 }
 
 #[test]
+fn aggregate_count_index_range_limit_pushdown_missing_ok_stale_preserves_parity() {
+    seed_stale_secondary_rows(&SECONDARY_STALE_ID_ROWS, &[8851]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let (count_from_pushdown, rows_scanned) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.aggregate_count(secondary_group_rank_index_range_count_plan(
+                MissingRowPolicy::Ignore,
+                1,
+                2,
+            ))
+            .expect("index-range COUNT pushdown path should succeed")
+        });
+    let expected_count = load
+        .execute(secondary_group_rank_index_range_count_plan(
+            MissingRowPolicy::Ignore,
+            1,
+            2,
+        ))
+        .expect("canonical execute baseline should succeed")
+        .count();
+
+    assert_eq!(
+        count_from_pushdown, expected_count,
+        "bounded index-range COUNT pushdown must preserve canonical window parity under stale-leading ignore mode",
+    );
+    assert_eq!(
+        rows_scanned, 3,
+        "bounded index-range COUNT should preserve configured fetch-window scan accounting",
+    );
+}
+
+#[test]
 #[expect(clippy::too_many_lines)]
 fn aggregate_terminal_execution_descriptor_reports_covering_scan_for_index_covering_shapes() {
     let covering_exists_descriptor = secondary_group_prefix_exists_plan(MissingRowPolicy::Ignore)
@@ -663,6 +776,40 @@ fn aggregate_terminal_execution_descriptor_reports_covering_scan_for_index_cover
             .node_properties()
             .contains_key("count_fold_mode"),
         "non-COUNT descriptors must not emit count fold metadata",
+    );
+
+    let strict_compatible_exists_descriptor =
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .filter(u32_eq_predicate_strict("group", 7))
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("strict-compatible EXISTS descriptor test plan should build")
+            .explain_aggregate_terminal_execution_descriptor(
+                crate::db::query::builder::aggregate::exists(),
+            );
+    assert!(
+        strict_compatible_exists_descriptor.covering_projection(),
+        "strict-compatible secondary EXISTS descriptor should report covering projection",
+    );
+
+    let strict_uncertain_exists_descriptor =
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .filter(Predicate::And(vec![
+                u32_eq_predicate_strict("group", 7),
+                Predicate::TextContains {
+                    field: "label".to_string(),
+                    value: Value::Text("keep".to_string()),
+                },
+            ]))
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("strict-uncertain EXISTS descriptor test plan should build")
+            .explain_aggregate_terminal_execution_descriptor(
+                crate::db::query::builder::aggregate::exists(),
+            );
+    assert!(
+        !strict_uncertain_exists_descriptor.covering_projection(),
+        "strict-uncertain secondary EXISTS descriptor should report non-covering projection",
     );
 
     let pk_count_descriptor = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)

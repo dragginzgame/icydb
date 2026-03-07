@@ -507,7 +507,9 @@ fn aggregate_covering_projection_for_terminal<K>(
         AggregateKind::Count => {
             aggregate_count_covering_projection_eligible(plan, execution_preparation)
         }
-        AggregateKind::Exists => aggregate_exists_covering_projection_eligible(plan),
+        AggregateKind::Exists => {
+            aggregate_exists_covering_projection_eligible(plan, execution_preparation)
+        }
         AggregateKind::Min
         | AggregateKind::Max
         | AggregateKind::First
@@ -540,15 +542,24 @@ fn aggregate_count_covering_projection_eligible<K>(
 
 // Match EXISTS index-covering fast-path eligibility used by aggregate terminals
 // so EXPLAIN reports index-only EXISTS routes consistently.
-fn aggregate_exists_covering_projection_eligible<K>(plan: &AccessPlannedQuery<K>) -> bool {
+fn aggregate_exists_covering_projection_eligible<K>(
+    plan: &AccessPlannedQuery<K>,
+    execution_preparation: &ExecutionPreparation,
+) -> bool {
     if plan.scalar_plan().order.is_some() {
         return false;
     }
-    if plan.scalar_plan().predicate.is_some() {
+
+    let index_shape_supported =
+        plan.access.as_index_prefix_path().is_some() || plan.access.as_index_range_path().is_some();
+    if !index_shape_supported {
         return false;
     }
+    if plan.scalar_plan().predicate.is_none() {
+        return true;
+    }
 
-    plan.access.as_index_prefix_path().is_some() || plan.access.as_index_range_path().is_some()
+    execution_preparation.strict_mode().is_some()
 }
 
 const fn u64_from_usize(value: usize) -> u64 {

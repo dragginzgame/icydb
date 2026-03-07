@@ -33,7 +33,6 @@ use crate::{
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum IndexRangeLimitGateReason {
-    CountTerminalIntent,
     GroupedIntent,
 }
 
@@ -46,17 +45,13 @@ enum IndexRangeLimitGateReason {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct IndexRangeLimitGateContext {
-    count_terminal: bool,
     grouped: bool,
 }
 
 impl IndexRangeLimitGateContext {
     #[must_use]
-    const fn new(count_terminal: bool, grouped: bool) -> Self {
-        Self {
-            count_terminal,
-            grouped,
-        }
+    const fn new(grouped: bool) -> Self {
+        Self { grouped }
     }
 }
 
@@ -83,20 +78,11 @@ impl IndexRangeLimitFeasibilityRule {
     }
 }
 
-const INDEX_RANGE_LIMIT_FEASIBILITY_RULES: &[IndexRangeLimitFeasibilityRule] = &[
-    IndexRangeLimitFeasibilityRule::new(
-        IndexRangeLimitGateReason::CountTerminalIntent,
-        index_range_limit_gate_count_terminal_violated,
-    ),
-    IndexRangeLimitFeasibilityRule::new(
+const INDEX_RANGE_LIMIT_FEASIBILITY_RULES: &[IndexRangeLimitFeasibilityRule] =
+    &[IndexRangeLimitFeasibilityRule::new(
         IndexRangeLimitGateReason::GroupedIntent,
         index_range_limit_gate_grouped_violated,
-    ),
-];
-
-const fn index_range_limit_gate_count_terminal_violated(ctx: IndexRangeLimitGateContext) -> bool {
-    ctx.count_terminal
-}
+    )];
 
 const fn index_range_limit_gate_grouped_violated(ctx: IndexRangeLimitGateContext) -> bool {
     ctx.grouped
@@ -225,9 +211,7 @@ where
             probe_fetch_hint,
         );
         let kind = intent_stage.kind();
-        let count_terminal = kind.is_some_and(AggregateKind::is_count);
-        let index_range_limit_gate =
-            IndexRangeLimitGateContext::new(count_terminal, intent_stage.grouped);
+        let index_range_limit_gate = IndexRangeLimitGateContext::new(intent_stage.grouped);
         let index_range_limit_gate_rejection =
             index_range_limit_gate_rejection(index_range_limit_gate);
 

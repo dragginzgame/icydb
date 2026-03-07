@@ -7,7 +7,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.44.x] - 2026-03-07 - Optimization Closure
 
-- `0.44.0` starts the optimization-closure line by adding safe primary-key `count()` and `bytes()` fast paths for full scans and key ranges (with deterministic thread-local fast-path diagnostics in tests), aligning secondary COUNT routing with stale-key-safe streaming fold behavior, exposing COUNT fold-mode metadata in aggregate EXPLAIN descriptors, closing ordered index-range `LIMIT` pushdown guard coverage (including incompatible-order, residual-retry, and cursor-boundary cases), adding explicit covering-projection fast-path diagnostics for index/constant projection paths, making load trace optimization taxonomy explicit for base and top-N variants, explicitly deferring grouped bounded fast-path expansion to avoid half-finished grouped optimization surfaces, and moving the workspace toolchain/MSRV to Rust `1.94.0`.
+- `0.44.0` starts the optimization-closure line by making common `count()` and `bytes()` queries faster on primary-key full scans and key ranges, improving LIMIT/covering diagnostics and tests, and moving the workspace toolchain to Rust `1.94.0`.
+- `0.44.1` completes the first follow-up by enabling COUNT index-range LIMIT pushdown for eligible shapes and expanding EXISTS covering fast paths to strict-compatible secondary predicate shapes, while keeping safe fallback behavior for uncertain or ordered cases.
 
 See detailed breakdown:
 [docs/changelog/0.44.md](docs/changelog/0.44.md)
