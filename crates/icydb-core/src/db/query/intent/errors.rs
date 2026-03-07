@@ -31,22 +31,22 @@ pub enum QueryError {
     Response(#[from] ResponseError),
 
     #[error("{0}")]
-    Execute(#[from] QueryExecuteError),
+    Execute(#[from] ExecutionError),
 }
 
 impl QueryError {
     /// Construct an execution-domain query error from one classified runtime error.
     pub(crate) fn execute(err: InternalError) -> Self {
-        Self::Execute(QueryExecuteError::from(err))
+        Self::Execute(ExecutionError::from(err))
     }
 }
 
 ///
-/// QueryExecuteError
+/// ExecutionError
 ///
 
 #[derive(Debug, ThisError)]
-pub enum QueryExecuteError {
+pub enum ExecutionError {
     #[error("{0}")]
     Corruption(InternalError),
 
@@ -66,7 +66,7 @@ pub enum QueryExecuteError {
     Internal(InternalError),
 }
 
-impl QueryExecuteError {
+impl ExecutionError {
     #[must_use]
     /// Borrow the wrapped classified runtime error.
     pub const fn as_internal(&self) -> &InternalError {
@@ -81,7 +81,7 @@ impl QueryExecuteError {
     }
 }
 
-impl From<InternalError> for QueryExecuteError {
+impl From<InternalError> for ExecutionError {
     fn from(err: InternalError) -> Self {
         match err.class {
             ErrorClass::Corruption => Self::Corruption(err),
@@ -216,16 +216,16 @@ mod tests {
     use super::*;
     use crate::error::ErrorOrigin;
 
-    fn assert_execute_variant_for_class(err: &QueryExecuteError, class: ErrorClass) {
+    fn assert_execute_variant_for_class(err: &ExecutionError, class: ErrorClass) {
         match class {
-            ErrorClass::Corruption => assert!(matches!(err, QueryExecuteError::Corruption(_))),
+            ErrorClass::Corruption => assert!(matches!(err, ExecutionError::Corruption(_))),
             ErrorClass::InvariantViolation => {
-                assert!(matches!(err, QueryExecuteError::InvariantViolation(_)));
+                assert!(matches!(err, ExecutionError::InvariantViolation(_)));
             }
-            ErrorClass::Conflict => assert!(matches!(err, QueryExecuteError::Conflict(_))),
-            ErrorClass::NotFound => assert!(matches!(err, QueryExecuteError::NotFound(_))),
-            ErrorClass::Unsupported => assert!(matches!(err, QueryExecuteError::Unsupported(_))),
-            ErrorClass::Internal => assert!(matches!(err, QueryExecuteError::Internal(_))),
+            ErrorClass::Conflict => assert!(matches!(err, ExecutionError::Conflict(_))),
+            ErrorClass::NotFound => assert!(matches!(err, ExecutionError::NotFound(_))),
+            ErrorClass::Unsupported => assert!(matches!(err, ExecutionError::Unsupported(_))),
+            ErrorClass::Internal => assert!(matches!(err, ExecutionError::Internal(_))),
         }
     }
 
@@ -244,7 +244,7 @@ mod tests {
 
         for (class, origin) in cases {
             let internal = InternalError::classified(class, origin, "matrix");
-            let mapped = QueryExecuteError::from(internal);
+            let mapped = ExecutionError::from(internal);
 
             assert_execute_variant_for_class(&mapped, class);
             assert_eq!(mapped.as_internal().class, class);
@@ -263,10 +263,23 @@ mod tests {
 
         assert!(matches!(
             query_err,
-            QueryError::Execute(QueryExecuteError::Unsupported(inner))
+            QueryError::Execute(ExecutionError::Unsupported(inner))
                 if inner.class == ErrorClass::Unsupported
                     && inner.origin == ErrorOrigin::Cursor
         ));
+    }
+
+    #[test]
+    fn planner_plan_mapping_stays_in_query_plan_error_boundary() {
+        let planner_plan = PlannerError::Plan(Box::new(PlanError::from(
+            PolicyPlanError::UnorderedPagination,
+        )));
+        let query_err = QueryError::from(planner_plan);
+
+        assert!(
+            matches!(query_err, QueryError::Plan(_)),
+            "planner plan errors must remain in query plan boundary, not execution boundary",
+        );
     }
 
     #[test]
@@ -292,6 +305,35 @@ mod tests {
                 execute_err.as_internal().origin,
                 origin,
                 "planner-internal mapping must preserve telemetry origin for {origin:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn query_execute_storage_and_index_errors_stay_in_execution_boundary() {
+        let cases = [
+            InternalError::store_internal("store internal"),
+            InternalError::index_internal("index internal"),
+            InternalError::store_corruption("store corruption"),
+            InternalError::index_corruption("index corruption"),
+            InternalError::store_unsupported("store unsupported"),
+            InternalError::index_unsupported("index unsupported"),
+        ];
+
+        for internal in cases {
+            let class = internal.class;
+            let origin = internal.origin;
+
+            let query_err = QueryError::execute(internal);
+            let QueryError::Execute(execute_err) = query_err else {
+                panic!("storage/index runtime failures must stay in execution boundary");
+            };
+
+            assert_execute_variant_for_class(&execute_err, class);
+            assert_eq!(
+                execute_err.as_internal().origin,
+                origin,
+                "storage/index runtime failures must preserve origin taxonomy",
             );
         }
     }

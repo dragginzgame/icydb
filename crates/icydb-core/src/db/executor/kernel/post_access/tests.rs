@@ -176,3 +176,55 @@ fn budget_safety_metadata_marks_index_range_order_plan_as_access_order_satisfied
         "index-range order-compatible plans should skip post-access sort requirements",
     );
 }
+
+#[test]
+fn budget_safety_metadata_order_contract_stays_aligned_with_route_helper() {
+    let mut unordered_plan =
+        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
+    unordered_plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("rank".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    let unordered_metadata = crate::db::executor::ExecutionKernel::budget_safety_metadata::<
+        BudgetMetadataEntity,
+        _,
+    >(&unordered_plan);
+    let unordered_contract = crate::db::executor::route::access_order_satisfied_by_route_contract::<
+        BudgetMetadataEntity,
+        _,
+    >(&unordered_plan);
+    assert_eq!(
+        unordered_metadata.access_order_satisfied_by_path, unordered_contract,
+        "full-scan ordering metadata must stay aligned with route order contract",
+    );
+
+    let mut ordered_plan = AccessPlannedQuery::new(
+        AccessPath::<Ulid>::index_range(
+            BUDGET_METADATA_INDEX_MODELS[0],
+            vec![],
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(30)),
+        ),
+        MissingRowPolicy::Ignore,
+    );
+    ordered_plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("rank".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    let ordered_metadata = crate::db::executor::ExecutionKernel::budget_safety_metadata::<
+        BudgetMetadataEntity,
+        _,
+    >(&ordered_plan);
+    let ordered_contract = crate::db::executor::route::access_order_satisfied_by_route_contract::<
+        BudgetMetadataEntity,
+        _,
+    >(&ordered_plan);
+    assert_eq!(
+        ordered_metadata.access_order_satisfied_by_path, ordered_contract,
+        "index-range ordering metadata must stay aligned with route order contract",
+    );
+}

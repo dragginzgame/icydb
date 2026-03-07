@@ -32,6 +32,7 @@ impl Imp<Entity> for EntityKindTrait {
         };
 
         let field_refs: Vec<Ident> = node.fields.iter().map(Field::const_ident).collect();
+        let relation_key_type_assertions = relation_key_type_assertions(node);
 
         let indexes = node
             .indexes
@@ -84,6 +85,9 @@ impl Imp<Entity> for EntityKindTrait {
         tokens.extend(schema_tokens);
         tokens.extend(placement_tokens);
         tokens.extend(kind_tokens);
+        tokens.extend(quote! {
+            #(#relation_key_type_assertions)*
+        });
 
         let test_mod = format_ident!("__entity_model_test_{ident}");
         tokens.extend(quote! {
@@ -121,6 +125,22 @@ impl Imp<Entity> for EntityKindTrait {
 
         Some(TraitStrategy::from_impl(tokens))
     }
+}
+
+fn relation_key_type_assertions(node: &Entity) -> Vec<TokenStream> {
+    node.fields
+        .iter()
+        .filter_map(|field| {
+            let relation = field.value.item.relation.as_ref()?;
+            let key_ty = field.value.item.type_expr();
+
+            Some(quote! {
+                // Keep relation storage key shape aligned with the related entity key type.
+                const _: fn(<#relation as ::icydb::traits::EntityKey>::Key) -> #key_ty = |key| key;
+                const _: fn(#key_ty) -> <#relation as ::icydb::traits::EntityKey>::Key = |key| key;
+            })
+        })
+        .collect()
 }
 
 ///

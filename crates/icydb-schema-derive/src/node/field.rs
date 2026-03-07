@@ -97,8 +97,9 @@ pub struct Field {
     pub is_system: bool,
 }
 
-// Storage suffixes are forbidden on relation field names.
-const BANNED_SUFFIXES: [&str; 6] = ["_id", "_ids", "_ref", "_refs", "_key", "_keys"];
+// Canonical relation identity suffixes.
+const RELATION_ONE_SUFFIX: &str = "_id";
+const RELATION_MANY_SUFFIX: &str = "_ids";
 
 impl Field {
     pub fn validate(&self) -> Result<(), DarlingError> {
@@ -129,22 +130,18 @@ impl Field {
         // Value validation.
         self.value.validate()?;
 
-        // Enforce suffix bans only for relation fields.
-        if self.value.item.is_relation()
-            && BANNED_SUFFIXES
-                .iter()
-                .any(|suffix| ident_str.ends_with(suffix))
-        {
-            let suffixes = BANNED_SUFFIXES
-                .iter()
-                .map(|suffix| format!("'{suffix}'"))
-                .collect::<Vec<_>>()
-                .join(", ");
-
-            return Err(DarlingError::custom(format!(
-                "relation field ident '{ident_str}' must not end with {suffixes}"
-            ))
-            .with_span(&self.ident));
+        // Relation fields encode identity semantics and must use canonical suffixes.
+        if self.value.item.is_relation() {
+            let required_suffix = match self.value.cardinality() {
+                Cardinality::Many => RELATION_MANY_SUFFIX,
+                Cardinality::One | Cardinality::Opt => RELATION_ONE_SUFFIX,
+            };
+            if !ident_str.ends_with(required_suffix) {
+                return Err(DarlingError::custom(format!(
+                    "relation field ident '{ident_str}' must end with '{required_suffix}'"
+                ))
+                .with_span(&self.ident));
+            }
         }
 
         Ok(())
@@ -214,5 +211,68 @@ impl HasTypeExpr for Field {
         quote! {
             #ident: #value
         }
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::{Field, Value};
+    use crate::node::Item;
+    use icydb_schema::types::Primitive;
+    use quote::format_ident;
+
+    fn relation_field(ident: &str, many: bool) -> Field {
+        Field {
+            ident: format_ident!("{ident}"),
+            value: Value {
+                opt: false,
+                many,
+                item: Item {
+                    relation: Some(syn::parse_quote!(User)),
+                    primitive: Some(Primitive::Ulid),
+                    ..Item::default()
+                },
+            },
+            default: None,
+            is_system: false,
+        }
+    }
+
+    #[test]
+    fn relation_one_suffix_is_required() {
+        let field = relation_field("user", false);
+        let err = field
+            .validate()
+            .expect_err("one relation field without _id suffix must fail");
+        assert!(
+            err.to_string().contains("must end with '_id'"),
+            "unexpected validation error: {err}",
+        );
+    }
+
+    #[test]
+    fn relation_many_suffix_is_required() {
+        let field = relation_field("users", true);
+        let err = field
+            .validate()
+            .expect_err("many relation field without _ids suffix must fail");
+        assert!(
+            err.to_string().contains("must end with '_ids'"),
+            "unexpected validation error: {err}",
+        );
+    }
+
+    #[test]
+    fn relation_suffix_validation_accepts_canonical_idents() {
+        relation_field("user_id", false)
+            .validate()
+            .expect("one relation field with _id suffix should pass");
+        relation_field("user_ids", true)
+            .validate()
+            .expect("many relation field with _ids suffix should pass");
     }
 }

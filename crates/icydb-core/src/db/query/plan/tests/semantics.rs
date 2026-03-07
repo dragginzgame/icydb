@@ -1,7 +1,10 @@
 use crate::{
     db::{
         access::{AccessPath, AccessPlan, AccessPlanError},
-        predicate::{MissingRowPolicy, SchemaInfo},
+        predicate::{
+            CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate, SchemaInfo,
+            UnsupportedQueryFeature, ValidateError,
+        },
         query::{
             plan::validate::{
                 OrderPlanError, PlanError, PolicyPlanError, validate_query_semantics,
@@ -46,6 +49,22 @@ crate::test_entity! {
     fields = [
         ("id", FieldKind::Ulid),
         ("tags", FieldKind::List(&FieldKind::Text)),
+    ],
+    indexes = [],
+}
+
+crate::test_entity! {
+    ident = PlanValidateMapEntity,
+    id = Ulid,
+    entity_name = "MapEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("metadata", FieldKind::Map {
+            key: &FieldKind::Text,
+            value: &FieldKind::Text,
+        }),
     ],
     indexes = [],
 }
@@ -434,5 +453,42 @@ fn plan_rejects_order_without_terminal_primary_key_tie_break() {
         inner.as_ref(),
         PlanUserError::Order(inner)
             if matches!(inner.as_ref(), OrderPlanError::MissingPrimaryKeyTieBreak { .. })
+    )));
+}
+
+#[test]
+fn plan_rejects_map_field_predicates_during_planning_validation() {
+    let model = <PlanValidateMapEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::from_entity_model(model).expect("valid model");
+    let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+                "metadata",
+                CompareOp::Eq,
+                Value::Text("payload".to_string()),
+                CoercionId::Strict,
+            ))),
+            order: Some(OrderSpec {
+                fields: vec![("id".to_string(), OrderDirection::Asc)],
+            }),
+            distinct: false,
+            delete_limit: None,
+            page: None,
+            consistency: MissingRowPolicy::Ignore,
+        }),
+        access: AccessPlan::path(AccessPath::FullScan),
+    };
+
+    let err = validate_query_semantics(&schema, model, &plan)
+        .expect_err("map field predicates must fail during planner validation");
+    assert!(matches!(err, PlanError::User(inner) if matches!(
+        inner.as_ref(),
+        PlanUserError::PredicateInvalid(inner)
+            if matches!(
+                inner.as_ref(),
+                ValidateError::UnsupportedQueryFeature(UnsupportedQueryFeature::MapPredicate { field })
+                    if field == "metadata"
+            )
     )));
 }

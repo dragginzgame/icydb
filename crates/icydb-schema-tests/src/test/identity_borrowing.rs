@@ -17,8 +17,8 @@ pub struct User;
 
 #[entity(
     store = "TestStore",
-    pk(field = "user"),
-    fields(field(ident = "user", value(item(rel = "User", prim = "Ulid"))))
+    pk(field = "user_id"),
+    fields(field(ident = "user_id", value(item(rel = "User", prim = "Ulid"))))
 )]
 pub struct UserProjects;
 
@@ -35,12 +35,12 @@ mod tests {
     fn relation_primary_key_uses_declared_primitive_type() {
         let user = Ulid::from_parts(1, 42);
         let projects = UserProjects {
-            user,
+            user_id: user,
             ..Default::default()
         };
 
         // Field type stores the declared primitive key.
-        let _: Ulid = projects.user;
+        let _: Ulid = projects.user_id;
 
         // Entity has its own identity.
         let _id: Id<UserProjects> = projects.id();

@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.45.x] - 2026-03-07 - Feature Cleanup
+
+- `0.45.0` starts the feature-cleanup line by tightening internal API boundaries, locking error/serialization contracts, enforcing relation naming/type checks in schema macros, and reducing duplicate planner-vs-executor routing logic without changing query behavior.
+
+See detailed breakdown:
+[docs/changelog/0.45.md](docs/changelog/0.45.md)
+
+---
+
 ## [0.44.x] - 2026-03-07 - Optimization Closure
 
 - `0.44.0` starts the optimization-closure line by making common `count()` and `bytes()` queries faster on primary-key full scans and key ranges, improving LIMIT/covering diagnostics and tests, and moving the workspace toolchain to Rust `1.94.0`.

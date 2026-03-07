@@ -24,7 +24,7 @@ pub struct Target;
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
         // Relation fields must always declare storage key shape explicitly.
-        field(ident = "target", value(item(rel = "Target")))
+        field(ident = "target_id", value(item(rel = "Target")))
     )
 )]
 pub struct InvalidRelationPrimitive;

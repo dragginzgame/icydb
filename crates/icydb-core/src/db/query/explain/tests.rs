@@ -843,3 +843,44 @@ fn execution_descriptor_verbose_text_renders_all_optional_fields() {
         "verbose execution text should render node properties",
     );
 }
+
+#[test]
+fn execution_descriptor_canonical_json_shape_is_stable() {
+    let descriptor = ExplainExecutionNodeDescriptor {
+        node_type: ExplainExecutionNodeType::TopNSeek,
+        execution_mode: ExplainExecutionMode::Streaming,
+        access_strategy: Some(ExplainAccessPath::FullScan),
+        predicate_pushdown: None,
+        residual_predicate: None,
+        projection: Some("index_only".to_string()),
+        ordering_source: Some(ExplainExecutionOrderingSource::AccessOrder),
+        limit: Some(3),
+        cursor: Some(false),
+        covering_scan: Some(true),
+        rows_expected: Some(3),
+        children: vec![ExplainExecutionNodeDescriptor {
+            node_type: ExplainExecutionNodeType::LimitOffset,
+            execution_mode: ExplainExecutionMode::Materialized,
+            access_strategy: None,
+            predicate_pushdown: None,
+            residual_predicate: None,
+            projection: None,
+            ordering_source: None,
+            limit: Some(1),
+            cursor: None,
+            covering_scan: None,
+            rows_expected: None,
+            children: Vec::new(),
+            node_properties: BTreeMap::new(),
+        }],
+        node_properties: BTreeMap::new(),
+    };
+
+    let json = descriptor.render_json_canonical();
+    let expected = "{\"node_type\":\"TopNSeek\",\"execution_mode\":\"Streaming\",\"access_strategy\":{\"type\":\"FullScan\"},\"predicate_pushdown\":null,\"residual_predicate\":null,\"projection\":\"index_only\",\"ordering_source\":\"AccessOrder\",\"limit\":3,\"cursor\":false,\"covering_scan\":true,\"rows_expected\":3,\"children\":[{\"node_type\":\"LimitOffset\",\"execution_mode\":\"Materialized\",\"access_strategy\":null,\"predicate_pushdown\":null,\"residual_predicate\":null,\"projection\":null,\"ordering_source\":null,\"limit\":1,\"cursor\":null,\"covering_scan\":null,\"rows_expected\":null,\"children\":[],\"node_properties\":{}}],\"node_properties\":{}}";
+
+    assert_eq!(
+        json, expected,
+        "canonical execution-node JSON shape drifted",
+    );
+}

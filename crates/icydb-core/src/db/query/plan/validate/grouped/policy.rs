@@ -173,3 +173,88 @@ fn group_plan_error_from_distinct_policy_reason(
         }
     }
 }
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{
+        predicate::MissingRowPolicy,
+        query::plan::{DeleteSpec, LoadSpec, LogicalPlan, OrderDirection, OrderSpec, QueryMode},
+    };
+
+    fn scalar_plan(distinct: bool) -> ScalarPlan {
+        ScalarPlan {
+            mode: QueryMode::Load(LoadSpec {
+                limit: None,
+                offset: 0,
+            }),
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![("id".to_string(), OrderDirection::Asc)],
+            }),
+            distinct,
+            delete_limit: None,
+            page: None,
+            consistency: MissingRowPolicy::Ignore,
+        }
+    }
+
+    #[test]
+    fn grouped_distinct_without_adjacency_proof_fails_in_planner_policy() {
+        let err = validate_grouped_distinct_policy(&scalar_plan(true), false)
+            .expect_err("grouped DISTINCT without adjacency proof must fail in planner policy");
+
+        assert!(matches!(
+            err,
+            PlanError::Policy(inner)
+                if matches!(
+                    inner.as_ref(),
+                    crate::db::query::plan::validate::PlanPolicyError::Group(group)
+                        if matches!(
+                            group.as_ref(),
+                            GroupPlanError::DistinctAdjacencyEligibilityRequired
+                        )
+                )
+        ));
+    }
+
+    #[test]
+    fn grouped_distinct_with_having_fails_in_planner_policy() {
+        let err = validate_grouped_distinct_policy(&scalar_plan(true), true)
+            .expect_err("grouped DISTINCT + HAVING must fail in planner policy");
+
+        assert!(matches!(
+            err,
+            PlanError::Policy(inner)
+                if matches!(
+                    inner.as_ref(),
+                    crate::db::query::plan::validate::PlanPolicyError::Group(group)
+                        if matches!(group.as_ref(), GroupPlanError::DistinctHavingUnsupported)
+                )
+        ));
+    }
+
+    #[test]
+    fn grouped_non_distinct_shape_passes_planner_distinct_policy_gate() {
+        validate_grouped_distinct_policy(&scalar_plan(false), false)
+            .expect("non-distinct grouped shapes should pass planner distinct policy gate");
+    }
+
+    #[test]
+    fn grouped_policy_tests_track_planner_logical_mode_contract() {
+        // Keep grouped-policy tests compile-time linked to logical mode contracts.
+        let _ = LogicalPlan::Scalar(ScalarPlan {
+            mode: QueryMode::Delete(DeleteSpec { limit: Some(1) }),
+            predicate: None,
+            order: None,
+            distinct: false,
+            delete_limit: None,
+            page: None,
+            consistency: MissingRowPolicy::Ignore,
+        });
+    }
+}

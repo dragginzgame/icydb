@@ -156,10 +156,10 @@ impl CompareOp {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ComparePredicate {
-    pub field: String,
-    pub op: CompareOp,
-    pub value: Value,
-    pub coercion: CoercionSpec,
+    pub(crate) field: String,
+    pub(crate) op: CompareOp,
+    pub(crate) value: Value,
+    pub(crate) coercion: CoercionSpec,
 }
 
 impl ComparePredicate {
@@ -226,6 +226,30 @@ impl ComparePredicate {
     #[must_use]
     pub fn not_in(field: String, values: Vec<Value>) -> Self {
         Self::new(field, CompareOp::NotIn, Value::List(values))
+    }
+
+    /// Borrow the compared field name.
+    #[must_use]
+    pub fn field(&self) -> &str {
+        &self.field
+    }
+
+    /// Return the compare operator.
+    #[must_use]
+    pub const fn op(&self) -> CompareOp {
+        self.op
+    }
+
+    /// Borrow the compared literal value.
+    #[must_use]
+    pub const fn value(&self) -> &Value {
+        &self.value
+    }
+
+    /// Borrow the comparison coercion policy.
+    #[must_use]
+    pub const fn coercion(&self) -> &CoercionSpec {
+        &self.coercion
     }
 }
 

@@ -34,8 +34,22 @@ pub enum QueryMode {
 ///
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct LoadSpec {
-    pub limit: Option<u32>,
-    pub offset: u32,
+    pub(crate) limit: Option<u32>,
+    pub(crate) offset: u32,
+}
+
+impl LoadSpec {
+    /// Return optional row-limit bound for this load-mode spec.
+    #[must_use]
+    pub const fn limit(&self) -> Option<u32> {
+        self.limit
+    }
+
+    /// Return zero-based pagination offset for this load-mode spec.
+    #[must_use]
+    pub const fn offset(&self) -> u32 {
+        self.offset
+    }
 }
 
 ///
@@ -47,7 +61,15 @@ pub struct LoadSpec {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct DeleteSpec {
-    pub limit: Option<u32>,
+    pub(crate) limit: Option<u32>,
+}
+
+impl DeleteSpec {
+    /// Return optional row-limit bound for this delete-mode spec.
+    #[must_use]
+    pub const fn limit(&self) -> Option<u32> {
+        self.limit
+    }
 }
 
 ///
@@ -77,7 +99,7 @@ pub(crate) struct OrderSpec {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct DeleteLimitSpec {
-    pub max_rows: u32,
+    pub(crate) max_rows: u32,
 }
 
 ///
@@ -227,8 +249,8 @@ impl ExecutionShapeSignature {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PageSpec {
-    pub limit: Option<u32>,
-    pub offset: u32,
+    pub(crate) limit: Option<u32>,
+    pub(crate) offset: u32,
 }
 
 ///

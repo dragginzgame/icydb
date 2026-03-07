@@ -131,16 +131,46 @@ pub struct ContainsOpts {}
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-        field(ident = "a", value(many, item(rel = "ContainsBlob", prim = "Ulid"))),
-        field(ident = "b", value(many, item(rel = "ContainsBlob", prim = "Ulid"))),
-        field(ident = "c", value(many, item(rel = "ContainsBlob", prim = "Ulid"))),
-        field(ident = "d", value(many, item(rel = "ContainsBlob", prim = "Ulid"))),
-        field(ident = "e", value(many, item(rel = "ContainsBlob", prim = "Ulid"))),
-        field(ident = "f", value(many, item(rel = "ContainsBlob", prim = "Ulid"))),
-        field(ident = "g", value(many, item(rel = "ContainsBlob", prim = "Ulid"))),
-        field(ident = "h", value(many, item(rel = "ContainsBlob", prim = "Ulid"))),
-        field(ident = "i", value(many, item(rel = "ContainsBlob", prim = "Ulid"))),
-        field(ident = "j", value(many, item(rel = "ContainsBlob", prim = "Ulid")))
+        field(
+            ident = "a_ids",
+            value(many, item(rel = "ContainsBlob", prim = "Ulid"))
+        ),
+        field(
+            ident = "b_ids",
+            value(many, item(rel = "ContainsBlob", prim = "Ulid"))
+        ),
+        field(
+            ident = "c_ids",
+            value(many, item(rel = "ContainsBlob", prim = "Ulid"))
+        ),
+        field(
+            ident = "d_ids",
+            value(many, item(rel = "ContainsBlob", prim = "Ulid"))
+        ),
+        field(
+            ident = "e_ids",
+            value(many, item(rel = "ContainsBlob", prim = "Ulid"))
+        ),
+        field(
+            ident = "f_ids",
+            value(many, item(rel = "ContainsBlob", prim = "Ulid"))
+        ),
+        field(
+            ident = "g_ids",
+            value(many, item(rel = "ContainsBlob", prim = "Ulid"))
+        ),
+        field(
+            ident = "h_ids",
+            value(many, item(rel = "ContainsBlob", prim = "Ulid"))
+        ),
+        field(
+            ident = "i_ids",
+            value(many, item(rel = "ContainsBlob", prim = "Ulid"))
+        ),
+        field(
+            ident = "j_ids",
+            value(many, item(rel = "ContainsBlob", prim = "Ulid"))
+        )
     )
 )]
 pub struct ContainsManyRelations {}
@@ -207,10 +237,13 @@ pub struct IndexSanitized {}
 #[entity(
     store = "TestStore",
     pk(field = "id"),
-    index(fields = "create_blob"),
+    index(fields = "create_blob_id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-        field(ident = "create_blob", value(item(rel = "BlobEntity", prim = "Ulid")))
+        field(
+            ident = "create_blob_id",
+            value(item(rel = "BlobEntity", prim = "Ulid"))
+        )
     )
 )]
 pub struct IndexRelation {}

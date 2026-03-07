@@ -1,7 +1,7 @@
 use candid::CandidType;
 use derive_more::Display;
 use icydb_core::{
-    db::{QueryError, QueryExecuteError, ResponseError},
+    db::{ExecutionError, QueryError, ResponseError},
     error::{ErrorClass as CoreErrorClass, ErrorOrigin as CoreErrorOrigin, InternalError},
     patch::MergePatchError as CoreMergePatchError,
 };
@@ -15,6 +15,7 @@ use thiserror::Error as ThisError;
 
 #[derive(CandidType, Debug, Deserialize, Serialize, ThisError)]
 #[error("{message}")]
+#[serde(rename_all = "snake_case")]
 pub struct Error {
     pub kind: ErrorKind,
     pub origin: ErrorOrigin,
@@ -91,12 +92,12 @@ impl From<QueryError> for Error {
             QueryError::Response(err) => Self::from_response_error(err),
 
             QueryError::Execute(err) => match err {
-                QueryExecuteError::Corruption(inner)
-                | QueryExecuteError::InvariantViolation(inner)
-                | QueryExecuteError::Conflict(inner)
-                | QueryExecuteError::NotFound(inner)
-                | QueryExecuteError::Unsupported(inner)
-                | QueryExecuteError::Internal(inner) => inner.into(),
+                ExecutionError::Corruption(inner)
+                | ExecutionError::InvariantViolation(inner)
+                | ExecutionError::Conflict(inner)
+                | ExecutionError::NotFound(inner)
+                | ExecutionError::Unsupported(inner)
+                | ExecutionError::Internal(inner) => inner.into(),
             },
         }
     }
@@ -125,6 +126,7 @@ impl From<ResponseError> for Error {
 ///
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "PascalCase")]
 pub enum ErrorKind {
     Query(QueryErrorKind),
     Update(UpdateErrorKind),
@@ -139,6 +141,7 @@ pub enum ErrorKind {
 ///
 
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "PascalCase")]
 pub enum RuntimeErrorKind {
     Corruption,
     InvariantViolation,
@@ -153,6 +156,7 @@ pub enum RuntimeErrorKind {
 ///
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "PascalCase")]
 pub enum QueryErrorKind {
     /// Predicate/model validation failed.
     Validate,
@@ -181,6 +185,7 @@ pub enum QueryErrorKind {
 ///
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "PascalCase")]
 pub enum UpdateErrorKind {
     /// Patch application failed for semantic reasons.
     Patch(PatchError),
@@ -191,6 +196,7 @@ pub enum UpdateErrorKind {
 ///
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "PascalCase")]
 pub enum PatchError {
     InvalidShape,
     CardinalityViolation,
@@ -212,6 +218,7 @@ impl PatchError {
 ///
 
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Display, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "PascalCase")]
 pub enum ErrorOrigin {
     Cursor,
     Executor,
@@ -253,6 +260,27 @@ mod tests {
     use super::*;
     use icydb_core::db::{IntentError, PlanError, ValidateError};
     use icydb_core::error::{ErrorClass as CoreErrorClass, ErrorOrigin as CoreErrorOrigin};
+    use serde::Serialize;
+    use serde_cbor::Value as CborValue;
+    use std::collections::BTreeMap;
+
+    fn to_cbor_value<T: Serialize>(value: &T) -> CborValue {
+        let bytes =
+            serde_cbor::to_vec(value).expect("test fixtures must serialize into CBOR payloads");
+        serde_cbor::from_slice::<CborValue>(&bytes)
+            .expect("test fixtures must deserialize into CBOR value trees")
+    }
+
+    fn expect_cbor_map(value: &CborValue) -> &BTreeMap<CborValue, CborValue> {
+        match value {
+            CborValue::Map(map) => map,
+            other => panic!("expected CBOR map, got {other:?}"),
+        }
+    }
+
+    fn map_field<'a>(map: &'a BTreeMap<CborValue, CborValue>, key: &str) -> Option<&'a CborValue> {
+        map.get(&CborValue::Text(key.to_string()))
+    }
 
     #[test]
     fn query_validate_maps_to_validate_kind() {
@@ -333,10 +361,54 @@ mod tests {
                 ErrorOrigin::Executor,
                 "row missing",
             ),
+            (
+                CoreErrorClass::Internal,
+                CoreErrorOrigin::Planner,
+                RuntimeErrorKind::Internal,
+                ErrorOrigin::Planner,
+                "planner internal",
+            ),
         ];
 
         for (class, origin, expected_kind, expected_origin, message) in cases {
-            let query_err = QueryError::Execute(QueryExecuteError::from(InternalError::new(
+            let query_err = QueryError::Execute(ExecutionError::from(InternalError::new(
+                class, origin, message,
+            )));
+            let facade = Error::from(query_err);
+
+            assert_eq!(facade.kind, ErrorKind::Runtime(expected_kind));
+            assert_eq!(facade.origin, expected_origin);
+        }
+    }
+
+    #[test]
+    fn query_execute_storage_and_index_origins_map_to_runtime_contract() {
+        let cases = [
+            (
+                CoreErrorClass::Internal,
+                CoreErrorOrigin::Store,
+                RuntimeErrorKind::Internal,
+                ErrorOrigin::Store,
+                "store internal",
+            ),
+            (
+                CoreErrorClass::Corruption,
+                CoreErrorOrigin::Index,
+                RuntimeErrorKind::Corruption,
+                ErrorOrigin::Index,
+                "index corruption",
+            ),
+            (
+                CoreErrorClass::Unsupported,
+                CoreErrorOrigin::Store,
+                RuntimeErrorKind::Unsupported,
+                ErrorOrigin::Store,
+                "store unsupported",
+            ),
+        ];
+
+        for (class, origin, expected_kind, expected_origin, message) in cases {
+            let query_err = QueryError::Execute(ExecutionError::from(InternalError::new(
                 class, origin, message,
             )));
             let facade = Error::from(query_err);
@@ -363,5 +435,55 @@ mod tests {
             ));
             assert_eq!(facade.origin, expected);
         }
+    }
+
+    #[test]
+    fn error_struct_serialization_shape_is_stable() {
+        let encoded = to_cbor_value(&Error::new(
+            ErrorKind::Runtime(RuntimeErrorKind::Internal),
+            ErrorOrigin::Executor,
+            "runtime failure",
+        ));
+        let root = expect_cbor_map(&encoded);
+
+        assert!(
+            map_field(root, "kind").is_some(),
+            "Error must keep `kind` as serialized field key",
+        );
+        assert!(
+            map_field(root, "origin").is_some(),
+            "Error must keep `origin` as serialized field key",
+        );
+        assert!(
+            map_field(root, "message").is_some(),
+            "Error must keep `message` as serialized field key",
+        );
+    }
+
+    #[test]
+    fn error_kind_serialization_shape_is_stable() {
+        let encoded = to_cbor_value(&ErrorKind::Update(UpdateErrorKind::Patch(
+            PatchError::InvalidShape,
+        )));
+        let root = expect_cbor_map(&encoded);
+        let update_payload =
+            map_field(root, "Update").expect("expected externally-tagged Update variant");
+        let update_map = expect_cbor_map(update_payload);
+        assert!(
+            map_field(update_map, "Patch").is_some(),
+            "Update payload must keep Patch variant key",
+        );
+    }
+
+    #[test]
+    fn runtime_error_and_origin_variant_labels_are_stable() {
+        assert_eq!(
+            to_cbor_value(&RuntimeErrorKind::InvariantViolation),
+            CborValue::Text("InvariantViolation".to_string())
+        );
+        assert_eq!(
+            to_cbor_value(&ErrorOrigin::Serialize),
+            CborValue::Text("Serialize".to_string())
+        );
     }
 }

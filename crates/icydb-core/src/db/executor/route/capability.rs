@@ -12,11 +12,9 @@ use crate::{
                 AggregateExecutionPolicyInputs, derive_aggregate_execution_policy,
             },
             load::LoadExecutor,
+            route::{access_order_satisfied_by_route_contract, secondary_order_contract_active},
         },
-        query::{
-            builder::AggregateExpr,
-            plan::{AccessPlannedQuery, OrderDirection},
-        },
+        query::{builder::AggregateExpr, plan::AccessPlannedQuery},
     },
     traits::{EntityKind, EntitySchema, EntityValue},
 };
@@ -73,67 +71,7 @@ fn access_order_satisfied_by_path<E, K>(plan: &AccessPlannedQuery<K>) -> bool
 where
     E: EntitySchema<Key = K>,
 {
-    let Some(order) = plan.scalar_plan().order.as_ref() else {
-        return false;
-    };
-    if order.fields.is_empty() {
-        return false;
-    }
-
-    let access_class = plan.access_strategy().class();
-    if access_order_satisfied_by_pk::<E>(order, access_class) {
-        return true;
-    }
-
-    // Secondary-index order contracts are planner-gated. Only treat access
-    // traversal order as authoritative when logical pushdown policy allows it.
-    let logical_pushdown_eligibility = plan
-        .planner_route_profile(E::MODEL)
-        .logical_pushdown_eligibility();
-    if !logical_pushdown_eligibility.secondary_order_allowed()
-        || logical_pushdown_eligibility.requires_full_materialization()
-    {
-        return false;
-    }
-    let index_prefix_details = access_class.single_path_index_prefix_details();
-    let index_range_details = access_class.single_path_index_range_details();
-    if index_prefix_details.is_none() && index_range_details.is_none() {
-        return false;
-    }
-    if let Some((index, _)) = index_prefix_details
-        && !index.unique
-    {
-        return false;
-    }
-
-    let normalized_order_fields = order
-        .fields
-        .iter()
-        .map(|(field, direction)| (field.as_str(), order_direction(*direction)))
-        .collect::<Vec<_>>();
-
-    access_class
-        .secondary_order_pushdown_applicability(E::MODEL, normalized_order_fields.as_slice())
-        .is_eligible()
-}
-
-fn access_order_satisfied_by_pk<E>(
-    order: &crate::db::query::plan::OrderSpec,
-    access_class: crate::db::access::AccessRouteClass,
-) -> bool
-where
-    E: EntitySchema,
-{
-    order.fields.len() == 1
-        && order.fields[0].0 == E::MODEL.primary_key.name
-        && access_class.ordered()
-}
-
-const fn order_direction(direction: OrderDirection) -> Direction {
-    match direction {
-        OrderDirection::Asc => Direction::Asc,
-        OrderDirection::Desc => Direction::Desc,
-    }
+    access_order_satisfied_by_route_contract::<E, K>(plan)
 }
 
 /// Return true when bounded physical fetch hints are valid for this direction.
@@ -239,9 +177,7 @@ where
             let logical_pushdown_eligibility = plan
                 .planner_route_profile(E::MODEL)
                 .logical_pushdown_eligibility();
-            if !logical_pushdown_eligibility.secondary_order_allowed()
-                || logical_pushdown_eligibility.requires_full_materialization()
-            {
+            if !secondary_order_contract_active(logical_pushdown_eligibility) {
                 return false;
             }
         }

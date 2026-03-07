@@ -73,7 +73,7 @@ pub use query::{
         delete::FluentDeleteQuery,
         load::{FluentLoadQuery, PagedLoadQuery},
     },
-    intent::{CompiledQuery, IntentError, Query, QueryError, QueryExecuteError},
+    intent::{CompiledQuery, ExecutionError, IntentError, Query, QueryError},
     plan::{DeleteSpec, LoadSpec, OrderDirection, PlanError, QueryMode},
     trace::{QueryTracePlan, TraceExecutionStrategy},
 };

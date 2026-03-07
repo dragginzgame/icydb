@@ -9,9 +9,9 @@ use crate::prelude::*;
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-        field(ident = "a", value(item(rel = "EntityA", prim = "Ulid"))),
-        field(ident = "b", value(item(rel = "EntityB", prim = "Nat16"))),
-        field(ident = "c", value(item(rel = "EntityC", prim = "Principal"))),
+        field(ident = "a_id", value(item(rel = "EntityA", prim = "Ulid"))),
+        field(ident = "b_id", value(item(rel = "EntityB", prim = "Nat16"))),
+        field(ident = "c_id", value(item(rel = "EntityC", prim = "Principal"))),
     )
 )]
 pub struct HasRelation;
@@ -25,7 +25,7 @@ pub struct HasRelation;
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-        field(ident = "a", value(many, item(rel = "EntityA", prim = "Ulid"))),
+        field(ident = "a_ids", value(many, item(rel = "EntityA", prim = "Ulid"))),
     )
 )]
 pub struct HasManyRelation;
@@ -39,7 +39,7 @@ pub struct HasManyRelation;
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-        field(ident = "orders", value(many, item(rel = "Orders", prim = "Ulid"))),
+        field(ident = "orders_ids", value(many, item(rel = "Orders", prim = "Ulid"))),
     )
 )]
 pub struct HasPluralRelation;
@@ -108,7 +108,7 @@ pub struct RelationOwner;
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-        field(ident = "owner", value(item(rel = "RelationOwner", prim = "Ulid"))),
+        field(ident = "owner_id", value(item(rel = "RelationOwner", prim = "Ulid"))),
     )
 )]
 pub struct RelationOwned;
@@ -118,13 +118,13 @@ pub struct RelationOwned;
 ///
 
 #[record(fields(
-    field(ident = "owner", value(item(rel = "RelationOwner", prim = "Ulid"))),
+    field(ident = "owner_id", value(item(rel = "RelationOwner", prim = "Ulid"))),
     field(
-        ident = "optional_owner",
+        ident = "optional_owner_id",
         value(opt, item(rel = "RelationOwner", prim = "Ulid"))
     ),
     field(
-        ident = "many_owners",
+        ident = "many_owners_ids",
         value(many, item(rel = "RelationOwner", prim = "Ulid"))
     ),
 ))]
@@ -140,7 +140,7 @@ pub struct RelationRecord;
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-        field(ident = "owner", value(item(rel = "RelationOwner", prim = "Ulid"))),
+        field(ident = "owner_id", value(item(rel = "RelationOwner", prim = "Ulid"))),
     )
 )]
 pub struct CrossCanisterRelation;
@@ -157,23 +157,23 @@ mod tests {
     fn relation_fields_use_primitive_key_storage_types() {
         let row = HasRelation {
             id: Ulid::from_parts(1, 1),
-            a: Ulid::from_parts(1, 2),
-            b: 7u16,
-            c: Principal::anonymous(),
+            a_id: Ulid::from_parts(1, 2),
+            b_id: 7u16,
+            c_id: Principal::anonymous(),
             ..Default::default()
         };
 
         let _: Ulid = row.id;
-        let _: Ulid = row.a;
-        let _: u16 = row.b;
-        let _: Principal = row.c;
+        let _: Ulid = row.a_id;
+        let _: u16 = row.b_id;
+        let _: Principal = row.c_id;
     }
 
     #[test]
     fn relation_many_field_uses_primitive_collection_type() {
         let _ = HasManyRelation {
             id: Ulid::from_parts(2, 1),
-            a: vec![Ulid::from_parts(2, 2)],
+            a_ids: vec![Ulid::from_parts(2, 2)],
             ..Default::default()
         };
     }
@@ -183,7 +183,7 @@ mod tests {
         let owner_key = Ulid::from_parts(3, 1);
         let row = RelationOwned {
             id: Ulid::from_parts(3, 2),
-            owner: owner_key,
+            owner_id: owner_key,
             ..Default::default()
         };
         let owner_id: Id<RelationOwner> = row.owner_id();
@@ -191,11 +191,24 @@ mod tests {
     }
 
     #[test]
+    fn entity_relation_setter_accepts_typed_id() {
+        let owner_key = Ulid::from_parts(3, 10);
+        let mut row = RelationOwned {
+            id: Ulid::from_parts(3, 11),
+            owner_id: Ulid::from_parts(3, 12),
+            ..Default::default()
+        };
+
+        row.set_owner_id(Id::from_key(owner_key));
+        assert_eq!(row.owner_id, owner_key);
+    }
+
+    #[test]
     fn entity_many_relation_accessors_return_typed_ids() {
         let owner_key = Ulid::from_parts(4, 1);
         let row = HasManyRelation {
             id: Ulid::from_parts(4, 2),
-            a: vec![owner_key],
+            a_ids: vec![owner_key],
             ..Default::default()
         };
 
@@ -205,11 +218,29 @@ mod tests {
     }
 
     #[test]
+    fn entity_many_relation_add_remove_helpers_use_typed_ids() {
+        let owner_a = Ulid::from_parts(4, 20);
+        let owner_b = Ulid::from_parts(4, 21);
+        let mut row = HasManyRelation {
+            id: Ulid::from_parts(4, 22),
+            ..Default::default()
+        };
+
+        row.add_a_id(Id::from_key(owner_a));
+        row.add_a_id(Id::from_key(owner_b));
+        assert_eq!(row.a_ids, vec![owner_a, owner_b]);
+
+        assert!(row.remove_a_id(Id::from_key(owner_a)));
+        assert_eq!(row.a_ids, vec![owner_b]);
+        assert!(!row.remove_a_id(Id::from_key(owner_a)));
+    }
+
+    #[test]
     fn plural_relation_accessor_keeps_field_name_prefix() {
         let order_key = Ulid::from_parts(4, 10);
         let row = HasPluralRelation {
             id: Ulid::from_parts(4, 11),
-            orders: vec![order_key],
+            orders_ids: vec![order_key],
             ..Default::default()
         };
 
@@ -223,9 +254,9 @@ mod tests {
         let owner_a = Ulid::from_parts(5, 1);
         let owner_b = Ulid::from_parts(5, 2);
         let record = RelationRecord {
-            owner: owner_a,
-            optional_owner: Some(owner_b),
-            many_owners: vec![owner_a, owner_b],
+            owner_id: owner_a,
+            optional_owner_id: Some(owner_b),
+            many_owners_ids: vec![owner_a, owner_b],
         };
 
         let owner_id: Id<RelationOwner> = record.owner_id();

@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize};
 ///
 
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "PascalCase")]
 pub enum FilterExpr {
     /// Always true.
     True,
@@ -484,15 +485,26 @@ impl FilterExpr {
 ///
 
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub struct SortExpr {
-    pub fields: Vec<(String, OrderDirection)>,
+    fields: Vec<(String, OrderDirection)>,
 }
 
 impl SortExpr {
     #[must_use]
+    pub const fn new(fields: Vec<(String, OrderDirection)>) -> Self {
+        Self { fields }
+    }
+
+    #[must_use]
+    pub fn fields(&self) -> &[(String, OrderDirection)] {
+        &self.fields
+    }
+
+    #[must_use]
     pub fn lower(&self) -> CoreSortExpr {
         let fields = self
-            .fields
+            .fields()
             .iter()
             .map(|(field, dir)| {
                 let dir = match dir {
@@ -503,7 +515,7 @@ impl SortExpr {
             })
             .collect();
 
-        CoreSortExpr { fields }
+        CoreSortExpr::new(fields)
     }
 }
 
@@ -512,7 +524,96 @@ impl SortExpr {
 ///
 
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "PascalCase")]
 pub enum OrderDirection {
     Asc,
     Desc,
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::{FilterExpr, OrderDirection, SortExpr};
+    use serde::Serialize;
+    use serde_cbor::Value as CborValue;
+    use std::collections::BTreeMap;
+
+    fn to_cbor_value<T: Serialize>(value: &T) -> CborValue {
+        let bytes =
+            serde_cbor::to_vec(value).expect("test fixtures must serialize into CBOR payloads");
+        serde_cbor::from_slice::<CborValue>(&bytes)
+            .expect("test fixtures must deserialize into CBOR value trees")
+    }
+
+    fn expect_cbor_map(value: &CborValue) -> &BTreeMap<CborValue, CborValue> {
+        match value {
+            CborValue::Map(map) => map,
+            other => panic!("expected CBOR map, got {other:?}"),
+        }
+    }
+
+    fn map_field<'a>(map: &'a BTreeMap<CborValue, CborValue>, key: &str) -> Option<&'a CborValue> {
+        map.get(&CborValue::Text(key.to_string()))
+    }
+
+    #[test]
+    fn filter_expr_eq_serialization_shape_is_stable() {
+        let encoded = to_cbor_value(&FilterExpr::eq("rank", 42_u64));
+        let root = expect_cbor_map(&encoded);
+        let eq_payload = map_field(root, "Eq").expect("expected external enum variant key");
+        let payload = expect_cbor_map(eq_payload);
+
+        assert!(
+            map_field(payload, "field").is_some(),
+            "Eq payload must keep `field` key in serialized shape",
+        );
+        assert!(
+            map_field(payload, "value").is_some(),
+            "Eq payload must keep `value` key in serialized shape",
+        );
+    }
+
+    #[test]
+    fn filter_expr_and_serialization_shape_is_stable() {
+        let encoded = to_cbor_value(&FilterExpr::and(vec![
+            FilterExpr::is_null("deleted_at"),
+            FilterExpr::not(FilterExpr::is_missing("name")),
+        ]));
+        let root = expect_cbor_map(&encoded);
+        let and_payload = map_field(root, "And").expect("expected external enum variant key");
+        match and_payload {
+            CborValue::Array(items) => {
+                assert_eq!(items.len(), 2, "And payload must remain an array payload");
+            }
+            other => panic!("expected And payload array, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn sort_expr_serialization_field_name_is_stable() {
+        let encoded = to_cbor_value(&SortExpr::new(vec![(
+            "created_at".to_string(),
+            OrderDirection::Desc,
+        )]));
+        let root = expect_cbor_map(&encoded);
+        assert!(
+            map_field(root, "fields").is_some(),
+            "SortExpr must keep `fields` as serialized field key",
+        );
+    }
+
+    #[test]
+    fn order_direction_variant_labels_are_stable() {
+        assert_eq!(
+            to_cbor_value(&OrderDirection::Asc),
+            CborValue::Text("Asc".to_string())
+        );
+        assert_eq!(
+            to_cbor_value(&OrderDirection::Desc),
+            CborValue::Text("Desc".to_string())
+        );
+    }
 }

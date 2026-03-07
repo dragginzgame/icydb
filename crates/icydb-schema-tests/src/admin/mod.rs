@@ -88,13 +88,13 @@ pub struct AdminEntity {}
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-        field(ident = "simple", value(item(rel = "SimpleEntity", prim = "Ulid"))),
+        field(ident = "simple_id", value(item(rel = "SimpleEntity", prim = "Ulid"))),
         field(
-            ident = "opt_simple",
+            ident = "opt_simple_id",
             value(opt, item(rel = "SimpleEntity", prim = "Ulid"))
         ),
         field(
-            ident = "simples",
+            ident = "simples_ids",
             value(many, item(rel = "SimpleEntity", prim = "Ulid"))
         )
     )

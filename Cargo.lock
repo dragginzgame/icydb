@@ -691,6 +691,7 @@ dependencies = [
  "num-traits",
  "remain",
  "serde",
+ "serde_cbor",
  "thiserror 2.0.18",
 ]
 

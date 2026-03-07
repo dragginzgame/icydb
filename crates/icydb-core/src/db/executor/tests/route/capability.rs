@@ -144,3 +144,32 @@ fn route_capabilities_index_range_with_empty_order_rejects_limit_pushdown_shape(
         "empty-order planner-bypass shapes must not be treated as limit-pushdown eligible",
     );
 }
+
+#[test]
+fn route_capabilities_non_unique_index_prefix_order_requires_post_access_sort() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::<Ulid>::IndexPrefix {
+            index: ROUTE_MATRIX_INDEX_MODELS[0],
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("rank".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+
+    let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
+        &plan,
+        &initial_scalar_continuation_context(),
+        None,
+    )
+    .expect("load route plan should build");
+
+    assert!(
+        !route_plan.streaming_access_shape_safe(),
+        "non-unique index-prefix ordering must preserve post-access sorting",
+    );
+}

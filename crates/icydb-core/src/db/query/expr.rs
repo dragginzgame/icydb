@@ -45,10 +45,22 @@ impl FilterExpr {
 
 #[derive(Clone, Debug)]
 pub struct SortExpr {
-    pub fields: Vec<(String, OrderDirection)>,
+    fields: Vec<(String, OrderDirection)>,
 }
 
 impl SortExpr {
+    /// Construct one schema-agnostic sort expression.
+    #[must_use]
+    pub const fn new(fields: Vec<(String, OrderDirection)>) -> Self {
+        Self { fields }
+    }
+
+    /// Borrow the declared sort fields in declaration order.
+    #[must_use]
+    pub fn fields(&self) -> &[(String, OrderDirection)] {
+        &self.fields
+    }
+
     /// Lower the sort expression into a validated order spec for the provided schema.
     pub(crate) fn lower_with(&self, schema: &SchemaInfo) -> Result<OrderSpec, SortLowerError> {
         let spec = OrderSpec {

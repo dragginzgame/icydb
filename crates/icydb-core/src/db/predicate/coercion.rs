@@ -44,8 +44,8 @@ impl CoercionId {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CoercionSpec {
-    pub id: CoercionId,
-    pub params: BTreeMap<String, String>,
+    pub(crate) id: CoercionId,
+    pub(crate) params: BTreeMap<String, String>,
 }
 
 impl CoercionSpec {
@@ -84,9 +84,9 @@ pub(crate) enum CoercionRuleFamily {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct CoercionRule {
-    pub left: CoercionRuleFamily,
-    pub right: CoercionRuleFamily,
-    pub id: CoercionId,
+    left: CoercionRuleFamily,
+    right: CoercionRuleFamily,
+    id: CoercionId,
 }
 
 pub(crate) const COERCION_TABLE: &[CoercionRule] = &[

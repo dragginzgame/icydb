@@ -482,7 +482,7 @@ fn grouped_fluent_execute_rejects_scalar_query_shape() {
     assert!(
         matches!(
             err,
-            QueryError::Execute(crate::db::QueryExecuteError::InvariantViolation(
+            QueryError::Execute(crate::db::ExecutionError::InvariantViolation(
                 crate::error::InternalError {
                     class: crate::error::ErrorClass::InvariantViolation,
                     origin: crate::error::ErrorOrigin::Query,

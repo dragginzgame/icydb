@@ -20,10 +20,12 @@ use crate::{
             ContinuationToken, CursorBoundary,
             next_cursor_for_materialized_rows as derive_next_materialized_cursor,
         },
-        direction::Direction,
-        executor::{ExecutionKernel, ScalarContinuationBindings},
+        executor::{
+            ExecutionKernel, ScalarContinuationBindings,
+            route::access_order_satisfied_by_route_contract,
+        },
         predicate::PredicateProgram,
-        query::plan::{AccessPlannedQuery, OrderDirection, OrderSpec},
+        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -128,7 +130,7 @@ impl ExecutionKernel {
         compiled_predicate: Option<&PredicateProgram>,
     ) -> Result<PostAccessStats, InternalError>
     where
-        E: EntityKind + EntityValue,
+        E: EntityKind<Key = K> + EntityValue,
         R: PlanRow<E>,
     {
         PostAccessPlan::new(plan)
@@ -142,7 +144,7 @@ impl ExecutionKernel {
         compiled_predicate: Option<&PredicateProgram>,
     ) -> Result<PostAccessStats, InternalError>
     where
-        E: EntityKind + EntityValue,
+        E: EntityKind<Key = K> + EntityValue,
         R: PlanRow<E>,
     {
         PostAccessPlan::new(plan).apply_post_access_with_cursor_and_compiled_predicate::<E, R>(
@@ -201,7 +203,7 @@ impl<K> PostAccessPlan<'_, K> {
         compiled_predicate: Option<&PredicateProgram>,
     ) -> Result<PostAccessStats, InternalError>
     where
-        E: EntityKind + EntityValue,
+        E: EntityKind<Key = K> + EntityValue,
         R: PlanRow<E>,
     {
         self.apply_post_access_with_cursor_and_compiled_predicate::<E, R>(
@@ -219,7 +221,7 @@ impl<K> PostAccessPlan<'_, K> {
         compiled_predicate: Option<&PredicateProgram>,
     ) -> Result<PostAccessStats, InternalError>
     where
-        E: EntityKind + EntityValue,
+        E: EntityKind<Key = K> + EntityValue,
         R: PlanRow<E>,
     {
         self.validate_cursor_mode(cursor)?;
@@ -294,7 +296,7 @@ impl<K> PostAccessPlan<'_, K> {
         compiled_predicate: Option<&PredicateProgram>,
     ) -> Result<(bool, usize), InternalError>
     where
-        E: EntityKind + EntityValue,
+        E: EntityKind<Key = K> + EntityValue,
         R: PlanRow<E>,
     {
         let filtered = if self.plan.scalar_plan().predicate.is_some() {
@@ -321,7 +323,7 @@ impl<K> PostAccessPlan<'_, K> {
         filtered: bool,
     ) -> Result<(bool, usize), InternalError>
     where
-        E: EntityKind + EntityValue,
+        E: EntityKind<Key = K> + EntityValue,
         R: PlanRow<E>,
     {
         let bounded_order_keep = ExecutionKernel::bounded_order_keep_count(self, cursor);
@@ -335,7 +337,7 @@ impl<K> PostAccessPlan<'_, K> {
 
             // If access traversal already satisfies requested ORDER BY
             // semantics, preserve stream order and skip in-memory sorting.
-            if self.order_satisfied_by_access_path::<E>(order) {
+            if self.order_satisfied_by_access_path::<E>() {
                 return Ok((true, rows.len()));
             }
 
@@ -358,63 +360,11 @@ impl<K> PostAccessPlan<'_, K> {
 
     // Return whether the resolved access stream order already satisfies this
     // ORDER BY contract under planner logical pushdown policy gates.
-    fn order_satisfied_by_access_path<E>(&self, order: &OrderSpec) -> bool
+    fn order_satisfied_by_access_path<E>(&self) -> bool
     where
-        E: EntityKind + EntityValue,
+        E: EntityKind<Key = K> + EntityValue,
     {
-        let access_class = self.plan.access_strategy().class();
-        if Self::order_satisfied_by_pk::<E>(order, access_class) {
-            return true;
-        }
-
-        let logical_pushdown_eligibility = self
-            .plan
-            .planner_route_profile(E::MODEL)
-            .logical_pushdown_eligibility();
-        if !logical_pushdown_eligibility.secondary_order_allowed()
-            || logical_pushdown_eligibility.requires_full_materialization()
-        {
-            return false;
-        }
-        let index_prefix_details = access_class.single_path_index_prefix_details();
-        let index_range_details = access_class.single_path_index_range_details();
-        if index_prefix_details.is_none() && index_range_details.is_none() {
-            return false;
-        }
-        if let Some((index, _)) = index_prefix_details
-            && !index.unique
-        {
-            return false;
-        }
-
-        let normalized_order_fields = order
-            .fields
-            .iter()
-            .map(|(field, direction)| (field.as_str(), Self::order_direction(*direction)))
-            .collect::<Vec<_>>();
-
-        access_class
-            .secondary_order_pushdown_applicability(E::MODEL, normalized_order_fields.as_slice())
-            .is_eligible()
-    }
-
-    fn order_satisfied_by_pk<E>(
-        order: &OrderSpec,
-        access_class: crate::db::access::AccessRouteClass,
-    ) -> bool
-    where
-        E: EntityKind + EntityValue,
-    {
-        order.fields.len() == 1
-            && order.fields[0].0 == E::MODEL.primary_key.name
-            && access_class.ordered()
-    }
-
-    const fn order_direction(direction: OrderDirection) -> Direction {
-        match direction {
-            OrderDirection::Asc => Direction::Asc,
-            OrderDirection::Desc => Direction::Desc,
-        }
+        access_order_satisfied_by_route_contract::<E, _>(self.plan)
     }
 
     // Load pagination phase (offset/limit).

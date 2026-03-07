@@ -28,5 +28,8 @@ remain = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 
+[dev-dependencies]
+serde_cbor = { workspace = true }
+
 [lints]
 workspace = true
