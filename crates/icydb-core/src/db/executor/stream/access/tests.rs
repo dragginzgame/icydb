@@ -232,3 +232,51 @@ fn grouped_order_limit_policy_symbols_remain_planner_owned() {
             .join(", "),
     );
 }
+
+#[test]
+fn runtime_route_capability_shims_are_not_reintroduced() {
+    let executor_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor");
+    let mut sources = Vec::new();
+    collect_rust_sources(executor_root.as_path(), &mut sources);
+    sources.sort();
+
+    let forbidden = [
+        "supports_pk_stream_access_executable_path",
+        "primary_scan_fetch_hint_for_executable_access_path",
+        "secondary_extrema_probe_fetch_hint(",
+        "aggregate_secondary_extrema_probe_fetch_hint",
+    ];
+    let mut violations = Vec::new();
+
+    for source_path in sources {
+        if source_path
+            .components()
+            .any(|part| part.as_os_str() == "tests")
+            || source_path
+                .file_name()
+                .is_some_and(|name| name == "tests.rs")
+        {
+            continue;
+        }
+
+        let source = fs::read_to_string(&source_path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
+        let runtime_source = strip_cfg_test_items(source.as_str());
+        if forbidden
+            .iter()
+            .any(|symbol| runtime_source.contains(symbol))
+        {
+            violations.push(source_path);
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "executor runtime must consume direct capability snapshots instead of reintroducing route-capability shim helpers. Violations: {}",
+        violations
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", "),
+    );
+}

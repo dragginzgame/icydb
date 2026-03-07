@@ -12,7 +12,6 @@ use crate::{
         executor::{
             Context, ExecutableAccessPath, IndexScan, LoweredIndexPrefixSpec,
             LoweredIndexRangeSpec, OrderedKeyStreamBox, PrimaryScan, VecOrderedKeyStream,
-            route::primary_scan_fetch_hint_for_executable_access_path,
         },
         index::{IndexScanContinuationInput, predicate::IndexPredicateExecution},
     },
@@ -77,8 +76,11 @@ impl<K> ExecutableAccessPath<'_, K> {
 
         // Only apply bounded physical scans where key-stream semantics remain
         // equivalent without requiring full-set normalization.
-        let primary_scan_fetch_hint =
-            primary_scan_fetch_hint_for_executable_access_path(self, physical_fetch_hint);
+        let primary_scan_fetch_hint = if self.capabilities().supports_primary_scan_fetch_hint() {
+            physical_fetch_hint
+        } else {
+            None
+        };
 
         // Resolve candidate keys and track explicit ordering state.
         let (mut candidates, key_order_state) = match dispatch_executable_access_path(self) {

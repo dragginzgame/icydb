@@ -57,8 +57,6 @@ pub(in crate::db::executor::route::planner) struct RouteDerivationContext {
     pub(in crate::db::executor::route::planner) count_pushdown_eligible: bool,
     pub(in crate::db::executor::route::planner) aggregate_physical_fetch_hint: Option<usize>,
     pub(in crate::db::executor::route::planner) aggregate_seek_spec: Option<AggregateSeekSpec>,
-    pub(in crate::db::executor::route::planner) aggregate_secondary_extrema_probe_fetch_hint:
-        Option<usize>,
     pub(in crate::db::executor::route::planner) grouped_execution_strategy:
         Option<GroupedExecutionStrategy>,
 }
@@ -147,7 +145,6 @@ impl ExecutionRoutePlan {
             fast_path_order: &MUTATION_FAST_PATH_ORDER,
             top_n_seek_spec: None,
             aggregate_seek_spec: None,
-            aggregate_secondary_extrema_probe_fetch_hint: None,
             scan_hints: ScanHintPlan {
                 physical_fetch_hint: None,
                 load_scan_budget_hint: None,
@@ -392,8 +389,6 @@ where
             fast_path_order: intent_stage.fast_path_order,
             top_n_seek_spec: derivation.top_n_seek_spec,
             aggregate_seek_spec: derivation.aggregate_seek_spec,
-            aggregate_secondary_extrema_probe_fetch_hint: derivation
-                .aggregate_secondary_extrema_probe_fetch_hint,
             scan_hints: derivation.scan_hints,
             aggregate_fold_mode: execution_stage.aggregate_fold_mode,
             grouped_execution_strategy: derivation.grouped_execution_strategy,

@@ -34,6 +34,7 @@ use std::ops::Bound;
 thread_local! {
     static COVERING_EXISTS_FAST_PATH_HITS: Cell<u64> = const { Cell::new(0) };
     static COVERING_COUNT_FAST_PATH_HITS: Cell<u64> = const { Cell::new(0) };
+    static PRIMARY_KEY_COUNT_FAST_PATH_HITS: Cell<u64> = const { Cell::new(0) };
     static PK_CARDINALITY_COUNT_FAST_PATH_HITS: Cell<u64> = const { Cell::new(0) };
 }
 
@@ -52,6 +53,7 @@ where
         }
 
         if Self::primary_key_count_eligible(&plan) {
+            Self::record_primary_key_count_fast_path_hit_for_tests();
             return self.aggregate_count_from_existing_row_stream(plan);
         }
 
@@ -270,14 +272,9 @@ where
         Ok(count)
     }
 
-    // Primary-key point lookups can count without row materialization by
-    // folding over one key while preserving missing-row consistency checks.
+    // Primary-key direct-access shapes can count without row materialization by
+    // folding over key streams while preserving missing-row consistency checks.
     fn primary_key_count_eligible(plan: &ExecutablePlan<E>) -> bool {
-        // Keep the dedicated point-lookup fast path narrow: exact PK equality,
-        // no residual predicate, and no explicit ordering contract.
-        if plan.order_spec().is_some() {
-            return false;
-        }
         if plan.has_predicate() {
             return false;
         }
@@ -286,8 +283,14 @@ where
         let Some(path) = access_strategy.as_path() else {
             return false;
         };
+        if !primary_key_count_order_supported::<E>(plan) {
+            return false;
+        }
 
-        path.kind() == ExecutionPathKind::ByKey
+        matches!(
+            path.kind(),
+            ExecutionPathKind::ByKey | ExecutionPathKind::ByKeys
+        )
     }
 
     // Secondary index shapes can count without row materialization by folding
@@ -321,6 +324,7 @@ where
         plan: ExecutablePlan<E>,
     ) -> Result<u32, InternalError> {
         // Phase 1: collect lowered index specs before consuming the executable plan.
+        let direction = count_stream_direction_for_plan(&plan);
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
         let logical_plan = plan.into_inner();
@@ -341,7 +345,7 @@ where
             AccessStreamBindings::new(
                 index_prefix_specs.as_slice(),
                 index_range_specs.as_slice(),
-                AccessScanContinuationInput::new(None, Direction::Asc),
+                AccessScanContinuationInput::new(None, direction),
             ),
             None,
             index_predicate_execution,
@@ -353,7 +357,7 @@ where
             &ctx,
             &logical_plan,
             AggregateKind::Count,
-            Direction::Asc,
+            direction,
             AggregateFoldMode::ExistingRows,
             key_stream.as_mut(),
         )?;
@@ -459,6 +463,15 @@ where
     }
 
     #[cfg(test)]
+    pub(crate) fn take_primary_key_count_fast_path_hits_for_tests() -> u64 {
+        PRIMARY_KEY_COUNT_FAST_PATH_HITS.with(|counter| {
+            let hits = counter.get();
+            counter.set(0);
+            hits
+        })
+    }
+
+    #[cfg(test)]
     pub(crate) fn take_pk_cardinality_count_fast_path_hits_for_tests() -> u64 {
         PK_CARDINALITY_COUNT_FAST_PATH_HITS.with(|counter| {
             let hits = counter.get();
@@ -482,6 +495,13 @@ where
     }
 
     #[cfg(test)]
+    fn record_primary_key_count_fast_path_hit_for_tests() {
+        PRIMARY_KEY_COUNT_FAST_PATH_HITS.with(|counter| {
+            counter.set(counter.get().saturating_add(1));
+        });
+    }
+
+    #[cfg(test)]
     fn record_pk_cardinality_count_fast_path_hit_for_tests() {
         PK_CARDINALITY_COUNT_FAST_PATH_HITS.with(|counter| {
             counter.set(counter.get().saturating_add(1));
@@ -495,7 +515,43 @@ where
     const fn record_covering_count_fast_path_hit_for_tests() {}
 
     #[cfg(not(test))]
+    const fn record_primary_key_count_fast_path_hit_for_tests() {}
+
+    #[cfg(not(test))]
     const fn record_pk_cardinality_count_fast_path_hit_for_tests() {}
+}
+
+// Keep primary-key direct COUNT fast path scoped to unordered or PK-only
+// ordering contracts so route/kernel ordering semantics remain aligned.
+fn primary_key_count_order_supported<E>(plan: &ExecutablePlan<E>) -> bool
+where
+    E: EntityKind,
+{
+    let Some(order) = plan.order_spec() else {
+        return true;
+    };
+    if order.fields.len() != 1 {
+        return false;
+    }
+
+    order.fields[0].0 == E::MODEL.primary_key.name
+}
+
+fn count_stream_direction_for_plan<E>(plan: &ExecutablePlan<E>) -> Direction
+where
+    E: EntityKind,
+{
+    let Some(order) = plan.order_spec() else {
+        return Direction::Asc;
+    };
+    if order.fields.len() != 1 || order.fields[0].0 != E::MODEL.primary_key.name {
+        return Direction::Asc;
+    }
+
+    match order.fields[0].1 {
+        crate::db::query::plan::OrderDirection::Asc => Direction::Asc,
+        crate::db::query::plan::OrderDirection::Desc => Direction::Desc,
+    }
 }
 
 // Map one candidate cardinality and optional page contract to canonical COUNT

@@ -12,9 +12,7 @@ use crate::{
     traits::{EntityKind, EntityValue},
 };
 
-use crate::db::executor::route::{
-    FastPathOrder, RouteCapabilities, supports_pk_stream_access_executable_path,
-};
+use crate::db::executor::route::{FastPathOrder, RouteCapabilities};
 
 /// Iterate route-owned fast-path precedence through a shared verify+execute gate.
 ///
@@ -55,12 +53,18 @@ where
         }
 
         let access_strategy = plan.access_strategy();
+        let access_class = access_strategy.class();
         let supports_pk_stream_access = access_strategy
             .as_path()
-            .is_some_and(supports_pk_stream_access_executable_path);
+            .is_some_and(|path| path.capabilities().supports_pk_stream_access());
         if !supports_pk_stream_access {
             return false;
         }
+        debug_assert_eq!(
+            supports_pk_stream_access,
+            access_class.single_path_supports_pk_stream_access(),
+            "route invariant: path and access-class PK stream capability projections must stay aligned",
+        );
 
         let Some(order) = logical.order.as_ref() else {
             return false;

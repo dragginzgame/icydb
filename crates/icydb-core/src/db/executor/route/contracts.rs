@@ -235,7 +235,6 @@ pub(in crate::db::executor) struct ExecutionRoutePlan {
     pub(in crate::db::executor) fast_path_order: &'static [FastPathOrder],
     pub(in crate::db::executor) top_n_seek_spec: Option<TopNSeekSpec>,
     pub(in crate::db::executor) aggregate_seek_spec: Option<AggregateSeekSpec>,
-    pub(in crate::db::executor) aggregate_secondary_extrema_probe_fetch_hint: Option<usize>,
     pub(in crate::db::executor) scan_hints: ScanHintPlan,
     pub(in crate::db::executor) aggregate_fold_mode: AggregateFoldMode,
     pub(in crate::db::executor) grouped_execution_strategy: Option<GroupedExecutionStrategy>,
@@ -379,13 +378,6 @@ impl ExecutionRoutePlan {
     #[must_use]
     pub(in crate::db::executor) const fn top_n_seek_spec(&self) -> Option<TopNSeekSpec> {
         self.top_n_seek_spec
-    }
-
-    // Compatibility accessor kept while aggregate runtimes migrate to explicit
-    // seek contracts.
-    pub(in crate::db::executor) fn secondary_extrema_probe_fetch_hint(&self) -> Option<usize> {
-        self.aggregate_seek_fetch_hint()
-            .or(self.aggregate_secondary_extrema_probe_fetch_hint)
     }
 }
 

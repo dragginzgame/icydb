@@ -66,9 +66,9 @@ where
             Self::record_bytes_pk_fast_path_hit_for_tests();
             return self.bytes_from_pk_store_window(plan, direction);
         }
-        if Self::bytes_stream_window_fast_path_eligible(&plan) {
+        if let Some(direction) = Self::bytes_stream_window_fast_path_direction(&plan) {
             Self::record_bytes_stream_fast_path_hit_for_tests();
-            return self.bytes_from_ordered_key_stream_window(plan);
+            return self.bytes_from_ordered_key_stream_window(plan, direction);
         }
 
         let response = self.execute(plan)?;
@@ -496,10 +496,36 @@ where
         Some(direction)
     }
 
-    // Return whether one unordered scalar shape can fold bytes directly from
-    // routed ordered key streams without entity materialization.
-    const fn bytes_stream_window_fast_path_eligible(plan: &ExecutablePlan<E>) -> bool {
-        !plan.has_predicate() && !plan.is_distinct() && plan.order_spec().is_none()
+    // Return the stream traversal direction when one scalar shape can fold
+    // bytes directly from routed ordered key streams without materialization.
+    fn bytes_stream_window_fast_path_direction(plan: &ExecutablePlan<E>) -> Option<Direction> {
+        if plan.has_predicate() || plan.is_distinct() {
+            return None;
+        }
+        let access_strategy = plan.access().resolve_strategy();
+        let path = access_strategy.as_path()?;
+
+        let Some(order) = plan.order_spec() else {
+            return Some(Direction::Asc);
+        };
+        if order.fields.len() != 1 {
+            return None;
+        }
+        let (field, order_direction) = &order.fields[0];
+        if field != E::MODEL.primary_key.name {
+            return None;
+        }
+        if !matches!(
+            path.kind(),
+            ExecutionPathKind::ByKey | ExecutionPathKind::ByKeys
+        ) {
+            return None;
+        }
+
+        Some(match order_direction {
+            OrderDirection::Asc => Direction::Asc,
+            OrderDirection::Desc => Direction::Desc,
+        })
     }
 
     // Fold `bytes()` directly from persisted primary rows over the canonical
@@ -543,6 +569,7 @@ where
     fn bytes_from_ordered_key_stream_window(
         &self,
         plan: ExecutablePlan<E>,
+        direction: Direction,
     ) -> Result<u64, InternalError> {
         // Phase 1: materialize immutable stream bindings before stream resolution.
         let page = plan.page_spec().cloned();
@@ -554,7 +581,7 @@ where
             AccessStreamBindings::new(
                 index_prefix_specs.as_slice(),
                 index_range_specs.as_slice(),
-                AccessScanContinuationInput::new(None, Direction::Asc),
+                AccessScanContinuationInput::new(None, direction),
             ),
             None,
             None,

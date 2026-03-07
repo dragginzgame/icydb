@@ -808,7 +808,7 @@ fn route_matrix_aggregate_distinct_offset_disables_bounded_probe_hints_for_termi
             "DISTINCT+offset must disable bounded aggregate hints for {kind:?}"
         );
         assert_eq!(
-            route_plan.secondary_extrema_probe_fetch_hint(),
+            route_plan.aggregate_seek_fetch_hint(),
             None,
             "DISTINCT+offset must disable secondary extrema probe hints for {kind:?}"
         );
@@ -872,8 +872,8 @@ fn route_matrix_aggregate_secondary_extrema_probe_hints_lock_offset_plus_one() {
     );
     assert_eq!(min_asc.scan_hints.physical_fetch_hint, Some(3));
     assert_eq!(max_asc.scan_hints.physical_fetch_hint, None);
-    assert_eq!(min_asc.secondary_extrema_probe_fetch_hint(), Some(3));
-    assert_eq!(max_asc.secondary_extrema_probe_fetch_hint(), None);
+    assert_eq!(min_asc.aggregate_seek_fetch_hint(), Some(3));
+    assert_eq!(max_asc.aggregate_seek_fetch_hint(), None);
     assert_eq!(
         min_asc.aggregate_seek_spec(),
         Some(AggregateSeekSpec::First { fetch: 3 }),
@@ -885,7 +885,7 @@ fn route_matrix_aggregate_secondary_extrema_probe_hints_lock_offset_plus_one() {
         AggregateKind::First,
     );
     assert_eq!(
-        first_asc.secondary_extrema_probe_fetch_hint(),
+        first_asc.aggregate_seek_fetch_hint(),
         None,
         "secondary extrema probe hints must stay route-owned and Min/Max-only"
     );
@@ -906,8 +906,8 @@ fn route_matrix_aggregate_secondary_extrema_probe_hints_lock_offset_plus_one() {
     );
     assert_eq!(max_desc.scan_hints.physical_fetch_hint, Some(3));
     assert_eq!(min_desc.scan_hints.physical_fetch_hint, None);
-    assert_eq!(max_desc.secondary_extrema_probe_fetch_hint(), Some(3));
-    assert_eq!(min_desc.secondary_extrema_probe_fetch_hint(), None);
+    assert_eq!(max_desc.aggregate_seek_fetch_hint(), Some(3));
+    assert_eq!(min_desc.aggregate_seek_fetch_hint(), None);
     assert_eq!(
         max_desc.aggregate_seek_spec(),
         Some(AggregateSeekSpec::Last { fetch: 3 }),
@@ -1091,11 +1091,11 @@ fn route_matrix_secondary_extrema_probe_eligibility_is_min_max_only() {
         &plan,
         AggregateKind::Last,
     );
-    assert_eq!(min_asc.secondary_extrema_probe_fetch_hint(), Some(3));
-    assert_eq!(max_asc.secondary_extrema_probe_fetch_hint(), None);
-    assert_eq!(first_asc.secondary_extrema_probe_fetch_hint(), None);
-    assert_eq!(exists_asc.secondary_extrema_probe_fetch_hint(), None);
-    assert_eq!(last_asc.secondary_extrema_probe_fetch_hint(), None);
+    assert_eq!(min_asc.aggregate_seek_fetch_hint(), Some(3));
+    assert_eq!(max_asc.aggregate_seek_fetch_hint(), None);
+    assert_eq!(first_asc.aggregate_seek_fetch_hint(), None);
+    assert_eq!(exists_asc.aggregate_seek_fetch_hint(), None);
+    assert_eq!(last_asc.aggregate_seek_fetch_hint(), None);
     assert_eq!(
         min_asc.aggregate_seek_spec(),
         Some(AggregateSeekSpec::First { fetch: 3 }),
@@ -1119,8 +1119,8 @@ fn route_matrix_secondary_extrema_probe_eligibility_is_min_max_only() {
         &plan,
         AggregateKind::Max,
     );
-    assert_eq!(min_desc.secondary_extrema_probe_fetch_hint(), None);
-    assert_eq!(max_desc.secondary_extrema_probe_fetch_hint(), Some(3));
+    assert_eq!(min_desc.aggregate_seek_fetch_hint(), None);
+    assert_eq!(max_desc.aggregate_seek_fetch_hint(), Some(3));
     assert_eq!(min_desc.aggregate_seek_spec(), None);
     assert_eq!(
         max_desc.aggregate_seek_spec(),
@@ -1305,7 +1305,7 @@ fn route_matrix_strict_vs_subset_decision_logs_are_stable() {
         strict_compatible_route.execution_mode,
         strict_compatible_route.aggregate_fold_mode,
         strict_compatible_route.scan_hints.physical_fetch_hint,
-        strict_compatible_route.secondary_extrema_probe_fetch_hint(),
+        strict_compatible_route.aggregate_seek_fetch_hint(),
         strict_compatible_route.index_range_limit_fast_path_enabled(),
         strict_compatible_route.continuation().mode(),
     );
@@ -1314,7 +1314,7 @@ fn route_matrix_strict_vs_subset_decision_logs_are_stable() {
         strict_uncertain_route.execution_mode,
         strict_uncertain_route.aggregate_fold_mode,
         strict_uncertain_route.scan_hints.physical_fetch_hint,
-        strict_uncertain_route.secondary_extrema_probe_fetch_hint(),
+        strict_uncertain_route.aggregate_seek_fetch_hint(),
         strict_uncertain_route.index_range_limit_fast_path_enabled(),
         strict_uncertain_route.continuation().mode(),
     );

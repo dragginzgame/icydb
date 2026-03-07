@@ -301,12 +301,11 @@ impl ExecutionKernel {
         E: EntityKind + EntityValue,
     {
         // Probe hint selection is route-owned; prefer explicit aggregate seek
-        // contracts, then fall back to legacy route hint surfaces.
+        // contracts, then reuse generic route scan hints.
         let probe_fetch_hint = inputs
             .route_plan
             .aggregate_seek_fetch_hint()
-            .or(inputs.route_plan.scan_hints.physical_fetch_hint)
-            .or_else(|| inputs.route_plan.secondary_extrema_probe_fetch_hint());
+            .or(inputs.route_plan.scan_hints.physical_fetch_hint);
         let Some((probe_output, probe_rows_scanned)) =
             Self::try_fold_secondary_index_aggregate(inputs, probe_fetch_hint)?
         else {

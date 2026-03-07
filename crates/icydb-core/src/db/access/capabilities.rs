@@ -288,37 +288,6 @@ const fn derive_access_path_kind_from_execution_kind(kind: ExecutionPathKind) ->
     }
 }
 
-const fn supports_pk_stream_access(kind: AccessPathKind) -> bool {
-    matches!(kind, AccessPathKind::KeyRange | AccessPathKind::FullScan)
-}
-
-const fn supports_count_pushdown_shape(kind: AccessPathKind) -> bool {
-    matches!(kind, AccessPathKind::KeyRange | AccessPathKind::FullScan)
-}
-
-const fn supports_primary_scan_fetch_hint(kind: AccessPathKind) -> bool {
-    matches!(
-        kind,
-        AccessPathKind::ByKey | AccessPathKind::KeyRange | AccessPathKind::FullScan
-    )
-}
-
-const fn supports_reverse_traversal(kind: AccessPathKind) -> bool {
-    matches!(
-        kind,
-        AccessPathKind::ByKey
-            | AccessPathKind::KeyRange
-            | AccessPathKind::IndexPrefix
-            | AccessPathKind::IndexMultiLookup
-            | AccessPathKind::IndexRange
-            | AccessPathKind::FullScan
-    )
-}
-
-const fn is_key_direct_access(kind: AccessPathKind) -> bool {
-    matches!(kind, AccessPathKind::ByKey | AccessPathKind::ByKeys)
-}
-
 const fn is_by_keys_empty_from_payload<K>(payload: &ExecutionPathPayload<'_, K>) -> bool {
     matches!(payload, ExecutionPathPayload::ByKeys(keys) if keys.is_empty())
 }
@@ -340,7 +309,58 @@ const fn index_prefix_spec_count_from_payload<K>(payload: &ExecutionPathPayload<
 const fn derive_access_path_capabilities<K>(
     path: &ExecutableAccessPath<'_, K>,
 ) -> SinglePathAccessCapabilities {
+    // Phase 1: derive static capability projection from execution-path shape.
     let kind = derive_access_path_kind_from_execution_kind(path.kind());
+    let (stream, pushdown, supports_primary_scan_fetch_hint, is_key_direct_access) = match kind {
+        AccessPathKind::ByKey => (
+            SinglePathStreamCapabilities {
+                supports_pk_stream_access: false,
+                supports_reverse_traversal: true,
+            },
+            SinglePathPushdownCapabilities {
+                supports_count_pushdown_shape: false,
+            },
+            true,
+            true,
+        ),
+        AccessPathKind::ByKeys => (
+            SinglePathStreamCapabilities {
+                supports_pk_stream_access: false,
+                supports_reverse_traversal: false,
+            },
+            SinglePathPushdownCapabilities {
+                supports_count_pushdown_shape: false,
+            },
+            false,
+            true,
+        ),
+        AccessPathKind::KeyRange | AccessPathKind::FullScan => (
+            SinglePathStreamCapabilities {
+                supports_pk_stream_access: true,
+                supports_reverse_traversal: true,
+            },
+            SinglePathPushdownCapabilities {
+                supports_count_pushdown_shape: true,
+            },
+            true,
+            false,
+        ),
+        AccessPathKind::IndexPrefix
+        | AccessPathKind::IndexMultiLookup
+        | AccessPathKind::IndexRange => (
+            SinglePathStreamCapabilities {
+                supports_pk_stream_access: false,
+                supports_reverse_traversal: true,
+            },
+            SinglePathPushdownCapabilities {
+                supports_count_pushdown_shape: false,
+            },
+            false,
+            false,
+        ),
+    };
+
+    // Phase 2: derive payload-dependent shape metadata.
     let index_prefix_details = match path.index_prefix_details() {
         Some((index, slot_arity)) => Some(IndexShapeDetails::new(index, slot_arity)),
         None => None,
@@ -357,15 +377,10 @@ const fn derive_access_path_capabilities<K>(
 
     SinglePathAccessCapabilities {
         kind,
-        stream: SinglePathStreamCapabilities {
-            supports_pk_stream_access: supports_pk_stream_access(kind),
-            supports_reverse_traversal: supports_reverse_traversal(kind),
-        },
-        pushdown: SinglePathPushdownCapabilities {
-            supports_count_pushdown_shape: supports_count_pushdown_shape(kind),
-        },
-        supports_primary_scan_fetch_hint: supports_primary_scan_fetch_hint(kind),
-        is_key_direct_access: is_key_direct_access(kind),
+        stream,
+        pushdown,
+        supports_primary_scan_fetch_hint,
+        is_key_direct_access,
         is_by_keys_empty: is_by_keys_empty_from_payload(path.payload()),
         index_prefix_details,
         index_range_details,

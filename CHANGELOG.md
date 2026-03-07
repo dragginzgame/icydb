@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `0.44.0` starts the optimization-closure line by making common `count()` and `bytes()` queries faster on primary-key full scans and key ranges, improving LIMIT/covering diagnostics and tests, and moving the workspace toolchain to Rust `1.94.0`.
 - `0.44.1` makes more `count()` and `exists()` index-backed queries faster, while keeping the same results and safe fallback behavior when a fast path is not guaranteed.
 - `0.44.2` makes more `bytes()` queries faster for safe unordered secondary-index windows by summing persisted payload sizes directly from streamed keys, with ordered or predicate-heavy shapes still using the canonical fallback path.
+- `0.44.3` simplifies internal access-capability checks and speeds up more `count()`/`bytes()` `.by_ids(...)` queries, including both unordered windows and `ORDER BY id` windows.
 
 See detailed breakdown:
 [docs/changelog/0.44.md](docs/changelog/0.44.md)
@@ -2509,155 +2510,56 @@ it's a dynamic trait.
 - Paths are now automatically ::icydb because we do an `extern crate self as icydb`
 - Merry Christmas!
 
---------------------------------------------------------------------------------------------------------------------------
+---
 
-## [0.1.20] - 2025-12-24
-- Metrics: add `rows_scanned`, `exists_calls`, and `plan_full_scan`; count scan rows during loads, exists, and deletes; report average rows scanned per load.
-- Timestamp parsing rejects pre-epoch RFC3339 values; negative `from_i64` returns `None`.
-- Date: `Date::new` returns epoch for out-of-range years; `Date` no longer exposes a public `i32` field.
-- Numeric types: `Duration`/`E8s`/`E18s` reject negative inputs for `from_i64` and `from_f64`.
-- E18s: `to_decimal` now returns `None` on overflow instead of wrapping; display shows `[overflow]`.
-- Validators/sanitizers: numeric validators return errors for invalid configs instead of panicking; clamp sanitization no-ops on invalid configs.
-- Tests: added coverage for timestamp/date edge cases, negative numeric inputs, E18s overflow, and metrics exists/scan counters.
+## [0.1.x] - 2025-12-24 - Query Ergonomics and Safety Foundations
 
-## [0.1.19] - 2025-12-23
-- Fix upsert to resolve unique-index matches using sanitized input values.
-- Add upsert result helpers that report whether a unique-index upsert inserted or updated.
-- Add upsert merge helpers to apply update logic inside the executor.
-- Rename `UniqueIndexSpec` to `UniqueIndexHandle` to clarify the unique-index upsert API.
-- Move `FromKey` into the core traits module (path change for callers).
-- Add strict unique-index delete via `DeleteExecutor::by_unique_index` with corruption checks.
-- Save sanitizes entities before primary key extraction to keep keys/indexes consistent.
-- Query planning for `IN` on primary keys returns empty results for empty lists and dedups keys.
-- Index-backed loads now return deterministic key order by sorting index candidates.
-- `DeleteExecutor::by_unique_index` now emits delete metrics.
-- Index planning now skips non-indexable equality values to avoid false negatives.
-- PK `IN` filters now error when any element is not convertible to a storage key.
-- PK `IN` filters now accept text keys for identifiers (Ulid/Principal/Account).
-- `LoadExecutor::exists` now respects caller-provided offset/limit (limit=0 returns false).
-- Remove the `db!(debug)` macro arm; use `db!().debug()` for verbose tracing.
+- `0.1.20` hardens metrics counters and numeric/date/time edge-case handling, with focused regression coverage.
+- `0.1.19` stabilizes unique-index upsert/delete behavior, primary-key `IN` planning, deterministic index-load ordering, and exists-window semantics.
+- `0.1.18` adds `Row`/`Page` response helpers, fixes index-planned `exists` filter handling, and introduces unique-index upsert execution.
+- `0.1.17` adds explicit `many_by_field` helpers for load/delete while keeping primary-key many helpers as convenience wrappers.
+- `0.1.16` removes unused save-operation generics and adds batch save helpers (`insert_many`, `create_many`, `replace_many`).
+- `0.1.15` adds response cardinality guards plus delete-side `ensure_deleted_*` helpers for stricter invariants.
+- `0.1.14` begins grouped aggregation groundwork with `group_count_by` in `LoadExecutor`.
+- `0.1.13` expands `ResponseExt` with additional existence checks.
+- `0.1.12` makes `Ulid::generate` and `Subaccount::random` fall back to zeroed randomness when RNG is unseeded.
+- `0.1.11` improves query ergonomics by allowing direct reuse of pre-built filters and direct response interpretation helpers.
+- `0.1.10` introduces `ResponseExt` convenience methods for common first/view/count/pk extraction paths.
+- `0.1.7` simplifies and hardens single-result versus multi-result query response handling.
+- `0.1.5` expands `FilterExpr` method coverage, tightens CI/clippy workflow stability, and fixes `UpdateView<T>` clearing for `Some(None)`.
+- `0.1.1` removes `msg_caller` from `Principal` and adds `WrappedPrincipal::from_text` passthrough support.
+- `0.1.0` updates the workspace baseline to Rust `1.92.0`, adapts to canic crate layout changes, and restores clean lint/tooling checks.
 
-## [0.1.18] - 2025-12-21
-- added Row<E>, Page<T> and into_page to Response
-- Fix `LoadExecutor::exists`/`exists_filter` to honor filters when index plans are used.
-- Add unique-index upsert executor for insert-or-update without primary key lookup.
-- removed unused ThisError variant arms
+See detailed breakdown:
+[docs/changelog/0.1.md](docs/changelog/0.1.md)
 
-## [0.1.17] - 2025-12-20
-- LoadQuery/DeleteQuery gained explicit many_by_field helpers and keep PK-based many as a convenience wrapper.
+---
 
-## [0.1.16] - 2025-12-20
-- got rid of the unused generic on insert/create/replace_view
-- added insert/create/replace_many to the SaveExecutor
+## [0.0.x] - 2025-12-09 - ICYDB REBOOT - KEEP DATA COOL
 
-## [0.1.15] - 2025-12-20
-### ➕ Added
-- Added cardinality guards to `Response`: `require_some` and `require_len`, complementing existing `require_one`.
-- Added delete-side executor helpers `ensure_deleted_one` and `ensure_deleted_any` to express strict deletion invariants without leaking `Response` handling into call sites.
-
-### 🔧 Changed
-- Simplified delete call sites by replacing per-row delete loops and manual response checks with executor-level `ensure_deleted_*` helpers.
-
-### 📝 Summary
-- Happy birthday me!
-
-## [0.1.14] - 2025-12-19
-- started on the aggregation layer with group_count_by in LoadExecutor.  Not added to the Response because we need the
-Executor to decide whether it's needs to deserialize rows or not (slow vs fast path)
-
-## [0.1.13] - 2025-12-19
-- added more existence checks to the ResponseExt helper
-
-## [0.1.12] - 2025-12-19
-- `Ulid::generate` and `Subaccount::random` now fall back to zeroed randomness when the RNG is unseeded, avoiding error surfaces.
-
-## [0.1.11] - 2025-12-19
-- You can now apply pre-built filters directly to queries, instead of wrapping them in awkward closures. This makes it easier to reuse filters and removes boilerplate in many call sites.
-- Handling query results is now cleaner: you can interpret results (get entities, views, primary keys, counts, etc.) directly on the query call without extra mapping or intermediate ? operators.
-
-## [0.1.10] - 2025-12-18
-- introduced a ResponseExt helper to chain errors and make the call sites more ergonomic
-- added .first(), .first_entity() to response
-- put views() and other forgotten methods into ResponseExt
-- added count() and pks() too
-
-## [0.1.7] - 2025-12-18
-- Improved how database queries return results so that “one item” vs “many items” is handled consistently and safely.
-- Removed a number of convenience shortcuts that could silently return the wrong record when multiple matches existed.
-- Simplified how queries that fetch a single record are written and interpreted.
-
-## [0.1.5] - 2025-12-17
-- added FilterExpr::method for all the clauses to improve idionomicy.  Before FilterExpr::eq(field, value) was falling
-back to PartialEq
-- fixed CI so it won't bug out on a new rust toolchain on CI but not locally
-- Clippy, WHY?!?!  We were so close.  Fixing local to show clippy errors that CI errors on, so we don't get the github
-email of shame.
-- Fixed a bug where UpdateView<T> wasn't clearing the value when Some(None) was passed
-
-## [0.1.1] - 2025-12-12
-- removed msg_caller from Principal as it blurs system call boundaries
-- pass through from_text to WrappedPrincipal
-
-## [0.1.0] - 2025-12-12 - Somewhat Stable
-- Update rust to 1.92.0
-- Lots of changes because of the new canic crates (the location of utils and macros changed)
-- clippy and cargo machete passes
-
-## [0.0.20] - 2025-12-09
-- Fix `DeleteExecutor` to honor `offset`/`limit` after filtering and stop scanning once the window is satisfied, preventing over-deletes and unnecessary allocations on ranged or indexed deletes.
-- Extract shared query-plan scanning/deserialization helper used by load/delete executors to keep plan handling consistent while preserving existing filtering/pagination behaviour.
-
-## [0.0.15] - 2025-12-08
-- Added payload-aware enums: `ValueEnum` now carries payloads, hashing/equality include them, and enum FieldValue impls preserve payload data (fixes ICRC token amounts, etc.).
-- Broadened FieldValue support to `Box<T>`/`Vec<T>` so nested/boxed schema values (e.g., ICRC-3 arrays of boxed values) serialize and index correctly.
-- Added design/runtime tests to lock in enum payload persistence and boxed-value handling.
-- Moved the `build!` macro into `icydb-build` and re-exported from the meta crate to keep runtime crates free of build-script deps.
-
-## [0.0.14] - 2025-12-06
-- removed dependency on canic, as the canic-core and canic-memory are now separate crates.  Will do further fixing/renaming soon.
-
-## [0.0.13] - 2025-12-05
-- Added unit tests for schema identifier validation, crate path resolution, metrics reporting, and FNV hashing; documented public macros for codegen/startup helpers.
-- Renamed Icp/Icrc Payment and Amount because the Tokens struct name is confusing
-
-## [0.0.11] - 2025-12-04
-- updated the Timestamp type to have tests, from_seconds/millis/micros/nanos, and also have the chrono RFC3339 parsing
-
-## [0.0.10] - 2025-12-04
-- Removed the unauthenticated `icydb_query_*` canister endpoints; codegen now emits internal dispatch helpers so callers can enforce auth before invoking load/save/delete handlers.
-
-## [0.0.9] - 2025-12-04
-- upgrade to canic 0.4.8
-- scan of public endpoints, either add documentation to them or change to pub(crate)
-
-## [0.0.8] - 2025-12-03
-- upgrading to new canic 0.4
-- darling got yanked so cleaning that up (fixed shortly after)
-- added rustdoc coverage for public APIs (value helpers, db queries/responses, core types) and tightened proc-macro helper visibilities
-
-## [0.0.6] - 2025-11-27
-- added finance types to icydb-base, Usd for now
-- RoundDecimalPlaces sanitizer, defaults to Midpoint strategy
-- quick trim with cargo machete
-- fixed the mismatch with indirect (Box<T>) and the associated view type
-- moved VERSION to main crate
-- changed ValueEnum so that the path is optional, to allow strict and loose Enum matching
-- made Enum matching case-insensitive, so "common" would match Rarity::Common
-
-## [0.0.1] - IcyDB Reboot - 2025-11-26
-
-```
-   _________
-  /        /|
- /  DATA  / |
+```text
+  _________
+ /        /|
+/  DATA  / |
 /________/  |
 |  COOL  |  /
 |  ❄❄❄ | /
 |________|/
- keep data cool
+keep data cool
 ```
 
 - New name, same mission: IcyDB takes over from Mimic with the public meta-crate exposed at `icydb`.
-- Docs and guides refreshed to point at `icydb` tags, endpoints, and examples so newcomers can copy-paste.
-- Path resolver now prefers `icydb::` for downstream users while keeping internal crates on direct deps to avoid cycles.
-- Observability/query endpoints and codegen names align on the `icydb_*` prefix for a consistent surface.
+
+- `0.0.20` fixes delete-window correctness (`offset`/`limit`) and shares scan/deserialization helpers between load/delete planning paths.
+- `0.0.15` adds payload-aware enum storage, broadens boxed/vector field-value support, adds regression coverage, and moves `build!` into `icydb-build`.
+- `0.0.14` removes the direct canic dependency after `canic-core` and `canic-memory` split into separate crates.
+- `0.0.13` adds tests for identifier/path/metrics/hash behavior, documents public codegen macros, and clarifies confusing payment/amount type naming.
+- `0.0.11` expands `Timestamp` support and tests across seconds/millis/micros/nanos plus RFC3339 parsing.
+- `0.0.10` removes unauthenticated `icydb_query_*` endpoints and switches codegen to internal dispatch helpers so auth stays caller-owned.
+- `0.0.9` updates to canic `0.4.8` and audits public endpoint visibility (`pub` vs `pub(crate)`).
+- `0.0.8` updates to canic `0.4`, resolves the `darling` yank follow-up, and improves public API rustdoc coverage.
+- `0.0.6` adds early finance/sanitizer support, cleans dependencies, fixes boxed-view type alignment, and hardens enum matching behavior.
+- `0.0.1` launches the IcyDB reboot line with the `icydb` crate surface, refreshed docs, path resolution updates, and aligned `icydb_*` endpoint/codegen naming.
+
+See detailed breakdown:
+[docs/changelog/0.0.md](docs/changelog/0.0.md)

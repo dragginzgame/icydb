@@ -128,7 +128,7 @@ impl ExecutionKernel {
         if !Self::field_extrema_probe_requires_fallback(
             consistency,
             kind,
-            route_plan.secondary_extrema_probe_fetch_hint(),
+            route_plan.aggregate_seek_fetch_hint(),
             &probe_output,
             probe_rows_scanned,
         ) {
@@ -142,7 +142,6 @@ impl ExecutionKernel {
         fallback_route_plan.scan_hints.physical_fetch_hint = None;
         fallback_route_plan.index_range_limit_spec = None;
         fallback_route_plan.aggregate_seek_spec = None;
-        fallback_route_plan.aggregate_secondary_extrema_probe_fetch_hint = None;
         let (fallback_output, fallback_rows_scanned) =
             Self::fold_field_target_extrema_for_route_plan(
                 &prepared,

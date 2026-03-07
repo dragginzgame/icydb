@@ -47,7 +47,7 @@ fn route_matrix_field_target_max_pk_shape_enables_single_step_probe_hint() {
     assert_eq!(route.execution_mode, ExecutionMode::Streaming);
     assert!(route.field_max_fast_path_eligible());
     assert_eq!(route.scan_hints.physical_fetch_hint, Some(1));
-    assert_eq!(route.secondary_extrema_probe_fetch_hint(), Some(1));
+    assert_eq!(route.aggregate_seek_fetch_hint(), Some(1));
 }
 
 #[test]

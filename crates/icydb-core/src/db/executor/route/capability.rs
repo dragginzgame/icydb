@@ -8,7 +8,6 @@ use crate::{
         access::AccessPlan,
         direction::Direction,
         executor::{
-            ExecutableAccessPath,
             aggregate::capability::{
                 AggregateExecutionPolicyInputs, derive_aggregate_execution_policy,
             },
@@ -23,26 +22,6 @@ use crate::{
 };
 
 use crate::db::executor::route::{ExecutionRoutePlan, RouteCapabilities};
-
-/// Return true when this executable access path is eligible for PK stream fast-path execution.
-#[must_use]
-pub(in crate::db::executor) const fn supports_pk_stream_access_executable_path<K>(
-    path: &ExecutableAccessPath<'_, K>,
-) -> bool {
-    path.capabilities().supports_pk_stream_access()
-}
-
-/// Return bounded primary-scan fetch hints for executable path mechanics only.
-pub(in crate::db::executor) const fn primary_scan_fetch_hint_for_executable_access_path<K>(
-    path: &ExecutableAccessPath<'_, K>,
-    physical_fetch_hint: Option<usize>,
-) -> Option<usize> {
-    if path.capabilities().supports_primary_scan_fetch_hint() {
-        physical_fetch_hint
-    } else {
-        None
-    }
-}
 
 /// Derive budget-safety flags for one plan at the route capability boundary.
 pub(in crate::db::executor) fn derive_budget_safety_flags<E, K>(

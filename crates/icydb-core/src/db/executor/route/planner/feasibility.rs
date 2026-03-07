@@ -11,7 +11,7 @@ use crate::{
             continuation::ScalarContinuationContext,
             load::LoadExecutor,
             route::{
-                AggregateSeekSpec, GroupedExecutionStrategy, RouteContinuationPlan, ScanHintPlan,
+                GroupedExecutionStrategy, RouteContinuationPlan, ScanHintPlan,
                 planner::{RouteDerivationContext, RouteFeasibilityStage, RouteIntentStage},
             },
         },
@@ -349,8 +349,6 @@ where
         });
         let aggregate_physical_fetch_hint =
             count_pushdown_probe_fetch_hint.or(aggregate_terminal_probe_fetch_hint);
-        let aggregate_secondary_extrema_probe_fetch_hint =
-            aggregate_seek_spec.map(AggregateSeekSpec::fetch);
         let top_n_seek_spec = if load_scan_hint_gate_rejection.is_none() && kind.is_none() {
             Self::top_n_seek_spec(plan, continuation, capabilities)
         } else {
@@ -413,7 +411,6 @@ where
             count_pushdown_eligible,
             aggregate_physical_fetch_hint,
             aggregate_seek_spec,
-            aggregate_secondary_extrema_probe_fetch_hint,
             grouped_execution_strategy,
         }
     }

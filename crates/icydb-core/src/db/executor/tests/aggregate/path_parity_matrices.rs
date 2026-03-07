@@ -565,6 +565,52 @@ fn aggregate_bytes_stream_fast_path_bypasses_ordered_secondary_shape() {
 }
 
 #[test]
+fn aggregate_bytes_ordered_by_ids_stream_fast_path_emits_hit_marker_with_parity() {
+    seed_simple_entities(&[9_045, 9_046, 9_047, 9_048, 9_049]);
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    let build_plan = || {
+        Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+            .by_ids([
+                Ulid::from_u128(9_048),
+                Ulid::from_u128(9_046),
+                Ulid::from_u128(9_046),
+                Ulid::from_u128(9_045),
+            ])
+            .order_by_desc("id")
+            .offset(1)
+            .limit(1)
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("ordered by_ids bytes plan should build")
+    };
+    let expected_response = load
+        .execute(build_plan())
+        .expect("baseline ordered by_ids bytes execute should succeed");
+    let expected_bytes = persisted_payload_bytes_for_ids::<SimpleEntity>(expected_response.ids());
+
+    let _ = LoadExecutor::<SimpleEntity>::take_bytes_pk_fast_path_hits_for_tests();
+    let _ = LoadExecutor::<SimpleEntity>::take_bytes_stream_fast_path_hits_for_tests();
+    let bytes = load
+        .bytes(build_plan())
+        .expect("ordered by_ids bytes stream fast path should succeed");
+    assert_eq!(
+        bytes, expected_bytes,
+        "ordered by_ids bytes stream fast path should preserve execute() parity",
+    );
+    assert_eq!(
+        LoadExecutor::<SimpleEntity>::take_bytes_pk_fast_path_hits_for_tests(),
+        0,
+        "ordered by_ids bytes shape should bypass PK full-scan/key-range markers",
+    );
+    assert_eq!(
+        LoadExecutor::<SimpleEntity>::take_bytes_stream_fast_path_hits_for_tests(),
+        1,
+        "ordered by_ids bytes shape should emit one stream-fast-path hit marker",
+    );
+}
+
+#[test]
 fn aggregate_bytes_path_parity_index_prefix_and_full_scan_equivalent_rows() {
     seed_pushdown_entities(&[
         (8_971, 7, 10),
@@ -900,6 +946,7 @@ fn aggregate_parity_by_ids_window_shape_with_duplicates() {
 fn aggregate_by_ids_count_dedups_before_windowing() {
     seed_simple_entities(&[8651, 8652, 8653, 8654, 8655]);
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let _ = LoadExecutor::<SimpleEntity>::take_primary_key_count_fast_path_hits_for_tests();
 
     let (count, scanned) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
         load.aggregate_count(
@@ -922,8 +969,53 @@ fn aggregate_by_ids_count_dedups_before_windowing() {
 
     assert_eq!(count, 1, "by_ids dedup COUNT should keep one in-window row");
     assert_eq!(
-        scanned, 3,
-        "by_ids dedup COUNT should preserve parity via materialized fallback when COUNT pushdown is ineligible"
+        scanned, 2,
+        "ordered by_ids dedup COUNT should scan only offset + limit rows on the key-stream fast path",
+    );
+    assert_eq!(
+        LoadExecutor::<SimpleEntity>::take_primary_key_count_fast_path_hits_for_tests(),
+        1,
+        "ordered by_ids COUNT should emit one primary-key stream fast-path hit",
+    );
+}
+
+#[test]
+fn aggregate_by_ids_count_pk_desc_window_uses_primary_key_stream_fast_path() {
+    seed_simple_entities(&[8_656, 8_657, 8_658, 8_659, 8_660]);
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let _ = LoadExecutor::<SimpleEntity>::take_primary_key_count_fast_path_hits_for_tests();
+
+    let (count, scanned) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
+        load.aggregate_count(
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+                .by_ids([
+                    Ulid::from_u128(8_659),
+                    Ulid::from_u128(8_657),
+                    Ulid::from_u128(8_657),
+                    Ulid::from_u128(8_656),
+                ])
+                .order_by_desc("id")
+                .offset(1)
+                .limit(1)
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("ordered by_ids DESC COUNT plan should build"),
+        )
+        .expect("ordered by_ids DESC COUNT should succeed")
+    });
+
+    assert_eq!(
+        count, 1,
+        "ordered by_ids DESC COUNT should keep one in-window row"
+    );
+    assert_eq!(
+        scanned, 2,
+        "ordered by_ids DESC COUNT should scan only offset + limit rows on the key-stream fast path",
+    );
+    assert_eq!(
+        LoadExecutor::<SimpleEntity>::take_primary_key_count_fast_path_hits_for_tests(),
+        1,
+        "ordered by_ids DESC COUNT should emit one primary-key stream fast-path hit",
     );
 }
 
@@ -987,6 +1079,44 @@ fn aggregate_count_pk_cardinality_fast_path_emits_hit_marker_only_for_eligible_s
         LoadExecutor::<SimpleEntity>::take_pk_cardinality_count_fast_path_hits_for_tests(),
         0,
         "by-id COUNT shape should bypass the PK-cardinality fast-path branch",
+    );
+}
+
+#[test]
+fn aggregate_count_primary_key_stream_fast_path_emits_hit_marker_for_by_ids_unordered_shape() {
+    seed_simple_entities(&[8_701, 8_702, 8_703, 8_704]);
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    let _ = LoadExecutor::<SimpleEntity>::take_primary_key_count_fast_path_hits_for_tests();
+    let _ = LoadExecutor::<SimpleEntity>::take_pk_cardinality_count_fast_path_hits_for_tests();
+    let count = load
+        .aggregate_count(
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+                .by_ids([
+                    Ulid::from_u128(8_704),
+                    Ulid::from_u128(8_702),
+                    Ulid::from_u128(8_702),
+                    Ulid::from_u128(8_701),
+                ])
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("eligible unordered by-ids COUNT plan should build"),
+        )
+        .expect("eligible unordered by-ids COUNT execution should succeed");
+
+    assert_eq!(
+        count, 3,
+        "unordered by-ids COUNT should preserve canonical dedup semantics",
+    );
+    assert_eq!(
+        LoadExecutor::<SimpleEntity>::take_primary_key_count_fast_path_hits_for_tests(),
+        1,
+        "unordered by-ids COUNT shape should emit one primary-key stream fast-path hit marker",
+    );
+    assert_eq!(
+        LoadExecutor::<SimpleEntity>::take_pk_cardinality_count_fast_path_hits_for_tests(),
+        0,
+        "by-ids COUNT shape should not emit PK-cardinality fast-path markers",
     );
 }
 

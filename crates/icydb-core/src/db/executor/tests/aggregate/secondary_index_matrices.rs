@@ -1077,7 +1077,7 @@ fn aggregate_field_extrema_index_leading_min_uses_one_key_probe_hint() {
         crate::db::query::builder::aggregate::min_by("tag"),
     );
     assert!(route.field_min_fast_path_eligible());
-    assert_eq!(route.secondary_extrema_probe_fetch_hint(), Some(1));
+    assert_eq!(route.aggregate_seek_fetch_hint(), Some(1));
 
     let (min_by_tag, scanned_min_by_tag) =
         capture_rows_scanned_for_entity(IndexedMetricsEntity::PATH, || {
@@ -1126,7 +1126,7 @@ fn aggregate_field_extrema_unique_index_leading_max_uses_one_key_probe_hint() {
             crate::db::query::builder::aggregate::max_by("code"),
         );
     assert!(route.field_max_fast_path_eligible());
-    assert_eq!(route.secondary_extrema_probe_fetch_hint(), Some(1));
+    assert_eq!(route.aggregate_seek_fetch_hint(), Some(1));
 
     let (max_by_code, scanned_max_by_code) =
         capture_rows_scanned_for_entity(UniqueIndexRangeEntity::PATH, || {
