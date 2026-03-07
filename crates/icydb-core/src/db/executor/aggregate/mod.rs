@@ -39,7 +39,7 @@ use crate::{
             ExecutionPreparation,
             load::{ExecutionInputs, LoadExecutor},
             plan_metrics::{record_plan_metrics, record_rows_scanned},
-            route::{ExecutionMode, aggregate_materialized_fold_direction},
+            route::aggregate_materialized_fold_direction,
             validate_executor_plan,
         },
         index::IndexCompilePolicy,
@@ -89,10 +89,7 @@ enum AggregateReducerSelection<E: EntityKind + EntityValue> {
 impl<'a> AggregateReducerDispatch<'a> {
     // Derive one reducer adapter from a validated aggregate descriptor.
     fn from_descriptor(descriptor: &'a AggregateExecutionDescriptor) -> Self {
-        if matches!(
-            descriptor.route_plan.execution_mode,
-            ExecutionMode::Materialized
-        ) {
+        if descriptor.route_plan.shape().is_materialized() {
             return Self::Materialized {
                 aggregate: &descriptor.aggregate,
             };

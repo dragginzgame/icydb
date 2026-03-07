@@ -473,6 +473,114 @@ fn explain_grouped_hash_distinct_projection_shape_is_frozen() {
     );
 }
 
+fn grouped_explain_plan_snapshot(explain: &ExplainPlan) -> String {
+    format!(
+        concat!(
+            "mode={:?}\n",
+            "access={:?}\n",
+            "predicate={:?}\n",
+            "order_by={:?}\n",
+            "distinct={}\n",
+            "grouping={:?}\n",
+            "order_pushdown={:?}\n",
+            "page={:?}\n",
+            "delete_limit={:?}\n",
+            "consistency={:?}",
+        ),
+        explain.mode(),
+        explain.access(),
+        explain.predicate(),
+        explain.order_by(),
+        explain.distinct(),
+        explain.grouping(),
+        explain.order_pushdown(),
+        explain.page(),
+        explain.delete_limit(),
+        explain.consistency(),
+    )
+}
+
+#[test]
+fn explain_grouped_plan_snapshot_for_ordered_having_shape_is_stable() {
+    let group_field = FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
+        .expect("group field should resolve");
+    let grouped = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: PUSHDOWN_INDEX,
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    )
+    .into_grouped_with_having(
+        GroupSpec {
+            group_fields: vec![group_field],
+            aggregates: vec![GroupAggregateSpec {
+                kind: AggregateKind::Count,
+                target_field: None,
+                distinct: false,
+            }],
+            execution: GroupedExecutionConfig::with_hard_limits(12, 4096),
+        },
+        Some(GroupHavingSpec {
+            clauses: vec![GroupHavingClause {
+                symbol: GroupHavingSymbol::AggregateIndex(0),
+                op: CompareOp::Gt,
+                value: Value::Uint(1),
+            }],
+        }),
+    );
+
+    let actual = grouped_explain_plan_snapshot(&grouped.explain());
+    let expected = "mode=Load(LoadSpec { limit: None, offset: 0 })
+access=IndexPrefix { name: \"explain::pushdown_tag\", fields: [\"tag\"], prefix_len: 0, values: [] }
+predicate=None
+order_by=None
+distinct=false
+grouping=Grouped { strategy: OrderedGroup, group_fields: [ExplainGroupField { slot_index: 1, field: \"tag\" }], aggregates: [ExplainGroupAggregate { kind: Count, target_field: None, distinct: false }], having: Some(ExplainGroupHaving { clauses: [ExplainGroupHavingClause { symbol: AggregateIndex { index: 0 }, op: Gt, value: Uint(1) }] }), max_groups: 12, max_group_bytes: 4096 }
+order_pushdown=MissingModelContext
+page=None
+delete_limit=None
+consistency=Ignore";
+
+    assert_eq!(
+        actual, expected,
+        "ordered-grouped explain-plan snapshot drifted",
+    );
+}
+
+#[test]
+fn explain_grouped_plan_snapshot_for_hash_distinct_shape_is_stable() {
+    let group_field = FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "rank")
+        .expect("group field should resolve");
+    let grouped = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+        .into_grouped(GroupSpec {
+            group_fields: vec![group_field],
+            aggregates: vec![GroupAggregateSpec {
+                kind: AggregateKind::Count,
+                target_field: None,
+                distinct: true,
+            }],
+            execution: GroupedExecutionConfig::with_hard_limits(25, 16_384),
+        });
+
+    let actual = grouped_explain_plan_snapshot(&grouped.explain());
+    let expected = "mode=Load(LoadSpec { limit: None, offset: 0 })
+access=FullScan
+predicate=None
+order_by=None
+distinct=false
+grouping=Grouped { strategy: HashGroup, group_fields: [ExplainGroupField { slot_index: 2, field: \"rank\" }], aggregates: [ExplainGroupAggregate { kind: Count, target_field: None, distinct: true }], having: None, max_groups: 25, max_group_bytes: 16384 }
+order_pushdown=MissingModelContext
+page=None
+delete_limit=None
+consistency=Ignore";
+
+    assert_eq!(
+        actual, expected,
+        "hash-grouped explain-plan snapshot drifted",
+    );
+}
+
 #[test]
 fn explain_global_distinct_sum_projection_is_reported() {
     let grouped = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
@@ -882,5 +990,167 @@ fn execution_descriptor_canonical_json_shape_is_stable() {
     assert_eq!(
         json, expected,
         "canonical execution-node JSON shape drifted",
+    );
+}
+
+fn aggregate_terminal_plan_snapshot(plan: &ExplainAggregateTerminalPlan) -> String {
+    let execution = plan.execution();
+    let node = plan.execution_node_descriptor();
+    let descriptor_json = node.render_json_canonical();
+
+    format!(
+        concat!(
+            "terminal={:?}\n",
+            "route={:?}\n",
+            "query_access={:?}\n",
+            "query_order_by={:?}\n",
+            "query_page={:?}\n",
+            "query_grouping={:?}\n",
+            "query_pushdown={:?}\n",
+            "query_consistency={:?}\n",
+            "execution_aggregation={:?}\n",
+            "execution_mode={:?}\n",
+            "execution_ordering_source={:?}\n",
+            "execution_limit={:?}\n",
+            "execution_cursor={}\n",
+            "execution_covering_projection={}\n",
+            "execution_node_properties={:?}\n",
+            "execution_node_json={}",
+        ),
+        plan.terminal(),
+        plan.route(),
+        plan.query().access(),
+        plan.query().order_by(),
+        plan.query().page(),
+        plan.query().grouping(),
+        plan.query().order_pushdown(),
+        plan.query().consistency(),
+        execution.aggregation(),
+        execution.execution_mode(),
+        execution.ordering_source(),
+        execution.limit(),
+        execution.cursor(),
+        execution.covering_projection(),
+        execution.node_properties(),
+        descriptor_json,
+    )
+}
+
+#[test]
+fn explain_aggregate_terminal_plan_snapshot_seek_route_is_stable() {
+    // Phase 1: build a deterministic index-prefix query explain payload.
+    let mut plan: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
+        AccessPath::IndexPrefix {
+            index: PUSHDOWN_INDEX,
+            values: vec![Value::Text("alpha".to_string())],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            ("tag".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    let query_explain = plan.explain();
+
+    // Phase 2: build one seek-route execution descriptor and snapshot the whole payload.
+    let mut node_properties = BTreeMap::new();
+    node_properties.insert("fetch".to_string(), Value::from(1_u64));
+    let terminal_plan = ExplainAggregateTerminalPlan::new(
+        query_explain,
+        AggregateKind::Min,
+        ExplainExecutionDescriptor {
+            access_strategy: ExplainAccessPath::IndexPrefix {
+                name: "explain::pushdown_tag",
+                fields: vec!["tag"],
+                prefix_len: 1,
+                values: vec![Value::Text("alpha".to_string())],
+            },
+            covering_projection: false,
+            aggregation: AggregateKind::Min,
+            execution_mode: ExplainExecutionMode::Materialized,
+            ordering_source: ExplainExecutionOrderingSource::IndexSeekFirst { fetch: 1 },
+            limit: None,
+            cursor: false,
+            node_properties,
+        },
+    );
+
+    let actual = aggregate_terminal_plan_snapshot(&terminal_plan);
+    let expected = "terminal=Min
+route=IndexSeekFirst { fetch: 1 }
+query_access=IndexPrefix { name: \"explain::pushdown_tag\", fields: [\"tag\"], prefix_len: 1, values: [Text(\"alpha\")] }
+query_order_by=Fields([ExplainOrder { field: \"tag\", direction: Asc }, ExplainOrder { field: \"id\", direction: Asc }])
+query_page=None
+query_grouping=None
+query_pushdown=MissingModelContext
+query_consistency=Ignore
+execution_aggregation=Min
+execution_mode=Materialized
+execution_ordering_source=IndexSeekFirst { fetch: 1 }
+execution_limit=None
+execution_cursor=false
+execution_covering_projection=false
+execution_node_properties={\"fetch\": Uint(1)}
+execution_node_json={\"node_type\":\"AggregateSeekFirst\",\"execution_mode\":\"Materialized\",\"access_strategy\":{\"type\":\"IndexPrefix\",\"name\":\"explain::pushdown_tag\",\"fields\":[\"tag\"],\"prefix_len\":1,\"values\":[\"Text(\\\"alpha\\\")\"]},\"predicate_pushdown\":null,\"residual_predicate\":null,\"projection\":null,\"ordering_source\":\"IndexSeekFirst\",\"limit\":null,\"cursor\":false,\"covering_scan\":false,\"rows_expected\":null,\"children\":[],\"node_properties\":{\"fetch\":\"Uint(1)\"}}";
+
+    assert_eq!(
+        actual, expected,
+        "aggregate terminal seek-route explain snapshot drifted",
+    );
+}
+
+#[test]
+fn explain_aggregate_terminal_plan_snapshot_standard_route_is_stable() {
+    // Phase 1: build a deterministic full-scan query explain payload.
+    let mut plan: AccessPlannedQuery<Value> =
+        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
+    });
+    plan.scalar_plan_mut().page = Some(crate::db::query::plan::PageSpec {
+        limit: Some(3),
+        offset: 1,
+    });
+    let query_explain = plan.explain();
+
+    // Phase 2: build one standard-route execution descriptor and snapshot the whole payload.
+    let terminal_plan = ExplainAggregateTerminalPlan::new(
+        query_explain,
+        AggregateKind::Exists,
+        ExplainExecutionDescriptor {
+            access_strategy: ExplainAccessPath::FullScan,
+            covering_projection: false,
+            aggregation: AggregateKind::Exists,
+            execution_mode: ExplainExecutionMode::Streaming,
+            ordering_source: ExplainExecutionOrderingSource::AccessOrder,
+            limit: Some(3),
+            cursor: true,
+            node_properties: BTreeMap::new(),
+        },
+    );
+
+    let actual = aggregate_terminal_plan_snapshot(&terminal_plan);
+    let expected = "terminal=Exists
+route=Standard
+query_access=FullScan
+query_order_by=Fields([ExplainOrder { field: \"id\", direction: Asc }])
+query_page=Page { limit: Some(3), offset: 1 }
+query_grouping=None
+query_pushdown=MissingModelContext
+query_consistency=Ignore
+execution_aggregation=Exists
+execution_mode=Streaming
+execution_ordering_source=AccessOrder
+execution_limit=Some(3)
+execution_cursor=true
+execution_covering_projection=false
+execution_node_properties={}
+execution_node_json={\"node_type\":\"AggregateExists\",\"execution_mode\":\"Streaming\",\"access_strategy\":{\"type\":\"FullScan\"},\"predicate_pushdown\":null,\"residual_predicate\":null,\"projection\":null,\"ordering_source\":\"AccessOrder\",\"limit\":3,\"cursor\":true,\"covering_scan\":false,\"rows_expected\":null,\"children\":[],\"node_properties\":{}}";
+
+    assert_eq!(
+        actual, expected,
+        "aggregate terminal standard-route explain snapshot drifted",
     );
 }

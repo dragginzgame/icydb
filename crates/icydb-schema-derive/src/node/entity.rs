@@ -437,3 +437,108 @@ impl ToTokens for Entity {
         tokens.extend(self.all_tokens());
     }
 }
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::Entity;
+    use crate::node::{
+        Def, Field, FieldList, Index, Item, PrimaryKey, PrimaryKeySource, Type, ValidateNode, Value,
+    };
+    use icydb_schema::types::Primitive;
+    use quote::format_ident;
+
+    fn scalar_field(ident: &str) -> Field {
+        Field {
+            ident: format_ident!("{ident}"),
+            value: Value {
+                opt: false,
+                many: false,
+                item: Item {
+                    primitive: Some(Primitive::Ulid),
+                    ..Item::default()
+                },
+            },
+            default: None,
+            is_system: false,
+        }
+    }
+
+    fn many_scalar_field(ident: &str) -> Field {
+        Field {
+            ident: format_ident!("{ident}"),
+            value: Value {
+                opt: false,
+                many: true,
+                item: Item {
+                    primitive: Some(Primitive::Text),
+                    ..Item::default()
+                },
+            },
+            default: None,
+            is_system: false,
+        }
+    }
+
+    fn entity_with_fields_and_indexes(fields: Vec<Field>, indexes: Vec<Index>) -> Entity {
+        Entity {
+            def: Def::new(
+                syn::parse_quote!(
+                    struct TestEntity;
+                ),
+                None,
+            ),
+            store: syn::parse_quote!(UiDataStore),
+            primary_key: PrimaryKey {
+                field: format_ident!("id"),
+                source: PrimaryKeySource::Internal,
+            },
+            name: None,
+            indexes,
+            fields: FieldList { fields },
+            ty: Type::default(),
+            traits: crate::trait_kind::TraitBuilder::default(),
+        }
+    }
+
+    #[test]
+    fn validate_rejects_index_field_not_found() {
+        let entity = entity_with_fields_and_indexes(
+            vec![scalar_field("id")],
+            vec![Index {
+                fields: vec![format_ident!("missing_field")],
+                unique: false,
+            }],
+        );
+        let err = entity
+            .validate()
+            .expect_err("missing index field should fail entity validation");
+        assert!(
+            err.to_string()
+                .contains("index field 'missing_field' not found"),
+            "unexpected validation error: {err}",
+        );
+    }
+
+    #[test]
+    fn validate_rejects_many_cardinality_index_field() {
+        let entity = entity_with_fields_and_indexes(
+            vec![scalar_field("id"), many_scalar_field("tags")],
+            vec![Index {
+                fields: vec![format_ident!("tags")],
+                unique: false,
+            }],
+        );
+        let err = entity
+            .validate()
+            .expect_err("indexing many-cardinality fields should fail");
+        assert!(
+            err.to_string()
+                .contains("cannot add an index field with many cardinality"),
+            "unexpected validation error: {err}",
+        );
+    }
+}

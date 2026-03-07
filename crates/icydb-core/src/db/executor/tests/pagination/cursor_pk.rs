@@ -1797,3 +1797,85 @@ fn load_cursor_rejects_signature_mismatch() {
         "planning should reject plan-signature mismatch"
     );
 }
+
+#[test]
+fn load_cursor_rejects_signature_mismatch_between_pk_fast_and_by_ids_shapes() {
+    setup_pagination_test();
+
+    let save = SaveExecutor::<SimpleEntity>::new(DB, false);
+    let keys = [5_u128, 1_u128, 4_u128, 2_u128, 3_u128];
+    for id in keys {
+        save.insert(SimpleEntity {
+            id: Ulid::from_u128(id),
+        })
+        .expect("save should succeed");
+    }
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    // Phase 1: capture one cursor from a PK fast-path shape and prove boundary parity.
+    let fast_seed_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+        .order_by("id")
+        .limit(2)
+        .offset(1)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("fast seed plan should build");
+    let fast_seed_page = load
+        .execute_paged_with_cursor(fast_seed_plan, None)
+        .expect("fast seed page should execute");
+    let fast_cursor = fast_seed_page
+        .next_cursor
+        .as_ref()
+        .expect("fast seed page should emit continuation cursor");
+
+    let fallback_seed_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+        .by_ids(keys.into_iter().map(Ulid::from_u128))
+        .order_by("id")
+        .limit(2)
+        .offset(1)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("fallback seed plan should build");
+    let fallback_seed_page = load
+        .execute_paged_with_cursor(fallback_seed_plan, None)
+        .expect("fallback seed page should execute");
+    let fallback_cursor = fallback_seed_page
+        .next_cursor
+        .as_ref()
+        .expect("fallback seed page should emit continuation cursor");
+    assert_eq!(
+        fast_cursor.boundary(),
+        fallback_cursor.boundary(),
+        "fast and fallback cursor boundaries should match for the same ordered window",
+    );
+
+    // Phase 2: enforce signature contract across different access shapes.
+    let fallback_resume_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+        .by_ids(keys.into_iter().map(Ulid::from_u128))
+        .order_by("id")
+        .limit(2)
+        .offset(1)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("fallback resume plan should build");
+    let err = fallback_resume_plan
+        .prepare_cursor(Some(
+            fast_cursor
+                .encode()
+                .expect("continuation cursor should serialize")
+                .as_slice(),
+        ))
+        .expect_err("cursor from a different access-shape signature should be rejected");
+    assert!(
+        matches!(
+            err,
+            crate::db::executor::ExecutorPlanError::Cursor(inner)
+                if matches!(
+                    inner.as_ref(),
+                    crate::db::cursor::CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+                )
+        ),
+        "cross-shape cursor replay should fail with signature mismatch",
+    );
+}

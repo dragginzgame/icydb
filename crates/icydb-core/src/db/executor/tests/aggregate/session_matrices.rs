@@ -383,6 +383,128 @@ fn session_load_new_field_aggregates_match_execute() {
     );
 }
 
+fn session_aggregate_terminal_plan_snapshot(
+    plan: &crate::db::ExplainAggregateTerminalPlan,
+) -> String {
+    let execution = plan.execution();
+    let node = plan.execution_node_descriptor();
+    let descriptor_json = node.render_json_canonical();
+
+    format!(
+        concat!(
+            "terminal={:?}\n",
+            "route={:?}\n",
+            "query_access={:?}\n",
+            "query_order_by={:?}\n",
+            "query_page={:?}\n",
+            "query_grouping={:?}\n",
+            "query_pushdown={:?}\n",
+            "query_consistency={:?}\n",
+            "execution_aggregation={:?}\n",
+            "execution_mode={:?}\n",
+            "execution_ordering_source={:?}\n",
+            "execution_limit={:?}\n",
+            "execution_cursor={}\n",
+            "execution_covering_projection={}\n",
+            "execution_node_properties={:?}\n",
+            "execution_node_json={}",
+        ),
+        plan.terminal(),
+        plan.route(),
+        plan.query().access(),
+        plan.query().order_by(),
+        plan.query().page(),
+        plan.query().grouping(),
+        plan.query().order_pushdown(),
+        plan.query().consistency(),
+        execution.aggregation(),
+        execution.execution_mode(),
+        execution.ordering_source(),
+        execution.limit(),
+        execution.cursor(),
+        execution.covering_projection(),
+        execution.node_properties(),
+        descriptor_json,
+    )
+}
+
+#[test]
+fn session_load_terminal_explain_plan_snapshots_for_seek_and_standard_routes_are_stable() {
+    // Phase 1: snapshot a deterministic seek-route terminal explain payload.
+    seed_pushdown_entities(&[
+        (9_811, 7, 10),
+        (9_812, 7, 20),
+        (9_813, 7, 30),
+        (9_814, 8, 99),
+    ]);
+    let session = DbSession::new(DB);
+    let min_terminal_plan = session
+        .load::<PushdownParityEntity>()
+        .filter(u32_eq_predicate("group", 7))
+        .order_by("rank")
+        .order_by("id")
+        .explain_min()
+        .expect("session explain_min snapshot should succeed");
+
+    let min_actual = session_aggregate_terminal_plan_snapshot(&min_terminal_plan);
+    let min_expected = "terminal=Min
+route=IndexSeekFirst { fetch: 1 }
+query_access=FullScan
+query_order_by=Fields([ExplainOrder { field: \"rank\", direction: Asc }, ExplainOrder { field: \"id\", direction: Asc }])
+query_page=None
+query_grouping=None
+query_pushdown=MissingModelContext
+query_consistency=Ignore
+execution_aggregation=Min
+execution_mode=Materialized
+execution_ordering_source=IndexSeekFirst { fetch: 1 }
+execution_limit=None
+execution_cursor=false
+execution_covering_projection=false
+execution_node_properties={\"fetch\": Uint(1)}
+execution_node_json={\"node_type\":\"AggregateSeekFirst\",\"execution_mode\":\"Materialized\",\"access_strategy\":{\"type\":\"FullScan\"},\"predicate_pushdown\":null,\"residual_predicate\":null,\"projection\":null,\"ordering_source\":\"IndexSeekFirst\",\"limit\":null,\"cursor\":false,\"covering_scan\":false,\"rows_expected\":null,\"children\":[],\"node_properties\":{\"fetch\":\"Uint(1)\"}}";
+    assert_eq!(
+        min_actual, min_expected,
+        "seek-route terminal explain snapshot drifted: actual={min_actual}",
+    );
+
+    // Phase 2: snapshot a deterministic standard-route terminal explain payload.
+    seed_simple_entities(&[9_821, 9_822]);
+    let simple_session = DbSession::new(DB);
+    let exists_terminal_plan = simple_session
+        .load::<SimpleEntity>()
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "id",
+            CompareOp::Eq,
+            Value::Ulid(Ulid::from_u128(9_821)),
+            CoercionId::Strict,
+        )))
+        .explain_exists()
+        .expect("session explain_exists snapshot should succeed");
+
+    let exists_actual = session_aggregate_terminal_plan_snapshot(&exists_terminal_plan);
+    let exists_expected = "terminal=Exists
+route=Standard
+query_access=ByKey { key: Ulid(Ulid(Ulid(9821))) }
+query_order_by=None
+query_page=None
+query_grouping=None
+query_pushdown=MissingModelContext
+query_consistency=Ignore
+execution_aggregation=Exists
+execution_mode=Streaming
+execution_ordering_source=AccessOrder
+execution_limit=None
+execution_cursor=false
+execution_covering_projection=false
+execution_node_properties={}
+execution_node_json={\"node_type\":\"AggregateExists\",\"execution_mode\":\"Streaming\",\"access_strategy\":{\"type\":\"ByKey\",\"key\":\"Ulid(Ulid(Ulid(9821)))\"},\"predicate_pushdown\":null,\"residual_predicate\":null,\"projection\":null,\"ordering_source\":\"AccessOrder\",\"limit\":null,\"cursor\":false,\"covering_scan\":false,\"rows_expected\":null,\"children\":[],\"node_properties\":{}}";
+    assert_eq!(
+        exists_actual, exists_expected,
+        "standard-route terminal explain snapshot drifted: actual={exists_actual}",
+    );
+}
+
 #[test]
 #[expect(clippy::too_many_lines)]
 fn session_load_terminal_explain_projects_seek_labels_for_min_and_max() {

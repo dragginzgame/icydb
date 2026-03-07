@@ -12,8 +12,8 @@ use crate::{
             AccessExecutionDescriptor, AccessStreamBindings, ExecutionOptimization, ExecutionPlan,
             ExecutionPreparation, ExecutionTrace, OrderedKeyStream, OrderedKeyStreamBox,
             route::{
-                ExecutionMode, FastPathOrder, RoutedKeyStreamRequest,
-                ensure_load_fast_path_spec_arity, try_first_verified_fast_path_hit,
+                FastPathOrder, RoutedKeyStreamRequest, ensure_load_fast_path_spec_arity,
+                try_first_verified_fast_path_hit,
             },
         },
         index::{IndexCompilePolicy, compile_index_program, predicate::IndexPredicateExecution},
@@ -305,11 +305,11 @@ where
                 });
 
         // Phase 1: evaluate fast paths only when routing selected streaming mode.
-        let fast_path_decision = match route_plan.execution_mode {
-            ExecutionMode::Streaming => {
-                Self::evaluate_fast_path(inputs, route_plan, index_predicate_execution)?
-            }
-            ExecutionMode::Materialized => FastPathDecision::None,
+        let route_shape = route_plan.shape();
+        let fast_path_decision = if route_shape.is_streaming() {
+            Self::evaluate_fast_path(inputs, route_plan, index_predicate_execution)?
+        } else {
+            FastPathDecision::None
         };
         let resolved = match fast_path_decision {
             FastPathDecision::Hit(fast) => ResolvedExecutionKeyStream::new(

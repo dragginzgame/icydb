@@ -424,6 +424,82 @@ fn load_index_pushdown_and_fallback_resume_equivalently_from_shared_boundary() {
 }
 
 #[test]
+fn load_cursor_rejects_signature_mismatch_between_pushdown_and_fallback_shapes() {
+    setup_pagination_test();
+
+    let rows = pushdown_rows_with_group9(13_500);
+    seed_pushdown_rows(&rows);
+    let group7_ids = pushdown_group_ids(&rows, 7);
+
+    let predicate = pushdown_group_predicate(7);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    // Phase 1: capture one pushdown cursor and prove fallback boundary parity.
+    let pushdown_seed_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate)
+        .order_by("rank")
+        .limit(2)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("pushdown seed plan should build");
+    let pushdown_seed_page = load
+        .execute_paged_with_cursor(pushdown_seed_plan, None)
+        .expect("pushdown seed page should execute");
+    let pushdown_cursor = pushdown_seed_page
+        .next_cursor
+        .as_ref()
+        .expect("pushdown seed page should emit continuation cursor");
+
+    let fallback_seed_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .by_ids(group7_ids.iter().copied())
+        .order_by("rank")
+        .limit(2)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("fallback seed plan should build");
+    let fallback_seed_page = load
+        .execute_paged_with_cursor(fallback_seed_plan, None)
+        .expect("fallback seed page should execute");
+    let fallback_cursor = fallback_seed_page
+        .next_cursor
+        .as_ref()
+        .expect("fallback seed page should emit continuation cursor");
+    assert_eq!(
+        pushdown_cursor.boundary(),
+        fallback_cursor.boundary(),
+        "pushdown and fallback cursor boundaries should match for the same ordered window",
+    );
+
+    // Phase 2: enforce signature contract across pushdown and fallback shapes.
+    let fallback_resume_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .by_ids(group7_ids.iter().copied())
+        .order_by("rank")
+        .limit(2)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("fallback resume plan should build");
+    let err = fallback_resume_plan
+        .prepare_cursor(Some(
+            pushdown_cursor
+                .encode()
+                .expect("continuation cursor should serialize")
+                .as_slice(),
+        ))
+        .expect_err("cursor from a different access-shape signature should be rejected");
+    assert!(
+        matches!(
+            err,
+            crate::db::executor::ExecutorPlanError::Cursor(inner)
+                if matches!(
+                    inner.as_ref(),
+                    crate::db::cursor::CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+                )
+        ),
+        "pushdown/fallback cross-shape cursor replay should fail with signature mismatch",
+    );
+}
+
+#[test]
 fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
     setup_pagination_test();
 
@@ -1095,6 +1171,329 @@ fn load_index_range_limit_pushdown_trace_reports_limited_access_rows_for_desc_el
         Some(3),
         "descending limit=2 index-range pushdown should scan only offset+limit+1 rows in access phase"
     );
+}
+
+#[test]
+fn load_index_range_limit_pushdown_continuation_replay_matches_fallback_for_asc_and_desc() {
+    setup_pagination_test();
+
+    let rows = [
+        (35_081, 5, "t5-outside"),
+        (35_082, 10, "t10-a"),
+        (35_083, 15, "t15"),
+        (35_084, 20, "t20"),
+        (35_085, 25, "t25"),
+        (35_086, 30, "t30"),
+        (35_087, 35, "t35"),
+        (35_088, 50, "t50-outside"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, true);
+    let cases = [("asc", false), ("desc", true)];
+
+    for (case_name, descending) in cases {
+        // Phase 1: build equivalent fast and fallback plans for the same ordered page window.
+        let direction = if descending {
+            OrderDirection::Desc
+        } else {
+            OrderDirection::Asc
+        };
+        let build_fast_plan = || {
+            let mut logical = AccessPlannedQuery::new(
+                AccessPath::index_range(
+                    INDEXED_METRICS_INDEX_MODELS[0],
+                    Vec::new(),
+                    Bound::Included(Value::Uint(10)),
+                    Bound::Excluded(Value::Uint(50)),
+                ),
+                MissingRowPolicy::Ignore,
+            );
+            logical.scalar_plan_mut().order = Some(OrderSpec {
+                fields: vec![
+                    ("tag".to_string(), direction),
+                    ("id".to_string(), direction),
+                ],
+            });
+            logical.scalar_plan_mut().page = Some(PageSpec {
+                limit: Some(2),
+                offset: 0,
+            });
+            ExecutablePlan::<IndexedMetricsEntity>::new(logical)
+        };
+        let build_fallback_plan = || {
+            let mut logical =
+                AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore);
+            logical.scalar_plan_mut().predicate = Some(Predicate::And(vec![
+                strict_compare_predicate("tag", CompareOp::Gte, Value::Uint(10)),
+                strict_compare_predicate("tag", CompareOp::Lt, Value::Uint(50)),
+            ]));
+            logical.scalar_plan_mut().order = Some(OrderSpec {
+                fields: vec![
+                    ("tag".to_string(), direction),
+                    ("id".to_string(), direction),
+                ],
+            });
+            logical.scalar_plan_mut().page = Some(PageSpec {
+                limit: Some(2),
+                offset: 0,
+            });
+            ExecutablePlan::<IndexedMetricsEntity>::new(logical)
+        };
+
+        // Phase 2: compare first page and continuation boundary parity.
+        let (fast_page1, fast_trace1) = load
+            .execute_paged_with_cursor_traced(build_fast_plan(), None)
+            .expect("fast limit-pushdown page1 should execute");
+        let fast_trace1 = fast_trace1.expect("debug trace should be present");
+        let (fallback_page1, fallback_trace1) = load
+            .execute_paged_with_cursor_traced(build_fallback_plan(), None)
+            .expect("fallback page1 should execute");
+        let fallback_trace1 = fallback_trace1.expect("debug trace should be present");
+        assert_eq!(
+            fast_trace1.optimization(),
+            Some(ExecutionOptimization::IndexRangeLimitPushdown),
+            "eligible page1 should report index-range limit pushdown for case={case_name}",
+        );
+        assert_eq!(
+            fallback_trace1.optimization(),
+            None,
+            "fallback page1 should remain non-optimized for case={case_name}",
+        );
+        assert_eq!(
+            ids_from_items(&fast_page1.items),
+            ids_from_items(&fallback_page1.items),
+            "limit-pushdown page1 rows should match fallback for case={case_name}",
+        );
+        assert_eq!(
+            fast_page1.next_cursor.is_some(),
+            fallback_page1.next_cursor.is_some(),
+            "limit-pushdown page1 continuation presence should match fallback for case={case_name}",
+        );
+        let shared_boundary = fast_page1
+            .next_cursor
+            .as_ref()
+            .expect("page1 should emit continuation cursor for this matrix")
+            .boundary()
+            .clone();
+        let fallback_page1_boundary = fallback_page1
+            .next_cursor
+            .as_ref()
+            .expect("fallback page1 should emit continuation cursor for this matrix")
+            .boundary()
+            .clone();
+        assert_eq!(
+            shared_boundary, fallback_page1_boundary,
+            "page1 continuation boundary should match fallback for case={case_name}",
+        );
+
+        // Phase 3: replay both shapes from the shared boundary and compare parity again.
+        let (fast_page2, _fast_trace2) = load
+            .execute_paged_with_cursor_traced(build_fast_plan(), Some(shared_boundary.clone()))
+            .expect("fast continuation replay should execute");
+        let (fallback_page2, _fallback_trace2) = load
+            .execute_paged_with_cursor_traced(build_fallback_plan(), Some(shared_boundary))
+            .expect("fallback continuation replay should execute");
+        assert_eq!(
+            ids_from_items(&fast_page2.items),
+            ids_from_items(&fallback_page2.items),
+            "limit-pushdown continuation replay rows should match fallback for case={case_name}",
+        );
+        assert_eq!(
+            fast_page2.next_cursor.is_some(),
+            fallback_page2.next_cursor.is_some(),
+            "limit-pushdown continuation replay cursor presence should match fallback for case={case_name}",
+        );
+        if let (Some(fast_cursor), Some(fallback_cursor)) =
+            (&fast_page2.next_cursor, &fallback_page2.next_cursor)
+        {
+            assert_eq!(
+                fast_cursor.boundary().clone(),
+                fallback_cursor.boundary().clone(),
+                "limit-pushdown continuation replay boundary should match fallback for case={case_name}",
+            );
+        }
+    }
+}
+
+#[test]
+fn load_index_range_limit_pushdown_token_replay_matches_fallback_for_asc_and_desc() {
+    setup_pagination_test();
+
+    let rows = [
+        (35_091, 5, "t5-outside"),
+        (35_092, 10, "t10-a"),
+        (35_093, 15, "t15"),
+        (35_094, 20, "t20"),
+        (35_095, 25, "t25"),
+        (35_096, 30, "t30"),
+        (35_097, 35, "t35"),
+        (35_098, 50, "t50-outside"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, true);
+    let cases = [("asc", false), ("desc", true)];
+
+    for (case_name, descending) in cases {
+        // Phase 1: build equivalent fast and fallback plans for token replay parity checks.
+        let direction = if descending {
+            OrderDirection::Desc
+        } else {
+            OrderDirection::Asc
+        };
+        let build_fast_plan = || {
+            let mut logical = AccessPlannedQuery::new(
+                AccessPath::index_range(
+                    INDEXED_METRICS_INDEX_MODELS[0],
+                    Vec::new(),
+                    Bound::Included(Value::Uint(10)),
+                    Bound::Excluded(Value::Uint(50)),
+                ),
+                MissingRowPolicy::Ignore,
+            );
+            logical.scalar_plan_mut().order = Some(OrderSpec {
+                fields: vec![
+                    ("tag".to_string(), direction),
+                    ("id".to_string(), direction),
+                ],
+            });
+            logical.scalar_plan_mut().page = Some(PageSpec {
+                limit: Some(2),
+                offset: 0,
+            });
+            ExecutablePlan::<IndexedMetricsEntity>::new(logical)
+        };
+        let build_fallback_plan = || {
+            let mut logical =
+                AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore);
+            logical.scalar_plan_mut().predicate = Some(Predicate::And(vec![
+                strict_compare_predicate("tag", CompareOp::Gte, Value::Uint(10)),
+                strict_compare_predicate("tag", CompareOp::Lt, Value::Uint(50)),
+            ]));
+            logical.scalar_plan_mut().order = Some(OrderSpec {
+                fields: vec![
+                    ("tag".to_string(), direction),
+                    ("id".to_string(), direction),
+                ],
+            });
+            logical.scalar_plan_mut().page = Some(PageSpec {
+                limit: Some(2),
+                offset: 0,
+            });
+            ExecutablePlan::<IndexedMetricsEntity>::new(logical)
+        };
+
+        // Phase 2: collect first-page tokens and lock decode parity with emitted boundaries.
+        let (fast_page1, _fast_trace1) = load
+            .execute_paged_with_cursor_traced(build_fast_plan(), None)
+            .expect("fast token replay page1 should execute");
+        let (fallback_page1, _fallback_trace1) = load
+            .execute_paged_with_cursor_traced(build_fallback_plan(), None)
+            .expect("fallback token replay page1 should execute");
+        let fast_cursor = fast_page1
+            .next_cursor
+            .as_ref()
+            .expect("fast token replay page1 should emit continuation cursor");
+        let fallback_cursor = fallback_page1
+            .next_cursor
+            .as_ref()
+            .expect("fallback token replay page1 should emit continuation cursor");
+        let fast_token = encode_token(
+            fast_cursor,
+            "fast token replay cursor should serialize for replay",
+        );
+        let fallback_token = encode_token(
+            fallback_cursor,
+            "fallback token replay cursor should serialize for replay",
+        );
+        assert_eq!(
+            decode_boundary(
+                fast_token.as_slice(),
+                "fast token replay boundary should decode",
+            ),
+            fast_cursor.boundary().clone(),
+            "fast token replay boundary decode should match emitted boundary for case={case_name}",
+        );
+        assert_eq!(
+            decode_boundary(
+                fallback_token.as_slice(),
+                "fallback token replay boundary should decode",
+            ),
+            fallback_cursor.boundary().clone(),
+            "fallback token replay boundary decode should match emitted boundary for case={case_name}",
+        );
+
+        // Phase 3: replay each shape with its own encoded token and compare row/cursor parity.
+        let fast_page2_plan = build_fast_plan();
+        let fast_page2_boundary = fast_page2_plan
+            .prepare_cursor(Some(fast_token.as_slice()))
+            .expect("fast token replay boundary should prepare");
+        let (fast_page2, _fast_trace2) = load
+            .execute_paged_with_cursor_traced(fast_page2_plan, fast_page2_boundary)
+            .expect("fast token replay continuation should execute");
+
+        let fallback_page2_plan = build_fallback_plan();
+        let fallback_page2_boundary = fallback_page2_plan
+            .prepare_cursor(Some(fallback_token.as_slice()))
+            .expect("fallback token replay boundary should prepare");
+        let (fallback_page2, _fallback_trace2) = load
+            .execute_paged_with_cursor_traced(fallback_page2_plan, fallback_page2_boundary)
+            .expect("fallback token replay continuation should execute");
+
+        assert_eq!(
+            ids_from_items(&fast_page2.items),
+            ids_from_items(&fallback_page2.items),
+            "token replay continuation rows should match fallback for case={case_name}",
+        );
+        assert_eq!(
+            fast_page2.next_cursor.is_some(),
+            fallback_page2.next_cursor.is_some(),
+            "token replay continuation cursor presence should match fallback for case={case_name}",
+        );
+        if let (Some(fast_cursor), Some(fallback_cursor)) =
+            (&fast_page2.next_cursor, &fallback_page2.next_cursor)
+        {
+            assert_eq!(
+                fast_cursor.boundary().clone(),
+                fallback_cursor.boundary().clone(),
+                "token replay continuation boundary should match fallback for case={case_name}",
+            );
+        }
+
+        // Phase 4: enforce shape-signature rejection for cross-shape token replay.
+        let fallback_cross_shape_plan = build_fallback_plan();
+        let fallback_cross_shape_err = fallback_cross_shape_plan
+            .prepare_cursor(Some(fast_token.as_slice()))
+            .expect_err("cross-shape fallback replay should reject fast token");
+        assert!(
+            matches!(
+                fallback_cross_shape_err,
+                crate::db::executor::ExecutorPlanError::Cursor(inner)
+                    if matches!(
+                        inner.as_ref(),
+                        crate::db::cursor::CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+                    )
+            ),
+            "cross-shape fallback token replay should fail with signature mismatch for case={case_name}",
+        );
+
+        let fast_cross_shape_plan = build_fast_plan();
+        let fast_cross_shape_err = fast_cross_shape_plan
+            .prepare_cursor(Some(fallback_token.as_slice()))
+            .expect_err("cross-shape fast replay should reject fallback token");
+        assert!(
+            matches!(
+                fast_cross_shape_err,
+                crate::db::executor::ExecutorPlanError::Cursor(inner)
+                    if matches!(
+                        inner.as_ref(),
+                        crate::db::cursor::CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+                    )
+            ),
+            "cross-shape fast token replay should fail with signature mismatch for case={case_name}",
+        );
+    }
 }
 
 #[test]

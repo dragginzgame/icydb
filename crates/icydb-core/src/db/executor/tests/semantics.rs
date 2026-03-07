@@ -1164,6 +1164,45 @@ fn query_explain_execution_verbose_reports_top_n_seek_hints() {
 }
 
 #[test]
+fn query_explain_execution_verbose_diagnostics_snapshot_for_top_n_seek_shape() {
+    let verbose = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+        .order_by_desc("id")
+        .offset(2)
+        .limit(3)
+        .explain_execution_verbose()
+        .expect("top-n verbose explain snapshot should build");
+
+    let diagnostics = verbose_diagnostics_lines(&verbose);
+    let expected = vec![
+        "diagnostic.route.execution_mode=Streaming",
+        "diagnostic.route.fast_path_order=[PrimaryKey, SecondaryPrefix, IndexRange]",
+        "diagnostic.route.continuation_applied=false",
+        "diagnostic.route.limit=Some(3)",
+        "diagnostic.route.secondary_order_pushdown=not_applicable",
+        "diagnostic.route.top_n_seek=fetch(6)",
+        "diagnostic.route.index_range_limit_pushdown=disabled",
+        "diagnostic.route.predicate_stage=none",
+        "diagnostic.descriptor.has_top_n_seek=true",
+        "diagnostic.descriptor.has_index_range_limit_pushdown=false",
+        "diagnostic.descriptor.has_index_predicate_prefilter=false",
+        "diagnostic.descriptor.has_residual_predicate_filter=false",
+        "diagnostic.plan.mode=Load(LoadSpec { limit: Some(3), offset: 2 })",
+        "diagnostic.plan.order_pushdown=missing_model_context",
+        "diagnostic.plan.distinct=false",
+        "diagnostic.plan.page=Page { limit: Some(3), offset: 2 }",
+        "diagnostic.plan.consistency=Ignore",
+    ]
+    .into_iter()
+    .map(ToOwned::to_owned)
+    .collect::<Vec<_>>();
+
+    assert_eq!(
+        diagnostics, expected,
+        "top-n verbose diagnostics snapshot drifted; ordering and values are part of the explain contract",
+    );
+}
+
+#[test]
 fn query_explain_execution_verbose_reports_index_range_limit_pushdown_hints() {
     let range_predicate = Predicate::And(vec![
         Predicate::Compare(ComparePredicate::with_coercion(
@@ -1209,6 +1248,67 @@ fn query_explain_execution_verbose_reports_index_range_limit_pushdown_hints() {
         diagnostics.get(DIAG_ROUTE_PREDICATE_STAGE),
         Some(&"residual_post_access".to_string()),
         "verbose execution explain should freeze predicate-stage diagnostics",
+    );
+}
+
+#[test]
+fn query_explain_execution_verbose_diagnostics_snapshot_for_index_range_pushdown_shape() {
+    let range_predicate = Predicate::And(vec![
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "code",
+            CompareOp::Gte,
+            Value::Uint(100),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "code",
+            CompareOp::Lt,
+            Value::Uint(200),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "label",
+            CompareOp::Eq,
+            Value::Text("keep".to_string()),
+            CoercionId::Strict,
+        )),
+    ]);
+
+    let verbose = Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
+        .filter(range_predicate)
+        .order_by("code")
+        .order_by("id")
+        .limit(2)
+        .explain_execution_verbose()
+        .expect("index-range verbose explain snapshot should build");
+
+    let diagnostics = verbose_diagnostics_lines(&verbose);
+    let expected = vec![
+        "diagnostic.route.execution_mode=Streaming",
+        "diagnostic.route.fast_path_order=[PrimaryKey, SecondaryPrefix, IndexRange]",
+        "diagnostic.route.continuation_applied=false",
+        "diagnostic.route.limit=Some(2)",
+        "diagnostic.route.secondary_order_pushdown=eligible(index=code_unique,prefix_len=0)",
+        "diagnostic.route.top_n_seek=disabled",
+        "diagnostic.route.index_range_limit_pushdown=fetch(3)",
+        "diagnostic.route.predicate_stage=residual_post_access",
+        "diagnostic.descriptor.has_top_n_seek=false",
+        "diagnostic.descriptor.has_index_range_limit_pushdown=true",
+        "diagnostic.descriptor.has_index_predicate_prefilter=false",
+        "diagnostic.descriptor.has_residual_predicate_filter=true",
+        "diagnostic.plan.mode=Load(LoadSpec { limit: Some(2), offset: 0 })",
+        "diagnostic.plan.order_pushdown=missing_model_context",
+        "diagnostic.plan.distinct=false",
+        "diagnostic.plan.page=Page { limit: Some(2), offset: 0 }",
+        "diagnostic.plan.consistency=Ignore",
+    ]
+    .into_iter()
+    .map(ToOwned::to_owned)
+    .collect::<Vec<_>>();
+
+    assert_eq!(
+        diagnostics, expected,
+        "index-range verbose diagnostics snapshot drifted; ordering and values are part of the explain contract",
     );
 }
 

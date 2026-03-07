@@ -9,7 +9,10 @@ fn route_plan_mutation_is_materialized_with_no_fast_paths_or_hints() {
         LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_mutation(&plan)
             .expect("mutation route plan should build");
 
-    assert_eq!(route_plan.execution_mode, ExecutionMode::Materialized);
+    assert_eq!(
+        route_plan.shape().execution_mode(),
+        ExecutionMode::Materialized
+    );
     assert_eq!(route_plan.fast_path_order(), &MUTATION_FAST_PATH_ORDER);
     assert_eq!(route_plan.direction(), Direction::Asc);
     assert_eq!(route_plan.continuation().mode(), ContinuationMode::Initial);

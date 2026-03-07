@@ -13,7 +13,7 @@ use crate::{
             ExecutionPreparation, LoadExecutor,
             aggregate::AggregateFoldMode,
             continuation::ScalarContinuationContext,
-            route::{AggregateSeekSpec, ExecutionMode, ExecutionRoutePlan},
+            route::{AggregateSeekSpec, ExecutionRoutePlan, ExecutionRouteShape},
         },
         query::{
             builder::AggregateExpr,
@@ -43,9 +43,10 @@ where
     let continuation = ScalarContinuationContext::initial();
     let route_plan =
         LoadExecutor::<E>::build_execution_route_plan_for_load(plan, &continuation, None)?;
+    let route_shape = route_plan.shape();
 
     // Phase 2: seed one root access node from the canonical access plan projection.
-    let execution_mode = explain_execution_mode(route_plan.execution_mode);
+    let execution_mode = explain_execution_mode(route_shape);
     let access_strategy = ExplainAccessRoute::from_access_plan(&plan.access);
     let mut root = access_execution_node_descriptor(access_strategy, execution_mode);
 
@@ -72,9 +73,10 @@ where
     }
 
     if plan.scalar_plan().order.is_some() {
-        let order_node_type = match route_plan.execution_mode {
-            ExecutionMode::Streaming => ExplainExecutionNodeType::OrderByAccessSatisfied,
-            ExecutionMode::Materialized => ExplainExecutionNodeType::OrderByMaterializedSort,
+        let order_node_type = if route_shape.is_streaming() {
+            ExplainExecutionNodeType::OrderByAccessSatisfied
+        } else {
+            ExplainExecutionNodeType::OrderByMaterializedSort
         };
         root.children.push(empty_execution_node_descriptor(
             order_node_type,
@@ -132,12 +134,13 @@ where
     let continuation = ScalarContinuationContext::initial();
     let route_plan =
         LoadExecutor::<E>::build_execution_route_plan_for_load(plan, &continuation, None)?;
+    let route_shape = route_plan.shape();
 
     // Phase 2: emit deterministic route-level diagnostics used by verbose surfaces.
     let mut lines = vec![
         format!(
             "diagnostic.route.execution_mode={:?}",
-            route_plan.execution_mode
+            route_shape.execution_mode()
         ),
         format!(
             "diagnostic.route.fast_path_order={:?}",
@@ -204,6 +207,7 @@ where
             aggregate,
             &execution_preparation,
         );
+    let route_shape = route_plan.shape();
 
     // Phase 2: project route-owned ordering + execution semantics into explain fields.
     let ordering_source = match route_plan.aggregate_seek_spec() {
@@ -213,12 +217,10 @@ where
         Some(AggregateSeekSpec::Last { fetch }) => {
             ExplainExecutionOrderingSource::IndexSeekLast { fetch }
         }
-        None if matches!(route_plan.execution_mode, ExecutionMode::Materialized) => {
-            ExplainExecutionOrderingSource::Materialized
-        }
+        None if route_shape.is_materialized() => ExplainExecutionOrderingSource::Materialized,
         None => ExplainExecutionOrderingSource::AccessOrder,
     };
-    let execution_mode = explain_execution_mode(route_plan.execution_mode);
+    let execution_mode = explain_execution_mode(route_shape);
     let covering_projection =
         aggregate_covering_projection_for_terminal(plan, aggregation, &execution_preparation);
     let node_properties = explain_node_properties_for_route(&route_plan, aggregation);
@@ -461,10 +463,11 @@ where
     }
 }
 
-const fn explain_execution_mode(mode: ExecutionMode) -> ExplainExecutionMode {
-    match mode {
-        ExecutionMode::Streaming => ExplainExecutionMode::Streaming,
-        ExecutionMode::Materialized => ExplainExecutionMode::Materialized,
+const fn explain_execution_mode(route_shape: ExecutionRouteShape) -> ExplainExecutionMode {
+    if route_shape.is_streaming() {
+        ExplainExecutionMode::Streaming
+    } else {
+        ExplainExecutionMode::Materialized
     }
 }
 

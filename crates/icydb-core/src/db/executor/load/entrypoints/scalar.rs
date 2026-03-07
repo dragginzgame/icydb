@@ -11,7 +11,6 @@ use crate::{
                 invariant,
             },
             plan_metrics::record_plan_metrics,
-            route::ExecutionMode,
             validate_executor_plan,
         },
         index::IndexCompilePolicy,
@@ -188,7 +187,7 @@ where
         }
 
         if let Some(top_n_seek_spec) = route_plan.top_n_seek_spec() {
-            if !matches!(route_plan.execution_mode, ExecutionMode::Streaming) {
+            if !route_plan.shape().is_streaming() {
                 return;
             }
             if !route_plan.streaming_access_shape_safe() {

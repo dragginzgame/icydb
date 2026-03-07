@@ -127,11 +127,11 @@ fn runtime_continuation_policy_reference_counts() -> BTreeMap<String, usize> {
 #[test]
 fn runtime_continuation_policy_method_references_stay_within_continuation_boundary() {
     let counts = runtime_continuation_policy_reference_counts();
-    let allowed = "src/db/executor/continuation/mod.rs";
+    let allowed_prefix = "src/db/executor/continuation/";
 
     let violations = counts
         .keys()
-        .filter(|relative| relative.as_str() != allowed)
+        .filter(|relative| !relative.starts_with(allowed_prefix))
         .cloned()
         .collect::<Vec<_>>();
 

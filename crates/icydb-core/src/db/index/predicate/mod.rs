@@ -170,18 +170,12 @@ pub(in crate::db) fn eval_index_execution_on_decoded_key(
     Ok(passed)
 }
 
-/// Encode one literal value to canonical index-component bytes.
-#[must_use]
-pub(in crate::db) fn encode_index_literal(value: &Value) -> Option<Vec<u8>> {
-    let encoded = EncodedValue::try_from_ref(value).ok()?;
-
-    Some(encoded.encoded().to_vec())
-}
-
 /// Build canonical index-component bytes for one literal.
 #[must_use]
 pub(in crate::db) fn literal_index_component_bytes(value: &Value) -> Option<Vec<u8>> {
-    encode_index_literal(value)
+    let encoded = EncodedValue::try_from_ref(value).ok()?;
+
+    Some(encoded.encoded().to_vec())
 }
 
 fn invariant(message: impl Into<String>) -> InternalError {

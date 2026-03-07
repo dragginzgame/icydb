@@ -23,7 +23,8 @@ use crate::{
         cursor::{ContinuationSignature, ContinuationToken, CursorBoundary, CursorBoundarySlot},
         data::DataStore,
         executor::{
-            DeleteExecutor, ExecutionOptimization, LoadExecutor, SaveExecutor, load::PageCursor,
+            DeleteExecutor, ExecutionOptimization, ExecutionOptimizationCounter, LoadExecutor,
+            SaveExecutor, load::PageCursor,
         },
         index::IndexStore,
         predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},

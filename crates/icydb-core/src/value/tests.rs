@@ -529,6 +529,25 @@ fn canonical_cmp_key_matches_canonical_cmp() {
     );
 }
 
+#[test]
+fn canonical_cmp_map_entry_orders_by_key_then_value() {
+    assert_eq!(
+        Value::canonical_cmp_map_entry(&v_txt("a"), &v_u(9), &v_txt("b"), &v_u(1)),
+        Ordering::Less,
+        "map entry comparison must prioritize canonical key ordering",
+    );
+    assert_eq!(
+        Value::canonical_cmp_map_entry(&v_txt("k"), &v_u(1), &v_txt("k"), &v_u(2)),
+        Ordering::Less,
+        "map entry comparison must use canonical value ordering when keys tie",
+    );
+    assert_eq!(
+        Value::canonical_cmp_map_entry(&v_txt("k"), &v_u(2), &v_txt("k"), &v_u(1)),
+        Ordering::Greater,
+        "map entry comparison must keep value tie-break deterministic",
+    );
+}
+
 // ---- list membership ---------------------------------------------------
 
 #[test]

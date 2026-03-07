@@ -543,7 +543,8 @@ where
     }
 
     #[cfg(test)]
-    pub(crate) fn take_covering_index_projection_fast_path_hits_for_tests() -> u64 {
+    pub(in crate::db::executor) fn take_covering_index_projection_fast_path_hits_for_tests() -> u64
+    {
         COVERING_INDEX_PROJECTION_FAST_PATH_HITS.with(|counter| {
             let hits = counter.get();
             counter.set(0);
@@ -552,7 +553,8 @@ where
     }
 
     #[cfg(test)]
-    pub(crate) fn take_covering_constant_projection_fast_path_hits_for_tests() -> u64 {
+    pub(in crate::db::executor) fn take_covering_constant_projection_fast_path_hits_for_tests()
+    -> u64 {
         COVERING_CONSTANT_PROJECTION_FAST_PATH_HITS.with(|counter| {
             let hits = counter.get();
             counter.set(0);

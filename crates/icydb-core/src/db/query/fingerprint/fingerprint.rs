@@ -223,6 +223,30 @@ mod tests {
     }
 
     #[test]
+    fn fingerprint_and_signature_treat_equivalent_decimal_predicate_literals_as_identical() {
+        let predicate_a = Predicate::Compare(ComparePredicate::eq(
+            "rank".to_string(),
+            Value::Decimal(Decimal::new(10, 1)),
+        ));
+        let predicate_b = Predicate::Compare(ComparePredicate::eq(
+            "rank".to_string(),
+            Value::Decimal(Decimal::new(100, 2)),
+        ));
+
+        let mut plan_a: AccessPlannedQuery<Value> = full_scan_query();
+        plan_a.scalar_plan_mut().predicate = Some(predicate_a);
+
+        let mut plan_b: AccessPlannedQuery<Value> = full_scan_query();
+        plan_b.scalar_plan_mut().predicate = Some(predicate_b);
+
+        assert_eq!(plan_a.fingerprint(), plan_b.fingerprint());
+        assert_eq!(
+            plan_a.continuation_signature("tests::Entity"),
+            plan_b.continuation_signature("tests::Entity")
+        );
+    }
+
+    #[test]
     fn fingerprint_is_deterministic_for_by_keys() {
         let a = Ulid::from_u128(1);
         let b = Ulid::from_u128(2);

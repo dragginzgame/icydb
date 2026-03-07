@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ## [0.45.x] - 2026-03-07 - Feature Cleanup
 
 - `0.45.0` starts the feature-cleanup line by tightening internal API boundaries, locking error/serialization contracts, enforcing relation naming/type checks in schema macros, and reducing duplicate planner-vs-executor routing logic without changing query behavior.
+- `0.45.1` continues cleanup by making cursor and EXPLAIN behavior more stable under refactors, consolidating duplicate internal hashing/encoding paths, and splitting large executor modules to make future changes safer.
 
 See detailed breakdown:
 [docs/changelog/0.45.md](docs/changelog/0.45.md)

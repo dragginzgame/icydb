@@ -362,7 +362,9 @@ fn aggregate_bytes_pk_fast_path_emits_hit_marker_only_for_eligible_shapes() {
     seed_simple_entities(&[9_011, 9_012, 9_013, 9_014]);
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
 
-    let _ = LoadExecutor::<SimpleEntity>::take_bytes_pk_fast_path_hits_for_tests();
+    let _ = LoadExecutor::<SimpleEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::BytesPrimaryKeyFastPath,
+    );
     let _eligible_bytes = load
         .bytes(
             Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
@@ -375,12 +377,16 @@ fn aggregate_bytes_pk_fast_path_emits_hit_marker_only_for_eligible_shapes() {
         )
         .expect("eligible bytes fast-path execution should succeed");
     assert_eq!(
-        LoadExecutor::<SimpleEntity>::take_bytes_pk_fast_path_hits_for_tests(),
+        LoadExecutor::<SimpleEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::BytesPrimaryKeyFastPath
+        ),
         1,
         "PK full-scan bytes shape should emit one fast-path hit marker",
     );
 
-    let _ = LoadExecutor::<SimpleEntity>::take_bytes_pk_fast_path_hits_for_tests();
+    let _ = LoadExecutor::<SimpleEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::BytesPrimaryKeyFastPath,
+    );
     let _fallback_bytes = load
         .bytes(
             Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
@@ -391,7 +397,9 @@ fn aggregate_bytes_pk_fast_path_emits_hit_marker_only_for_eligible_shapes() {
         )
         .expect("ineligible bytes fallback execution should succeed");
     assert_eq!(
-        LoadExecutor::<SimpleEntity>::take_bytes_pk_fast_path_hits_for_tests(),
+        LoadExecutor::<SimpleEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::BytesPrimaryKeyFastPath
+        ),
         0,
         "by-id bytes shape should bypass the PK fast-path branch",
     );
@@ -440,7 +448,9 @@ fn aggregate_bytes_key_range_fast_path_emits_hit_marker_only_without_residual_pr
         ExecutablePlan::<SimpleEntity>::new(logical_plan)
     };
 
-    let _ = LoadExecutor::<SimpleEntity>::take_bytes_pk_fast_path_hits_for_tests();
+    let _ = LoadExecutor::<SimpleEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::BytesPrimaryKeyFastPath,
+    );
     let eligible_bytes = load
         .bytes(eligible_plan())
         .expect("eligible key-range bytes fast-path execution should succeed");
@@ -449,12 +459,16 @@ fn aggregate_bytes_key_range_fast_path_emits_hit_marker_only_without_residual_pr
         "eligible key-range bytes fast-path should return a non-zero payload sum",
     );
     assert_eq!(
-        LoadExecutor::<SimpleEntity>::take_bytes_pk_fast_path_hits_for_tests(),
+        LoadExecutor::<SimpleEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::BytesPrimaryKeyFastPath
+        ),
         1,
         "key-range bytes shape without residual predicates should emit one fast-path hit marker",
     );
 
-    let _ = LoadExecutor::<SimpleEntity>::take_bytes_pk_fast_path_hits_for_tests();
+    let _ = LoadExecutor::<SimpleEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::BytesPrimaryKeyFastPath,
+    );
     let fallback_bytes = load
         .bytes(ineligible_plan())
         .expect("residual key-range bytes fallback execution should succeed");
@@ -463,7 +477,9 @@ fn aggregate_bytes_key_range_fast_path_emits_hit_marker_only_without_residual_pr
         "residual key-range bytes fallback should still return payload bytes",
     );
     assert_eq!(
-        LoadExecutor::<SimpleEntity>::take_bytes_pk_fast_path_hits_for_tests(),
+        LoadExecutor::<SimpleEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::BytesPrimaryKeyFastPath
+        ),
         0,
         "residual key-range bytes shape should bypass the PK fast-path branch",
     );
@@ -500,8 +516,12 @@ fn aggregate_bytes_unordered_secondary_stream_fast_path_emits_hit_marker_with_pa
     let expected_bytes =
         persisted_payload_bytes_for_ids::<PushdownParityEntity>(expected_response.ids());
 
-    let _ = LoadExecutor::<PushdownParityEntity>::take_bytes_pk_fast_path_hits_for_tests();
-    let _ = LoadExecutor::<PushdownParityEntity>::take_bytes_stream_fast_path_hits_for_tests();
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::BytesPrimaryKeyFastPath,
+    );
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::BytesStreamFastPath,
+    );
     let bytes = load
         .bytes(build_plan())
         .expect("unordered secondary bytes fast path should succeed");
@@ -510,12 +530,16 @@ fn aggregate_bytes_unordered_secondary_stream_fast_path_emits_hit_marker_with_pa
         "unordered secondary bytes stream fast path should preserve execute() parity",
     );
     assert_eq!(
-        LoadExecutor::<PushdownParityEntity>::take_bytes_pk_fast_path_hits_for_tests(),
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::BytesPrimaryKeyFastPath
+        ),
         0,
         "secondary bytes shape should bypass PK-only bytes fast-path markers",
     );
     assert_eq!(
-        LoadExecutor::<PushdownParityEntity>::take_bytes_stream_fast_path_hits_for_tests(),
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::BytesStreamFastPath
+        ),
         1,
         "unordered secondary bytes shape should emit one stream-fast-path hit marker",
     );
@@ -549,7 +573,9 @@ fn aggregate_bytes_stream_fast_path_bypasses_ordered_secondary_shape() {
         offset: 0,
     });
 
-    let _ = LoadExecutor::<PushdownParityEntity>::take_bytes_stream_fast_path_hits_for_tests();
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::BytesStreamFastPath,
+    );
     let bytes = load
         .bytes(ExecutablePlan::<PushdownParityEntity>::new(logical_plan))
         .expect("ordered secondary bytes execution should succeed");
@@ -558,7 +584,9 @@ fn aggregate_bytes_stream_fast_path_bypasses_ordered_secondary_shape() {
         "ordered secondary bytes fallback should still return persisted payload bytes",
     );
     assert_eq!(
-        LoadExecutor::<PushdownParityEntity>::take_bytes_stream_fast_path_hits_for_tests(),
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::BytesStreamFastPath
+        ),
         0,
         "ordered secondary bytes shape should bypass unordered stream fast-path branch",
     );
@@ -589,8 +617,12 @@ fn aggregate_bytes_ordered_by_ids_stream_fast_path_emits_hit_marker_with_parity(
         .expect("baseline ordered by_ids bytes execute should succeed");
     let expected_bytes = persisted_payload_bytes_for_ids::<SimpleEntity>(expected_response.ids());
 
-    let _ = LoadExecutor::<SimpleEntity>::take_bytes_pk_fast_path_hits_for_tests();
-    let _ = LoadExecutor::<SimpleEntity>::take_bytes_stream_fast_path_hits_for_tests();
+    let _ = LoadExecutor::<SimpleEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::BytesPrimaryKeyFastPath,
+    );
+    let _ = LoadExecutor::<SimpleEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::BytesStreamFastPath,
+    );
     let bytes = load
         .bytes(build_plan())
         .expect("ordered by_ids bytes stream fast path should succeed");
@@ -599,12 +631,16 @@ fn aggregate_bytes_ordered_by_ids_stream_fast_path_emits_hit_marker_with_parity(
         "ordered by_ids bytes stream fast path should preserve execute() parity",
     );
     assert_eq!(
-        LoadExecutor::<SimpleEntity>::take_bytes_pk_fast_path_hits_for_tests(),
+        LoadExecutor::<SimpleEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::BytesPrimaryKeyFastPath
+        ),
         0,
         "ordered by_ids bytes shape should bypass PK full-scan/key-range markers",
     );
     assert_eq!(
-        LoadExecutor::<SimpleEntity>::take_bytes_stream_fast_path_hits_for_tests(),
+        LoadExecutor::<SimpleEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::BytesStreamFastPath
+        ),
         1,
         "ordered by_ids bytes shape should emit one stream-fast-path hit marker",
     );
@@ -946,7 +982,9 @@ fn aggregate_parity_by_ids_window_shape_with_duplicates() {
 fn aggregate_by_ids_count_dedups_before_windowing() {
     seed_simple_entities(&[8651, 8652, 8653, 8654, 8655]);
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
-    let _ = LoadExecutor::<SimpleEntity>::take_primary_key_count_fast_path_hits_for_tests();
+    let _ = LoadExecutor::<SimpleEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::PrimaryKeyCountFastPath,
+    );
 
     let (count, scanned) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
         load.aggregate_count(
@@ -973,7 +1011,9 @@ fn aggregate_by_ids_count_dedups_before_windowing() {
         "ordered by_ids dedup COUNT should scan only offset + limit rows on the key-stream fast path",
     );
     assert_eq!(
-        LoadExecutor::<SimpleEntity>::take_primary_key_count_fast_path_hits_for_tests(),
+        LoadExecutor::<SimpleEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::PrimaryKeyCountFastPath
+        ),
         1,
         "ordered by_ids COUNT should emit one primary-key stream fast-path hit",
     );
@@ -983,7 +1023,9 @@ fn aggregate_by_ids_count_dedups_before_windowing() {
 fn aggregate_by_ids_count_pk_desc_window_uses_primary_key_stream_fast_path() {
     seed_simple_entities(&[8_656, 8_657, 8_658, 8_659, 8_660]);
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
-    let _ = LoadExecutor::<SimpleEntity>::take_primary_key_count_fast_path_hits_for_tests();
+    let _ = LoadExecutor::<SimpleEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::PrimaryKeyCountFastPath,
+    );
 
     let (count, scanned) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
         load.aggregate_count(
@@ -1013,7 +1055,9 @@ fn aggregate_by_ids_count_pk_desc_window_uses_primary_key_stream_fast_path() {
         "ordered by_ids DESC COUNT should scan only offset + limit rows on the key-stream fast path",
     );
     assert_eq!(
-        LoadExecutor::<SimpleEntity>::take_primary_key_count_fast_path_hits_for_tests(),
+        LoadExecutor::<SimpleEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::PrimaryKeyCountFastPath
+        ),
         1,
         "ordered by_ids DESC COUNT should emit one primary-key stream fast-path hit",
     );
@@ -1047,7 +1091,9 @@ fn aggregate_count_pk_cardinality_fast_path_emits_hit_marker_only_for_eligible_s
     seed_simple_entities(&[8_671, 8_672, 8_673, 8_674]);
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
 
-    let _ = LoadExecutor::<SimpleEntity>::take_pk_cardinality_count_fast_path_hits_for_tests();
+    let _ = LoadExecutor::<SimpleEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::PrimaryKeyCardinalityCountFastPath,
+    );
     let _eligible_count = load
         .aggregate_count(
             Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
@@ -1060,12 +1106,16 @@ fn aggregate_count_pk_cardinality_fast_path_emits_hit_marker_only_for_eligible_s
         )
         .expect("eligible COUNT PK-cardinality execution should succeed");
     assert_eq!(
-        LoadExecutor::<SimpleEntity>::take_pk_cardinality_count_fast_path_hits_for_tests(),
+        LoadExecutor::<SimpleEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::PrimaryKeyCardinalityCountFastPath
+        ),
         1,
         "PK full-scan COUNT shape should emit one PK-cardinality fast-path hit marker",
     );
 
-    let _ = LoadExecutor::<SimpleEntity>::take_pk_cardinality_count_fast_path_hits_for_tests();
+    let _ = LoadExecutor::<SimpleEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::PrimaryKeyCardinalityCountFastPath,
+    );
     let _ineligible_count = load
         .aggregate_count(
             Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
@@ -1076,7 +1126,9 @@ fn aggregate_count_pk_cardinality_fast_path_emits_hit_marker_only_for_eligible_s
         )
         .expect("ineligible COUNT fallback execution should succeed");
     assert_eq!(
-        LoadExecutor::<SimpleEntity>::take_pk_cardinality_count_fast_path_hits_for_tests(),
+        LoadExecutor::<SimpleEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::PrimaryKeyCardinalityCountFastPath
+        ),
         0,
         "by-id COUNT shape should bypass the PK-cardinality fast-path branch",
     );
@@ -1087,8 +1139,12 @@ fn aggregate_count_primary_key_stream_fast_path_emits_hit_marker_for_by_ids_unor
     seed_simple_entities(&[8_701, 8_702, 8_703, 8_704]);
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
 
-    let _ = LoadExecutor::<SimpleEntity>::take_primary_key_count_fast_path_hits_for_tests();
-    let _ = LoadExecutor::<SimpleEntity>::take_pk_cardinality_count_fast_path_hits_for_tests();
+    let _ = LoadExecutor::<SimpleEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::PrimaryKeyCountFastPath,
+    );
+    let _ = LoadExecutor::<SimpleEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::PrimaryKeyCardinalityCountFastPath,
+    );
     let count = load
         .aggregate_count(
             Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
@@ -1109,12 +1165,16 @@ fn aggregate_count_primary_key_stream_fast_path_emits_hit_marker_for_by_ids_unor
         "unordered by-ids COUNT should preserve canonical dedup semantics",
     );
     assert_eq!(
-        LoadExecutor::<SimpleEntity>::take_primary_key_count_fast_path_hits_for_tests(),
+        LoadExecutor::<SimpleEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::PrimaryKeyCountFastPath
+        ),
         1,
         "unordered by-ids COUNT shape should emit one primary-key stream fast-path hit marker",
     );
     assert_eq!(
-        LoadExecutor::<SimpleEntity>::take_pk_cardinality_count_fast_path_hits_for_tests(),
+        LoadExecutor::<SimpleEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::PrimaryKeyCardinalityCountFastPath
+        ),
         0,
         "by-ids COUNT shape should not emit PK-cardinality fast-path markers",
     );

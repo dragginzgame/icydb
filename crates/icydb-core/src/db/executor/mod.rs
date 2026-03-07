@@ -32,6 +32,8 @@ use crate::db::access::{
 pub(in crate::db) use crate::db::access::{
     ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan,
 };
+#[cfg(test)]
+pub(in crate::db::executor) use crate::db::diagnostics::ExecutionOptimizationCounter;
 pub(in crate::db::executor) use crate::db::diagnostics::{ExecutionOptimization, ExecutionTrace};
 pub(super) use context::*;
 pub(in crate::db::executor) use continuation::{
@@ -80,6 +82,44 @@ impl<E: EntityKind> CompiledQuery<E> {
     }
 }
 
+#[cfg(test)]
+impl<E> LoadExecutor<E>
+where
+    E: EntityKind + EntityValue,
+{
+    /// Consume and reset one test-only fast-path hit counter by canonical optimization key.
+    pub(crate) fn take_execution_optimization_hits_for_tests(
+        optimization: ExecutionOptimizationCounter,
+    ) -> u64 {
+        match optimization {
+            ExecutionOptimizationCounter::BytesPrimaryKeyFastPath => {
+                Self::take_bytes_pk_fast_path_hits_for_tests()
+            }
+            ExecutionOptimizationCounter::BytesStreamFastPath => {
+                Self::take_bytes_stream_fast_path_hits_for_tests()
+            }
+            ExecutionOptimizationCounter::CoveringExistsFastPath => {
+                Self::take_covering_exists_fast_path_hits_for_tests()
+            }
+            ExecutionOptimizationCounter::CoveringCountFastPath => {
+                Self::take_covering_count_fast_path_hits_for_tests()
+            }
+            ExecutionOptimizationCounter::PrimaryKeyCountFastPath => {
+                Self::take_primary_key_count_fast_path_hits_for_tests()
+            }
+            ExecutionOptimizationCounter::PrimaryKeyCardinalityCountFastPath => {
+                Self::take_pk_cardinality_count_fast_path_hits_for_tests()
+            }
+            ExecutionOptimizationCounter::CoveringIndexProjectionFastPath => {
+                Self::take_covering_index_projection_fast_path_hits_for_tests()
+            }
+            ExecutionOptimizationCounter::CoveringConstantProjectionFastPath => {
+                Self::take_covering_constant_projection_fast_path_hits_for_tests()
+            }
+        }
+    }
+}
+
 // Design notes:
 // - SchemaInfo is the planner-visible schema (relational attributes). Executors may see
 //   additional tuple payload not represented in SchemaInfo.
@@ -89,6 +129,8 @@ impl<E: EntityKind> CompiledQuery<E> {
 // - Corruption indicates invalid persisted bytes or store mismatches; invariant violations
 //   indicate executor/planner contract breaches.
 
+#[cfg(test)]
+use crate::traits::EntityValue;
 use crate::{
     db::{CompiledQuery, cursor::CursorPlanError, data::DataKey},
     error::{ErrorClass, ErrorOrigin, InternalError},

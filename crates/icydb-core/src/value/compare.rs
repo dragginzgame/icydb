@@ -98,14 +98,10 @@ fn canonical_cmp_value_list(left: &[Value], right: &[Value]) -> Ordering {
 
 fn canonical_cmp_value_map(left: &[(Value, Value)], right: &[(Value, Value)]) -> Ordering {
     for ((left_key, left_value), (right_key, right_value)) in left.iter().zip(right.iter()) {
-        let key_cmp = canonical_cmp(left_key, right_key);
-        if key_cmp != Ordering::Equal {
-            return key_cmp;
-        }
-
-        let value_cmp = canonical_cmp(left_value, right_value);
-        if value_cmp != Ordering::Equal {
-            return value_cmp;
+        let entry_cmp =
+            Value::canonical_cmp_map_entry(left_key, left_value, right_key, right_value);
+        if entry_cmp != Ordering::Equal {
+            return entry_cmp;
         }
     }
 

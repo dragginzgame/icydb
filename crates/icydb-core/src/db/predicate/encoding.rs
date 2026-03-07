@@ -134,8 +134,7 @@ fn encode_value_sort_key_into(out: &mut Vec<u8>, value: &Value) {
             // predicate sort-key determinism.
             let mut ordered = entries.iter().collect::<Vec<_>>();
             ordered.sort_by(|(left_key, left_value), (right_key, right_value)| {
-                Value::canonical_cmp_key(left_key, right_key)
-                    .then_with(|| Value::canonical_cmp(left_value, right_value))
+                Value::canonical_cmp_map_entry(left_key, left_value, right_key, right_value)
             });
 
             push_len_u64(out, ordered.len());
@@ -345,6 +344,25 @@ mod tests {
         let map_b = Value::Map(vec![
             (Value::Text("a".to_string()), Value::Int(1)),
             (Value::Text("z".to_string()), Value::Int(9)),
+        ]);
+        let predicate_a = Predicate::Compare(ComparePredicate::eq("payload".to_string(), map_a));
+        let predicate_b = Predicate::Compare(ComparePredicate::eq("payload".to_string(), map_b));
+
+        assert_eq!(
+            encode_predicate_sort_key(&predicate_a),
+            encode_predicate_sort_key(&predicate_b)
+        );
+    }
+
+    #[test]
+    fn predicate_sort_key_normalizes_duplicate_map_keys_by_value_order() {
+        let map_a = Value::Map(vec![
+            (Value::Text("a".to_string()), Value::Int(2)),
+            (Value::Text("a".to_string()), Value::Int(1)),
+        ]);
+        let map_b = Value::Map(vec![
+            (Value::Text("a".to_string()), Value::Int(1)),
+            (Value::Text("a".to_string()), Value::Int(2)),
         ]);
         let predicate_a = Predicate::Compare(ComparePredicate::eq("payload".to_string(), map_a));
         let predicate_b = Predicate::Compare(ComparePredicate::eq("payload".to_string(), map_b));

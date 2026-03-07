@@ -401,6 +401,21 @@ impl Value {
         compare::canonical_cmp_key(left, right)
     }
 
+    /// Total canonical comparator for one map entry `(key, value)`.
+    ///
+    /// This keeps map-entry ordering aligned across normalization, hashing,
+    /// and fingerprint-adjacent surfaces.
+    #[must_use]
+    pub(crate) fn canonical_cmp_map_entry(
+        left_key: &Self,
+        left_value: &Self,
+        right_key: &Self,
+        right_value: &Self,
+    ) -> Ordering {
+        Self::canonical_cmp_key(left_key, right_key)
+            .then_with(|| Self::canonical_cmp(left_value, right_value))
+    }
+
     /// Strict comparator for identical orderable variants.
     ///
     /// Returns `None` for mismatched or non-orderable variants.

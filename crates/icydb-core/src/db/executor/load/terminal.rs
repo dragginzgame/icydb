@@ -601,7 +601,7 @@ where
     }
 
     #[cfg(test)]
-    pub(crate) fn take_bytes_pk_fast_path_hits_for_tests() -> u64 {
+    pub(in crate::db::executor) fn take_bytes_pk_fast_path_hits_for_tests() -> u64 {
         BYTES_PK_FAST_PATH_HITS.with(|counter| {
             let hits = counter.get();
             counter.set(0);
@@ -610,7 +610,7 @@ where
     }
 
     #[cfg(test)]
-    pub(crate) fn take_bytes_stream_fast_path_hits_for_tests() -> u64 {
+    pub(in crate::db::executor) fn take_bytes_stream_fast_path_hits_for_tests() -> u64 {
         BYTES_STREAM_FAST_PATH_HITS.with(|counter| {
             let hits = counter.get();
             counter.set(0);

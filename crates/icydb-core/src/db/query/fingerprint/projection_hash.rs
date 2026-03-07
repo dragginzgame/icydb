@@ -7,14 +7,17 @@ use crate::{
     db::numeric::coerce_numeric_decimal,
     db::query::{
         builder::aggregate::AggregateExpr,
+        fingerprint::hash_parts::{write_str, write_tag, write_u32, write_value},
         plan::{
             AggregateKind,
             expr::{BinaryOp, Expr, ProjectionField, ProjectionSpec, UnaryOp},
         },
     },
-    value::{Value, hash_value},
+    value::Value,
 };
-use sha2::{Digest, Sha256};
+#[cfg(test)]
+use sha2::Digest;
+use sha2::Sha256;
 
 ///
 /// ProjectionHashShape
@@ -179,30 +182,6 @@ const fn aggregate_kind_tag_v1(kind: AggregateKind) -> u8 {
         AggregateKind::Max => 0x05,
         AggregateKind::First => 0x06,
         AggregateKind::Last => 0x07,
-    }
-}
-
-fn write_tag(hasher: &mut Sha256, tag: u8) {
-    hasher.update([tag]);
-}
-
-fn write_u32(hasher: &mut Sha256, value: u32) {
-    hasher.update(value.to_be_bytes());
-}
-
-#[expect(clippy::cast_possible_truncation)]
-fn write_str(hasher: &mut Sha256, value: &str) {
-    write_u32(hasher, value.len() as u32);
-    hasher.update(value.as_bytes());
-}
-
-fn write_value(hasher: &mut Sha256, value: &Value) {
-    match hash_value(value) {
-        Ok(digest) => hasher.update(digest),
-        Err(err) => {
-            write_tag(hasher, 0xEE);
-            write_str(hasher, &err.display_with_class());
-        }
     }
 }
 

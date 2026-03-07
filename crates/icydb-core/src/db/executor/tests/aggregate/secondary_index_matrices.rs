@@ -555,7 +555,9 @@ fn aggregate_exists_secondary_index_covering_fast_path_strict_stale_surfaces_cor
     seed_stale_secondary_rows(&SECONDARY_STALE_ID_ROWS, &[8851]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
 
-    let _ = LoadExecutor::<PushdownParityEntity>::take_covering_exists_fast_path_hits_for_tests();
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::CoveringExistsFastPath,
+    );
     let err = load
         .aggregate_exists(secondary_group_prefix_exists_plan(MissingRowPolicy::Error))
         .expect_err("strict covering EXISTS should fail when leading key is stale");
@@ -566,7 +568,9 @@ fn aggregate_exists_secondary_index_covering_fast_path_strict_stale_surfaces_cor
         "strict covering EXISTS missing row should classify as corruption",
     );
     assert_eq!(
-        LoadExecutor::<PushdownParityEntity>::take_covering_exists_fast_path_hits_for_tests(),
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::CoveringExistsFastPath
+        ),
         1,
         "strict stale covering EXISTS should execute through the covering fast-path branch",
     );
@@ -577,7 +581,9 @@ fn aggregate_exists_secondary_index_covering_fast_path_emits_hit_marker_only_for
     seed_stale_secondary_rows(&SECONDARY_STALE_ID_ROWS, &[8851]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
 
-    let _ = LoadExecutor::<PushdownParityEntity>::take_covering_exists_fast_path_hits_for_tests();
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::CoveringExistsFastPath,
+    );
     let (eligible_exists, eligible_scanned) =
         capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
             load.aggregate_exists(secondary_group_prefix_exists_plan(MissingRowPolicy::Ignore))
@@ -593,12 +599,16 @@ fn aggregate_exists_secondary_index_covering_fast_path_emits_hit_marker_only_for
         "eligible covering EXISTS should scan one stale key plus one live key before early exit",
     );
     assert_eq!(
-        LoadExecutor::<PushdownParityEntity>::take_covering_exists_fast_path_hits_for_tests(),
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::CoveringExistsFastPath
+        ),
         1,
         "eligible covering EXISTS must emit one covering fast-path hit marker",
     );
 
-    let _ = LoadExecutor::<PushdownParityEntity>::take_covering_exists_fast_path_hits_for_tests();
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::CoveringExistsFastPath,
+    );
     let _forced_exists = load
         .aggregate_exists(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
@@ -610,7 +620,9 @@ fn aggregate_exists_secondary_index_covering_fast_path_emits_hit_marker_only_for
         )
         .expect("forced materialized EXISTS should succeed");
     assert_eq!(
-        LoadExecutor::<PushdownParityEntity>::take_covering_exists_fast_path_hits_for_tests(),
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::CoveringExistsFastPath
+        ),
         0,
         "ordered EXISTS shape should bypass the covering fast-path branch",
     );
@@ -621,7 +633,9 @@ fn aggregate_exists_secondary_index_covering_fast_path_strict_predicate_matrix()
     seed_stale_secondary_rows(&SECONDARY_STALE_ID_ROWS, &[8851]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
 
-    let _ = LoadExecutor::<PushdownParityEntity>::take_covering_exists_fast_path_hits_for_tests();
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::CoveringExistsFastPath,
+    );
     let strict_exists = load
         .aggregate_exists(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
@@ -636,12 +650,16 @@ fn aggregate_exists_secondary_index_covering_fast_path_strict_predicate_matrix()
         "strict-compatible EXISTS should keep the covering fast path and return true",
     );
     assert_eq!(
-        LoadExecutor::<PushdownParityEntity>::take_covering_exists_fast_path_hits_for_tests(),
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::CoveringExistsFastPath
+        ),
         1,
         "strict-compatible EXISTS must emit one covering fast-path hit marker",
     );
 
-    let _ = LoadExecutor::<PushdownParityEntity>::take_covering_exists_fast_path_hits_for_tests();
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::CoveringExistsFastPath,
+    );
     let strict_uncertain_exists = load
         .aggregate_exists(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
@@ -662,7 +680,9 @@ fn aggregate_exists_secondary_index_covering_fast_path_strict_predicate_matrix()
         "strict-uncertain EXISTS should still return true through fallback semantics",
     );
     assert_eq!(
-        LoadExecutor::<PushdownParityEntity>::take_covering_exists_fast_path_hits_for_tests(),
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::CoveringExistsFastPath
+        ),
         0,
         "strict-uncertain EXISTS must bypass the covering fast-path branch",
     );
@@ -673,7 +693,9 @@ fn aggregate_count_secondary_index_covering_fast_path_emits_hit_marker_only_for_
     seed_stale_secondary_rows(&SECONDARY_STALE_ID_ROWS, &[8851]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
 
-    let _ = LoadExecutor::<PushdownParityEntity>::take_covering_count_fast_path_hits_for_tests();
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::CoveringCountFastPath,
+    );
     let _eligible_count = load
         .aggregate_count(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
@@ -684,12 +706,16 @@ fn aggregate_count_secondary_index_covering_fast_path_emits_hit_marker_only_for_
         )
         .expect("eligible covering COUNT should succeed");
     assert_eq!(
-        LoadExecutor::<PushdownParityEntity>::take_covering_count_fast_path_hits_for_tests(),
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::CoveringCountFastPath
+        ),
         1,
         "eligible covering COUNT must emit one covering fast-path hit marker",
     );
 
-    let _ = LoadExecutor::<PushdownParityEntity>::take_covering_count_fast_path_hits_for_tests();
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::CoveringCountFastPath,
+    );
     let _forced_count = load
         .aggregate_count(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
@@ -701,7 +727,9 @@ fn aggregate_count_secondary_index_covering_fast_path_emits_hit_marker_only_for_
         )
         .expect("forced materialized COUNT should succeed");
     assert_eq!(
-        LoadExecutor::<PushdownParityEntity>::take_covering_count_fast_path_hits_for_tests(),
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::CoveringCountFastPath
+        ),
         0,
         "ordered COUNT shape should bypass the covering fast-path branch",
     );

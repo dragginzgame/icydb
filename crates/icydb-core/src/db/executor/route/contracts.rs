@@ -252,9 +252,12 @@ impl ExecutionRoutePlan {
     }
 
     #[must_use]
-    #[cfg(test)]
-    pub(in crate::db::executor) const fn execution_mode_case(&self) -> ExecutionModeRouteCase {
-        self.execution_mode_case
+    pub(in crate::db::executor) const fn shape(&self) -> ExecutionRouteShape {
+        ExecutionRouteShape {
+            route_shape_kind: self.route_shape_kind,
+            execution_mode: self.execution_mode,
+            execution_mode_case: self.execution_mode_case,
+        }
     }
 
     // True when DESC execution can traverse the physical access path in reverse.
@@ -480,6 +483,50 @@ pub(in crate::db::executor) enum ExecutionModeRouteCase {
     AggregateCount,
     AggregateNonCount,
     AggregateGrouped,
+}
+
+///
+/// ExecutionRouteShape
+///
+/// Canonical executor-facing route shape descriptor.
+/// This carries only shape axes (kind + mode + mode case) so runtime consumers
+/// can make shape decisions without reaching through the full route payload.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) struct ExecutionRouteShape {
+    route_shape_kind: RouteShapeKind,
+    execution_mode: ExecutionMode,
+    execution_mode_case: ExecutionModeRouteCase,
+}
+
+impl ExecutionRouteShape {
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db::executor) const fn route_shape_kind(self) -> RouteShapeKind {
+        self.route_shape_kind
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn execution_mode(self) -> ExecutionMode {
+        self.execution_mode
+    }
+
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db::executor) const fn execution_mode_case(self) -> ExecutionModeRouteCase {
+        self.execution_mode_case
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn is_streaming(self) -> bool {
+        matches!(self.execution_mode, ExecutionMode::Streaming)
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn is_materialized(self) -> bool {
+        matches!(self.execution_mode, ExecutionMode::Materialized)
+    }
 }
 
 ///

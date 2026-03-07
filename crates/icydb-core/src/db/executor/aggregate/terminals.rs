@@ -445,7 +445,7 @@ where
     }
 
     #[cfg(test)]
-    pub(crate) fn take_covering_exists_fast_path_hits_for_tests() -> u64 {
+    pub(in crate::db::executor) fn take_covering_exists_fast_path_hits_for_tests() -> u64 {
         COVERING_EXISTS_FAST_PATH_HITS.with(|counter| {
             let hits = counter.get();
             counter.set(0);
@@ -454,7 +454,7 @@ where
     }
 
     #[cfg(test)]
-    pub(crate) fn take_covering_count_fast_path_hits_for_tests() -> u64 {
+    pub(in crate::db::executor) fn take_covering_count_fast_path_hits_for_tests() -> u64 {
         COVERING_COUNT_FAST_PATH_HITS.with(|counter| {
             let hits = counter.get();
             counter.set(0);
@@ -463,7 +463,7 @@ where
     }
 
     #[cfg(test)]
-    pub(crate) fn take_primary_key_count_fast_path_hits_for_tests() -> u64 {
+    pub(in crate::db::executor) fn take_primary_key_count_fast_path_hits_for_tests() -> u64 {
         PRIMARY_KEY_COUNT_FAST_PATH_HITS.with(|counter| {
             let hits = counter.get();
             counter.set(0);
@@ -472,7 +472,7 @@ where
     }
 
     #[cfg(test)]
-    pub(crate) fn take_pk_cardinality_count_fast_path_hits_for_tests() -> u64 {
+    pub(in crate::db::executor) fn take_pk_cardinality_count_fast_path_hits_for_tests() -> u64 {
         PK_CARDINALITY_COUNT_FAST_PATH_HITS.with(|counter| {
             let hits = counter.get();
             counter.set(0);

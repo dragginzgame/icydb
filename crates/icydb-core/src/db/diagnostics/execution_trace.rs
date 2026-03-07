@@ -44,6 +44,27 @@ pub enum ExecutionOptimization {
 }
 
 ///
+/// ExecutionOptimizationCounter
+///
+/// Canonical test-only optimization counter taxonomy.
+/// This keeps fast-path hit counters aligned with one shared naming surface.
+///
+
+#[cfg(test)]
+#[expect(clippy::enum_variant_names)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ExecutionOptimizationCounter {
+    BytesPrimaryKeyFastPath,
+    BytesStreamFastPath,
+    CoveringExistsFastPath,
+    CoveringCountFastPath,
+    PrimaryKeyCountFastPath,
+    PrimaryKeyCardinalityCountFastPath,
+    CoveringIndexProjectionFastPath,
+    CoveringConstantProjectionFastPath,
+}
+
+///
 /// ExecutionTrace
 ///
 /// Structured, opt-in load execution introspection snapshot.

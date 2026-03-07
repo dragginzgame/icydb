@@ -185,7 +185,7 @@ pub(super) fn hash_mode(hasher: &mut Sha256, mode: QueryMode) {
 /// Encode one value digest into the plan hash stream.
 ///
 
-pub(super) fn write_value(hasher: &mut Sha256, value: &Value) {
+pub(in crate::db::query::fingerprint) fn write_value(hasher: &mut Sha256, value: &Value) {
     match hash_value(value) {
         Ok(digest) => hasher.update(digest),
         Err(err) => {
@@ -216,7 +216,7 @@ pub(super) fn write_value_bound(hasher: &mut Sha256, bound: &Bound<Value>) {
 /// Encode one string with length prefix into the plan hash stream.
 ///
 
-pub(super) fn write_str(hasher: &mut Sha256, value: &str) {
+pub(in crate::db::query::fingerprint) fn write_str(hasher: &mut Sha256, value: &str) {
     write_u32(hasher, value.len() as u32);
     hasher.update(value.as_bytes());
 }
@@ -225,7 +225,7 @@ pub(super) fn write_str(hasher: &mut Sha256, value: &str) {
 /// Encode one u32 in network byte order into the plan hash stream.
 ///
 
-pub(super) fn write_u32(hasher: &mut Sha256, value: u32) {
+pub(in crate::db::query::fingerprint) fn write_u32(hasher: &mut Sha256, value: u32) {
     hasher.update(value.to_be_bytes());
 }
 
@@ -233,7 +233,7 @@ pub(super) fn write_u32(hasher: &mut Sha256, value: u32) {
 /// Encode one tag byte into the plan hash stream.
 ///
 
-pub(super) fn write_tag(hasher: &mut Sha256, tag: u8) {
+pub(in crate::db::query::fingerprint) fn write_tag(hasher: &mut Sha256, tag: u8) {
     hasher.update([tag]);
 }
 

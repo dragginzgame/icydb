@@ -766,9 +766,12 @@ fn aggregate_field_target_covering_constant_projection_emits_hit_marker_only_for
             .expect("constant covering-projection ineligible by-id plan should build")
     };
 
-    let _ =
-        LoadExecutor::<PushdownParityEntity>::take_covering_index_projection_fast_path_hits_for_tests();
-    let _ = LoadExecutor::<PushdownParityEntity>::take_covering_constant_projection_fast_path_hits_for_tests();
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::CoveringIndexProjectionFastPath,
+    );
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::CoveringConstantProjectionFastPath,
+    );
     let values = load
         .values_by_slot(constant_eligible_plan(), slot(&load, "group"))
         .expect("values_by(group) should succeed for constant covering projection");
@@ -778,29 +781,40 @@ fn aggregate_field_target_covering_constant_projection_emits_hit_marker_only_for
         "constant covering projection should preserve effective-window output values",
     );
     assert_eq!(
-        LoadExecutor::<PushdownParityEntity>::take_covering_constant_projection_fast_path_hits_for_tests(),
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::CoveringConstantProjectionFastPath
+        ),
         1,
         "eligible constant covering projection should emit exactly one constant fast-path hit marker",
     );
     assert_eq!(
-        LoadExecutor::<PushdownParityEntity>::take_covering_index_projection_fast_path_hits_for_tests(),
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::CoveringIndexProjectionFastPath
+        ),
         0,
         "constant covering projection marker should remain isolated from index-projection markers",
     );
 
-    let _ =
-        LoadExecutor::<PushdownParityEntity>::take_covering_index_projection_fast_path_hits_for_tests();
-    let _ = LoadExecutor::<PushdownParityEntity>::take_covering_constant_projection_fast_path_hits_for_tests();
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::CoveringIndexProjectionFastPath,
+    );
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::CoveringConstantProjectionFastPath,
+    );
     let _ = load
         .values_by_slot(ineligible_plan(), slot(&load, "group"))
         .expect("values_by(group) should succeed for ineligible covering shape");
     assert_eq!(
-        LoadExecutor::<PushdownParityEntity>::take_covering_constant_projection_fast_path_hits_for_tests(),
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::CoveringConstantProjectionFastPath
+        ),
         0,
         "ineligible covering shapes must not emit constant covering-projection hit markers",
     );
     assert_eq!(
-        LoadExecutor::<PushdownParityEntity>::take_covering_index_projection_fast_path_hits_for_tests(),
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::CoveringIndexProjectionFastPath
+        ),
         0,
         "ineligible covering shapes must not emit index covering-projection hit markers",
     );
@@ -981,36 +995,50 @@ fn aggregate_field_target_covering_index_projection_emits_hit_marker_only_for_el
             .expect("index covering-projection ineligible by-id plan should build")
     };
 
-    let _ =
-        LoadExecutor::<PushdownParityEntity>::take_covering_index_projection_fast_path_hits_for_tests();
-    let _ = LoadExecutor::<PushdownParityEntity>::take_covering_constant_projection_fast_path_hits_for_tests();
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::CoveringIndexProjectionFastPath,
+    );
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::CoveringConstantProjectionFastPath,
+    );
     let _ = load
         .values_by_slot(index_eligible_plan(), slot(&load, "rank"))
         .expect("values_by(rank) should succeed for index covering projection");
     assert_eq!(
-        LoadExecutor::<PushdownParityEntity>::take_covering_index_projection_fast_path_hits_for_tests(),
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::CoveringIndexProjectionFastPath
+        ),
         1,
         "eligible index covering projection should emit exactly one index fast-path hit marker",
     );
     assert_eq!(
-        LoadExecutor::<PushdownParityEntity>::take_covering_constant_projection_fast_path_hits_for_tests(),
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::CoveringConstantProjectionFastPath
+        ),
         0,
         "index covering projection marker should not emit constant-projection hits",
     );
 
-    let _ =
-        LoadExecutor::<PushdownParityEntity>::take_covering_index_projection_fast_path_hits_for_tests();
-    let _ = LoadExecutor::<PushdownParityEntity>::take_covering_constant_projection_fast_path_hits_for_tests();
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::CoveringIndexProjectionFastPath,
+    );
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::CoveringConstantProjectionFastPath,
+    );
     let _ = load
         .values_by_slot(ineligible_plan(), slot(&load, "rank"))
         .expect("values_by(rank) should succeed for ineligible covering shape");
     assert_eq!(
-        LoadExecutor::<PushdownParityEntity>::take_covering_index_projection_fast_path_hits_for_tests(),
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::CoveringIndexProjectionFastPath
+        ),
         0,
         "ineligible covering shapes must not emit index covering-projection hit markers",
     );
     assert_eq!(
-        LoadExecutor::<PushdownParityEntity>::take_covering_constant_projection_fast_path_hits_for_tests(),
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::CoveringConstantProjectionFastPath
+        ),
         0,
         "ineligible covering shapes must not emit constant covering-projection hit markers",
     );

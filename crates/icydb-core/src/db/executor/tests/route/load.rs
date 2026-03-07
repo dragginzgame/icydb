@@ -1,5 +1,6 @@
 use super::super::{UNIQUE_INDEX_RANGE_INDEX_MODELS, UniqueIndexRangeEntity};
 use super::*;
+use crate::db::executor::route::RouteShapeKind;
 
 #[test]
 fn route_plan_load_uses_route_owned_fast_path_order() {
@@ -20,6 +21,46 @@ fn route_plan_load_uses_route_owned_fast_path_order() {
 }
 
 #[test]
+fn route_plan_shape_descriptor_matches_route_axes() {
+    let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
+    });
+    let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
+        &plan,
+        &initial_scalar_continuation_context(),
+        None,
+    )
+    .expect("load route plan should build");
+
+    let shape = route_plan.shape();
+    assert_eq!(shape.route_shape_kind(), RouteShapeKind::LoadScalar);
+    assert_eq!(shape.execution_mode_case(), ExecutionModeRouteCase::Load);
+    assert_eq!(shape.execution_mode(), ExecutionMode::Streaming);
+    assert!(shape.is_streaming());
+}
+
+#[test]
+fn runtime_route_consumers_avoid_direct_execution_mode_field_reads() {
+    let runtime_consumers = [
+        "src/db/executor/load/execute.rs",
+        "src/db/executor/load/entrypoints/scalar.rs",
+        "src/db/executor/aggregate/mod.rs",
+        "src/db/executor/explain/descriptor.rs",
+    ];
+
+    for relative_path in runtime_consumers {
+        let absolute_path = format!("{}/{}", env!("CARGO_MANIFEST_DIR"), relative_path);
+        let source = std::fs::read_to_string(&absolute_path)
+            .unwrap_or_else(|err| panic!("failed to read {absolute_path}: {err}"));
+        assert!(
+            !source.contains("route_plan.execution_mode"),
+            "runtime route consumer should use ExecutionRouteShape accessors instead of direct execution_mode field reads: {relative_path}",
+        );
+    }
+}
+
+#[test]
 fn route_matrix_load_pk_desc_with_page_uses_streaming_budget_and_reverse() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
@@ -36,7 +77,10 @@ fn route_matrix_load_pk_desc_with_page_uses_streaming_budget_and_reverse() {
     )
     .expect("load route plan should build");
 
-    assert_eq!(route_plan.execution_mode, ExecutionMode::Streaming);
+    assert_eq!(
+        route_plan.shape().execution_mode(),
+        ExecutionMode::Streaming
+    );
     assert_eq!(route_plan.direction(), Direction::Desc);
     assert_eq!(route_plan.continuation().mode(), ContinuationMode::Initial);
     assert_eq!(route_plan.continuation().window().effective_offset, 2);
@@ -82,7 +126,10 @@ fn route_matrix_load_index_range_cursor_without_anchor_disables_pushdown() {
     )
     .expect("load route plan should build");
 
-    assert_eq!(route_plan.execution_mode, ExecutionMode::Streaming);
+    assert_eq!(
+        route_plan.shape().execution_mode(),
+        ExecutionMode::Streaming
+    );
     assert_eq!(
         route_plan.continuation().mode(),
         ContinuationMode::CursorBoundary
@@ -230,7 +277,10 @@ fn route_matrix_load_non_pk_order_disables_scan_budget_hint() {
     )
     .expect("load route plan should build");
 
-    assert_eq!(route_plan.execution_mode, ExecutionMode::Materialized);
+    assert_eq!(
+        route_plan.shape().execution_mode(),
+        ExecutionMode::Materialized
+    );
     assert_eq!(route_plan.scan_hints.load_scan_budget_hint, None);
 }
 
@@ -260,7 +310,10 @@ fn route_matrix_load_unique_secondary_order_limit_one_uses_bounded_scan_budget_h
     )
     .expect("secondary-order limit-one route plan should build");
 
-    assert_eq!(route_plan.execution_mode, ExecutionMode::Streaming);
+    assert_eq!(
+        route_plan.shape().execution_mode(),
+        ExecutionMode::Streaming
+    );
     assert_eq!(route_plan.direction(), Direction::Desc);
     assert_eq!(route_plan.scan_hints.physical_fetch_hint, None);
     assert_eq!(

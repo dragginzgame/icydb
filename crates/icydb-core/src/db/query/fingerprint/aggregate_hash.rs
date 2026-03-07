@@ -3,8 +3,11 @@
 //! Does not own: explain projection assembly or plan profile ordering.
 //! Boundary: semantic grouped aggregate hash bytes independent from explain-only metadata.
 
-use crate::db::query::plan::AggregateKind;
-use sha2::{Digest, Sha256};
+use crate::db::query::{
+    fingerprint::hash_parts::{write_str, write_tag},
+    plan::AggregateKind,
+};
+use sha2::Sha256;
 
 ///
 /// AggregateHashShape
@@ -69,16 +72,6 @@ const fn aggregate_kind_tag_v1(kind: AggregateKind) -> u8 {
         AggregateKind::First => 0x06,
         AggregateKind::Last => 0x07,
     }
-}
-
-fn write_tag(hasher: &mut Sha256, tag: u8) {
-    hasher.update([tag]);
-}
-
-#[expect(clippy::cast_possible_truncation)]
-fn write_str(hasher: &mut Sha256, value: &str) {
-    hasher.update((value.len() as u32).to_be_bytes());
-    hasher.update(value.as_bytes());
 }
 
 ///

@@ -21,6 +21,8 @@ use candid::CandidType;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+#[cfg(test)]
+pub(crate) use execution_trace::ExecutionOptimizationCounter;
 pub use execution_trace::{
     ExecutionAccessPathVariant, ExecutionMetrics, ExecutionOptimization, ExecutionTrace,
 };

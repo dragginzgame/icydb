@@ -81,10 +81,13 @@ fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_pat
         );
 
     assert_eq!(
-        route_plan.execution_mode_case(),
+        route_plan.shape().execution_mode_case(),
         ExecutionModeRouteCase::AggregateGrouped
     );
-    assert_eq!(route_plan.execution_mode, ExecutionMode::Materialized);
+    assert_eq!(
+        route_plan.shape().execution_mode(),
+        ExecutionMode::Materialized
+    );
     assert_eq!(route_plan.continuation().mode(), ContinuationMode::Initial);
     assert_eq!(route_plan.index_range_limit_spec, None);
     assert_eq!(route_plan.scan_hints.physical_fetch_hint, None);
@@ -132,10 +135,13 @@ fn route_plan_grouped_wrapper_keeps_blocking_shape_under_tight_budget_config() {
         );
 
     assert_eq!(
-        route_plan.execution_mode_case(),
+        route_plan.shape().execution_mode_case(),
         ExecutionModeRouteCase::AggregateGrouped
     );
-    assert_eq!(route_plan.execution_mode, ExecutionMode::Materialized);
+    assert_eq!(
+        route_plan.shape().execution_mode(),
+        ExecutionMode::Materialized
+    );
     assert_eq!(route_plan.continuation().mode(), ContinuationMode::Initial);
     assert_eq!(route_plan.index_range_limit_spec, None);
     assert_eq!(route_plan.scan_hints.physical_fetch_hint, None);
@@ -590,10 +596,13 @@ fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
             grouped_handoff,
         );
     assert_eq!(
-        route_plan.execution_mode_case(),
+        route_plan.shape().execution_mode_case(),
         ExecutionModeRouteCase::AggregateGrouped
     );
-    assert_eq!(route_plan.execution_mode, ExecutionMode::Materialized);
+    assert_eq!(
+        route_plan.shape().execution_mode(),
+        ExecutionMode::Materialized
+    );
     let grouped_observability = route_plan
         .grouped_observability()
         .expect("grouped route should always project grouped observability");
@@ -644,7 +653,10 @@ fn route_matrix_aggregate_count_pk_order_is_streaming_keys_only() {
         AggregateKind::Count,
     );
 
-    assert_eq!(route_plan.execution_mode, ExecutionMode::Streaming);
+    assert_eq!(
+        route_plan.shape().execution_mode(),
+        ExecutionMode::Streaming
+    );
     assert!(matches!(
         route_plan.aggregate_fold_mode,
         AggregateFoldMode::KeysOnly
@@ -697,7 +709,10 @@ fn route_matrix_aggregate_count_secondary_shape_streams_with_existing_rows() {
         AggregateKind::Count,
     );
 
-    assert_eq!(route_plan.execution_mode, ExecutionMode::Streaming);
+    assert_eq!(
+        route_plan.shape().execution_mode(),
+        ExecutionMode::Streaming
+    );
     assert!(matches!(
         route_plan.aggregate_fold_mode,
         AggregateFoldMode::ExistingRows
@@ -719,7 +734,10 @@ fn route_matrix_aggregate_count_secondary_shape_with_strict_predicate_streams() 
         AggregateKind::Count,
     );
 
-    assert_eq!(route_plan.execution_mode, ExecutionMode::Streaming);
+    assert_eq!(
+        route_plan.shape().execution_mode(),
+        ExecutionMode::Streaming
+    );
     assert!(matches!(
         route_plan.aggregate_fold_mode,
         AggregateFoldMode::ExistingRows
@@ -747,7 +765,10 @@ fn route_matrix_aggregate_count_secondary_shape_with_strict_uncertainty_material
         AggregateKind::Count,
     );
 
-    assert_eq!(route_plan.execution_mode, ExecutionMode::Materialized);
+    assert_eq!(
+        route_plan.shape().execution_mode(),
+        ExecutionMode::Materialized
+    );
     assert!(matches!(
         route_plan.aggregate_fold_mode,
         AggregateFoldMode::ExistingRows
@@ -770,7 +791,10 @@ fn route_matrix_aggregate_distinct_offset_last_disables_probe_hint() {
         AggregateKind::Last,
     );
 
-    assert_eq!(route_plan.execution_mode, ExecutionMode::Streaming);
+    assert_eq!(
+        route_plan.shape().execution_mode(),
+        ExecutionMode::Streaming
+    );
     assert!(matches!(
         route_plan.aggregate_fold_mode,
         AggregateFoldMode::ExistingRows
@@ -837,7 +861,10 @@ fn route_matrix_aggregate_by_keys_desc_disables_probe_hint_without_reverse_suppo
         AggregateKind::First,
     );
 
-    assert_eq!(route_plan.execution_mode, ExecutionMode::Streaming);
+    assert_eq!(
+        route_plan.shape().execution_mode(),
+        ExecutionMode::Streaming
+    );
     assert!(!route_plan.desc_physical_reverse_supported());
     assert_eq!(route_plan.scan_hints.physical_fetch_hint, None);
 }
@@ -941,7 +968,10 @@ fn route_matrix_aggregate_index_range_desc_with_window_enables_pushdown_hint() {
         AggregateKind::Last,
     );
 
-    assert_eq!(route_plan.execution_mode, ExecutionMode::Streaming);
+    assert_eq!(
+        route_plan.shape().execution_mode(),
+        ExecutionMode::Streaming
+    );
     assert!(route_plan.desc_physical_reverse_supported());
     assert_eq!(route_plan.scan_hints.physical_fetch_hint, Some(3));
     assert_eq!(
