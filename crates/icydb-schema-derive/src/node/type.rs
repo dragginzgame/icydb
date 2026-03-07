@@ -7,10 +7,10 @@ use crate::prelude::*;
 #[derive(Clone, Debug, Default, FromMeta)]
 pub struct Type {
     #[darling(multiple, rename = "sanitizer")]
-    pub sanitizers: Vec<TypeSanitizer>,
+    pub(crate) sanitizers: Vec<TypeSanitizer>,
 
     #[darling(multiple, rename = "validator")]
-    pub validators: Vec<TypeValidator>,
+    pub(crate) validators: Vec<TypeValidator>,
 }
 
 impl HasSchemaPart for Type {
@@ -20,10 +20,7 @@ impl HasSchemaPart for Type {
 
         // quote
         quote! {
-            ::icydb::schema::node::Type {
-                sanitizers: #sanitizers,
-                validators: #validators,
-            }
+            ::icydb::schema::node::Type::new(#sanitizers, #validators)
         }
     }
 }
@@ -34,10 +31,10 @@ impl HasSchemaPart for Type {
 
 #[derive(Clone, Debug, FromMeta)]
 pub struct TypeSanitizer {
-    pub path: Path,
+    pub(crate) path: Path,
 
     #[darling(default)]
-    pub args: Args,
+    pub(crate) args: Args,
 }
 
 impl TypeSanitizer {
@@ -68,10 +65,7 @@ impl HasSchemaPart for TypeSanitizer {
 
         // quote
         quote! {
-            ::icydb::schema::node::TypeSanitizer {
-                path: #path,
-                args: #args,
-            }
+            ::icydb::schema::node::TypeSanitizer::new(#path, #args)
         }
     }
 }
@@ -82,10 +76,10 @@ impl HasSchemaPart for TypeSanitizer {
 
 #[derive(Clone, Debug, FromMeta)]
 pub struct TypeValidator {
-    pub path: Path,
+    pub(crate) path: Path,
 
     #[darling(default)]
-    pub args: Args,
+    pub(crate) args: Args,
 }
 
 impl TypeValidator {
@@ -108,10 +102,7 @@ impl HasSchemaPart for TypeValidator {
 
         // quote
         quote! {
-            ::icydb::schema::node::TypeValidator {
-                path: #path,
-                args: #args,
-            }
+            ::icydb::schema::node::TypeValidator::new(#path, #args)
         }
     }
 }

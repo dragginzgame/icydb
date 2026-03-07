@@ -7,31 +7,87 @@ use std::any::Any;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Entity {
-    pub def: Def,
-    pub store: &'static str,
-    pub primary_key: PrimaryKey,
+    def: Def,
+    store: &'static str,
+    primary_key: PrimaryKey,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<&'static str>,
+    name: Option<&'static str>,
 
     #[serde(default, skip_serializing_if = "<[_]>::is_empty")]
-    pub indexes: &'static [Index],
+    indexes: &'static [Index],
 
-    pub fields: FieldList,
-    pub ty: Type,
+    fields: FieldList,
+    ty: Type,
 }
 
 impl Entity {
     #[must_use]
+    pub const fn new(
+        def: Def,
+        store: &'static str,
+        primary_key: PrimaryKey,
+        name: Option<&'static str>,
+        indexes: &'static [Index],
+        fields: FieldList,
+        ty: Type,
+    ) -> Self {
+        Self {
+            def,
+            store,
+            primary_key,
+            name,
+            indexes,
+            fields,
+            ty,
+        }
+    }
+
+    #[must_use]
+    pub const fn def(&self) -> &Def {
+        &self.def
+    }
+
+    #[must_use]
+    pub const fn store(&self) -> &'static str {
+        self.store
+    }
+
+    #[must_use]
+    pub const fn primary_key(&self) -> &PrimaryKey {
+        &self.primary_key
+    }
+
+    #[must_use]
+    pub const fn name(&self) -> Option<&'static str> {
+        self.name
+    }
+
+    #[must_use]
+    pub const fn indexes(&self) -> &'static [Index] {
+        self.indexes
+    }
+
+    #[must_use]
+    pub const fn fields(&self) -> &FieldList {
+        &self.fields
+    }
+
+    #[must_use]
+    pub const fn ty(&self) -> &Type {
+        &self.ty
+    }
+
+    #[must_use]
     /// Return the primary key field if it exists on the entity.
     pub fn get_pk_field(&self) -> Option<&Field> {
-        self.fields.get(self.primary_key.field)
+        self.fields().get(self.primary_key().field())
     }
 
     #[must_use]
     /// Resolve the entity name used for schema identity.
     pub fn resolved_name(&self) -> &'static str {
-        self.name.unwrap_or(self.def.ident)
+        self.name().unwrap_or_else(|| self.def().ident())
     }
 }
 
@@ -43,7 +99,7 @@ impl MacroNode for Entity {
 
 impl TypeNode for Entity {
     fn ty(&self) -> &Type {
-        &self.ty
+        self.ty()
     }
 }
 
@@ -53,7 +109,7 @@ impl ValidateNode for Entity {
         let schema = schema_read();
 
         // store
-        match schema.cast_node::<Store>(self.store) {
+        match schema.cast_node::<Store>(self.store()) {
             Ok(_) => {}
             Err(e) => errs.add(e),
         }
@@ -64,12 +120,12 @@ impl ValidateNode for Entity {
 
 impl VisitableNode for Entity {
     fn route_key(&self) -> String {
-        self.def.path()
+        self.def().path()
     }
 
     fn drive<V: Visitor>(&self, v: &mut V) {
-        self.def.accept(v);
-        self.fields.accept(v);
-        self.ty.accept(v);
+        self.def().accept(v);
+        self.fields().accept(v);
+        self.ty().accept(v);
     }
 }

@@ -10,10 +10,10 @@ use std::{collections::HashMap, fmt};
 #[derive(CandidType, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ErrorTree {
     /// Errors at the current level.
-    pub messages: Vec<String>,
+    messages: Vec<String>,
 
     /// Child errors indexed by field/key.
-    pub children: HashMap<String, Self>,
+    children: HashMap<String, Self>,
 }
 
 impl ErrorTree {
@@ -71,10 +71,30 @@ impl ErrorTree {
         }
     }
 
+    /// Merge another `ErrorTree` under one child route key.
+    pub fn merge_for<K: ToString>(&mut self, key: K, other: Self) {
+        self.children
+            .entry(key.to_string())
+            .or_default()
+            .merge(other);
+    }
+
     /// Check if there are any errors.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.messages.is_empty() && self.children.is_empty()
+    }
+
+    /// Borrow top-level messages.
+    #[must_use]
+    pub fn messages(&self) -> &[String] {
+        &self.messages
+    }
+
+    /// Borrow child error trees keyed by route/field.
+    #[must_use]
+    pub const fn children(&self) -> &HashMap<String, Self> {
+        &self.children
     }
 
     /// Flatten the error hierarchy without consuming `self`.
@@ -170,14 +190,11 @@ mod tests {
         child_errs.add("child error 1");
         child_errs.add("child error 2");
         errs.add_for("field", "field error");
-        errs.children
-            .entry("nested".to_string())
-            .or_default()
-            .merge(child_errs);
+        errs.merge_for("nested", child_errs);
 
         // Check hierarchical structure.
-        assert_eq!(errs.messages.len(), 1);
-        assert!(errs.children.contains_key("field") || errs.children.contains_key("nested"));
+        assert_eq!(errs.messages().len(), 1);
+        assert!(errs.children().contains_key("field") || errs.children().contains_key("nested"));
 
         // Flatten and check that errors include keys.
         let flat = errs.flatten_ref();

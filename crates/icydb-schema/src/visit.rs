@@ -31,9 +31,9 @@ pub trait Visitor {
 
 #[derive(Debug, Default)]
 pub struct ValidateVisitor {
-    pub errors: ErrorTree,
-    pub path: Vec<String>,
-    pub node_count: usize,
+    errors: ErrorTree,
+    path: Vec<String>,
+    node_count: usize,
 }
 
 impl ValidateVisitor {
@@ -48,6 +48,16 @@ impl ValidateVisitor {
     #[must_use]
     pub const fn node_count(&self) -> usize {
         self.node_count
+    }
+
+    #[must_use]
+    pub const fn errors(&self) -> &ErrorTree {
+        &self.errors
+    }
+
+    #[must_use]
+    pub fn into_errors(self) -> ErrorTree {
+        self.errors
     }
 }
 
@@ -79,7 +89,7 @@ impl Visitor for ValidateVisitor {
                                 self.errors.merge(errs);
                             } else {
                                 // Add to a child entry under the computed route.
-                                self.errors.children.entry(route).or_default().merge(errs);
+                                self.errors.merge_for(route, errs);
                             }
                         }
                     }

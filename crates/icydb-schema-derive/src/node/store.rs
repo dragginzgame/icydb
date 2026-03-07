@@ -9,12 +9,12 @@ use canic_utils::case::{Case, Casing};
 #[derive(Debug, FromMeta)]
 pub struct Store {
     #[darling(default, skip)]
-    pub def: Def,
+    pub(crate) def: Def,
 
-    pub ident: Ident,
-    pub canister: Path,
-    pub data_memory_id: u8,
-    pub index_memory_id: u8,
+    pub(crate) ident: Ident,
+    pub(crate) canister: Path,
+    pub(crate) data_memory_id: u8,
+    pub(crate) index_memory_id: u8,
 }
 
 impl HasDef for Store {
@@ -59,13 +59,13 @@ impl HasSchemaPart for Store {
 
         // quote
         quote! {
-            ::icydb::schema::node::Store{
-                def: #def,
-                ident: #ident,
-                canister: #canister,
-                data_memory_id: #data_memory_id,
-                index_memory_id: #index_memory_id,
-            }
+            ::icydb::schema::node::Store::new(
+                #def,
+                #ident,
+                #canister,
+                #data_memory_id,
+                #index_memory_id,
+            )
         }
     }
 }

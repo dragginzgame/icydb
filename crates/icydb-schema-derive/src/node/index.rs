@@ -7,10 +7,10 @@ use crate::prelude::*;
 #[derive(Debug, FromMeta)]
 pub struct Index {
     #[darling(default, map = "split_idents")]
-    pub fields: Vec<Ident>,
+    pub(crate) fields: Vec<Ident>,
 
     #[darling(default)]
-    pub unique: bool,
+    pub(crate) unique: bool,
 }
 
 impl HasSchemaPart for Index {
@@ -20,10 +20,7 @@ impl HasSchemaPart for Index {
 
         // quote
         quote! {
-            ::icydb::schema::node::Index {
-                fields: #fields,
-                unique: #unique,
-            }
+            ::icydb::schema::node::Index::new(#fields, #unique)
         }
     }
 }

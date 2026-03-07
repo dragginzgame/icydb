@@ -7,16 +7,16 @@ use crate::{imp::*, prelude::*};
 #[derive(Debug, FromMeta)]
 pub struct Record {
     #[darling(default, skip)]
-    pub def: Def,
+    pub(crate) def: Def,
 
     #[darling(default)]
-    pub fields: FieldList,
+    pub(crate) fields: FieldList,
 
     #[darling(default)]
-    pub traits: TraitBuilder,
+    pub(crate) traits: TraitBuilder,
 
     #[darling(default)]
-    pub ty: Type,
+    pub(crate) ty: Type,
 }
 
 impl HasDef for Record {
@@ -48,11 +48,7 @@ impl HasSchemaPart for Record {
 
         // quote
         quote! {
-            ::icydb::schema::node::Record {
-                def: #def,
-                fields: #fields,
-                ty: #ty,
-            }
+            ::icydb::schema::node::Record::new(#def, #fields, #ty)
         }
     }
 }

@@ -7,9 +7,31 @@ use std::ops::Not;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Enum {
-    pub def: Def,
-    pub variants: &'static [EnumVariant],
-    pub ty: Type,
+    def: Def,
+    variants: &'static [EnumVariant],
+    ty: Type,
+}
+
+impl Enum {
+    #[must_use]
+    pub const fn new(def: Def, variants: &'static [EnumVariant], ty: Type) -> Self {
+        Self { def, variants, ty }
+    }
+
+    #[must_use]
+    pub const fn def(&self) -> &Def {
+        &self.def
+    }
+
+    #[must_use]
+    pub const fn variants(&self) -> &'static [EnumVariant] {
+        self.variants
+    }
+
+    #[must_use]
+    pub const fn ty(&self) -> &Type {
+        &self.ty
+    }
 }
 
 impl MacroNode for Enum {
@@ -20,7 +42,7 @@ impl MacroNode for Enum {
 
 impl TypeNode for Enum {
     fn ty(&self) -> &Type {
-        &self.ty
+        self.ty()
     }
 }
 
@@ -32,15 +54,15 @@ impl ValidateNode for Enum {
 
 impl VisitableNode for Enum {
     fn route_key(&self) -> String {
-        self.def.path()
+        self.def().path()
     }
 
     fn drive<V: Visitor>(&self, v: &mut V) {
-        self.def.accept(v);
-        for node in self.variants {
+        self.def().accept(v);
+        for node in self.variants() {
             node.accept(v);
         }
-        self.ty.accept(v);
+        self.ty().accept(v);
     }
 }
 
@@ -50,16 +72,53 @@ impl VisitableNode for Enum {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct EnumVariant {
-    pub ident: &'static str,
+    ident: &'static str,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub value: Option<Value>,
+    value: Option<Value>,
 
     #[serde(default, skip_serializing_if = "Not::not")]
-    pub default: bool,
+    default: bool,
 
     #[serde(default, skip_serializing_if = "Not::not")]
-    pub unspecified: bool,
+    unspecified: bool,
+}
+
+impl EnumVariant {
+    #[must_use]
+    pub const fn new(
+        ident: &'static str,
+        value: Option<Value>,
+        default: bool,
+        unspecified: bool,
+    ) -> Self {
+        Self {
+            ident,
+            value,
+            default,
+            unspecified,
+        }
+    }
+
+    #[must_use]
+    pub const fn ident(&self) -> &'static str {
+        self.ident
+    }
+
+    #[must_use]
+    pub const fn value(&self) -> Option<&Value> {
+        self.value.as_ref()
+    }
+
+    #[must_use]
+    pub const fn default(&self) -> bool {
+        self.default
+    }
+
+    #[must_use]
+    pub const fn unspecified(&self) -> bool {
+        self.unspecified
+    }
 }
 
 impl ValidateNode for EnumVariant {
@@ -70,7 +129,7 @@ impl ValidateNode for EnumVariant {
 
 impl VisitableNode for EnumVariant {
     fn drive<V: Visitor>(&self, v: &mut V) {
-        if let Some(node) = &self.value {
+        if let Some(node) = self.value() {
             node.accept(v);
         }
     }

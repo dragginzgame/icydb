@@ -7,31 +7,31 @@ use crate::prelude::*;
 #[derive(Clone, Debug, Default, FromMeta)]
 pub struct Item {
     #[darling(default)]
-    pub is: Option<Path>,
+    pub(crate) is: Option<Path>,
 
     #[darling(default, rename = "prim")]
-    pub primitive: Option<Primitive>,
+    pub(crate) primitive: Option<Primitive>,
 
     #[darling(default)]
-    pub scale: Option<u32>,
+    pub(crate) scale: Option<u32>,
 
     #[darling(default, rename = "rel")]
-    pub relation: Option<Path>,
+    pub(crate) relation: Option<Path>,
 
     #[darling(default)]
-    pub strong: bool,
+    pub(crate) strong: bool,
 
     #[darling(default)]
-    pub weak: bool,
+    pub(crate) weak: bool,
 
     #[darling(multiple, rename = "sanitizer")]
-    pub sanitizers: Vec<TypeSanitizer>,
+    pub(crate) sanitizers: Vec<TypeSanitizer>,
 
     #[darling(multiple, rename = "validator")]
-    pub validators: Vec<TypeValidator>,
+    pub(crate) validators: Vec<TypeValidator>,
 
     #[darling(default)]
-    pub indirect: bool,
+    pub(crate) indirect: bool,
 }
 
 impl Item {
@@ -131,10 +131,6 @@ impl Item {
         self.relation.is_some()
     }
 
-    pub const fn is_primitive(&self) -> bool {
-        self.primitive.is_some()
-    }
-
     /// Type expression used from within generated `<entity>_views` child modules.
     /// Relative `item(is = "...")` paths must be resolved through `super::`.
     pub fn view_type_expr(&self) -> TokenStream {
@@ -162,14 +158,14 @@ impl HasSchemaPart for Item {
         let indirect = self.indirect;
 
         quote! {
-            ::icydb::schema::node::Item {
-                target: #target,
-                relation: #relation,
-                scale: #scale,
-                validators: #validators,
-                sanitizers: #sanitizers,
-                indirect: #indirect,
-            }
+            ::icydb::schema::node::Item::new(
+                #target,
+                #relation,
+                #scale,
+                #validators,
+                #sanitizers,
+                #indirect,
+            )
         }
     }
 }

@@ -6,7 +6,21 @@ use crate::prelude::*;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Sanitizer {
-    pub def: Def,
+    def: Def,
+}
+
+impl Sanitizer {
+    /// Creates a sanitizer node from definition metadata.
+    #[must_use]
+    pub const fn new(def: Def) -> Self {
+        Self { def }
+    }
+
+    /// Returns the sanitizer definition metadata.
+    #[must_use]
+    pub const fn def(&self) -> &Def {
+        &self.def
+    }
 }
 
 impl MacroNode for Sanitizer {
@@ -19,10 +33,10 @@ impl ValidateNode for Sanitizer {}
 
 impl VisitableNode for Sanitizer {
     fn route_key(&self) -> String {
-        self.def.path()
+        self.def().path()
     }
 
     fn drive<V: Visitor>(&self, v: &mut V) {
-        self.def.accept(v);
+        self.def().accept(v);
     }
 }

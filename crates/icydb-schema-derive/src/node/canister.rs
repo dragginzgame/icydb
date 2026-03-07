@@ -9,11 +9,11 @@ use crate::validate::memory::{memory_id_out_of_range_error, memory_id_reserved_e
 #[derive(Debug, FromMeta)]
 pub struct Canister {
     #[darling(skip, default)]
-    pub def: Def,
+    pub(crate) def: Def,
 
     // inclusive range of ic memories
-    pub memory_min: u8,
-    pub memory_max: u8,
+    pub(crate) memory_min: u8,
+    pub(crate) memory_max: u8,
     pub commit_memory_id: u8,
 }
 
@@ -63,12 +63,12 @@ impl HasSchemaPart for Canister {
 
         // quote
         quote! {
-            ::icydb::schema::node::Canister{
-                def: #def,
-                memory_min: #memory_min,
-                memory_max: #memory_max,
-                commit_memory_id: #commit_memory_id,
-            }
+            ::icydb::schema::node::Canister::new(
+                #def,
+                #memory_min,
+                #memory_max,
+                #commit_memory_id,
+            )
         }
     }
 }

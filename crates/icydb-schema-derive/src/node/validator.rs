@@ -7,7 +7,7 @@ use crate::prelude::*;
 #[derive(Debug, FromMeta)]
 pub struct Validator {
     #[darling(default, skip)]
-    pub def: Def,
+    pub(crate) def: Def,
 }
 
 impl HasDef for Validator {
@@ -34,9 +34,7 @@ impl HasSchemaPart for Validator {
 
         // quote
         quote! {
-            ::icydb::schema::node::Validator {
-                def: #def,
-            }
+            ::icydb::schema::node::Validator::new(#def)
         }
     }
 }

@@ -20,10 +20,10 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
     // -------------------------
 
     for (store_path, store) in &stores {
-        let data_cell_ident = format_ident!("{}_DATA", store.ident);
-        let index_cell_ident = format_ident!("{}_INDEX", store.ident);
-        let data_memory_id = store.data_memory_id;
-        let index_memory_id = store.index_memory_id;
+        let data_cell_ident = format_ident!("{}_DATA", store.ident());
+        let index_cell_ident = format_ident!("{}_INDEX", store.ident());
+        let data_memory_id = store.data_memory_id();
+        let index_memory_id = store.index_memory_id();
         let store_path_lit = store_path.as_str();
 
         data_defs.extend(quote! {
@@ -67,12 +67,12 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
     // -------------------------
 
     let canister = &builder.canister;
-    let canister_path: syn::Path = parse_str(&canister.def.path())
-        .unwrap_or_else(|_| panic!("invalid canister path: {}", canister.def.path()));
+    let canister_path: syn::Path = parse_str(&canister.def().path())
+        .unwrap_or_else(|_| panic!("invalid canister path: {}", canister.def().path()));
 
     let entity_runtime_hooks = entity_runtime_hooks(builder, &canister_path);
-    let memory_min = canister.memory_min;
-    let memory_max = canister.memory_max;
+    let memory_min = canister.memory_min();
+    let memory_max = canister.memory_max();
 
     quote! {
         #data_defs

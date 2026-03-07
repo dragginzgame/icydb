@@ -129,10 +129,10 @@ fn initial_scalar_continuation_context() -> ScalarContinuationContext {
     ScalarContinuationContext::initial()
 }
 
-mod aggregate;
-mod budget;
-mod capability;
-mod field_extrema;
-mod load;
-mod mutation;
-mod precedence;
+mod aggregate_matrix;
+mod budget_matrix;
+mod capability_matrix;
+mod field_extrema_matrix;
+mod load_matrix;
+mod mutation_matrix;
+mod precedence_matrix;

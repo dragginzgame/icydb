@@ -352,6 +352,49 @@ fn load_cursor_rejects_order_field_signature_mismatch_at_plan_time() {
 }
 
 #[test]
+fn load_cursor_rejects_order_direction_cross_plan_cursor_reuse_at_plan_time() {
+    let source_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
+        .order_by("rank")
+        .limit(1)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("source asc plan should build");
+    let boundary = CursorBoundary {
+        slots: vec![
+            CursorBoundarySlot::Present(Value::Uint(10)),
+            CursorBoundarySlot::Present(Value::Ulid(Ulid::from_u128(5004))),
+        ],
+    };
+    let cursor = ContinuationToken::new_with_direction(
+        source_plan.continuation_signature(),
+        boundary,
+        Direction::Asc,
+        0,
+    )
+    .encode()
+    .expect("asc cursor should encode");
+
+    let target_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
+        .order_by_desc("rank")
+        .limit(1)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("target desc plan should build");
+    let err = target_plan
+        .prepare_cursor(Some(cursor.as_slice()))
+        .expect_err("asc cursor must not resume a desc plan");
+    let cursor_err = unwrap_cursor_plan_error(err);
+    assert!(
+        matches!(
+            cursor_err,
+            CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+                | CursorPlanError::InvalidContinuationCursorPayload { .. }
+        ),
+        "cross-direction plan cursor reuse must be rejected"
+    );
+}
+
+#[test]
 fn load_cursor_rejects_direction_mismatch_at_plan_time() {
     let plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .order_by("rank")
@@ -568,6 +611,42 @@ fn grouped_cursor_rejects_unsupported_version_at_plan_time() {
                 )
         ),
         "grouped planning should reject unsupported grouped cursor versions"
+    );
+}
+
+#[test]
+fn grouped_cursor_rejects_descending_direction_at_plan_time() {
+    let grouped_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .group_by("group")
+        .expect("grouped query should build")
+        .aggregate(crate::db::count())
+        .limit(1)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("grouped plan should build");
+    let cursor = GroupedContinuationToken::new_with_direction(
+        grouped_plan.continuation_signature(),
+        vec![Value::Uint(7)],
+        Direction::Desc,
+        0,
+    )
+    .encode()
+    .expect("descending-direction grouped cursor should encode");
+
+    let err = grouped_plan
+        .prepare_grouped_cursor(Some(cursor.as_slice()))
+        .expect_err("grouped cursor with descending direction must be rejected");
+    assert!(
+        matches!(
+            err,
+            crate::db::executor::ExecutorPlanError::Cursor(inner)
+                if matches!(
+                    inner.as_ref(),
+                    CursorPlanError::InvalidContinuationCursorPayload { reason }
+                        if reason.contains("direction must be ascending")
+                )
+        ),
+        "grouped planning must reject descending-direction grouped cursors"
     );
 }
 
@@ -973,4 +1052,213 @@ fn continuation_resume_tokens_fail_closed_on_scalar_and_grouped_shape_drift_matr
             "grouped continuation invalidation must fail closed on shape drift ({case_name})"
         );
     }
+}
+
+#[test]
+#[expect(clippy::too_many_lines)]
+fn grouped_cursor_decode_and_cross_shape_replay_matrix_preserves_contract_parity() {
+    // Phase 1: build grouped source plans for ASC and DESC ordering surfaces.
+    let grouped_asc_source = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .order_by("rank")
+        .group_by("rank")
+        .expect("grouped asc source query should build")
+        .aggregate(crate::db::count())
+        .limit(1)
+        .offset(2)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("grouped asc source plan should build");
+    let grouped_desc_source = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .order_by_desc("rank")
+        .group_by("rank")
+        .expect("grouped desc source query should build")
+        .aggregate(crate::db::count())
+        .limit(1)
+        .offset(2)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("grouped desc source plan should build");
+
+    // Phase 2: encode/decode grouped ASC token and validate grouped cursor decode invariants.
+    let asc_cursor = GroupedContinuationToken::new_with_direction(
+        grouped_asc_source.continuation_signature(),
+        vec![Value::Uint(7)],
+        Direction::Asc,
+        2,
+    )
+    .encode()
+    .expect("grouped asc source token should encode");
+    let asc_decoded = GroupedContinuationToken::decode(asc_cursor.as_slice())
+        .expect("grouped asc source token should decode");
+    assert_eq!(
+        asc_decoded.signature(),
+        grouped_asc_source.continuation_signature(),
+        "grouped asc token decode must preserve continuation signature",
+    );
+    assert_eq!(
+        asc_decoded.last_group_key(),
+        &[Value::Uint(7)],
+        "grouped asc token decode must preserve group-key boundary",
+    );
+    assert_eq!(
+        asc_decoded.direction(),
+        Direction::Asc,
+        "grouped token decode direction contract must remain ascending",
+    );
+    assert_eq!(
+        asc_decoded.initial_offset(),
+        2,
+        "grouped asc token decode must preserve initial offset window",
+    );
+    let asc_prepared = grouped_asc_source
+        .prepare_grouped_cursor(Some(asc_cursor.as_slice()))
+        .expect("grouped asc source token should validate against source plan");
+    assert!(
+        !asc_prepared.is_empty(),
+        "grouped asc source token should produce non-empty grouped cursor state",
+    );
+    assert_eq!(
+        asc_prepared.initial_offset(),
+        2,
+        "grouped asc source token should preserve grouped cursor offset",
+    );
+    assert_eq!(
+        asc_prepared.last_group_key(),
+        Some([Value::Uint(7)].as_slice()),
+        "grouped asc source token should preserve grouped cursor group-key boundary",
+    );
+
+    // Phase 3: grouped ASC token replay must fail closed across grouped shape drifts.
+    for (case_name, grouped_target) in [
+        (
+            "grouped_order_direction_drift",
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .order_by_desc("rank")
+                .group_by("rank")
+                .expect("grouped direction-drift target query should build")
+                .aggregate(crate::db::count())
+                .limit(1)
+                .offset(2)
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("grouped direction-drift target plan should build"),
+        ),
+        (
+            "grouped_group_key_drift",
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .order_by("group")
+                .group_by("group")
+                .expect("grouped group-key drift target query should build")
+                .aggregate(crate::db::count())
+                .limit(1)
+                .offset(2)
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("grouped group-key drift target plan should build"),
+        ),
+        (
+            "grouped_having_drift",
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .order_by("rank")
+                .group_by("rank")
+                .expect("grouped having drift target query should build")
+                .aggregate(crate::db::count())
+                .limit(1)
+                .offset(2)
+                .having_aggregate(0, CompareOp::Gt, Value::Uint(1))
+                .expect("grouped having drift target clause should build")
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("grouped having drift target plan should build"),
+        ),
+        (
+            "grouped_distinct_drift",
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+                .order_by("rank")
+                .group_by("rank")
+                .expect("grouped distinct drift target query should build")
+                .aggregate(crate::db::count().distinct())
+                .limit(1)
+                .offset(2)
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("grouped distinct drift target plan should build"),
+        ),
+    ] {
+        let err = unwrap_cursor_plan_error(
+            grouped_target
+                .prepare_grouped_cursor(Some(asc_cursor.as_slice()))
+                .expect_err("grouped asc token replay must reject drifted grouped shapes"),
+        );
+        assert!(
+            matches!(
+                err,
+                CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+            ),
+            "grouped asc token replay must fail closed on grouped shape drift ({case_name})",
+        );
+    }
+
+    // Phase 4: encode/decode grouped DESC-plan token and validate cross-plan rejection matrix.
+    let desc_cursor = GroupedContinuationToken::new_with_direction(
+        grouped_desc_source.continuation_signature(),
+        vec![Value::Uint(7)],
+        Direction::Asc,
+        2,
+    )
+    .encode()
+    .expect("grouped desc source token should encode");
+    let desc_decoded = GroupedContinuationToken::decode(desc_cursor.as_slice())
+        .expect("grouped desc source token should decode");
+    assert_eq!(
+        desc_decoded.signature(),
+        grouped_desc_source.continuation_signature(),
+        "grouped desc token decode must preserve continuation signature",
+    );
+    assert_eq!(
+        desc_decoded.last_group_key(),
+        &[Value::Uint(7)],
+        "grouped desc token decode must preserve group-key boundary",
+    );
+    assert_eq!(
+        desc_decoded.direction(),
+        Direction::Asc,
+        "grouped desc token decode direction contract must remain ascending",
+    );
+    assert_eq!(
+        desc_decoded.initial_offset(),
+        2,
+        "grouped desc token decode must preserve initial offset window",
+    );
+    let desc_prepared = grouped_desc_source
+        .prepare_grouped_cursor(Some(desc_cursor.as_slice()))
+        .expect("grouped desc source token should validate against source plan");
+    assert!(
+        !desc_prepared.is_empty(),
+        "grouped desc source token should produce non-empty grouped cursor state",
+    );
+    let asc_to_desc_err = unwrap_cursor_plan_error(
+        grouped_desc_source
+            .prepare_grouped_cursor(Some(asc_cursor.as_slice()))
+            .expect_err("grouped desc source must reject grouped asc token"),
+    );
+    let desc_to_asc_err = unwrap_cursor_plan_error(
+        grouped_asc_source
+            .prepare_grouped_cursor(Some(desc_cursor.as_slice()))
+            .expect_err("grouped asc source must reject grouped desc token"),
+    );
+    assert!(
+        matches!(
+            asc_to_desc_err,
+            CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+        ),
+        "grouped desc source must reject grouped asc token by signature mismatch",
+    );
+    assert!(
+        matches!(
+            desc_to_asc_err,
+            CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+        ),
+        "grouped asc source must reject grouped desc token by signature mismatch",
+    );
 }

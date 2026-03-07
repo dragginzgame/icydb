@@ -24,7 +24,7 @@ fn validate_nodes(schema: &Schema) -> ErrorTree {
     let mut visitor = ValidateVisitor::new();
     schema.accept(&mut visitor);
 
-    visitor.errors
+    visitor.into_errors()
 }
 
 // Run global validation passes that require a full schema view.

@@ -9,7 +9,7 @@ use std::slice::Iter;
 #[derive(Clone, Debug, Default, FromMeta)]
 pub struct FieldList {
     #[darling(multiple, rename = "field")]
-    pub fields: Vec<Field>,
+    pub(crate) fields: Vec<Field>,
 }
 
 impl FieldList {
@@ -57,9 +57,7 @@ impl HasSchemaPart for FieldList {
         let fields = quote_slice(&self.fields, Field::schema_part);
 
         quote! {
-            ::icydb::schema::node::FieldList {
-                fields: #fields,
-            }
+            ::icydb::schema::node::FieldList::new(#fields)
         }
     }
 }
@@ -87,14 +85,14 @@ impl<'a> IntoIterator for &'a FieldList {
 
 #[derive(Clone, Debug, FromMeta)]
 pub struct Field {
-    pub ident: Ident,
-    pub value: Value,
+    pub(crate) ident: Ident,
+    pub(crate) value: Value,
 
     #[darling(default)]
-    pub default: Option<Arg>,
+    pub(crate) default: Option<Arg>,
 
     #[darling(skip, default)]
-    pub is_system: bool,
+    pub(crate) is_system: bool,
 }
 
 // Canonical relation identity suffixes.
@@ -194,11 +192,7 @@ impl HasSchemaPart for Field {
         let default = quote_option(self.default.as_ref(), Arg::schema_part);
 
         quote! {
-            ::icydb::schema::node::Field {
-                ident: #ident,
-                value: #value,
-                default: #default,
-            }
+            ::icydb::schema::node::Field::new(#ident, #value, #default)
         }
     }
 }

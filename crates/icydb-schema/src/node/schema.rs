@@ -46,18 +46,18 @@ impl SchemaNode {
 impl SchemaNode {
     const fn def(&self) -> &Def {
         match self {
-            Self::Canister(n) => &n.def,
-            Self::Entity(n) => &n.def,
-            Self::Enum(n) => &n.def,
-            Self::List(n) => &n.def,
-            Self::Map(n) => &n.def,
-            Self::Newtype(n) => &n.def,
-            Self::Record(n) => &n.def,
-            Self::Sanitizer(n) => &n.def,
-            Self::Set(n) => &n.def,
-            Self::Store(n) => &n.def,
-            Self::Tuple(n) => &n.def,
-            Self::Validator(n) => &n.def,
+            Self::Canister(n) => n.def(),
+            Self::Entity(n) => n.def(),
+            Self::Enum(n) => n.def(),
+            Self::List(n) => n.def(),
+            Self::Map(n) => n.def(),
+            Self::Newtype(n) => n.def(),
+            Self::Record(n) => n.def(),
+            Self::Sanitizer(n) => n.def(),
+            Self::Set(n) => n.def(),
+            Self::Store(n) => n.def(),
+            Self::Tuple(n) => n.def(),
+            Self::Validator(n) => n.def(),
         }
     }
 }
@@ -108,9 +108,9 @@ impl VisitableNode for SchemaNode {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Schema {
-    pub nodes: BTreeMap<String, SchemaNode>,
-    pub hash: &'static str,
-    pub timestamp: u64,
+    nodes: BTreeMap<String, SchemaNode>,
+    hash: &'static str,
+    timestamp: u64,
 }
 
 impl Schema {
@@ -183,6 +183,24 @@ impl Schema {
                 .filter(|target| predicate(target))
                 .map(|target| (key.as_str(), target))
         })
+    }
+
+    /// Borrow all schema nodes indexed by path.
+    #[must_use]
+    pub const fn nodes(&self) -> &BTreeMap<String, SchemaNode> {
+        &self.nodes
+    }
+
+    /// Borrow schema hash metadata.
+    #[must_use]
+    pub const fn hash(&self) -> &'static str {
+        self.hash
+    }
+
+    /// Borrow schema timestamp metadata.
+    #[must_use]
+    pub const fn timestamp(&self) -> u64 {
+        self.timestamp
     }
 }
 

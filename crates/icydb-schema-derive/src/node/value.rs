@@ -7,12 +7,12 @@ use crate::prelude::*;
 #[derive(Clone, Debug, Default, FromMeta)]
 pub struct Value {
     #[darling(default)]
-    pub opt: bool,
+    pub(crate) opt: bool,
 
     #[darling(default)]
-    pub many: bool,
+    pub(crate) many: bool,
 
-    pub item: Item,
+    pub(crate) item: Item,
 }
 
 impl Value {
@@ -50,10 +50,7 @@ impl HasSchemaPart for Value {
 
         // quote
         quote!(
-            ::icydb::schema::node::Value {
-                cardinality: #cardinality,
-                item: #item,
-            }
+            ::icydb::schema::node::Value::new(#cardinality, #item)
         )
     }
 }

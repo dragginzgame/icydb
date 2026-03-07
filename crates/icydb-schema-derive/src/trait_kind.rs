@@ -267,10 +267,10 @@ impl ToTokens for TraitSet {
 #[derive(Clone, Debug, Default, FromMeta)]
 pub struct TraitBuilder {
     #[darling(default)]
-    pub add: TraitListMeta,
+    pub(crate) add: TraitListMeta,
 
     #[darling(default)]
-    pub remove: TraitListMeta,
+    pub(crate) remove: TraitListMeta,
 }
 
 impl TraitBuilder {

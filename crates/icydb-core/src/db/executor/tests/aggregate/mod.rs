@@ -1,11 +1,11 @@
-mod core_contract_matrices;
-mod field_projection_matrices;
-mod path_parity_matrices;
-mod projection_matrices;
-mod ranked_matrices;
-mod secondary_index_matrices;
-mod session_matrices;
-mod tail_matrices;
+mod core_contract_matrix;
+mod field_projection_matrix;
+mod path_parity_matrix;
+mod projection_matrix;
+mod ranked_matrix;
+mod secondary_index_matrix;
+mod session_matrix;
+mod tail_matrix;
 
 use super::*;
 use crate::{

@@ -11,19 +11,19 @@ use crate::{
 #[derive(Debug, FromMeta)]
 pub struct Newtype {
     #[darling(default, skip)]
-    pub def: Def,
+    pub(crate) def: Def,
 
-    pub primitive: Option<Primitive>,
-    pub item: Item,
-
-    #[darling(default)]
-    pub default: Option<Arg>,
+    pub(crate) primitive: Option<Primitive>,
+    pub(crate) item: Item,
 
     #[darling(default)]
-    pub ty: Type,
+    pub(crate) default: Option<Arg>,
 
     #[darling(default)]
-    pub traits: TraitBuilder,
+    pub(crate) ty: Type,
+
+    #[darling(default)]
+    pub(crate) traits: TraitBuilder,
 }
 
 impl HasDef for Newtype {
@@ -66,12 +66,7 @@ impl HasSchemaPart for Newtype {
 
         // quote
         quote! {
-            ::icydb::schema::node::Newtype {
-                def: #def,
-                item: #item,
-                default: #default,
-                ty: #ty,
-            }
+            ::icydb::schema::node::Newtype::new(#def, #item, #default, #ty)
         }
     }
 }

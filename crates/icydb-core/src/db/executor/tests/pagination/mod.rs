@@ -963,10 +963,10 @@ fn run_range_pushdown_parity_matrix<E, Row>(
     }
 }
 
-mod composite_budget;
-mod cursor_pk;
-mod distinct;
-mod index_range;
-mod limit_no_cursor;
-mod ordering_permutations;
-mod range_edges_trace;
+mod composite_budget_matrix;
+mod cursor_pk_matrix;
+mod distinct_matrix;
+mod index_range_matrix;
+mod limit_no_cursor_matrix;
+mod ordering_permutation_matrix;
+mod range_edges_trace_matrix;

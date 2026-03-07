@@ -60,10 +60,10 @@ impl ActorBuilder {
     /// All stores belonging to the current canister, keyed by path.
     #[must_use]
     pub fn get_stores(&self) -> Vec<(String, Store)> {
-        let canister_path = self.canister.def.path();
+        let canister_path = self.canister.def().path();
 
         self.schema
-            .filter_nodes::<Store>(|node| node.canister == canister_path)
+            .filter_nodes::<Store>(|node| node.canister() == canister_path)
             .map(|(path, store)| (path.to_string(), store.clone()))
             .collect()
     }
@@ -71,13 +71,13 @@ impl ActorBuilder {
     /// All entities belonging to the current canister, keyed by path.
     #[must_use]
     pub fn get_entities(&self) -> Vec<(String, Entity)> {
-        let canister_path = self.canister.def.path();
+        let canister_path = self.canister.def().path();
 
         self.schema
             .get_nodes::<Entity>()
             .filter_map(|(path, entity)| {
-                let store = self.schema.cast_node::<Store>(entity.store).ok()?;
-                if store.canister == canister_path {
+                let store = self.schema.cast_node::<Store>(entity.store()).ok()?;
+                if store.canister() == canister_path {
                     Some((path.to_string(), entity.clone()))
                 } else {
                     None

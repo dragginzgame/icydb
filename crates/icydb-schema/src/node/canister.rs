@@ -8,10 +8,42 @@ use std::collections::BTreeMap;
 
 #[derive(CandidType, Clone, Debug, Serialize)]
 pub struct Canister {
-    pub def: Def,
-    pub memory_min: u8,
-    pub memory_max: u8,
+    def: Def,
+    memory_min: u8,
+    memory_max: u8,
     pub commit_memory_id: u8,
+}
+
+impl Canister {
+    #[must_use]
+    pub const fn new(def: Def, memory_min: u8, memory_max: u8, commit_memory_id: u8) -> Self {
+        Self {
+            def,
+            memory_min,
+            memory_max,
+            commit_memory_id,
+        }
+    }
+
+    #[must_use]
+    pub const fn def(&self) -> &Def {
+        &self.def
+    }
+
+    #[must_use]
+    pub const fn memory_min(&self) -> u8 {
+        self.memory_min
+    }
+
+    #[must_use]
+    pub const fn memory_max(&self) -> u8 {
+        self.memory_max
+    }
+
+    #[must_use]
+    pub const fn commit_memory_id(&self) -> u8 {
+        self.commit_memory_id
+    }
 }
 
 impl MacroNode for Canister {
@@ -25,30 +57,30 @@ impl ValidateNode for Canister {
         let mut errs = ErrorTree::new();
         let schema = schema_read();
 
-        let canister_path = self.def.path();
+        let canister_path = self.def().path();
         let mut seen_ids = BTreeMap::<u8, String>::new();
 
         validate_memory_id_in_range(
             &mut errs,
             "commit_memory_id",
-            self.commit_memory_id,
-            self.memory_min,
-            self.memory_max,
+            self.commit_memory_id(),
+            self.memory_min(),
+            self.memory_max(),
         );
-        validate_memory_id_not_reserved(&mut errs, "commit_memory_id", self.commit_memory_id);
+        validate_memory_id_not_reserved(&mut errs, "commit_memory_id", self.commit_memory_id());
 
         assert_unique_memory_id(
-            self.commit_memory_id,
-            format!("Canister `{}`.commit_memory_id", self.def.path()),
+            self.commit_memory_id(),
+            format!("Canister `{}`.commit_memory_id", self.def().path()),
             &canister_path,
             &mut seen_ids,
             &mut errs,
         );
 
         // Check all Store nodes for this canister
-        for (path, store) in schema.filter_nodes::<Store>(|node| node.canister == canister_path) {
+        for (path, store) in schema.filter_nodes::<Store>(|node| node.canister() == canister_path) {
             assert_unique_memory_id(
-                store.data_memory_id,
+                store.data_memory_id(),
                 format!("Store `{path}`.data_memory_id"),
                 &canister_path,
                 &mut seen_ids,
@@ -56,7 +88,7 @@ impl ValidateNode for Canister {
             );
 
             assert_unique_memory_id(
-                store.index_memory_id,
+                store.index_memory_id(),
                 format!("Store `{path}`.index_memory_id"),
                 &canister_path,
                 &mut seen_ids,
@@ -91,7 +123,7 @@ fn assert_unique_memory_id(
 
 impl VisitableNode for Canister {
     fn route_key(&self) -> String {
-        self.def.path()
+        self.def().path()
     }
 }
 
@@ -106,16 +138,7 @@ mod tests {
     use super::*;
 
     fn insert_canister(path_module: &'static str, ident: &'static str) -> Canister {
-        let canister = Canister {
-            def: Def {
-                module_path: path_module,
-                ident,
-                comments: None,
-            },
-            memory_min: 0,
-            memory_max: 255,
-            commit_memory_id: 254,
-        };
+        let canister = Canister::new(Def::new(path_module, ident, None), 0, 255, 254);
         schema_write().insert_node(SchemaNode::Canister(canister.clone()));
 
         canister
@@ -128,17 +151,13 @@ mod tests {
         data_memory_id: u8,
         index_memory_id: u8,
     ) {
-        schema_write().insert_node(SchemaNode::Store(Store {
-            def: Def {
-                module_path: path_module,
-                ident,
-                comments: None,
-            },
+        schema_write().insert_node(SchemaNode::Store(Store::new(
+            Def::new(path_module, ident, None),
             ident,
-            canister: canister_path,
+            canister_path,
             data_memory_id,
             index_memory_id,
-        }));
+        )));
     }
 
     #[test]
@@ -173,16 +192,12 @@ mod tests {
 
     #[test]
     fn validate_rejects_reserved_commit_memory_id() {
-        let canister = Canister {
-            def: Def {
-                module_path: "schema_reserved_commit",
-                ident: "Canister",
-                comments: None,
-            },
-            memory_min: 0,
-            memory_max: 255,
-            commit_memory_id: 255,
-        };
+        let canister = Canister::new(
+            Def::new("schema_reserved_commit", "Canister", None),
+            0,
+            255,
+            255,
+        );
         schema_write().insert_node(SchemaNode::Canister(canister.clone()));
 
         let err = canister

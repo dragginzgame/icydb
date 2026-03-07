@@ -6,14 +6,24 @@ use crate::prelude::*;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct FieldList {
-    pub fields: &'static [Field],
+    fields: &'static [Field],
 }
 
 impl FieldList {
+    #[must_use]
+    pub const fn new(fields: &'static [Field]) -> Self {
+        Self { fields }
+    }
+
+    #[must_use]
+    pub const fn fields(&self) -> &'static [Field] {
+        self.fields
+    }
+
     // get
     #[must_use]
     pub fn get(&self, ident: &str) -> Option<&Field> {
-        self.fields.iter().find(|f| f.ident == ident)
+        self.fields.iter().find(|field| field.ident() == ident)
     }
 }
 
@@ -21,7 +31,7 @@ impl ValidateNode for FieldList {}
 
 impl VisitableNode for FieldList {
     fn drive<V: Visitor>(&self, v: &mut V) {
-        for node in self.fields {
+        for node in self.fields() {
             node.accept(v);
         }
     }
@@ -33,11 +43,37 @@ impl VisitableNode for FieldList {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Field {
-    pub ident: &'static str,
-    pub value: Value,
+    ident: &'static str,
+    value: Value,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub default: Option<Arg>,
+    default: Option<Arg>,
+}
+
+impl Field {
+    #[must_use]
+    pub const fn new(ident: &'static str, value: Value, default: Option<Arg>) -> Self {
+        Self {
+            ident,
+            value,
+            default,
+        }
+    }
+
+    #[must_use]
+    pub const fn ident(&self) -> &'static str {
+        self.ident
+    }
+
+    #[must_use]
+    pub const fn value(&self) -> &Value {
+        &self.value
+    }
+
+    #[must_use]
+    pub const fn default(&self) -> Option<&Arg> {
+        self.default.as_ref()
+    }
 }
 
 impl ValidateNode for Field {
@@ -48,12 +84,12 @@ impl ValidateNode for Field {
 
 impl VisitableNode for Field {
     fn route_key(&self) -> String {
-        self.ident.to_string()
+        self.ident().to_string()
     }
 
     fn drive<V: Visitor>(&self, v: &mut V) {
-        self.value.accept(v);
-        if let Some(node) = &self.default {
+        self.value().accept(v);
+        if let Some(node) = self.default() {
             node.accept(v);
         }
     }

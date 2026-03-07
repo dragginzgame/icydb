@@ -11,11 +11,55 @@ use crate::prelude::*;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Store {
-    pub def: Def,
-    pub ident: &'static str,
-    pub canister: &'static str,
-    pub data_memory_id: u8,
-    pub index_memory_id: u8,
+    def: Def,
+    ident: &'static str,
+    canister: &'static str,
+    data_memory_id: u8,
+    index_memory_id: u8,
+}
+
+impl Store {
+    #[must_use]
+    pub const fn new(
+        def: Def,
+        ident: &'static str,
+        canister: &'static str,
+        data_memory_id: u8,
+        index_memory_id: u8,
+    ) -> Self {
+        Self {
+            def,
+            ident,
+            canister,
+            data_memory_id,
+            index_memory_id,
+        }
+    }
+
+    #[must_use]
+    pub const fn def(&self) -> &Def {
+        &self.def
+    }
+
+    #[must_use]
+    pub const fn ident(&self) -> &'static str {
+        self.ident
+    }
+
+    #[must_use]
+    pub const fn canister(&self) -> &'static str {
+        self.canister
+    }
+
+    #[must_use]
+    pub const fn data_memory_id(&self) -> u8 {
+        self.data_memory_id
+    }
+
+    #[must_use]
+    pub const fn index_memory_id(&self) -> u8 {
+        self.index_memory_id
+    }
 }
 
 impl MacroNode for Store {
@@ -29,34 +73,38 @@ impl ValidateNode for Store {
         let mut errs = ErrorTree::new();
         let schema = schema_read();
 
-        match schema.cast_node::<Canister>(self.canister) {
+        match schema.cast_node::<Canister>(self.canister()) {
             Ok(canister) => {
                 // Validate data memory ID
                 validate_memory_id_in_range(
                     &mut errs,
                     "data_memory_id",
-                    self.data_memory_id,
-                    canister.memory_min,
-                    canister.memory_max,
+                    self.data_memory_id(),
+                    canister.memory_min(),
+                    canister.memory_max(),
                 );
-                validate_memory_id_not_reserved(&mut errs, "data_memory_id", self.data_memory_id);
+                validate_memory_id_not_reserved(&mut errs, "data_memory_id", self.data_memory_id());
 
                 // Validate index memory ID
                 validate_memory_id_in_range(
                     &mut errs,
                     "index_memory_id",
-                    self.index_memory_id,
-                    canister.memory_min,
-                    canister.memory_max,
+                    self.index_memory_id(),
+                    canister.memory_min(),
+                    canister.memory_max(),
                 );
-                validate_memory_id_not_reserved(&mut errs, "index_memory_id", self.index_memory_id);
+                validate_memory_id_not_reserved(
+                    &mut errs,
+                    "index_memory_id",
+                    self.index_memory_id(),
+                );
 
                 // Ensure they are not the same
-                if self.data_memory_id == self.index_memory_id {
+                if self.data_memory_id() == self.index_memory_id() {
                     err!(
                         errs,
                         "data_memory_id and index_memory_id must differ (both are {})",
-                        self.data_memory_id,
+                        self.data_memory_id(),
                     );
                 }
             }
@@ -69,10 +117,10 @@ impl ValidateNode for Store {
 
 impl VisitableNode for Store {
     fn route_key(&self) -> String {
-        self.def.path()
+        self.def().path()
     }
 
     fn drive<V: Visitor>(&self, v: &mut V) {
-        self.def.accept(v);
+        self.def().accept(v);
     }
 }

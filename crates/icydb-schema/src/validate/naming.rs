@@ -8,7 +8,7 @@ pub fn validate_entity_naming(schema: &Schema, errs: &mut ErrorTree) {
     let mut by_canister: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
 
     for (entity_path, entity) in schema.get_nodes::<Entity>() {
-        let store = match schema.cast_node::<Store>(entity.store) {
+        let store = match schema.cast_node::<Store>(entity.store()) {
             Ok(store) => store,
             Err(e) => {
                 errs.add(e);
@@ -16,7 +16,7 @@ pub fn validate_entity_naming(schema: &Schema, errs: &mut ErrorTree) {
             }
         };
 
-        let canister = store.canister.to_string();
+        let canister = store.canister().to_string();
         let name = entity.resolved_name().to_string();
         let entity_path = entity_path.to_string();
 

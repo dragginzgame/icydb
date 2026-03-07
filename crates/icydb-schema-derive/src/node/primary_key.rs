@@ -6,10 +6,10 @@ use crate::prelude::*;
 
 #[derive(Debug, FromMeta)]
 pub struct PrimaryKey {
-    pub field: Ident,
+    pub(crate) field: Ident,
 
     #[darling(default)]
-    pub source: PrimaryKeySource,
+    pub(crate) source: PrimaryKeySource,
 }
 
 impl HasSchemaPart for PrimaryKey {
@@ -18,10 +18,7 @@ impl HasSchemaPart for PrimaryKey {
         let source = self.source.schema_part();
 
         quote! {
-            ::icydb::schema::node::PrimaryKey {
-                field: #field,
-                source: #source,
-            }
+            ::icydb::schema::node::PrimaryKey::new(#field, #source)
         }
     }
 }

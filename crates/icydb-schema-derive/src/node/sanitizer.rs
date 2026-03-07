@@ -10,7 +10,7 @@ use crate::{
 #[derive(Debug, FromMeta)]
 pub struct Sanitizer {
     #[darling(default, skip)]
-    pub def: Def,
+    pub(crate) def: Def,
 }
 
 impl HasDef for Sanitizer {
@@ -37,9 +37,7 @@ impl HasSchemaPart for Sanitizer {
 
         // quote
         quote! {
-            ::icydb::schema::node::Sanitizer {
-                def: #def,
-            }
+            ::icydb::schema::node::Sanitizer::new(#def)
         }
     }
 }

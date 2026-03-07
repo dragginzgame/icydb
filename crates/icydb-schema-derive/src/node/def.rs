@@ -9,8 +9,8 @@ use crate::prelude::*;
 
 #[derive(Debug, Default)]
 pub struct Def {
-    pub item: Option<ItemStruct>,
-    pub comments: Option<LitStr>,
+    pub(crate) item: Option<ItemStruct>,
+    pub(crate) comments: Option<LitStr>,
 }
 
 impl Def {
@@ -33,11 +33,7 @@ impl HasSchemaPart for Def {
 
         // quote
         quote! {
-            ::icydb::schema::node::Def {
-                module_path: module_path!(),
-                comments: #comments,
-                ident: #ident,
-            }
+            ::icydb::schema::node::Def::new(module_path!(), #ident, #comments)
         }
     }
 }

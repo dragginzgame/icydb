@@ -32,7 +32,6 @@ use crate::db::access::{
 pub(in crate::db) use crate::db::access::{
     ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan,
 };
-#[cfg(test)]
 pub(in crate::db::executor) use crate::db::diagnostics::ExecutionOptimizationCounter;
 pub(in crate::db::executor) use crate::db::diagnostics::{ExecutionOptimization, ExecutionTrace};
 pub(super) use context::*;
@@ -91,32 +90,28 @@ where
     pub(crate) fn take_execution_optimization_hits_for_tests(
         optimization: ExecutionOptimizationCounter,
     ) -> u64 {
-        match optimization {
-            ExecutionOptimizationCounter::BytesPrimaryKeyFastPath => {
-                Self::take_bytes_pk_fast_path_hits_for_tests()
-            }
-            ExecutionOptimizationCounter::BytesStreamFastPath => {
-                Self::take_bytes_stream_fast_path_hits_for_tests()
-            }
-            ExecutionOptimizationCounter::CoveringExistsFastPath => {
-                Self::take_covering_exists_fast_path_hits_for_tests()
-            }
-            ExecutionOptimizationCounter::CoveringCountFastPath => {
-                Self::take_covering_count_fast_path_hits_for_tests()
-            }
-            ExecutionOptimizationCounter::PrimaryKeyCountFastPath => {
-                Self::take_primary_key_count_fast_path_hits_for_tests()
-            }
-            ExecutionOptimizationCounter::PrimaryKeyCardinalityCountFastPath => {
-                Self::take_pk_cardinality_count_fast_path_hits_for_tests()
-            }
-            ExecutionOptimizationCounter::CoveringIndexProjectionFastPath => {
-                Self::take_covering_index_projection_fast_path_hits_for_tests()
-            }
-            ExecutionOptimizationCounter::CoveringConstantProjectionFastPath => {
-                Self::take_covering_constant_projection_fast_path_hits_for_tests()
-            }
-        }
+        crate::db::diagnostics::take_execution_optimization_hits_for_tests(optimization)
+    }
+}
+
+impl<E> LoadExecutor<E>
+where
+    E: EntityKind + EntityValue,
+{
+    /// Record one test-only optimization hit marker by canonical taxonomy key.
+    #[cfg(test)]
+    pub(in crate::db::executor) fn record_execution_optimization_hit_for_tests(
+        optimization: ExecutionOptimizationCounter,
+    ) {
+        crate::db::diagnostics::record_execution_optimization_hit_for_tests(optimization);
+    }
+
+    /// Record one test-only optimization hit marker by canonical taxonomy key.
+    #[cfg(not(test))]
+    pub(in crate::db::executor) const fn record_execution_optimization_hit_for_tests(
+        optimization: ExecutionOptimizationCounter,
+    ) {
+        crate::db::diagnostics::record_execution_optimization_hit_for_tests(optimization);
     }
 }
 
@@ -129,12 +124,10 @@ where
 // - Corruption indicates invalid persisted bytes or store mismatches; invariant violations
 //   indicate executor/planner contract breaches.
 
-#[cfg(test)]
-use crate::traits::EntityValue;
 use crate::{
     db::{CompiledQuery, cursor::CursorPlanError, data::DataKey},
     error::{ErrorClass, ErrorOrigin, InternalError},
-    traits::EntityKind,
+    traits::{EntityKind, EntityValue},
 };
 use thiserror::Error as ThisError;
 

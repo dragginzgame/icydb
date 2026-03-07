@@ -6,6 +6,7 @@
 
 use crate::{
     db::{
+        codec::{write_hash_str_u32, write_hash_tag_u8, write_hash_u32, write_hash_u64},
         predicate::{MissingRowPolicy, Predicate, hash_predicate as hash_model_predicate},
         query::{
             explain::{
@@ -217,8 +218,7 @@ pub(super) fn write_value_bound(hasher: &mut Sha256, bound: &Bound<Value>) {
 ///
 
 pub(in crate::db::query::fingerprint) fn write_str(hasher: &mut Sha256, value: &str) {
-    write_u32(hasher, value.len() as u32);
-    hasher.update(value.as_bytes());
+    write_hash_str_u32(hasher, value);
 }
 
 ///
@@ -226,7 +226,7 @@ pub(in crate::db::query::fingerprint) fn write_str(hasher: &mut Sha256, value: &
 ///
 
 pub(in crate::db::query::fingerprint) fn write_u32(hasher: &mut Sha256, value: u32) {
-    hasher.update(value.to_be_bytes());
+    write_hash_u32(hasher, value);
 }
 
 ///
@@ -234,7 +234,7 @@ pub(in crate::db::query::fingerprint) fn write_u32(hasher: &mut Sha256, value: u
 ///
 
 pub(in crate::db::query::fingerprint) fn write_tag(hasher: &mut Sha256, tag: u8) {
-    hasher.update([tag]);
+    write_hash_tag_u8(hasher, tag);
 }
 
 const fn order_direction_tag(direction: OrderDirection) -> u8 {
@@ -527,8 +527,8 @@ fn hash_grouping_shape_v1(
             }
             hash_group_having(hasher, having.as_ref());
 
-            write_u64(hasher, *max_groups);
-            write_u64(hasher, *max_group_bytes);
+            write_hash_u64(hasher, *max_groups);
+            write_hash_u64(hasher, *max_group_bytes);
         }
     }
 }
@@ -583,10 +583,6 @@ fn hash_group_having_clause(hasher: &mut Sha256, clause: &ExplainGroupHavingClau
     }
     write_tag(hasher, clause.op().tag());
     write_value(hasher, clause.value());
-}
-
-fn write_u64(hasher: &mut Sha256, value: u64) {
-    hasher.update(value.to_be_bytes());
 }
 
 ///

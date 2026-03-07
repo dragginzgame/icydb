@@ -7,16 +7,16 @@ use crate::{imp::*, prelude::*};
 #[derive(Debug, Default, FromMeta)]
 pub struct Tuple {
     #[darling(default, skip)]
-    pub def: Def,
+    pub(crate) def: Def,
 
     #[darling(multiple, rename = "value")]
-    pub values: Vec<Value>,
+    pub(crate) values: Vec<Value>,
 
     #[darling(default)]
-    pub ty: Type,
+    pub(crate) ty: Type,
 
     #[darling(default)]
-    pub traits: TraitBuilder,
+    pub(crate) traits: TraitBuilder,
 }
 
 impl HasDef for Tuple {
@@ -51,11 +51,7 @@ impl HasSchemaPart for Tuple {
 
         // quote
         quote! {
-            ::icydb::schema::node::Tuple {
-                def: #def,
-                values: #values,
-                ty: #ty,
-            }
+            ::icydb::schema::node::Tuple::new(#def, #values, #ty)
         }
     }
 }

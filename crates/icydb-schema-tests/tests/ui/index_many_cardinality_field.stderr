@@ -1,0 +1,12 @@
+error: cannot add an index field with many cardinality
+  --> tests/ui/index_many_cardinality_field.rs:14:1
+   |
+14 | / #[entity(
+15 | |     store = "UiDataStore",
+16 | |     pk(field = "id"),
+17 | |     index(fields = "tags"),
+...  |
+22 | | )]
+   | |__^
+   |
+   = note: this error originates in the attribute macro `entity` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -5,6 +5,10 @@
 
 use crate::{
     db::{
+        codec::{
+            write_hash_len_u32 as write_len_u32, write_hash_str_u32 as write_str_u32,
+            write_hash_tag_u8 as write_tag_u8,
+        },
         numeric::coerce_numeric_decimal,
         predicate::{CoercionId, CoercionSpec, CompareOp, Predicate},
     },
@@ -392,20 +396,6 @@ fn push_bytes_u64(out: &mut Vec<u8>, bytes: &[u8]) {
 
 fn push_str_u64(out: &mut Vec<u8>, s: &str) {
     push_bytes_u64(out, s.as_bytes());
-}
-
-fn write_tag_u8(hasher: &mut Sha256, tag: u8) {
-    hasher.update([tag]);
-}
-
-fn write_len_u32(hasher: &mut Sha256, len: usize) {
-    let len = u32::try_from(len).unwrap_or(u32::MAX);
-    hasher.update(len.to_be_bytes());
-}
-
-fn write_str_u32(hasher: &mut Sha256, value: &str) {
-    write_len_u32(hasher, value.len());
-    hasher.update(value.as_bytes());
 }
 
 ///

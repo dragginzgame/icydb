@@ -31,8 +31,8 @@ pub trait ValidateNode {
 ///
 
 pub struct TraitTokens {
-    pub derive: TokenStream,
-    pub impls: TokenStream,
+    pub(crate) derive: TokenStream,
+    pub(crate) impls: TokenStream,
 }
 
 ///

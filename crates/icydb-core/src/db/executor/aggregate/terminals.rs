@@ -9,7 +9,7 @@ use crate::{
         direction::Direction,
         executor::{
             AccessExecutionDescriptor, AccessScanContinuationInput, AccessStreamBindings, Context,
-            ExecutablePlan, ExecutionKernel, ExecutionPreparation,
+            ExecutablePlan, ExecutionKernel, ExecutionOptimizationCounter, ExecutionPreparation,
             aggregate::{
                 AggregateFoldMode, AggregateKind, AggregateOutput,
                 field::resolve_orderable_aggregate_target_slot_from_planner_slot,
@@ -26,17 +26,7 @@ use crate::{
     traits::{EntityKind, EntityValue},
     types::Id,
 };
-#[cfg(test)]
-use std::cell::Cell;
 use std::ops::Bound;
-
-#[cfg(test)]
-thread_local! {
-    static COVERING_EXISTS_FAST_PATH_HITS: Cell<u64> = const { Cell::new(0) };
-    static COVERING_COUNT_FAST_PATH_HITS: Cell<u64> = const { Cell::new(0) };
-    static PRIMARY_KEY_COUNT_FAST_PATH_HITS: Cell<u64> = const { Cell::new(0) };
-    static PK_CARDINALITY_COUNT_FAST_PATH_HITS: Cell<u64> = const { Cell::new(0) };
-}
 
 impl<E> LoadExecutor<E>
 where
@@ -48,17 +38,23 @@ where
         plan: ExecutablePlan<E>,
     ) -> Result<u32, InternalError> {
         if Self::pk_cardinality_count_eligible(&plan) {
-            Self::record_pk_cardinality_count_fast_path_hit_for_tests();
+            Self::record_execution_optimization_hit_for_tests(
+                ExecutionOptimizationCounter::PrimaryKeyCardinalityCountFastPath,
+            );
             return self.aggregate_count_from_pk_cardinality(plan);
         }
 
         if Self::primary_key_count_eligible(&plan) {
-            Self::record_primary_key_count_fast_path_hit_for_tests();
+            Self::record_execution_optimization_hit_for_tests(
+                ExecutionOptimizationCounter::PrimaryKeyCountFastPath,
+            );
             return self.aggregate_count_from_existing_row_stream(plan);
         }
 
         if Self::index_covering_count_eligible(&plan) {
-            Self::record_covering_count_fast_path_hit_for_tests();
+            Self::record_execution_optimization_hit_for_tests(
+                ExecutionOptimizationCounter::CoveringCountFastPath,
+            );
             return self.aggregate_count_from_existing_row_stream(plan);
         }
 
@@ -74,7 +70,9 @@ where
         plan: ExecutablePlan<E>,
     ) -> Result<bool, InternalError> {
         if Self::index_covering_exists_eligible(&plan) {
-            Self::record_covering_exists_fast_path_hit_for_tests();
+            Self::record_execution_optimization_hit_for_tests(
+                ExecutionOptimizationCounter::CoveringExistsFastPath,
+            );
             return self.aggregate_exists_from_index_covering_stream(plan);
         }
 
@@ -443,82 +441,6 @@ where
             _ => Err(invariant("covering EXISTS reducer result kind mismatch")),
         }
     }
-
-    #[cfg(test)]
-    pub(in crate::db::executor) fn take_covering_exists_fast_path_hits_for_tests() -> u64 {
-        COVERING_EXISTS_FAST_PATH_HITS.with(|counter| {
-            let hits = counter.get();
-            counter.set(0);
-            hits
-        })
-    }
-
-    #[cfg(test)]
-    pub(in crate::db::executor) fn take_covering_count_fast_path_hits_for_tests() -> u64 {
-        COVERING_COUNT_FAST_PATH_HITS.with(|counter| {
-            let hits = counter.get();
-            counter.set(0);
-            hits
-        })
-    }
-
-    #[cfg(test)]
-    pub(in crate::db::executor) fn take_primary_key_count_fast_path_hits_for_tests() -> u64 {
-        PRIMARY_KEY_COUNT_FAST_PATH_HITS.with(|counter| {
-            let hits = counter.get();
-            counter.set(0);
-            hits
-        })
-    }
-
-    #[cfg(test)]
-    pub(in crate::db::executor) fn take_pk_cardinality_count_fast_path_hits_for_tests() -> u64 {
-        PK_CARDINALITY_COUNT_FAST_PATH_HITS.with(|counter| {
-            let hits = counter.get();
-            counter.set(0);
-            hits
-        })
-    }
-
-    #[cfg(test)]
-    fn record_covering_exists_fast_path_hit_for_tests() {
-        COVERING_EXISTS_FAST_PATH_HITS.with(|counter| {
-            counter.set(counter.get().saturating_add(1));
-        });
-    }
-
-    #[cfg(test)]
-    fn record_covering_count_fast_path_hit_for_tests() {
-        COVERING_COUNT_FAST_PATH_HITS.with(|counter| {
-            counter.set(counter.get().saturating_add(1));
-        });
-    }
-
-    #[cfg(test)]
-    fn record_primary_key_count_fast_path_hit_for_tests() {
-        PRIMARY_KEY_COUNT_FAST_PATH_HITS.with(|counter| {
-            counter.set(counter.get().saturating_add(1));
-        });
-    }
-
-    #[cfg(test)]
-    fn record_pk_cardinality_count_fast_path_hit_for_tests() {
-        PK_CARDINALITY_COUNT_FAST_PATH_HITS.with(|counter| {
-            counter.set(counter.get().saturating_add(1));
-        });
-    }
-
-    #[cfg(not(test))]
-    const fn record_covering_exists_fast_path_hit_for_tests() {}
-
-    #[cfg(not(test))]
-    const fn record_covering_count_fast_path_hit_for_tests() {}
-
-    #[cfg(not(test))]
-    const fn record_primary_key_count_fast_path_hit_for_tests() {}
-
-    #[cfg(not(test))]
-    const fn record_pk_cardinality_count_fast_path_hit_for_tests() {}
 }
 
 // Keep primary-key direct COUNT fast path scoped to unordered or PK-only

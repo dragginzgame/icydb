@@ -10,24 +10,42 @@ use std::{
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Index {
-    pub fields: &'static [&'static str],
+    fields: &'static [&'static str],
 
     #[serde(default, skip_serializing_if = "Not::not")]
-    pub unique: bool,
+    unique: bool,
 }
 
 impl Index {
+    /// Build one index declaration from field-list and uniqueness metadata.
+    #[must_use]
+    pub const fn new(fields: &'static [&'static str], unique: bool) -> Self {
+        Self { fields, unique }
+    }
+
+    /// Borrow index field sequence.
+    #[must_use]
+    pub const fn fields(&self) -> &'static [&'static str] {
+        self.fields
+    }
+
+    /// Return whether the index enforces uniqueness.
+    #[must_use]
+    pub const fn is_unique(&self) -> bool {
+        self.unique
+    }
+
     #[must_use]
     pub fn is_prefix_of(&self, other: &Self) -> bool {
-        self.fields.len() < other.fields.len() && other.fields.starts_with(self.fields)
+        self.fields().len() < other.fields().len() && other.fields().starts_with(self.fields())
     }
 }
 
 impl Display for Index {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let fields = self.fields.join(", ");
+        let fields = self.fields().join(", ");
 
-        if self.unique {
+        if self.is_unique() {
             write!(f, "UNIQUE ({fields})")
         } else {
             write!(f, "({fields})")
@@ -45,6 +63,6 @@ impl ValidateNode for Index {}
 
 impl VisitableNode for Index {
     fn route_key(&self) -> String {
-        self.fields.join(", ")
+        self.fields().join(", ")
     }
 }

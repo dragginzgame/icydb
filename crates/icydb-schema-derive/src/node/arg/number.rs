@@ -48,24 +48,6 @@ impl_from_for_numeric_value! {
 }
 
 impl ArgNumber {
-    // as_type
-    pub fn as_type(&self) -> TokenStream {
-        match &self {
-            Self::Float32(_) => quote!(f32),
-            Self::Float64(_) => quote!(f64),
-            Self::Int8(_) => quote!(i8),
-            Self::Int16(_) => quote!(i16),
-            Self::Int32(_) => quote!(i32),
-            Self::Int64(_) => quote!(i64),
-            Self::Int128(_) => quote!(i128),
-            Self::Nat8(_) => quote!(u8),
-            Self::Nat16(_) => quote!(u16),
-            Self::Nat32(_) => quote!(u32),
-            Self::Nat64(_) => quote!(u64),
-            Self::Nat128(_) => quote!(u128),
-        }
-    }
-
     // parse_numeric_string
     pub fn parse_numeric_string(s: &str) -> Result<Self, DarlingError> {
         let s = s.replace('_', "");

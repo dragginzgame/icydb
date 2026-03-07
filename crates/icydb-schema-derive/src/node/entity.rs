@@ -8,27 +8,27 @@ use std::collections::HashSet;
 #[derive(Debug, FromMeta)]
 pub struct Entity {
     #[darling(default, skip)]
-    pub def: Def,
+    pub(crate) def: Def,
 
-    pub store: Path,
+    pub(crate) store: Path,
 
     #[darling(rename = "pk")]
-    pub primary_key: PrimaryKey,
+    pub(crate) primary_key: PrimaryKey,
 
     #[darling(default)]
-    pub name: Option<LitStr>,
+    pub(crate) name: Option<LitStr>,
 
     #[darling(multiple, rename = "index")]
-    pub indexes: Vec<Index>,
+    pub(crate) indexes: Vec<Index>,
 
     #[darling(default, map = "Entity::add_metadata")]
-    pub fields: FieldList,
+    pub(crate) fields: FieldList,
 
     #[darling(default)]
-    pub ty: Type,
+    pub(crate) ty: Type,
 
     #[darling(default)]
-    pub traits: TraitBuilder,
+    pub(crate) traits: TraitBuilder,
 }
 
 impl Entity {
@@ -360,15 +360,15 @@ impl HasSchemaPart for Entity {
 
         // quote
         quote! {
-             ::icydb::schema::node::Entity {
-                def: #def,
-                store: #store,
-                primary_key: #primary_key,
-                name: #name,
-                indexes: #indexes,
-                fields: #fields,
-                ty: #ty,
-            }
+            ::icydb::schema::node::Entity::new(
+                #def,
+                #store,
+                #primary_key,
+                #name,
+                #indexes,
+                #fields,
+                #ty,
+            )
         }
     }
 }

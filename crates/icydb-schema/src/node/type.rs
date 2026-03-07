@@ -7,20 +7,43 @@ use crate::prelude::*;
 #[derive(Clone, Debug, Serialize)]
 pub struct Type {
     #[serde(default, skip_serializing_if = "<[_]>::is_empty")]
-    pub sanitizers: &'static [TypeSanitizer],
+    sanitizers: &'static [TypeSanitizer],
 
     #[serde(default, skip_serializing_if = "<[_]>::is_empty")]
-    pub validators: &'static [TypeValidator],
+    validators: &'static [TypeValidator],
+}
+
+impl Type {
+    #[must_use]
+    pub const fn new(
+        sanitizers: &'static [TypeSanitizer],
+        validators: &'static [TypeValidator],
+    ) -> Self {
+        Self {
+            sanitizers,
+            validators,
+        }
+    }
+
+    #[must_use]
+    pub const fn sanitizers(&self) -> &'static [TypeSanitizer] {
+        self.sanitizers
+    }
+
+    #[must_use]
+    pub const fn validators(&self) -> &'static [TypeValidator] {
+        self.validators
+    }
 }
 
 impl ValidateNode for Type {}
 
 impl VisitableNode for Type {
     fn drive<V: Visitor>(&self, v: &mut V) {
-        for node in self.sanitizers {
+        for node in self.sanitizers() {
             node.accept(v);
         }
-        for node in self.validators {
+        for node in self.validators() {
             node.accept(v);
         }
     }
@@ -32,8 +55,25 @@ impl VisitableNode for Type {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct TypeSanitizer {
-    pub path: &'static str,
-    pub args: Args,
+    path: &'static str,
+    args: Args,
+}
+
+impl TypeSanitizer {
+    #[must_use]
+    pub const fn new(path: &'static str, args: Args) -> Self {
+        Self { path, args }
+    }
+
+    #[must_use]
+    pub const fn path(&self) -> &'static str {
+        self.path
+    }
+
+    #[must_use]
+    pub const fn args(&self) -> &Args {
+        &self.args
+    }
 }
 
 impl ValidateNode for TypeSanitizer {
@@ -41,7 +81,7 @@ impl ValidateNode for TypeSanitizer {
         let mut errs = ErrorTree::new();
 
         // check path
-        let res = schema_read().check_node_as::<Sanitizer>(self.path);
+        let res = schema_read().check_node_as::<Sanitizer>(self.path());
         if let Err(e) = res {
             errs.add(e.to_string());
         }
@@ -58,8 +98,25 @@ impl VisitableNode for TypeSanitizer {}
 
 #[derive(Clone, Debug, Serialize)]
 pub struct TypeValidator {
-    pub path: &'static str,
-    pub args: Args,
+    path: &'static str,
+    args: Args,
+}
+
+impl TypeValidator {
+    #[must_use]
+    pub const fn new(path: &'static str, args: Args) -> Self {
+        Self { path, args }
+    }
+
+    #[must_use]
+    pub const fn path(&self) -> &'static str {
+        self.path
+    }
+
+    #[must_use]
+    pub const fn args(&self) -> &Args {
+        &self.args
+    }
 }
 
 impl ValidateNode for TypeValidator {
@@ -67,7 +124,7 @@ impl ValidateNode for TypeValidator {
         let mut errs = ErrorTree::new();
 
         // check path
-        let res = schema_read().check_node_as::<Validator>(self.path);
+        let res = schema_read().check_node_as::<Validator>(self.path());
         if let Err(e) = res {
             errs.add(e.to_string());
         }

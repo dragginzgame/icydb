@@ -16,7 +16,7 @@ use crate::{
         data::DataKey,
         direction::Direction,
         executor::{
-            ExecutablePlan, ExecutionKernel,
+            ExecutablePlan, ExecutionKernel, ExecutionOptimizationCounter,
             aggregate::{
                 AggregateKind, AggregateOutput,
                 field::{
@@ -53,16 +53,8 @@ use crate::{
     types::Id,
     value::Value,
 };
-#[cfg(test)]
-use std::cell::Cell;
 
 type IdValueProjection<E> = Vec<(Id<E>, Value)>;
-
-#[cfg(test)]
-thread_local! {
-    static COVERING_INDEX_PROJECTION_FAST_PATH_HITS: Cell<u64> = const { Cell::new(0) };
-    static COVERING_CONSTANT_PROJECTION_FAST_PATH_HITS: Cell<u64> = const { Cell::new(0) };
-}
 
 impl<E> LoadExecutor<E>
 where
@@ -80,13 +72,17 @@ where
         if let Some(projected_values) =
             self.covering_index_projection_values_if_eligible(&plan, &target_field)?
         {
-            Self::record_covering_index_projection_fast_path_hit_for_tests();
+            Self::record_execution_optimization_hit_for_tests(
+                ExecutionOptimizationCounter::CoveringIndexProjectionFastPath,
+            );
             return Ok(projected_values);
         }
         if let Some(constant_value) =
             Self::constant_covering_projection_value_if_eligible(&plan, target_field.field())
         {
-            Self::record_covering_constant_projection_fast_path_hit_for_tests();
+            Self::record_execution_optimization_hit_for_tests(
+                ExecutionOptimizationCounter::CoveringConstantProjectionFastPath,
+            );
             let row_count = self.aggregate_count(plan)?;
             let output_len = usize::try_from(row_count).unwrap_or(usize::MAX);
             return Ok(vec![constant_value; output_len]);
@@ -109,7 +105,9 @@ where
         if let Some(covering_projection) =
             self.covering_index_projection_values_with_context_if_eligible(&plan, &target_field)?
         {
-            Self::record_covering_index_projection_fast_path_hit_for_tests();
+            Self::record_execution_optimization_hit_for_tests(
+                ExecutionOptimizationCounter::CoveringIndexProjectionFastPath,
+            );
             if covering_index_adjacent_distinct_eligible(covering_projection.context) {
                 return Ok(dedup_adjacent_values(covering_projection.values));
             }
@@ -119,7 +117,9 @@ where
         if let Some(constant_value) =
             Self::constant_covering_projection_value_if_eligible(&plan, target_field.field())
         {
-            Self::record_covering_constant_projection_fast_path_hit_for_tests();
+            Self::record_execution_optimization_hit_for_tests(
+                ExecutionOptimizationCounter::CoveringConstantProjectionFastPath,
+            );
             let has_rows = self.aggregate_exists(plan)?;
             return Ok(if has_rows {
                 vec![constant_value]
@@ -149,7 +149,9 @@ where
         if let Some(projected_values) =
             self.covering_index_projection_values_with_ids_if_eligible(&plan, &target_field)?
         {
-            Self::record_covering_index_projection_fast_path_hit_for_tests();
+            Self::record_execution_optimization_hit_for_tests(
+                ExecutionOptimizationCounter::CoveringIndexProjectionFastPath,
+            );
             return Ok(projected_values);
         }
         let response = self.execute(plan)?;
@@ -172,13 +174,17 @@ where
         if let Some(projected_values) =
             self.covering_index_projection_values_if_eligible(&plan, &target_field)?
         {
-            Self::record_covering_index_projection_fast_path_hit_for_tests();
+            Self::record_execution_optimization_hit_for_tests(
+                ExecutionOptimizationCounter::CoveringIndexProjectionFastPath,
+            );
             return Ok(projected_values.first().cloned());
         }
         if let Some(constant_value) =
             Self::constant_covering_projection_value_if_eligible(&plan, target_field.field())
         {
-            Self::record_covering_constant_projection_fast_path_hit_for_tests();
+            Self::record_execution_optimization_hit_for_tests(
+                ExecutionOptimizationCounter::CoveringConstantProjectionFastPath,
+            );
             let has_rows = self.aggregate_exists(plan)?;
             return Ok(has_rows.then_some(constant_value));
         }
@@ -202,13 +208,17 @@ where
         if let Some(projected_values) =
             self.covering_index_projection_values_if_eligible(&plan, &target_field)?
         {
-            Self::record_covering_index_projection_fast_path_hit_for_tests();
+            Self::record_execution_optimization_hit_for_tests(
+                ExecutionOptimizationCounter::CoveringIndexProjectionFastPath,
+            );
             return Ok(projected_values.last().cloned());
         }
         if let Some(constant_value) =
             Self::constant_covering_projection_value_if_eligible(&plan, target_field.field())
         {
-            Self::record_covering_constant_projection_fast_path_hit_for_tests();
+            Self::record_execution_optimization_hit_for_tests(
+                ExecutionOptimizationCounter::CoveringConstantProjectionFastPath,
+            );
             let has_rows = self.aggregate_exists(plan)?;
             return Ok(has_rows.then_some(constant_value));
         }
@@ -557,46 +567,6 @@ where
             "covering projection component scans require index-backed access paths",
         ))
     }
-
-    #[cfg(test)]
-    pub(in crate::db::executor) fn take_covering_index_projection_fast_path_hits_for_tests() -> u64
-    {
-        COVERING_INDEX_PROJECTION_FAST_PATH_HITS.with(|counter| {
-            let hits = counter.get();
-            counter.set(0);
-            hits
-        })
-    }
-
-    #[cfg(test)]
-    pub(in crate::db::executor) fn take_covering_constant_projection_fast_path_hits_for_tests()
-    -> u64 {
-        COVERING_CONSTANT_PROJECTION_FAST_PATH_HITS.with(|counter| {
-            let hits = counter.get();
-            counter.set(0);
-            hits
-        })
-    }
-
-    #[cfg(test)]
-    fn record_covering_index_projection_fast_path_hit_for_tests() {
-        COVERING_INDEX_PROJECTION_FAST_PATH_HITS.with(|counter| {
-            counter.set(counter.get().saturating_add(1));
-        });
-    }
-
-    #[cfg(test)]
-    fn record_covering_constant_projection_fast_path_hit_for_tests() {
-        COVERING_CONSTANT_PROJECTION_FAST_PATH_HITS.with(|counter| {
-            counter.set(counter.get().saturating_add(1));
-        });
-    }
-
-    #[cfg(not(test))]
-    const fn record_covering_index_projection_fast_path_hit_for_tests() {}
-
-    #[cfg(not(test))]
-    const fn record_covering_constant_projection_fast_path_hit_for_tests() {}
 }
 
 fn invariant(message: impl Into<String>) -> InternalError {

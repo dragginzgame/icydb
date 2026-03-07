@@ -5,6 +5,7 @@
 //! All other DB modules must decode via codec helpers.
 
 pub(crate) mod cursor;
+mod hash_stream;
 #[cfg(test)]
 mod tests;
 
@@ -13,6 +14,10 @@ use crate::{
     serialize::{SerializeError, SerializeErrorKind, deserialize_bounded},
 };
 use serde::de::DeserializeOwned;
+
+pub(in crate::db) use hash_stream::{
+    write_hash_len_u32, write_hash_str_u32, write_hash_tag_u8, write_hash_u32, write_hash_u64,
+};
 
 /// Max serialized bytes for a single row (protocol-level limit).
 pub(crate) const MAX_ROW_BYTES: u32 = 4 * 1024 * 1024;

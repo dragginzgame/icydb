@@ -6,8 +6,8 @@ use crate::prelude::*;
 
 #[derive(Debug, Default)]
 pub struct TraitStrategy {
-    pub derive: Option<TraitKind>,
-    pub imp: Option<TokenStream>,
+    pub(crate) derive: Option<TraitKind>,
+    pub(crate) imp: Option<TokenStream>,
 }
 
 impl TraitStrategy {

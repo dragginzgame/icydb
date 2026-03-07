@@ -8,16 +8,16 @@ use canic_utils::case::{Case, Casing};
 #[derive(Debug, FromMeta)]
 pub struct Enum {
     #[darling(default, skip)]
-    pub def: Def,
+    pub(crate) def: Def,
 
     #[darling(multiple, rename = "variant")]
-    pub variants: Vec<EnumVariant>,
+    pub(crate) variants: Vec<EnumVariant>,
 
     #[darling(default)]
-    pub ty: Type,
+    pub(crate) ty: Type,
 
     #[darling(default)]
-    pub traits: TraitBuilder,
+    pub(crate) traits: TraitBuilder,
 }
 
 impl Enum {
@@ -104,11 +104,7 @@ impl HasSchemaPart for Enum {
 
         // quote
         quote! {
-            ::icydb::schema::node::Enum {
-                def: #def,
-                variants: #variants,
-                ty: #ty,
-            }
+            ::icydb::schema::node::Enum::new(#def, #variants, #ty)
         }
     }
 }
@@ -180,16 +176,16 @@ impl ToTokens for Enum {
 #[derive(Clone, Debug, FromMeta)]
 pub struct EnumVariant {
     #[darling(default = EnumVariant::unspecified_ident)]
-    pub ident: Ident,
+    pub(crate) ident: Ident,
 
     #[darling(default)]
-    pub value: Option<Value>,
+    pub(crate) value: Option<Value>,
 
     #[darling(default)]
-    pub default: bool,
+    pub(crate) default: bool,
 
     #[darling(default)]
-    pub unspecified: bool,
+    pub(crate) unspecified: bool,
 }
 
 impl EnumVariant {
@@ -247,12 +243,12 @@ impl HasSchemaPart for EnumVariant {
 
         // quote
         quote! {
-            ::icydb::schema::node::EnumVariant {
-                ident: #ident,
-                value : #value,
-                default: #default,
-                unspecified: #unspecified,
-            }
+            ::icydb::schema::node::EnumVariant::new(
+                #ident,
+                #value,
+                #default,
+                #unspecified,
+            )
         }
     }
 }

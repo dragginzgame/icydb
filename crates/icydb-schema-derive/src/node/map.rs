@@ -7,16 +7,16 @@ use crate::{imp::*, prelude::*};
 #[derive(Debug, FromMeta)]
 pub struct Map {
     #[darling(default, skip)]
-    pub def: Def,
+    pub(crate) def: Def,
 
-    pub key: Item,
-    pub value: Value,
-
-    #[darling(default)]
-    pub ty: Type,
+    pub(crate) key: Item,
+    pub(crate) value: Value,
 
     #[darling(default)]
-    pub traits: TraitBuilder,
+    pub(crate) ty: Type,
+
+    #[darling(default)]
+    pub(crate) traits: TraitBuilder,
 }
 
 impl HasDef for Map {
@@ -90,12 +90,7 @@ impl HasSchemaPart for Map {
 
         // quote
         quote! {
-            ::icydb::schema::node::Map {
-                def: #def,
-                key: #key,
-                value: #value,
-                ty: #ty,
-            }
+            ::icydb::schema::node::Map::new(#def, #key, #value, #ty)
         }
     }
 }

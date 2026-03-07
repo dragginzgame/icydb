@@ -5,7 +5,7 @@ use crate::{
         direction::Direction,
         executor::{
             AccessExecutionDescriptor, AccessScanContinuationInput, AccessStreamBindings,
-            ExecutablePlan,
+            ExecutablePlan, ExecutionOptimizationCounter,
             aggregate::field::{
                 AggregateFieldValueError, extract_orderable_field_value,
                 resolve_any_aggregate_target_slot_from_planner_slot,
@@ -17,18 +17,10 @@ use crate::{
     error::InternalError,
     traits::{EntityKind, EntityValue},
 };
-#[cfg(test)]
-use std::cell::Cell;
 
 use crate::db::executor::load::terminal::{
     bytes_page_window_state, invariant, saturating_add_payload_len, serialized_value_len,
 };
-
-#[cfg(test)]
-thread_local! {
-    static BYTES_PK_FAST_PATH_HITS: Cell<u64> = const { Cell::new(0) };
-    static BYTES_STREAM_FAST_PATH_HITS: Cell<u64> = const { Cell::new(0) };
-}
 
 impl<E> LoadExecutor<E>
 where
@@ -37,11 +29,15 @@ where
     /// Execute one `bytes()` terminal over the canonical load response.
     pub(in crate::db) fn bytes(&self, plan: ExecutablePlan<E>) -> Result<u64, InternalError> {
         if let Some(direction) = Self::bytes_pk_window_fast_path_direction(&plan) {
-            Self::record_bytes_pk_fast_path_hit_for_tests();
+            Self::record_execution_optimization_hit_for_tests(
+                ExecutionOptimizationCounter::BytesPrimaryKeyFastPath,
+            );
             return self.bytes_from_pk_store_window(plan, direction);
         }
         if let Some(direction) = Self::bytes_stream_window_fast_path_direction(&plan) {
-            Self::record_bytes_stream_fast_path_hit_for_tests();
+            Self::record_execution_optimization_hit_for_tests(
+                ExecutionOptimizationCounter::BytesStreamFastPath,
+            );
             return self.bytes_from_ordered_key_stream_window(plan, direction);
         }
 
@@ -222,42 +218,4 @@ where
             limit,
         )
     }
-
-    #[cfg(test)]
-    pub(in crate::db::executor) fn take_bytes_pk_fast_path_hits_for_tests() -> u64 {
-        BYTES_PK_FAST_PATH_HITS.with(|counter| {
-            let hits = counter.get();
-            counter.set(0);
-            hits
-        })
-    }
-
-    #[cfg(test)]
-    pub(in crate::db::executor) fn take_bytes_stream_fast_path_hits_for_tests() -> u64 {
-        BYTES_STREAM_FAST_PATH_HITS.with(|counter| {
-            let hits = counter.get();
-            counter.set(0);
-            hits
-        })
-    }
-
-    #[cfg(test)]
-    fn record_bytes_pk_fast_path_hit_for_tests() {
-        BYTES_PK_FAST_PATH_HITS.with(|counter| {
-            counter.set(counter.get().saturating_add(1));
-        });
-    }
-
-    #[cfg(test)]
-    fn record_bytes_stream_fast_path_hit_for_tests() {
-        BYTES_STREAM_FAST_PATH_HITS.with(|counter| {
-            counter.set(counter.get().saturating_add(1));
-        });
-    }
-
-    #[cfg(not(test))]
-    const fn record_bytes_pk_fast_path_hit_for_tests() {}
-
-    #[cfg(not(test))]
-    const fn record_bytes_stream_fast_path_hit_for_tests() {}
 }

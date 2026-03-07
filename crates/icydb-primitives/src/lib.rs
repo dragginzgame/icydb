@@ -97,14 +97,64 @@ impl ScalarKind {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[expect(clippy::struct_excessive_bools)]
 pub struct ScalarMetadata {
-    pub family: ScalarCoercionFamily,
-    pub is_numeric_value: bool,
-    pub supports_numeric_coercion: bool,
-    pub supports_arithmetic: bool,
-    pub supports_equality: bool,
-    pub supports_ordering: bool,
-    pub is_keyable: bool,
-    pub is_storage_key_encodable: bool,
+    family: ScalarCoercionFamily,
+    is_numeric_value: bool,
+    supports_numeric_coercion: bool,
+    supports_arithmetic: bool,
+    supports_equality: bool,
+    supports_ordering: bool,
+    is_keyable: bool,
+    is_storage_key_encodable: bool,
+}
+
+impl ScalarMetadata {
+    /// Return coercion routing family for this scalar metadata entry.
+    #[must_use]
+    pub const fn family(self) -> ScalarCoercionFamily {
+        self.family
+    }
+
+    /// Return whether this scalar participates in numeric-valued classification.
+    #[must_use]
+    pub const fn is_numeric_value(self) -> bool {
+        self.is_numeric_value
+    }
+
+    /// Return whether this scalar supports numeric widening coercion.
+    #[must_use]
+    pub const fn supports_numeric_coercion(self) -> bool {
+        self.supports_numeric_coercion
+    }
+
+    /// Return whether this scalar supports arithmetic trait derivation.
+    #[must_use]
+    pub const fn supports_arithmetic(self) -> bool {
+        self.supports_arithmetic
+    }
+
+    /// Return whether this scalar supports equality predicates.
+    #[must_use]
+    pub const fn supports_equality(self) -> bool {
+        self.supports_equality
+    }
+
+    /// Return whether this scalar supports ordering predicates.
+    #[must_use]
+    pub const fn supports_ordering(self) -> bool {
+        self.supports_ordering
+    }
+
+    /// Return whether this scalar is keyable at query/schema level.
+    #[must_use]
+    pub const fn is_keyable(self) -> bool {
+        self.is_keyable
+    }
+
+    /// Return whether this scalar can be encoded as a storage key.
+    #[must_use]
+    pub const fn is_storage_key_encodable(self) -> bool {
+        self.is_storage_key_encodable
+    }
 }
 
 ///

@@ -1,0 +1,12 @@
+error: index field 'missing_field' not found
+  --> tests/ui/index_field_not_found.rs:14:1
+   |
+14 | / #[entity(
+15 | |     store = "UiDataStore",
+16 | |     pk(field = "id"),
+17 | |     index(fields = "missing_field"),
+18 | |     fields(field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"))
+19 | | )]
+   | |__^
+   |
+   = note: this error originates in the attribute macro `entity` (in Nightly builds, run with -Z macro-backtrace for more info)

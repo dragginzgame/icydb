@@ -24,19 +24,6 @@ pub enum Arg {
     String(LitStr),
 }
 
-impl Arg {
-    pub fn as_type(&self) -> TokenStream {
-        match &self {
-            Self::Bool(_) => quote!(bool),
-            Self::Char(_) => quote!(char),
-            Self::Number(n) => n.as_type(),
-            _ => {
-                quote!(::std::compile_error!("invalid arg"))
-            }
-        }
-    }
-}
-
 impl FromMeta for Arg {
     fn from_value(value: &Lit) -> Result<Self, DarlingError> {
         match value {

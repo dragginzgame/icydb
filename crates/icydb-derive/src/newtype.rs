@@ -5,13 +5,13 @@ use syn::{Data, DeriveInput, Error, Fields, Generics, Ident, Type};
 /// NewtypeInput
 ///
 
-pub struct NewtypeInput {
-    pub ident: Ident,
-    pub inner: Type,
-    pub generics: Generics,
+pub(crate) struct NewtypeInput {
+    pub(crate) ident: Ident,
+    pub(crate) inner: Type,
+    pub(crate) generics: Generics,
 }
 
-pub fn parse_newtype(input: TokenStream, label: &str) -> Result<NewtypeInput, Error> {
+pub(crate) fn parse_newtype(input: TokenStream, label: &str) -> Result<NewtypeInput, Error> {
     let input: DeriveInput = syn::parse2(input)?;
     let message = format!("{label} can only be derived for tuple structs with a single field");
 

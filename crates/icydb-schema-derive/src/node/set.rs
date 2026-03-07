@@ -7,15 +7,15 @@ use crate::{imp::*, prelude::*};
 #[derive(Debug, FromMeta)]
 pub struct Set {
     #[darling(default, skip)]
-    pub def: Def,
+    pub(crate) def: Def,
 
-    pub item: Item,
-
-    #[darling(default)]
-    pub ty: Type,
+    pub(crate) item: Item,
 
     #[darling(default)]
-    pub traits: TraitBuilder,
+    pub(crate) ty: Type,
+
+    #[darling(default)]
+    pub(crate) traits: TraitBuilder,
 }
 
 impl HasDef for Set {
@@ -47,11 +47,7 @@ impl HasSchemaPart for Set {
 
         // quote
         quote! {
-            ::icydb::schema::node::Set {
-                def: #def,
-                item: #item,
-                ty: #ty,
-            }
+            ::icydb::schema::node::Set::new(#def, #item, #ty)
         }
     }
 }

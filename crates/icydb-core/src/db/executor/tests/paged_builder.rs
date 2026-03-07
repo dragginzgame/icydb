@@ -643,6 +643,58 @@ fn grouped_fluent_execute_continuation_payload_bytes_are_stable() {
 }
 
 #[test]
+fn grouped_fluent_execute_desc_equivalent_shape_continuation_payload_bytes_are_stable() {
+    // Phase 1: execute descending baseline and equivalent grouped shapes.
+    seed_grouped_phase_entities();
+    let session = DbSession::new(DB);
+    let base_page = session
+        .load::<PhaseEntity>()
+        .order_by_desc("rank")
+        .group_by("rank")
+        .expect("group field should resolve")
+        .aggregate(crate::db::count())
+        .limit(1)
+        .execute_grouped()
+        .expect("descending baseline grouped page should execute");
+    let equivalent_page = session
+        .load::<PhaseEntity>()
+        .order_by_desc("rank")
+        .group_by("rank")
+        .expect("group field should resolve")
+        .aggregate(crate::db::count())
+        .having_aggregate(0, CompareOp::Gte, Value::Uint(1))
+        .expect("tautological having clause should append on grouped query")
+        .limit(1)
+        .execute_grouped()
+        .expect("descending equivalent grouped page should execute");
+
+    // Phase 2: freeze encoded cursor payload bytes for both descending shapes.
+    let base_cursor_hex = base_page
+        .continuation_cursor()
+        .map(crate::db::encode_cursor)
+        .expect("descending baseline grouped page should emit continuation cursor");
+    let equivalent_cursor_hex = equivalent_page
+        .continuation_cursor()
+        .map(crate::db::encode_cursor)
+        .expect("descending equivalent grouped page should emit continuation cursor");
+
+    assert_ne!(
+        base_cursor_hex, equivalent_cursor_hex,
+        "descending semantically equivalent grouped shapes must emit distinct cursor signatures",
+    );
+    assert_eq!(
+        base_cursor_hex,
+        "a56776657273696f6e01697369676e617475726598200618d118c218951894188a1829189d187b189c18760e18bc182818bf18aa0d186b18b218e30618bc186718b0181d18ba18561897183c188b01184a6e6c6173745f67726f75705f6b657981a16455696e740169646972656374696f6e634173636e696e697469616c5f6f666673657400",
+        "descending baseline grouped cursor wire encoding must remain stable",
+    );
+    assert_eq!(
+        equivalent_cursor_hex,
+        "a56776657273696f6e01697369676e6174757265982018d318cb18ab1847186c183d18f71837182f186d18f8185a189b186918e11868182318a1185b18b0184b18591865182018f3185218e318d7189e189d187d18fa6e6c6173745f67726f75705f6b657981a16455696e740169646972656374696f6e634173636e696e697469616c5f6f666673657400",
+        "descending equivalent grouped cursor wire encoding must remain stable",
+    );
+}
+
+#[test]
 fn grouped_fluent_execute_having_filters_groups_without_extra_continuation() {
     seed_grouped_phase_entities();
     let session = DbSession::new(DB);
@@ -1029,6 +1081,308 @@ fn grouped_fluent_execute_rejects_cross_shape_cursor_when_only_distinct_changes(
             .to_string()
             .contains("does not match query plan signature"),
         "cross-shape grouped cursor rejection should mention signature mismatch",
+    );
+}
+
+#[test]
+#[expect(clippy::too_many_lines)]
+fn grouped_fluent_execute_semantically_equivalent_shapes_require_shape_local_cursors() {
+    // Phase 1: execute one baseline grouped shape and capture its continuation cursor.
+    seed_grouped_phase_entities();
+    let session = DbSession::new(DB);
+    let base_page_1 = session
+        .load::<PhaseEntity>()
+        .group_by("rank")
+        .expect("group field should resolve")
+        .aggregate(crate::db::count())
+        .limit(1)
+        .execute_grouped()
+        .expect("baseline grouped page should execute");
+    let base_cursor = base_page_1
+        .continuation_cursor()
+        .map(crate::db::encode_cursor)
+        .expect("baseline grouped page should emit continuation cursor");
+
+    // Phase 2: execute one semantically equivalent grouped shape and capture its cursor.
+    let equivalent_page_1 = session
+        .load::<PhaseEntity>()
+        .group_by("rank")
+        .expect("group field should resolve")
+        .aggregate(crate::db::count())
+        .having_aggregate(0, CompareOp::Gte, Value::Uint(1))
+        .expect("tautological having clause should append on grouped query")
+        .limit(1)
+        .execute_grouped()
+        .expect("equivalent grouped page should execute");
+    let equivalent_cursor = equivalent_page_1
+        .continuation_cursor()
+        .map(crate::db::encode_cursor)
+        .expect("equivalent grouped page should emit continuation cursor");
+
+    assert_eq!(
+        base_page_1.rows()[0].group_key(),
+        equivalent_page_1.rows()[0].group_key(),
+        "semantically equivalent grouped shapes should emit the same first group",
+    );
+    assert_eq!(
+        base_page_1.rows()[0].aggregate_values(),
+        equivalent_page_1.rows()[0].aggregate_values(),
+        "semantically equivalent grouped shapes should emit the same first aggregate payload",
+    );
+    assert_ne!(
+        base_cursor, equivalent_cursor,
+        "semantically equivalent grouped shapes must still carry shape-local continuation signatures",
+    );
+
+    // Phase 3: each shape must resume correctly with its own token and preserve suffix parity.
+    let base_page_2 = session
+        .load::<PhaseEntity>()
+        .group_by("rank")
+        .expect("group field should resolve")
+        .aggregate(crate::db::count())
+        .limit(1)
+        .cursor(base_cursor.clone())
+        .execute_grouped()
+        .expect("baseline grouped continuation should resume");
+    let equivalent_page_2 = session
+        .load::<PhaseEntity>()
+        .group_by("rank")
+        .expect("group field should resolve")
+        .aggregate(crate::db::count())
+        .having_aggregate(0, CompareOp::Gte, Value::Uint(1))
+        .expect("tautological having clause should append on grouped query")
+        .limit(1)
+        .cursor(equivalent_cursor.clone())
+        .execute_grouped()
+        .expect("equivalent grouped continuation should resume");
+
+    assert_eq!(
+        base_page_2.rows().len(),
+        1,
+        "baseline grouped continuation should emit one terminal group",
+    );
+    assert_eq!(
+        equivalent_page_2.rows().len(),
+        1,
+        "equivalent grouped continuation should emit one terminal group",
+    );
+    assert_eq!(
+        base_page_2.rows()[0].group_key(),
+        equivalent_page_2.rows()[0].group_key(),
+        "shape-local grouped continuations should preserve the same suffix group key",
+    );
+    assert_eq!(
+        base_page_2.rows()[0].aggregate_values(),
+        equivalent_page_2.rows()[0].aggregate_values(),
+        "shape-local grouped continuations should preserve the same suffix aggregate payload",
+    );
+    assert!(
+        base_page_2.continuation_cursor().is_none(),
+        "baseline grouped terminal page should not emit continuation",
+    );
+    assert!(
+        equivalent_page_2.continuation_cursor().is_none(),
+        "equivalent grouped terminal page should not emit continuation",
+    );
+
+    // Phase 4: cross-shape token replay must fail closed even when first-page rows match.
+    let base_replay_err = session
+        .load::<PhaseEntity>()
+        .group_by("rank")
+        .expect("group field should resolve")
+        .aggregate(crate::db::count())
+        .limit(1)
+        .cursor(equivalent_cursor)
+        .execute_grouped()
+        .expect_err("baseline grouped shape must reject equivalent-shape continuation token");
+    let equivalent_replay_err = session
+        .load::<PhaseEntity>()
+        .group_by("rank")
+        .expect("group field should resolve")
+        .aggregate(crate::db::count())
+        .having_aggregate(0, CompareOp::Gte, Value::Uint(1))
+        .expect("tautological having clause should append on grouped query")
+        .limit(1)
+        .cursor(base_cursor)
+        .execute_grouped()
+        .expect_err("equivalent grouped shape must reject baseline continuation token");
+
+    let QueryError::Plan(base_plan_err) = base_replay_err else {
+        panic!(
+            "baseline cross-shape grouped cursor rejection should surface as plan-layer cursor error"
+        );
+    };
+    assert!(
+        base_plan_err
+            .to_string()
+            .contains("does not match query plan signature"),
+        "baseline cross-shape grouped cursor rejection should mention signature mismatch",
+    );
+    let QueryError::Plan(equivalent_plan_err) = equivalent_replay_err else {
+        panic!(
+            "equivalent cross-shape grouped cursor rejection should surface as plan-layer cursor error"
+        );
+    };
+    assert!(
+        equivalent_plan_err
+            .to_string()
+            .contains("does not match query plan signature"),
+        "equivalent cross-shape grouped cursor rejection should mention signature mismatch",
+    );
+}
+
+#[test]
+#[expect(clippy::too_many_lines)]
+fn grouped_fluent_execute_desc_semantically_equivalent_shapes_require_shape_local_cursors() {
+    // Phase 1: execute one descending grouped shape and capture its continuation cursor.
+    seed_grouped_phase_entities();
+    let session = DbSession::new(DB);
+    let base_page_1 = session
+        .load::<PhaseEntity>()
+        .order_by_desc("rank")
+        .group_by("rank")
+        .expect("group field should resolve")
+        .aggregate(crate::db::count())
+        .limit(1)
+        .execute_grouped()
+        .expect("descending baseline grouped page should execute");
+    let base_cursor = base_page_1
+        .continuation_cursor()
+        .map(crate::db::encode_cursor)
+        .expect("descending baseline grouped page should emit continuation cursor");
+
+    // Phase 2: execute one semantically equivalent descending grouped shape and capture its cursor.
+    let equivalent_page_1 = session
+        .load::<PhaseEntity>()
+        .order_by_desc("rank")
+        .group_by("rank")
+        .expect("group field should resolve")
+        .aggregate(crate::db::count())
+        .having_aggregate(0, CompareOp::Gte, Value::Uint(1))
+        .expect("tautological having clause should append on grouped query")
+        .limit(1)
+        .execute_grouped()
+        .expect("descending equivalent grouped page should execute");
+    let equivalent_cursor = equivalent_page_1
+        .continuation_cursor()
+        .map(crate::db::encode_cursor)
+        .expect("descending equivalent grouped page should emit continuation cursor");
+
+    assert_eq!(
+        base_page_1.rows()[0].group_key(),
+        equivalent_page_1.rows()[0].group_key(),
+        "descending semantically equivalent grouped shapes should emit the same first group",
+    );
+    assert_eq!(
+        base_page_1.rows()[0].aggregate_values(),
+        equivalent_page_1.rows()[0].aggregate_values(),
+        "descending semantically equivalent grouped shapes should emit the same first aggregate payload",
+    );
+    assert_ne!(
+        base_cursor, equivalent_cursor,
+        "descending semantically equivalent grouped shapes must still carry shape-local continuation signatures",
+    );
+
+    // Phase 3: each descending shape must resume correctly with its own token.
+    let base_page_2 = session
+        .load::<PhaseEntity>()
+        .order_by_desc("rank")
+        .group_by("rank")
+        .expect("group field should resolve")
+        .aggregate(crate::db::count())
+        .limit(1)
+        .cursor(base_cursor.clone())
+        .execute_grouped()
+        .expect("descending baseline grouped continuation should resume");
+    let equivalent_page_2 = session
+        .load::<PhaseEntity>()
+        .order_by_desc("rank")
+        .group_by("rank")
+        .expect("group field should resolve")
+        .aggregate(crate::db::count())
+        .having_aggregate(0, CompareOp::Gte, Value::Uint(1))
+        .expect("tautological having clause should append on grouped query")
+        .limit(1)
+        .cursor(equivalent_cursor.clone())
+        .execute_grouped()
+        .expect("descending equivalent grouped continuation should resume");
+
+    assert_eq!(
+        base_page_2.rows().len(),
+        1,
+        "descending baseline grouped continuation should emit one terminal group",
+    );
+    assert_eq!(
+        equivalent_page_2.rows().len(),
+        1,
+        "descending equivalent grouped continuation should emit one terminal group",
+    );
+    assert_eq!(
+        base_page_2.rows()[0].group_key(),
+        equivalent_page_2.rows()[0].group_key(),
+        "descending shape-local grouped continuations should preserve the same suffix group key",
+    );
+    assert_eq!(
+        base_page_2.rows()[0].aggregate_values(),
+        equivalent_page_2.rows()[0].aggregate_values(),
+        "descending shape-local grouped continuations should preserve the same suffix aggregate payload",
+    );
+    assert!(
+        base_page_2.continuation_cursor().is_none(),
+        "descending baseline grouped terminal page should not emit continuation",
+    );
+    assert!(
+        equivalent_page_2.continuation_cursor().is_none(),
+        "descending equivalent grouped terminal page should not emit continuation",
+    );
+
+    // Phase 4: cross-shape token replay must fail closed in descending grouped flows.
+    let base_replay_err = session
+        .load::<PhaseEntity>()
+        .order_by_desc("rank")
+        .group_by("rank")
+        .expect("group field should resolve")
+        .aggregate(crate::db::count())
+        .limit(1)
+        .cursor(equivalent_cursor)
+        .execute_grouped()
+        .expect_err(
+            "descending baseline grouped shape must reject equivalent-shape continuation token",
+        );
+    let equivalent_replay_err = session
+        .load::<PhaseEntity>()
+        .order_by_desc("rank")
+        .group_by("rank")
+        .expect("group field should resolve")
+        .aggregate(crate::db::count())
+        .having_aggregate(0, CompareOp::Gte, Value::Uint(1))
+        .expect("tautological having clause should append on grouped query")
+        .limit(1)
+        .cursor(base_cursor)
+        .execute_grouped()
+        .expect_err("descending equivalent grouped shape must reject baseline continuation token");
+
+    let QueryError::Plan(base_plan_err) = base_replay_err else {
+        panic!(
+            "descending baseline cross-shape grouped cursor rejection should surface as plan-layer cursor error"
+        );
+    };
+    assert!(
+        base_plan_err
+            .to_string()
+            .contains("does not match query plan signature"),
+        "descending baseline cross-shape grouped cursor rejection should mention signature mismatch",
+    );
+    let QueryError::Plan(equivalent_plan_err) = equivalent_replay_err else {
+        panic!(
+            "descending equivalent cross-shape grouped cursor rejection should surface as plan-layer cursor error"
+        );
+    };
+    assert!(
+        equivalent_plan_err
+            .to_string()
+            .contains("does not match query plan signature"),
+        "descending equivalent cross-shape grouped cursor rejection should mention signature mismatch",
     );
 }
 
