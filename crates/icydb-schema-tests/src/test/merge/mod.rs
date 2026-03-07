@@ -327,10 +327,10 @@ mod tests {
             .merge(update)
             .expect_err("duplicate map-key operations should fail and preserve field path");
 
-        assert_eq!(err.origin, ErrorOrigin::Interface);
-        assert!(err.message.contains("settings[0]"));
+        assert_eq!(err.origin(), ErrorOrigin::Interface);
+        assert!(err.message().contains("settings[0]"));
         assert!(matches!(
-            err.kind,
+            err.kind(),
             ErrorKind::Update(UpdateErrorKind::Patch(PatchError::InvalidShape))
         ));
     }

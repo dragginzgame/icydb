@@ -116,11 +116,11 @@ impl<'a, E: EntityKind> FluentLoadQuery<'a, E> {
         let execution = self.inner.execute_grouped()?;
         let next_cursor = execution.continuation_cursor().map(core::db::encode_cursor);
 
-        Ok(PagedGroupedResponse {
-            items: execution.rows().to_vec(),
+        Ok(PagedGroupedResponse::new(
+            execution.rows().to_vec(),
             next_cursor,
-            execution_trace: execution.execution_trace().copied(),
-        })
+            execution.execution_trace().copied(),
+        ))
     }
 
     /// Return the stable plan hash for this query.
@@ -278,9 +278,9 @@ impl<E: EntityKind> PagedLoadQuery<'_, E> {
         let execution = self.inner.execute()?;
         let next_cursor = execution.continuation_cursor().map(core::db::encode_cursor);
 
-        Ok(PagedResponse {
-            items: execution.response().views().collect(),
+        Ok(PagedResponse::new(
+            execution.response().views().collect(),
             next_cursor,
-        })
+        ))
     }
 }

@@ -10,9 +10,11 @@ use crate::{
     testing::test_memory,
     traits::Storable,
 };
-use std::{borrow::Cow, cell::RefCell};
+use serde::Serialize;
+use serde_cbor::Value as CborValue;
+use std::{borrow::Cow, cell::RefCell, collections::BTreeMap};
 
-use super::{DataStoreSnapshot, IndexStoreSnapshot, StorageReport, storage_report};
+use super::{DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, StorageReport, storage_report};
 
 crate::test_canister! {
     ident = DiagnosticsCanister,
@@ -158,6 +160,23 @@ fn entity_store_paths(report: &StorageReport) -> Vec<(&str, &str)> {
         .iter()
         .map(|snapshot| (snapshot.store(), snapshot.path()))
         .collect()
+}
+
+fn to_cbor_value<T: Serialize>(value: &T) -> CborValue {
+    let bytes = serde_cbor::to_vec(value).expect("test fixtures must serialize into CBOR payloads");
+    serde_cbor::from_slice::<CborValue>(&bytes)
+        .expect("test fixtures must deserialize into CBOR value trees")
+}
+
+fn expect_cbor_map(value: &CborValue) -> &BTreeMap<CborValue, CborValue> {
+    match value {
+        CborValue::Map(map) => map,
+        other => panic!("expected CBOR map, got {other:?}"),
+    }
+}
+
+fn map_field<'a>(map: &'a BTreeMap<CborValue, CborValue>, key: &str) -> Option<&'a CborValue> {
+    map.get(&CborValue::Text(key.to_string()))
 }
 
 #[test]
@@ -343,4 +362,82 @@ fn storage_report_system_vs_user_namespace_split() {
     assert_eq!(index_snapshot.entries(), 2);
     assert_eq!(index_snapshot.user_entries(), 1);
     assert_eq!(index_snapshot.system_entries(), 1);
+}
+
+#[test]
+fn storage_report_serialization_shape_is_stable() {
+    let encoded = to_cbor_value(&StorageReport::new(
+        vec![DataStoreSnapshot::new("store_a".to_string(), 2, 64)],
+        vec![IndexStoreSnapshot::new("store_a".to_string(), 3, 2, 1, 96)],
+        vec![EntitySnapshot::new(
+            "store_a".to_string(),
+            "entity_a".to_string(),
+            2,
+            64,
+            Some(StorageKey::Int(1).as_value()),
+            Some(StorageKey::Int(9).as_value()),
+        )],
+        5,
+        6,
+    ));
+    let root = expect_cbor_map(&encoded);
+
+    assert!(
+        map_field(root, "storage_data").is_some(),
+        "StorageReport must keep `storage_data` as serialized field key",
+    );
+    assert!(
+        map_field(root, "storage_index").is_some(),
+        "StorageReport must keep `storage_index` as serialized field key",
+    );
+    assert!(
+        map_field(root, "entity_storage").is_some(),
+        "StorageReport must keep `entity_storage` as serialized field key",
+    );
+    assert!(
+        map_field(root, "corrupted_keys").is_some(),
+        "StorageReport must keep `corrupted_keys` as serialized field key",
+    );
+    assert!(
+        map_field(root, "corrupted_entries").is_some(),
+        "StorageReport must keep `corrupted_entries` as serialized field key",
+    );
+}
+
+#[test]
+fn entity_snapshot_serialization_shape_is_stable() {
+    let encoded = to_cbor_value(&EntitySnapshot::new(
+        "store_a".to_string(),
+        "entity_a".to_string(),
+        2,
+        64,
+        Some(StorageKey::Int(1).as_value()),
+        Some(StorageKey::Int(9).as_value()),
+    ));
+    let root = expect_cbor_map(&encoded);
+
+    assert!(
+        map_field(root, "store").is_some(),
+        "EntitySnapshot must keep `store` as serialized field key",
+    );
+    assert!(
+        map_field(root, "path").is_some(),
+        "EntitySnapshot must keep `path` as serialized field key",
+    );
+    assert!(
+        map_field(root, "entries").is_some(),
+        "EntitySnapshot must keep `entries` as serialized field key",
+    );
+    assert!(
+        map_field(root, "memory_bytes").is_some(),
+        "EntitySnapshot must keep `memory_bytes` as serialized field key",
+    );
+    assert!(
+        map_field(root, "min_key").is_some(),
+        "EntitySnapshot must keep `min_key` as serialized field key",
+    );
+    assert!(
+        map_field(root, "max_key").is_some(),
+        "EntitySnapshot must keep `max_key` as serialized field key",
+    );
 }

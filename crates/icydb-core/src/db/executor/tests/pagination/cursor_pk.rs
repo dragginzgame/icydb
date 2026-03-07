@@ -1879,3 +1879,386 @@ fn load_cursor_rejects_signature_mismatch_between_pk_fast_and_by_ids_shapes() {
         "cross-shape cursor replay should fail with signature mismatch",
     );
 }
+
+#[test]
+fn load_cursor_resume_parity_holds_between_pk_fast_and_by_ids_with_shape_local_tokens() {
+    setup_pagination_test();
+
+    let save = SaveExecutor::<SimpleEntity>::new(DB, false);
+    let keys = [5_u128, 1_u128, 4_u128, 2_u128, 3_u128];
+    for id in keys {
+        save.insert(SimpleEntity {
+            id: Ulid::from_u128(id),
+        })
+        .expect("save should succeed");
+    }
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    for (case_name, descending) in [("asc", false), ("desc", true)] {
+        // Phase 1: execute page-1 for both equivalent shapes and lock semantic parity.
+        let fast_page1_plan = if descending {
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+                .order_by_desc("id")
+                .limit(2)
+                .offset(1)
+                .plan()
+        } else {
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+                .order_by("id")
+                .limit(2)
+                .offset(1)
+                .plan()
+        }
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("fast page1 plan should build");
+        let fast_page1 = load
+            .execute_paged_with_cursor(fast_page1_plan, None)
+            .expect("fast page1 should execute");
+        let fast_page1_ids = ids_from_items(&fast_page1.items);
+        let fast_cursor = fast_page1
+            .next_cursor
+            .as_ref()
+            .expect("fast page1 should emit continuation cursor");
+
+        let fallback_page1_plan = if descending {
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+                .by_ids(keys.iter().copied().map(Ulid::from_u128))
+                .order_by_desc("id")
+                .limit(2)
+                .offset(1)
+                .plan()
+        } else {
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+                .by_ids(keys.iter().copied().map(Ulid::from_u128))
+                .order_by("id")
+                .limit(2)
+                .offset(1)
+                .plan()
+        }
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("fallback page1 plan should build");
+        let fallback_page1 = load
+            .execute_paged_with_cursor(fallback_page1_plan, None)
+            .expect("fallback page1 should execute");
+        let fallback_page1_ids = ids_from_items(&fallback_page1.items);
+        let fallback_cursor = fallback_page1
+            .next_cursor
+            .as_ref()
+            .expect("fallback page1 should emit continuation cursor");
+
+        assert_eq!(
+            fast_page1_ids, fallback_page1_ids,
+            "page1 rows should match across equivalent fast/fallback shapes for case={case_name}",
+        );
+        assert_eq!(
+            fast_cursor.boundary(),
+            fallback_cursor.boundary(),
+            "page1 cursor boundaries should match across equivalent fast/fallback shapes for case={case_name}",
+        );
+        assert_ne!(
+            fast_cursor.signature(),
+            fallback_cursor.signature(),
+            "equivalent semantics across different access shapes must keep distinct continuation signatures for case={case_name}",
+        );
+
+        // Phase 2: replay each shape with its own token and lock continuation parity.
+        let fast_page2_plan = if descending {
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+                .order_by_desc("id")
+                .limit(2)
+                .offset(1)
+                .plan()
+        } else {
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+                .order_by("id")
+                .limit(2)
+                .offset(1)
+                .plan()
+        }
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("fast page2 plan should build");
+        let fast_page2_cursor = fast_page2_plan
+            .prepare_cursor(Some(
+                fast_cursor
+                    .encode()
+                    .expect("fast continuation cursor should serialize")
+                    .as_slice(),
+            ))
+            .expect("fast page2 cursor should validate");
+        let fast_page2 = load
+            .execute_paged_with_cursor(fast_page2_plan, fast_page2_cursor)
+            .expect("fast page2 should execute");
+        let fast_page2_ids = ids_from_items(&fast_page2.items);
+
+        let fallback_page2_plan = if descending {
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+                .by_ids(keys.iter().copied().map(Ulid::from_u128))
+                .order_by_desc("id")
+                .limit(2)
+                .offset(1)
+                .plan()
+        } else {
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+                .by_ids(keys.iter().copied().map(Ulid::from_u128))
+                .order_by("id")
+                .limit(2)
+                .offset(1)
+                .plan()
+        }
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("fallback page2 plan should build");
+        let fallback_page2_cursor = fallback_page2_plan
+            .prepare_cursor(Some(
+                fallback_cursor
+                    .encode()
+                    .expect("fallback continuation cursor should serialize")
+                    .as_slice(),
+            ))
+            .expect("fallback page2 cursor should validate");
+        let fallback_page2 = load
+            .execute_paged_with_cursor(fallback_page2_plan, fallback_page2_cursor)
+            .expect("fallback page2 should execute");
+        let fallback_page2_ids = ids_from_items(&fallback_page2.items);
+
+        assert_eq!(
+            fast_page2_ids, fallback_page2_ids,
+            "page2 rows should match after local-token replay for case={case_name}",
+        );
+        assert_eq!(
+            fast_page2.next_cursor.is_some(),
+            fallback_page2.next_cursor.is_some(),
+            "cursor emission parity should match after page2 replay for case={case_name}",
+        );
+    }
+}
+
+#[test]
+fn load_cursor_token_replay_parity_holds_between_pk_fast_and_by_ids_shapes() {
+    setup_pagination_test();
+
+    let save = SaveExecutor::<SimpleEntity>::new(DB, false);
+    let keys = [5_u128, 1_u128, 4_u128, 2_u128, 3_u128];
+    for id in keys {
+        save.insert(SimpleEntity {
+            id: Ulid::from_u128(id),
+        })
+        .expect("save should succeed");
+    }
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    for (case_name, descending) in [("asc", false), ("desc", true)] {
+        // Phase 1: execute page-1 for both shapes and lock token decode parity.
+        let fast_page1_plan = if descending {
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+                .order_by_desc("id")
+                .limit(2)
+                .offset(1)
+                .plan()
+        } else {
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+                .order_by("id")
+                .limit(2)
+                .offset(1)
+                .plan()
+        }
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("fast token replay page1 plan should build");
+        let fast_page1 = load
+            .execute_paged_with_cursor(fast_page1_plan, None)
+            .expect("fast token replay page1 should execute");
+        let fast_cursor = fast_page1
+            .next_cursor
+            .as_ref()
+            .expect("fast token replay page1 should emit continuation cursor");
+        let fast_token = encode_token(
+            fast_cursor,
+            "fast token replay cursor should serialize for replay",
+        );
+
+        let fallback_page1_plan = if descending {
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+                .by_ids(keys.iter().copied().map(Ulid::from_u128))
+                .order_by_desc("id")
+                .limit(2)
+                .offset(1)
+                .plan()
+        } else {
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+                .by_ids(keys.iter().copied().map(Ulid::from_u128))
+                .order_by("id")
+                .limit(2)
+                .offset(1)
+                .plan()
+        }
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("fallback token replay page1 plan should build");
+        let fallback_page1 = load
+            .execute_paged_with_cursor(fallback_page1_plan, None)
+            .expect("fallback token replay page1 should execute");
+        let fallback_cursor = fallback_page1
+            .next_cursor
+            .as_ref()
+            .expect("fallback token replay page1 should emit continuation cursor");
+        let fallback_token = encode_token(
+            fallback_cursor,
+            "fallback token replay cursor should serialize for replay",
+        );
+
+        assert_eq!(
+            decode_boundary(
+                fast_token.as_slice(),
+                "fast token replay boundary should decode",
+            ),
+            fast_cursor.boundary().clone(),
+            "fast token decode boundary should match emitted boundary for case={case_name}",
+        );
+        assert_eq!(
+            decode_boundary(
+                fallback_token.as_slice(),
+                "fallback token replay boundary should decode",
+            ),
+            fallback_cursor.boundary().clone(),
+            "fallback token decode boundary should match emitted boundary for case={case_name}",
+        );
+        assert_eq!(
+            fast_cursor.boundary(),
+            fallback_cursor.boundary(),
+            "token replay page1 boundaries should match across equivalent shapes for case={case_name}",
+        );
+        assert_ne!(
+            fast_cursor.signature(),
+            fallback_cursor.signature(),
+            "token replay page1 signatures must remain shape-specific for case={case_name}",
+        );
+
+        // Phase 2: replay each shape with its own token and lock continuation parity.
+        let fast_page2_plan = if descending {
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+                .order_by_desc("id")
+                .limit(2)
+                .offset(1)
+                .plan()
+        } else {
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+                .order_by("id")
+                .limit(2)
+                .offset(1)
+                .plan()
+        }
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("fast token replay page2 plan should build");
+        let fast_page2_cursor = fast_page2_plan
+            .prepare_cursor(Some(fast_token.as_slice()))
+            .expect("fast token replay page2 cursor should validate");
+        let fast_page2 = load
+            .execute_paged_with_cursor(fast_page2_plan, fast_page2_cursor)
+            .expect("fast token replay page2 should execute");
+
+        let fallback_page2_plan = if descending {
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+                .by_ids(keys.iter().copied().map(Ulid::from_u128))
+                .order_by_desc("id")
+                .limit(2)
+                .offset(1)
+                .plan()
+        } else {
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+                .by_ids(keys.iter().copied().map(Ulid::from_u128))
+                .order_by("id")
+                .limit(2)
+                .offset(1)
+                .plan()
+        }
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("fallback token replay page2 plan should build");
+        let fallback_page2_cursor = fallback_page2_plan
+            .prepare_cursor(Some(fallback_token.as_slice()))
+            .expect("fallback token replay page2 cursor should validate");
+        let fallback_page2 = load
+            .execute_paged_with_cursor(fallback_page2_plan, fallback_page2_cursor)
+            .expect("fallback token replay page2 should execute");
+
+        assert_eq!(
+            ids_from_items(&fast_page2.items),
+            ids_from_items(&fallback_page2.items),
+            "token replay page2 rows should match across equivalent shapes for case={case_name}",
+        );
+        assert_eq!(
+            fast_page2.next_cursor.is_some(),
+            fallback_page2.next_cursor.is_some(),
+            "token replay page2 cursor presence should match across equivalent shapes for case={case_name}",
+        );
+        if let (Some(fast_cursor), Some(fallback_cursor)) =
+            (&fast_page2.next_cursor, &fallback_page2.next_cursor)
+        {
+            assert_eq!(
+                fast_cursor.boundary().clone(),
+                fallback_cursor.boundary().clone(),
+                "token replay page2 boundaries should match across equivalent shapes for case={case_name}",
+            );
+        }
+
+        // Phase 3: enforce shape-signature rejection for cross-shape token replay.
+        let fallback_cross_shape_plan = if descending {
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+                .by_ids(keys.iter().copied().map(Ulid::from_u128))
+                .order_by_desc("id")
+                .limit(2)
+                .offset(1)
+                .plan()
+        } else {
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+                .by_ids(keys.iter().copied().map(Ulid::from_u128))
+                .order_by("id")
+                .limit(2)
+                .offset(1)
+                .plan()
+        }
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("fallback cross-shape token replay plan should build");
+        let fallback_cross_shape_err = fallback_cross_shape_plan
+            .prepare_cursor(Some(fast_token.as_slice()))
+            .expect_err("fallback shape should reject fast token");
+        assert!(
+            matches!(
+                fallback_cross_shape_err,
+                crate::db::executor::ExecutorPlanError::Cursor(inner)
+                    if matches!(
+                        inner.as_ref(),
+                        crate::db::cursor::CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+                    )
+            ),
+            "cross-shape fallback token replay should fail with signature mismatch for case={case_name}",
+        );
+
+        let fast_cross_shape_plan = if descending {
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+                .order_by_desc("id")
+                .limit(2)
+                .offset(1)
+                .plan()
+        } else {
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+                .order_by("id")
+                .limit(2)
+                .offset(1)
+                .plan()
+        }
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("fast cross-shape token replay plan should build");
+        let fast_cross_shape_err = fast_cross_shape_plan
+            .prepare_cursor(Some(fallback_token.as_slice()))
+            .expect_err("fast shape should reject fallback token");
+        assert!(
+            matches!(
+                fast_cross_shape_err,
+                crate::db::executor::ExecutorPlanError::Cursor(inner)
+                    if matches!(
+                        inner.as_ref(),
+                        crate::db::cursor::CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+                    )
+            ),
+            "cross-shape fast token replay should fail with signature mismatch for case={case_name}",
+        );
+    }
+}

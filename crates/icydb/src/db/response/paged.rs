@@ -12,8 +12,34 @@ use crate::traits::{EntityKind, View};
 ///
 
 pub struct PagedResponse<E: EntityKind> {
-    pub items: Vec<View<E>>,
-    pub next_cursor: Option<String>,
+    items: Vec<View<E>>,
+    next_cursor: Option<String>,
+}
+
+impl<E: EntityKind> PagedResponse<E> {
+    pub(crate) const fn new(items: Vec<View<E>>, next_cursor: Option<String>) -> Self {
+        Self { items, next_cursor }
+    }
+
+    #[must_use]
+    pub fn items(&self) -> &[View<E>] {
+        &self.items
+    }
+
+    #[must_use]
+    pub fn next_cursor(&self) -> Option<&str> {
+        self.next_cursor.as_deref()
+    }
+
+    #[must_use]
+    pub fn into_items(self) -> Vec<View<E>> {
+        self.items
+    }
+
+    #[must_use]
+    pub fn into_next_cursor(self) -> Option<String> {
+        self.next_cursor
+    }
 }
 
 ///
@@ -23,7 +49,51 @@ pub struct PagedResponse<E: EntityKind> {
 /// Grouped rows are returned as core grouped rows to preserve grouped value fidelity.
 ///
 pub struct PagedGroupedResponse {
-    pub items: Vec<icydb_core::db::GroupedRow>,
-    pub next_cursor: Option<String>,
-    pub execution_trace: Option<icydb_core::db::ExecutionTrace>,
+    items: Vec<icydb_core::db::GroupedRow>,
+    next_cursor: Option<String>,
+    execution_trace: Option<icydb_core::db::ExecutionTrace>,
+}
+
+impl PagedGroupedResponse {
+    pub(crate) const fn new(
+        items: Vec<icydb_core::db::GroupedRow>,
+        next_cursor: Option<String>,
+        execution_trace: Option<icydb_core::db::ExecutionTrace>,
+    ) -> Self {
+        Self {
+            items,
+            next_cursor,
+            execution_trace,
+        }
+    }
+
+    #[must_use]
+    pub fn items(&self) -> &[icydb_core::db::GroupedRow] {
+        &self.items
+    }
+
+    #[must_use]
+    pub fn next_cursor(&self) -> Option<&str> {
+        self.next_cursor.as_deref()
+    }
+
+    #[must_use]
+    pub const fn execution_trace(&self) -> Option<icydb_core::db::ExecutionTrace> {
+        self.execution_trace
+    }
+
+    #[must_use]
+    pub fn into_items(self) -> Vec<icydb_core::db::GroupedRow> {
+        self.items
+    }
+
+    #[must_use]
+    pub fn into_next_cursor(self) -> Option<String> {
+        self.next_cursor
+    }
+
+    #[must_use]
+    pub fn into_execution_trace(self) -> Option<icydb_core::db::ExecutionTrace> {
+        self.execution_trace
+    }
 }

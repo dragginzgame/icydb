@@ -247,6 +247,59 @@ mod tests {
     }
 
     #[test]
+    fn fingerprint_and_signature_treat_equivalent_in_list_predicates_as_identical() {
+        let predicate_a = Predicate::Compare(ComparePredicate::in_(
+            "rank".to_string(),
+            vec![Value::Uint(3), Value::Uint(1), Value::Uint(2)],
+        ));
+        let predicate_b = Predicate::Compare(ComparePredicate::in_(
+            "rank".to_string(),
+            vec![Value::Uint(1), Value::Uint(2), Value::Uint(3)],
+        ));
+
+        let mut plan_a: AccessPlannedQuery<Value> = full_scan_query();
+        plan_a.scalar_plan_mut().predicate = Some(predicate_a);
+
+        let mut plan_b: AccessPlannedQuery<Value> = full_scan_query();
+        plan_b.scalar_plan_mut().predicate = Some(predicate_b);
+
+        assert_eq!(plan_a.fingerprint(), plan_b.fingerprint());
+        assert_eq!(
+            plan_a.continuation_signature("tests::Entity"),
+            plan_b.continuation_signature("tests::Entity")
+        );
+    }
+
+    #[test]
+    fn fingerprint_and_signature_treat_equivalent_in_list_duplicate_literals_as_identical() {
+        let predicate_a = Predicate::Compare(ComparePredicate::in_(
+            "rank".to_string(),
+            vec![
+                Value::Uint(3),
+                Value::Uint(1),
+                Value::Uint(3),
+                Value::Uint(2),
+            ],
+        ));
+        let predicate_b = Predicate::Compare(ComparePredicate::in_(
+            "rank".to_string(),
+            vec![Value::Uint(1), Value::Uint(2), Value::Uint(3)],
+        ));
+
+        let mut plan_a: AccessPlannedQuery<Value> = full_scan_query();
+        plan_a.scalar_plan_mut().predicate = Some(predicate_a);
+
+        let mut plan_b: AccessPlannedQuery<Value> = full_scan_query();
+        plan_b.scalar_plan_mut().predicate = Some(predicate_b);
+
+        assert_eq!(plan_a.fingerprint(), plan_b.fingerprint());
+        assert_eq!(
+            plan_a.continuation_signature("tests::Entity"),
+            plan_b.continuation_signature("tests::Entity")
+        );
+    }
+
+    #[test]
     fn fingerprint_is_deterministic_for_by_keys() {
         let a = Ulid::from_u128(1);
         let b = Ulid::from_u128(2);

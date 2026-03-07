@@ -17,9 +17,9 @@ use thiserror::Error as ThisError;
 #[error("{message}")]
 #[serde(rename_all = "snake_case")]
 pub struct Error {
-    pub kind: ErrorKind,
-    pub origin: ErrorOrigin,
-    pub message: String,
+    kind: ErrorKind,
+    origin: ErrorOrigin,
+    message: String,
 }
 
 impl Error {
@@ -55,6 +55,21 @@ impl Error {
                 err.to_string(),
             ),
         }
+    }
+
+    #[must_use]
+    pub const fn kind(&self) -> &ErrorKind {
+        &self.kind
+    }
+
+    #[must_use]
+    pub const fn origin(&self) -> ErrorOrigin {
+        self.origin
+    }
+
+    #[must_use]
+    pub fn message(&self) -> &str {
+        &self.message
     }
 }
 
@@ -289,8 +304,8 @@ mod tests {
         });
         let facade = Error::from(err);
 
-        assert_eq!(facade.kind, ErrorKind::Query(QueryErrorKind::Validate));
-        assert_eq!(facade.origin, ErrorOrigin::Query);
+        assert_eq!(facade.kind(), &ErrorKind::Query(QueryErrorKind::Validate));
+        assert_eq!(facade.origin(), ErrorOrigin::Query);
     }
 
     #[test]
@@ -298,8 +313,8 @@ mod tests {
         let err = QueryError::Intent(IntentError::ByIdsWithPredicate);
         let facade = Error::from(err);
 
-        assert_eq!(facade.kind, ErrorKind::Query(QueryErrorKind::Intent));
-        assert_eq!(facade.origin, ErrorOrigin::Query);
+        assert_eq!(facade.kind(), &ErrorKind::Query(QueryErrorKind::Intent));
+        assert_eq!(facade.origin(), ErrorOrigin::Query);
     }
 
     #[test]
@@ -309,16 +324,16 @@ mod tests {
         })));
         let facade = Error::from(err);
 
-        assert_eq!(facade.kind, ErrorKind::Query(QueryErrorKind::Plan));
-        assert_eq!(facade.origin, ErrorOrigin::Query);
+        assert_eq!(facade.kind(), &ErrorKind::Query(QueryErrorKind::Plan));
+        assert_eq!(facade.origin(), ErrorOrigin::Query);
     }
 
     #[test]
     fn response_error_maps_with_response_origin() {
         let facade = Error::from(ResponseError::NotFound { entity: "Entity" });
 
-        assert_eq!(facade.kind, ErrorKind::Query(QueryErrorKind::NotFound));
-        assert_eq!(facade.origin, ErrorOrigin::Response);
+        assert_eq!(facade.kind(), &ErrorKind::Query(QueryErrorKind::NotFound));
+        assert_eq!(facade.origin(), ErrorOrigin::Response);
     }
 
     #[test]
@@ -339,8 +354,8 @@ mod tests {
             let core_err = InternalError::new(class, CoreErrorOrigin::Index, "runtime failure");
             let facade = Error::from(core_err);
 
-            assert_eq!(facade.kind, ErrorKind::Runtime(expected_kind));
-            assert_eq!(facade.origin, ErrorOrigin::Index);
+            assert_eq!(facade.kind(), &ErrorKind::Runtime(expected_kind));
+            assert_eq!(facade.origin(), ErrorOrigin::Index);
         }
     }
 
@@ -376,8 +391,8 @@ mod tests {
             )));
             let facade = Error::from(query_err);
 
-            assert_eq!(facade.kind, ErrorKind::Runtime(expected_kind));
-            assert_eq!(facade.origin, expected_origin);
+            assert_eq!(facade.kind(), &ErrorKind::Runtime(expected_kind));
+            assert_eq!(facade.origin(), expected_origin);
         }
     }
 
@@ -413,8 +428,8 @@ mod tests {
             )));
             let facade = Error::from(query_err);
 
-            assert_eq!(facade.kind, ErrorKind::Runtime(expected_kind));
-            assert_eq!(facade.origin, expected_origin);
+            assert_eq!(facade.kind(), &ErrorKind::Runtime(expected_kind));
+            assert_eq!(facade.origin(), expected_origin);
         }
     }
 
@@ -433,7 +448,7 @@ mod tests {
                 origin,
                 "origin mapping",
             ));
-            assert_eq!(facade.origin, expected);
+            assert_eq!(facade.origin(), expected);
         }
     }
 

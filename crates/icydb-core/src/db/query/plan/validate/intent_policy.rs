@@ -86,6 +86,20 @@ mod tests {
     }
 
     #[test]
+    fn delete_grouping_shape_fails_during_planning_policy_validation() {
+        let mode = QueryMode::Delete(DeleteSpec { limit: None });
+        let order = OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Asc)],
+        };
+
+        assert_eq!(
+            validate_intent_plan_shape(mode, Some(&order), true, false),
+            Err(PolicyPlanError::DeletePlanWithGrouping),
+            "delete GROUP BY/HAVING shape must fail in intent/planning validation",
+        );
+    }
+
+    #[test]
     fn load_mode_allows_ordered_shape_in_intent_policy() {
         let mode = QueryMode::Load(LoadSpec {
             limit: Some(5),

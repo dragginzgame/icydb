@@ -151,11 +151,11 @@ impl<C: CanisterKind> DbSession<C> {
         let execution = self.inner.execute_grouped(query, cursor_token)?;
         let next_cursor = execution.continuation_cursor().map(core::db::encode_cursor);
 
-        Ok(PagedGroupedResponse {
-            items: execution.rows().to_vec(),
+        Ok(PagedGroupedResponse::new(
+            execution.rows().to_vec(),
             next_cursor,
-            execution_trace: execution.execution_trace().copied(),
-        })
+            execution.execution_trace().copied(),
+        ))
     }
 
     // ------------------------------------------------------------------

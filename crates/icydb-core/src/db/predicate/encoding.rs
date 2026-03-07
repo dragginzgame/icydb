@@ -4,7 +4,7 @@
 //! Boundary: consumed by normalization sort-key generation and fingerprint hashing.
 
 use crate::{
-    db::predicate::{CoercionId, CoercionSpec, Predicate},
+    db::predicate::{CoercionId, CoercionSpec, CompareOp, Predicate},
     value::{Value, ValueEnum, hash_value},
 };
 use sha2::{Digest, Sha256};
@@ -60,7 +60,9 @@ fn encode_predicate_sort_key_into(out: &mut Vec<u8>, predicate: &Predicate) {
             out.push(SORT_PRED_COMPARE);
             push_str_u64(out, &cmp.field);
             out.push(cmp.op.tag());
-            push_framed(out, |buf| encode_value_sort_key_into(buf, &cmp.value));
+            push_framed(out, |buf| {
+                encode_compare_value_sort_key_into(buf, cmp.op, &cmp.value);
+            });
             push_framed(out, |buf| encode_coercion_sort_key_into(buf, &cmp.coercion));
         }
         Predicate::IsNull { field } => {
@@ -155,6 +157,25 @@ fn encode_value_sort_key_into(out: &mut Vec<u8>, value: &Value) {
     }
 }
 
+fn encode_compare_value_sort_key_into(out: &mut Vec<u8>, op: CompareOp, value: &Value) {
+    if matches!(op, CompareOp::In | CompareOp::NotIn)
+        && let Value::List(items) = value
+    {
+        out.push(value.canonical_tag().to_u8());
+        let mut ordered = items.clone();
+        ordered.sort_by(Value::canonical_cmp);
+        ordered.dedup_by(|left, right| Value::canonical_cmp(left, right).is_eq());
+
+        push_len_u64(out, ordered.len());
+        for item in &ordered {
+            push_framed(out, |buf| encode_value_sort_key_into(buf, item));
+        }
+        return;
+    }
+
+    encode_value_sort_key_into(out, value);
+}
+
 fn encode_enum_sort_key_into(out: &mut Vec<u8>, value: &ValueEnum) {
     match &value.path {
         Some(path) => {
@@ -223,7 +244,7 @@ pub(in crate::db::predicate) fn hash_predicate_fingerprint(
             write_tag_u8(hasher, 0x26);
             write_str_u32(hasher, &compare.field);
             write_tag_u8(hasher, compare.op.tag());
-            hash_value_fingerprint(hasher, &compare.value);
+            hash_compare_value_fingerprint(hasher, compare.op, &compare.value);
             hash_coercion_fingerprint(hasher, compare.coercion.id, &compare.coercion.params);
         }
         Predicate::IsNull { field } => {
@@ -279,6 +300,20 @@ fn hash_value_fingerprint(hasher: &mut Sha256, value: &Value) {
             write_str_u32(hasher, &err.display_with_class());
         }
     }
+}
+
+fn hash_compare_value_fingerprint(hasher: &mut Sha256, op: CompareOp, value: &Value) {
+    if matches!(op, CompareOp::In | CompareOp::NotIn)
+        && let Value::List(items) = value
+    {
+        let mut ordered = items.clone();
+        ordered.sort_by(Value::canonical_cmp);
+        ordered.dedup_by(|left, right| Value::canonical_cmp(left, right).is_eq());
+        hash_value_fingerprint(hasher, &Value::List(ordered));
+        return;
+    }
+
+    hash_value_fingerprint(hasher, value);
 }
 
 fn push_len_u64(out: &mut Vec<u8>, len: usize) {
@@ -366,6 +401,45 @@ mod tests {
         ]);
         let predicate_a = Predicate::Compare(ComparePredicate::eq("payload".to_string(), map_a));
         let predicate_b = Predicate::Compare(ComparePredicate::eq("payload".to_string(), map_b));
+
+        assert_eq!(
+            encode_predicate_sort_key(&predicate_a),
+            encode_predicate_sort_key(&predicate_b)
+        );
+    }
+
+    #[test]
+    fn predicate_sort_key_normalizes_in_list_literal_order() {
+        let predicate_a = Predicate::Compare(ComparePredicate::in_(
+            "rank".to_string(),
+            vec![Value::Uint(3), Value::Uint(1), Value::Uint(2)],
+        ));
+        let predicate_b = Predicate::Compare(ComparePredicate::in_(
+            "rank".to_string(),
+            vec![Value::Uint(1), Value::Uint(2), Value::Uint(3)],
+        ));
+
+        assert_eq!(
+            encode_predicate_sort_key(&predicate_a),
+            encode_predicate_sort_key(&predicate_b)
+        );
+    }
+
+    #[test]
+    fn predicate_sort_key_normalizes_in_list_duplicate_literals() {
+        let predicate_a = Predicate::Compare(ComparePredicate::in_(
+            "rank".to_string(),
+            vec![
+                Value::Uint(3),
+                Value::Uint(1),
+                Value::Uint(3),
+                Value::Uint(2),
+            ],
+        ));
+        let predicate_b = Predicate::Compare(ComparePredicate::in_(
+            "rank".to_string(),
+            vec![Value::Uint(1), Value::Uint(2), Value::Uint(3)],
+        ));
 
         assert_eq!(
             encode_predicate_sort_key(&predicate_a),

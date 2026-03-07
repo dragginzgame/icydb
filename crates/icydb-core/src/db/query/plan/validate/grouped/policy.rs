@@ -182,9 +182,14 @@ fn group_plan_error_from_distinct_policy_reason(
 mod tests {
     use super::*;
     use crate::db::{
+        predicate::CompareOp,
         predicate::MissingRowPolicy,
-        query::plan::{DeleteSpec, LoadSpec, LogicalPlan, OrderDirection, OrderSpec, QueryMode},
+        query::plan::{
+            DeleteSpec, FieldSlot, GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, LoadSpec,
+            LogicalPlan, OrderDirection, OrderSpec, QueryMode,
+        },
     };
+    use crate::value::Value;
 
     fn scalar_plan(distinct: bool) -> ScalarPlan {
         ScalarPlan {
@@ -242,6 +247,36 @@ mod tests {
     fn grouped_non_distinct_shape_passes_planner_distinct_policy_gate() {
         validate_grouped_distinct_policy(&scalar_plan(false), false)
             .expect("non-distinct grouped shapes should pass planner distinct policy gate");
+    }
+
+    #[test]
+    fn grouped_having_contains_operator_fails_in_planner_policy() {
+        let having = GroupHavingSpec {
+            clauses: vec![GroupHavingClause {
+                symbol: GroupHavingSymbol::GroupField(FieldSlot {
+                    index: 0,
+                    field: "team".to_string(),
+                }),
+                op: CompareOp::Contains,
+                value: Value::Text("A".to_string()),
+            }],
+        };
+
+        let err = validate_grouped_having_policy(Some(&having))
+            .expect_err("grouped HAVING with unsupported compare operator must fail in planner");
+
+        assert!(matches!(
+            err,
+            PlanError::Policy(inner)
+                if matches!(
+                    inner.as_ref(),
+                    crate::db::query::plan::validate::PlanPolicyError::Group(group)
+                        if matches!(
+                            group.as_ref(),
+                            GroupPlanError::HavingUnsupportedCompareOp { index: 0, .. }
+                        )
+                )
+        ));
     }
 
     #[test]
