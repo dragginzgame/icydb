@@ -63,6 +63,7 @@ use crate::{
     model::entity::EntityModel,
 };
 ```
+* When importing multiple symbols from the same subtree, group them under that subtree instead of repeating sibling paths. For example, prefer `executor::aggregate::{ field::{...}, projection::{...}, ... }` over repeated `executor::aggregate::field::...`, `executor::aggregate::projection::...`, etc.
 * Use nested paths to reflect hierarchy and ownership.
 * Prefer imported symbols over inline fully-qualified `crate::...` paths in code bodies (including tests); bring dependencies into top-level `use` blocks instead.
 

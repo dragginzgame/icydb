@@ -616,4 +616,35 @@ mod tests {
             CborValue::Text("Desc".to_string())
         );
     }
+
+    #[test]
+    fn filter_expr_text_contains_ci_payload_shape_is_stable() {
+        let encoded = to_cbor_value(&FilterExpr::text_contains_ci("name", "Ada"));
+        let root = expect_cbor_map(&encoded);
+        let payload = map_field(root, "TextContainsCi")
+            .expect("expected TextContainsCi external variant key");
+        let payload_map = expect_cbor_map(payload);
+
+        assert!(
+            map_field(payload_map, "field").is_some(),
+            "TextContainsCi payload must keep `field` key in serialized shape",
+        );
+        assert!(
+            map_field(payload_map, "value").is_some(),
+            "TextContainsCi payload must keep `value` key in serialized shape",
+        );
+    }
+
+    #[test]
+    fn filter_expr_not_payload_shape_is_stable() {
+        let encoded = to_cbor_value(&FilterExpr::not(FilterExpr::eq("rank", 7_u64)));
+        let root = expect_cbor_map(&encoded);
+        let not_payload = map_field(root, "Not").expect("expected Not external variant key");
+        let inner = expect_cbor_map(not_payload);
+
+        assert!(
+            map_field(inner, "Eq").is_some(),
+            "Not payload must keep nested externally-tagged predicate payload",
+        );
+    }
 }

@@ -465,3 +465,153 @@ const fn summarize_relation_strength(strength: RelationStrength) -> &'static str
         RelationStrength::Weak => "weak",
     }
 }
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use crate::db::{
+        EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
+        EntityRelationDescription, EntityRelationStrength, EntitySchemaDescription,
+    };
+    use serde::Serialize;
+    use serde_cbor::Value as CborValue;
+    use std::collections::BTreeMap;
+
+    fn to_cbor_value<T: Serialize>(value: &T) -> CborValue {
+        let bytes =
+            serde_cbor::to_vec(value).expect("test fixtures must serialize into CBOR payloads");
+        serde_cbor::from_slice::<CborValue>(&bytes)
+            .expect("test fixtures must deserialize into CBOR value trees")
+    }
+
+    fn expect_cbor_map(value: &CborValue) -> &BTreeMap<CborValue, CborValue> {
+        match value {
+            CborValue::Map(map) => map,
+            other => panic!("expected CBOR map, got {other:?}"),
+        }
+    }
+
+    fn map_field<'a>(map: &'a BTreeMap<CborValue, CborValue>, key: &str) -> Option<&'a CborValue> {
+        map.get(&CborValue::Text(key.to_string()))
+    }
+
+    #[test]
+    fn entity_schema_description_serialization_shape_is_stable() {
+        let payload = EntitySchemaDescription::new(
+            "entities::User".to_string(),
+            "User".to_string(),
+            "id".to_string(),
+            vec![EntityFieldDescription::new(
+                "id".to_string(),
+                "ulid".to_string(),
+                true,
+                true,
+            )],
+            vec![EntityIndexDescription::new(
+                "idx_email".to_string(),
+                true,
+                vec!["email".to_string()],
+            )],
+            vec![EntityRelationDescription::new(
+                "account_id".to_string(),
+                "entities::Account".to_string(),
+                "Account".to_string(),
+                "accounts".to_string(),
+                EntityRelationStrength::Strong,
+                EntityRelationCardinality::Single,
+            )],
+        );
+        let encoded = to_cbor_value(&payload);
+        let root = expect_cbor_map(&encoded);
+
+        assert!(
+            map_field(root, "entity_path").is_some(),
+            "EntitySchemaDescription must keep `entity_path` field key",
+        );
+        assert!(
+            map_field(root, "entity_name").is_some(),
+            "EntitySchemaDescription must keep `entity_name` field key",
+        );
+        assert!(
+            map_field(root, "primary_key").is_some(),
+            "EntitySchemaDescription must keep `primary_key` field key",
+        );
+        assert!(
+            map_field(root, "fields").is_some(),
+            "EntitySchemaDescription must keep `fields` field key",
+        );
+        assert!(
+            map_field(root, "indexes").is_some(),
+            "EntitySchemaDescription must keep `indexes` field key",
+        );
+        assert!(
+            map_field(root, "relations").is_some(),
+            "EntitySchemaDescription must keep `relations` field key",
+        );
+    }
+
+    #[test]
+    fn entity_relation_description_serialization_shape_is_stable() {
+        let encoded = to_cbor_value(&EntityRelationDescription::new(
+            "owner_id".to_string(),
+            "entities::User".to_string(),
+            "User".to_string(),
+            "users".to_string(),
+            EntityRelationStrength::Weak,
+            EntityRelationCardinality::Set,
+        ));
+        let root = expect_cbor_map(&encoded);
+
+        assert!(
+            map_field(root, "field").is_some(),
+            "EntityRelationDescription must keep `field` field key",
+        );
+        assert!(
+            map_field(root, "target_path").is_some(),
+            "EntityRelationDescription must keep `target_path` field key",
+        );
+        assert!(
+            map_field(root, "target_entity_name").is_some(),
+            "EntityRelationDescription must keep `target_entity_name` field key",
+        );
+        assert!(
+            map_field(root, "target_store_path").is_some(),
+            "EntityRelationDescription must keep `target_store_path` field key",
+        );
+        assert!(
+            map_field(root, "strength").is_some(),
+            "EntityRelationDescription must keep `strength` field key",
+        );
+        assert!(
+            map_field(root, "cardinality").is_some(),
+            "EntityRelationDescription must keep `cardinality` field key",
+        );
+    }
+
+    #[test]
+    fn relation_enum_variant_labels_are_stable() {
+        assert_eq!(
+            to_cbor_value(&EntityRelationStrength::Strong),
+            CborValue::Text("Strong".to_string())
+        );
+        assert_eq!(
+            to_cbor_value(&EntityRelationStrength::Weak),
+            CborValue::Text("Weak".to_string())
+        );
+        assert_eq!(
+            to_cbor_value(&EntityRelationCardinality::Single),
+            CborValue::Text("Single".to_string())
+        );
+        assert_eq!(
+            to_cbor_value(&EntityRelationCardinality::List),
+            CborValue::Text("List".to_string())
+        );
+        assert_eq!(
+            to_cbor_value(&EntityRelationCardinality::Set),
+            CborValue::Text("Set".to_string())
+        );
+    }
+}

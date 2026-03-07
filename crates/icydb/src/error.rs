@@ -486,4 +486,59 @@ mod tests {
             CborValue::Text("Serialize".to_string())
         );
     }
+
+    #[test]
+    fn query_error_kind_variant_labels_are_stable() {
+        assert_eq!(
+            to_cbor_value(&QueryErrorKind::Validate),
+            CborValue::Text("Validate".to_string())
+        );
+        assert_eq!(
+            to_cbor_value(&QueryErrorKind::Intent),
+            CborValue::Text("Intent".to_string())
+        );
+        assert_eq!(
+            to_cbor_value(&QueryErrorKind::Plan),
+            CborValue::Text("Plan".to_string())
+        );
+        assert_eq!(
+            to_cbor_value(&QueryErrorKind::UnorderedPagination),
+            CborValue::Text("UnorderedPagination".to_string())
+        );
+        assert_eq!(
+            to_cbor_value(&QueryErrorKind::InvalidContinuationCursor),
+            CborValue::Text("InvalidContinuationCursor".to_string())
+        );
+        assert_eq!(
+            to_cbor_value(&QueryErrorKind::NotFound),
+            CborValue::Text("NotFound".to_string())
+        );
+        assert_eq!(
+            to_cbor_value(&QueryErrorKind::NotUnique),
+            CborValue::Text("NotUnique".to_string())
+        );
+    }
+
+    #[test]
+    fn patch_error_variant_labels_are_stable() {
+        assert_eq!(
+            to_cbor_value(&PatchError::InvalidShape),
+            CborValue::Text("InvalidShape".to_string())
+        );
+        assert_eq!(
+            to_cbor_value(&PatchError::CardinalityViolation),
+            CborValue::Text("CardinalityViolation".to_string())
+        );
+    }
+
+    #[test]
+    fn update_error_kind_patch_payload_shape_is_stable() {
+        let encoded = to_cbor_value(&UpdateErrorKind::Patch(PatchError::CardinalityViolation));
+        let root = expect_cbor_map(&encoded);
+
+        assert!(
+            map_field(root, "Patch").is_some(),
+            "UpdateErrorKind::Patch must keep `Patch` payload key",
+        );
+    }
 }

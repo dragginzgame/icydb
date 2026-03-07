@@ -98,7 +98,7 @@ fn runtime_raw_access_path_references_stay_within_access_boundary() {
     let allowed: BTreeSet<&str> = BTreeSet::from([
         "src/db/access/canonical.rs",
         "src/db/access/dispatch.rs",
-        "src/db/access/execution_contract.rs",
+        "src/db/access/execution_contract/mod.rs",
         "src/db/access/lowering.rs",
         "src/db/access/path.rs",
         "src/db/access/plan.rs",

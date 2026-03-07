@@ -1,0 +1,93 @@
+//! Module: db::access::execution_contract
+//! Responsibility: shared normalized access contracts consumed by query/cursor/executor.
+//! Does not own: logical access-path selection policy.
+//! Boundary: planner lowers `AccessPlan`/`AccessPath` into these execution mechanics.
+
+mod executable;
+mod pushdown;
+mod route;
+mod strategy;
+mod summary;
+mod types;
+
+pub(in crate::db) use executable::{
+    ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan,
+};
+pub(in crate::db) use route::AccessRouteClass;
+pub(in crate::db) use strategy::AccessStrategy;
+pub(in crate::db) use types::{
+    ExecutionBounds, ExecutionDistinctMode, ExecutionMode, ExecutionOrdering, ExecutionPathKind,
+    ExecutionPathPayload,
+};
+
+// Audit Summary:
+// - `path: &AccessPath<K>` was previously used only by stream physical lowering.
+// - `index_prefix_details`, `index_range_details`, and `index_fields_for_slot_map` duplicated
+//   data already available in `ExecutionBounds`.
+// - Behavioral `AccessPath` matching in executor runtime has been removed in favor of
+//   `ExecutableAccessPath` payload + mechanical execution fields.
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        db::access::{AccessPlan, AccessStrategy},
+        model::index::IndexModel,
+        value::Value,
+    };
+
+    const INDEX_MULTI_LOOKUP_TEST_FIELDS: [&str; 1] = ["group"];
+
+    #[test]
+    fn access_strategy_debug_summary_reports_scalar_path_shape() {
+        let plan = AccessPlan::by_key(7u64);
+        let strategy = AccessStrategy::from_plan(&plan);
+
+        assert_eq!(
+            strategy.debug_summary(),
+            "IndexLookup(pk=7)",
+            "single-key strategies should render concise path summaries",
+        );
+    }
+
+    #[test]
+    fn access_strategy_debug_summary_reports_composite_shape() {
+        let plan = AccessPlan::union(vec![AccessPlan::by_key(1u64), AccessPlan::by_key(2u64)]);
+        let strategy = AccessStrategy::from_plan(&plan);
+        let summary = strategy.debug_summary();
+
+        assert!(
+            summary.starts_with("Union("),
+            "composite strategies should render union summary headings",
+        );
+        assert!(
+            summary.contains("IndexLookup(pk=1)") && summary.contains("IndexLookup(pk=2)"),
+            "composite strategy summaries should include child path summaries",
+        );
+        assert!(
+            format!("{strategy:?}").contains("summary"),
+            "debug output should include the summarized route label",
+        );
+    }
+
+    #[test]
+    fn access_strategy_debug_summary_reports_index_multi_lookup_shape() {
+        let index = IndexModel::new(
+            "tests::idx_group",
+            "tests::store",
+            &INDEX_MULTI_LOOKUP_TEST_FIELDS,
+            false,
+        );
+        let plan: AccessPlan<u64> =
+            AccessPlan::index_multi_lookup(index, vec![Value::Uint(7), Value::Uint(9)]);
+        let strategy = AccessStrategy::from_plan(&plan);
+
+        assert!(
+            strategy.debug_summary().contains("IndexMultiLookup"),
+            "index multi-lookup strategies should render dedicated path summaries",
+        );
+    }
+}
