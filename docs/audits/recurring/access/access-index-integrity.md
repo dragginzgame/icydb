@@ -376,6 +376,7 @@ Produce:
 
 # Required Output Sections
 
+0. Run Metadata + Comparability Note
 1. Index Invariant Registry
 2. Encode/Decode Symmetry Table
 3. Ordering Stability Analysis
@@ -391,6 +392,13 @@ Produce:
 13. High Risk Mutation Paths
 14. Storage-Layer Assumptions
 15. Overall Index Risk Index (1–10, lower is better)
+16. Verification Readout (`PASS`/`FAIL`/`BLOCKED`)
+
+Run metadata must include:
+
+- compared baseline report path (or `N/A`)
+- method tag/version
+- comparability status (`comparable` or `non-comparable` with reason)
 
 ---
 

@@ -5,11 +5,13 @@
 
 mod access_plan;
 mod access_planner;
+mod constant_predicate;
 mod continuation;
 #[expect(dead_code)]
 pub(crate) mod expr;
 mod group;
 mod grouped_layout;
+mod limit_zero;
 mod logical_builder;
 mod model;
 mod model_builder;
@@ -25,6 +27,9 @@ pub(crate) use access_plan::AccessPlannedQuery;
 pub(in crate::db::query) use access_planner::{
     AccessPlanningInputs, normalize_query_predicate, plan_query_access,
 };
+pub(in crate::db::query) use constant_predicate::{
+    fold_constant_predicate, predicate_is_constant_false,
+};
 pub(in crate::db) use continuation::{
     ContinuationContract, GroupedContinuationWindow, effective_offset_for_cursor_window,
 };
@@ -33,6 +38,7 @@ pub(in crate::db) use group::{
     grouped_executor_handoff,
 };
 pub(in crate::db) use grouped_layout::validate_grouped_projection_layout;
+pub(in crate::db::query) use limit_zero::is_limit_zero_load_window;
 pub(in crate::db::query) use logical_builder::{
     LogicalPlanningInputs, build_logical_plan, logical_query_from_logical_inputs,
 };

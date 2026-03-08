@@ -61,6 +61,46 @@ For crosscutting structure/velocity runs, include the required Hub Import Pressu
 - cross-layer dependency count
 - delta vs previous report
 
+### Required report preamble (every report)
+
+Each report must include a short preamble block with:
+- scope
+- compared baseline report path (or `N/A` if first run)
+- code snapshot identifier (for example `git rev-parse --short HEAD`, or `N/A`)
+- method tag/version (for example `Method V3`)
+- comparability status:
+  - `comparable` (all tracked metrics use the same method), or
+  - `non-comparable` (method changed, with one-line reason)
+
+### Method-drift rule
+
+If a metric formula, counting scope, or classification model changes:
+1. bump the method tag in that report,
+2. add a `Method Changes` section,
+3. mark affected deltas as `N/A (method change)` instead of numeric deltas,
+4. keep at least one unchanged anchor metric for continuity where possible.
+
+### Verification readout discipline
+
+Every report must include a `Verification Readout` section with command outcomes.
+
+Allowed statuses:
+- `PASS`
+- `FAIL`
+- `BLOCKED`
+
+For `BLOCKED`, include a concrete reason.
+If blocked by cross-filesystem execution errors (for example `Invalid cross-device link (os error 18)`), record it once and do not retry in the same run.
+
+### Actionability discipline
+
+If any finding is `PARTIAL`/`FAIL`, or if overall risk index is `>= 6`, include explicit follow-up actions with:
+- owner boundary
+- action
+- target report date/run
+
+If no follow-up is required, state that explicitly.
+
 ## 5. History Preservation Rule
 
 Audit history is append-only.

@@ -265,7 +265,7 @@ impl ExecutionKernel {
         };
         let capabilities = executable_path.capabilities();
         if capabilities.is_by_keys_empty() {
-            return Ok(None);
+            return Ok(Some((Self::aggregate_zero_window_result(kind), 0)));
         }
         if !capabilities.is_key_direct_access() {
             return Ok(None);

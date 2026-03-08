@@ -5,7 +5,7 @@ source-of-truth boundary: anything not stated here is not a facade guarantee.
 
 This document defines **what the facade guarantees** at intent, planning, and
 execution boundaries. Predicate semantics, coercion rules, diagnostics, and
-testing practices live in `docs/QUERY_PRACTICE.md`.
+testing practices live in `docs/contracts/QUERY_PRACTICE.md`.
 
 ## Scope
 

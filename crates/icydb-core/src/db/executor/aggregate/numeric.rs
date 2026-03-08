@@ -7,6 +7,7 @@ use crate::{
     db::{
         executor::{
             ExecutablePlan,
+            aggregate::aggregate_window_is_provably_empty,
             aggregate::field::{
                 FieldSlot, extract_numeric_field_decimal,
                 resolve_numeric_aggregate_target_slot_from_planner_slot,
@@ -49,6 +50,10 @@ where
         let field_slot =
             resolve_numeric_aggregate_target_slot_from_planner_slot::<E>(&target_field)
                 .map_err(Self::map_aggregate_field_value_error)?;
+        if aggregate_window_is_provably_empty(&plan) {
+            return Ok(None);
+        }
+
         let response = self.execute(plan)?;
 
         Self::aggregate_numeric_field_from_materialized(
@@ -91,6 +96,10 @@ where
         let field_slot =
             resolve_numeric_aggregate_target_slot_from_planner_slot::<E>(&target_field)
                 .map_err(Self::map_aggregate_field_value_error)?;
+        if aggregate_window_is_provably_empty(&plan) {
+            return Ok(None);
+        }
+
         let response = self.execute(plan)?;
 
         Self::aggregate_numeric_field_from_materialized(

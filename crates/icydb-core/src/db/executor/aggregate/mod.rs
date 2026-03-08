@@ -86,6 +86,48 @@ enum AggregateReducerSelection<E: EntityKind + EntityValue> {
     Streaming(ExecutablePlan<E>),
 }
 
+// Return true when executor-visible plan shape proves the effective aggregate
+// input window is empty.
+//
+// Phase 1: honor explicit zero-window pagination contracts.
+// Phase 2: honor planner-lowered empty by-keys access contracts.
+pub(in crate::db::executor) fn aggregate_window_is_provably_empty<E>(
+    plan: &ExecutablePlan<E>,
+) -> bool
+where
+    E: EntityKind,
+{
+    if plan.page_spec().is_some_and(|page| page.limit == Some(0)) {
+        return true;
+    }
+
+    let access_strategy = plan.access().resolve_strategy();
+    let Some(path) = access_strategy.as_path() else {
+        return false;
+    };
+    if path.capabilities().is_by_keys_empty() {
+        return true;
+    }
+
+    false
+}
+
+// Return one canonical terminal aggregate output when executor-visible plan
+// shape proves the effective aggregate window is empty.
+pub(in crate::db::executor) fn aggregate_zero_output_if_window_empty<E>(
+    plan: &ExecutablePlan<E>,
+    kind: AggregateKind,
+) -> Option<AggregateOutput<E>>
+where
+    E: EntityKind,
+{
+    if aggregate_window_is_provably_empty(plan) {
+        Some(kind.zero_output())
+    } else {
+        None
+    }
+}
+
 impl<'a> AggregateReducerDispatch<'a> {
     // Derive one reducer adapter from a validated aggregate descriptor.
     fn from_descriptor(descriptor: &'a AggregateExecutionDescriptor) -> Self {

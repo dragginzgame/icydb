@@ -8,8 +8,9 @@ use crate::{
             intent::{IntentError, QueryError, QueryIntent},
             plan::{
                 AccessPlannedQuery, GroupAggregateSpec, GroupHavingClause, GroupHavingSymbol,
-                LogicalPlan, OrderSpec, QueryMode, build_logical_plan,
-                logical_query_from_logical_inputs, normalize_query_predicate, plan_query_access,
+                LogicalPlan, OrderSpec, QueryMode, build_logical_plan, fold_constant_predicate,
+                is_limit_zero_load_window, logical_query_from_logical_inputs,
+                normalize_query_predicate, plan_query_access, predicate_is_constant_false,
                 resolve_group_field_slot, validate_group_query_semantics, validate_order_shape,
                 validate_query_semantics,
             },
@@ -244,16 +245,27 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         // Phase 1: schema surface and intent validation.
         let schema_info = SchemaInfo::from_entity_model(self.model)?;
         self.intent.validate_policy_shape()?;
-        // Phase 2: normalize scalar predicate then derive one access plan.
+
+        // Phase 2: normalize scalar predicate and fold constant predicates
+        // before access planning.
         let access_inputs = self.intent.planning_access_inputs();
-        let normalized_predicate =
-            normalize_query_predicate(&schema_info, access_inputs.predicate())?;
-        let access_plan_value = plan_query_access(
-            self.model,
+        let normalized_predicate = fold_constant_predicate(normalize_query_predicate(
             &schema_info,
-            normalized_predicate.as_ref(),
-            access_inputs.into_key_access_override(),
-        )?;
+            access_inputs.predicate(),
+        )?);
+        let plan_mode = self.intent.mode();
+        let limit_zero_window = is_limit_zero_load_window(plan_mode);
+        let constant_false_predicate = predicate_is_constant_false(normalized_predicate.as_ref());
+        let access_plan_value = if limit_zero_window || constant_false_predicate {
+            AccessPlan::by_keys(Vec::new())
+        } else {
+            plan_query_access(
+                self.model,
+                &schema_info,
+                normalized_predicate.as_ref(),
+                access_inputs.into_key_access_override(),
+            )?
+        };
         let normalized_predicate = strip_redundant_primary_key_equality_predicate_for_by_key_access(
             self.model,
             &access_plan_value,

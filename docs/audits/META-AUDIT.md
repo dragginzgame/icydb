@@ -59,6 +59,9 @@ Required:
 - record concrete evidence path
 - preserve all historical reports
 - keep reports grouped by day under `docs/audits/reports/YYYY-MM-DD/`
+- include report preamble fields (scope, baseline path, method tag, comparability status)
+- include verification readout outcomes with explicit `PASS`/`FAIL`/`BLOCKED` status
+- document method changes and mark non-comparable deltas when formulas/scope change
 
 Prohibited:
 - deleting prior reports
@@ -74,3 +77,11 @@ Audit governance paths are:
 - `docs/audits/oneoff/`
 - `docs/audits/reports/`
 - `docs/audits/domains/`
+
+## 7. Report-Quality Controls
+
+Meta-audit runs must additionally check:
+- metric-method consistency drift across consecutive runs,
+- whether non-comparable metrics are explicitly labeled,
+- whether blocked verification steps are recorded with concrete reasons,
+- whether required follow-up actions are present for `PARTIAL`/`FAIL` or high-risk (`>=6`) results.

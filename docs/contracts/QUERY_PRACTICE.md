@@ -2,7 +2,7 @@
 
 This document consolidates the practical, non-facade query guidance:
 predicate semantics, coercion rules, diagnostics guarantees, and testing
-expectations. It complements `docs/QUERY_CONTRACT.md`.
+expectations. It complements `docs/contracts/QUERY_CONTRACT.md`.
 
 ---
 

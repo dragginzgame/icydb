@@ -5,12 +5,13 @@
 
 use crate::{
     db::predicate::{
-        CompareOp, ComparePredicate, Predicate, SchemaInfo, ValidateError,
-        encoding::encode_predicate_sort_key,
+        CompareOp, ComparePredicate, Predicate, SchemaInfo, ValidateError, compare_eq,
+        compare_order, encoding::encode_predicate_sort_key,
     },
     model::field::FieldKind,
     value::Value,
 };
+use std::cmp::Ordering;
 
 /// Normalize a predicate into a canonical, deterministic form.
 ///
@@ -339,6 +340,11 @@ fn normalize_and(children: &[Predicate]) -> Predicate {
     // while keeping deterministic ordering under the canonical sort key.
     out.sort_by_cached_key(|predicate| (predicate_eval_cost_rank(predicate), sort_key(predicate)));
     out.dedup();
+    let Some(mut out) = simplify_and_compare_constraints(out) else {
+        return Predicate::False;
+    };
+    out.sort_by_cached_key(|predicate| (predicate_eval_cost_rank(predicate), sort_key(predicate)));
+    out.dedup();
 
     if out.len() == 1 {
         return out.remove(0);
@@ -417,6 +423,290 @@ fn sort_key(predicate: &Predicate) -> Vec<u8> {
     encode_predicate_sort_key(predicate)
 }
 
+#[derive(Clone)]
+enum ComparePairSimplification {
+    NoChange,
+    Contradiction,
+    KeepFirst,
+    KeepSecond,
+    ReplaceFirst(ComparePredicate),
+    ReplaceSecond(ComparePredicate),
+}
+
+// Simplify conjunction-local compare predicates over the same field/coercion
+// domain. This pass is conservative: unsupported or incomparable pairs are
+// preserved unchanged.
+fn simplify_and_compare_constraints(mut predicates: Vec<Predicate>) -> Option<Vec<Predicate>> {
+    loop {
+        let mut changed = false;
+        'scan: for i in 0..predicates.len() {
+            for j in i.saturating_add(1)..predicates.len() {
+                let (Predicate::Compare(left), Predicate::Compare(right)) =
+                    (&predicates[i], &predicates[j])
+                else {
+                    continue;
+                };
+                if left.field != right.field || left.coercion != right.coercion {
+                    continue;
+                }
+
+                match simplify_compare_pair_for_and(left, right) {
+                    ComparePairSimplification::NoChange => continue,
+                    ComparePairSimplification::Contradiction => return None,
+                    ComparePairSimplification::KeepFirst => {
+                        predicates.remove(j);
+                    }
+                    ComparePairSimplification::KeepSecond => {
+                        predicates.remove(i);
+                    }
+                    ComparePairSimplification::ReplaceFirst(replacement) => {
+                        predicates[i] = Predicate::Compare(replacement);
+                        predicates.remove(j);
+                    }
+                    ComparePairSimplification::ReplaceSecond(replacement) => {
+                        predicates[j] = Predicate::Compare(replacement);
+                        predicates.remove(i);
+                    }
+                }
+
+                changed = true;
+                break 'scan;
+            }
+        }
+
+        if !changed {
+            break;
+        }
+    }
+
+    Some(predicates)
+}
+
+// Simplify one pair of compare predicates in an AND clause.
+fn simplify_compare_pair_for_and(
+    left: &ComparePredicate,
+    right: &ComparePredicate,
+) -> ComparePairSimplification {
+    match (left.op, right.op) {
+        (CompareOp::Eq, CompareOp::Eq) => simplify_eq_eq_pair(left, right),
+        (CompareOp::Eq, _) => simplify_eq_with_constraint_pair(left, right, true),
+        (_, CompareOp::Eq) => simplify_eq_with_constraint_pair(right, left, false),
+        _ => simplify_constraint_constraint_pair(left, right),
+    }
+}
+
+// Simplify `field = a AND field = b`.
+fn simplify_eq_eq_pair(
+    left: &ComparePredicate,
+    right: &ComparePredicate,
+) -> ComparePairSimplification {
+    match compare_eq(&left.value, &right.value, &left.coercion) {
+        Some(true) => ComparePairSimplification::KeepFirst,
+        Some(false) => ComparePairSimplification::Contradiction,
+        None => ComparePairSimplification::NoChange,
+    }
+}
+
+// Simplify `field = a AND field <op> b` where `<op>` is one inequality bound.
+//
+// `eq_is_first` indicates whether `eq` is the left/first pair item.
+fn simplify_eq_with_constraint_pair(
+    eq: &ComparePredicate,
+    constraint: &ComparePredicate,
+    eq_is_first: bool,
+) -> ComparePairSimplification {
+    let Some(ordering) = compare_order(&eq.value, &constraint.value, &eq.coercion) else {
+        return ComparePairSimplification::NoChange;
+    };
+    let satisfies = match constraint.op {
+        CompareOp::Gt => ordering.is_gt(),
+        CompareOp::Gte => ordering.is_gt() || ordering.is_eq(),
+        CompareOp::Lt => ordering.is_lt(),
+        CompareOp::Lte => ordering.is_lt() || ordering.is_eq(),
+        CompareOp::Eq
+        | CompareOp::Ne
+        | CompareOp::In
+        | CompareOp::NotIn
+        | CompareOp::Contains
+        | CompareOp::StartsWith
+        | CompareOp::EndsWith => return ComparePairSimplification::NoChange,
+    };
+
+    if !satisfies {
+        return ComparePairSimplification::Contradiction;
+    }
+    if eq_is_first {
+        ComparePairSimplification::KeepFirst
+    } else {
+        ComparePairSimplification::KeepSecond
+    }
+}
+
+// Simplify inequality-pair combinations in conjunctions:
+// - tighter lower-bound retention (`>`, `>=`)
+// - tighter upper-bound retention (`<`, `<=`)
+// - lower/upper contradiction detection
+// - lower/upper equality collapse (`>= a AND <= a -> = a`)
+fn simplify_constraint_constraint_pair(
+    left: &ComparePredicate,
+    right: &ComparePredicate,
+) -> ComparePairSimplification {
+    let left_lower = lower_bound_inclusive(left.op);
+    let right_lower = lower_bound_inclusive(right.op);
+    let left_upper = upper_bound_inclusive(left.op);
+    let right_upper = upper_bound_inclusive(right.op);
+
+    if left_lower.is_some() && right_lower.is_some() {
+        return simplify_two_lower_bounds(left, right);
+    }
+    if left_upper.is_some() && right_upper.is_some() {
+        return simplify_two_upper_bounds(left, right);
+    }
+    if left_lower.is_some() && right_upper.is_some() {
+        return simplify_lower_upper_pair(left, right);
+    }
+    if left_upper.is_some() && right_lower.is_some() {
+        return match simplify_lower_upper_pair(right, left) {
+            ComparePairSimplification::KeepFirst => ComparePairSimplification::KeepSecond,
+            ComparePairSimplification::KeepSecond => ComparePairSimplification::KeepFirst,
+            ComparePairSimplification::ReplaceFirst(cmp) => {
+                ComparePairSimplification::ReplaceSecond(cmp)
+            }
+            ComparePairSimplification::ReplaceSecond(cmp) => {
+                ComparePairSimplification::ReplaceFirst(cmp)
+            }
+            ComparePairSimplification::NoChange => ComparePairSimplification::NoChange,
+            ComparePairSimplification::Contradiction => ComparePairSimplification::Contradiction,
+        };
+    }
+
+    ComparePairSimplification::NoChange
+}
+
+fn simplify_two_lower_bounds(
+    left: &ComparePredicate,
+    right: &ComparePredicate,
+) -> ComparePairSimplification {
+    let Some(ordering) = compare_order(&left.value, &right.value, &left.coercion) else {
+        return ComparePairSimplification::NoChange;
+    };
+    let Some(left_inclusive) = lower_bound_inclusive(left.op) else {
+        return ComparePairSimplification::NoChange;
+    };
+    let Some(right_inclusive) = lower_bound_inclusive(right.op) else {
+        return ComparePairSimplification::NoChange;
+    };
+
+    match ordering {
+        Ordering::Greater => ComparePairSimplification::KeepFirst,
+        Ordering::Less => ComparePairSimplification::KeepSecond,
+        Ordering::Equal => {
+            if !left_inclusive && right_inclusive {
+                ComparePairSimplification::KeepFirst
+            } else if left_inclusive && !right_inclusive {
+                ComparePairSimplification::KeepSecond
+            } else {
+                ComparePairSimplification::KeepFirst
+            }
+        }
+    }
+}
+
+fn simplify_two_upper_bounds(
+    left: &ComparePredicate,
+    right: &ComparePredicate,
+) -> ComparePairSimplification {
+    let Some(ordering) = compare_order(&left.value, &right.value, &left.coercion) else {
+        return ComparePairSimplification::NoChange;
+    };
+    let Some(left_inclusive) = upper_bound_inclusive(left.op) else {
+        return ComparePairSimplification::NoChange;
+    };
+    let Some(right_inclusive) = upper_bound_inclusive(right.op) else {
+        return ComparePairSimplification::NoChange;
+    };
+
+    match ordering {
+        Ordering::Less => ComparePairSimplification::KeepFirst,
+        Ordering::Greater => ComparePairSimplification::KeepSecond,
+        Ordering::Equal => {
+            if !left_inclusive && right_inclusive {
+                ComparePairSimplification::KeepFirst
+            } else if left_inclusive && !right_inclusive {
+                ComparePairSimplification::KeepSecond
+            } else {
+                ComparePairSimplification::KeepFirst
+            }
+        }
+    }
+}
+
+// Simplify `lower AND upper`, where `lower` is one of (`>`,`>=`) and `upper`
+// is one of (`<`,`<=`).
+fn simplify_lower_upper_pair(
+    lower: &ComparePredicate,
+    upper: &ComparePredicate,
+) -> ComparePairSimplification {
+    let Some(ordering) = compare_order(&lower.value, &upper.value, &lower.coercion) else {
+        return ComparePairSimplification::NoChange;
+    };
+    let Some(lower_inclusive) = lower_bound_inclusive(lower.op) else {
+        return ComparePairSimplification::NoChange;
+    };
+    let Some(upper_inclusive) = upper_bound_inclusive(upper.op) else {
+        return ComparePairSimplification::NoChange;
+    };
+
+    match ordering {
+        Ordering::Less => ComparePairSimplification::NoChange,
+        Ordering::Greater => ComparePairSimplification::Contradiction,
+        Ordering::Equal => {
+            if lower_inclusive && upper_inclusive {
+                ComparePairSimplification::ReplaceFirst(ComparePredicate {
+                    field: lower.field.clone(),
+                    op: CompareOp::Eq,
+                    value: lower.value.clone(),
+                    coercion: lower.coercion.clone(),
+                })
+            } else {
+                ComparePairSimplification::Contradiction
+            }
+        }
+    }
+}
+
+const fn lower_bound_inclusive(op: CompareOp) -> Option<bool> {
+    match op {
+        CompareOp::Gt => Some(false),
+        CompareOp::Gte => Some(true),
+        CompareOp::Eq
+        | CompareOp::Ne
+        | CompareOp::Lt
+        | CompareOp::Lte
+        | CompareOp::In
+        | CompareOp::NotIn
+        | CompareOp::Contains
+        | CompareOp::StartsWith
+        | CompareOp::EndsWith => None,
+    }
+}
+
+const fn upper_bound_inclusive(op: CompareOp) -> Option<bool> {
+    match op {
+        CompareOp::Lt => Some(false),
+        CompareOp::Lte => Some(true),
+        CompareOp::Eq
+        | CompareOp::Ne
+        | CompareOp::Gt
+        | CompareOp::Gte
+        | CompareOp::In
+        | CompareOp::NotIn
+        | CompareOp::Contains
+        | CompareOp::StartsWith
+        | CompareOp::EndsWith => None,
+    }
+}
+
 ///
 /// TESTS
 ///
@@ -424,7 +714,7 @@ fn sort_key(predicate: &Predicate) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        db::predicate::{ComparePredicate, Predicate, normalize},
+        db::predicate::{CompareOp, ComparePredicate, Predicate, normalize},
         value::Value,
     };
 
@@ -486,6 +776,128 @@ mod tests {
         assert!(
             matches!(children[1], Predicate::TextContains { .. }),
             "text-contains predicate should be placed after cheap compare predicate",
+        );
+    }
+
+    #[test]
+    fn normalize_and_conflicting_eq_literals_collapses_to_false() {
+        let predicate = Predicate::And(vec![
+            Predicate::eq("rank".to_string(), Value::Uint(1)),
+            Predicate::eq("rank".to_string(), Value::Uint(2)),
+        ]);
+
+        let normalized = normalize(&predicate);
+
+        assert_eq!(
+            normalized,
+            Predicate::False,
+            "conflicting equalities in conjunction must collapse to false",
+        );
+    }
+
+    #[test]
+    fn normalize_and_tightens_lower_bounds() {
+        let predicate = Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::gt("rank".to_string(), Value::Uint(3))),
+            Predicate::Compare(ComparePredicate::gte("rank".to_string(), Value::Uint(5))),
+        ]);
+
+        let normalized = normalize(&predicate);
+
+        assert_eq!(
+            normalized,
+            Predicate::Compare(ComparePredicate::gte("rank".to_string(), Value::Uint(5))),
+            "conjunction should keep the stricter lower bound",
+        );
+    }
+
+    #[test]
+    fn normalize_and_tightens_upper_bounds() {
+        let predicate = Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::lt("rank".to_string(), Value::Uint(9))),
+            Predicate::Compare(ComparePredicate::lte("rank".to_string(), Value::Uint(7))),
+        ]);
+
+        let normalized = normalize(&predicate);
+
+        assert_eq!(
+            normalized,
+            Predicate::Compare(ComparePredicate::lte("rank".to_string(), Value::Uint(7))),
+            "conjunction should keep the stricter upper bound",
+        );
+    }
+
+    #[test]
+    fn normalize_and_eq_with_satisfied_bound_collapses_to_eq() {
+        let predicate = Predicate::And(vec![
+            Predicate::eq("rank".to_string(), Value::Uint(7)),
+            Predicate::Compare(ComparePredicate::gt("rank".to_string(), Value::Uint(5))),
+        ]);
+
+        let normalized = normalize(&predicate);
+
+        assert_eq!(
+            normalized,
+            Predicate::Compare(ComparePredicate::eq("rank".to_string(), Value::Uint(7))),
+            "equality should subsume compatible lower-bound constraints",
+        );
+    }
+
+    #[test]
+    fn normalize_and_eq_with_conflicting_bound_collapses_to_false() {
+        let predicate = Predicate::And(vec![
+            Predicate::eq("rank".to_string(), Value::Uint(3)),
+            Predicate::Compare(ComparePredicate::gt("rank".to_string(), Value::Uint(5))),
+        ]);
+
+        let normalized = normalize(&predicate);
+
+        assert_eq!(
+            normalized,
+            Predicate::False,
+            "equality conflicting with a bound must collapse to false",
+        );
+    }
+
+    #[test]
+    fn normalize_and_equal_lower_and_upper_collapse_to_eq() {
+        let predicate = Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "rank",
+                CompareOp::Gte,
+                Value::Uint(11),
+                crate::db::predicate::CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "rank",
+                CompareOp::Lte,
+                Value::Uint(11),
+                crate::db::predicate::CoercionId::Strict,
+            )),
+        ]);
+
+        let normalized = normalize(&predicate);
+
+        assert_eq!(
+            normalized,
+            Predicate::Compare(ComparePredicate::eq("rank".to_string(), Value::Uint(11))),
+            "matching inclusive lower/upper bounds should collapse to equality",
+        );
+    }
+
+    #[test]
+    fn normalize_and_crossed_bounds_collapse_to_false() {
+        let predicate = Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::gt("rank".to_string(), Value::Uint(9))),
+            Predicate::Compare(ComparePredicate::lt("rank".to_string(), Value::Uint(5))),
+        ]);
+
+        let normalized = normalize(&predicate);
+
+        assert_eq!(
+            normalized,
+            Predicate::False,
+            "crossed lower/upper bounds must collapse to false",
         );
     }
 }

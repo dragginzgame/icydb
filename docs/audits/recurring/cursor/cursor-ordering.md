@@ -154,6 +154,14 @@ State explicitly whether each is:
 
 Produce:
 
+## 0. Run Metadata + Comparability Note
+
+- compared baseline report path (or `N/A`)
+- method tag/version
+- comparability status (`comparable` or `non-comparable` with reason)
+
+---
+
 ## 1. Invariant Table
 
 | Area | Invariants Assumed | Verified? | Evidence | Risk |
@@ -207,6 +215,10 @@ Interpretation:
 4–6  = Moderate risk / manageable pressure
 7–8  = High risk / requires monitoring
 9–10 = Critical risk / structural instability
+
+## 8. Verification Readout
+
+Include command outcomes using `PASS` / `FAIL` / `BLOCKED`.
 
 ---
 

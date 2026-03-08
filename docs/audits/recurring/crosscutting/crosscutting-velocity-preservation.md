@@ -292,6 +292,7 @@ Interpretation:
 
 # Final Output
 
+0. Run Metadata + Comparability Note
 1. Velocity Risk Index (1–10, lower is better)
 2. Revised CAF + ELS + Containment summary
 3. Boundary Leakage Trend Table
@@ -302,6 +303,13 @@ Interpretation:
 8. Independent-Axis Growth Warnings
 9. Decision Surface Size Trends
 10. Refactor-Transient vs True-Drag Findings
+11. Verification Readout (`PASS`/`FAIL`/`BLOCKED`)
+
+Run metadata must include:
+
+- compared baseline report path (or `N/A`)
+- method tag/version
+- comparability status (`comparable` or `non-comparable` with reason)
 
 ---
 

@@ -25,6 +25,115 @@ fn aggregate_parity_matrix_harness_covers_all_id_terminals() {
 }
 
 #[test]
+fn aggregate_constant_false_window_returns_terminal_zeros_without_scan_budget() {
+    // Phase 1: seed rows and build one planner-lowered constant-false plan factory.
+    seed_pushdown_entities(&[(8_011, 7, 10), (8_012, 7, 20), (8_013, 8, 30)]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let build_plan = || {
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
+            .filter(crate::db::predicate::Predicate::False)
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("constant-false aggregate plan should build")
+    };
+
+    // Phase 2: execute scalar and numeric aggregate terminals under one
+    // metrics sink so each terminal reports scan-budget usage.
+    let (count, scanned_count) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.aggregate_count(build_plan())
+                .expect("constant-false COUNT should succeed")
+        });
+    let (exists, scanned_exists) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.aggregate_exists(build_plan())
+                .expect("constant-false EXISTS should succeed")
+        });
+    let (min_id, scanned_min) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+        load.aggregate_min(build_plan())
+            .expect("constant-false MIN should succeed")
+    });
+    let (max_id, scanned_max) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+        load.aggregate_max(build_plan())
+            .expect("constant-false MAX should succeed")
+    });
+    let (first_id, scanned_first) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.aggregate_first(build_plan())
+                .expect("constant-false FIRST should succeed")
+        });
+    let (last_id, scanned_last) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.aggregate_last(build_plan())
+                .expect("constant-false LAST should succeed")
+        });
+    let (sum_rank, scanned_sum) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.aggregate_sum_by_slot(build_plan(), slot(&load, "rank"))
+                .expect("constant-false SUM(field) should succeed")
+        });
+    let (avg_rank, scanned_avg) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.aggregate_avg_by_slot(build_plan(), slot(&load, "rank"))
+                .expect("constant-false AVG(field) should succeed")
+        });
+
+    // Phase 3: assert canonical empty-window outputs and zero scan-budget use.
+    assert_eq!(count, 0, "constant-false COUNT should resolve to zero");
+    assert!(
+        !exists,
+        "constant-false EXISTS should resolve to false on an empty window"
+    );
+    assert_eq!(min_id, None, "constant-false MIN should resolve to None");
+    assert_eq!(max_id, None, "constant-false MAX should resolve to None");
+    assert_eq!(
+        first_id, None,
+        "constant-false FIRST should resolve to None"
+    );
+    assert_eq!(last_id, None, "constant-false LAST should resolve to None");
+    assert_eq!(
+        sum_rank, None,
+        "constant-false SUM(field) should resolve to None on an empty window"
+    );
+    assert_eq!(
+        avg_rank, None,
+        "constant-false AVG(field) should resolve to None on an empty window"
+    );
+    assert_eq!(
+        scanned_count, 0,
+        "constant-false COUNT should not consume scan budget"
+    );
+    assert_eq!(
+        scanned_exists, 0,
+        "constant-false EXISTS should not consume scan budget"
+    );
+    assert_eq!(
+        scanned_min, 0,
+        "constant-false MIN should not consume scan budget"
+    );
+    assert_eq!(
+        scanned_max, 0,
+        "constant-false MAX should not consume scan budget"
+    );
+    assert_eq!(
+        scanned_first, 0,
+        "constant-false FIRST should not consume scan budget"
+    );
+    assert_eq!(
+        scanned_last, 0,
+        "constant-false LAST should not consume scan budget"
+    );
+    assert_eq!(
+        scanned_sum, 0,
+        "constant-false SUM(field) should not consume scan budget"
+    );
+    assert_eq!(
+        scanned_avg, 0,
+        "constant-false AVG(field) should not consume scan budget"
+    );
+}
+
+#[test]
 fn aggregate_spec_field_target_non_extrema_is_executor_invariant_only_when_planner_is_bypassed() {
     seed_pushdown_entities(&[(8_021, 7, 10), (8_022, 7, 20), (8_023, 7, 30)]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);

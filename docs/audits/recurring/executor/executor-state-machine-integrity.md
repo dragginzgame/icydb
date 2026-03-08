@@ -158,6 +158,14 @@ For each, state:
 
 # Required Output Format
 
+## 0. Run Metadata + Comparability Note
+
+- compared baseline report path (or `N/A`)
+- method tag/version
+- comparability status (`comparable` or `non-comparable` with reason)
+
+---
+
 ## 1. Transition Integrity Table
 
 | Transition | Invariants Checked Before? | Mutation Before Validation? | Risk |
@@ -204,3 +212,7 @@ Interpretation:
 4–6  = Moderate risk / manageable pressure
 7–8  = High risk / requires monitoring
 9–10 = Critical risk / structural instability
+
+## Verification Readout
+
+Include command outcomes using `PASS` / `FAIL` / `BLOCKED`.

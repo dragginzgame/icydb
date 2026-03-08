@@ -1153,6 +1153,62 @@ fn build_plan_model_full_scan_without_predicate() {
 }
 
 #[test]
+fn build_plan_model_limit_zero_lowers_to_empty_by_keys() {
+    let plan = QueryModel::<Ulid>::new(PlanEntity::MODEL, MissingRowPolicy::Ignore)
+        .order_by("id")
+        .limit(0)
+        .build_plan_model()
+        .expect("ordered limit(0) plan should build");
+
+    assert!(matches!(
+        &plan.access,
+        AccessPlan::Path(path)
+            if matches!(path.as_ref(), AccessPath::ByKeys(keys) if keys.is_empty())
+    ));
+}
+
+#[test]
+fn build_plan_model_constant_false_lowers_to_empty_by_keys() {
+    let plan = QueryModel::<Ulid>::new(PlanEntity::MODEL, MissingRowPolicy::Ignore)
+        .filter(Predicate::False)
+        .build_plan_model()
+        .expect("constant false plan should build");
+
+    assert!(
+        matches!(
+            &plan.access,
+            AccessPlan::Path(path)
+                if matches!(path.as_ref(), AccessPath::ByKeys(keys) if keys.is_empty())
+        ),
+        "constant-false filter should lower to empty by-keys access"
+    );
+    assert!(
+        matches!(plan.scalar_plan().predicate, Some(Predicate::False)),
+        "constant-false filter should remain visible in logical predicate for explain stability"
+    );
+}
+
+#[test]
+fn build_plan_model_constant_true_elides_logical_predicate() {
+    let plan = QueryModel::<Ulid>::new(PlanEntity::MODEL, MissingRowPolicy::Ignore)
+        .filter(Predicate::True)
+        .build_plan_model()
+        .expect("constant true plan should build");
+
+    assert!(
+        plan.scalar_plan().predicate.is_none(),
+        "constant-true filter should be folded away before logical planning"
+    );
+    assert!(
+        matches!(
+            &plan.access,
+            AccessPlan::Path(path) if matches!(path.as_ref(), AccessPath::FullScan)
+        ),
+        "constant-true filter should not force access routing changes",
+    );
+}
+
+#[test]
 fn typed_plan_matches_model_plan_for_same_intent() {
     let predicate = FieldRef::new("id").eq(Ulid::default());
 

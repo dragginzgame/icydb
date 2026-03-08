@@ -237,6 +237,7 @@ Produce:
 
 # Required Output Sections
 
+0. Run Metadata + Comparability Note
 1. Mutation Inventory
 2. Side-by-Side Flow Tables
 3. Invariant Enforcement Parity Table
@@ -245,6 +246,13 @@ Produce:
 6. Divergence Risks
 7. Idempotence Verification
 8. Overall Recovery Risk Index (1–10, lower is better)
+9. Verification Readout (`PASS`/`FAIL`/`BLOCKED`)
+
+Run metadata must include:
+
+- compared baseline report path (or `N/A`)
+- method tag/version
+- comparability status (`comparable` or `non-comparable` with reason)
 
 Interpretation:
 1–3  = Low risk / structurally healthy

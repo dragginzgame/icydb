@@ -12,6 +12,7 @@ use crate::{
             ExecutablePlan, ExecutionKernel, ExecutionOptimizationCounter, ExecutionPreparation,
             aggregate::{
                 AggregateFoldMode, AggregateKind, AggregateOutput,
+                aggregate_zero_output_if_window_empty,
                 field::resolve_orderable_aggregate_target_slot_from_planner_slot,
             },
             load::LoadExecutor,
@@ -38,6 +39,17 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<u32, InternalError> {
+        if let Some(aggregate_output) =
+            aggregate_zero_output_if_window_empty(&plan, AggregateKind::Count)
+        {
+            return match aggregate_output {
+                AggregateOutput::Count(value) => Ok(value),
+                _ => Err(crate::db::error::executor_invariant(
+                    "aggregate COUNT zero-window result kind mismatch",
+                )),
+            };
+        }
+
         if let Some(contract) = Self::derive_count_terminal_fast_path_contract(&plan) {
             return match contract {
                 CountTerminalFastPathContract::PrimaryKeyCardinality => {
@@ -74,6 +86,17 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<bool, InternalError> {
+        if let Some(aggregate_output) =
+            aggregate_zero_output_if_window_empty(&plan, AggregateKind::Exists)
+        {
+            return match aggregate_output {
+                AggregateOutput::Exists(value) => Ok(value),
+                _ => Err(crate::db::error::executor_invariant(
+                    "aggregate EXISTS zero-window result kind mismatch",
+                )),
+            };
+        }
+
         if let Some(contract) = Self::derive_exists_terminal_fast_path_contract(&plan) {
             return match contract {
                 ExistsTerminalFastPathContract::IndexCoveringExistingRows(direction) => {
@@ -98,6 +121,17 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<Option<Id<E>>, InternalError> {
+        if let Some(aggregate_output) =
+            aggregate_zero_output_if_window_empty(&plan, AggregateKind::Min)
+        {
+            return match aggregate_output {
+                AggregateOutput::Min(value) => Ok(value),
+                _ => Err(crate::db::error::executor_invariant(
+                    "aggregate MIN zero-window result kind mismatch",
+                )),
+            };
+        }
+
         match ExecutionKernel::execute_aggregate_spec(self, plan, min())? {
             AggregateOutput::Min(value) => Ok(value),
             _ => Err(crate::db::error::executor_invariant(
@@ -111,6 +145,17 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<Option<Id<E>>, InternalError> {
+        if let Some(aggregate_output) =
+            aggregate_zero_output_if_window_empty(&plan, AggregateKind::Max)
+        {
+            return match aggregate_output {
+                AggregateOutput::Max(value) => Ok(value),
+                _ => Err(crate::db::error::executor_invariant(
+                    "aggregate MAX zero-window result kind mismatch",
+                )),
+            };
+        }
+
         match ExecutionKernel::execute_aggregate_spec(self, plan, max())? {
             AggregateOutput::Max(value) => Ok(value),
             _ => Err(crate::db::error::executor_invariant(
@@ -128,6 +173,17 @@ where
     ) -> Result<Option<Id<E>>, InternalError> {
         resolve_orderable_aggregate_target_slot_from_planner_slot::<E>(&target_field)
             .map_err(Self::map_aggregate_field_value_error)?;
+        if let Some(aggregate_output) =
+            aggregate_zero_output_if_window_empty(&plan, AggregateKind::Min)
+        {
+            return match aggregate_output {
+                AggregateOutput::Min(value) => Ok(value),
+                _ => Err(crate::db::error::executor_invariant(
+                    "aggregate MIN(field) zero-window result kind mismatch",
+                )),
+            };
+        }
+
         match ExecutionKernel::execute_aggregate_spec(self, plan, min_by(target_field.field()))? {
             AggregateOutput::Min(value) => Ok(value),
             _ => Err(crate::db::error::executor_invariant(
@@ -145,6 +201,17 @@ where
     ) -> Result<Option<Id<E>>, InternalError> {
         resolve_orderable_aggregate_target_slot_from_planner_slot::<E>(&target_field)
             .map_err(Self::map_aggregate_field_value_error)?;
+        if let Some(aggregate_output) =
+            aggregate_zero_output_if_window_empty(&plan, AggregateKind::Max)
+        {
+            return match aggregate_output {
+                AggregateOutput::Max(value) => Ok(value),
+                _ => Err(crate::db::error::executor_invariant(
+                    "aggregate MAX(field) zero-window result kind mismatch",
+                )),
+            };
+        }
+
         match ExecutionKernel::execute_aggregate_spec(self, plan, max_by(target_field.field()))? {
             AggregateOutput::Max(value) => Ok(value),
             _ => Err(crate::db::error::executor_invariant(
@@ -202,6 +269,17 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<Option<Id<E>>, InternalError> {
+        if let Some(aggregate_output) =
+            aggregate_zero_output_if_window_empty(&plan, AggregateKind::First)
+        {
+            return match aggregate_output {
+                AggregateOutput::First(value) => Ok(value),
+                _ => Err(crate::db::error::executor_invariant(
+                    "aggregate FIRST zero-window result kind mismatch",
+                )),
+            };
+        }
+
         match ExecutionKernel::execute_aggregate_spec(self, plan, first())? {
             AggregateOutput::First(value) => Ok(value),
             _ => Err(crate::db::error::executor_invariant(
@@ -215,6 +293,17 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<Option<Id<E>>, InternalError> {
+        if let Some(aggregate_output) =
+            aggregate_zero_output_if_window_empty(&plan, AggregateKind::Last)
+        {
+            return match aggregate_output {
+                AggregateOutput::Last(value) => Ok(value),
+                _ => Err(crate::db::error::executor_invariant(
+                    "aggregate LAST zero-window result kind mismatch",
+                )),
+            };
+        }
+
         match ExecutionKernel::execute_aggregate_spec(self, plan, last())? {
             AggregateOutput::Last(value) => Ok(value),
             _ => Err(crate::db::error::executor_invariant(

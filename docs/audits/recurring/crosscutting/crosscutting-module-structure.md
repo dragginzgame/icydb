@@ -331,6 +331,7 @@ Produce:
 
 # Required Output Sections
 
+0. Run Metadata + Comparability Note
 1. Public Surface Map
 2. Subsystem Dependency Graph
 3. Circularity Findings
@@ -339,6 +340,13 @@ Produce:
 6. Structural Pressure Areas
 7. Drift Sensitivity Summary
 8. Structural Risk Index
+9. Verification Readout (`PASS`/`FAIL`/`BLOCKED`)
+
+Run metadata must include:
+
+- compared baseline report path (or `N/A`)
+- method tag/version
+- comparability status (`comparable` or `non-comparable` with reason)
 
 ---
 

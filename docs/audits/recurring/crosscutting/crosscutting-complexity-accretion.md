@@ -285,6 +285,7 @@ Produce:
 
 # Required Summary
 
+0. Run Metadata + Comparability Note
 1. Overall Complexity Risk Index
 2. Fastest Growing Concept Families
 3. Highest Branch Multipliers
@@ -292,6 +293,13 @@ Produce:
 5. Cross-Layer Spread Risks (owner vs plumbing aware)
 6. Hub Pressure + Call-Depth Warnings
 7. Refactor-Transient vs True-Entropy Findings
+8. Verification Readout (`PASS`/`FAIL`/`BLOCKED`)
+
+Run metadata must include:
+
+- compared baseline report path (or `N/A`)
+- method tag/version
+- comparability status (`comparable` or `non-comparable` with reason)
 
 ---
 

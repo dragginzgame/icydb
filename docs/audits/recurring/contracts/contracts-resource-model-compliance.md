@@ -44,8 +44,13 @@ Write one dated result file for each run:
 
 Result must include:
 
+- run metadata + comparability note
+  - compared baseline report path (or `N/A`)
+  - method tag/version
+  - comparability status (`comparable` or `non-comparable` with reason)
 - checklist table with status + concrete evidence paths
 - short pass/partial/fail counts
 - explicit follow-up actions for each `PARTIAL`/`FAIL`
+- verification readout (`PASS`/`FAIL`/`BLOCKED`)
 
 Do not overwrite prior dated results.

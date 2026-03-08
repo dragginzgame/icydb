@@ -256,6 +256,7 @@ This anticipates silent invariant erosion.
 
 # Final Output Structure
 
+0. Run Metadata + Comparability Note
 1. Invariant Registry (complete list)
 2. Boundary Map
 3. Enforcement Mapping Table
@@ -265,6 +266,13 @@ This anticipates silent invariant erosion.
 7. Missing Enforcement
 8. Drift Sensitivity Summary
 9. Overall Invariant Risk Index (1–10, lower is better)
+10. Verification Readout (`PASS`/`FAIL`/`BLOCKED`)
+
+Run metadata must include:
+
+- compared baseline report path (or `N/A`)
+- method tag/version
+- comparability status (`comparable` or `non-comparable` with reason)
 
 Interpretation:
 1–3  = Low risk / structurally healthy

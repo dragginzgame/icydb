@@ -154,7 +154,7 @@ IcyDB now exposes two explicit batch lanes:
   may commit before an error is returned.
 
 Detailed batch-lane behavior and edge cases are defined in
-`docs/TRANSACTION_SEMANTICS.md`.
+`docs/contracts/TRANSACTION_SEMANTICS.md`.
 
 ### Delete (single entity or planner-based)
 

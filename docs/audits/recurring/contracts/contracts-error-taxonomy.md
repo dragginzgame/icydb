@@ -343,6 +343,29 @@ Taxonomy Risk Index (1–10, lower is better):
 
 ---
 
+## Required Summary
+
+0. Run Metadata + Comparability Note
+1. Domain Mapping Snapshot
+2. Per-Variant Classification Table
+3. Upward Mapping Verification
+4. Corruption Containment
+5. Invalid Input Containment
+6. Invariant Violation Preservation
+7. Origin Fidelity Findings
+8. Incorrect Classification List
+9. Error Classification Matrix
+10. Overall Taxonomy Risk Index
+11. Verification Readout (`PASS`/`FAIL`/`BLOCKED`)
+
+Run metadata must include:
+
+- compared baseline report path (or `N/A`)
+- method tag/version
+- comparability status (`comparable` or `non-comparable` with reason)
+
+---
+
 # Hard Constraints
 
 Do NOT:
@@ -354,4 +377,3 @@ Do NOT:
 * Suggest architectural changes
 
 Only classify and identify violations.
-

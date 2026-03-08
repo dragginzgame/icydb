@@ -221,6 +221,7 @@ Produce:
 
 # Required Output Sections
 
+0. Run Metadata + Comparability Note
 1. Invariant Registry
 2. Bound Transformation Proof Table
 3. Envelope Attack Matrix
@@ -231,6 +232,13 @@ Produce:
 8. Duplication/Omission Proof
 9. Drift Sensitivity
 10. Overall Envelope Risk Index (1–10, lower is better)
+11. Verification Readout (`PASS`/`FAIL`/`BLOCKED`)
+
+Run metadata must include:
+
+- compared baseline report path (or `N/A`)
+- method tag/version
+- comparability status (`comparable` or `non-comparable` with reason)
 
 ---
 

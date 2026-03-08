@@ -94,7 +94,7 @@ No new fallible semantics are introduced after marker persistence.
 * Guarded read/write entrypoints replay pending marker before normal execution
 * Durable end state converges to marker-described state
 
-This follows the same commit/recovery model documented in `docs/ATOMICITY.md`.
+This follows the same commit/recovery model documented in `docs/contracts/ATOMICITY.md`.
 
 ---
 
@@ -108,7 +108,7 @@ For one `*_many_atomic` call:
 * The batch becomes visible through guarded query/session entrypoints only after
   commit completion.
 * Direct raw-store access that bypasses guarded entrypoints remains out of
-  contract (see `docs/ATOMICITY.md`).
+  contract (see `docs/contracts/ATOMICITY.md`).
 
 ---
 

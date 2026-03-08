@@ -559,6 +559,50 @@ fn plan_access_merges_duplicate_lower_bounds_to_stricter_value() {
 }
 
 #[test]
+fn plan_access_stability_equivalent_predicates_share_identical_access_plan() {
+    let model = model_with_range_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate_a = Predicate::And(vec![
+        compare_strict("a", CompareOp::Eq, Value::Uint(7)),
+        compare_strict("b", CompareOp::Gte, Value::Uint(100)),
+        compare_strict("b", CompareOp::Lte, Value::Uint(100)),
+    ]);
+    let predicate_b = Predicate::And(vec![
+        compare_strict("b", CompareOp::Eq, Value::Uint(100)),
+        compare_strict("a", CompareOp::Eq, Value::Uint(7)),
+    ]);
+
+    let plan_a = plan_access(model, &schema, Some(&predicate_a)).expect("plan should build");
+    let plan_b = plan_access(model, &schema, Some(&predicate_b)).expect("plan should build");
+
+    assert_eq!(
+        plan_a, plan_b,
+        "equivalent canonical predicate shapes must lower to identical access plans",
+    );
+}
+
+#[test]
+fn plan_access_stability_contradictory_and_predicate_matches_constant_false_shape() {
+    let model = model_with_range_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let contradictory = Predicate::And(vec![
+        compare_strict("a", CompareOp::Eq, Value::Uint(7)),
+        compare_strict("b", CompareOp::Gt, Value::Uint(100)),
+        compare_strict("b", CompareOp::Lt, Value::Uint(100)),
+    ]);
+
+    let plan_from_contradiction =
+        plan_access(model, &schema, Some(&contradictory)).expect("plan should build");
+    let plan_from_false =
+        plan_access(model, &schema, Some(&Predicate::False)).expect("plan should build");
+
+    assert_eq!(
+        plan_from_contradiction, plan_from_false,
+        "contradictory conjunctions should canonicalize to the same access shape as false",
+    );
+}
+
+#[test]
 fn plan_access_rejects_empty_exclusive_interval() {
     let model = model_with_range_index();
     let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");

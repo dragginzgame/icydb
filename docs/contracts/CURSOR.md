@@ -3,9 +3,10 @@
 Date: 2026-02-12
 
 This file captures a point-in-time audit checkpoint.
-Normative cursor guarantees are defined in `docs/QUERY_CONTRACT.md`.
-Release tracking for cursor-related work lives in `docs/status/0.9-status.md`
-and `docs/status/0.10-status.md`.
+Normative cursor guarantees are defined in `docs/contracts/QUERY_CONTRACT.md`.
+Release tracking for cursor-related work lives in
+`docs/status/archive/0.9-status.md` and
+`docs/status/archive/0.10-status.md`.
 
 ## Done
 
@@ -13,7 +14,7 @@ and `docs/status/0.10-status.md`.
 - Documented the concurrency contract explicitly in public/core docs as:
   `best-effort and forward-only over live state`, with no snapshot/version pinning.
 - Updated doc comments in:
-  - `crates/icydb-core/src/db/query/session/load.rs`
+  - `crates/icydb-core/src/db/session.rs`
   - `crates/icydb/src/db/session/load.rs`
   - `crates/icydb/src/db/response/paged.rs`
 - Confirmed execution behavior: cursor boundary and pagination are applied in post-access phase after rows are loaded/materialized and ordered.

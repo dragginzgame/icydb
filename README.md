@@ -26,7 +26,7 @@ If you are new to this space: think of IcyDB as a way to get "database-like" str
 
 ## Current Release
 
-- Workspace version: `0.42.1`
+- Workspace version: `0.45.8`
 - Changelog: `CHANGELOG.md`
 
 ---
@@ -57,7 +57,7 @@ Use a pinned git tag so builds are repeatable:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.42.1" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.45.8" }
 ```
 
 ---
@@ -98,7 +98,7 @@ pub fn users_named_ann() -> Result<Vec<View<User>>, icydb::Error> {
 }
 ```
 
-### Explain execution shape (`0.42.x`)
+### Explain execution shape (introduced in `0.42.x`)
 
 ```rust
 use icydb::prelude::*;
@@ -140,8 +140,8 @@ For deeper rules and behavior:
 
 Reference docs:
 
-- `docs/design/0.25-aggregate-expansion.md`
-- `docs/status/0.25-status.md`
+- `docs/design/archive/0.25-aggregate-expansion.md`
+- `docs/status/archive/0.25-status.md`
 
 Field aggregate examples:
 
@@ -260,8 +260,8 @@ git ls-remote --tags https://github.com/dragginzgame/icydb.git
 
 ## Current Focus
 
-- Finalize `0.25.0` aggregate-expansion release alignment (version cut + publish metadata).
-- Keep aggregate terminal parity/consistency coverage green as follow-up patches land.
+- Close out `0.45.x` cleanup tracking and keep invariant/audit gates green.
+- Execute `0.46` standards-alignment planning slices.
 - Continue docs consolidation and runnable examples.
 - Track upcoming work in `docs/ROADMAP.md` and active design docs under `docs/design/`.
 
