@@ -59,13 +59,19 @@ pub(in crate::db) fn derive_logical_pushdown_eligibility<K>(
     plan: &AccessPlannedQuery<K>,
 ) -> LogicalPushdownEligibility {
     LogicalPushdownEligibility::new(
-        secondary_order_logically_allowed(model, plan.scalar_plan()),
+        secondary_order_contract_is_deterministic(model, plan.scalar_plan()),
         plan.grouped_plan().is_some(),
         false,
     )
 }
 
-fn secondary_order_logically_allowed(model: &EntityModel, scalar: &ScalarPlan) -> bool {
+/// Return whether scalar ORDER BY preserves a deterministic secondary-order
+/// contract shape (`... , primary_key`) under one uniform direction.
+#[must_use]
+pub(in crate::db) fn secondary_order_contract_is_deterministic(
+    model: &EntityModel,
+    scalar: &ScalarPlan,
+) -> bool {
     let Some(order) = scalar.order.as_ref() else {
         return false;
     };

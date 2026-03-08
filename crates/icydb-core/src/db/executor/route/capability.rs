@@ -14,7 +14,10 @@ use crate::{
             load::LoadExecutor,
             route::{access_order_satisfied_by_route_contract, secondary_order_contract_active},
         },
-        query::{builder::AggregateExpr, plan::AccessPlannedQuery},
+        query::{
+            builder::AggregateExpr,
+            plan::{AccessPlannedQuery, secondary_order_contract_is_deterministic},
+        },
     },
     traits::{EntityKind, EntitySchema, EntityValue},
 };
@@ -174,6 +177,9 @@ where
     ) -> bool {
         let order = plan.scalar_plan().order.as_ref();
         if order.is_some() {
+            if !secondary_order_contract_is_deterministic(E::MODEL, plan.scalar_plan()) {
+                return false;
+            }
             let logical_pushdown_eligibility = plan
                 .planner_route_profile(E::MODEL)
                 .logical_pushdown_eligibility();

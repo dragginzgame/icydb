@@ -11,7 +11,7 @@ use crate::db::{
         aggregate::{AggregateFoldMode, capability::AggregateFieldExtremaIneligibilityReason},
     },
     query::builder::AggregateExpr,
-    query::plan::{AccessWindowLookaheadPolicy, GroupedPlanStrategyHint, ScalarAccessWindowPlan},
+    query::plan::{GroupedPlanStrategyHint, ScalarAccessWindowPlan},
 };
 
 ///
@@ -163,9 +163,9 @@ impl RouteContinuationPlan {
     ) -> Self {
         let effective_offset = window_plan.effective_offset();
         let lower_bound = window_plan.lower_bound();
-        let keep_count = window_plan.fetch_count_for(AccessWindowLookaheadPolicy::None);
+        let keep_count = window_plan.keep_count();
         let page_limit = window_plan.limit();
-        let fetch_count = window_plan.fetch_count_for(AccessWindowLookaheadPolicy::ExtraRow);
+        let fetch_count = window_plan.fetch_count();
         let access_window_keep = AccessWindow::new(lower_bound, keep_count, page_limit, keep_count);
         let access_window_fetch =
             AccessWindow::new(lower_bound, keep_count, page_limit, fetch_count);

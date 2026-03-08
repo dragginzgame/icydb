@@ -25,6 +25,32 @@ static PLANNER_CANONICAL_MODEL: EntityModel = entity_model_from_static(
     &PLANNER_CANONICAL_INDEXES,
 );
 
+static PLANNER_IN_EMPTY_FIELDS: [FieldModel; 2] = [
+    FieldModel {
+        name: "id",
+        kind: FieldKind::Ulid,
+    },
+    FieldModel {
+        name: "email",
+        kind: FieldKind::Text,
+    },
+];
+static PLANNER_IN_EMPTY_INDEX_FIELDS: [&str; 1] = ["email"];
+static PLANNER_IN_EMPTY_INDEXES: [IndexModel; 1] = [IndexModel::new(
+    "email_idx",
+    "planner::in_empty_test_entity",
+    &PLANNER_IN_EMPTY_INDEX_FIELDS,
+    false,
+)];
+static PLANNER_IN_EMPTY_INDEX_REFS: [&IndexModel; 1] = [&PLANNER_IN_EMPTY_INDEXES[0]];
+static PLANNER_IN_EMPTY_MODEL: EntityModel = entity_model_from_static(
+    "planner::in_empty_test_entity",
+    "PlannerInEmptyTestEntity",
+    &PLANNER_IN_EMPTY_FIELDS[0],
+    &PLANNER_IN_EMPTY_FIELDS,
+    &PLANNER_IN_EMPTY_INDEX_REFS,
+);
+
 #[test]
 fn normalize_union_dedups_identical_paths() {
     let key = Value::Ulid(Ulid::from_u128(1));
@@ -97,5 +123,26 @@ fn planner_and_intent_access_canonicalization_match_for_single_key_set() {
         planner_shape,
         AccessPlan::by_key(Value::Ulid(key)),
         "one-key set canonicalization should collapse to ByKey",
+    );
+}
+
+#[test]
+fn planner_non_pk_in_empty_lowers_to_empty_by_keys() {
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "email",
+        CompareOp::In,
+        Value::List(Vec::new()),
+        CoercionId::Strict,
+    ));
+    let schema = SchemaInfo::from_entity_model(&PLANNER_IN_EMPTY_MODEL)
+        .expect("IN-empty planner test model should produce schema info");
+
+    let planner_shape = plan_access(&PLANNER_IN_EMPTY_MODEL, &schema, Some(&predicate))
+        .expect("planner access shape should build for strict IN-empty predicate");
+
+    assert_eq!(
+        planner_shape,
+        AccessPlan::by_keys(Vec::new()),
+        "IN-empty predicates must lower to an empty access shape instead of full scan",
     );
 }

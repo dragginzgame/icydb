@@ -32,8 +32,8 @@ pub(in crate::db::query) use constant_predicate::{
     fold_constant_predicate, predicate_is_constant_false,
 };
 pub(in crate::db) use continuation::{
-    AccessWindowLookaheadPolicy, ContinuationContract, GroupedContinuationWindow,
-    ScalarAccessWindowPlan, effective_offset_for_cursor_window,
+    ContinuationContract, GroupedContinuationWindow, ScalarAccessWindowPlan,
+    effective_offset_for_cursor_window,
 };
 pub(in crate::db) use covering::{
     CoveringProjectionContext, CoveringProjectionOrder,
@@ -70,6 +70,7 @@ pub(crate) use semantics::{
 };
 pub(in crate::db) use semantics::{
     LogicalPushdownEligibility, derive_logical_pushdown_eligibility,
+    secondary_order_contract_is_deterministic,
 };
 #[cfg(test)]
 pub(crate) use semantics::{

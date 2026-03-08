@@ -8,7 +8,10 @@ use crate::{
         access::PushdownApplicability,
         direction::Direction,
         executor::route::direction_from_order,
-        query::plan::{AccessPlannedQuery, LogicalPushdownEligibility, OrderDirection, ScalarPlan},
+        query::plan::{
+            AccessPlannedQuery, LogicalPushdownEligibility, OrderDirection, ScalarPlan,
+            secondary_order_contract_is_deterministic,
+        },
     },
     model::entity::EntityModel,
     traits::EntitySchema,
@@ -31,27 +34,14 @@ fn validated_secondary_order_fields_for_contract<'a>(
     if !secondary_order_contract_active(logical_pushdown_eligibility) {
         return None;
     }
+    if !secondary_order_contract_is_deterministic(model, logical) {
+        return None;
+    }
 
     let order_fields = logical
         .order
         .as_ref()
         .map(|order| order_fields_as_direction_refs(&order.fields))?;
-
-    debug_assert!(
-        !order_fields.is_empty(),
-        "planner-pushed secondary-order eligibility requires at least one ORDER BY field",
-    );
-    let (last_field, expected_direction) = order_fields.last()?;
-    debug_assert_eq!(
-        *last_field, model.primary_key.name,
-        "planner-pushed secondary-order eligibility requires primary-key tie-break field",
-    );
-    debug_assert!(
-        order_fields
-            .iter()
-            .all(|(_, direction)| *direction == *expected_direction),
-        "planner-pushed secondary-order eligibility requires one uniform ORDER BY direction",
-    );
 
     Some(order_fields)
 }

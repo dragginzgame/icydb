@@ -35,10 +35,15 @@ pub(super) fn plan_compare(
             }
         }
         CompareOp::In => {
-            if let Value::List(items) = &cmp.value
-                && let Some(paths) = index_multi_lookup_for_in(model, schema, &cmp.field, items)
-            {
-                return AccessPlan::union(paths);
+            if let Value::List(items) = &cmp.value {
+                // `IN ()` is a constant-empty predicate: no row can satisfy it.
+                // Lower directly to an empty access shape instead of full-scan fallback.
+                if items.is_empty() {
+                    return AccessPlan::by_keys(Vec::new());
+                }
+                if let Some(paths) = index_multi_lookup_for_in(model, schema, &cmp.field, items) {
+                    return AccessPlan::union(paths);
+                }
             }
         }
         CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte => {

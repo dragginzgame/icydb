@@ -97,20 +97,6 @@ pub(in crate::db) const fn effective_offset_for_cursor_window(
 }
 
 ///
-/// AccessWindowLookaheadPolicy
-///
-/// Planner-owned lookahead policy contract for scalar access-window projection.
-/// Runtime layers select one policy and consume planner-projected fetch counts
-/// without reconstructing lookahead arithmetic locally.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum AccessWindowLookaheadPolicy {
-    None,
-    ExtraRow,
-}
-
-///
 /// ScalarAccessWindowPlan
 ///
 /// Planner-owned scalar access-window DTO.
@@ -162,16 +148,14 @@ impl ScalarAccessWindowPlan {
         usize::try_from(self.effective_offset).unwrap_or(usize::MAX)
     }
 
-    /// Return one fetch-count projection under one planner-owned lookahead policy.
+    /// Return bounded fetch count including one continuation lookahead row.
+    ///
+    /// This projection keeps lookahead arithmetic planner-owned so route/runtime
+    /// layers consume one explicit fetch contract without policy branching.
     #[must_use]
-    pub(in crate::db) fn fetch_count_for(
-        self,
-        lookahead_policy: AccessWindowLookaheadPolicy,
-    ) -> Option<usize> {
+    pub(in crate::db) fn fetch_count(self) -> Option<usize> {
         let keep_count = self.keep_count();
-        if !matches!(lookahead_policy, AccessWindowLookaheadPolicy::ExtraRow)
-            || self.limit.is_none()
-        {
+        if self.limit.is_none() {
             return keep_count;
         }
         if self.limit == Some(0) {
@@ -498,47 +482,28 @@ fn cursor_invariant_error(message: impl Into<String>) -> CursorPlanError {
 
 #[cfg(test)]
 mod tests {
-    use super::{AccessWindowLookaheadPolicy, ScalarAccessWindowPlan};
+    use super::ScalarAccessWindowPlan;
 
     #[test]
     fn scalar_access_window_fetch_count_unbounded_remains_unbounded() {
         let window = ScalarAccessWindowPlan::new(3, None);
 
-        assert_eq!(
-            window.fetch_count_for(AccessWindowLookaheadPolicy::None),
-            None
-        );
-        assert_eq!(
-            window.fetch_count_for(AccessWindowLookaheadPolicy::ExtraRow),
-            None
-        );
+        assert_eq!(window.fetch_count(), None);
     }
 
     #[test]
     fn scalar_access_window_fetch_count_bounded_adds_lookahead_row() {
         let window = ScalarAccessWindowPlan::new(3, Some(2));
 
-        assert_eq!(
-            window.fetch_count_for(AccessWindowLookaheadPolicy::None),
-            Some(5)
-        );
-        assert_eq!(
-            window.fetch_count_for(AccessWindowLookaheadPolicy::ExtraRow),
-            Some(6)
-        );
+        assert_eq!(window.keep_count(), Some(5));
+        assert_eq!(window.fetch_count(), Some(6));
     }
 
     #[test]
     fn scalar_access_window_fetch_count_limit_zero_projects_zero_lookahead() {
         let window = ScalarAccessWindowPlan::new(4, Some(0));
 
-        assert_eq!(
-            window.fetch_count_for(AccessWindowLookaheadPolicy::None),
-            Some(4)
-        );
-        assert_eq!(
-            window.fetch_count_for(AccessWindowLookaheadPolicy::ExtraRow),
-            Some(0)
-        );
+        assert_eq!(window.keep_count(), Some(4));
+        assert_eq!(window.fetch_count(), Some(0));
     }
 }

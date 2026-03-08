@@ -547,3 +547,40 @@ fn secondary_order_pushdown_contract_honors_planner_logical_gate() {
         PushdownApplicability::NotApplicable
     );
 }
+
+#[test]
+fn secondary_order_pushdown_contract_rejects_non_deterministic_tie_break_shape() {
+    let model = model_with_index();
+    assert_eq!(
+        derive_secondary_pushdown_applicability_from_contract(
+            model,
+            &load_index_prefix_plan(
+                vec![Value::Text("a".to_string())],
+                Some(order_spec(&[("tag", OrderDirection::Asc)])),
+            ),
+            LogicalPushdownEligibility::new(true, false, false),
+        ),
+        PushdownApplicability::NotApplicable,
+        "route pushdown must not activate when ORDER BY omits deterministic PK tie-break",
+    );
+}
+
+#[test]
+fn secondary_order_pushdown_contract_rejects_mixed_direction_shape() {
+    let model = model_with_index();
+    assert_eq!(
+        derive_secondary_pushdown_applicability_from_contract(
+            model,
+            &load_index_prefix_plan(
+                vec![Value::Text("a".to_string())],
+                Some(order_spec(&[
+                    ("tag", OrderDirection::Desc),
+                    ("id", OrderDirection::Asc),
+                ])),
+            ),
+            LogicalPushdownEligibility::new(true, false, false),
+        ),
+        PushdownApplicability::NotApplicable,
+        "route pushdown must not activate when ORDER BY direction contract is mixed",
+    );
+}
