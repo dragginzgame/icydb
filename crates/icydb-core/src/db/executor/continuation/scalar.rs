@@ -8,7 +8,7 @@ use crate::{
         },
         direction::Direction,
         executor::{
-            AccessScanContinuationInput, compute_page_keep_and_fetch_counts,
+            AccessScanContinuationInput,
             continuation::capabilities::ContinuationCapabilities,
             route::ContinuationMode,
             traversal::{effective_keep_count_for_limit, effective_page_offset_for_window},
@@ -106,15 +106,6 @@ impl ScalarContinuationContext {
         self.index_range_token.is_some()
     }
 
-    /// Derive effective pagination offset under this scalar continuation context.
-    #[must_use]
-    pub(in crate::db::executor) fn effective_page_offset_for_plan<K>(
-        &self,
-        plan: &AccessPlannedQuery<K>,
-    ) -> u32 {
-        effective_page_offset_for_window(plan, self.has_cursor_boundary())
-    }
-
     /// Derive route continuation mode from scalar continuation context shape.
     #[must_use]
     pub(in crate::db::executor) const fn route_continuation_mode(&self) -> ContinuationMode {
@@ -132,82 +123,6 @@ impl ScalarContinuationContext {
         continuation_policy: ContinuationPolicy,
     ) -> ContinuationCapabilities {
         ContinuationCapabilities::new(self.route_continuation_mode(), continuation_policy)
-    }
-
-    /// Derive route window projection from scalar continuation context + plan window.
-    #[must_use]
-    pub(in crate::db::executor) fn route_window_projection_for_plan<K>(
-        &self,
-        plan: &AccessPlannedQuery<K>,
-    ) -> ScalarRouteWindowProjection {
-        let effective_offset = self.effective_page_offset_for_plan(plan);
-        let limit = plan.scalar_plan().page.as_ref().and_then(|page| page.limit);
-        let (keep_count, fetch_count) = match limit {
-            Some(limit) => {
-                let (keep, fetch) = compute_page_keep_and_fetch_counts(effective_offset, limit);
-                (Some(keep), Some(fetch))
-            }
-            None => (None, None),
-        };
-
-        ScalarRouteWindowProjection::new(effective_offset, limit, keep_count, fetch_count)
-    }
-}
-
-///
-/// ScalarRouteWindowProjection
-///
-/// Continuation-owned route window projection carrying effective offset, limit,
-/// and precomputed keep/fetch counts.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) struct ScalarRouteWindowProjection {
-    effective_offset: u32,
-    limit: Option<u32>,
-    keep_count: Option<usize>,
-    fetch_count: Option<usize>,
-}
-
-impl ScalarRouteWindowProjection {
-    /// Construct one scalar route-window projection.
-    #[must_use]
-    pub(in crate::db::executor) const fn new(
-        effective_offset: u32,
-        limit: Option<u32>,
-        keep_count: Option<usize>,
-        fetch_count: Option<usize>,
-    ) -> Self {
-        Self {
-            effective_offset,
-            limit,
-            keep_count,
-            fetch_count,
-        }
-    }
-
-    /// Return projected effective offset.
-    #[must_use]
-    pub(in crate::db::executor) const fn effective_offset(self) -> u32 {
-        self.effective_offset
-    }
-
-    /// Return projected page limit.
-    #[must_use]
-    pub(in crate::db::executor) const fn limit(self) -> Option<u32> {
-        self.limit
-    }
-
-    /// Return projected keep-count.
-    #[must_use]
-    pub(in crate::db::executor) const fn keep_count(self) -> Option<usize> {
-        self.keep_count
-    }
-
-    /// Return projected fetch-count.
-    #[must_use]
-    pub(in crate::db::executor) const fn fetch_count(self) -> Option<usize> {
-        self.fetch_count
     }
 }
 

@@ -23,6 +23,7 @@ use crate::{
         query::plan::{
             AccessPlannedQuery, ContinuationContract, ExecutionOrdering, GroupedContinuationWindow,
             GroupedExecutorHandoff, OrderSpec, PageSpec, QueryMode, grouped_executor_handoff,
+            index_covering_existing_rows_terminal_eligible,
         },
         query::{
             builder::AggregateExpr,
@@ -249,6 +250,17 @@ impl<E: EntityKind> ExecutablePlan<E> {
         E: EntityValue,
     {
         ExecutionPreparation::for_plan::<E>(&self.plan)
+    }
+
+    /// Return whether COUNT/EXISTS can keep one index-covering existing-row terminal path.
+    #[must_use]
+    pub(in crate::db::executor) fn index_covering_existing_rows_terminal_eligible(&self) -> bool
+    where
+        E: EntityValue,
+    {
+        let strict_predicate_compatible = self.execution_preparation().strict_mode().is_some();
+
+        index_covering_existing_rows_terminal_eligible(&self.plan, strict_predicate_compatible)
     }
 
     #[cfg(test)]

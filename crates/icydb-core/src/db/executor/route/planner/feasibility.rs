@@ -269,11 +269,12 @@ where
         let load_scan_hint_gate = LoadScanHintGateContext::new(kind.is_some(), grouped);
         let load_scan_hint_gate_rejection =
             first_violated_rule(LOAD_SCAN_HINT_FEASIBILITY_RULES, load_scan_hint_gate);
+        let keep_access_window = continuation.access_window_for(false);
 
         // Aggregate probes must not assume DESC physical reverse traversal
         // when the access shape cannot emit descending order natively.
         let count_pushdown_probe_fetch_hint = if count_pushdown_eligible {
-            Self::count_pushdown_fetch_hint(continuation.window(), capabilities)
+            Self::count_pushdown_fetch_hint(keep_access_window, capabilities)
         } else {
             None
         };
@@ -283,17 +284,11 @@ where
                 aggregate,
                 direction,
                 capabilities,
-                continuation.window(),
+                keep_access_window,
             )
         });
         let aggregate_seek_spec = aggregate_expr.and_then(|aggregate| {
-            Self::aggregate_seek_spec(
-                plan,
-                aggregate,
-                direction,
-                capabilities,
-                continuation.window(),
-            )
+            Self::aggregate_seek_spec(plan, aggregate, direction, capabilities, keep_access_window)
         });
         let aggregate_physical_fetch_hint =
             count_pushdown_probe_fetch_hint.or(aggregate_terminal_probe_fetch_hint);

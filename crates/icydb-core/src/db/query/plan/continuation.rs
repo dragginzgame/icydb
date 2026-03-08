@@ -96,6 +96,53 @@ pub(in crate::db) const fn effective_offset_for_cursor_window(
     if cursor_present { 0 } else { window_size }
 }
 
+///
+/// ScalarAccessWindowPlan
+///
+/// Planner-owned scalar access-window DTO.
+/// Carries effective offset and optional page limit so downstream route/runtime
+/// layers consume one canonical window projection contract.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct ScalarAccessWindowPlan {
+    effective_offset: u32,
+    limit: Option<u32>,
+}
+
+impl ScalarAccessWindowPlan {
+    /// Construct one planner-projected scalar access-window plan.
+    #[must_use]
+    pub(in crate::db) const fn new(effective_offset: u32, limit: Option<u32>) -> Self {
+        Self {
+            effective_offset,
+            limit,
+        }
+    }
+
+    /// Return effective offset under cursor-window semantics.
+    #[must_use]
+    pub(in crate::db) const fn effective_offset(self) -> u32 {
+        self.effective_offset
+    }
+
+    /// Return optional page limit.
+    #[must_use]
+    pub(in crate::db) const fn limit(self) -> Option<u32> {
+        self.limit
+    }
+
+    /// Return optional keep-count horizon (`effective_offset + limit`).
+    #[must_use]
+    pub(in crate::db) fn keep_count(self) -> Option<usize> {
+        let limit = self.limit?;
+        let offset = usize::try_from(self.effective_offset).unwrap_or(usize::MAX);
+        let limit = usize::try_from(limit).unwrap_or(usize::MAX);
+
+        Some(offset.saturating_add(limit))
+    }
+}
+
 impl<K: FieldValue + Clone> ContinuationContract<K> {
     #[must_use]
     pub(in crate::db) const fn new(
@@ -335,6 +382,20 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
 }
 
 impl<K: FieldValue + Clone> AccessPlannedQuery<K> {
+    /// Project planner-owned scalar access-window contract.
+    #[must_use]
+    pub(in crate::db) fn scalar_access_window_plan(
+        &self,
+        cursor_present: bool,
+    ) -> ScalarAccessWindowPlan {
+        let page = self.scalar_plan().page.as_ref();
+        let offset = page.map_or(0, |page| page.offset);
+        let limit = page.and_then(|page| page.limit);
+        let effective_offset = effective_offset_for_cursor_window(offset, cursor_present);
+
+        ScalarAccessWindowPlan::new(effective_offset, limit)
+    }
+
     /// Build one immutable continuation contract from planner-owned semantics.
     #[must_use]
     pub(in crate::db) fn continuation_contract(

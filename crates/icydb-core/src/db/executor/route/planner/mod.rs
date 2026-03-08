@@ -132,9 +132,9 @@ impl ExecutionRoutePlan {
                 ),
                 RouteWindowPlan {
                     effective_offset: 0,
-                    limit: None,
-                    keep_count: None,
-                    fetch_count: None,
+                    access_window_keep: crate::db::executor::route::AccessWindow::new(
+                        0, None, None, None,
+                    ),
                 },
             ),
             execution_mode: ExecutionMode::Materialized,

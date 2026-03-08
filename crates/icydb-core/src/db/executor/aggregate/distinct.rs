@@ -13,21 +13,14 @@ use crate::{
         executor::{
             ExecutablePlan,
             aggregate::{
-                AggregateKind,
-                field::{
-                    extract_orderable_field_value,
-                    resolve_any_aggregate_target_slot_from_planner_slot,
-                },
-                materialized_distinct::insert_materialized_distinct_value,
+                AggregateKind, field::resolve_any_aggregate_target_slot_from_planner_slot,
             },
-            group::GroupKeySet,
             load::LoadExecutor,
         },
         query::plan::{
             FieldSlot as PlannedFieldSlot, GroupedExecutionConfig,
             global_distinct_group_spec_for_semantic_aggregate,
         },
-        response::EntityResponse,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -48,15 +41,11 @@ where
         plan: ExecutablePlan<E>,
         target_field: PlannedFieldSlot,
     ) -> Result<u32, InternalError> {
-        let field_slot = resolve_any_aggregate_target_slot_from_planner_slot::<E>(&target_field)
+        resolve_any_aggregate_target_slot_from_planner_slot::<E>(&target_field)
             .map_err(Self::map_aggregate_field_value_error)?;
-        let response = self.execute(plan)?;
+        let distinct_values = self.distinct_values_by_slot(plan, target_field)?;
 
-        Self::count_distinct_field_values_from_materialized(
-            response,
-            target_field.field(),
-            field_slot,
-        )
+        Ok(u32::try_from(distinct_values.len()).unwrap_or(u32::MAX))
     }
 
     // Execute one global DISTINCT field-target grouped aggregate by lowering
@@ -113,26 +102,5 @@ where
         }
 
         Ok(row.aggregate_values().first().cloned())
-    }
-
-    // Count distinct field values from one materialized response while preserving
-    // value DISTINCT semantics via canonical GroupKey equality.
-    fn count_distinct_field_values_from_materialized(
-        response: EntityResponse<E>,
-        target_field: &str,
-        field_slot: crate::db::executor::aggregate::field::FieldSlot,
-    ) -> Result<u32, InternalError> {
-        let mut distinct_values = GroupKeySet::default();
-        let mut distinct_count = 0u32;
-        for row in response {
-            let value = extract_orderable_field_value(row.entity_ref(), target_field, field_slot)
-                .map_err(Self::map_aggregate_field_value_error)?;
-            if !insert_materialized_distinct_value(&mut distinct_values, &value)? {
-                continue;
-            }
-            distinct_count = distinct_count.saturating_add(1);
-        }
-
-        Ok(distinct_count)
     }
 }

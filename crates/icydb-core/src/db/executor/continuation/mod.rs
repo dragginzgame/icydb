@@ -8,5 +8,5 @@ pub(in crate::db::executor) use engine::{
 };
 pub(in crate::db::executor) use scalar::{
     ResolvedScalarContinuationContext, ScalarContinuationBindings, ScalarContinuationContext,
-    ScalarRouteContinuationInvariantProjection, ScalarRouteWindowProjection,
+    ScalarRouteContinuationInvariantProjection,
 };

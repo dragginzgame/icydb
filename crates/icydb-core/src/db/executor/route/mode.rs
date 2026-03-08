@@ -50,8 +50,8 @@ where
         continuation_policy: ContinuationPolicy,
     ) -> RouteContinuationPlan {
         let continuation_capabilities = continuation.continuation_capabilities(continuation_policy);
-        let route_window = RouteWindowPlan::from_scalar_route_window_projection(
-            continuation.route_window_projection_for_plan(plan),
+        let route_window = RouteWindowPlan::from_scalar_access_window_plan(
+            plan.scalar_access_window_plan(continuation.has_cursor_boundary()),
         );
 
         RouteContinuationPlan::new(continuation_capabilities, route_window)

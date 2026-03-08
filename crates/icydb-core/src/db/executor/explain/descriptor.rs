@@ -22,7 +22,10 @@ use crate::{
                 ExplainExecutionMode, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
                 ExplainExecutionOrderingSource, ExplainPredicate,
             },
-            plan::{AccessPlannedQuery, AggregateKind, DistinctExecutionStrategy},
+            plan::{
+                AccessPlannedQuery, AggregateKind, DistinctExecutionStrategy,
+                index_covering_existing_rows_terminal_eligible,
+            },
         },
     },
     error::InternalError,
@@ -506,12 +509,11 @@ fn aggregate_covering_projection_for_terminal<K>(
     aggregation: AggregateKind,
     execution_preparation: &ExecutionPreparation,
 ) -> bool {
+    let strict_predicate_compatible = execution_preparation.strict_mode().is_some();
+
     match aggregation {
-        AggregateKind::Count => {
-            aggregate_count_covering_projection_eligible(plan, execution_preparation)
-        }
-        AggregateKind::Exists => {
-            aggregate_exists_covering_projection_eligible(plan, execution_preparation)
+        AggregateKind::Count | AggregateKind::Exists => {
+            index_covering_existing_rows_terminal_eligible(plan, strict_predicate_compatible)
         }
         AggregateKind::Min
         | AggregateKind::Max
@@ -519,50 +521,6 @@ fn aggregate_covering_projection_for_terminal<K>(
         | AggregateKind::Last
         | AggregateKind::Sum => false,
     }
-}
-
-// Match COUNT index-covering fast-path eligibility used by aggregate terminals
-// so EXPLAIN reports when COUNT can remain index-only.
-fn aggregate_count_covering_projection_eligible<K>(
-    plan: &AccessPlannedQuery<K>,
-    execution_preparation: &ExecutionPreparation,
-) -> bool {
-    if plan.scalar_plan().order.is_some() {
-        return false;
-    }
-
-    let index_shape_supported =
-        plan.access.as_index_prefix_path().is_some() || plan.access.as_index_range_path().is_some();
-    if !index_shape_supported {
-        return false;
-    }
-    if plan.scalar_plan().predicate.is_none() {
-        return true;
-    }
-
-    execution_preparation.strict_mode().is_some()
-}
-
-// Match EXISTS index-covering fast-path eligibility used by aggregate terminals
-// so EXPLAIN reports index-only EXISTS routes consistently.
-fn aggregate_exists_covering_projection_eligible<K>(
-    plan: &AccessPlannedQuery<K>,
-    execution_preparation: &ExecutionPreparation,
-) -> bool {
-    if plan.scalar_plan().order.is_some() {
-        return false;
-    }
-
-    let index_shape_supported =
-        plan.access.as_index_prefix_path().is_some() || plan.access.as_index_range_path().is_some();
-    if !index_shape_supported {
-        return false;
-    }
-    if plan.scalar_plan().predicate.is_none() {
-        return true;
-    }
-
-    execution_preparation.strict_mode().is_some()
 }
 
 const fn u64_from_usize(value: usize) -> u64 {

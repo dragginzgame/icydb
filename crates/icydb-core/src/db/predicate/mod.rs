@@ -13,6 +13,7 @@ mod row_policy;
 mod runtime;
 mod schema;
 mod semantics;
+mod simplify;
 
 pub use coercion::CoercionId;
 pub use model::{CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature};

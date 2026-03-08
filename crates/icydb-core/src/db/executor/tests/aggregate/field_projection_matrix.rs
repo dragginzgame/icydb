@@ -250,6 +250,147 @@ fn aggregate_field_target_count_distinct_is_direction_invariant() {
 }
 
 #[test]
+fn aggregate_field_target_count_distinct_covering_fast_paths_emit_projection_hit_markers() {
+    seed_pushdown_entities(&[
+        (8_3271, 7, 10),
+        (8_3272, 7, 10),
+        (8_3273, 7, 20),
+        (8_3274, 7, 30),
+        (8_3275, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let index_covering_plan = || {
+        let mut logical_plan = AccessPlannedQuery::new(
+            AccessPath::IndexPrefix {
+                index: PUSHDOWN_PARITY_INDEX_MODELS[0],
+                values: vec![Value::Uint(7)],
+            },
+            MissingRowPolicy::Ignore,
+        );
+        logical_plan.scalar_plan_mut().order = Some(OrderSpec {
+            fields: vec![
+                ("rank".to_string(), OrderDirection::Asc),
+                ("id".to_string(), OrderDirection::Asc),
+            ],
+        });
+
+        ExecutablePlan::new(logical_plan)
+    };
+    let constant_covering_plan = || {
+        let mut logical_plan = AccessPlannedQuery::new(
+            AccessPath::IndexPrefix {
+                index: PUSHDOWN_PARITY_INDEX_MODELS[0],
+                values: vec![Value::Uint(7)],
+            },
+            MissingRowPolicy::Ignore,
+        );
+        logical_plan.scalar_plan_mut().predicate = Some(Predicate::TextContainsCi {
+            field: "label".to_string(),
+            value: Value::Text("g7".to_string()),
+        });
+        logical_plan.scalar_plan_mut().order = Some(OrderSpec {
+            fields: vec![
+                ("rank".to_string(), OrderDirection::Asc),
+                ("id".to_string(), OrderDirection::Asc),
+            ],
+        });
+        logical_plan.scalar_plan_mut().page = Some(PageSpec {
+            limit: Some(2),
+            offset: 0,
+        });
+
+        ExecutablePlan::new(logical_plan)
+    };
+    let ineligible_plan = || {
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .filter(id_in_predicate(&[8_3271]))
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("count_distinct_by ineligible plan should build")
+    };
+
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::CoveringIndexProjectionFastPath,
+    );
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::CoveringConstantProjectionFastPath,
+    );
+    let index_covering_count = load
+        .aggregate_count_distinct_by_slot(index_covering_plan(), slot(&load, "rank"))
+        .expect("count_distinct_by(rank) covering shape should succeed");
+    assert_eq!(
+        index_covering_count, 3,
+        "count_distinct_by(rank) should count unique rank values in the effective window",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::CoveringIndexProjectionFastPath
+        ),
+        1,
+        "eligible covering count_distinct_by(rank) should emit one index covering-projection hit marker",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::CoveringConstantProjectionFastPath
+        ),
+        0,
+        "index covering count_distinct_by(rank) should not emit constant covering-projection hit markers",
+    );
+
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::CoveringIndexProjectionFastPath,
+    );
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::CoveringConstantProjectionFastPath,
+    );
+    let constant_covering_count = load
+        .aggregate_count_distinct_by_slot(constant_covering_plan(), slot(&load, "group"))
+        .expect("count_distinct_by(group) constant covering shape should succeed");
+    assert_eq!(
+        constant_covering_count, 1,
+        "count_distinct_by(group) should collapse to one distinct constant value for non-empty windows",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::CoveringConstantProjectionFastPath
+        ),
+        1,
+        "eligible constant covering count_distinct_by(group) should emit one constant covering-projection hit marker",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::CoveringIndexProjectionFastPath
+        ),
+        0,
+        "constant covering count_distinct_by(group) should not emit index covering-projection hit markers",
+    );
+
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::CoveringIndexProjectionFastPath,
+    );
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::CoveringConstantProjectionFastPath,
+    );
+    let _ = load
+        .aggregate_count_distinct_by_slot(ineligible_plan(), slot(&load, "rank"))
+        .expect("count_distinct_by(rank) ineligible shape should succeed");
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::CoveringIndexProjectionFastPath
+        ),
+        0,
+        "ineligible count_distinct_by(rank) shapes must not emit index covering-projection hit markers",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::CoveringConstantProjectionFastPath
+        ),
+        0,
+        "ineligible count_distinct_by(rank) shapes must not emit constant covering-projection hit markers",
+    );
+}
+
+#[test]
 fn aggregate_field_target_count_distinct_optional_field_null_values_are_rejected_consistently() {
     seed_optional_field_null_values_fixture();
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);

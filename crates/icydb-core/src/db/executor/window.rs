@@ -45,6 +45,7 @@ pub(in crate::db) fn compute_page_window(offset: u32, limit: u32, needs_extra: b
 /// Callers that need both values should use this helper to avoid duplicated
 /// offset/limit arithmetic and independent window projections.
 #[must_use]
+#[cfg(test)]
 pub(in crate::db) fn compute_page_keep_and_fetch_counts(offset: u32, limit: u32) -> (usize, usize) {
     let window = compute_page_window(offset, limit, true);
     (window.keep_count, window.fetch_count)

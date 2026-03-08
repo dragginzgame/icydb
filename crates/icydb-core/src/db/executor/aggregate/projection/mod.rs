@@ -26,8 +26,7 @@ use crate::{
                 materialized_distinct::insert_materialized_distinct_value,
                 projection::{
                     covering::{
-                        CoveringProjectionOrder, CoveringProjectionValues,
-                        covering_index_adjacent_distinct_eligible,
+                        CoveringProjectionValues, covering_index_adjacent_distinct_eligible,
                         covering_index_projection_context, dedup_adjacent_values,
                         dedup_values_preserving_first, scalar_window_for_covering_projection,
                     },
@@ -44,7 +43,7 @@ use crate::{
                 AggregateExpr,
                 aggregate::{count, exists, first, last, max, min},
             },
-            plan::FieldSlot as PlannedFieldSlot,
+            plan::{CoveringProjectionOrder, FieldSlot as PlannedFieldSlot},
         },
         response::EntityResponse,
     },

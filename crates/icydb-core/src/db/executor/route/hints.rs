@@ -12,13 +12,13 @@ use crate::{
             route::{AggregateSeekSpec, TopNSeekSpec},
         },
         query::builder::AggregateExpr,
-        query::plan::{AccessPlannedQuery, AggregateKind, DistinctExecutionStrategy},
+        query::plan::{AccessPlannedQuery, AggregateKind},
     },
     traits::{EntityKind, EntityValue},
 };
 
 use crate::db::executor::route::{
-    IndexRangeLimitSpec, RouteCapabilities, RouteContinuationPlan, RouteWindowPlan,
+    AccessWindow, IndexRangeLimitSpec, RouteCapabilities, RouteContinuationPlan,
     aggregate_bounded_probe_fetch_hint, aggregate_supports_bounded_probe_hint,
     derive_budget_safety_flags, direction_allows_physical_fetch_hint,
 };
@@ -35,7 +35,7 @@ where
         probe_fetch_hint: Option<usize>,
         capabilities: RouteCapabilities,
     ) -> Option<IndexRangeLimitSpec> {
-        let route_window = continuation.window();
+        let access_window = continuation.access_window_for(true);
         let continuation_capabilities = continuation.capabilities();
         let (has_residual_filter, _, _) = derive_budget_safety_flags::<E, _>(plan);
         if !capabilities.index_range_limit_pushdown_shape_eligible {
@@ -52,12 +52,11 @@ where
             return Some(IndexRangeLimitSpec { fetch });
         }
 
-        let limit = route_window.limit()?;
-        if limit == 0 {
+        if access_window.is_zero_window() {
             return Some(IndexRangeLimitSpec { fetch: 0 });
         }
 
-        let fetch = route_window.fetch_count_for(true)?;
+        let fetch = access_window.fetch_limit()?;
         if has_residual_filter && !Self::residual_predicate_pushdown_fetch_is_safe(fetch) {
             return None;
         }
@@ -72,9 +71,8 @@ where
         capabilities: RouteCapabilities,
     ) -> Option<usize> {
         let continuation_capabilities = continuation.capabilities();
-        let route_window = continuation.window();
-        let limit_zero = route_window.limit() == Some(0);
-        if limit_zero {
+        let access_window = continuation.access_window_for(true);
+        if access_window.is_zero_window() {
             return plan.access_strategy().load_window_early_stop_hint(
                 continuation_capabilities.applied(),
                 capabilities.streaming_access_shape_safe,
@@ -82,11 +80,10 @@ where
             );
         }
 
-        let fetch_count = route_window.fetch_count_for(true);
         plan.access_strategy().load_window_early_stop_hint(
             continuation_capabilities.applied(),
             capabilities.streaming_access_shape_safe,
-            fetch_count,
+            access_window.fetch_limit(),
         )
     }
 
@@ -113,12 +110,12 @@ where
             return None;
         }
 
-        let route_window = continuation.window();
-        if route_window.limit() == Some(0) {
+        let access_window = continuation.access_window_for(true);
+        if access_window.is_zero_window() {
             return Some(TopNSeekSpec::new(0));
         }
 
-        route_window.fetch_count_for(true).map(TopNSeekSpec::new)
+        access_window.fetch_limit().map(TopNSeekSpec::new)
     }
 
     // Shared bounded-probe safety gate for aggregate key-stream hints.
@@ -130,10 +127,7 @@ where
     pub(super) fn bounded_probe_hint_is_safe(plan: &AccessPlannedQuery<E::Key>) -> bool {
         let offset = usize::try_from(ExecutionKernel::effective_page_offset(plan, None))
             .unwrap_or(usize::MAX);
-        let distinct_enabled = !matches!(
-            plan.distinct_execution_strategy(),
-            DistinctExecutionStrategy::None
-        );
+        let distinct_enabled = plan.scalar_plan().distinct;
 
         !(distinct_enabled && offset > 0)
     }
@@ -149,15 +143,19 @@ where
         256
     }
 
-    pub(super) const fn count_pushdown_fetch_hint(
-        route_window: RouteWindowPlan,
+    pub(super) fn count_pushdown_fetch_hint(
+        access_window: AccessWindow,
         capabilities: RouteCapabilities,
     ) -> Option<usize> {
         if !capabilities.bounded_probe_hint_safe {
             return None;
         }
 
-        route_window.fetch_count_for(false)
+        if access_window.is_zero_window() {
+            return Some(0);
+        }
+
+        access_window.fetch_limit()
     }
 
     pub(super) fn aggregate_probe_fetch_hint(
@@ -165,7 +163,7 @@ where
         aggregate: &AggregateExpr,
         direction: Direction,
         capabilities: RouteCapabilities,
-        route_window: RouteWindowPlan,
+        access_window: AccessWindow,
     ) -> Option<usize> {
         let kind = aggregate.kind();
         // Field-target extrema probe hints require deterministic tie coverage.
@@ -190,9 +188,6 @@ where
         if !aggregate_supports_bounded_probe_hint(kind) {
             return None;
         }
-        if route_window.limit() == Some(0) {
-            return Some(0);
-        }
         if !direction_allows_physical_fetch_hint(
             direction,
             capabilities.desc_physical_reverse_supported,
@@ -203,9 +198,12 @@ where
             return None;
         }
 
-        let offset = usize::try_from(route_window.effective_offset).unwrap_or(usize::MAX);
-        let page_limit = route_window
-            .limit()
+        if access_window.is_zero_window() {
+            return Some(0);
+        }
+        let offset = access_window.lower_bound();
+        let page_limit = access_window
+            .page_limit()
             .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
 
         aggregate_bounded_probe_fetch_hint(kind, direction, offset, page_limit)
@@ -218,7 +216,7 @@ where
         aggregate: &AggregateExpr,
         direction: Direction,
         capabilities: RouteCapabilities,
-        route_window: RouteWindowPlan,
+        access_window: AccessWindow,
     ) -> Option<AggregateSeekSpec> {
         if !aggregate.kind().is_extrema() {
             return None;
@@ -228,7 +226,7 @@ where
             aggregate,
             direction,
             capabilities,
-            route_window,
+            access_window,
         )?;
 
         Some(match direction {

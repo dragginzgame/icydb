@@ -38,7 +38,7 @@ pub(super) use context::*;
 pub(in crate::db::executor) use continuation::{
     ContinuationCapabilities, ContinuationEngine, LoadCursorInput, PreparedLoadCursor,
     RequestedLoadExecutionShape, ResolvedScalarContinuationContext, ScalarContinuationBindings,
-    ScalarRouteContinuationInvariantProjection, ScalarRouteWindowProjection,
+    ScalarRouteContinuationInvariantProjection,
 };
 pub(super) use delete::DeleteExecutor;
 pub(in crate::db) use executable_plan::{ExecutablePlan, ExecutionStrategy};
@@ -55,7 +55,7 @@ pub(super) use stream::{
     },
 };
 pub(in crate::db::executor) use util::saturating_row_len;
-pub(in crate::db) use window::{compute_page_keep_and_fetch_counts, compute_page_window};
+pub(in crate::db) use window::compute_page_window;
 
 ///
 /// ExecutionPlan

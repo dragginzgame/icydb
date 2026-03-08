@@ -7,11 +7,11 @@ use crate::db::{
     access::PushdownApplicability,
     direction::Direction,
     executor::{
-        AccessExecutionDescriptor, ContinuationCapabilities, ScalarRouteWindowProjection,
+        AccessExecutionDescriptor, ContinuationCapabilities,
         aggregate::{AggregateFoldMode, capability::AggregateFieldExtremaIneligibilityReason},
     },
     query::builder::AggregateExpr,
-    query::plan::GroupedPlanStrategyHint,
+    query::plan::{GroupedPlanStrategyHint, ScalarAccessWindowPlan},
 };
 
 ///
@@ -165,6 +165,11 @@ impl RouteContinuationPlan {
     pub(in crate::db::executor) const fn capabilities(self) -> ContinuationCapabilities {
         self.capabilities
     }
+
+    #[must_use]
+    pub(in crate::db::executor) fn access_window_for(self, needs_extra: bool) -> AccessWindow {
+        self.window.access_window_for(needs_extra)
+    }
 }
 
 ///
@@ -174,30 +179,35 @@ impl RouteContinuationPlan {
 /// continuation context.
 ///
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) struct RouteWindowPlan {
     pub(in crate::db::executor) effective_offset: u32,
-    pub(in crate::db::executor::route) limit: Option<u32>,
-    pub(in crate::db::executor::route) keep_count: Option<usize>,
-    pub(in crate::db::executor::route) fetch_count: Option<usize>,
+    pub(in crate::db::executor::route) access_window_keep: AccessWindow,
 }
 
 impl RouteWindowPlan {
     #[must_use]
-    pub(in crate::db::executor::route) const fn from_scalar_route_window_projection(
-        projection: ScalarRouteWindowProjection,
+    pub(in crate::db::executor::route) fn from_scalar_access_window_plan(
+        window_plan: ScalarAccessWindowPlan,
     ) -> Self {
+        let effective_offset = window_plan.effective_offset();
+        let keep_count = window_plan.keep_count();
+        let lower_bound = usize::try_from(effective_offset).unwrap_or(usize::MAX);
+
         Self {
-            effective_offset: projection.effective_offset(),
-            limit: projection.limit(),
-            keep_count: projection.keep_count(),
-            fetch_count: projection.fetch_count(),
+            effective_offset,
+            access_window_keep: AccessWindow::new(
+                lower_bound,
+                keep_count,
+                window_plan.limit(),
+                keep_count,
+            ),
         }
     }
 
     #[must_use]
     pub(in crate::db::executor) const fn limit(&self) -> Option<u32> {
-        self.limit
+        self.access_window_keep.page_limit()
     }
 
     #[must_use]
@@ -205,11 +215,111 @@ impl RouteWindowPlan {
         &self,
         needs_extra: bool,
     ) -> Option<usize> {
-        if needs_extra {
-            self.fetch_count
-        } else {
-            self.keep_count
+        let keep_window = self.access_window_keep;
+        if !needs_extra || keep_window.page_limit().is_none() {
+            return keep_window.fetch_limit();
         }
+        if keep_window.is_zero_window() {
+            return Some(0);
+        }
+
+        match keep_window.fetch_limit() {
+            Some(fetch) => Some(fetch.saturating_add(1)),
+            None => None,
+        }
+    }
+
+    /// Project one access-window contract from this route window.
+    ///
+    /// This keeps offset/upper-bound/fetch-limit interpretation centralized for
+    /// pushdown and bounded scan-budget decisions.
+    #[must_use]
+    pub(in crate::db::executor) fn access_window_for(&self, needs_extra: bool) -> AccessWindow {
+        let keep_window = self.access_window_keep;
+        if !needs_extra || keep_window.page_limit().is_none() {
+            return keep_window;
+        }
+        if keep_window.is_zero_window() {
+            return keep_window.with_fetch_limit(Some(0));
+        }
+
+        keep_window.with_fetch_limit(
+            keep_window
+                .fetch_limit()
+                .map(|fetch| fetch.saturating_add(1)),
+        )
+    }
+}
+
+///
+/// AccessWindow
+///
+/// Route-projected bounded access-window contract.
+/// `lower_bound` is the effective offset, `upper_bound` is the optional bounded
+/// keep-count horizon, and `fetch_limit` is the optional bounded access budget.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) struct AccessWindow {
+    lower_bound: usize,
+    upper_bound: Option<usize>,
+    page_limit: Option<u32>,
+    fetch_limit: Option<usize>,
+}
+
+impl AccessWindow {
+    /// Construct one immutable access-window contract.
+    #[must_use]
+    pub(in crate::db::executor) const fn new(
+        lower_bound: usize,
+        upper_bound: Option<usize>,
+        page_limit: Option<u32>,
+        fetch_limit: Option<usize>,
+    ) -> Self {
+        Self {
+            lower_bound,
+            upper_bound,
+            page_limit,
+            fetch_limit,
+        }
+    }
+
+    /// Return the effective lower-bound offset.
+    #[must_use]
+    pub(in crate::db::executor) const fn lower_bound(self) -> usize {
+        self.lower_bound
+    }
+
+    /// Return the optional page-limit window width.
+    #[must_use]
+    pub(in crate::db::executor) const fn page_limit(self) -> Option<u32> {
+        self.page_limit
+    }
+
+    /// Return the optional bounded fetch limit.
+    #[must_use]
+    pub(in crate::db::executor) const fn fetch_limit(self) -> Option<usize> {
+        self.fetch_limit
+    }
+
+    /// Return one copy of this window with an overridden fetch limit.
+    #[must_use]
+    pub(in crate::db::executor) const fn with_fetch_limit(
+        self,
+        fetch_limit: Option<usize>,
+    ) -> Self {
+        Self {
+            lower_bound: self.lower_bound,
+            upper_bound: self.upper_bound,
+            page_limit: self.page_limit,
+            fetch_limit,
+        }
+    }
+
+    /// Return true when the window is explicitly `LIMIT 0`.
+    #[must_use]
+    pub(in crate::db::executor) const fn is_zero_window(self) -> bool {
+        matches!(self.page_limit, Some(0))
     }
 }
 
@@ -683,4 +793,60 @@ pub(in crate::db::executor) const fn route_shape_kind_count_guard() -> usize {
     ];
 
     5
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::{AccessWindow, RouteWindowPlan};
+
+    #[test]
+    fn route_window_access_window_limit_zero_projects_zero_fetch_limit() {
+        let route_window = RouteWindowPlan {
+            effective_offset: 4,
+            access_window_keep: AccessWindow::new(4, Some(4), Some(0), Some(4)),
+        };
+        let access_window = route_window.access_window_for(true);
+
+        assert_eq!(access_window.lower_bound(), 4);
+        assert_eq!(access_window.page_limit(), Some(0));
+        assert_eq!(access_window.fetch_limit(), Some(0));
+        assert!(
+            access_window.is_zero_window(),
+            "LIMIT 0 route windows must project zero-fetch access windows",
+        );
+    }
+
+    #[test]
+    fn route_window_access_window_bounded_limit_projects_offset_and_fetch_counts() {
+        let route_window = RouteWindowPlan {
+            effective_offset: 3,
+            access_window_keep: AccessWindow::new(3, Some(5), Some(2), Some(5)),
+        };
+        let keep_window = route_window.access_window_for(false);
+        let fetch_window = route_window.access_window_for(true);
+
+        assert_eq!(keep_window.lower_bound(), 3);
+        assert_eq!(keep_window.page_limit(), Some(2));
+        assert_eq!(keep_window.fetch_limit(), Some(5));
+        assert!(!keep_window.is_zero_window());
+        assert_eq!(fetch_window.fetch_limit(), Some(6));
+    }
+
+    #[test]
+    fn route_window_access_window_unbounded_limit_projects_unbounded_fetch() {
+        let route_window = RouteWindowPlan {
+            effective_offset: 0,
+            access_window_keep: AccessWindow::new(0, None, None, None),
+        };
+        let access_window = route_window.access_window_for(true);
+
+        assert_eq!(access_window.lower_bound(), 0);
+        assert_eq!(access_window.page_limit(), None);
+        assert_eq!(access_window.fetch_limit(), None);
+        assert!(!access_window.is_zero_window());
+    }
 }

@@ -165,12 +165,6 @@ impl SinglePathAccessCapabilities {
         matches!(self.kind, AccessPathKind::ByKey | AccessPathKind::ByKeys)
     }
 
-    /// Return whether this path supports index-covering COUNT/EXISTS fast paths.
-    #[must_use]
-    pub(in crate::db) const fn supports_index_covering_existing_rows_terminal(&self) -> bool {
-        self.index_prefix_details.is_some() || self.index_range_details.is_some()
-    }
-
     /// Return whether this path requires one top-N lookahead row in unpaged mode.
     #[must_use]
     pub(in crate::db) const fn requires_top_n_seek_lookahead(&self) -> bool {

@@ -100,13 +100,7 @@ where
             ));
         }
 
-        if plan.order_spec().is_some() {
-            return None;
-        }
-        if !capabilities.supports_index_covering_existing_rows_terminal() {
-            return None;
-        }
-        if !plan.has_predicate() || plan.execution_preparation().strict_mode().is_some() {
+        if plan.index_covering_existing_rows_terminal_eligible() {
             return Some(CountTerminalFastPathContract::IndexCoveringExistingRows(
                 Direction::Asc,
             ));
@@ -119,16 +113,7 @@ where
     pub(in crate::db::executor) fn derive_exists_terminal_fast_path_contract(
         plan: &ExecutablePlan<E>,
     ) -> Option<ExistsTerminalFastPathContract> {
-        if plan.order_spec().is_some() {
-            return None;
-        }
-
-        let access_strategy = plan.access().resolve_strategy();
-        let capabilities = access_strategy.as_path().map(single_path_capabilities)?;
-        if !capabilities.supports_index_covering_existing_rows_terminal() {
-            return None;
-        }
-        if !plan.has_predicate() || plan.execution_preparation().strict_mode().is_some() {
+        if plan.index_covering_existing_rows_terminal_eligible() {
             return Some(ExistsTerminalFastPathContract::IndexCoveringExistingRows(
                 Direction::Asc,
             ));
