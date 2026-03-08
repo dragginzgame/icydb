@@ -135,6 +135,17 @@ const fn load_scan_hint_gate_grouped_intent_violation(
     None
 }
 
+const fn index_range_limit_pushdown_allowed(rejection: Option<IndexRangeLimitGateReason>) -> bool {
+    rejection.is_none()
+}
+
+const fn load_scan_hints_allowed(
+    kind: Option<AggregateKind>,
+    rejection: Option<LoadScanHintGateReason>,
+) -> bool {
+    kind.is_none() && rejection.is_none()
+}
+
 impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
@@ -161,18 +172,20 @@ where
         let index_range_limit_gate = IndexRangeLimitGateContext::new(intent_stage.grouped);
         let index_range_limit_gate_rejection =
             first_violated_rule(INDEX_RANGE_LIMIT_FEASIBILITY_RULES, index_range_limit_gate);
+        let index_range_limit_pushdown_enabled =
+            index_range_limit_pushdown_allowed(index_range_limit_gate_rejection);
 
         // COUNT fold-mode discipline: non-count pushdowns must not route COUNT
         // through non-COUNT streaming fast paths.
-        let index_range_limit_spec = if index_range_limit_gate_rejection.is_some() {
-            None
-        } else {
+        let index_range_limit_spec = if index_range_limit_pushdown_enabled {
             Self::assess_index_range_limit_pushdown(
                 plan,
                 route_continuation,
                 derivation.scan_hints.physical_fetch_hint,
                 derivation.capabilities,
             )
+        } else {
+            None
         };
         if kind.is_none()
             && !intent_stage.grouped
@@ -232,15 +245,9 @@ where
             continuation: route_continuation,
             derivation,
             index_range_limit_spec,
-            page_limit_is_zero: plan
-                .scalar_plan()
-                .page
-                .as_ref()
-                .is_some_and(|page| page.limit == Some(0)),
         }
     }
 
-    #[expect(clippy::too_many_lines)]
     pub(in crate::db::executor::route::planner) fn derive_route_derivation_context(
         plan: &AccessPlannedQuery<E::Key>,
         intent_stage: &RouteIntentStage,
@@ -269,7 +276,8 @@ where
         let load_scan_hint_gate = LoadScanHintGateContext::new(kind.is_some(), grouped);
         let load_scan_hint_gate_rejection =
             first_violated_rule(LOAD_SCAN_HINT_FEASIBILITY_RULES, load_scan_hint_gate);
-        let keep_access_window = continuation.access_window_for(false);
+        let load_scan_hints_enabled = load_scan_hints_allowed(kind, load_scan_hint_gate_rejection);
+        let keep_access_window = *continuation.keep_access_window();
 
         // Aggregate probes must not assume DESC physical reverse traversal
         // when the access shape cannot emit descending order natively.
@@ -292,23 +300,23 @@ where
         });
         let aggregate_physical_fetch_hint =
             count_pushdown_probe_fetch_hint.or(aggregate_terminal_probe_fetch_hint);
-        let top_n_seek_spec = if load_scan_hint_gate_rejection.is_none() && kind.is_none() {
+        let top_n_seek_spec = if load_scan_hints_enabled {
             Self::top_n_seek_spec(plan, continuation, capabilities)
         } else {
             None
         };
 
-        let load_physical_fetch_hint = if load_scan_hint_gate_rejection.is_some() {
-            None
-        } else {
+        let load_physical_fetch_hint = if load_scan_hints_enabled {
             probe_fetch_hint
+        } else {
+            None
         };
         let physical_fetch_hint = if kind.is_some() {
             aggregate_physical_fetch_hint
         } else {
             load_physical_fetch_hint
         };
-        let load_scan_budget_hint = if load_scan_hint_gate_rejection.is_none() {
+        let load_scan_budget_hint = if load_scan_hints_enabled {
             Self::load_scan_budget_hint(plan, continuation, capabilities)
         } else {
             None

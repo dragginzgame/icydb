@@ -14,7 +14,7 @@ use crate::{
 };
 
 use crate::db::executor::route::{
-    RouteCapabilities, RouteContinuationPlan, RouteWindowPlan, aggregate_extrema_direction,
+    RouteCapabilities, RouteContinuationPlan, aggregate_extrema_direction,
 };
 
 impl<E> LoadExecutor<E>
@@ -50,11 +50,10 @@ where
         continuation_policy: ContinuationPolicy,
     ) -> RouteContinuationPlan {
         let continuation_capabilities = continuation.continuation_capabilities(continuation_policy);
-        let route_window = RouteWindowPlan::from_scalar_access_window_plan(
+        RouteContinuationPlan::from_scalar_access_window_plan(
+            continuation_capabilities,
             plan.scalar_access_window_plan(continuation.has_cursor_boundary()),
-        );
-
-        RouteContinuationPlan::new(continuation_capabilities, route_window)
+        )
     }
 
     // Route-owned aggregate non-count streaming gate.

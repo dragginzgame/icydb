@@ -54,7 +54,8 @@ impl UnpagedLoadHintStrategy {
             let fetch = if top_n_seek_spec.fetch() == 0 {
                 0
             } else if !top_n_seek_requires_lookahead {
-                let Some(fetch) = route_plan.continuation().window().fetch_count_for(false) else {
+                let Some(fetch) = route_plan.continuation().keep_access_window().fetch_limit()
+                else {
                     return Self::None;
                 };
 
@@ -183,7 +184,7 @@ where
         let continuation_applied = continuation_capabilities.applied();
         let continuation_invariants = ScalarRouteContinuationInvariantProjection::new(
             continuation_capabilities.strict_advance_required_when_applied(),
-            continuation.window().effective_offset,
+            continuation.effective_offset(),
         );
         resolved_continuation
             .debug_assert_route_continuation_invariants(&logical_plan, continuation_invariants);

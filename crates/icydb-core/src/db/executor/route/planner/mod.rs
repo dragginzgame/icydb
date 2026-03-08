@@ -36,7 +36,7 @@ use crate::db::executor::route::{
     FastPathOrder, GroupedExecutionStrategy, GroupedRouteDecisionOutcome,
     GroupedRouteObservability, GroupedRouteRejectionReason, IndexRangeLimitSpec,
     MUTATION_FAST_PATH_ORDER, RouteCapabilities, RouteContinuationPlan, RouteIntent,
-    RouteShapeKind, RouteWindowPlan, ScanHintPlan, TopNSeekSpec,
+    RouteShapeKind, ScanHintPlan, TopNSeekSpec,
 };
 
 ///
@@ -98,7 +98,6 @@ pub(in crate::db::executor::route::planner) struct RouteFeasibilityStage {
     pub(in crate::db::executor::route::planner) continuation: RouteContinuationPlan,
     pub(in crate::db::executor::route::planner) derivation: RouteDerivationContext,
     pub(in crate::db::executor::route::planner) index_range_limit_spec: Option<IndexRangeLimitSpec>,
-    pub(in crate::db::executor::route::planner) page_limit_is_zero: bool,
 }
 
 ///
@@ -130,12 +129,9 @@ impl ExecutionRoutePlan {
                     ContinuationMode::Initial,
                     ContinuationPolicy::new(true, true, true),
                 ),
-                RouteWindowPlan {
-                    effective_offset: 0,
-                    access_window_keep: crate::db::executor::route::AccessWindow::new(
-                        0, None, None, None,
-                    ),
-                },
+                0,
+                crate::db::executor::route::AccessWindow::new(0, None, None, None),
+                crate::db::executor::route::AccessWindow::new(0, None, None, None),
             ),
             execution_mode: ExecutionMode::Materialized,
             execution_mode_case: ExecutionModeRouteCase::Load,
@@ -376,7 +372,6 @@ where
             continuation,
             derivation,
             index_range_limit_spec: _,
-            page_limit_is_zero: _,
         } = feasibility_stage;
 
         ExecutionRoutePlan {

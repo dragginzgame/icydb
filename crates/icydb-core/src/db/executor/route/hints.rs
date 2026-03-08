@@ -35,7 +35,7 @@ where
         probe_fetch_hint: Option<usize>,
         capabilities: RouteCapabilities,
     ) -> Option<IndexRangeLimitSpec> {
-        let access_window = continuation.access_window_for(true);
+        let access_window = *continuation.fetch_access_window();
         let continuation_capabilities = continuation.capabilities();
         let (has_residual_filter, _, _) = derive_budget_safety_flags::<E, _>(plan);
         if !capabilities.index_range_limit_pushdown_shape_eligible {
@@ -44,19 +44,7 @@ where
         if !continuation_capabilities.index_range_limit_pushdown_allowed() {
             return None;
         }
-        if let Some(fetch) = probe_fetch_hint {
-            if has_residual_filter && !Self::residual_predicate_pushdown_fetch_is_safe(fetch) {
-                return None;
-            }
-
-            return Some(IndexRangeLimitSpec { fetch });
-        }
-
-        if access_window.is_zero_window() {
-            return Some(IndexRangeLimitSpec { fetch: 0 });
-        }
-
-        let fetch = access_window.fetch_limit()?;
+        let fetch = probe_fetch_hint.or_else(|| Self::bounded_window_fetch_hint(access_window))?;
         if has_residual_filter && !Self::residual_predicate_pushdown_fetch_is_safe(fetch) {
             return None;
         }
@@ -71,19 +59,13 @@ where
         capabilities: RouteCapabilities,
     ) -> Option<usize> {
         let continuation_capabilities = continuation.capabilities();
-        let access_window = continuation.access_window_for(true);
-        if access_window.is_zero_window() {
-            return plan.access_strategy().load_window_early_stop_hint(
-                continuation_capabilities.applied(),
-                capabilities.streaming_access_shape_safe,
-                Some(0),
-            );
-        }
+        let access_window = *continuation.fetch_access_window();
+        let fetch_hint = Self::bounded_window_fetch_hint(access_window);
 
         plan.access_strategy().load_window_early_stop_hint(
             continuation_capabilities.applied(),
             capabilities.streaming_access_shape_safe,
-            access_window.fetch_limit(),
+            fetch_hint,
         )
     }
 
@@ -110,12 +92,9 @@ where
             return None;
         }
 
-        let access_window = continuation.access_window_for(true);
-        if access_window.is_zero_window() {
-            return Some(TopNSeekSpec::new(0));
-        }
+        let access_window = *continuation.fetch_access_window();
 
-        access_window.fetch_limit().map(TopNSeekSpec::new)
+        Self::bounded_window_fetch_hint(access_window).map(TopNSeekSpec::new)
     }
 
     // Shared bounded-probe safety gate for aggregate key-stream hints.
@@ -143,7 +122,18 @@ where
         256
     }
 
-    pub(super) fn count_pushdown_fetch_hint(
+    // Resolve one bounded fetch hint from one access window contract.
+    // Zero-window contracts always project `Some(0)` so callers can preserve
+    // deterministic empty-window scan budgeting.
+    const fn bounded_window_fetch_hint(access_window: AccessWindow) -> Option<usize> {
+        if access_window.is_zero_window() {
+            return Some(0);
+        }
+
+        access_window.fetch_limit()
+    }
+
+    pub(super) const fn count_pushdown_fetch_hint(
         access_window: AccessWindow,
         capabilities: RouteCapabilities,
     ) -> Option<usize> {
@@ -151,11 +141,7 @@ where
             return None;
         }
 
-        if access_window.is_zero_window() {
-            return Some(0);
-        }
-
-        access_window.fetch_limit()
+        Self::bounded_window_fetch_hint(access_window)
     }
 
     pub(super) fn aggregate_probe_fetch_hint(

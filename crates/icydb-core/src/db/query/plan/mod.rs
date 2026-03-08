@@ -32,11 +32,12 @@ pub(in crate::db::query) use constant_predicate::{
     fold_constant_predicate, predicate_is_constant_false,
 };
 pub(in crate::db) use continuation::{
-    ContinuationContract, GroupedContinuationWindow, ScalarAccessWindowPlan,
-    effective_offset_for_cursor_window,
+    AccessWindowLookaheadPolicy, ContinuationContract, GroupedContinuationWindow,
+    ScalarAccessWindowPlan, effective_offset_for_cursor_window,
 };
 pub(in crate::db) use covering::{
-    CoveringProjectionContext, CoveringProjectionOrder, covering_index_adjacent_distinct_eligible,
+    CoveringProjectionContext, CoveringProjectionOrder,
+    constant_covering_projection_value_from_access, covering_index_adjacent_distinct_eligible,
     covering_index_projection_context, index_covering_existing_rows_terminal_eligible,
 };
 pub(in crate::db) use group::{

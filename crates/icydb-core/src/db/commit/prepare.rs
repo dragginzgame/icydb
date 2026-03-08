@@ -166,7 +166,7 @@ fn prepare_row_commit_for_entity_impl<E: EntityKind + EntityValue>(
             .get(index_op.store.as_str())
             .copied()
             .ok_or_else(|| {
-                invariant(format!(
+                InternalError::executor_invariant(format!(
                     "commit prepare missing index store mapping: store='{}' entity='{}'",
                     index_op.store,
                     E::PATH
@@ -209,8 +209,4 @@ fn prepare_row_commit_for_entity_impl<E: EntityKind + EntityValue>(
         data_key: raw_key,
         data_value,
     })
-}
-
-fn invariant(message: impl Into<String>) -> InternalError {
-    InternalError::executor_invariant(message)
 }

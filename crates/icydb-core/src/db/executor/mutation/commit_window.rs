@@ -442,7 +442,7 @@ fn verify_index_store_generations(
     for guard in guards {
         let observed_generation = guard.store.with_borrow(IndexStore::generation);
         if observed_generation != guard.expected_generation {
-            return Err(invariant(format!(
+            return Err(InternalError::executor_invariant(format!(
                 "index store generation changed between preflight and apply: expected {}, found {}",
                 guard.expected_generation, observed_generation
             )));
@@ -461,8 +461,4 @@ fn key_within_bounds(
     bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
 ) -> bool {
     key_within_envelope(key, bounds.0, bounds.1)
-}
-
-fn invariant(message: impl Into<String>) -> InternalError {
-    InternalError::executor_invariant(message)
 }

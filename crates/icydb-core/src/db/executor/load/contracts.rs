@@ -81,9 +81,9 @@ impl From<GroupedContinuationToken> for PageCursor {
 ///
 
 #[derive(Debug)]
-pub(crate) struct CursorPage<E: EntityKind> {
-    pub(crate) items: EntityResponse<E>,
-    pub(crate) next_cursor: Option<PageCursor>,
+pub(in crate::db) struct CursorPage<E: EntityKind> {
+    pub(in crate::db) items: EntityResponse<E>,
+    pub(in crate::db) next_cursor: Option<PageCursor>,
 }
 
 ///
@@ -126,7 +126,7 @@ pub(in crate::db::executor) struct FastPathKeyResult {
 ///
 
 #[derive(Clone)]
-pub(crate) struct LoadExecutor<E: EntityKind> {
+pub(in crate::db) struct LoadExecutor<E: EntityKind> {
     pub(in crate::db::executor::load) db: Db<E::Canister>,
     pub(in crate::db::executor::load) debug: bool,
 }
@@ -584,7 +584,7 @@ where
 {
     /// Construct one load executor bound to a database handle and debug mode.
     #[must_use]
-    pub(crate) const fn new(db: Db<E::Canister>, debug: bool) -> Self {
+    pub(in crate::db) const fn new(db: Db<E::Canister>, debug: bool) -> Self {
         Self { db, debug }
     }
 

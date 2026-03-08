@@ -173,7 +173,7 @@ impl OrderedPairState {
 /// Produces one canonical ordered stream while suppressing duplicate keys.
 ///
 
-pub(crate) struct MergeOrderedKeyStream<A, B> {
+pub(in crate::db::executor) struct MergeOrderedKeyStream<A, B> {
     left: A,
     right: B,
     pair: OrderedPairState,
@@ -189,13 +189,13 @@ where
     #[cfg(test)]
     /// Construct one merge stream using traversal direction.
     #[must_use]
-    pub(crate) const fn new(left: A, right: B, direction: Direction) -> Self {
+    pub(in crate::db::executor) const fn new(left: A, right: B, direction: Direction) -> Self {
         Self::new_with_comparator(left, right, KeyOrderComparator::from_direction(direction))
     }
 
     /// Construct one merge stream using explicit key comparator policy.
     #[must_use]
-    pub(crate) const fn new_with_comparator(
+    pub(in crate::db::executor) const fn new_with_comparator(
         left: A,
         right: B,
         comparator: KeyOrderComparator,
@@ -283,7 +283,7 @@ where
 /// Produces one canonical ordered stream containing keys present in both inputs.
 ///
 
-pub(crate) struct IntersectOrderedKeyStream<A, B> {
+pub(in crate::db::executor) struct IntersectOrderedKeyStream<A, B> {
     left: A,
     right: B,
     pair: OrderedPairState,
@@ -299,13 +299,13 @@ where
     #[cfg(test)]
     /// Construct one intersection stream using traversal direction.
     #[must_use]
-    pub(crate) const fn new(left: A, right: B, direction: Direction) -> Self {
+    pub(in crate::db::executor) const fn new(left: A, right: B, direction: Direction) -> Self {
         Self::new_with_comparator(left, right, KeyOrderComparator::from_direction(direction))
     }
 
     /// Construct one intersection stream using explicit key comparator policy.
     #[must_use]
-    pub(crate) const fn new_with_comparator(
+    pub(in crate::db::executor) const fn new_with_comparator(
         left: A,
         right: B,
         comparator: KeyOrderComparator,

@@ -47,10 +47,8 @@ where
             feasibility_stage,
             aggregate_force_materialized_due_to_predicate_uncertainty,
         );
-        let index_range_limit_spec = match execution_mode {
-            ExecutionMode::Streaming => feasibility_stage.index_range_limit_spec,
-            ExecutionMode::Materialized => None,
-        };
+        let index_range_limit_spec =
+            Self::index_range_limit_spec_for_execution_mode(feasibility_stage, execution_mode);
         debug_assert!(
             index_range_limit_spec.is_none() || matches!(execution_mode, ExecutionMode::Streaming),
             "route invariant: aggregate index-range limit pushdown must execute in streaming mode",

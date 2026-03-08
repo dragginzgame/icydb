@@ -5,4 +5,4 @@
 
 mod invariant;
 
-pub(in crate::db) use invariant::executor_invariant;
+pub(in crate::db) use invariant::{cursor_invariant, executor_invariant, planner_invariant};

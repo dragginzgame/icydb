@@ -250,6 +250,7 @@ fn aggregate_field_target_count_distinct_is_direction_invariant() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines)]
 fn aggregate_field_target_count_distinct_covering_fast_paths_emit_projection_hit_markers() {
     seed_pushdown_entities(&[
         (8_3271, 7, 10),

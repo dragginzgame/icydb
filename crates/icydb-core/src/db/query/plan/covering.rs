@@ -3,6 +3,7 @@ use crate::db::{
     direction::Direction,
     query::plan::{AccessPlannedQuery, OrderDirection, OrderSpec},
 };
+use crate::value::Value;
 
 ///
 /// CoveringProjectionOrder
@@ -92,6 +93,31 @@ pub(in crate::db) fn covering_index_projection_context<K>(
     })
 }
 
+/// Resolve one constant projection value when access shape binds the target
+/// field through index-prefix equality components.
+#[must_use]
+pub(in crate::db) fn constant_covering_projection_value_from_access<K>(
+    access: &AccessPlan<K>,
+    target_field: &str,
+) -> Option<Value> {
+    if let Some((index, values)) = access.as_index_prefix_path() {
+        return constant_covering_projection_value_from_prefix(
+            index.fields(),
+            values,
+            target_field,
+        );
+    }
+    if let Some((index, prefix_values, _, _)) = access.as_index_range_path() {
+        return constant_covering_projection_value_from_prefix(
+            index.fields(),
+            prefix_values,
+            target_field,
+        );
+    }
+
+    None
+}
+
 /// Return whether adjacent dedupe is safe for one covering projection context.
 ///
 /// Safety contract:
@@ -157,6 +183,18 @@ fn covering_projection_order_contract(
     (actual_fields == expected_full).then_some(CoveringProjectionOrder::IndexOrder(direction))
 }
 
+// Resolve one constant projection value from index-prefix component bindings.
+fn constant_covering_projection_value_from_prefix(
+    index_fields: &[&'static str],
+    prefix_values: &[Value],
+    target_field: &str,
+) -> Option<Value> {
+    index_fields
+        .iter()
+        .zip(prefix_values.iter())
+        .find_map(|(field, value)| (*field == target_field).then(|| value.clone()))
+}
+
 ///
 /// TESTS
 ///
@@ -165,7 +203,7 @@ fn covering_projection_order_contract(
 mod tests {
     use crate::{
         db::{
-            access::AccessPath,
+            access::{AccessPath, AccessPlan},
             direction::Direction,
             predicate::{MissingRowPolicy, Predicate},
             query::plan::{AccessPlannedQuery, OrderDirection, OrderSpec},
@@ -402,5 +440,64 @@ mod tests {
             context.is_none(),
             "index-range covering contexts must reject full-index order contracts",
         );
+    }
+
+    #[test]
+    fn constant_covering_projection_value_from_access_resolves_prefix_binding() {
+        let access = AccessPath::<u64>::IndexPrefix {
+            index: crate::model::index::IndexModel::new(
+                "idx",
+                "tests::Entity",
+                &INDEX_FIELDS_GROUP_RANK,
+                false,
+            ),
+            values: vec![Value::Uint(7), Value::Uint(11)],
+        };
+
+        let value = super::constant_covering_projection_value_from_access(
+            &AccessPlan::path(access),
+            "group",
+        );
+        assert_eq!(value, Some(Value::Uint(7)));
+    }
+
+    #[test]
+    fn constant_covering_projection_value_from_access_uses_range_prefix_components() {
+        let access = AccessPath::<u64>::index_range(
+            crate::model::index::IndexModel::new(
+                "idx",
+                "tests::Entity",
+                &INDEX_FIELDS_GROUP_RANK,
+                false,
+            ),
+            vec![Value::Uint(7)],
+            Bound::Included(Value::Uint(1)),
+            Bound::Included(Value::Uint(99)),
+        );
+
+        let value = super::constant_covering_projection_value_from_access(
+            &AccessPlan::path(access),
+            "group",
+        );
+        assert_eq!(value, Some(Value::Uint(7)));
+    }
+
+    #[test]
+    fn constant_covering_projection_value_from_access_returns_none_when_target_unbound() {
+        let access = AccessPath::<u64>::IndexPrefix {
+            index: crate::model::index::IndexModel::new(
+                "idx",
+                "tests::Entity",
+                &INDEX_FIELDS_GROUP_RANK,
+                false,
+            ),
+            values: vec![Value::Uint(7)],
+        };
+
+        let value = super::constant_covering_projection_value_from_access(
+            &AccessPlan::path(access),
+            "rank",
+        );
+        assert_eq!(value, None);
     }
 }

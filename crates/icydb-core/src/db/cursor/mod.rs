@@ -25,6 +25,7 @@ use crate::{
     db::{
         codec::cursor::decode_cursor,
         direction::Direction,
+        error::cursor_invariant,
         executor::ExecutableAccessPath,
         query::plan::{CursorOrderPlanShapeError, OrderSpec, validate_cursor_order_plan_shape},
     },
@@ -155,37 +156,41 @@ where
 // This keeps variant/domain ownership explicit and avoids fallback conversion.
 fn map_pk_cursor_decode_error(err: CursorPlanError) -> InternalError {
     match err {
-        CursorPlanError::InvalidContinuationCursor { reason } => invariant(format!(
+        CursorPlanError::InvalidContinuationCursor { reason } => cursor_invariant(format!(
             "pk cursor decode rejected invalid continuation cursor: {reason}"
         )),
-        CursorPlanError::InvalidContinuationCursorPayload { reason } => invariant(format!(
+        CursorPlanError::InvalidContinuationCursorPayload { reason } => cursor_invariant(format!(
             "pk cursor decode rejected invalid continuation payload: {reason}"
         )),
-        CursorPlanError::ContinuationCursorVersionMismatch { version } => invariant(format!(
-            "pk cursor decode rejected unsupported continuation version: {version}"
-        )),
-        CursorPlanError::ContinuationCursorSignatureMismatch { .. } => {
-            invariant("pk cursor decode encountered continuation signature mismatch")
-        }
-        CursorPlanError::ContinuationCursorBoundaryArityMismatch { expected, found } => invariant(
-            format!("pk cursor boundary arity mismatch: expected {expected}, found {found}"),
+        CursorPlanError::ContinuationCursorVersionMismatch { version } => cursor_invariant(
+            format!("pk cursor decode rejected unsupported continuation version: {version}"),
         ),
+        CursorPlanError::ContinuationCursorSignatureMismatch { .. } => {
+            cursor_invariant("pk cursor decode encountered continuation signature mismatch")
+        }
+        CursorPlanError::ContinuationCursorBoundaryArityMismatch { expected, found } => {
+            cursor_invariant(format!(
+                "pk cursor boundary arity mismatch: expected {expected}, found {found}"
+            ))
+        }
         CursorPlanError::ContinuationCursorWindowMismatch {
             expected_offset,
             actual_offset,
-        } => invariant(format!(
+        } => cursor_invariant(format!(
             "pk cursor window mismatch: expected_offset={expected_offset}, actual_offset={actual_offset}"
         )),
-        CursorPlanError::ContinuationCursorBoundaryTypeMismatch { field, .. } => invariant(
+        CursorPlanError::ContinuationCursorBoundaryTypeMismatch { field, .. } => cursor_invariant(
             format!("pk cursor boundary type mismatch on field '{field}'"),
         ),
         CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch { value: None, .. } => {
-            invariant("pk cursor slot must be present")
+            cursor_invariant("pk cursor slot must be present")
         }
         CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch { value: Some(_), .. } => {
-            invariant("pk cursor slot type mismatch")
+            cursor_invariant("pk cursor slot type mismatch")
         }
-        CursorPlanError::ContinuationCursorInvariantViolation { reason } => invariant(reason),
+        CursorPlanError::ContinuationCursorInvariantViolation { reason } => {
+            cursor_invariant(reason)
+        }
     }
 }
 
@@ -243,8 +248,4 @@ fn validated_cursor_order_internal<'a>(
             CursorPlanError::cursor_requires_non_empty_order()
         }
     })
-}
-
-fn invariant(message: impl Into<String>) -> InternalError {
-    InternalError::cursor_invariant(InternalError::executor_invariant_message(message))
 }

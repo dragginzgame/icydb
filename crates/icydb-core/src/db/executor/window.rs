@@ -17,7 +17,8 @@ use crate::{
 /// PageWindow
 ///
 /// Canonical pagination window sizing in usize-domain.
-/// `keep_count` is `offset + limit`, and `fetch_count` adds one extra row when requested.
+/// `keep_count` is `offset + limit`, and `fetch_count` always includes one
+/// lookahead row for continuation detection.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -26,13 +27,19 @@ pub(in crate::db) struct PageWindow {
     pub(in crate::db) keep_count: usize,
 }
 
-/// Compute canonical page window counts from logical pagination inputs.
+/// Compute canonical keep-count from logical pagination inputs.
 #[must_use]
-pub(in crate::db) fn compute_page_window(offset: u32, limit: u32, needs_extra: bool) -> PageWindow {
+pub(in crate::db) fn compute_page_keep_count(offset: u32, limit: u32) -> usize {
     let offset = usize::try_from(offset).unwrap_or(usize::MAX);
     let limit = usize::try_from(limit).unwrap_or(usize::MAX);
-    let keep_count = offset.saturating_add(limit);
-    let fetch_count = keep_count.saturating_add(usize::from(needs_extra));
+    offset.saturating_add(limit)
+}
+
+/// Compute canonical page window counts from logical pagination inputs.
+#[must_use]
+pub(in crate::db) fn compute_page_window(offset: u32, limit: u32) -> PageWindow {
+    let keep_count = compute_page_keep_count(offset, limit);
+    let fetch_count = keep_count.saturating_add(1);
 
     PageWindow {
         fetch_count,
@@ -47,7 +54,7 @@ pub(in crate::db) fn compute_page_window(offset: u32, limit: u32, needs_extra: b
 #[must_use]
 #[cfg(test)]
 pub(in crate::db) fn compute_page_keep_and_fetch_counts(offset: u32, limit: u32) -> (usize, usize) {
-    let window = compute_page_window(offset, limit, true);
+    let window = compute_page_window(offset, limit);
     (window.keep_count, window.fetch_count)
 }
 
@@ -92,8 +99,6 @@ impl WindowCursorContract {
         matches!(self.limit_remaining, Some(0))
     }
 
-    // Advance window state by one existing row and return whether the row is
-    // in the effective output window.
     /// Advance window state by one row and return whether the row is in-window.
     pub(in crate::db::executor) const fn accept_existing_row(&mut self) -> bool {
         if self.offset_remaining > 0 {
@@ -154,7 +159,7 @@ impl ExecutionKernel {
             return None;
         }
 
-        Some(compute_page_window(page.offset, limit, true).fetch_count)
+        Some(compute_page_window(page.offset, limit).fetch_count)
     }
 
     /// Apply continuation-boundary phase after ordering and before pagination.
@@ -186,23 +191,14 @@ impl ExecutionKernel {
 
 #[cfg(test)]
 mod tests {
-    use super::{PageWindow, compute_page_keep_and_fetch_counts, compute_page_window};
+    use super::{
+        PageWindow, compute_page_keep_and_fetch_counts, compute_page_keep_count,
+        compute_page_window,
+    };
 
     #[test]
-    fn compute_page_window_zero_offset_zero_limit_without_extra() {
-        let window = compute_page_window(0, 0, false);
-        assert_eq!(
-            window,
-            PageWindow {
-                fetch_count: 0,
-                keep_count: 0,
-            }
-        );
-    }
-
-    #[test]
-    fn compute_page_window_zero_offset_zero_limit_with_extra() {
-        let window = compute_page_window(0, 0, true);
+    fn compute_page_window_zero_offset_zero_limit_projects_keep_and_fetch() {
+        let window = compute_page_window(0, 0);
         assert_eq!(
             window,
             PageWindow {
@@ -213,19 +209,11 @@ mod tests {
     }
 
     #[test]
-    fn compute_page_window_zero_offset_limit_one() {
-        let without_extra = compute_page_window(0, 1, false);
-        let with_extra = compute_page_window(0, 1, true);
+    fn compute_page_window_zero_offset_limit_one_projects_keep_and_fetch() {
+        let window = compute_page_window(0, 1);
 
         assert_eq!(
-            without_extra,
-            PageWindow {
-                fetch_count: 1,
-                keep_count: 1,
-            }
-        );
-        assert_eq!(
-            with_extra,
+            window,
             PageWindow {
                 fetch_count: 2,
                 keep_count: 1,
@@ -235,7 +223,7 @@ mod tests {
 
     #[test]
     fn compute_page_window_offset_n_limit_one() {
-        let window = compute_page_window(37, 1, true);
+        let window = compute_page_window(37, 1);
         assert_eq!(
             window,
             PageWindow {
@@ -246,24 +234,18 @@ mod tests {
     }
 
     #[test]
-    fn compute_page_window_high_bounds_and_needs_extra_toggle() {
+    fn compute_page_window_high_bounds_saturates_keep_and_fetch() {
         let base = usize::try_from(u32::MAX).unwrap_or(usize::MAX);
         let expected_keep = base.saturating_add(base);
 
-        let without_extra = compute_page_window(u32::MAX, u32::MAX, false);
-        let with_extra = compute_page_window(u32::MAX, u32::MAX, true);
+        let window = compute_page_window(u32::MAX, u32::MAX);
 
         assert_eq!(
-            without_extra,
+            window,
             PageWindow {
-                fetch_count: expected_keep,
+                fetch_count: expected_keep.saturating_add(1),
                 keep_count: expected_keep,
             }
-        );
-        assert_eq!(with_extra.keep_count, without_extra.keep_count);
-        assert_eq!(
-            with_extra.fetch_count,
-            without_extra.fetch_count.saturating_add(1)
         );
     }
 
@@ -271,7 +253,7 @@ mod tests {
     fn compute_page_keep_and_fetch_counts_matches_window_projections() {
         let (keep_count, fetch_count) = compute_page_keep_and_fetch_counts(37, 11);
 
-        assert_eq!(keep_count, compute_page_window(37, 11, false).keep_count);
-        assert_eq!(fetch_count, compute_page_window(37, 11, true).fetch_count);
+        assert_eq!(keep_count, compute_page_keep_count(37, 11));
+        assert_eq!(fetch_count, compute_page_window(37, 11).fetch_count);
     }
 }

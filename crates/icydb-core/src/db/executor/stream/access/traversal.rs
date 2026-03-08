@@ -35,7 +35,7 @@ where
     /// Resolve one access path into an ordered key stream with optional
     /// index-lowered constraints and execution hints.
     #[cfg(test)]
-    pub(in crate::db) fn ordered_key_stream_from_access(
+    pub(in crate::db::executor) fn ordered_key_stream_from_access(
         &self,
         access: &AccessPath<E::Key>,
         constraints: IndexStreamConstraints<'_>,

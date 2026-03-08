@@ -9,3 +9,13 @@ use crate::error::InternalError;
 pub(in crate::db) fn executor_invariant(message: impl Into<String>) -> InternalError {
     InternalError::query_executor_invariant(message)
 }
+
+/// Construct the canonical cursor invariant error with executor-prefix formatting.
+pub(in crate::db) fn cursor_invariant(message: impl Into<String>) -> InternalError {
+    InternalError::cursor_invariant(InternalError::executor_invariant_message(message))
+}
+
+/// Construct the canonical planner invariant error with executor-prefix formatting.
+pub(in crate::db) fn planner_invariant(message: impl Into<String>) -> InternalError {
+    InternalError::planner_invariant(InternalError::executor_invariant_message(message))
+}

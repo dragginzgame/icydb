@@ -12,7 +12,6 @@ mod decode;
 
 use crate::{
     db::{
-        access::AccessPlan,
         data::DataKey,
         direction::Direction,
         executor::{
@@ -43,7 +42,10 @@ use crate::{
                 AggregateExpr,
                 aggregate::{count, exists, first, last, max, min},
             },
-            plan::{CoveringProjectionOrder, FieldSlot as PlannedFieldSlot},
+            plan::{
+                CoveringProjectionOrder, FieldSlot as PlannedFieldSlot,
+                constant_covering_projection_value_from_access,
+            },
         },
         response::EntityResponse,
     },
@@ -344,7 +346,7 @@ where
             return None;
         }
 
-        constant_projection_value_from_access(plan.access(), target_field)
+        constant_covering_projection_value_from_access(plan.access(), target_field)
     }
 
     // Resolve one index-covered projection value vector for field terminals when
@@ -582,32 +584,4 @@ fn terminal_aggregate_expr(kind: AggregateKind) -> AggregateExpr {
         AggregateKind::First => first(),
         AggregateKind::Last => last(),
     }
-}
-
-// Resolve one constant projection value when access path binds the target
-// field through index-prefix equality.
-fn constant_projection_value_from_access<K>(
-    access: &AccessPlan<K>,
-    target_field: &str,
-) -> Option<Value> {
-    if let Some((index, values)) = access.as_index_prefix_path() {
-        return constant_projection_value_from_prefix(index.fields(), values, target_field);
-    }
-    if let Some((index, prefix_values, _, _)) = access.as_index_range_path() {
-        return constant_projection_value_from_prefix(index.fields(), prefix_values, target_field);
-    }
-
-    None
-}
-
-// Resolve one constant projection value from index-prefix bindings.
-fn constant_projection_value_from_prefix(
-    index_fields: &[&'static str],
-    prefix_values: &[Value],
-    target_field: &str,
-) -> Option<Value> {
-    index_fields
-        .iter()
-        .zip(prefix_values.iter())
-        .find_map(|(field, value)| (*field == target_field).then(|| value.clone()))
 }

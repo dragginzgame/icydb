@@ -6,6 +6,7 @@ use crate::{
             cursor_boundary_from_entity,
         },
         direction::Direction,
+        error::cursor_invariant,
         index::{IndexKey, continuation_advanced},
         query::plan::{OrderSpec, PageSpec, effective_offset_for_cursor_window},
     },
@@ -52,7 +53,7 @@ where
     };
 
     let Some(order) = order else {
-        return Err(invariant(
+        return Err(cursor_invariant(
             "cannot build continuation cursor without ordering",
         ));
     };
@@ -84,14 +85,14 @@ where
     let boundary = cursor_boundary_from_entity(entity, order);
     let token = if let Some((index, _, _, _)) = access.as_index_range_path() {
         let index_key = IndexKey::new(entity, index)?.ok_or_else(|| {
-            invariant("cursor row is not indexable for planned index-range access")
+            cursor_invariant("cursor row is not indexable for planned index-range access")
         })?;
         let last_emitted_raw_key = index_key.to_raw();
         let advanced = previous_index_range_anchor.is_none_or(|previous_anchor_raw_key| {
             continuation_advanced(direction, &last_emitted_raw_key, previous_anchor_raw_key)
         });
         if !advanced {
-            return Err(invariant(
+            return Err(cursor_invariant(
                 "index-range continuation anchor must advance strictly against previous anchor",
             ));
         }
@@ -125,8 +126,4 @@ fn effective_keep_count_for_limit(
     usize::try_from(effective_offset)
         .unwrap_or(usize::MAX)
         .saturating_add(usize::try_from(limit).unwrap_or(usize::MAX))
-}
-
-fn invariant(message: impl Into<String>) -> InternalError {
-    InternalError::cursor_invariant(InternalError::executor_invariant_message(message))
 }

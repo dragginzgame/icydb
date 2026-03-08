@@ -11,7 +11,7 @@ use crate::db::{
         aggregate::{AggregateFoldMode, capability::AggregateFieldExtremaIneligibilityReason},
     },
     query::builder::AggregateExpr,
-    query::plan::{GroupedPlanStrategyHint, ScalarAccessWindowPlan},
+    query::plan::{AccessWindowLookaheadPolicy, GroupedPlanStrategyHint, ScalarAccessWindowPlan},
 };
 
 ///
@@ -135,19 +135,47 @@ pub(in crate::db::executor) enum ContinuationMode {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) struct RouteContinuationPlan {
     capabilities: ContinuationCapabilities,
-    window: RouteWindowPlan,
+    pub(in crate::db::executor) effective_offset: u32,
+    pub(in crate::db::executor::route) access_window_keep: AccessWindow,
+    pub(in crate::db::executor::route) access_window_fetch: AccessWindow,
 }
 
 impl RouteContinuationPlan {
     #[must_use]
     pub(in crate::db::executor::route) const fn new(
         capabilities: ContinuationCapabilities,
-        window: RouteWindowPlan,
+        effective_offset: u32,
+        access_window_keep: AccessWindow,
+        access_window_fetch: AccessWindow,
     ) -> Self {
         Self {
             capabilities,
-            window,
+            effective_offset,
+            access_window_keep,
+            access_window_fetch,
         }
+    }
+
+    #[must_use]
+    pub(in crate::db::executor::route) fn from_scalar_access_window_plan(
+        capabilities: ContinuationCapabilities,
+        window_plan: ScalarAccessWindowPlan,
+    ) -> Self {
+        let effective_offset = window_plan.effective_offset();
+        let lower_bound = window_plan.lower_bound();
+        let keep_count = window_plan.fetch_count_for(AccessWindowLookaheadPolicy::None);
+        let page_limit = window_plan.limit();
+        let fetch_count = window_plan.fetch_count_for(AccessWindowLookaheadPolicy::ExtraRow);
+        let access_window_keep = AccessWindow::new(lower_bound, keep_count, page_limit, keep_count);
+        let access_window_fetch =
+            AccessWindow::new(lower_bound, keep_count, page_limit, fetch_count);
+
+        Self::new(
+            capabilities,
+            effective_offset,
+            access_window_keep,
+            access_window_fetch,
+        )
     }
 
     #[must_use]
@@ -157,52 +185,13 @@ impl RouteContinuationPlan {
     }
 
     #[must_use]
-    pub(in crate::db::executor) const fn window(self) -> RouteWindowPlan {
-        self.window
-    }
-
-    #[must_use]
     pub(in crate::db::executor) const fn capabilities(self) -> ContinuationCapabilities {
         self.capabilities
     }
 
     #[must_use]
-    pub(in crate::db::executor) fn access_window_for(self, needs_extra: bool) -> AccessWindow {
-        self.window.access_window_for(needs_extra)
-    }
-}
-
-///
-/// RouteWindowPlan
-///
-/// Route-owned pagination window contract derived from logical page settings and
-/// continuation context.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) struct RouteWindowPlan {
-    pub(in crate::db::executor) effective_offset: u32,
-    pub(in crate::db::executor::route) access_window_keep: AccessWindow,
-}
-
-impl RouteWindowPlan {
-    #[must_use]
-    pub(in crate::db::executor::route) fn from_scalar_access_window_plan(
-        window_plan: ScalarAccessWindowPlan,
-    ) -> Self {
-        let effective_offset = window_plan.effective_offset();
-        let keep_count = window_plan.keep_count();
-        let lower_bound = usize::try_from(effective_offset).unwrap_or(usize::MAX);
-
-        Self {
-            effective_offset,
-            access_window_keep: AccessWindow::new(
-                lower_bound,
-                keep_count,
-                window_plan.limit(),
-                keep_count,
-            ),
-        }
+    pub(in crate::db::executor) const fn effective_offset(self) -> u32 {
+        self.effective_offset
     }
 
     #[must_use]
@@ -211,43 +200,13 @@ impl RouteWindowPlan {
     }
 
     #[must_use]
-    pub(in crate::db::executor) const fn fetch_count_for(
-        &self,
-        needs_extra: bool,
-    ) -> Option<usize> {
-        let keep_window = self.access_window_keep;
-        if !needs_extra || keep_window.page_limit().is_none() {
-            return keep_window.fetch_limit();
-        }
-        if keep_window.is_zero_window() {
-            return Some(0);
-        }
-
-        match keep_window.fetch_limit() {
-            Some(fetch) => Some(fetch.saturating_add(1)),
-            None => None,
-        }
+    pub(in crate::db::executor) const fn keep_access_window(&self) -> &AccessWindow {
+        &self.access_window_keep
     }
 
-    /// Project one access-window contract from this route window.
-    ///
-    /// This keeps offset/upper-bound/fetch-limit interpretation centralized for
-    /// pushdown and bounded scan-budget decisions.
     #[must_use]
-    pub(in crate::db::executor) fn access_window_for(&self, needs_extra: bool) -> AccessWindow {
-        let keep_window = self.access_window_keep;
-        if !needs_extra || keep_window.page_limit().is_none() {
-            return keep_window;
-        }
-        if keep_window.is_zero_window() {
-            return keep_window.with_fetch_limit(Some(0));
-        }
-
-        keep_window.with_fetch_limit(
-            keep_window
-                .fetch_limit()
-                .map(|fetch| fetch.saturating_add(1)),
-        )
+    pub(in crate::db::executor) const fn fetch_access_window(&self) -> &AccessWindow {
+        &self.access_window_fetch
     }
 }
 
@@ -300,20 +259,6 @@ impl AccessWindow {
     #[must_use]
     pub(in crate::db::executor) const fn fetch_limit(self) -> Option<usize> {
         self.fetch_limit
-    }
-
-    /// Return one copy of this window with an overridden fetch limit.
-    #[must_use]
-    pub(in crate::db::executor) const fn with_fetch_limit(
-        self,
-        fetch_limit: Option<usize>,
-    ) -> Self {
-        Self {
-            lower_bound: self.lower_bound,
-            upper_bound: self.upper_bound,
-            page_limit: self.page_limit,
-            fetch_limit,
-        }
     }
 
     /// Return true when the window is explicitly `LIMIT 0`.
@@ -801,15 +746,33 @@ pub(in crate::db::executor) const fn route_shape_kind_count_guard() -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{AccessWindow, RouteWindowPlan};
+    use super::{AccessWindow, ContinuationMode, RouteContinuationPlan};
+    use crate::db::{executor::ContinuationCapabilities, query::plan::ContinuationPolicy};
+
+    fn route_continuation(
+        effective_offset: u32,
+        access_window_keep: AccessWindow,
+        access_window_fetch: AccessWindow,
+    ) -> RouteContinuationPlan {
+        RouteContinuationPlan::new(
+            ContinuationCapabilities::new(
+                ContinuationMode::Initial,
+                ContinuationPolicy::new(true, true, true),
+            ),
+            effective_offset,
+            access_window_keep,
+            access_window_fetch,
+        )
+    }
 
     #[test]
-    fn route_window_access_window_limit_zero_projects_zero_fetch_limit() {
-        let route_window = RouteWindowPlan {
-            effective_offset: 4,
-            access_window_keep: AccessWindow::new(4, Some(4), Some(0), Some(4)),
-        };
-        let access_window = route_window.access_window_for(true);
+    fn route_continuation_access_window_limit_zero_projects_zero_fetch_limit() {
+        let continuation = route_continuation(
+            4,
+            AccessWindow::new(4, Some(4), Some(0), Some(4)),
+            AccessWindow::new(4, Some(4), Some(0), Some(0)),
+        );
+        let access_window = continuation.fetch_access_window();
 
         assert_eq!(access_window.lower_bound(), 4);
         assert_eq!(access_window.page_limit(), Some(0));
@@ -821,13 +784,14 @@ mod tests {
     }
 
     #[test]
-    fn route_window_access_window_bounded_limit_projects_offset_and_fetch_counts() {
-        let route_window = RouteWindowPlan {
-            effective_offset: 3,
-            access_window_keep: AccessWindow::new(3, Some(5), Some(2), Some(5)),
-        };
-        let keep_window = route_window.access_window_for(false);
-        let fetch_window = route_window.access_window_for(true);
+    fn route_continuation_access_window_bounded_limit_projects_offset_and_fetch_counts() {
+        let continuation = route_continuation(
+            3,
+            AccessWindow::new(3, Some(5), Some(2), Some(5)),
+            AccessWindow::new(3, Some(5), Some(2), Some(6)),
+        );
+        let keep_window = continuation.keep_access_window();
+        let fetch_window = continuation.fetch_access_window();
 
         assert_eq!(keep_window.lower_bound(), 3);
         assert_eq!(keep_window.page_limit(), Some(2));
@@ -837,12 +801,13 @@ mod tests {
     }
 
     #[test]
-    fn route_window_access_window_unbounded_limit_projects_unbounded_fetch() {
-        let route_window = RouteWindowPlan {
-            effective_offset: 0,
-            access_window_keep: AccessWindow::new(0, None, None, None),
-        };
-        let access_window = route_window.access_window_for(true);
+    fn route_continuation_access_window_unbounded_limit_projects_unbounded_fetch() {
+        let continuation = route_continuation(
+            0,
+            AccessWindow::new(0, None, None, None),
+            AccessWindow::new(0, None, None, None),
+        );
+        let access_window = continuation.fetch_access_window();
 
         assert_eq!(access_window.lower_bound(), 0);
         assert_eq!(access_window.page_limit(), None);

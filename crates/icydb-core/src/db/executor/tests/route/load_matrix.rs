@@ -83,7 +83,7 @@ fn route_matrix_load_pk_desc_with_page_uses_streaming_budget_and_reverse() {
     );
     assert_eq!(route_plan.direction(), Direction::Desc);
     assert_eq!(route_plan.continuation().mode(), ContinuationMode::Initial);
-    assert_eq!(route_plan.continuation().window().effective_offset, 2);
+    assert_eq!(route_plan.continuation().effective_offset(), 2);
     assert!(route_plan.desc_physical_reverse_supported());
     assert_eq!(route_plan.scan_hints.physical_fetch_hint, None);
     assert_eq!(route_plan.scan_hints.load_scan_budget_hint, Some(6));
@@ -134,7 +134,7 @@ fn route_matrix_load_index_range_cursor_without_anchor_disables_pushdown() {
         route_plan.continuation().mode(),
         ContinuationMode::CursorBoundary
     );
-    assert_eq!(route_plan.continuation().window().effective_offset, 0);
+    assert_eq!(route_plan.continuation().effective_offset(), 0);
     assert!(route_plan.desc_physical_reverse_supported());
     assert!(route_plan.index_range_limit_spec.is_none());
     assert!(route_plan.top_n_seek_spec().is_none());

@@ -13,7 +13,7 @@ use crate::{
         aggregate::AggregateKind,
         load::LoadExecutor,
         route::{
-            RouteShapeKind,
+            ExecutionMode, IndexRangeLimitSpec, RouteShapeKind,
             planner::{RouteExecutionStage, RouteFeasibilityStage, RouteIntentStage},
         },
     },
@@ -24,6 +24,16 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
+    const fn index_range_limit_spec_for_execution_mode(
+        feasibility_stage: &RouteFeasibilityStage,
+        execution_mode: ExecutionMode,
+    ) -> Option<IndexRangeLimitSpec> {
+        match execution_mode {
+            ExecutionMode::Streaming => feasibility_stage.index_range_limit_spec,
+            ExecutionMode::Materialized => None,
+        }
+    }
+
     fn derive_route_shape_kind(intent_stage: &RouteIntentStage) -> RouteShapeKind {
         let kind = intent_stage.kind();
 
@@ -54,6 +64,7 @@ where
     }
 
     fn debug_assert_probe_hint_contract(feasibility_stage: &RouteFeasibilityStage) {
+        let keep_access_window = *feasibility_stage.continuation.keep_access_window();
         debug_assert!(
             feasibility_stage
                 .derivation
@@ -63,7 +74,7 @@ where
                     .derivation
                     .aggregate_physical_fetch_hint
                     .is_none()
-                || feasibility_stage.page_limit_is_zero,
+                || keep_access_window.is_zero_window(),
             "route invariant: DISTINCT+offset must disable bounded aggregate probe hints",
         );
     }

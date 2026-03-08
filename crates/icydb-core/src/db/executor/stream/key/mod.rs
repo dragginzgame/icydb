@@ -8,9 +8,9 @@ mod contracts;
 mod distinct;
 mod order;
 
-pub(crate) use composite::{IntersectOrderedKeyStream, MergeOrderedKeyStream};
-pub(crate) use contracts::{
+pub(in crate::db::executor) use composite::{IntersectOrderedKeyStream, MergeOrderedKeyStream};
+pub(in crate::db::executor) use contracts::{
     BudgetedOrderedKeyStream, OrderedKeyStream, OrderedKeyStreamBox, VecOrderedKeyStream,
 };
 pub(in crate::db::executor) use distinct::DistinctOrderedKeyStream;
-pub(crate) use order::KeyOrderComparator;
+pub(in crate::db::executor) use order::KeyOrderComparator;

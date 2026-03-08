@@ -8,10 +8,7 @@ use crate::{
         direction::Direction,
         executor::aggregate::AggregateKind,
         numeric::field_kind_supports_aggregate_numeric,
-        query::{
-            builder::AggregateExpr,
-            plan::{AccessPlannedQuery, DistinctExecutionStrategy},
-        },
+        query::{builder::AggregateExpr, plan::AccessPlannedQuery},
     },
     model::{entity::resolve_field_slot, field::FieldKind},
     traits::EntityKind,
@@ -226,7 +223,6 @@ where
 }
 
 /// Derive aggregate-policy field-extrema fast-path eligibility for one plan.
-#[expect(clippy::too_many_lines)]
 pub(in crate::db::executor) fn assess_field_extrema_fast_path_eligibility<E>(
     plan: &AccessPlannedQuery<E::Key>,
     direction: Direction,
@@ -274,10 +270,7 @@ where
             ),
         };
     }
-    if !matches!(
-        plan.distinct_execution_strategy(),
-        DistinctExecutionStrategy::None
-    ) {
+    if plan.scalar_plan().distinct {
         return AggregateFieldExtremaEligibility {
             eligible: false,
             ineligibility_reason: Some(

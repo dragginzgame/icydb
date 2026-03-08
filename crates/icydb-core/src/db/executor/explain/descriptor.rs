@@ -155,7 +155,7 @@ where
         ),
         format!(
             "diagnostic.route.limit={:?}",
-            route_plan.continuation().window().limit()
+            route_plan.continuation().limit()
         ),
         secondary_order_pushdown_verbose_line(&route_plan),
     ];
@@ -237,7 +237,7 @@ where
         aggregation,
         execution_mode,
         ordering_source,
-        limit: route_plan.continuation().window().limit(),
+        limit: route_plan.continuation().limit(),
         cursor: route_plan.continuation().capabilities().applied(),
         node_properties,
     }

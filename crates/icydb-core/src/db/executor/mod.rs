@@ -47,15 +47,13 @@ pub(super) use load::LoadExecutor;
 pub(super) use mutation::save::SaveExecutor;
 pub(in crate::db::executor) use plan_validate::validate_executor_plan;
 pub(in crate::db::executor) use preparation::ExecutionPreparation;
-pub(super) use stream::{
-    access::*,
-    key::{
-        BudgetedOrderedKeyStream, KeyOrderComparator, OrderedKeyStream, OrderedKeyStreamBox,
-        VecOrderedKeyStream,
-    },
+pub(super) use stream::access::*;
+pub(in crate::db::executor) use stream::key::{
+    BudgetedOrderedKeyStream, KeyOrderComparator, OrderedKeyStream, OrderedKeyStreamBox,
+    VecOrderedKeyStream,
 };
 pub(in crate::db::executor) use util::saturating_row_len;
-pub(in crate::db) use window::compute_page_window;
+pub(in crate::db) use window::compute_page_keep_count;
 
 ///
 /// ExecutionPlan
@@ -158,7 +156,7 @@ impl From<CursorPlanError> for ExecutorPlanError {
 /// User-shape validation failures remain plan-layer errors.
 
 #[derive(Debug, ThisError)]
-pub(crate) enum ExecutorError {
+pub(in crate::db::executor) enum ExecutorError {
     #[error("corruption detected ({origin}): {message}")]
     Corruption {
         origin: ErrorOrigin,
@@ -170,21 +168,24 @@ pub(crate) enum ExecutorError {
 }
 
 impl ExecutorError {
-    pub(crate) const fn class(&self) -> ErrorClass {
+    pub(in crate::db::executor) const fn class(&self) -> ErrorClass {
         match self {
             Self::KeyExists(_) => ErrorClass::Conflict,
             Self::Corruption { .. } => ErrorClass::Corruption,
         }
     }
 
-    pub(crate) const fn origin(&self) -> ErrorOrigin {
+    pub(in crate::db::executor) const fn origin(&self) -> ErrorOrigin {
         match self {
             Self::KeyExists(_) => ErrorOrigin::Store,
             Self::Corruption { origin, .. } => *origin,
         }
     }
 
-    pub(crate) fn corruption(origin: ErrorOrigin, message: impl Into<String>) -> Self {
+    pub(in crate::db::executor) fn corruption(
+        origin: ErrorOrigin,
+        message: impl Into<String>,
+    ) -> Self {
         Self::Corruption {
             origin,
             message: message.into(),
@@ -192,12 +193,12 @@ impl ExecutorError {
     }
 
     // Construct a store-origin corruption error with canonical taxonomy.
-    pub(crate) fn store_corruption(message: impl Into<String>) -> Self {
+    pub(in crate::db::executor) fn store_corruption(message: impl Into<String>) -> Self {
         Self::corruption(ErrorOrigin::Store, message)
     }
 
     // Construct a serialize-origin corruption error with canonical taxonomy.
-    pub(crate) fn serialize_corruption(message: impl Into<String>) -> Self {
+    pub(in crate::db::executor) fn serialize_corruption(message: impl Into<String>) -> Self {
         Self::corruption(ErrorOrigin::Serialize, message)
     }
 }

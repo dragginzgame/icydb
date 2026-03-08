@@ -22,7 +22,8 @@ mod projection;
 mod secondary_index;
 mod terminal;
 
-pub(crate) use self::contracts::{CursorPage, LoadExecutor};
+pub(in crate::db) use self::contracts::CursorPage;
+pub(in crate::db) use self::contracts::LoadExecutor;
 pub(in crate::db::executor) use self::contracts::{
     FastPathKeyResult, key_stream_comparator_from_direction,
 };

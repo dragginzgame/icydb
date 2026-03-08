@@ -188,7 +188,7 @@ where
     }
 
     /// Fold persisted row payload bytes over one ordered key stream page window.
-    pub(crate) fn sum_row_payload_bytes_from_ordered_key_stream(
+    pub(in crate::db::executor) fn sum_row_payload_bytes_from_ordered_key_stream(
         &self,
         key_stream: &mut dyn OrderedKeyStream,
         consistency: MissingRowPolicy,
@@ -226,7 +226,7 @@ where
 
     // Load rows for an ordered key stream by preserving the stream order.
     /// Materialize rows for an ordered key stream while preserving stream order.
-    pub(crate) fn rows_from_ordered_key_stream(
+    pub(in crate::db::executor) fn rows_from_ordered_key_stream(
         &self,
         key_stream: &mut dyn OrderedKeyStream,
         consistency: MissingRowPolicy,

@@ -38,7 +38,7 @@ use std::ops::Deref;
 /// Row abstraction for applying plan semantics to executor rows.
 ///
 
-pub(crate) trait PlanRow<E: EntityKind> {
+pub(in crate::db::executor) trait PlanRow<E: EntityKind> {
     fn entity(&self) -> &E;
 }
 
@@ -61,23 +61,23 @@ impl<E: EntityKind> PlanRow<E> for (Id<E>, E) {
 ///
 
 #[cfg_attr(test, expect(dead_code, clippy::struct_excessive_bools))]
-pub(crate) struct PostAccessStats {
-    pub(crate) delete_was_limited: bool,
-    pub(crate) rows_after_cursor: usize,
+pub(in crate::db::executor) struct PostAccessStats {
+    pub(in crate::db::executor) delete_was_limited: bool,
+    pub(in crate::db::executor) rows_after_cursor: usize,
     #[cfg(test)]
-    pub(crate) filtered: bool,
+    pub(in crate::db::executor) filtered: bool,
     #[cfg(test)]
-    pub(crate) ordered: bool,
+    pub(in crate::db::executor) ordered: bool,
     #[cfg(test)]
-    pub(crate) paged: bool,
+    pub(in crate::db::executor) paged: bool,
     #[cfg(test)]
-    pub(crate) rows_after_filter: usize,
+    pub(in crate::db::executor) rows_after_filter: usize,
     #[cfg(test)]
-    pub(crate) rows_after_order: usize,
+    pub(in crate::db::executor) rows_after_order: usize,
     #[cfg(test)]
-    pub(crate) rows_after_page: usize,
+    pub(in crate::db::executor) rows_after_page: usize,
     #[cfg(test)]
-    pub(crate) rows_after_delete_limit: usize,
+    pub(in crate::db::executor) rows_after_delete_limit: usize,
 }
 
 ///
@@ -89,10 +89,10 @@ pub(crate) struct PostAccessStats {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg(test)]
-pub(crate) struct BudgetSafetyMetadata {
-    pub(crate) has_residual_filter: bool,
-    pub(crate) access_order_satisfied_by_path: bool,
-    pub(crate) requires_post_access_sort: bool,
+pub(in crate::db::executor) struct BudgetSafetyMetadata {
+    pub(in crate::db::executor) has_residual_filter: bool,
+    pub(in crate::db::executor) access_order_satisfied_by_path: bool,
+    pub(in crate::db::executor) requires_post_access_sort: bool,
 }
 
 ///
@@ -145,7 +145,7 @@ impl<K> Deref for PostAccessPlan<'_, K> {
 }
 
 impl ExecutionKernel {
-    pub(crate) fn apply_post_access_with_compiled_predicate<E, R, K>(
+    pub(in crate::db::executor) fn apply_post_access_with_compiled_predicate<E, R, K>(
         plan: &AccessPlannedQuery<K>,
         rows: &mut Vec<R>,
         compiled_predicate: Option<&PredicateProgram>,
@@ -158,7 +158,7 @@ impl ExecutionKernel {
             .apply_post_access_with_compiled_predicate::<E, R>(rows, compiled_predicate)
     }
 
-    pub(crate) fn apply_post_access_with_cursor_and_compiled_predicate<E, R, K>(
+    pub(in crate::db::executor) fn apply_post_access_with_cursor_and_compiled_predicate<E, R, K>(
         plan: &AccessPlannedQuery<K>,
         rows: &mut Vec<R>,
         cursor: Option<&CursorBoundary>,
@@ -201,7 +201,9 @@ impl ExecutionKernel {
 
     #[must_use]
     #[cfg(test)]
-    pub(crate) fn budget_safety_metadata<E, K>(plan: &AccessPlannedQuery<K>) -> BudgetSafetyMetadata
+    pub(in crate::db::executor) fn budget_safety_metadata<E, K>(
+        plan: &AccessPlannedQuery<K>,
+    ) -> BudgetSafetyMetadata
     where
         E: EntitySchema<Key = K>,
     {
@@ -210,7 +212,9 @@ impl ExecutionKernel {
 
     #[must_use]
     #[cfg(test)]
-    pub(crate) fn is_streaming_access_shape_safe<E, K>(plan: &AccessPlannedQuery<K>) -> bool
+    pub(in crate::db::executor) fn is_streaming_access_shape_safe<E, K>(
+        plan: &AccessPlannedQuery<K>,
+    ) -> bool
     where
         E: EntitySchema<Key = K>,
     {

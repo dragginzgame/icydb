@@ -18,14 +18,14 @@ use std::cmp::Ordering;
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct KeyOrderComparator {
+pub(in crate::db::executor) struct KeyOrderComparator {
     direction: Direction,
 }
 
 impl KeyOrderComparator {
     /// Construct comparator policy from traversal direction.
     #[must_use]
-    pub(crate) const fn from_direction(direction: Direction) -> Self {
+    pub(in crate::db::executor) const fn from_direction(direction: Direction) -> Self {
         Self { direction }
     }
 

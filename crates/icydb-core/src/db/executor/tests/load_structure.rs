@@ -112,6 +112,73 @@ fn load_entrypoint_leaf_modules_do_not_resolve_continuation_directly() {
     );
 }
 
+#[test]
+fn executor_internal_stream_and_window_types_do_not_widen_to_pub_crate() {
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let checks = [
+        (
+            "src/db/executor/stream/key/contracts.rs",
+            "pub(crate) trait OrderedKeyStream",
+        ),
+        (
+            "src/db/executor/stream/key/contracts.rs",
+            "pub(crate) type OrderedKeyStreamBox",
+        ),
+        (
+            "src/db/executor/stream/key/contracts.rs",
+            "pub(crate) struct VecOrderedKeyStream",
+        ),
+        (
+            "src/db/executor/stream/key/contracts.rs",
+            "pub(crate) struct BudgetedOrderedKeyStream",
+        ),
+        (
+            "src/db/executor/stream/key/composite.rs",
+            "pub(crate) struct MergeOrderedKeyStream",
+        ),
+        (
+            "src/db/executor/stream/key/composite.rs",
+            "pub(crate) struct IntersectOrderedKeyStream",
+        ),
+        (
+            "src/db/executor/stream/key/order.rs",
+            "pub(crate) struct KeyOrderComparator",
+        ),
+        (
+            "src/db/executor/load/contracts.rs",
+            "pub(crate) struct CursorPage",
+        ),
+        (
+            "src/db/executor/load/contracts.rs",
+            "pub(crate) struct LoadExecutor",
+        ),
+        ("src/db/executor/mod.rs", "pub(crate) enum ExecutorError"),
+        (
+            "src/db/executor/kernel/post_access/mod.rs",
+            "pub(crate) struct BudgetSafetyMetadata",
+        ),
+        (
+            "src/db/executor/mutation/save.rs",
+            "pub(crate) struct SaveExecutor",
+        ),
+    ];
+
+    let mut offenders = Vec::new();
+    for (relative_path, forbidden_pattern) in checks {
+        let path = crate_root.join(relative_path);
+        let source = fs::read_to_string(&path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
+        if source.contains(forbidden_pattern) {
+            offenders.push(format!("{relative_path} contains `{forbidden_pattern}`"));
+        }
+    }
+
+    assert!(
+        offenders.is_empty(),
+        "executor-only key/window/error contracts must not widen to pub(crate): {offenders:?}"
+    );
+}
+
 fn collect_rs_files(root: &Path) -> Vec<PathBuf> {
     let mut stack = vec![root.to_path_buf()];
     let mut files = Vec::new();

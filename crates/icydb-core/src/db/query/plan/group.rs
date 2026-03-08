@@ -4,6 +4,7 @@
 //! Boundary: explicit grouped query-to-executor transfer surface.
 
 use crate::{
+    db::error::planner_invariant,
     db::query::{
         builder::AggregateExpr,
         plan::{
@@ -140,7 +141,7 @@ pub(in crate::db) fn grouped_executor_handoff<K>(
 ) -> Result<GroupedExecutorHandoff<'_, K>, InternalError> {
     // Grouped handoff is valid only for plans with grouped execution payload.
     let Some(grouped) = plan.grouped_plan() else {
-        return Err(invariant(
+        return Err(planner_invariant(
             "grouped executor handoff requires grouped logical plans",
         ));
     };
@@ -155,7 +156,9 @@ pub(in crate::db) fn grouped_executor_handoff<K>(
     .map(|()| true)?;
     let grouped_plan_strategy_hint =
         grouped_plan_strategy_hint_for_plan(plan).ok_or_else(|| {
-            invariant("grouped executor handoff must carry grouped strategy hint for grouped plans")
+            planner_invariant(
+                "grouped executor handoff must carry grouped strategy hint for grouped plans",
+            )
         })?;
     let grouped_distinct_policy_contract = grouped_distinct_policy_contract(
         grouped.scalar.distinct,
@@ -248,7 +251,7 @@ fn grouped_distinct_execution_strategy(
             },
         ),
         Ok(None) => Ok(GroupedDistinctExecutionStrategy::None),
-        Err(reason) => Err(invariant(format!(
+        Err(reason) => Err(planner_invariant(format!(
             "planner grouped DISTINCT strategy handoff must be validated before executor handoff: {}",
             reason.invariant_message()
         ))),
@@ -294,12 +297,12 @@ fn planned_projection_layout_and_aggregate_exprs_from_spec(
                         aggregate_exprs.push(aggregate_expr.clone());
                     }
                     Expr::Literal(_) | Expr::Unary { .. } | Expr::Binary { .. } => {
-                        return Err(invariant(format!(
+                        return Err(planner_invariant(format!(
                             "grouped projection layout expects only field/aggregate expressions; found non-grouped projection expression at index={index}"
                         )));
                     }
                     Expr::Alias { .. } => {
-                        return Err(invariant(
+                        return Err(planner_invariant(
                             "grouped projection layout alias normalization must remove alias wrappers",
                         ));
                     }
@@ -324,8 +327,4 @@ fn expression_without_alias(mut expr: &Expr) -> &Expr {
     }
 
     expr
-}
-
-fn invariant(message: impl Into<String>) -> InternalError {
-    InternalError::planner_invariant(InternalError::executor_invariant_message(message))
 }

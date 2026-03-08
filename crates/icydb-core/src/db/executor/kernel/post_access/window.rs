@@ -3,7 +3,7 @@
 //! Does not own: query planning or access-path execution behavior.
 //! Boundary: post-access vector windowing utilities for kernel pipelines.
 
-use crate::db::executor::compute_page_window;
+use crate::db::executor::compute_page_keep_count;
 
 /// Apply offset/limit pagination to an in-memory vector, in-place.
 ///
@@ -22,9 +22,7 @@ pub(super) fn apply_pagination<T>(rows: &mut Vec<T>, offset: u32, limit: Option<
     let start_usize = usize::try_from(offset).unwrap_or(usize::MAX);
     let total_usize = usize::try_from(total).unwrap_or(usize::MAX);
     let end_usize = match limit {
-        Some(limit) => compute_page_window(offset, limit, false)
-            .keep_count
-            .min(total_usize),
+        Some(limit) => compute_page_keep_count(offset, limit).min(total_usize),
         None => total_usize,
     };
 

@@ -12,7 +12,7 @@ use crate::{db::data::DataKey, error::InternalError};
 /// production during load execution.
 ///
 
-pub(crate) trait OrderedKeyStream {
+pub(in crate::db::executor) trait OrderedKeyStream {
     /// Pull the next key from the stream, or `None` when exhausted.
     fn next_key(&mut self) -> Result<Option<DataKey>, InternalError>;
 
@@ -23,7 +23,7 @@ pub(crate) trait OrderedKeyStream {
     }
 }
 
-pub(crate) type OrderedKeyStreamBox = Box<dyn OrderedKeyStream>;
+pub(in crate::db::executor) type OrderedKeyStreamBox = Box<dyn OrderedKeyStream>;
 
 impl<T> OrderedKeyStream for Box<T>
 where
@@ -59,7 +59,7 @@ where
 ///
 
 #[derive(Debug)]
-pub(crate) struct VecOrderedKeyStream {
+pub(in crate::db::executor) struct VecOrderedKeyStream {
     keys: std::vec::IntoIter<DataKey>,
     total_len: usize,
 }
@@ -67,7 +67,7 @@ pub(crate) struct VecOrderedKeyStream {
 impl VecOrderedKeyStream {
     /// Construct a stream adapter over one materialized key vector.
     #[must_use]
-    pub(crate) fn new(keys: Vec<DataKey>) -> Self {
+    pub(in crate::db::executor) fn new(keys: Vec<DataKey>) -> Self {
         let total_len = keys.len();
 
         Self {
@@ -94,7 +94,7 @@ impl OrderedKeyStream for VecOrderedKeyStream {
 /// Once the budget is exhausted, it never polls the inner stream again.
 ///
 
-pub(crate) struct BudgetedOrderedKeyStream<S> {
+pub(in crate::db::executor) struct BudgetedOrderedKeyStream<S> {
     inner: S,
     remaining: usize,
     total_count_hint: Option<usize>,
@@ -106,7 +106,7 @@ where
 {
     /// Construct a budgeted adapter that emits at most `remaining` keys.
     #[must_use]
-    pub(crate) fn new(inner: S, remaining: usize) -> Self {
+    pub(in crate::db::executor) fn new(inner: S, remaining: usize) -> Self {
         let total_count_hint = inner
             .exact_key_count_hint()
             .map(|count| count.min(remaining));

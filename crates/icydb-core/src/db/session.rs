@@ -241,7 +241,7 @@ impl<C: CanisterKind> DbSession<C> {
     // ---------------------------------------------------------------------
 
     #[must_use]
-    pub(crate) const fn load_executor<E>(&self) -> LoadExecutor<E>
+    pub(in crate::db) const fn load_executor<E>(&self) -> LoadExecutor<E>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
@@ -257,7 +257,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     #[must_use]
-    pub(crate) const fn save_executor<E>(&self) -> SaveExecutor<E>
+    pub(in crate::db) const fn save_executor<E>(&self) -> SaveExecutor<E>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
@@ -285,7 +285,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Shared load-query terminal wrapper: build plan, run under metrics, map
     // execution errors into query-facing errors.
-    pub(crate) fn execute_load_query_with<E, T>(
+    pub(in crate::db) fn execute_load_query_with<E, T>(
         &self,
         query: &Query<E>,
         op: impl FnOnce(LoadExecutor<E>, ExecutablePlan<E>) -> Result<T, InternalError>,

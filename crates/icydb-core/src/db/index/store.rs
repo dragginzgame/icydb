@@ -192,12 +192,15 @@ impl Storable for StoredIndexValue {
 ///
 /// RawIndexFingerprint
 ///
+/// Fixed-width diagnostic fingerprint for one stored index payload.
+/// This value is storage-local metadata and never leaves index::store.
+///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct RawIndexFingerprint([u8; 16]);
+struct RawIndexFingerprint([u8; 16]);
 
 impl RawIndexFingerprint {
-    pub(crate) const STORED_SIZE: u32 = 16;
+    const STORED_SIZE: u32 = 16;
 }
 
 impl Storable for RawIndexFingerprint {

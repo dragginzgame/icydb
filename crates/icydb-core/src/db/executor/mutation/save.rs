@@ -35,7 +35,7 @@ use std::collections::BTreeSet;
 ///
 
 #[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Display, Serialize)]
-pub(crate) enum SaveMode {
+enum SaveMode {
     #[default]
     Insert,
     Replace,
@@ -47,7 +47,7 @@ pub(crate) enum SaveMode {
 ///
 
 #[derive(Clone, Copy)]
-pub(crate) struct SaveExecutor<E: EntityKind + EntityValue> {
+pub(in crate::db) struct SaveExecutor<E: EntityKind + EntityValue> {
     pub(in crate::db::executor::mutation) db: Db<E::Canister>,
 }
 
@@ -80,7 +80,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
 
     /// Construct one save executor bound to a database handle.
     #[must_use]
-    pub(crate) const fn new(db: Db<E::Canister>, _debug: bool) -> Self {
+    pub(in crate::db) const fn new(db: Db<E::Canister>, _debug: bool) -> Self {
         Self { db }
     }
 
@@ -133,7 +133,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
     ///
     /// WARNING: this helper is fail-fast and non-atomic. If one element fails,
     /// earlier elements in the batch remain committed.
-    pub(crate) fn save_batch_non_atomic(
+    fn save_batch_non_atomic(
         &self,
         mode: SaveMode,
         entities: impl IntoIterator<Item = E>,
@@ -166,7 +166,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
     /// no row in this batch is persisted.
     ///
     /// This is not a multi-entity transaction surface.
-    pub(crate) fn save_batch_atomic(
+    fn save_batch_atomic(
         &self,
         mode: SaveMode,
         entities: impl IntoIterator<Item = E>,
