@@ -358,13 +358,13 @@ impl<C: CanisterKind> DbSession<C> {
         let plan = query.plan()?.into_executable();
         match plan.execution_strategy().map_err(QueryError::execute)? {
             ExecutionStrategy::PrimaryKey => {
-                return Err(QueryError::execute(invariant(
+                return Err(QueryError::execute(crate::db::error::executor_invariant(
                     "cursor pagination requires explicit or grouped ordering",
                 )));
             }
             ExecutionStrategy::Ordered => {}
             ExecutionStrategy::Grouped => {
-                return Err(QueryError::execute(invariant(
+                return Err(QueryError::execute(crate::db::error::executor_invariant(
                     "grouped plans require execute_grouped(...)",
                 )));
             }
@@ -387,7 +387,7 @@ impl<C: CanisterKind> DbSession<C> {
             .next_cursor
             .map(|token| {
                 let Some(token) = token.as_scalar() else {
-                    return Err(QueryError::execute(invariant(
+                    return Err(QueryError::execute(crate::db::error::executor_invariant(
                         "scalar load pagination emitted grouped continuation token",
                     )));
                 };
@@ -425,7 +425,7 @@ impl<C: CanisterKind> DbSession<C> {
             plan.execution_strategy().map_err(QueryError::execute)?,
             ExecutionStrategy::Grouped
         ) {
-            return Err(QueryError::execute(invariant(
+            return Err(QueryError::execute(crate::db::error::executor_invariant(
                 "execute_grouped requires grouped logical plans",
             )));
         }
@@ -447,7 +447,7 @@ impl<C: CanisterKind> DbSession<C> {
             .next_cursor
             .map(|token| {
                 let Some(token) = token.as_grouped() else {
-                    return Err(QueryError::execute(invariant(
+                    return Err(QueryError::execute(crate::db::error::executor_invariant(
                         "grouped pagination emitted scalar continuation token",
                     )));
                 };
@@ -616,10 +616,6 @@ impl<C: CanisterKind> DbSession<C> {
             }
         });
     }
-}
-
-fn invariant(message: impl Into<String>) -> InternalError {
-    InternalError::query_executor_invariant(message)
 }
 
 const fn trace_execution_strategy(strategy: ExecutionStrategy) -> TraceExecutionStrategy {

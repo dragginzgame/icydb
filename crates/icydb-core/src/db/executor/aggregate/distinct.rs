@@ -76,19 +76,24 @@ where
                 GLOBAL_DISTINCT_GROUPED_MAX_GROUP_BYTES,
             ),
         )
-        .map_err(|reason| invariant(format!("{}: found {kind:?}", reason.invariant_message(),)))?;
+        .map_err(|reason| {
+            crate::db::error::executor_invariant(format!(
+                "{}: found {kind:?}",
+                reason.invariant_message(),
+            ))
+        })?;
         let grouped_plan = plan.into_inner().into_grouped(grouped_shape);
         let grouped_plan = ExecutablePlan::new(grouped_plan);
         let (page, _) = self
             .execute_grouped_paged_with_cursor_traced(grouped_plan, GroupedPlannedCursor::none())?;
 
         if page.next_cursor.is_some() {
-            return Err(invariant(
+            return Err(crate::db::error::executor_invariant(
                 "global DISTINCT grouped aggregate must not emit continuation cursor",
             ));
         }
         if page.rows.len() > 1 {
-            return Err(invariant(
+            return Err(crate::db::error::executor_invariant(
                 "global DISTINCT grouped aggregate must emit at most one grouped row",
             ));
         }
@@ -96,12 +101,12 @@ where
             return Ok(None);
         };
         if !row.group_key().is_empty() {
-            return Err(invariant(
+            return Err(crate::db::error::executor_invariant(
                 "global DISTINCT grouped aggregate row must have empty grouped key",
             ));
         }
         if row.aggregate_values().len() != 1 {
-            return Err(invariant(format!(
+            return Err(crate::db::error::executor_invariant(format!(
                 "global DISTINCT grouped aggregate row must have one aggregate value, found {}",
                 row.aggregate_values().len()
             )));
@@ -130,8 +135,4 @@ where
 
         Ok(distinct_count)
     }
-}
-
-fn invariant(message: impl Into<String>) -> InternalError {
-    InternalError::query_executor_invariant(message)
 }

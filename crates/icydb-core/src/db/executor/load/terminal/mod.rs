@@ -63,11 +63,7 @@ pub(in crate::db::executor::load::terminal) const fn bytes_window_accept_row(
     true
 }
 
-pub(in crate::db::executor::load::terminal) fn invariant(
-    message: impl Into<String>,
-) -> InternalError {
-    InternalError::query_executor_invariant(message)
-}
+pub(in crate::db::executor::load::terminal) use crate::db::error::executor_invariant as invariant;
 
 // Serialize one value using the canonical runtime codec and return payload len.
 pub(in crate::db::executor::load::terminal) fn serialized_value_len(

@@ -146,7 +146,7 @@ pub(in crate::db) fn eval_index_program_on_decoded_key(
             literal,
         } => {
             let Some(component) = key.component(*component_index) else {
-                return Err(invariant(
+                return Err(crate::db::error::executor_invariant(
                     "index-only predicate program referenced missing index component",
                 ));
             };
@@ -176,8 +176,4 @@ pub(in crate::db) fn literal_index_component_bytes(value: &Value) -> Option<Vec<
     let encoded = EncodedValue::try_from_ref(value).ok()?;
 
     Some(encoded.encoded().to_vec())
-}
-
-fn invariant(message: impl Into<String>) -> InternalError {
-    InternalError::query_executor_invariant(message)
 }

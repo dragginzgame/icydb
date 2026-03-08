@@ -5,17 +5,13 @@
 
 use crate::{
     db::{
-        cursor::{CursorBoundary, spine::apply_continuation},
+        cursor::{CursorBoundary, apply_resume_bound_phase},
         executor::{ExecutionKernel, kernel::PlanRow, traversal::effective_page_offset_for_window},
         query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
 };
-
-fn invariant(message: impl Into<String>) -> InternalError {
-    InternalError::query_executor_invariant(message)
-}
 
 ///
 /// PageWindow
@@ -172,25 +168,14 @@ impl ExecutionKernel {
         E: EntityKind + EntityValue,
         R: PlanRow<E>,
     {
-        let logical = plan.scalar_plan();
-        if logical.mode.is_load()
-            && let Some(boundary) = cursor_boundary
-        {
-            let Some(order) = logical.order.as_ref() else {
-                return Err(invariant("cursor boundary requires ordering"));
-            };
-
-            if !ordered {
-                return Err(invariant("cursor boundary must run after ordering"));
-            }
-
-            apply_continuation::<E, R, _>(rows, order, boundary, |row| row.entity());
-            return Ok((true, rows.len()));
-        }
-
-        // No cursor boundary; preserve post-order cardinality for continuation
-        // decisions and diagnostics.
-        Ok((false, rows_after_order))
+        apply_resume_bound_phase::<K, E, R, _>(
+            plan,
+            rows,
+            cursor_boundary,
+            ordered,
+            rows_after_order,
+            |row| row.entity(),
+        )
     }
 }
 

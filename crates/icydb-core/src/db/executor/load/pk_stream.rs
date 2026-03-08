@@ -7,9 +7,8 @@ use crate::{
     db::{
         Context,
         direction::Direction,
-        executor::{
-            AccessExecutionDescriptor, AccessStreamBindings, ExecutionOptimization,
-            load::{FastPathKeyResult, LoadExecutor},
+        executor::load::{
+            FastPathKeyResult, FastStreamRouteKind, FastStreamRouteRequest, LoadExecutor,
         },
         query::plan::AccessPlannedQuery,
     },
@@ -28,20 +27,14 @@ where
         stream_direction: Direction,
         probe_fetch_hint: Option<usize>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
-        // Phase 1: validate that the routed access shape is PK-stream compatible.
-        Self::verify_pk_stream_fast_path_access(plan)?;
-
-        // Phase 2: lower through the canonical access-stream resolver boundary.
-        let descriptor = AccessExecutionDescriptor::from_bindings(
-            &plan.access,
-            AccessStreamBindings::no_index(stream_direction),
-            probe_fetch_hint,
-            None,
-        );
-        Ok(Some(Self::execute_fast_stream_request(
+        Self::execute_fast_stream_route(
             ctx,
-            descriptor,
-            ExecutionOptimization::PrimaryKey,
-        )?))
+            FastStreamRouteKind::PrimaryKey,
+            FastStreamRouteRequest::PrimaryKey {
+                plan,
+                stream_direction,
+                probe_fetch_hint,
+            },
+        )
     }
 }

@@ -336,8 +336,9 @@ fn lower_index_prefix_values_for_specs<E: EntityKind>(
     values: &[Value],
     specs: &mut Vec<LoweredIndexPrefixSpec>,
 ) -> Result<(), InternalError> {
-    let prefix_components = EncodedValue::try_encode_all(values)
-        .map_err(|_| invariant(LOWERED_INDEX_PREFIX_VALUE_NOT_INDEXABLE))?;
+    let prefix_components = EncodedValue::try_encode_all(values).map_err(|_| {
+        crate::db::error::executor_invariant(LOWERED_INDEX_PREFIX_VALUE_NOT_INDEXABLE)
+    })?;
     let (lower, upper) = raw_keys_for_encoded_prefix::<E>(&index, prefix_components.as_slice());
     specs.push(LoweredIndexPrefixSpec::new(
         index,
@@ -415,8 +416,4 @@ const fn map_index_range_not_indexable_reason(
             "index-range cursor upper continuation bound is not indexable",
         ),
     }
-}
-
-fn invariant(message: impl Into<String>) -> InternalError {
-    InternalError::query_executor_invariant(message)
 }

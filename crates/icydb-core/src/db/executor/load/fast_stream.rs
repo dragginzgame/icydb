@@ -16,10 +16,6 @@ use crate::{
     traits::{EntityKind, EntityValue},
 };
 
-fn invariant(message: impl Into<String>) -> InternalError {
-    InternalError::query_executor_invariant(message)
-}
-
 impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
@@ -39,9 +35,11 @@ where
         )?;
 
         // Phase 2: enforce exact row-scan count hint required by fast-path observability.
-        let rows_scanned = key_stream
-            .exact_key_count_hint()
-            .ok_or_else(|| invariant("fast-path stream must expose an exact key-count hint"))?;
+        let rows_scanned = key_stream.exact_key_count_hint().ok_or_else(|| {
+            crate::db::error::executor_invariant(
+                "fast-path stream must expose an exact key-count hint",
+            )
+        })?;
 
         Ok(FastPathKeyResult {
             ordered_key_stream: key_stream,

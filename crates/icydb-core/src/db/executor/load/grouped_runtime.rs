@@ -184,7 +184,7 @@ impl GroupedContinuationContext {
         last_group_key: Vec<Value>,
     ) -> Result<PageCursor, InternalError> {
         if last_group_key.len() != self.continuation_boundary_arity {
-            return Err(invariant(format!(
+            return Err(crate::db::error::executor_invariant(format!(
                 "grouped continuation boundary arity mismatch: expected {}, found {}",
                 self.continuation_boundary_arity,
                 last_group_key.len()
@@ -316,10 +316,6 @@ impl GroupedExecutionContext {
     pub(in crate::db::executor::load) fn into_execution_trace(self) -> Option<ExecutionTrace> {
         self.runtime.into_execution_trace()
     }
-}
-
-fn invariant(message: impl Into<String>) -> InternalError {
-    InternalError::query_executor_invariant(message)
 }
 
 ///

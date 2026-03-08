@@ -33,10 +33,6 @@ use crate::{
 };
 use std::ops::Deref;
 
-fn invariant(message: impl Into<String>) -> InternalError {
-    InternalError::query_executor_invariant(message)
-}
-
 ///
 /// PlanRow
 /// Row abstraction for applying plan semantics to executor rows.
@@ -328,7 +324,7 @@ impl<K> PostAccessPlan<'_, K> {
     {
         let filtered = if self.has_predicate() {
             let Some(compiled_predicate) = compiled_predicate else {
-                return Err(invariant(
+                return Err(crate::db::error::executor_invariant(
                     "post-access filtering requires precompiled predicate slots",
                 ));
             };
@@ -358,7 +354,9 @@ impl<K> PostAccessPlan<'_, K> {
             && !order.fields.is_empty()
         {
             if self.has_predicate() && !filtered {
-                return Err(invariant("ordering must run after filtering"));
+                return Err(crate::db::error::executor_invariant(
+                    "ordering must run after filtering",
+                ));
             }
 
             // If access traversal already satisfies requested ORDER BY
@@ -404,7 +402,9 @@ impl<K> PostAccessPlan<'_, K> {
             && let Some(page) = self.page_spec()
         {
             if self.order_spec().is_some() && !ordered {
-                return Err(invariant("pagination must run after ordering"));
+                return Err(crate::db::error::executor_invariant(
+                    "pagination must run after ordering",
+                ));
             }
             window::apply_pagination(
                 rows,
@@ -429,7 +429,9 @@ impl<K> PostAccessPlan<'_, K> {
             && let Some(limit) = self.delete_limit_spec()
         {
             if self.order_spec().is_some() && !ordered {
-                return Err(invariant("delete limit must run after ordering"));
+                return Err(crate::db::error::executor_invariant(
+                    "delete limit must run after ordering",
+                ));
             }
             window::apply_delete_limit(rows, limit.max_rows);
             true

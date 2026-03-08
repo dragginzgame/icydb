@@ -14,6 +14,7 @@ mod grouped_validate;
 mod order;
 mod planned;
 mod range_token;
+mod resume;
 mod signature;
 pub(in crate::db) mod spine;
 mod validation;
@@ -45,6 +46,7 @@ pub(in crate::db) use range_token::{
     RangeToken, cursor_anchor_from_index_key, range_token_anchor_key,
     range_token_from_validated_cursor_anchor,
 };
+pub(in crate::db) use resume::apply_resume_bound_phase;
 #[expect(unreachable_pub)]
 pub use signature::ContinuationSignature;
 pub(crate) use token::{ContinuationToken, TokenWireError};

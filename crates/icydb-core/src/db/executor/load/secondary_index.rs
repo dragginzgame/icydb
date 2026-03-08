@@ -8,9 +8,8 @@ use crate::{
         Context,
         direction::Direction,
         executor::{
-            AccessExecutionDescriptor, AccessStreamBindings, ExecutionOptimization,
             LoweredIndexPrefixSpec,
-            load::{FastPathKeyResult, LoadExecutor},
+            load::{FastPathKeyResult, FastStreamRouteKind, FastStreamRouteRequest, LoadExecutor},
         },
         index::predicate::IndexPredicateExecution,
         query::plan::AccessPlannedQuery,
@@ -32,50 +31,16 @@ where
         probe_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
-        // Phase 1: verify access-path/spec invariants for index-prefix execution.
-        let access_strategy = plan.access_strategy();
-        let Some(executable_path) = access_strategy.as_path() else {
-            return Ok(None);
-        };
-        let path_capabilities = executable_path.capabilities();
-        let Some(index) = path_capabilities.index_prefix_model() else {
-            return Ok(None);
-        };
-        let Some(index_prefix_spec) = index_prefix_spec else {
-            return Err(invariant(
-                "index-prefix executable spec must be materialized for index-prefix plans",
-            ));
-        };
-        debug_assert_eq!(
-            index_prefix_spec.index(),
-            &index,
-            "secondary fast-path spec/index alignment must be validated by resolver",
-        );
-        // Phase 2: bind execution inputs and run the shared fast-stream boundary.
-        let descriptor = AccessExecutionDescriptor::from_executable_bindings(
-            access_strategy.into_executable(),
-            AccessStreamBindings::with_index_prefix(index_prefix_spec, stream_direction),
-            probe_fetch_hint,
-            index_predicate_execution,
-        );
-
-        let fast = Self::execute_fast_stream_request(
+        Self::execute_fast_stream_route(
             ctx,
-            descriptor,
-            ExecutionOptimization::SecondaryOrderPushdown,
-        )?;
-
-        if let Some(fetch) = probe_fetch_hint {
-            debug_assert!(
-                fast.rows_scanned <= fetch,
-                "secondary fast-path rows_scanned must not exceed bounded fetch",
-            );
-        }
-
-        Ok(Some(fast))
+            FastStreamRouteKind::SecondaryIndex,
+            FastStreamRouteRequest::SecondaryIndex {
+                plan,
+                index_prefix_spec,
+                stream_direction,
+                probe_fetch_hint,
+                index_predicate_execution,
+            },
+        )
     }
-}
-
-fn invariant(message: impl Into<String>) -> InternalError {
-    InternalError::query_executor_invariant(message)
 }

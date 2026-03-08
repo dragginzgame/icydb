@@ -12,11 +12,14 @@ use crate::{
         predicate::{
             CoercionSpec, CompareOp, ComparePredicate, MissingRowPolicy, Predicate, normalize,
         },
-        query::plan::{
-            AccessPlanProjection, AccessPlannedQuery, AggregateKind, DeleteLimitSpec,
-            GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupedPlanStrategyHint,
-            LogicalPlan, OrderDirection, OrderSpec, PageSpec, QueryMode, ScalarPlan,
-            grouped_plan_strategy_hint_for_plan, project_access_plan,
+        query::{
+            access::{AccessPathVisitor, visit_explain_access_path},
+            plan::{
+                AccessPlanProjection, AccessPlannedQuery, AggregateKind, DeleteLimitSpec,
+                GroupHavingClause, GroupHavingSpec, GroupHavingSymbol, GroupedPlanStrategyHint,
+                LogicalPlan, OrderDirection, OrderSpec, PageSpec, QueryMode, ScalarPlan,
+                grouped_plan_strategy_hint_for_plan, project_access_plan,
+            },
         },
     },
     model::entity::EntityModel,
@@ -766,151 +769,174 @@ fn write_execution_node_json(node: &ExplainExecutionNodeDescriptor, out: &mut St
     out.push('}');
 }
 
-#[expect(clippy::too_many_lines)]
-fn write_access_json(access: &ExplainAccessPath, out: &mut String) {
-    match access {
-        ExplainAccessPath::ByKey { key } => {
-            out.push('{');
-            write_json_field_name(out, "type");
-            write_json_string(out, "ByKey");
-            out.push(',');
-            write_json_field_name(out, "key");
-            write_json_string(out, &format!("{key:?}"));
-            out.push('}');
-        }
-        ExplainAccessPath::ByKeys { keys } => {
-            out.push('{');
-            write_json_field_name(out, "type");
-            write_json_string(out, "ByKeys");
-            out.push(',');
-            write_json_field_name(out, "keys");
-            write_value_vec_as_debug_json(keys, out);
-            out.push('}');
-        }
-        ExplainAccessPath::KeyRange { start, end } => {
-            out.push('{');
-            write_json_field_name(out, "type");
-            write_json_string(out, "KeyRange");
-            out.push(',');
-            write_json_field_name(out, "start");
-            write_json_string(out, &format!("{start:?}"));
-            out.push(',');
-            write_json_field_name(out, "end");
-            write_json_string(out, &format!("{end:?}"));
-            out.push('}');
-        }
-        ExplainAccessPath::IndexPrefix {
-            name,
-            fields,
-            prefix_len,
-            values,
-        } => {
-            out.push('{');
-            write_json_field_name(out, "type");
-            write_json_string(out, "IndexPrefix");
-            out.push(',');
-            write_json_field_name(out, "name");
-            write_json_string(out, name);
-            out.push(',');
-            write_json_field_name(out, "fields");
-            write_str_vec_json(fields, out);
-            out.push(',');
-            write_json_field_name(out, "prefix_len");
-            out.push_str(&prefix_len.to_string());
-            out.push(',');
-            write_json_field_name(out, "values");
-            write_value_vec_as_debug_json(values, out);
-            out.push('}');
-        }
-        ExplainAccessPath::IndexMultiLookup {
-            name,
-            fields,
-            values,
-        } => {
-            out.push('{');
-            write_json_field_name(out, "type");
-            write_json_string(out, "IndexMultiLookup");
-            out.push(',');
-            write_json_field_name(out, "name");
-            write_json_string(out, name);
-            out.push(',');
-            write_json_field_name(out, "fields");
-            write_str_vec_json(fields, out);
-            out.push(',');
-            write_json_field_name(out, "values");
-            write_value_vec_as_debug_json(values, out);
-            out.push('}');
-        }
-        ExplainAccessPath::IndexRange {
-            name,
-            fields,
-            prefix_len,
-            prefix,
-            lower,
-            upper,
-        } => {
-            out.push('{');
-            write_json_field_name(out, "type");
-            write_json_string(out, "IndexRange");
-            out.push(',');
-            write_json_field_name(out, "name");
-            write_json_string(out, name);
-            out.push(',');
-            write_json_field_name(out, "fields");
-            write_str_vec_json(fields, out);
-            out.push(',');
-            write_json_field_name(out, "prefix_len");
-            out.push_str(&prefix_len.to_string());
-            out.push(',');
-            write_json_field_name(out, "prefix");
-            write_value_vec_as_debug_json(prefix, out);
-            out.push(',');
-            write_json_field_name(out, "lower");
-            write_json_string(out, &format!("{lower:?}"));
-            out.push(',');
-            write_json_field_name(out, "upper");
-            write_json_string(out, &format!("{upper:?}"));
-            out.push('}');
-        }
-        ExplainAccessPath::FullScan => {
-            out.push('{');
-            write_json_field_name(out, "type");
-            write_json_string(out, "FullScan");
-            out.push('}');
-        }
-        ExplainAccessPath::Union(children) => {
-            out.push('{');
-            write_json_field_name(out, "type");
-            write_json_string(out, "Union");
-            out.push(',');
-            write_json_field_name(out, "children");
-            out.push('[');
-            for (index, child) in children.iter().enumerate() {
-                if index > 0 {
-                    out.push(',');
-                }
-                write_access_json(child, out);
-            }
-            out.push(']');
-            out.push('}');
-        }
-        ExplainAccessPath::Intersection(children) => {
-            out.push('{');
-            write_json_field_name(out, "type");
-            write_json_string(out, "Intersection");
-            out.push(',');
-            write_json_field_name(out, "children");
-            out.push('[');
-            for (index, child) in children.iter().enumerate() {
-                if index > 0 {
-                    out.push(',');
-                }
-                write_access_json(child, out);
-            }
-            out.push(']');
-            out.push('}');
-        }
+///
+/// ExplainJsonVisitor
+///
+/// Visitor that renders one `ExplainAccessPath` subtree into stable JSON.
+///
+
+struct ExplainJsonVisitor<'a> {
+    out: &'a mut String,
+}
+
+impl AccessPathVisitor<()> for ExplainJsonVisitor<'_> {
+    fn visit_by_key(&mut self, key: &Value) {
+        self.out.push('{');
+        write_json_field_name(self.out, "type");
+        write_json_string(self.out, "ByKey");
+        self.out.push(',');
+        write_json_field_name(self.out, "key");
+        write_json_string(self.out, &format!("{key:?}"));
+        self.out.push('}');
     }
+
+    fn visit_by_keys(&mut self, keys: &[Value]) {
+        self.out.push('{');
+        write_json_field_name(self.out, "type");
+        write_json_string(self.out, "ByKeys");
+        self.out.push(',');
+        write_json_field_name(self.out, "keys");
+        write_value_vec_as_debug_json(keys, self.out);
+        self.out.push('}');
+    }
+
+    fn visit_key_range(&mut self, start: &Value, end: &Value) {
+        self.out.push('{');
+        write_json_field_name(self.out, "type");
+        write_json_string(self.out, "KeyRange");
+        self.out.push(',');
+        write_json_field_name(self.out, "start");
+        write_json_string(self.out, &format!("{start:?}"));
+        self.out.push(',');
+        write_json_field_name(self.out, "end");
+        write_json_string(self.out, &format!("{end:?}"));
+        self.out.push('}');
+    }
+
+    fn visit_index_prefix(
+        &mut self,
+        name: &'static str,
+        fields: &[&'static str],
+        prefix_len: usize,
+        values: &[Value],
+    ) {
+        self.out.push('{');
+        write_json_field_name(self.out, "type");
+        write_json_string(self.out, "IndexPrefix");
+        self.out.push(',');
+        write_json_field_name(self.out, "name");
+        write_json_string(self.out, name);
+        self.out.push(',');
+        write_json_field_name(self.out, "fields");
+        write_str_vec_json(fields, self.out);
+        self.out.push(',');
+        write_json_field_name(self.out, "prefix_len");
+        self.out.push_str(&prefix_len.to_string());
+        self.out.push(',');
+        write_json_field_name(self.out, "values");
+        write_value_vec_as_debug_json(values, self.out);
+        self.out.push('}');
+    }
+
+    fn visit_index_multi_lookup(
+        &mut self,
+        name: &'static str,
+        fields: &[&'static str],
+        values: &[Value],
+    ) {
+        self.out.push('{');
+        write_json_field_name(self.out, "type");
+        write_json_string(self.out, "IndexMultiLookup");
+        self.out.push(',');
+        write_json_field_name(self.out, "name");
+        write_json_string(self.out, name);
+        self.out.push(',');
+        write_json_field_name(self.out, "fields");
+        write_str_vec_json(fields, self.out);
+        self.out.push(',');
+        write_json_field_name(self.out, "values");
+        write_value_vec_as_debug_json(values, self.out);
+        self.out.push('}');
+    }
+
+    fn visit_index_range(
+        &mut self,
+        name: &'static str,
+        fields: &[&'static str],
+        prefix_len: usize,
+        prefix: &[Value],
+        lower: &Bound<Value>,
+        upper: &Bound<Value>,
+    ) {
+        self.out.push('{');
+        write_json_field_name(self.out, "type");
+        write_json_string(self.out, "IndexRange");
+        self.out.push(',');
+        write_json_field_name(self.out, "name");
+        write_json_string(self.out, name);
+        self.out.push(',');
+        write_json_field_name(self.out, "fields");
+        write_str_vec_json(fields, self.out);
+        self.out.push(',');
+        write_json_field_name(self.out, "prefix_len");
+        self.out.push_str(&prefix_len.to_string());
+        self.out.push(',');
+        write_json_field_name(self.out, "prefix");
+        write_value_vec_as_debug_json(prefix, self.out);
+        self.out.push(',');
+        write_json_field_name(self.out, "lower");
+        write_json_string(self.out, &format!("{lower:?}"));
+        self.out.push(',');
+        write_json_field_name(self.out, "upper");
+        write_json_string(self.out, &format!("{upper:?}"));
+        self.out.push('}');
+    }
+
+    fn visit_full_scan(&mut self) {
+        self.out.push('{');
+        write_json_field_name(self.out, "type");
+        write_json_string(self.out, "FullScan");
+        self.out.push('}');
+    }
+
+    fn visit_union(&mut self, children: &[ExplainAccessPath]) {
+        self.out.push('{');
+        write_json_field_name(self.out, "type");
+        write_json_string(self.out, "Union");
+        self.out.push(',');
+        write_json_field_name(self.out, "children");
+        self.out.push('[');
+        for (index, child) in children.iter().enumerate() {
+            if index > 0 {
+                self.out.push(',');
+            }
+            visit_explain_access_path(child, self);
+        }
+        self.out.push(']');
+        self.out.push('}');
+    }
+
+    fn visit_intersection(&mut self, children: &[ExplainAccessPath]) {
+        self.out.push('{');
+        write_json_field_name(self.out, "type");
+        write_json_string(self.out, "Intersection");
+        self.out.push(',');
+        write_json_field_name(self.out, "children");
+        self.out.push('[');
+        for (index, child) in children.iter().enumerate() {
+            if index > 0 {
+                self.out.push(',');
+            }
+            visit_explain_access_path(child, self);
+        }
+        self.out.push(']');
+        self.out.push('}');
+    }
+}
+
+fn write_access_json(access: &ExplainAccessPath, out: &mut String) {
+    let mut visitor = ExplainJsonVisitor { out };
+    visit_explain_access_path(access, &mut visitor);
 }
 
 fn write_node_properties_json(node_properties: &BTreeMap<String, Value>, out: &mut String) {
@@ -970,19 +996,67 @@ fn write_json_string(out: &mut String, value: &str) {
 }
 
 fn access_strategy_label(access: &ExplainAccessPath) -> String {
-    match access {
-        ExplainAccessPath::ByKey { .. } => "ByKey".to_string(),
-        ExplainAccessPath::ByKeys { .. } => "ByKeys".to_string(),
-        ExplainAccessPath::KeyRange { .. } => "KeyRange".to_string(),
-        ExplainAccessPath::IndexPrefix { name, .. } => format!("IndexPrefix({name})"),
-        ExplainAccessPath::IndexMultiLookup { name, .. } => {
+    struct ExplainLabelVisitor;
+
+    impl AccessPathVisitor<String> for ExplainLabelVisitor {
+        fn visit_by_key(&mut self, _key: &Value) -> String {
+            "ByKey".to_string()
+        }
+
+        fn visit_by_keys(&mut self, _keys: &[Value]) -> String {
+            "ByKeys".to_string()
+        }
+
+        fn visit_key_range(&mut self, _start: &Value, _end: &Value) -> String {
+            "KeyRange".to_string()
+        }
+
+        fn visit_index_prefix(
+            &mut self,
+            name: &'static str,
+            _fields: &[&'static str],
+            _prefix_len: usize,
+            _values: &[Value],
+        ) -> String {
+            format!("IndexPrefix({name})")
+        }
+
+        fn visit_index_multi_lookup(
+            &mut self,
+            name: &'static str,
+            _fields: &[&'static str],
+            _values: &[Value],
+        ) -> String {
             format!("IndexMultiLookup({name})")
         }
-        ExplainAccessPath::IndexRange { name, .. } => format!("IndexRange({name})"),
-        ExplainAccessPath::FullScan => "FullScan".to_string(),
-        ExplainAccessPath::Union(children) => format!("Union({})", children.len()),
-        ExplainAccessPath::Intersection(children) => format!("Intersection({})", children.len()),
+
+        fn visit_index_range(
+            &mut self,
+            name: &'static str,
+            _fields: &[&'static str],
+            _prefix_len: usize,
+            _prefix: &[Value],
+            _lower: &Bound<Value>,
+            _upper: &Bound<Value>,
+        ) -> String {
+            format!("IndexRange({name})")
+        }
+
+        fn visit_full_scan(&mut self) -> String {
+            "FullScan".to_string()
+        }
+
+        fn visit_union(&mut self, children: &[ExplainAccessPath]) -> String {
+            format!("Union({})", children.len())
+        }
+
+        fn visit_intersection(&mut self, children: &[ExplainAccessPath]) -> String {
+            format!("Intersection({})", children.len())
+        }
     }
+
+    let mut visitor = ExplainLabelVisitor;
+    visit_explain_access_path(access, &mut visitor)
 }
 
 const fn ordering_source_label(ordering_source: ExplainExecutionOrderingSource) -> &'static str {

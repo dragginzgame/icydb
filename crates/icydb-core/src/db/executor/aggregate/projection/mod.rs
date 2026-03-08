@@ -242,7 +242,7 @@ where
         terminal_kind: AggregateKind,
     ) -> Result<Option<Value>, InternalError> {
         if !terminal_kind.supports_terminal_value_projection() {
-            return Err(invariant(
+            return Err(crate::db::error::executor_invariant(
                 "terminal value projection requires FIRST/LAST aggregate kind",
             ));
         }
@@ -255,7 +255,9 @@ where
                 terminal_aggregate_expr(terminal_kind),
             )?
         else {
-            return Err(invariant("terminal value projection result kind mismatch"));
+            return Err(crate::db::error::executor_invariant(
+                "terminal value projection result kind mismatch",
+            ));
         };
         let Some(selected_id) = selected_id else {
             return Ok(None);
@@ -536,7 +538,7 @@ where
             });
         }
         if !prefix_specs.is_empty() {
-            return Err(invariant(
+            return Err(crate::db::error::executor_invariant(
                 "covering projection index-prefix path requires one lowered prefix spec",
             ));
         }
@@ -558,19 +560,15 @@ where
             });
         }
         if !range_specs.is_empty() {
-            return Err(invariant(
+            return Err(crate::db::error::executor_invariant(
                 "covering projection index-range path requires one lowered range spec",
             ));
         }
 
-        Err(invariant(
+        Err(crate::db::error::executor_invariant(
             "covering projection component scans require index-backed access paths",
         ))
     }
-}
-
-fn invariant(message: impl Into<String>) -> InternalError {
-    InternalError::query_executor_invariant(message)
 }
 
 fn terminal_aggregate_expr(kind: AggregateKind) -> AggregateExpr {

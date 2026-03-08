@@ -1,7 +1,10 @@
-use crate::db::query::plan::{
-    OrderSpec, QueryMode,
-    validate::plan_shape::{has_explicit_order, validate_order_shape},
-    validate::{IntentKeyAccessKind, IntentKeyAccessPolicyViolation, PolicyPlanError},
+use crate::db::{
+    contracts::first_violated_rule,
+    query::plan::{
+        OrderSpec, QueryMode,
+        validate::plan_shape::{has_explicit_order, validate_order_shape},
+        validate::{IntentKeyAccessKind, IntentKeyAccessPolicyViolation, PolicyPlanError},
+    },
 };
 
 ///
@@ -41,61 +44,39 @@ impl IntentPlanShapePolicyContext {
     }
 }
 
-///
-/// IntentPlanShapePolicyRule
-/// Declarative intent plan-shape rule: one reason + one violation predicate.
-///
-
-#[derive(Clone, Copy)]
-struct IntentPlanShapePolicyRule {
-    reason: PolicyPlanError,
-    violated: fn(IntentPlanShapePolicyContext) -> bool,
-}
-
-impl IntentPlanShapePolicyRule {
-    #[must_use]
-    const fn new(
-        reason: PolicyPlanError,
-        violated: fn(IntentPlanShapePolicyContext) -> bool,
-    ) -> Self {
-        Self { reason, violated }
-    }
-}
+type IntentPlanShapePolicyRule = fn(IntentPlanShapePolicyContext) -> Option<PolicyPlanError>;
 
 const INTENT_PLAN_SHAPE_POLICY_RULES: &[IntentPlanShapePolicyRule] = &[
-    IntentPlanShapePolicyRule::new(
-        PolicyPlanError::DeletePlanWithOffset,
-        intent_delete_offset_violated,
-    ),
-    IntentPlanShapePolicyRule::new(
-        PolicyPlanError::DeletePlanWithGrouping,
-        intent_delete_grouping_violated,
-    ),
-    IntentPlanShapePolicyRule::new(
-        PolicyPlanError::DeleteLimitRequiresOrder,
-        intent_delete_limit_requires_order_violated,
-    ),
+    intent_delete_offset_violation,
+    intent_delete_grouping_violation,
+    intent_delete_limit_requires_order_violation,
 ];
 
-const fn intent_delete_offset_violated(ctx: IntentPlanShapePolicyContext) -> bool {
-    ctx.is_delete_mode && ctx.has_delete_offset
-}
-
-const fn intent_delete_grouping_violated(ctx: IntentPlanShapePolicyContext) -> bool {
-    ctx.is_delete_mode && ctx.grouped
-}
-
-const fn intent_delete_limit_requires_order_violated(ctx: IntentPlanShapePolicyContext) -> bool {
-    ctx.is_delete_mode && ctx.has_delete_limit && !ctx.has_order
-}
-
-fn first_intent_plan_shape_policy_violation(
+const fn intent_delete_offset_violation(
     ctx: IntentPlanShapePolicyContext,
 ) -> Option<PolicyPlanError> {
-    for rule in INTENT_PLAN_SHAPE_POLICY_RULES {
-        if (rule.violated)(ctx) {
-            return Some(rule.reason);
-        }
+    if ctx.is_delete_mode && ctx.has_delete_offset {
+        return Some(PolicyPlanError::DeletePlanWithOffset);
+    }
+
+    None
+}
+
+const fn intent_delete_grouping_violation(
+    ctx: IntentPlanShapePolicyContext,
+) -> Option<PolicyPlanError> {
+    if ctx.is_delete_mode && ctx.grouped {
+        return Some(PolicyPlanError::DeletePlanWithGrouping);
+    }
+
+    None
+}
+
+const fn intent_delete_limit_requires_order_violation(
+    ctx: IntentPlanShapePolicyContext,
+) -> Option<PolicyPlanError> {
+    if ctx.is_delete_mode && ctx.has_delete_limit && !ctx.has_order {
+        return Some(PolicyPlanError::DeleteLimitRequiresOrder);
     }
 
     None
@@ -133,57 +114,40 @@ impl IntentKeyAccessPolicyContext {
     }
 }
 
-// Declarative key-access rule: one violation reason + one predicate.
-#[derive(Clone, Copy)]
-struct IntentKeyAccessPolicyRule {
-    reason: IntentKeyAccessPolicyViolation,
-    violated: fn(IntentKeyAccessPolicyContext) -> bool,
-}
-
-impl IntentKeyAccessPolicyRule {
-    #[must_use]
-    const fn new(
-        reason: IntentKeyAccessPolicyViolation,
-        violated: fn(IntentKeyAccessPolicyContext) -> bool,
-    ) -> Self {
-        Self { reason, violated }
-    }
-}
+type IntentKeyAccessPolicyRule =
+    fn(IntentKeyAccessPolicyContext) -> Option<IntentKeyAccessPolicyViolation>;
 
 const INTENT_KEY_ACCESS_POLICY_RULES: &[IntentKeyAccessPolicyRule] = &[
-    IntentKeyAccessPolicyRule::new(
-        IntentKeyAccessPolicyViolation::KeyAccessConflict,
-        intent_key_access_conflict_violated,
-    ),
-    IntentKeyAccessPolicyRule::new(
-        IntentKeyAccessPolicyViolation::ByIdsWithPredicate,
-        intent_by_ids_with_predicate_violated,
-    ),
-    IntentKeyAccessPolicyRule::new(
-        IntentKeyAccessPolicyViolation::OnlyWithPredicate,
-        intent_only_with_predicate_violated,
-    ),
+    intent_key_access_conflict_violation,
+    intent_by_ids_with_predicate_violation,
+    intent_only_with_predicate_violation,
 ];
 
-const fn intent_key_access_conflict_violated(ctx: IntentKeyAccessPolicyContext) -> bool {
-    ctx.has_key_access_conflict
-}
-
-const fn intent_by_ids_with_predicate_violated(ctx: IntentKeyAccessPolicyContext) -> bool {
-    ctx.is_many_selector && ctx.has_predicate
-}
-
-const fn intent_only_with_predicate_violated(ctx: IntentKeyAccessPolicyContext) -> bool {
-    ctx.is_only_selector && ctx.has_predicate
-}
-
-fn first_intent_key_access_policy_violation(
+const fn intent_key_access_conflict_violation(
     ctx: IntentKeyAccessPolicyContext,
 ) -> Option<IntentKeyAccessPolicyViolation> {
-    for rule in INTENT_KEY_ACCESS_POLICY_RULES {
-        if (rule.violated)(ctx) {
-            return Some(rule.reason);
-        }
+    if ctx.has_key_access_conflict {
+        return Some(IntentKeyAccessPolicyViolation::KeyAccessConflict);
+    }
+
+    None
+}
+
+const fn intent_by_ids_with_predicate_violation(
+    ctx: IntentKeyAccessPolicyContext,
+) -> Option<IntentKeyAccessPolicyViolation> {
+    if ctx.is_many_selector && ctx.has_predicate {
+        return Some(IntentKeyAccessPolicyViolation::ByIdsWithPredicate);
+    }
+
+    None
+}
+
+const fn intent_only_with_predicate_violation(
+    ctx: IntentKeyAccessPolicyContext,
+) -> Option<IntentKeyAccessPolicyViolation> {
+    if ctx.is_only_selector && ctx.has_predicate {
+        return Some(IntentKeyAccessPolicyViolation::OnlyWithPredicate);
     }
 
     None
@@ -205,7 +169,7 @@ pub(crate) fn validate_intent_plan_shape(
         delete_has_offset,
         matches!(&mode, QueryMode::Delete(spec) if spec.limit.is_some()),
     );
-    if let Some(reason) = first_intent_plan_shape_policy_violation(context) {
+    if let Some(reason) = first_violated_rule(INTENT_PLAN_SHAPE_POLICY_RULES, context) {
         return Err(reason);
     }
 
@@ -224,7 +188,7 @@ pub(crate) fn validate_intent_key_access_policy(
         has_predicate,
     );
 
-    if let Some(reason) = first_intent_key_access_policy_violation(context) {
+    if let Some(reason) = first_violated_rule(INTENT_KEY_ACCESS_POLICY_RULES, context) {
         return Err(reason);
     }
 

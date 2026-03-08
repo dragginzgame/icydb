@@ -241,7 +241,7 @@ impl<K> ExecutableAccessPath<'_, K> {
         K: Copy + Ord,
     {
         let [spec] = index_prefix_specs else {
-            return Err(invariant(
+            return Err(crate::db::error::executor_invariant(
                 "index-prefix execution requires pre-lowered index-prefix spec",
             ));
         };
@@ -274,7 +274,7 @@ impl<K> ExecutableAccessPath<'_, K> {
         K: Copy + Ord,
     {
         if index_prefix_specs.len() != value_count {
-            return Err(invariant(
+            return Err(crate::db::error::executor_invariant(
                 "index-multi-lookup execution requires one pre-lowered prefix spec per lookup value",
             ));
         }
@@ -309,7 +309,7 @@ impl<K> ExecutableAccessPath<'_, K> {
         K: Copy + Ord,
     {
         let Some(spec) = index_range_spec else {
-            return Err(invariant(
+            return Err(crate::db::error::executor_invariant(
                 "index-range execution requires pre-lowered index-range spec",
             ));
         };
@@ -331,8 +331,4 @@ impl<K> ExecutableAccessPath<'_, K> {
 
         Ok((keys, key_order_state))
     }
-}
-
-fn invariant(message: impl Into<String>) -> InternalError {
-    InternalError::query_executor_invariant(message)
 }

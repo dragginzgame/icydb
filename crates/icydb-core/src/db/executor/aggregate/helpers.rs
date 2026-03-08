@@ -185,7 +185,7 @@ where
             return Ok(None);
         };
         let Some((max_id, _)) = max_candidate else {
-            return Err(invariant(
+            return Err(crate::db::error::executor_invariant(
                 "min_max(field) reduction produced a min id without a max id",
             ));
         };
@@ -237,7 +237,7 @@ where
         let decode_row = |row| {
             let mut decoded = Context::<E>::deserialize_rows(vec![(key.clone(), row)])?;
             let Some((_, entity)) = decoded.pop() else {
-                return Err(invariant(
+                return Err(crate::db::error::executor_invariant(
                     "field-extrema row decode expected one decoded entity",
                 ));
             };
@@ -260,8 +260,11 @@ where
     pub(in crate::db::executor) fn field_extrema_aggregate_direction(
         kind: AggregateKind,
     ) -> Result<Direction, InternalError> {
-        aggregate_extrema_direction(kind)
-            .ok_or_else(|| invariant("field-target aggregate direction requires MIN/MAX terminal"))
+        aggregate_extrema_direction(kind).ok_or_else(|| {
+            crate::db::error::executor_invariant(
+                "field-target aggregate direction requires MIN/MAX terminal",
+            )
+        })
     }
 
     // Adapter so aggregate submodules keep one internal mapping entrypoint while
@@ -271,8 +274,4 @@ where
     ) -> InternalError {
         err.into_internal_error()
     }
-}
-
-fn invariant(message: impl Into<String>) -> InternalError {
-    InternalError::query_executor_invariant(message)
 }

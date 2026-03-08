@@ -122,7 +122,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
         E: EntityValue,
     {
         if !self.mode().is_load() {
-            return Err(invariant(
+            return Err(crate::db::error::executor_invariant(
                 "load execution descriptor requires load-mode executable plans",
             ));
         }
@@ -138,7 +138,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
         E: EntityValue,
     {
         if !self.mode().is_load() {
-            return Err(invariant(
+            return Err(crate::db::error::executor_invariant(
                 "load execution verbose diagnostics require load-mode executable plans",
             ));
         }
@@ -261,7 +261,9 @@ impl<E: EntityKind> ExecutablePlan<E> {
         &self,
     ) -> Result<&[LoweredIndexPrefixSpec], InternalError> {
         if self.index_prefix_spec_invalid {
-            return Err(invariant(LOWERED_INDEX_PREFIX_SPEC_INVALID));
+            return Err(crate::db::error::executor_invariant(
+                LOWERED_INDEX_PREFIX_SPEC_INVALID,
+            ));
         }
 
         Ok(self.index_prefix_specs.as_slice())
@@ -271,7 +273,9 @@ impl<E: EntityKind> ExecutablePlan<E> {
         &self,
     ) -> Result<&[LoweredIndexRangeSpec], InternalError> {
         if self.index_range_spec_invalid {
-            return Err(invariant(LOWERED_INDEX_RANGE_SPEC_INVALID));
+            return Err(crate::db::error::executor_invariant(
+                LOWERED_INDEX_RANGE_SPEC_INVALID,
+            ));
         }
 
         Ok(self.index_range_specs.as_slice())
@@ -296,7 +300,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
         cursor: PlannedCursor,
     ) -> Result<PlannedCursor, InternalError> {
         let Some(contract) = self.continuation.as_ref() else {
-            return Err(invariant(
+            return Err(crate::db::error::executor_invariant(
                 "continuation cursors are only supported for load plans",
             ));
         };
@@ -328,7 +332,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
         cursor: GroupedPlannedCursor,
     ) -> Result<GroupedPlannedCursor, InternalError> {
         let Some(contract) = self.continuation.as_ref() else {
-            return Err(invariant(
+            return Err(crate::db::error::executor_invariant(
                 "grouped cursor revalidation requires grouped logical plans",
             ));
         };
@@ -350,7 +354,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
     pub(in crate::db) fn grouped_cursor_boundary_arity(&self) -> Result<usize, InternalError> {
         let contract = self.continuation_contract()?;
         if !contract.is_grouped() {
-            return Err(invariant(
+            return Err(crate::db::error::executor_invariant(
                 "grouped cursor boundary arity requires grouped logical plans",
             ));
         }
@@ -371,14 +375,12 @@ impl<E: EntityKind> ExecutablePlan<E> {
 
     // Borrow immutable continuation contract for load-mode plans.
     fn continuation_contract(&self) -> Result<&ContinuationContract<E::Key>, InternalError> {
-        self.continuation
-            .as_ref()
-            .ok_or_else(|| invariant("continuation contracts are only supported for load plans"))
+        self.continuation.as_ref().ok_or_else(|| {
+            crate::db::error::executor_invariant(
+                "continuation contracts are only supported for load plans",
+            )
+        })
     }
-}
-
-fn invariant(message: impl Into<String>) -> InternalError {
-    InternalError::query_executor_invariant(message)
 }
 
 fn cursor_plan_error(message: impl Into<String>) -> ExecutorPlanError {

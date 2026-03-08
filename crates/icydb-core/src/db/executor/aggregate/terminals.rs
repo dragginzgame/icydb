@@ -63,7 +63,9 @@ where
 
         match ExecutionKernel::execute_aggregate_spec(self, plan, count())? {
             AggregateOutput::Count(value) => Ok(value),
-            _ => Err(invariant("aggregate COUNT result kind mismatch")),
+            _ => Err(crate::db::error::executor_invariant(
+                "aggregate COUNT result kind mismatch",
+            )),
         }
     }
 
@@ -85,7 +87,9 @@ where
 
         match ExecutionKernel::execute_aggregate_spec(self, plan, exists())? {
             AggregateOutput::Exists(value) => Ok(value),
-            _ => Err(invariant("aggregate EXISTS result kind mismatch")),
+            _ => Err(crate::db::error::executor_invariant(
+                "aggregate EXISTS result kind mismatch",
+            )),
         }
     }
 
@@ -96,7 +100,9 @@ where
     ) -> Result<Option<Id<E>>, InternalError> {
         match ExecutionKernel::execute_aggregate_spec(self, plan, min())? {
             AggregateOutput::Min(value) => Ok(value),
-            _ => Err(invariant("aggregate MIN result kind mismatch")),
+            _ => Err(crate::db::error::executor_invariant(
+                "aggregate MIN result kind mismatch",
+            )),
         }
     }
 
@@ -107,7 +113,9 @@ where
     ) -> Result<Option<Id<E>>, InternalError> {
         match ExecutionKernel::execute_aggregate_spec(self, plan, max())? {
             AggregateOutput::Max(value) => Ok(value),
-            _ => Err(invariant("aggregate MAX result kind mismatch")),
+            _ => Err(crate::db::error::executor_invariant(
+                "aggregate MAX result kind mismatch",
+            )),
         }
     }
 
@@ -122,7 +130,9 @@ where
             .map_err(Self::map_aggregate_field_value_error)?;
         match ExecutionKernel::execute_aggregate_spec(self, plan, min_by(target_field.field()))? {
             AggregateOutput::Min(value) => Ok(value),
-            _ => Err(invariant("aggregate MIN(field) result kind mismatch")),
+            _ => Err(crate::db::error::executor_invariant(
+                "aggregate MIN(field) result kind mismatch",
+            )),
         }
     }
 
@@ -137,7 +147,9 @@ where
             .map_err(Self::map_aggregate_field_value_error)?;
         match ExecutionKernel::execute_aggregate_spec(self, plan, max_by(target_field.field()))? {
             AggregateOutput::Max(value) => Ok(value),
-            _ => Err(invariant("aggregate MAX(field) result kind mismatch")),
+            _ => Err(crate::db::error::executor_invariant(
+                "aggregate MAX(field) result kind mismatch",
+            )),
         }
     }
 
@@ -192,7 +204,9 @@ where
     ) -> Result<Option<Id<E>>, InternalError> {
         match ExecutionKernel::execute_aggregate_spec(self, plan, first())? {
             AggregateOutput::First(value) => Ok(value),
-            _ => Err(invariant("aggregate FIRST result kind mismatch")),
+            _ => Err(crate::db::error::executor_invariant(
+                "aggregate FIRST result kind mismatch",
+            )),
         }
     }
 
@@ -203,7 +217,9 @@ where
     ) -> Result<Option<Id<E>>, InternalError> {
         match ExecutionKernel::execute_aggregate_spec(self, plan, last())? {
             AggregateOutput::Last(value) => Ok(value),
-            _ => Err(invariant("aggregate LAST result kind mismatch")),
+            _ => Err(crate::db::error::executor_invariant(
+                "aggregate LAST result kind mismatch",
+            )),
         }
     }
 
@@ -217,7 +233,7 @@ where
         let page = plan.page_spec().cloned();
         let access_strategy = plan.access().resolve_strategy();
         let Some(path) = access_strategy.as_path() else {
-            return Err(invariant(
+            return Err(crate::db::error::executor_invariant(
                 "pk cardinality COUNT fast path requires single-path access strategy",
             ));
         };
@@ -243,7 +259,7 @@ where
                     Ok(count)
                 })??,
             _ => {
-                return Err(invariant(
+                return Err(crate::db::error::executor_invariant(
                     "pk cardinality COUNT fast path requires full-scan or key-range access",
                 ));
             }
@@ -305,7 +321,9 @@ where
 
         match aggregate_output {
             AggregateOutput::Count(value) => Ok(value),
-            _ => Err(invariant("existing-row COUNT reducer result kind mismatch")),
+            _ => Err(crate::db::error::executor_invariant(
+                "existing-row COUNT reducer result kind mismatch",
+            )),
         }
     }
 
@@ -358,7 +376,9 @@ where
 
         match aggregate_output {
             AggregateOutput::Exists(value) => Ok(value),
-            _ => Err(invariant("covering EXISTS reducer result kind mismatch")),
+            _ => Err(crate::db::error::executor_invariant(
+                "covering EXISTS reducer result kind mismatch",
+            )),
         }
     }
 }
@@ -389,8 +409,4 @@ fn count_window_result_from_page(page: Option<&PageSpec>, available_rows: usize)
 
 fn usize_to_u32_saturating(value: usize) -> u32 {
     u32::try_from(value).unwrap_or(u32::MAX)
-}
-
-fn invariant(message: impl Into<String>) -> InternalError {
-    InternalError::query_executor_invariant(message)
 }

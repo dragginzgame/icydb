@@ -20,6 +20,7 @@ pub(in crate::db) mod codec;
 pub(in crate::db) mod commit;
 pub(in crate::db) mod data;
 pub(in crate::db) mod direction;
+pub(in crate::db) mod error;
 pub(in crate::db) mod executor;
 pub(in crate::db) mod index;
 pub(in crate::db) mod numeric;

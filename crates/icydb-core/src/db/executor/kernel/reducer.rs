@@ -123,7 +123,7 @@ where
                     FoldControl::Break => ReducerControl::StopEarly,
                 })
             }
-            StreamItem::Row(_row) => Err(invariant(
+            StreamItem::Row(_row) => Err(crate::db::error::executor_invariant(
                 "aggregate state reducer received row item for key-only input mode",
             )),
         }
@@ -153,7 +153,7 @@ where
     fn on_item(&mut self, item: StreamItem<'_, E>) -> Result<ReducerControl, InternalError> {
         match item {
             StreamItem::Row(_row) => Ok(ReducerControl::Continue),
-            StreamItem::Key(_key) => Err(invariant(
+            StreamItem::Key(_key) => Err(crate::db::error::executor_invariant(
                 "row collector reducer received key item for row-only input mode",
             )),
         }
@@ -242,7 +242,7 @@ impl ExecutionKernel {
     {
         // Phase 1: enforce reducer input-mode contract and initialize window counters.
         if !matches!(R::INPUT_MODE, StreamInputMode::KeyOnly) {
-            return Err(invariant(
+            return Err(crate::db::error::executor_invariant(
                 "key-stream reducer runner currently supports key-only reducers",
             ));
         }
@@ -290,7 +290,7 @@ impl ExecutionKernel {
     {
         // Phase 1: enforce reducer input-mode contract and initialize row staging.
         if !matches!(R::INPUT_MODE, StreamInputMode::RowOnly) {
-            return Err(invariant(
+            return Err(crate::db::error::executor_invariant(
                 "row-stream reducer runner requires row-only reducer input mode",
             ));
         }
@@ -311,7 +311,7 @@ impl ExecutionKernel {
 
             // Ephemeral staging contract: pass a borrow scoped to this call only.
             let Some((_, staged_entity)) = rows.last() else {
-                return Err(invariant(
+                return Err(crate::db::error::executor_invariant(
                     "row-stream reducer staging unexpectedly missing last row",
                 ));
             };
@@ -387,7 +387,7 @@ impl ExecutionKernel {
         E: EntityKind + EntityValue,
     {
         if !Self::aggregate_fold_mode_matches_terminal(kind, mode) {
-            return Err(invariant(
+            return Err(crate::db::error::executor_invariant(
                 "aggregate fold mode must match route fold-mode contract for aggregate terminal",
             ));
         }
@@ -400,8 +400,4 @@ impl ExecutionKernel {
             AggregateStateReducer::<E>::new(kind, direction),
         )
     }
-}
-
-fn invariant(message: impl Into<String>) -> InternalError {
-    InternalError::query_executor_invariant(message)
 }

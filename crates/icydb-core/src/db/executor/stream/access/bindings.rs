@@ -105,12 +105,12 @@ impl<'a> AccessSpecCursor<'a> {
     /// Enforce that all lowered specs were consumed during access-plan traversal.
     pub(in crate::db::executor) fn validate_consumed(&self) -> Result<(), InternalError> {
         if self.index_prefix_offset < self.index_prefix_specs.len() {
-            return Err(invariant(
+            return Err(crate::db::error::executor_invariant(
                 "unused index-prefix executable specs after access-plan traversal",
             ));
         }
         if self.index_range_offset < self.index_range_specs.len() {
-            return Err(invariant(
+            return Err(crate::db::error::executor_invariant(
                 "unused index-range executable specs after access-plan traversal",
             ));
         }
@@ -296,8 +296,4 @@ impl<'a> AccessScanContinuationInput<'a> {
 pub(in crate::db) struct StreamExecutionHints<'a> {
     pub(in crate::db) physical_fetch_hint: Option<usize>,
     pub(in crate::db) predicate_execution: Option<IndexPredicateExecution<'a>>,
-}
-
-fn invariant(message: impl Into<String>) -> InternalError {
-    InternalError::query_executor_invariant(message)
 }

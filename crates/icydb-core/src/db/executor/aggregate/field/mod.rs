@@ -71,7 +71,7 @@ impl AggregateFieldValueError {
             }
             Self::MissingFieldValue { .. }
             | Self::FieldValueTypeMismatch { .. }
-            | Self::IncomparableFieldValues { .. } => invariant(message),
+            | Self::IncomparableFieldValues { .. } => crate::db::error::executor_invariant(message),
         }
     }
 }
@@ -394,7 +394,3 @@ pub(in crate::db::executor) const fn apply_aggregate_direction(
 
 #[cfg(test)]
 mod tests;
-
-fn invariant(message: impl Into<String>) -> InternalError {
-    InternalError::query_executor_invariant(message)
-}

@@ -8,6 +8,7 @@ mod contracts;
 mod entrypoints;
 mod execute;
 mod fast_stream;
+mod fast_stream_route;
 mod grouped_distinct;
 mod grouped_fold;
 mod grouped_having;
@@ -20,8 +21,6 @@ mod pk_stream;
 mod projection;
 mod secondary_index;
 mod terminal;
-
-use crate::error::InternalError;
 
 pub(crate) use self::contracts::{CursorPage, LoadExecutor};
 pub(in crate::db::executor) use self::contracts::{
@@ -41,12 +40,13 @@ pub(in crate::db::executor) use self::execute::{
     ExecutionInputs, ExecutionInputsProjection, MaterializedExecutionAttempt,
     ResolvedExecutionKeyStream,
 };
+pub(in crate::db::executor::load) use self::fast_stream_route::{
+    FastStreamRouteKind, FastStreamRouteRequest,
+};
 pub(in crate::db::executor::load) use self::grouped_runtime::{
     GroupedContinuationCapabilities, GroupedContinuationContext, GroupedExecutionContext,
     GroupedPaginationWindow, GroupedRuntimeProjection,
 };
 pub(in crate::db::executor) use self::page::PageMaterializationRequest;
 
-pub(in crate::db::executor::load) fn invariant(message: impl Into<String>) -> InternalError {
-    InternalError::query_executor_invariant(message)
-}
+pub(in crate::db::executor::load) use crate::db::error::executor_invariant as invariant;

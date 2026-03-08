@@ -7,9 +7,8 @@ use crate::{
     db::{
         Context,
         executor::{
-            AccessExecutionDescriptor, AccessScanContinuationInput, AccessStreamBindings,
-            ExecutionOptimization, LoweredIndexRangeSpec,
-            load::{FastPathKeyResult, LoadExecutor},
+            AccessScanContinuationInput, LoweredIndexRangeSpec,
+            load::{FastPathKeyResult, FastStreamRouteKind, FastStreamRouteRequest, LoadExecutor},
         },
         index::predicate::IndexPredicateExecution,
         query::plan::AccessPlannedQuery,
@@ -31,42 +30,16 @@ where
         effective_fetch: usize,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
-        // Phase 1: verify access-path and executable spec materialization invariants.
-        let access_strategy = plan.access_strategy();
-        let Some(executable_path) = access_strategy.as_path() else {
-            return Ok(None);
-        };
-        let path_capabilities = executable_path.capabilities();
-        let Some(index) = path_capabilities.index_range_model() else {
-            return Ok(None);
-        };
-        let Some(index_range_spec) = index_range_spec else {
-            return Err(invariant(
-                "index-range executable spec must be materialized for index-range plans",
-            ));
-        };
-        debug_assert_eq!(
-            index_range_spec.index(),
-            &index,
-            "index-range fast-path spec/index alignment must be validated by resolver",
-        );
-
-        // Phase 2: bind range/anchor inputs and execute through shared fast-stream helper.
-        let descriptor = AccessExecutionDescriptor::from_executable_bindings(
-            access_strategy.into_executable(),
-            AccessStreamBindings::with_index_range_continuation(index_range_spec, continuation),
-            Some(effective_fetch),
-            index_predicate_execution,
-        );
-
-        Ok(Some(Self::execute_fast_stream_request(
+        Self::execute_fast_stream_route(
             ctx,
-            descriptor,
-            ExecutionOptimization::IndexRangeLimitPushdown,
-        )?))
+            FastStreamRouteKind::IndexRangeLimitPushdown,
+            FastStreamRouteRequest::IndexRangeLimitPushdown {
+                plan,
+                index_range_spec,
+                continuation,
+                effective_fetch,
+                index_predicate_execution,
+            },
+        )
     }
-}
-
-fn invariant(message: impl Into<String>) -> InternalError {
-    InternalError::query_executor_invariant(message)
 }

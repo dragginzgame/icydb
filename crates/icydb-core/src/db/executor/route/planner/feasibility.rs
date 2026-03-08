@@ -5,6 +5,7 @@
 
 use crate::{
     db::{
+        contracts::first_violated_rule,
         direction::Direction,
         executor::{
             aggregate::AggregateKind,
@@ -55,46 +56,17 @@ impl IndexRangeLimitGateContext {
     }
 }
 
-///
-/// IndexRangeLimitFeasibilityRule
-///
-/// Declarative feasibility rule for index-range pushdown pre-gates.
-/// Rules are evaluated in order, and first violation short-circuits derivation.
-///
-
-#[derive(Clone, Copy)]
-struct IndexRangeLimitFeasibilityRule {
-    reason: IndexRangeLimitGateReason,
-    violated: fn(IndexRangeLimitGateContext) -> bool,
-}
-
-impl IndexRangeLimitFeasibilityRule {
-    #[must_use]
-    const fn new(
-        reason: IndexRangeLimitGateReason,
-        violated: fn(IndexRangeLimitGateContext) -> bool,
-    ) -> Self {
-        Self { reason, violated }
-    }
-}
+type IndexRangeLimitFeasibilityRule =
+    fn(IndexRangeLimitGateContext) -> Option<IndexRangeLimitGateReason>;
 
 const INDEX_RANGE_LIMIT_FEASIBILITY_RULES: &[IndexRangeLimitFeasibilityRule] =
-    &[IndexRangeLimitFeasibilityRule::new(
-        IndexRangeLimitGateReason::GroupedIntent,
-        index_range_limit_gate_grouped_violated,
-    )];
+    &[index_range_limit_gate_grouped_violation];
 
-const fn index_range_limit_gate_grouped_violated(ctx: IndexRangeLimitGateContext) -> bool {
-    ctx.grouped
-}
-
-fn index_range_limit_gate_rejection(
+const fn index_range_limit_gate_grouped_violation(
     ctx: IndexRangeLimitGateContext,
 ) -> Option<IndexRangeLimitGateReason> {
-    for rule in INDEX_RANGE_LIMIT_FEASIBILITY_RULES {
-        if (rule.violated)(ctx) {
-            return Some(rule.reason);
-        }
+    if ctx.grouped {
+        return Some(IndexRangeLimitGateReason::GroupedIntent);
     }
 
     None
@@ -136,53 +108,28 @@ impl LoadScanHintGateContext {
     }
 }
 
-///
-/// LoadScanHintFeasibilityRule
-///
-/// Declarative feasibility rule for load-bound scan hints.
-/// Rules are evaluated in order, and first violation short-circuits hint derivation.
-///
-
-#[derive(Clone, Copy)]
-struct LoadScanHintFeasibilityRule {
-    reason: LoadScanHintGateReason,
-    violated: fn(LoadScanHintGateContext) -> bool,
-}
-
-impl LoadScanHintFeasibilityRule {
-    #[must_use]
-    const fn new(
-        reason: LoadScanHintGateReason,
-        violated: fn(LoadScanHintGateContext) -> bool,
-    ) -> Self {
-        Self { reason, violated }
-    }
-}
+type LoadScanHintFeasibilityRule = fn(LoadScanHintGateContext) -> Option<LoadScanHintGateReason>;
 
 const LOAD_SCAN_HINT_FEASIBILITY_RULES: &[LoadScanHintFeasibilityRule] = &[
-    LoadScanHintFeasibilityRule::new(
-        LoadScanHintGateReason::AggregateIntent,
-        load_scan_hint_gate_aggregate_intent_violated,
-    ),
-    LoadScanHintFeasibilityRule::new(
-        LoadScanHintGateReason::GroupedIntent,
-        load_scan_hint_gate_grouped_intent_violated,
-    ),
+    load_scan_hint_gate_aggregate_intent_violation,
+    load_scan_hint_gate_grouped_intent_violation,
 ];
 
-const fn load_scan_hint_gate_aggregate_intent_violated(ctx: LoadScanHintGateContext) -> bool {
-    ctx.has_aggregate
+const fn load_scan_hint_gate_aggregate_intent_violation(
+    ctx: LoadScanHintGateContext,
+) -> Option<LoadScanHintGateReason> {
+    if ctx.has_aggregate {
+        return Some(LoadScanHintGateReason::AggregateIntent);
+    }
+
+    None
 }
 
-const fn load_scan_hint_gate_grouped_intent_violated(ctx: LoadScanHintGateContext) -> bool {
-    ctx.grouped
-}
-
-fn load_scan_hint_gate_rejection(ctx: LoadScanHintGateContext) -> Option<LoadScanHintGateReason> {
-    for rule in LOAD_SCAN_HINT_FEASIBILITY_RULES {
-        if (rule.violated)(ctx) {
-            return Some(rule.reason);
-        }
+const fn load_scan_hint_gate_grouped_intent_violation(
+    ctx: LoadScanHintGateContext,
+) -> Option<LoadScanHintGateReason> {
+    if ctx.grouped {
+        return Some(LoadScanHintGateReason::GroupedIntent);
     }
 
     None
@@ -213,7 +160,7 @@ where
         let kind = intent_stage.kind();
         let index_range_limit_gate = IndexRangeLimitGateContext::new(intent_stage.grouped);
         let index_range_limit_gate_rejection =
-            index_range_limit_gate_rejection(index_range_limit_gate);
+            first_violated_rule(INDEX_RANGE_LIMIT_FEASIBILITY_RULES, index_range_limit_gate);
 
         // COUNT fold-mode discipline: non-count pushdowns must not route COUNT
         // through non-COUNT streaming fast paths.
@@ -320,7 +267,8 @@ where
             Self::is_count_pushdown_eligible(aggregate_kind, capabilities)
         });
         let load_scan_hint_gate = LoadScanHintGateContext::new(kind.is_some(), grouped);
-        let load_scan_hint_gate_rejection = load_scan_hint_gate_rejection(load_scan_hint_gate);
+        let load_scan_hint_gate_rejection =
+            first_violated_rule(LOAD_SCAN_HINT_FEASIBILITY_RULES, load_scan_hint_gate);
 
         // Aggregate probes must not assume DESC physical reverse traversal
         // when the access shape cannot emit descending order natively.

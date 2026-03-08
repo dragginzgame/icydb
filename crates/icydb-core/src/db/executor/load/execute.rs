@@ -275,8 +275,13 @@ enum FastPathDecision {
     None,
 }
 
-// Strategy selected once from route shape so key-stream resolution does not
-// branch inline on fast-path eligibility policy.
+///
+/// FastPathResolutionStrategy
+///
+/// Strategy selected once from route shape so key-stream resolution does not
+/// branch inline on fast-path eligibility policy.
+///
+
 enum FastPathResolutionStrategy {
     StreamingFastPathFirst,
     FallbackOnly,
@@ -310,8 +315,13 @@ impl FastPathResolutionStrategy {
     }
 }
 
-// Strategy selected once from verified fast-path route so route-specific stream
-// execution stays centralized.
+///
+/// FastPathRouteHandler
+///
+/// Strategy selected once from verified fast-path route so route-specific stream
+/// execution stays centralized.
+///
+
 enum FastPathRouteHandler {
     PrimaryKey,
     SecondaryPrefix,

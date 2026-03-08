@@ -34,15 +34,22 @@ use std::ops::Bound;
 ///
 
 pub(super) fn hash_access(hasher: &mut Sha256, access: &ExplainAccessPath) {
-    let mut projection = HashAccessProjection { hasher };
-    project_explain_access_path(access, &mut projection);
+    let mut visitor = FingerprintVisitor { hasher };
+    project_explain_access_path(access, &mut visitor);
 }
 
-struct HashAccessProjection<'a> {
+///
+/// FingerprintVisitor
+///
+/// Explain-access hash visitor that preserves canonical child-before-parent
+/// token ordering used by structural fingerprinting.
+///
+
+struct FingerprintVisitor<'a> {
     hasher: &'a mut Sha256,
 }
 
-impl AccessPlanProjection<Value> for HashAccessProjection<'_> {
+impl AccessPlanProjection<Value> for FingerprintVisitor<'_> {
     type Output = ();
 
     fn by_key(&mut self, key: &Value) -> Self::Output {
@@ -66,15 +73,15 @@ impl AccessPlanProjection<Value> for HashAccessProjection<'_> {
 
     fn index_prefix(
         &mut self,
-        index_name: &'static str,
-        index_fields: &[&'static str],
+        name: &'static str,
+        fields: &[&'static str],
         prefix_len: usize,
         values: &[Value],
     ) -> Self::Output {
         write_tag(self.hasher, 0x13);
-        write_str(self.hasher, index_name);
-        write_u32(self.hasher, index_fields.len() as u32);
-        for field in index_fields {
+        write_str(self.hasher, name);
+        write_u32(self.hasher, fields.len() as u32);
+        for field in fields {
             write_str(self.hasher, field);
         }
         write_u32(self.hasher, prefix_len as u32);
@@ -86,14 +93,14 @@ impl AccessPlanProjection<Value> for HashAccessProjection<'_> {
 
     fn index_multi_lookup(
         &mut self,
-        index_name: &'static str,
-        index_fields: &[&'static str],
+        name: &'static str,
+        fields: &[&'static str],
         values: &[Value],
     ) -> Self::Output {
         write_tag(self.hasher, 0x18);
-        write_str(self.hasher, index_name);
-        write_u32(self.hasher, index_fields.len() as u32);
-        for field in index_fields {
+        write_str(self.hasher, name);
+        write_u32(self.hasher, fields.len() as u32);
+        for field in fields {
             write_str(self.hasher, field);
         }
         write_u32(self.hasher, values.len() as u32);
@@ -104,17 +111,17 @@ impl AccessPlanProjection<Value> for HashAccessProjection<'_> {
 
     fn index_range(
         &mut self,
-        index_name: &'static str,
-        index_fields: &[&'static str],
+        name: &'static str,
+        fields: &[&'static str],
         prefix_len: usize,
         prefix: &[Value],
         lower: &Bound<Value>,
         upper: &Bound<Value>,
     ) -> Self::Output {
         write_tag(self.hasher, 0x17);
-        write_str(self.hasher, index_name);
-        write_u32(self.hasher, index_fields.len() as u32);
-        for field in index_fields {
+        write_str(self.hasher, name);
+        write_u32(self.hasher, fields.len() as u32);
+        for field in fields {
             write_str(self.hasher, field);
         }
         write_u32(self.hasher, prefix_len as u32);

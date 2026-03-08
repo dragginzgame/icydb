@@ -1,7 +1,10 @@
-use crate::db::query::plan::{
-    LoadSpec,
-    validate::cursor_policy::validate_cursor_paging_requirements,
-    validate::{CursorPagingPolicyError, FluentLoadPolicyViolation},
+use crate::db::{
+    contracts::first_violated_rule,
+    query::plan::{
+        LoadSpec,
+        validate::cursor_policy::validate_cursor_paging_requirements,
+        validate::{CursorPagingPolicyError, FluentLoadPolicyViolation},
+    },
 };
 
 ///
@@ -27,49 +30,29 @@ impl FluentNonPagedPolicyContext {
     }
 }
 
-// Declarative fluent non-paged policy rule evaluated in order.
-#[derive(Clone, Copy)]
-struct FluentNonPagedPolicyRule {
-    reason: FluentLoadPolicyViolation,
-    violated: fn(FluentNonPagedPolicyContext) -> bool,
-}
-
-impl FluentNonPagedPolicyRule {
-    #[must_use]
-    const fn new(
-        reason: FluentLoadPolicyViolation,
-        violated: fn(FluentNonPagedPolicyContext) -> bool,
-    ) -> Self {
-        Self { reason, violated }
-    }
-}
+type FluentNonPagedPolicyRule =
+    fn(FluentNonPagedPolicyContext) -> Option<FluentLoadPolicyViolation>;
 
 const FLUENT_NON_PAGED_POLICY_RULES: &[FluentNonPagedPolicyRule] = &[
-    FluentNonPagedPolicyRule::new(
-        FluentLoadPolicyViolation::CursorRequiresPagedExecution,
-        fluent_non_paged_cursor_token_violated,
-    ),
-    FluentNonPagedPolicyRule::new(
-        FluentLoadPolicyViolation::GroupedRequiresExecuteGrouped,
-        fluent_non_paged_grouped_violated,
-    ),
+    fluent_non_paged_cursor_token_violation,
+    fluent_non_paged_grouped_violation,
 ];
 
-const fn fluent_non_paged_cursor_token_violated(ctx: FluentNonPagedPolicyContext) -> bool {
-    ctx.has_cursor_token
-}
-
-const fn fluent_non_paged_grouped_violated(ctx: FluentNonPagedPolicyContext) -> bool {
-    ctx.has_grouping
-}
-
-fn first_fluent_non_paged_policy_violation(
+const fn fluent_non_paged_cursor_token_violation(
     ctx: FluentNonPagedPolicyContext,
 ) -> Option<FluentLoadPolicyViolation> {
-    for rule in FLUENT_NON_PAGED_POLICY_RULES {
-        if (rule.violated)(ctx) {
-            return Some(rule.reason);
-        }
+    if ctx.has_cursor_token {
+        return Some(FluentLoadPolicyViolation::CursorRequiresPagedExecution);
+    }
+
+    None
+}
+
+const fn fluent_non_paged_grouped_violation(
+    ctx: FluentNonPagedPolicyContext,
+) -> Option<FluentLoadPolicyViolation> {
+    if ctx.has_grouping {
+        return Some(FluentLoadPolicyViolation::GroupedRequiresExecuteGrouped);
     }
 
     None
@@ -94,39 +77,15 @@ impl FluentPagedPolicyContext {
     }
 }
 
-// Declarative fluent paged policy rule evaluated before cursor paging checks.
-#[derive(Clone, Copy)]
-struct FluentPagedPolicyRule {
-    reason: FluentLoadPolicyViolation,
-    violated: fn(FluentPagedPolicyContext) -> bool,
-}
+type FluentPagedPolicyRule = fn(FluentPagedPolicyContext) -> Option<FluentLoadPolicyViolation>;
 
-impl FluentPagedPolicyRule {
-    #[must_use]
-    const fn new(
-        reason: FluentLoadPolicyViolation,
-        violated: fn(FluentPagedPolicyContext) -> bool,
-    ) -> Self {
-        Self { reason, violated }
-    }
-}
+const FLUENT_PAGED_POLICY_RULES: &[FluentPagedPolicyRule] = &[fluent_paged_grouped_violation];
 
-const FLUENT_PAGED_POLICY_RULES: &[FluentPagedPolicyRule] = &[FluentPagedPolicyRule::new(
-    FluentLoadPolicyViolation::GroupedRequiresExecuteGrouped,
-    fluent_paged_grouped_violated,
-)];
-
-const fn fluent_paged_grouped_violated(ctx: FluentPagedPolicyContext) -> bool {
-    ctx.has_grouping
-}
-
-fn first_fluent_paged_policy_violation(
+const fn fluent_paged_grouped_violation(
     ctx: FluentPagedPolicyContext,
 ) -> Option<FluentLoadPolicyViolation> {
-    for rule in FLUENT_PAGED_POLICY_RULES {
-        if (rule.violated)(ctx) {
-            return Some(rule.reason);
-        }
+    if ctx.has_grouping {
+        return Some(FluentLoadPolicyViolation::GroupedRequiresExecuteGrouped);
     }
 
     None
@@ -138,7 +97,7 @@ pub(crate) fn validate_fluent_non_paged_mode(
     has_grouping: bool,
 ) -> Result<(), FluentLoadPolicyViolation> {
     let context = FluentNonPagedPolicyContext::new(has_cursor_token, has_grouping);
-    if let Some(reason) = first_fluent_non_paged_policy_violation(context) {
+    if let Some(reason) = first_violated_rule(FLUENT_NON_PAGED_POLICY_RULES, context) {
         return Err(reason);
     }
 
@@ -152,7 +111,7 @@ pub(crate) fn validate_fluent_paged_mode(
     spec: Option<LoadSpec>,
 ) -> Result<(), FluentLoadPolicyViolation> {
     let context = FluentPagedPolicyContext::new(has_grouping);
-    if let Some(reason) = first_fluent_paged_policy_violation(context) {
+    if let Some(reason) = first_violated_rule(FLUENT_PAGED_POLICY_RULES, context) {
         return Err(reason);
     }
 

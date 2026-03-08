@@ -80,18 +80,20 @@ where
         let access_strategy = plan.access_strategy();
         let access_class = access_strategy.class();
         if !access_class.single_path() {
-            return Err(invariant(
+            return Err(crate::db::error::executor_invariant(
                 "pk stream fast-path requires direct access-path execution",
             ));
         }
         if !access_class.single_path_supports_pk_stream_access() {
-            return Err(invariant(
+            return Err(crate::db::error::executor_invariant(
                 "pk stream fast-path requires full-scan/key-range access path",
             ));
         }
 
         let access = access_strategy.as_path().ok_or_else(|| {
-            invariant("pk stream fast-path requires direct access-path execution")
+            crate::db::error::executor_invariant(
+                "pk stream fast-path requires direct access-path execution",
+            )
         })?;
         debug_assert_eq!(
             access.capabilities().supports_pk_stream_access(),
@@ -123,8 +125,4 @@ where
         // kernel predicate compiler boundary.
         execution_preparation.strict_mode().is_none()
     }
-}
-
-fn invariant(message: impl Into<String>) -> InternalError {
-    InternalError::query_executor_invariant(message)
 }
