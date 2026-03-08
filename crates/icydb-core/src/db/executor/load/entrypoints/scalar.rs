@@ -1,5 +1,6 @@
 use crate::{
     db::{
+        access::single_path_capabilities,
         executor::{
             AccessStreamBindings, ExecutablePlan, ExecutionKernel, ExecutionPlan,
             ExecutionPreparation, ExecutionTrace, LoadCursorInput,
@@ -21,8 +22,13 @@ use crate::{
 };
 use std::time::Instant;
 
-// Strategy selected once for unpaged scalar execution hinting so the route-plan
-// mutation phase applies one mechanical outcome.
+///
+/// UnpagedLoadHintStrategy
+///
+/// Strategy selected once for unpaged scalar execution hinting so the route-plan
+/// mutation phase applies one mechanical outcome.
+///
+
 enum UnpagedLoadHintStrategy {
     None,
     TopNSeekWindow { fetch: usize },
@@ -30,7 +36,7 @@ enum UnpagedLoadHintStrategy {
 }
 
 impl UnpagedLoadHintStrategy {
-    fn resolve(
+    const fn resolve(
         resolved_continuation: &ResolvedScalarContinuationContext,
         unpaged_rows_mode: bool,
         top_n_seek_requires_lookahead: bool,
@@ -71,7 +77,7 @@ impl UnpagedLoadHintStrategy {
         Self::None
     }
 
-    fn apply(self, route_plan: &mut ExecutionPlan) {
+    const fn apply(self, route_plan: &mut ExecutionPlan) {
         match self {
             Self::None => {}
             Self::TopNSeekWindow { fetch } => {
@@ -159,7 +165,7 @@ where
         let top_n_seek_requires_lookahead = logical_plan
             .access_strategy()
             .as_path()
-            .map(|path| path.capabilities())
+            .map(single_path_capabilities)
             .is_some_and(|capabilities| capabilities.requires_top_n_seek_lookahead());
         let mut route_plan = Self::build_execution_route_plan_for_load(
             &logical_plan,
@@ -231,7 +237,7 @@ where
     // Unpaged `execute()` does not need continuation lookahead rows. For
     // route-eligible top-N seek windows, constrain both access probe and load
     // scan-budget hints to the keep-count window (without continuation +1).
-    fn apply_unpaged_top_n_seek_hints(
+    const fn apply_unpaged_top_n_seek_hints(
         resolved_continuation: &ResolvedScalarContinuationContext,
         unpaged_rows_mode: bool,
         top_n_seek_requires_lookahead: bool,

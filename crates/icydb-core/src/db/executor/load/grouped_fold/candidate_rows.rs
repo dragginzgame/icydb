@@ -13,8 +13,13 @@ use crate::{
     value::Value,
 };
 
-// Strategy selected once per grouped execution to avoid per-row branching on
-// bounded vs unbounded candidate buffering policy.
+///
+/// GroupedCandidateSink
+///
+/// Strategy selected once per grouped execution to avoid per-row branching on
+/// bounded vs unbounded candidate buffering policy.
+///
+
 enum GroupedCandidateSink {
     Bounded {
         rows: Vec<(Value, Vec<Value>)>,
@@ -27,7 +32,7 @@ enum GroupedCandidateSink {
 }
 
 impl GroupedCandidateSink {
-    fn new(selection_bound: Option<usize>, max_groups_bound: usize) -> Self {
+    const fn new(selection_bound: Option<usize>, max_groups_bound: usize) -> Self {
         match selection_bound {
             Some(selection_bound) => Self::Bounded {
                 rows: Vec::new(),
@@ -127,7 +132,6 @@ where
     }
 
     // Finalize grouped reducers into deterministic candidate rows before paging.
-    #[expect(clippy::too_many_lines)]
     pub(super) fn collect_grouped_candidate_rows<R>(
         route: &R,
         grouped_engines: Vec<AggregateEngine<E>>,

@@ -5,6 +5,7 @@
 
 use crate::{
     db::{
+        access::single_path_capabilities,
         direction::Direction,
         executor::{ExecutablePlan, load::LoadExecutor},
         query::plan::OrderDirection,
@@ -62,7 +63,7 @@ where
 
         let direction = bytes_terminal_direction_from_order::<E>(plan)?;
         let access_strategy = plan.access().resolve_strategy();
-        let capabilities = access_strategy.as_path().map(|path| path.capabilities())?;
+        let capabilities = access_strategy.as_path().map(single_path_capabilities)?;
 
         if capabilities.supports_bytes_terminal_primary_key_window() {
             return Some(BytesTerminalFastPathContract::PrimaryKeyWindow(direction));
@@ -81,7 +82,7 @@ where
         plan: &ExecutablePlan<E>,
     ) -> Option<CountTerminalFastPathContract> {
         let access_strategy = plan.access().resolve_strategy();
-        let capabilities = access_strategy.as_path().map(|path| path.capabilities())?;
+        let capabilities = access_strategy.as_path().map(single_path_capabilities)?;
 
         if !plan.is_distinct()
             && !plan.has_predicate()
@@ -123,7 +124,7 @@ where
         }
 
         let access_strategy = plan.access().resolve_strategy();
-        let capabilities = access_strategy.as_path().map(|path| path.capabilities())?;
+        let capabilities = access_strategy.as_path().map(single_path_capabilities)?;
         if !capabilities.supports_index_covering_existing_rows_terminal() {
             return None;
         }

@@ -492,6 +492,14 @@ impl<K> ExecutableAccessPath<'_, K> {
     }
 }
 
+/// Project immutable runtime capabilities for one executable access path.
+#[must_use]
+pub(in crate::db) const fn single_path_capabilities<K>(
+    path: &ExecutableAccessPath<'_, K>,
+) -> SinglePathAccessCapabilities {
+    path.capabilities()
+}
+
 impl<K> ExecutableAccessPlan<'_, K> {
     /// Project immutable runtime capabilities for this executable access plan.
     #[must_use]

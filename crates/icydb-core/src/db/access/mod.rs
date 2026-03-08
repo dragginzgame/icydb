@@ -15,6 +15,7 @@ mod tests;
 pub(crate) mod validate;
 
 pub(crate) use canonical::normalize_access_plan_value;
+pub(in crate::db) use capabilities::single_path_capabilities;
 pub(in crate::db) use dispatch::{
     AccessPathDispatch, AccessPathKind, AccessPlanDispatch, dispatch_access_plan,
 };
