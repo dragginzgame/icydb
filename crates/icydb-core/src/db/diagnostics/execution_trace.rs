@@ -63,11 +63,12 @@ pub(crate) enum ExecutionOptimizationCounter {
     PrimaryKeyCardinalityCountFastPath,
     CoveringIndexProjectionFastPath,
     CoveringConstantProjectionFastPath,
+    NumericFieldStreamingFoldFastPath,
 }
 
 impl ExecutionOptimizationCounter {
     #[cfg(test)]
-    const CARDINALITY: usize = 8;
+    const CARDINALITY: usize = 9;
 
     #[cfg(test)]
     const fn index(self) -> usize {
@@ -80,6 +81,7 @@ impl ExecutionOptimizationCounter {
             Self::PrimaryKeyCardinalityCountFastPath => 5,
             Self::CoveringIndexProjectionFastPath => 6,
             Self::CoveringConstantProjectionFastPath => 7,
+            Self::NumericFieldStreamingFoldFastPath => 8,
         }
     }
 }

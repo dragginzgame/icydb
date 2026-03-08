@@ -32,7 +32,6 @@ pub(in crate::db::executor) use post_access::PlanRow;
 /// ExecutionKernel
 ///
 /// Canonical kernel boundary for read execution unification.
-/// Owns distinct decoration and residual retry orchestration in 0.30.
 ///
 
 pub(in crate::db::executor) struct ExecutionKernel;

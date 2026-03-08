@@ -12,7 +12,9 @@ use crate::{
             route::{AggregateSeekSpec, TopNSeekSpec},
         },
         query::builder::AggregateExpr,
-        query::plan::{AccessPlannedQuery, AggregateKind},
+        query::plan::{
+            AccessPlannedQuery, AggregateKind, secondary_order_contract_is_deterministic,
+        },
     },
     traits::{EntityKind, EntityValue},
 };
@@ -83,6 +85,9 @@ where
             .as_ref()
             .is_some_and(|order| !order.fields.is_empty());
         if !logical.mode.is_load() || !has_order {
+            return None;
+        }
+        if !secondary_order_contract_is_deterministic(E::MODEL, logical) {
             return None;
         }
         if !capabilities.streaming_access_shape_safe {

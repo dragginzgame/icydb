@@ -1095,6 +1095,383 @@ fn aggregate_numeric_field_sum_and_avg_use_decimal_projection() {
 }
 
 #[test]
+fn aggregate_numeric_field_streaming_fold_hits_counter_for_unpaged_shape() {
+    seed_pushdown_entities(&[
+        (8_9101, 7, 10),
+        (8_9102, 7, 20),
+        (8_9103, 7, 30),
+        (8_9104, 7, 40),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let build_plan = || {
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("unpaged numeric aggregate plan should build")
+    };
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::NumericFieldStreamingFoldFastPath,
+    );
+
+    let sum = load
+        .aggregate_sum_by_slot(build_plan(), slot(&load, "rank"))
+        .expect("sum_by(rank) should succeed");
+    let avg = load
+        .aggregate_avg_by_slot(build_plan(), slot(&load, "rank"))
+        .expect("avg_by(rank) should succeed");
+
+    assert_eq!(
+        sum,
+        Decimal::from_num(100u64),
+        "unpaged SUM(field) should include all rows in the effective window",
+    );
+    assert_eq!(
+        avg,
+        Decimal::from_num(25u64),
+        "unpaged AVG(field) should include all rows in the effective window",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::NumericFieldStreamingFoldFastPath
+        ),
+        2,
+        "unpaged sum_by/avg_by should both hit numeric streaming-fold fast path",
+    );
+}
+
+#[test]
+fn aggregate_numeric_field_streaming_fold_skips_counter_for_ordered_page_window() {
+    seed_pushdown_entities(&[
+        (8_9201, 7, 30),
+        (8_9202, 7, 10),
+        (8_9203, 7, 40),
+        (8_9204, 7, 20),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let build_plan = || {
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .order_by("rank")
+            .offset(1)
+            .limit(2)
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("ordered paged numeric aggregate plan should build")
+    };
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::NumericFieldStreamingFoldFastPath,
+    );
+
+    let sum = load
+        .aggregate_sum_by_slot(build_plan(), slot(&load, "rank"))
+        .expect("sum_by(rank) should succeed");
+    let avg = load
+        .aggregate_avg_by_slot(build_plan(), slot(&load, "rank"))
+        .expect("avg_by(rank) should succeed");
+
+    assert_eq!(
+        sum,
+        Decimal::from_num(50u64),
+        "ordered page-window SUM(field) should preserve canonical ordered window semantics",
+    );
+    assert_eq!(
+        avg,
+        Decimal::from_num(25u64),
+        "ordered page-window AVG(field) should preserve canonical ordered window semantics",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::NumericFieldStreamingFoldFastPath
+        ),
+        0,
+        "ordered page-window numeric aggregates must keep materialized fallback path",
+    );
+}
+
+#[test]
+fn aggregate_numeric_field_streaming_fold_skips_counter_when_predicate_present() {
+    seed_pushdown_entities(&[
+        (8_9251, 7, 30),
+        (8_9252, 7, 10),
+        (8_9253, 7, 40),
+        (8_9254, 8, 20),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let build_plan = || {
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by("id")
+            .offset(1)
+            .limit(2)
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("predicate paged numeric aggregate plan should build")
+    };
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::NumericFieldStreamingFoldFastPath,
+    );
+
+    let sum = load
+        .aggregate_sum_by_slot(build_plan(), slot(&load, "rank"))
+        .expect("sum_by(rank) should succeed");
+    let avg = load
+        .aggregate_avg_by_slot(build_plan(), slot(&load, "rank"))
+        .expect("avg_by(rank) should succeed");
+
+    assert_eq!(
+        sum,
+        Decimal::from_num(50u64),
+        "predicate page-window SUM(field) should preserve canonical filtered window semantics",
+    );
+    assert_eq!(
+        avg,
+        Decimal::from_num(25u64),
+        "predicate page-window AVG(field) should preserve canonical filtered window semantics",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::NumericFieldStreamingFoldFastPath
+        ),
+        0,
+        "predicate-bearing numeric aggregates must keep materialized fallback path",
+    );
+}
+
+#[test]
+fn aggregate_numeric_field_streaming_fold_hits_counter_for_pk_ordered_page_window() {
+    seed_pushdown_entities(&[
+        (8_9301, 7, 30),
+        (8_9302, 7, 10),
+        (8_9303, 7, 40),
+        (8_9304, 7, 20),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let build_plan = || {
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .order_by("id")
+            .offset(1)
+            .limit(2)
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("pk-ordered paged numeric aggregate plan should build")
+    };
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::NumericFieldStreamingFoldFastPath,
+    );
+
+    let sum = load
+        .aggregate_sum_by_slot(build_plan(), slot(&load, "rank"))
+        .expect("sum_by(rank) should succeed");
+    let avg = load
+        .aggregate_avg_by_slot(build_plan(), slot(&load, "rank"))
+        .expect("avg_by(rank) should succeed");
+
+    assert_eq!(
+        sum,
+        Decimal::from_num(50u64),
+        "pk-ordered page-window SUM(field) should preserve effective window semantics",
+    );
+    assert_eq!(
+        avg,
+        Decimal::from_num(25u64),
+        "pk-ordered page-window AVG(field) should preserve effective window semantics",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::NumericFieldStreamingFoldFastPath
+        ),
+        2,
+        "pk-ordered page-window sum_by/avg_by should both hit numeric streaming-fold fast path",
+    );
+}
+
+#[test]
+fn aggregate_numeric_field_streaming_fold_pk_ordered_page_bounds_rows_scanned() {
+    seed_pushdown_entities(&[
+        (8_9501, 7, 7),
+        (8_9502, 7, 11),
+        (8_9503, 7, 13),
+        (8_9504, 7, 17),
+        (8_9505, 7, 19),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .order_by("id")
+        .offset(1)
+        .limit(2)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("pk-ordered paged numeric aggregate plan should build");
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::NumericFieldStreamingFoldFastPath,
+    );
+
+    let (sum, rows_scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+        load.aggregate_sum_by_slot(plan, slot(&load, "rank"))
+            .expect("sum_by(rank) should succeed")
+    });
+
+    assert_eq!(
+        sum,
+        Decimal::from_num(24u64),
+        "pk-ordered page-window SUM(field) should use rows inside the paged window",
+    );
+    assert_eq!(
+        rows_scanned, 3,
+        "pk-ordered page-window streaming fold should scan at most offset + limit rows",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::NumericFieldStreamingFoldFastPath
+        ),
+        1,
+        "pk-ordered page-window SUM(field) should hit numeric streaming-fold fast path once",
+    );
+}
+
+#[test]
+fn aggregate_numeric_field_streaming_fold_hits_counter_for_pk_desc_ordered_page_window() {
+    seed_pushdown_entities(&[
+        (8_9401, 7, 30),
+        (8_9402, 7, 10),
+        (8_9403, 7, 40),
+        (8_9404, 7, 20),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let build_plan = || {
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .order_by_desc("id")
+            .offset(1)
+            .limit(2)
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("pk-desc ordered paged numeric aggregate plan should build")
+    };
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::NumericFieldStreamingFoldFastPath,
+    );
+
+    let sum = load
+        .aggregate_sum_by_slot(build_plan(), slot(&load, "rank"))
+        .expect("sum_by(rank) should succeed");
+    let avg = load
+        .aggregate_avg_by_slot(build_plan(), slot(&load, "rank"))
+        .expect("avg_by(rank) should succeed");
+
+    assert_eq!(
+        sum,
+        Decimal::from_num(50u64),
+        "pk-desc ordered page-window SUM(field) should preserve effective window semantics",
+    );
+    assert_eq!(
+        avg,
+        Decimal::from_num(25u64),
+        "pk-desc ordered page-window AVG(field) should preserve effective window semantics",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::NumericFieldStreamingFoldFastPath
+        ),
+        2,
+        "pk-desc ordered page-window sum_by/avg_by should both hit numeric streaming-fold fast path",
+    );
+}
+
+#[test]
+fn aggregate_numeric_field_streaming_fold_skips_counter_for_by_ids_window_shape() {
+    seed_pushdown_entities(&[
+        (8_9601, 7, 30),
+        (8_9602, 7, 10),
+        (8_9603, 7, 40),
+        (8_9604, 7, 20),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let build_plan = || {
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .by_ids([
+                Ulid::from_u128(8_9604),
+                Ulid::from_u128(8_9602),
+                Ulid::from_u128(8_9602),
+                Ulid::from_u128(8_9601),
+            ])
+            .order_by("id")
+            .offset(1)
+            .limit(2)
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("ordered by-ids paged numeric aggregate plan should build")
+    };
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::NumericFieldStreamingFoldFastPath,
+    );
+
+    let sum = load
+        .aggregate_sum_by_slot(build_plan(), slot(&load, "rank"))
+        .expect("sum_by(rank) should succeed");
+    let avg = load
+        .aggregate_avg_by_slot(build_plan(), slot(&load, "rank"))
+        .expect("avg_by(rank) should succeed");
+
+    assert_eq!(
+        sum,
+        Decimal::from_num(30u64),
+        "ordered by-ids page-window SUM(field) should preserve canonical dedup + window semantics",
+    );
+    assert_eq!(
+        avg,
+        Decimal::from_num(15u64),
+        "ordered by-ids page-window AVG(field) should preserve canonical dedup + window semantics",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::NumericFieldStreamingFoldFastPath
+        ),
+        0,
+        "by-ids numeric aggregates must keep materialized fallback path",
+    );
+}
+
+#[test]
+fn aggregate_numeric_field_streaming_fold_skips_counter_for_by_id_shape() {
+    seed_pushdown_entities(&[(8_9701, 7, 30), (8_9702, 7, 10), (8_9703, 7, 40)]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let build_plan = || {
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+            .by_id(Ulid::from_u128(8_9702))
+            .plan()
+            .map(crate::db::executor::ExecutablePlan::from)
+            .expect("by-id numeric aggregate plan should build")
+    };
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::NumericFieldStreamingFoldFastPath,
+    );
+
+    let sum = load
+        .aggregate_sum_by_slot(build_plan(), slot(&load, "rank"))
+        .expect("sum_by(rank) should succeed");
+    let avg = load
+        .aggregate_avg_by_slot(build_plan(), slot(&load, "rank"))
+        .expect("avg_by(rank) should succeed");
+
+    assert_eq!(
+        sum,
+        Decimal::from_num(10u64),
+        "by-id SUM(field) should preserve canonical single-row semantics",
+    );
+    assert_eq!(
+        avg,
+        Decimal::from_num(10u64),
+        "by-id AVG(field) should preserve canonical single-row semantics",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::NumericFieldStreamingFoldFastPath
+        ),
+        0,
+        "by-id numeric aggregates must keep materialized fallback path",
+    );
+}
+
+#[test]
 fn aggregate_numeric_field_sum_distinct_uses_grouped_global_distinct_path() {
     seed_pushdown_entities(&[
         (8_0991, 7, 10),
