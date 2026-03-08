@@ -72,6 +72,7 @@ pub(in crate::db::executor::route::planner) struct RouteDerivationContext {
 pub(in crate::db::executor::route::planner) struct RouteIntentStage {
     pub(in crate::db::executor::route::planner) aggregate_expr: Option<AggregateExpr>,
     pub(in crate::db::executor::route::planner) grouped: bool,
+    pub(in crate::db::executor::route::planner) route_shape_kind: RouteShapeKind,
     pub(in crate::db::executor::route::planner) grouped_plan_strategy_hint:
         Option<GroupedPlanStrategyHint>,
     pub(in crate::db::executor::route::planner) fast_path_order: &'static [FastPathOrder],

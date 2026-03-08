@@ -14,7 +14,7 @@ use crate::{
 };
 
 use crate::db::executor::load::projection::{
-    eval::{ExecutionError, eval_expr, eval_expr_grouped},
+    eval::{ProjectionEvalError, eval_expr, eval_expr_grouped},
     grouped::GroupedRowView,
 };
 
@@ -95,7 +95,7 @@ where
 pub(in crate::db::executor) fn evaluate_grouped_projection_values(
     projection: &ProjectionSpec,
     grouped_row: &GroupedRowView<'_>,
-) -> Result<Vec<Value>, ExecutionError> {
+) -> Result<Vec<Value>, ProjectionEvalError> {
     let mut projected_values = Vec::with_capacity(projection.len());
     for field in projection.fields() {
         match field {
@@ -111,7 +111,7 @@ pub(in crate::db::executor) fn evaluate_grouped_projection_values(
 pub(in crate::db::executor::load::projection) fn project_rows_from_projection<E>(
     projection: &impl ShapePreservingProjection,
     rows: &[(Id<E>, E)],
-) -> Result<Vec<ProjectedRow<E>>, ExecutionError>
+) -> Result<Vec<ProjectedRow<E>>, ProjectionEvalError>
 where
     E: EntityKind + EntityValue,
 {

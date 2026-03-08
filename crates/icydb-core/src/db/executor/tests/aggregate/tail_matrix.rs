@@ -1100,7 +1100,7 @@ fn aggregate_count_pushdown_contract_matrix_preserves_parity() {
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("full-scan count matrix plan should build");
     assert!(
-        ExecutionKernel::is_streaming_access_shape_safe::<SimpleEntity, _>(
+        ExecutionKernel::is_stream_order_contract_safe::<SimpleEntity, _>(
             full_scan_plan.as_inner(),
         ),
         "full-scan matrix shape should be streaming-safe"
@@ -1124,7 +1124,7 @@ fn aggregate_count_pushdown_contract_matrix_preserves_parity() {
         .map(crate::db::executor::ExecutablePlan::from)
         .expect("residual-filter count matrix plan should build");
     assert!(
-        !ExecutionKernel::is_streaming_access_shape_safe::<PhaseEntity, _>(
+        !ExecutionKernel::is_stream_order_contract_safe::<PhaseEntity, _>(
             residual_filter_plan.as_inner(),
         ),
         "residual-filter matrix shape should be streaming-unsafe"

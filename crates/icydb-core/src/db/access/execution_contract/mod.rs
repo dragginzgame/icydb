@@ -16,8 +16,8 @@ pub(in crate::db) use executable::{
 pub(in crate::db) use route::AccessRouteClass;
 pub(in crate::db) use strategy::AccessStrategy;
 pub(in crate::db) use types::{
-    ExecutionBounds, ExecutionDistinctMode, ExecutionMode, ExecutionOrdering, ExecutionPathKind,
-    ExecutionPathPayload,
+    AccessExecutionMode, ExecutionBounds, ExecutionDistinctMode, ExecutionOrdering,
+    ExecutionPathKind, ExecutionPathPayload,
 };
 
 // Audit Summary:

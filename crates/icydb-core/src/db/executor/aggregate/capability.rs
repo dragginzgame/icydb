@@ -155,7 +155,7 @@ impl AggregateExecutionPolicyInputs {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) struct AggregateExecutionPolicy {
-    count_pushdown_access_shape_supported: bool,
+    count_pushdown_shape_supported: bool,
     composite_aggregate_fast_path_eligible: bool,
     field_min_fast_path: AggregateFieldExtremaEligibility,
     field_max_fast_path: AggregateFieldExtremaEligibility,
@@ -163,8 +163,8 @@ pub(in crate::db::executor) struct AggregateExecutionPolicy {
 
 impl AggregateExecutionPolicy {
     #[must_use]
-    pub(in crate::db::executor) const fn count_pushdown_access_shape_supported(self) -> bool {
-        self.count_pushdown_access_shape_supported
+    pub(in crate::db::executor) const fn count_pushdown_shape_supported(self) -> bool {
+        self.count_pushdown_shape_supported
     }
 
     #[must_use]
@@ -212,8 +212,7 @@ where
     );
 
     AggregateExecutionPolicy {
-        count_pushdown_access_shape_supported: access_class
-            .single_path_supports_count_pushdown_shape(),
+        count_pushdown_shape_supported: access_class.single_path_supports_count_pushdown_shape(),
         composite_aggregate_fast_path_eligible: access_class.composite()
             && !inputs.has_residual_filter()
             && !inputs.requires_post_access_sort(),

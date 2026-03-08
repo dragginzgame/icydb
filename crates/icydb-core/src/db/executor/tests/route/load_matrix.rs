@@ -251,7 +251,7 @@ fn route_matrix_load_index_range_incompatible_order_disables_limit_pushdown() {
     .expect("load route plan should build");
 
     assert!(
-        !route_plan.index_range_limit_pushdown_shape_eligible(),
+        !route_plan.index_range_limit_pushdown_shape_supported(),
         "index-range LIMIT pushdown shape must be rejected when ORDER BY is not planner-compatible",
     );
     assert!(
@@ -291,7 +291,7 @@ fn route_matrix_load_index_range_missing_pk_tie_break_disables_limit_pushdown() 
     .expect("load route plan should build");
 
     assert!(
-        !route_plan.index_range_limit_pushdown_shape_eligible(),
+        !route_plan.index_range_limit_pushdown_shape_supported(),
         "index-range LIMIT pushdown shape must be rejected when ORDER BY omits PK tie-break",
     );
     assert!(
@@ -334,7 +334,7 @@ fn route_matrix_load_index_range_mixed_direction_disables_limit_pushdown() {
     .expect("load route plan should build");
 
     assert!(
-        !route_plan.index_range_limit_pushdown_shape_eligible(),
+        !route_plan.index_range_limit_pushdown_shape_supported(),
         "index-range LIMIT pushdown shape must be rejected for mixed ORDER BY directions",
     );
     assert!(

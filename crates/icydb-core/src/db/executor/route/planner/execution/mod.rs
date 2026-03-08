@@ -10,7 +10,6 @@ mod shape_load;
 
 use crate::{
     db::executor::{
-        aggregate::AggregateKind,
         load::LoadExecutor,
         route::{
             IndexRangeLimitSpec, RouteExecutionMode, RouteShapeKind,
@@ -31,20 +30,6 @@ where
         match execution_mode {
             RouteExecutionMode::Streaming => feasibility_stage.index_range_limit_spec,
             RouteExecutionMode::Materialized => None,
-        }
-    }
-
-    fn derive_route_shape_kind(intent_stage: &RouteIntentStage) -> RouteShapeKind {
-        let kind = intent_stage.kind();
-
-        if intent_stage.grouped {
-            RouteShapeKind::AggregateGrouped
-        } else if kind.is_some_and(AggregateKind::is_count) {
-            RouteShapeKind::AggregateCount
-        } else {
-            kind.map_or(RouteShapeKind::LoadScalar, |_| {
-                RouteShapeKind::AggregateNonCount
-            })
         }
     }
 
@@ -84,7 +69,7 @@ where
         feasibility_stage: &RouteFeasibilityStage,
     ) -> RouteExecutionStage {
         // Phase 1: derive shape and enforce scalar-route shape constraints.
-        let route_shape_kind = Self::derive_route_shape_kind(intent_stage);
+        let route_shape_kind = intent_stage.route_shape_kind;
         Self::debug_assert_non_mutation_shape(route_shape_kind);
         Self::debug_assert_probe_hint_contract(feasibility_stage);
 

@@ -203,15 +203,13 @@ where
             index_range_limit_spec.is_none()
                 || derivation
                     .capabilities
-                    .index_range_limit_pushdown_shape_eligible,
+                    .index_range_limit_pushdown_shape_supported,
             "route invariant: index-range limit spec requires pushdown-eligible shape",
         );
         debug_assert!(
             !derivation.count_pushdown_eligible
                 || kind.is_some_and(AggregateKind::is_count)
-                    && (derivation
-                        .capabilities
-                        .count_pushdown_access_shape_supported
+                    && (derivation.capabilities.count_pushdown_shape_supported
                         || derivation
                             .capabilities
                             .count_pushdown_existing_rows_shape_supported),
@@ -341,7 +339,7 @@ where
                 planner_grouped_strategy_hint,
                 direction,
                 capabilities.desc_physical_reverse_supported,
-                capabilities.streaming_access_shape_safe,
+                capabilities.stream_order_contract_safe,
             );
             Some(grouped_execution_strategy_for_plan_hint(
                 grouped_ordered_eligibility,
@@ -379,12 +377,12 @@ where
 struct GroupedOrderedEligibility {
     ordered_hint: bool,
     direction_compatible: bool,
-    streaming_access_shape_safe: bool,
+    stream_order_contract_safe: bool,
 }
 
 impl GroupedOrderedEligibility {
     const fn is_eligible(self) -> bool {
-        self.ordered_hint && self.direction_compatible && self.streaming_access_shape_safe
+        self.ordered_hint && self.direction_compatible && self.stream_order_contract_safe
     }
 }
 
@@ -394,13 +392,13 @@ const fn derive_grouped_ordered_eligibility<K>(
     plan_hint: GroupedPlanStrategyHint,
     direction: Direction,
     desc_physical_reverse_supported: bool,
-    streaming_access_shape_safe: bool,
+    stream_order_contract_safe: bool,
 ) -> GroupedOrderedEligibility {
     GroupedOrderedEligibility {
         ordered_hint: matches!(plan_hint, GroupedPlanStrategyHint::OrderedGroup),
         direction_compatible: !matches!(direction, Direction::Desc)
             || desc_physical_reverse_supported,
-        streaming_access_shape_safe,
+        stream_order_contract_safe,
     }
 }
 
@@ -421,7 +419,7 @@ pub(in crate::db::executor) const fn grouped_ordered_runtime_revalidation_flag_c
     let _ = GroupedOrderedEligibility {
         ordered_hint: false,
         direction_compatible: false,
-        streaming_access_shape_safe: false,
+        stream_order_contract_safe: false,
     };
 
     3

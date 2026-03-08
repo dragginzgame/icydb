@@ -40,7 +40,7 @@ where
         let access_window = *continuation.fetch_access_window();
         let continuation_capabilities = continuation.capabilities();
         let (has_residual_filter, _, _) = derive_budget_safety_flags::<E, _>(plan);
-        if !capabilities.index_range_limit_pushdown_shape_eligible {
+        if !capabilities.index_range_limit_pushdown_shape_supported {
             return None;
         }
         if !continuation_capabilities.index_range_limit_pushdown_allowed() {
@@ -66,7 +66,7 @@ where
 
         plan.access_strategy().load_window_early_stop_hint(
             continuation_capabilities.applied(),
-            capabilities.streaming_access_shape_safe,
+            capabilities.stream_order_contract_safe,
             fetch_hint,
         )
     }
@@ -90,7 +90,7 @@ where
         if !secondary_order_contract_is_deterministic(E::MODEL, logical) {
             return None;
         }
-        if !capabilities.streaming_access_shape_safe {
+        if !capabilities.stream_order_contract_safe {
             return None;
         }
         if continuation_capabilities.applied() {

@@ -17,7 +17,7 @@ mod terminal;
 pub(in crate::db::executor) use capability::derive_budget_safety_flags;
 pub(in crate::db::executor::route) use capability::direction_allows_physical_fetch_hint;
 #[cfg(test)]
-pub(in crate::db::executor) use capability::streaming_access_shape_safe;
+pub(in crate::db::executor) use capability::stream_order_contract_safe;
 pub(in crate::db::executor) use contracts::*;
 pub(in crate::db::executor) use fast_path::try_first_verified_fast_path_hit;
 pub(super) use guard::*;

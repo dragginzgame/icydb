@@ -166,7 +166,7 @@ mod tests {
             .expect_err("mixed numeric/non-numeric equality should fail invariant checks");
         assert!(matches!(
             err,
-            crate::db::executor::load::projection::ExecutionError::InvalidBinaryOperands { op, .. }
+            crate::db::executor::load::projection::ProjectionEvalError::InvalidBinaryOperands { op, .. }
                 if op == "eq"
         ));
     }
@@ -375,7 +375,7 @@ mod tests {
             .expect_err("grouped mixed numeric/non-numeric equality should fail");
         assert!(matches!(
             err,
-            crate::db::executor::load::projection::ExecutionError::InvalidBinaryOperands { op, .. }
+            crate::db::executor::load::projection::ProjectionEvalError::InvalidBinaryOperands { op, .. }
                 if op == "eq"
         ));
     }

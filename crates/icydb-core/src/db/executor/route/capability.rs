@@ -48,7 +48,7 @@ where
 }
 
 /// Return whether one plan shape is safe for direct streaming execution.
-pub(in crate::db::executor) fn streaming_access_shape_safe<E, K>(
+pub(in crate::db::executor) fn stream_order_contract_safe<E, K>(
     plan: &AccessPlannedQuery<K>,
 ) -> bool
 where
@@ -123,18 +123,18 @@ where
         let field_max_eligibility = aggregate_execution_policy.field_max_fast_path();
 
         RouteCapabilities {
-            streaming_access_shape_safe: streaming_access_shape_safe::<E, _>(plan),
+            stream_order_contract_safe: stream_order_contract_safe::<E, _>(plan),
             pk_order_fast_path_eligible: Self::pk_order_stream_fast_path_shape_supported(plan),
             desc_physical_reverse_supported: Self::is_desc_physical_reverse_traversal_supported(
                 &plan.access,
                 direction,
             ),
-            count_pushdown_access_shape_supported: aggregate_execution_policy
-                .count_pushdown_access_shape_supported(),
+            count_pushdown_shape_supported: aggregate_execution_policy
+                .count_pushdown_shape_supported(),
             count_pushdown_existing_rows_shape_supported:
                 Self::count_pushdown_existing_rows_shape_supported(access_class),
-            index_range_limit_pushdown_shape_eligible:
-                Self::is_index_range_limit_pushdown_shape_eligible(plan),
+            index_range_limit_pushdown_shape_supported:
+                Self::is_index_range_limit_pushdown_shape_supported(plan),
             composite_aggregate_fast_path_eligible: aggregate_execution_policy
                 .composite_aggregate_fast_path_eligible(),
             bounded_probe_hint_safe: Self::bounded_probe_hint_is_safe(plan),
@@ -172,7 +172,7 @@ where
     }
 
     // Route-owned shape gate for index-range limited pushdown eligibility.
-    pub(super) fn is_index_range_limit_pushdown_shape_eligible(
+    pub(super) fn is_index_range_limit_pushdown_shape_supported(
         plan: &AccessPlannedQuery<E::Key>,
     ) -> bool {
         let order = plan.scalar_plan().order.as_ref();
@@ -189,7 +189,7 @@ where
         }
 
         let access_class = plan.access_strategy().class();
-        access_class.index_range_limit_pushdown_shape_eligible_for_order(
+        access_class.index_range_limit_pushdown_shape_supported_for_order(
             order.map(|order| order.fields.as_slice()),
             E::MODEL.primary_key.name,
         )

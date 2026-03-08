@@ -41,7 +41,7 @@ where
         let aggregate_fold_mode = if feasibility_stage
             .derivation
             .capabilities
-            .count_pushdown_access_shape_supported
+            .count_pushdown_shape_supported
         {
             AggregateFoldMode::KeysOnly
         } else if feasibility_stage

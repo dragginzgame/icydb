@@ -17,11 +17,11 @@ fn route_capabilities_full_scan_desc_pk_order_reflect_expected_flags() {
     )
     .expect("load route plan should build");
 
-    assert!(route_plan.streaming_access_shape_safe());
+    assert!(route_plan.stream_order_contract_safe());
     assert!(route_plan.desc_physical_reverse_supported());
-    assert!(route_plan.count_pushdown_access_shape_supported());
+    assert!(route_plan.count_pushdown_shape_supported());
     assert!(!route_plan.count_pushdown_existing_rows_shape_supported());
-    assert!(!route_plan.index_range_limit_pushdown_shape_eligible());
+    assert!(!route_plan.index_range_limit_pushdown_shape_supported());
     assert!(!route_plan.composite_aggregate_fast_path_eligible());
     assert!(route_plan.bounded_probe_hint_safe());
     assert!(!route_plan.field_min_fast_path_eligible());
@@ -53,11 +53,11 @@ fn route_capabilities_by_keys_desc_distinct_offset_disable_probe_hint() {
     )
     .expect("load route plan should build");
 
-    assert!(route_plan.streaming_access_shape_safe());
+    assert!(route_plan.stream_order_contract_safe());
     assert!(!route_plan.desc_physical_reverse_supported());
-    assert!(!route_plan.count_pushdown_access_shape_supported());
+    assert!(!route_plan.count_pushdown_shape_supported());
     assert!(!route_plan.count_pushdown_existing_rows_shape_supported());
-    assert!(!route_plan.index_range_limit_pushdown_shape_eligible());
+    assert!(!route_plan.index_range_limit_pushdown_shape_supported());
     assert!(!route_plan.composite_aggregate_fast_path_eligible());
     assert!(!route_plan.bounded_probe_hint_safe());
     assert!(!route_plan.field_min_fast_path_eligible());
@@ -88,9 +88,9 @@ fn route_capabilities_index_range_order_compatible_shape_is_streaming_safe() {
     )
     .expect("load route plan should build");
 
-    assert!(route_plan.streaming_access_shape_safe());
+    assert!(route_plan.stream_order_contract_safe());
     assert!(route_plan.count_pushdown_existing_rows_shape_supported());
-    assert!(route_plan.index_range_limit_pushdown_shape_eligible());
+    assert!(route_plan.index_range_limit_pushdown_shape_supported());
 }
 
 #[test]
@@ -112,7 +112,7 @@ fn route_capabilities_index_range_without_order_remains_limit_pushdown_eligible(
     .expect("load route plan should build");
 
     assert!(
-        route_plan.index_range_limit_pushdown_shape_eligible(),
+        route_plan.index_range_limit_pushdown_shape_supported(),
         "no-order index-range shapes remain eligible for limit pushdown",
     );
 }
@@ -140,7 +140,7 @@ fn route_capabilities_index_range_with_empty_order_rejects_limit_pushdown_shape(
     .expect("load route plan should build");
 
     assert!(
-        !route_plan.index_range_limit_pushdown_shape_eligible(),
+        !route_plan.index_range_limit_pushdown_shape_supported(),
         "empty-order planner-bypass shapes must not be treated as limit-pushdown eligible",
     );
 }
@@ -169,7 +169,7 @@ fn route_capabilities_non_unique_index_prefix_order_requires_post_access_sort() 
     .expect("load route plan should build");
 
     assert!(
-        !route_plan.streaming_access_shape_safe(),
+        !route_plan.stream_order_contract_safe(),
         "non-unique index-prefix ordering must preserve post-access sorting",
     );
 }

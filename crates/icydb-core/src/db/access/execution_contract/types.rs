@@ -2,13 +2,13 @@ use crate::{db::direction::Direction, model::index::IndexModel, value::Value};
 use std::ops::Bound;
 
 ///
-/// ExecutionMode
+/// AccessExecutionMode
 ///
 /// Coarse execution mode used by executor routing.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum ExecutionMode {
+pub(in crate::db) enum AccessExecutionMode {
     FullScan,
     IndexRange,
     OrderedIndexScan,

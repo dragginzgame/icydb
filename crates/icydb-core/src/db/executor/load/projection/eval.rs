@@ -14,13 +14,13 @@ use std::cmp::Ordering;
 use thiserror::Error as ThisError;
 
 ///
-/// ExecutionError
+/// ProjectionEvalError
 ///
 /// Pure expression-evaluation failures for scalar projection execution.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq, ThisError)]
-pub(in crate::db::executor) enum ExecutionError {
+pub(in crate::db::executor) enum ProjectionEvalError {
     #[error("projection expression references unknown field '{field}'")]
     UnknownField { field: String },
 
@@ -61,7 +61,10 @@ pub(in crate::db::executor) enum ExecutionError {
 }
 
 /// Evaluate one projection expression against one entity row.
-pub(in crate::db::executor) fn eval_expr<E>(expr: &Expr, row: &E) -> Result<Value, ExecutionError>
+pub(in crate::db::executor) fn eval_expr<E>(
+    expr: &Expr,
+    row: &E,
+) -> Result<Value, ProjectionEvalError>
 where
     E: EntityKind + EntityValue,
 {
@@ -69,12 +72,12 @@ where
         Expr::Field(field_id) => {
             let field_name = field_id.as_str();
             let Some(field_index) = resolve_field_slot(E::MODEL, field_name) else {
-                return Err(ExecutionError::UnknownField {
+                return Err(ProjectionEvalError::UnknownField {
                     field: field_name.to_string(),
                 });
             };
             let Some(value) = row.get_value_by_index(field_index) else {
-                return Err(ExecutionError::MissingFieldValue {
+                return Err(ProjectionEvalError::MissingFieldValue {
                     field: field_name.to_string(),
                     index: field_index,
                 });
@@ -93,7 +96,7 @@ where
 
             eval_binary_expr(*op, left_value, right_value)
         }
-        Expr::Aggregate(aggregate) => Err(ExecutionError::AggregateNotEvaluable {
+        Expr::Aggregate(aggregate) => Err(ProjectionEvalError::AggregateNotEvaluable {
             kind: format!("{:?}", aggregate.kind()),
         }),
         Expr::Alias { expr, .. } => eval_expr(expr.as_ref(), row),
@@ -104,18 +107,18 @@ where
 pub(in crate::db::executor) fn eval_expr_grouped(
     expr: &Expr,
     grouped_row: &GroupedRowView<'_>,
-) -> Result<Value, ExecutionError> {
+) -> Result<Value, ProjectionEvalError> {
     match expr {
         Expr::Field(field_id) => {
             let Some(group_field_offset) =
                 super::grouped::resolve_group_field_offset(grouped_row, field_id.as_str())
             else {
-                return Err(ExecutionError::UnknownField {
+                return Err(ProjectionEvalError::UnknownField {
                     field: field_id.as_str().to_string(),
                 });
             };
             let Some(value) = grouped_row.key_values.get(group_field_offset) else {
-                return Err(ExecutionError::MissingFieldValue {
+                return Err(ProjectionEvalError::MissingFieldValue {
                     field: field_id.as_str().to_string(),
                     index: group_field_offset,
                 });
@@ -138,14 +141,14 @@ pub(in crate::db::executor) fn eval_expr_grouped(
             let Some(aggregate_index) =
                 super::grouped::resolve_grouped_aggregate_index(grouped_row, aggregate_expr)
             else {
-                return Err(ExecutionError::UnknownGroupedAggregateExpression {
+                return Err(ProjectionEvalError::UnknownGroupedAggregateExpression {
                     kind: format!("{:?}", aggregate_expr.kind()),
                     target_field: aggregate_expr.target_field().map(str::to_string),
                     distinct: aggregate_expr.is_distinct(),
                 });
             };
             let Some(value) = grouped_row.aggregate_values.get(aggregate_index) else {
-                return Err(ExecutionError::MissingGroupedAggregateValue {
+                return Err(ProjectionEvalError::MissingGroupedAggregateValue {
                     aggregate_index,
                     aggregate_count: grouped_row.aggregate_values.len(),
                 });
@@ -157,7 +160,7 @@ pub(in crate::db::executor) fn eval_expr_grouped(
     }
 }
 
-fn eval_unary_expr(op: UnaryOp, value: Value) -> Result<Value, ExecutionError> {
+fn eval_unary_expr(op: UnaryOp, value: Value) -> Result<Value, ProjectionEvalError> {
     if matches!(value, Value::Null) {
         return Ok(Value::Null);
     }
@@ -169,7 +172,7 @@ fn eval_unary_expr(op: UnaryOp, value: Value) -> Result<Value, ExecutionError> {
                 &Value::Decimal(Decimal::ZERO),
                 &value,
             ) else {
-                return Err(ExecutionError::InvalidUnaryOperand {
+                return Err(ProjectionEvalError::InvalidUnaryOperand {
                     op: unary_op_name(op).to_string(),
                     found: Box::new(value),
                 });
@@ -179,7 +182,7 @@ fn eval_unary_expr(op: UnaryOp, value: Value) -> Result<Value, ExecutionError> {
         }
         UnaryOp::Not => {
             let Value::Bool(v) = value else {
-                return Err(ExecutionError::InvalidUnaryOperand {
+                return Err(ProjectionEvalError::InvalidUnaryOperand {
                     op: unary_op_name(op).to_string(),
                     found: Box::new(value),
                 });
@@ -190,7 +193,7 @@ fn eval_unary_expr(op: UnaryOp, value: Value) -> Result<Value, ExecutionError> {
     }
 }
 
-fn eval_binary_expr(op: BinaryOp, left: Value, right: Value) -> Result<Value, ExecutionError> {
+fn eval_binary_expr(op: BinaryOp, left: Value, right: Value) -> Result<Value, ProjectionEvalError> {
     if matches!(left, Value::Null) || matches!(right, Value::Null) {
         return Ok(Value::Null);
     }
@@ -211,16 +214,16 @@ fn eval_numeric_binary_expr(
     op: BinaryOp,
     left: Value,
     right: Value,
-) -> Result<Value, ExecutionError> {
+) -> Result<Value, ProjectionEvalError> {
     let Some(arithmetic_op) = numeric_arithmetic_op(op) else {
-        return Err(ExecutionError::InvalidBinaryOperands {
+        return Err(ProjectionEvalError::InvalidBinaryOperands {
             op: binary_op_name(op).to_string(),
             left: Box::new(left),
             right: Box::new(right),
         });
     };
     let Some(result) = apply_numeric_arithmetic(arithmetic_op, &left, &right) else {
-        return Err(ExecutionError::InvalidBinaryOperands {
+        return Err(ProjectionEvalError::InvalidBinaryOperands {
             op: binary_op_name(op).to_string(),
             left: Box::new(left),
             right: Box::new(right),
@@ -234,9 +237,9 @@ fn eval_boolean_binary_expr(
     op: BinaryOp,
     left: Value,
     right: Value,
-) -> Result<Value, ExecutionError> {
+) -> Result<Value, ProjectionEvalError> {
     let (Value::Bool(left_bool), Value::Bool(right_bool)) = (&left, &right) else {
-        return Err(ExecutionError::InvalidBinaryOperands {
+        return Err(ProjectionEvalError::InvalidBinaryOperands {
             op: binary_op_name(op).to_string(),
             left: Box::new(left),
             right: Box::new(right),
@@ -265,7 +268,7 @@ fn eval_equality_binary_expr(
     op: BinaryOp,
     left: Value,
     right: Value,
-) -> Result<Value, ExecutionError> {
+) -> Result<Value, ProjectionEvalError> {
     let numeric_widen_enabled =
         left.supports_numeric_coercion() || right.supports_numeric_coercion();
     let coercion = if numeric_widen_enabled {
@@ -279,7 +282,7 @@ fn eval_equality_binary_expr(
         // Preserve projection behavior for non-numeric cross-variant comparisons.
         left == right
     } else {
-        return Err(ExecutionError::InvalidBinaryOperands {
+        return Err(ProjectionEvalError::InvalidBinaryOperands {
             op: binary_op_name(op).to_string(),
             left: Box::new(left),
             right: Box::new(right),
@@ -308,9 +311,9 @@ fn eval_compare_binary_expr(
     op: BinaryOp,
     left: Value,
     right: Value,
-) -> Result<Value, ExecutionError> {
+) -> Result<Value, ProjectionEvalError> {
     let ordering = compare_ordering(op, &left, &right).ok_or_else(|| {
-        ExecutionError::InvalidBinaryOperands {
+        ProjectionEvalError::InvalidBinaryOperands {
             op: binary_op_name(op).to_string(),
             left: Box::new(left.clone()),
             right: Box::new(right.clone()),

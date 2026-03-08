@@ -6,8 +6,8 @@
 use crate::{
     db::{
         access::{
-            AccessPathDispatch, AccessPlan, AccessPlanDispatch, ExecutableAccessPath,
-            ExecutableAccessPlan, ExecutionBounds, ExecutionDistinctMode, ExecutionMode,
+            AccessExecutionMode, AccessPathDispatch, AccessPlan, AccessPlanDispatch,
+            ExecutableAccessPath, ExecutableAccessPlan, ExecutionBounds, ExecutionDistinctMode,
             ExecutionOrdering, ExecutionPathPayload, dispatch_access_plan,
         },
         direction::Direction,
@@ -68,7 +68,7 @@ const fn lower_executable_path_dispatch<K>(
 ) -> ExecutableAccessPath<'_, K> {
     match path {
         AccessPathDispatch::ByKey(key) => ExecutableAccessPath::new(
-            ExecutionMode::FullScan,
+            AccessExecutionMode::FullScan,
             ExecutionOrdering::Natural,
             ExecutionBounds::Unbounded,
             ExecutionDistinctMode::None,
@@ -76,7 +76,7 @@ const fn lower_executable_path_dispatch<K>(
             ExecutionPathPayload::ByKey(key),
         ),
         AccessPathDispatch::ByKeys(keys) => ExecutableAccessPath::new(
-            ExecutionMode::FullScan,
+            AccessExecutionMode::FullScan,
             ExecutionOrdering::Natural,
             ExecutionBounds::Unbounded,
             ExecutionDistinctMode::None,
@@ -84,7 +84,7 @@ const fn lower_executable_path_dispatch<K>(
             ExecutionPathPayload::ByKeys(keys),
         ),
         AccessPathDispatch::KeyRange { start, end } => ExecutableAccessPath::new(
-            ExecutionMode::FullScan,
+            AccessExecutionMode::FullScan,
             ExecutionOrdering::Natural,
             ExecutionBounds::PrimaryKeyRange,
             ExecutionDistinctMode::None,
@@ -92,7 +92,7 @@ const fn lower_executable_path_dispatch<K>(
             ExecutionPathPayload::KeyRange { start, end },
         ),
         AccessPathDispatch::IndexPrefix { index, values } => ExecutableAccessPath::new(
-            ExecutionMode::OrderedIndexScan,
+            AccessExecutionMode::OrderedIndexScan,
             ExecutionOrdering::ByIndex(Direction::Asc),
             ExecutionBounds::IndexPrefix {
                 index,
@@ -103,7 +103,7 @@ const fn lower_executable_path_dispatch<K>(
             ExecutionPathPayload::IndexPrefix,
         ),
         AccessPathDispatch::IndexMultiLookup { index, values } => ExecutableAccessPath::new(
-            ExecutionMode::Composite,
+            AccessExecutionMode::Composite,
             ExecutionOrdering::Natural,
             ExecutionBounds::IndexPrefix {
                 index,
@@ -120,7 +120,7 @@ const fn lower_executable_path_dispatch<K>(
             let prefix_len = spec.prefix_values().len();
 
             ExecutableAccessPath::new(
-                ExecutionMode::IndexRange,
+                AccessExecutionMode::IndexRange,
                 ExecutionOrdering::ByIndex(Direction::Asc),
                 ExecutionBounds::IndexRange { index, prefix_len },
                 ExecutionDistinctMode::PreOrdered,
@@ -133,7 +133,7 @@ const fn lower_executable_path_dispatch<K>(
             )
         }
         AccessPathDispatch::FullScan => ExecutableAccessPath::new(
-            ExecutionMode::FullScan,
+            AccessExecutionMode::FullScan,
             ExecutionOrdering::Natural,
             ExecutionBounds::Unbounded,
             ExecutionDistinctMode::None,

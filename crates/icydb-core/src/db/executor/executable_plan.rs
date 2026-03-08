@@ -55,7 +55,7 @@ pub(in crate::db) enum ExecutionStrategy {
 ///
 
 #[derive(Debug)]
-pub(crate) struct ExecutablePlan<E: EntityKind> {
+pub(in crate::db) struct ExecutablePlan<E: EntityKind> {
     plan: AccessPlannedQuery<E::Key>,
     continuation: Option<ContinuationContract<E::Key>>,
     index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
@@ -66,7 +66,7 @@ pub(crate) struct ExecutablePlan<E: EntityKind> {
 
 impl<E: EntityKind> ExecutablePlan<E> {
     #[cfg(test)]
-    pub(crate) fn new(plan: AccessPlannedQuery<E::Key>) -> Self {
+    pub(in crate::db) fn new(plan: AccessPlannedQuery<E::Key>) -> Self {
         Self::build(plan)
     }
 

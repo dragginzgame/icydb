@@ -74,7 +74,7 @@ pub use query::{
         delete::FluentDeleteQuery,
         load::{FluentLoadQuery, PagedLoadQuery},
     },
-    intent::{CompiledQuery, ExecutionError, IntentError, Query, QueryError},
+    intent::{CompiledQuery, IntentError, Query, QueryError, QueryExecutionError},
     plan::{DeleteSpec, LoadSpec, OrderDirection, PlanError, QueryMode},
     trace::{QueryTracePlan, TraceExecutionStrategy},
 };
@@ -119,7 +119,7 @@ impl<C: CanisterKind> Db<C> {
     }
 
     #[must_use]
-    pub(crate) const fn context<E>(&self) -> Context<'_, E>
+    pub(in crate::db) const fn context<E>(&self) -> Context<'_, E>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
@@ -130,7 +130,7 @@ impl<C: CanisterKind> Db<C> {
     ///
     /// This enforces startup recovery and a fast persisted-marker check so reads
     /// do not proceed while an incomplete commit is pending replay.
-    pub(crate) fn recovered_context<E>(&self) -> Result<Context<'_, E>, InternalError>
+    pub(in crate::db) fn recovered_context<E>(&self) -> Result<Context<'_, E>, InternalError>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {

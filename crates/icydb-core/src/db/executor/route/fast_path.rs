@@ -109,7 +109,7 @@ where
         capabilities: RouteCapabilities,
     ) -> bool {
         kind.is_count()
-            && (capabilities.count_pushdown_access_shape_supported
+            && (capabilities.count_pushdown_shape_supported
                 || capabilities.count_pushdown_existing_rows_shape_supported)
     }
 

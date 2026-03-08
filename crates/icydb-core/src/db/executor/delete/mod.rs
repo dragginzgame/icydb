@@ -89,7 +89,7 @@ pub(super) fn decode_rows<E: EntityKind + EntityValue>(
 ///
 
 #[derive(Clone, Copy)]
-pub(crate) struct DeleteExecutor<E>
+pub(in crate::db) struct DeleteExecutor<E>
 where
     E: EntityKind,
 {
@@ -102,7 +102,7 @@ where
 {
     /// Construct one delete executor bound to a database handle.
     #[must_use]
-    pub(crate) const fn new(db: Db<E::Canister>, _debug: bool) -> Self {
+    pub(in crate::db) const fn new(db: Db<E::Canister>, _debug: bool) -> Self {
         Self { db }
     }
 
@@ -111,7 +111,7 @@ where
     // ─────────────────────────────────────────────
 
     /// Execute one delete plan and return deleted entities in response order.
-    pub(crate) fn execute(
+    pub(in crate::db) fn execute(
         self,
         plan: ExecutablePlan<E>,
     ) -> Result<EntityResponse<E>, InternalError> {

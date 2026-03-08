@@ -21,9 +21,9 @@ pub(in crate::db) use dispatch::{
 };
 pub(in crate::db) use dispatch::{ExecutableAccessPathDispatch, dispatch_executable_access_path};
 pub(in crate::db) use execution_contract::{
-    AccessRouteClass, AccessStrategy, ExecutableAccessNode, ExecutableAccessPath,
-    ExecutableAccessPlan, ExecutionBounds, ExecutionDistinctMode, ExecutionMode, ExecutionOrdering,
-    ExecutionPathKind, ExecutionPathPayload,
+    AccessExecutionMode, AccessRouteClass, AccessStrategy, ExecutableAccessNode,
+    ExecutableAccessPath, ExecutableAccessPlan, ExecutionBounds, ExecutionDistinctMode,
+    ExecutionOrdering, ExecutionPathKind, ExecutionPathPayload,
 };
 #[cfg(test)]
 pub(in crate::db) use lowering::lower_executable_access_path;

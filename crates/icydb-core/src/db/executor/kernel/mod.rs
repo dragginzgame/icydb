@@ -175,7 +175,7 @@ impl ExecutionKernel {
             predicate_slots: inputs.execution_preparation().compiled_predicate(),
             key_stream: resolved.key_stream_mut(),
             scan_budget_hint: route_plan.scan_hints.load_scan_budget_hint,
-            streaming_access_shape_safe: route_plan.streaming_access_shape_safe(),
+            stream_order_contract_safe: route_plan.stream_order_contract_safe(),
             consistency: inputs.consistency(),
             continuation,
         })

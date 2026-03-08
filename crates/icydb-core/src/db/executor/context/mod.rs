@@ -36,7 +36,7 @@ use std::{collections::BTreeSet, ops::Bound};
 /// Context
 ///
 
-pub(crate) struct Context<'a, E: EntityKind + EntityValue> {
+pub(in crate::db) struct Context<'a, E: EntityKind + EntityValue> {
     pub(in crate::db::executor) db: &'a Db<E::Canister>,
 }
 
@@ -50,7 +50,7 @@ where
 
     /// Construct one executor context bound to a database handle.
     #[must_use]
-    pub(crate) const fn new(db: &'a Db<E::Canister>) -> Self {
+    pub(in crate::db) const fn new(db: &'a Db<E::Canister>) -> Self {
         Self { db }
     }
 
@@ -59,7 +59,7 @@ where
     // ------------------------------------------------------------------
 
     /// Execute one closure against the entity's data store handle.
-    pub(crate) fn with_store<R>(
+    pub(in crate::db) fn with_store<R>(
         &self,
         f: impl FnOnce(&DataStore) -> R,
     ) -> Result<R, InternalError> {
@@ -74,7 +74,7 @@ where
     // ------------------------------------------------------------------
 
     /// Read one raw row by key, returning not-found as an error.
-    pub(crate) fn read(&self, key: &DataKey) -> Result<RawRow, InternalError> {
+    pub(in crate::db) fn read(&self, key: &DataKey) -> Result<RawRow, InternalError> {
         self.with_store(|s| {
             let raw = key.to_raw()?;
             s.get(&raw)
@@ -83,7 +83,7 @@ where
     }
 
     /// Read one raw row by key, classifying missing rows as store corruption.
-    pub(crate) fn read_strict(&self, key: &DataKey) -> Result<RawRow, InternalError> {
+    pub(in crate::db) fn read_strict(&self, key: &DataKey) -> Result<RawRow, InternalError> {
         self.with_store(|s| {
             let raw = key.to_raw()?;
             s.get(&raw).ok_or_else(|| {
@@ -93,7 +93,7 @@ where
     }
 
     /// Fold persisted row payload bytes over one full-scan page window.
-    pub(crate) fn sum_row_payload_bytes_full_scan_window(
+    pub(in crate::db) fn sum_row_payload_bytes_full_scan_window(
         &self,
         direction: Direction,
         offset: usize,
@@ -136,7 +136,7 @@ where
     }
 
     /// Fold persisted row payload bytes over one key-range page window.
-    pub(crate) fn sum_row_payload_bytes_key_range_window(
+    pub(in crate::db) fn sum_row_payload_bytes_key_range_window(
         &self,
         start: &DataKey,
         end: &DataKey,
@@ -298,7 +298,7 @@ where
     }
 
     /// Deserialize data rows into `(Id, Entity)` tuples with key/entity consistency checks.
-    pub(crate) fn deserialize_row(row: DataRow) -> Result<(Id<E>, E), InternalError>
+    pub(in crate::db) fn deserialize_row(row: DataRow) -> Result<(Id<E>, E), InternalError>
     where
         E: EntityKind + EntityValue,
     {
@@ -328,7 +328,9 @@ where
     }
 
     /// Deserialize data rows into `(Id, Entity)` tuples with key/entity consistency checks.
-    pub(crate) fn deserialize_rows(rows: Vec<DataRow>) -> Result<Vec<(Id<E>, E)>, InternalError>
+    pub(in crate::db) fn deserialize_rows(
+        rows: Vec<DataRow>,
+    ) -> Result<Vec<(Id<E>, E)>, InternalError>
     where
         E: EntityKind + EntityValue,
     {

@@ -1,7 +1,7 @@
 use candid::CandidType;
 use derive_more::Display;
 use icydb_core::{
-    db::{ExecutionError, QueryError, ResponseError},
+    db::{QueryError, QueryExecutionError, ResponseError},
     error::{ErrorClass as CoreErrorClass, ErrorOrigin as CoreErrorOrigin, InternalError},
     patch::MergePatchError as CoreMergePatchError,
 };
@@ -107,12 +107,12 @@ impl From<QueryError> for Error {
             QueryError::Response(err) => Self::from_response_error(err),
 
             QueryError::Execute(err) => match err {
-                ExecutionError::Corruption(inner)
-                | ExecutionError::InvariantViolation(inner)
-                | ExecutionError::Conflict(inner)
-                | ExecutionError::NotFound(inner)
-                | ExecutionError::Unsupported(inner)
-                | ExecutionError::Internal(inner) => inner.into(),
+                QueryExecutionError::Corruption(inner)
+                | QueryExecutionError::InvariantViolation(inner)
+                | QueryExecutionError::Conflict(inner)
+                | QueryExecutionError::NotFound(inner)
+                | QueryExecutionError::Unsupported(inner)
+                | QueryExecutionError::Internal(inner) => inner.into(),
             },
         }
     }
@@ -386,7 +386,7 @@ mod tests {
         ];
 
         for (class, origin, expected_kind, expected_origin, message) in cases {
-            let query_err = QueryError::Execute(ExecutionError::from(InternalError::new(
+            let query_err = QueryError::Execute(QueryExecutionError::from(InternalError::new(
                 class, origin, message,
             )));
             let facade = Error::from(query_err);
@@ -423,7 +423,7 @@ mod tests {
         ];
 
         for (class, origin, expected_kind, expected_origin, message) in cases {
-            let query_err = QueryError::Execute(ExecutionError::from(InternalError::new(
+            let query_err = QueryError::Execute(QueryExecutionError::from(InternalError::new(
                 class, origin, message,
             )));
             let facade = Error::from(query_err);

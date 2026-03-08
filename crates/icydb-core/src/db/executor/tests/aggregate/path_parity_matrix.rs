@@ -106,7 +106,7 @@ fn assert_composite_terminal_direct_path_scan_does_not_exceed_fallback(
 
     let direct_plan = build_phase_composite_plan("id", first.clone(), second.clone());
     assert!(
-        ExecutionKernel::is_streaming_access_shape_safe::<PhaseEntity, _>(direct_plan.as_inner()),
+        ExecutionKernel::is_stream_order_contract_safe::<PhaseEntity, _>(direct_plan.as_inner()),
         "direct composite {label} shape should be streaming-safe"
     );
     assert!(
@@ -119,9 +119,7 @@ fn assert_composite_terminal_direct_path_scan_does_not_exceed_fallback(
 
     let fallback_plan = build_phase_composite_plan("label", first, second);
     assert!(
-        !ExecutionKernel::is_streaming_access_shape_safe::<PhaseEntity, _>(
-            fallback_plan.as_inner()
-        ),
+        !ExecutionKernel::is_stream_order_contract_safe::<PhaseEntity, _>(fallback_plan.as_inner()),
         "fallback composite {label} shape should be streaming-unsafe"
     );
     assert!(

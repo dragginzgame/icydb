@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `0.46.3` tightens executor boundary visibility, adds stronger structural guards to prevent internal API widening, and cleans up remaining route-planner lint issues without changing query behavior.
 - `0.46.4` makes ordered `LIMIT`/Top-N pushdown safer by requiring deterministic `ORDER BY` contracts, lowers strict `IN ()` predicates to an immediate empty access shape, and simplifies planner-to-route access-window projection APIs.
 - `0.46.5` makes `sum_by`/`avg_by` faster on safe streaming shapes, adds stricter fail-closed guards for duplicate-risk access paths, and hardens Top-N hint derivation with an explicit deterministic `ORDER BY` check.
+- `0.46.6` centralizes planner stability helpers for deterministic `IN (...)` planning and renames the route-level execution mode type for clearer internal boundaries, without changing query results.
+- `0.46.7` tightens executor visibility boundaries, renames query execution errors for clearer ownership (`QueryExecutionError`), and hardens complexity auditing with decision-owner drift gates (including route-shape ownership staged at intent time).
 
 See detailed breakdown:
 [docs/changelog/0.46.md](docs/changelog/0.46.md)

@@ -925,7 +925,7 @@ fn count_pushdown_contract_eligible<E>(plan: &crate::db::executor::ExecutablePla
 where
     E: EntityKind<Canister = TestCanister> + EntityValue,
 {
-    ExecutionKernel::is_streaming_access_shape_safe::<E, _>(plan.as_inner())
+    ExecutionKernel::is_stream_order_contract_safe::<E, _>(plan.as_inner())
         && execution_root_supports_count_pushdown(execution_root_node_type(plan))
 }
 

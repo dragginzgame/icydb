@@ -249,7 +249,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     #[must_use]
-    pub(crate) const fn delete_executor<E>(&self) -> DeleteExecutor<E>
+    pub(in crate::db) const fn delete_executor<E>(&self) -> DeleteExecutor<E>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {

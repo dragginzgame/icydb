@@ -137,7 +137,7 @@ use thiserror::Error as ThisError;
 ///
 
 #[derive(Debug, ThisError)]
-pub(crate) enum ExecutorPlanError {
+pub(in crate::db) enum ExecutorPlanError {
     #[error("{0}")]
     Cursor(Box<CursorPlanError>),
 }

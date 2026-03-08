@@ -31,22 +31,22 @@ pub enum QueryError {
     Response(#[from] ResponseError),
 
     #[error("{0}")]
-    Execute(#[from] ExecutionError),
+    Execute(#[from] QueryExecutionError),
 }
 
 impl QueryError {
     /// Construct an execution-domain query error from one classified runtime error.
     pub(crate) fn execute(err: InternalError) -> Self {
-        Self::Execute(ExecutionError::from(err))
+        Self::Execute(QueryExecutionError::from(err))
     }
 }
 
 ///
-/// ExecutionError
+/// QueryExecutionError
 ///
 
 #[derive(Debug, ThisError)]
-pub enum ExecutionError {
+pub enum QueryExecutionError {
     #[error("{0}")]
     Corruption(InternalError),
 
@@ -66,7 +66,7 @@ pub enum ExecutionError {
     Internal(InternalError),
 }
 
-impl ExecutionError {
+impl QueryExecutionError {
     #[must_use]
     /// Borrow the wrapped classified runtime error.
     pub const fn as_internal(&self) -> &InternalError {
@@ -81,7 +81,7 @@ impl ExecutionError {
     }
 }
 
-impl From<InternalError> for ExecutionError {
+impl From<InternalError> for QueryExecutionError {
     fn from(err: InternalError) -> Self {
         match err.class {
             ErrorClass::Corruption => Self::Corruption(err),
@@ -216,16 +216,16 @@ mod tests {
     use super::*;
     use crate::error::ErrorOrigin;
 
-    fn assert_execute_variant_for_class(err: &ExecutionError, class: ErrorClass) {
+    fn assert_execute_variant_for_class(err: &QueryExecutionError, class: ErrorClass) {
         match class {
-            ErrorClass::Corruption => assert!(matches!(err, ExecutionError::Corruption(_))),
+            ErrorClass::Corruption => assert!(matches!(err, QueryExecutionError::Corruption(_))),
             ErrorClass::InvariantViolation => {
-                assert!(matches!(err, ExecutionError::InvariantViolation(_)));
+                assert!(matches!(err, QueryExecutionError::InvariantViolation(_)));
             }
-            ErrorClass::Conflict => assert!(matches!(err, ExecutionError::Conflict(_))),
-            ErrorClass::NotFound => assert!(matches!(err, ExecutionError::NotFound(_))),
-            ErrorClass::Unsupported => assert!(matches!(err, ExecutionError::Unsupported(_))),
-            ErrorClass::Internal => assert!(matches!(err, ExecutionError::Internal(_))),
+            ErrorClass::Conflict => assert!(matches!(err, QueryExecutionError::Conflict(_))),
+            ErrorClass::NotFound => assert!(matches!(err, QueryExecutionError::NotFound(_))),
+            ErrorClass::Unsupported => assert!(matches!(err, QueryExecutionError::Unsupported(_))),
+            ErrorClass::Internal => assert!(matches!(err, QueryExecutionError::Internal(_))),
         }
     }
 
@@ -244,7 +244,7 @@ mod tests {
 
         for (class, origin) in cases {
             let internal = InternalError::classified(class, origin, "matrix");
-            let mapped = ExecutionError::from(internal);
+            let mapped = QueryExecutionError::from(internal);
 
             assert_execute_variant_for_class(&mapped, class);
             assert_eq!(mapped.as_internal().class, class);
@@ -263,7 +263,7 @@ mod tests {
 
         assert!(matches!(
             query_err,
-            QueryError::Execute(ExecutionError::Unsupported(inner))
+            QueryError::Execute(QueryExecutionError::Unsupported(inner))
                 if inner.class == ErrorClass::Unsupported
                     && inner.origin == ErrorOrigin::Cursor
         ));

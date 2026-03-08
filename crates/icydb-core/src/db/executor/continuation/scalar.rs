@@ -339,7 +339,7 @@ impl<'a> ScalarContinuationBindings<'a> {
     pub(in crate::db::executor) fn validate_load_scan_budget_hint(
         &self,
         scan_budget_hint: Option<usize>,
-        streaming_access_shape_safe: bool,
+        stream_order_contract_safe: bool,
     ) -> Result<(), InternalError> {
         if scan_budget_hint.is_some() {
             if self.continuation_applied() {
@@ -347,7 +347,7 @@ impl<'a> ScalarContinuationBindings<'a> {
                     "load page scan budget hint requires non-continuation execution",
                 ));
             }
-            if !streaming_access_shape_safe {
+            if !stream_order_contract_safe {
                 return Err(crate::db::error::executor_invariant(
                     "load page scan budget hint requires streaming-safe access shape",
                 ));

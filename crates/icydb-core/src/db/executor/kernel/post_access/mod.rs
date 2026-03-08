@@ -11,7 +11,7 @@ use crate::db::executor::kernel::post_access::order_cursor::{
 };
 #[cfg(test)]
 use crate::{
-    db::executor::route::{derive_budget_safety_flags, streaming_access_shape_safe},
+    db::executor::route::{derive_budget_safety_flags, stream_order_contract_safe},
     traits::EntitySchema,
 };
 use crate::{
@@ -212,13 +212,13 @@ impl ExecutionKernel {
 
     #[must_use]
     #[cfg(test)]
-    pub(in crate::db::executor) fn is_streaming_access_shape_safe<E, K>(
+    pub(in crate::db::executor) fn is_stream_order_contract_safe<E, K>(
         plan: &AccessPlannedQuery<K>,
     ) -> bool
     where
         E: EntitySchema<Key = K>,
     {
-        PostAccessPlan::new(plan).is_streaming_access_shape_safe::<E>()
+        PostAccessPlan::new(plan).is_stream_order_contract_safe::<E>()
     }
 }
 
@@ -467,10 +467,10 @@ impl<K> PostAccessPlan<'_, K> {
     // the resolved ordered key stream directly without post-access filtering/sorting.
     #[must_use]
     #[cfg(test)]
-    fn is_streaming_access_shape_safe<E>(&self) -> bool
+    fn is_stream_order_contract_safe<E>(&self) -> bool
     where
         E: EntitySchema<Key = K>,
     {
-        streaming_access_shape_safe::<E, _>(self.plan)
+        stream_order_contract_safe::<E, _>(self.plan)
     }
 }

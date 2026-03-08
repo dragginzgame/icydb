@@ -331,8 +331,8 @@ impl ExecutionRoutePlan {
     }
 
     // True when access shape is streaming-safe for final order semantics.
-    pub(in crate::db::executor) const fn streaming_access_shape_safe(&self) -> bool {
-        self.capabilities.streaming_access_shape_safe
+    pub(in crate::db::executor) const fn stream_order_contract_safe(&self) -> bool {
+        self.capabilities.stream_order_contract_safe
     }
 
     // True when index-range limit pushdown is enabled for this route.
@@ -356,8 +356,8 @@ impl ExecutionRoutePlan {
     }
 
     #[cfg(test)]
-    pub(in crate::db::executor) const fn count_pushdown_access_shape_supported(&self) -> bool {
-        self.capabilities.count_pushdown_access_shape_supported
+    pub(in crate::db::executor) const fn count_pushdown_shape_supported(&self) -> bool {
+        self.capabilities.count_pushdown_shape_supported
     }
 
     #[cfg(test)]
@@ -369,8 +369,8 @@ impl ExecutionRoutePlan {
     }
 
     #[cfg(test)]
-    pub(in crate::db::executor) const fn index_range_limit_pushdown_shape_eligible(&self) -> bool {
-        self.capabilities.index_range_limit_pushdown_shape_eligible
+    pub(in crate::db::executor) const fn index_range_limit_pushdown_shape_supported(&self) -> bool {
+        self.capabilities.index_range_limit_pushdown_shape_supported
     }
 
     #[cfg(test)]
@@ -679,12 +679,12 @@ pub(in crate::db::executor) type FieldExtremaIneligibilityReason =
 #[expect(clippy::struct_excessive_bools)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) struct RouteCapabilities {
-    pub(in crate::db::executor) streaming_access_shape_safe: bool,
+    pub(in crate::db::executor) stream_order_contract_safe: bool,
     pub(in crate::db::executor) pk_order_fast_path_eligible: bool,
     pub(in crate::db::executor) desc_physical_reverse_supported: bool,
-    pub(in crate::db::executor) count_pushdown_access_shape_supported: bool,
+    pub(in crate::db::executor) count_pushdown_shape_supported: bool,
     pub(in crate::db::executor) count_pushdown_existing_rows_shape_supported: bool,
-    pub(in crate::db::executor) index_range_limit_pushdown_shape_eligible: bool,
+    pub(in crate::db::executor) index_range_limit_pushdown_shape_supported: bool,
     pub(in crate::db::executor) composite_aggregate_fast_path_eligible: bool,
     pub(in crate::db::executor) bounded_probe_hint_safe: bool,
     pub(in crate::db::executor) field_min_fast_path_eligible: bool,
@@ -698,12 +698,12 @@ pub(in crate::db::executor) struct RouteCapabilities {
 #[cfg(test)]
 pub(in crate::db::executor) const fn route_capability_flag_count_guard() -> usize {
     let _ = RouteCapabilities {
-        streaming_access_shape_safe: false,
+        stream_order_contract_safe: false,
         pk_order_fast_path_eligible: false,
         desc_physical_reverse_supported: false,
-        count_pushdown_access_shape_supported: false,
+        count_pushdown_shape_supported: false,
         count_pushdown_existing_rows_shape_supported: false,
-        index_range_limit_pushdown_shape_eligible: false,
+        index_range_limit_pushdown_shape_supported: false,
         composite_aggregate_fast_path_eligible: false,
         bounded_probe_hint_safe: false,
         field_min_fast_path_eligible: false,

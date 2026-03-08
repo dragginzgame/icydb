@@ -36,7 +36,7 @@ where
     pub(in crate::db::executor) predicate_slots: Option<&'a PredicateProgram>,
     pub(in crate::db::executor) key_stream: &'a mut dyn OrderedKeyStream,
     pub(in crate::db::executor) scan_budget_hint: Option<usize>,
-    pub(in crate::db::executor) streaming_access_shape_safe: bool,
+    pub(in crate::db::executor) stream_order_contract_safe: bool,
     pub(in crate::db::executor) consistency: MissingRowPolicy,
     pub(in crate::db::executor) continuation: ScalarContinuationBindings<'a>,
 }
@@ -55,14 +55,14 @@ where
             predicate_slots,
             key_stream,
             scan_budget_hint,
-            streaming_access_shape_safe,
+            stream_order_contract_safe,
             consistency,
             continuation,
         } = request;
 
         // Phase 1: validate continuation-owned scan-budget hint preconditions.
         continuation
-            .validate_load_scan_budget_hint(scan_budget_hint, streaming_access_shape_safe)?;
+            .validate_load_scan_budget_hint(scan_budget_hint, stream_order_contract_safe)?;
 
         // Phase 2: read rows from the ordered key stream, with optional budget guard.
         let data_rows = if let Some(scan_budget) = scan_budget_hint {

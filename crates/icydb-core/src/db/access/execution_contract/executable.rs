@@ -1,6 +1,6 @@
 use crate::{
     db::access::execution_contract::{
-        ExecutionBounds, ExecutionDistinctMode, ExecutionMode, ExecutionOrdering,
+        AccessExecutionMode, ExecutionBounds, ExecutionDistinctMode, ExecutionOrdering,
         ExecutionPathKind, ExecutionPathPayload,
     },
     model::index::IndexModel,
@@ -17,7 +17,7 @@ use std::ops::Bound;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct ExecutableAccessPath<'a, K> {
-    mode: ExecutionMode,
+    mode: AccessExecutionMode,
     ordering: ExecutionOrdering,
     bounds: ExecutionBounds,
     distinct: ExecutionDistinctMode,
@@ -29,7 +29,7 @@ impl<'a, K> ExecutableAccessPath<'a, K> {
     /// Construct a normalized executable-path contract.
     #[must_use]
     pub(in crate::db) const fn new(
-        mode: ExecutionMode,
+        mode: AccessExecutionMode,
         ordering: ExecutionOrdering,
         bounds: ExecutionBounds,
         distinct: ExecutionDistinctMode,
@@ -68,7 +68,7 @@ impl<'a, K> ExecutableAccessPath<'a, K> {
 
     /// Return the coarse execution mode.
     #[must_use]
-    pub(in crate::db) const fn mode(&self) -> ExecutionMode {
+    pub(in crate::db) const fn mode(&self) -> AccessExecutionMode {
         self.mode
     }
 
@@ -161,7 +161,7 @@ pub(in crate::db) enum ExecutableAccessNode<'a, K> {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct ExecutableAccessPlan<'a, K> {
-    pub(in crate::db) mode: ExecutionMode,
+    pub(in crate::db) mode: AccessExecutionMode,
     pub(in crate::db) ordering: ExecutionOrdering,
     pub(in crate::db) bounds: ExecutionBounds,
     pub(in crate::db) distinct: ExecutionDistinctMode,
@@ -187,7 +187,7 @@ impl<'a, K> ExecutableAccessPlan<'a, K> {
     #[must_use]
     pub(in crate::db) fn union(children: Vec<Self>) -> Self {
         Self {
-            mode: ExecutionMode::Composite,
+            mode: AccessExecutionMode::Composite,
             ordering: ExecutionOrdering::Natural,
             bounds: ExecutionBounds::Unbounded,
             distinct: ExecutionDistinctMode::RequiresMaterialization,
@@ -200,7 +200,7 @@ impl<'a, K> ExecutableAccessPlan<'a, K> {
     #[must_use]
     pub(in crate::db) fn intersection(children: Vec<Self>) -> Self {
         Self {
-            mode: ExecutionMode::Intersect,
+            mode: AccessExecutionMode::Intersect,
             ordering: ExecutionOrdering::Natural,
             bounds: ExecutionBounds::Unbounded,
             distinct: ExecutionDistinctMode::RequiresMaterialization,

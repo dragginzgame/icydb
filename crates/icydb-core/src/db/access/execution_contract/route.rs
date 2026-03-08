@@ -196,7 +196,7 @@ impl AccessRouteClass {
     /// Return true when this access class supports index-range limit pushdown
     /// for the supplied ORDER BY field sequence.
     #[must_use]
-    pub(in crate::db) fn index_range_limit_pushdown_shape_eligible_for_order<D>(
+    pub(in crate::db) fn index_range_limit_pushdown_shape_supported_for_order<D>(
         self,
         order_fields: Option<&[(String, D)]>,
         primary_key_name: &'static str,

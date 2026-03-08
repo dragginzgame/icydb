@@ -24,7 +24,7 @@ use crate::db::{
 
 #[cfg_attr(not(test), expect(unused_imports))]
 pub(crate) use errors::PagingIntentError;
-pub use errors::{ExecutionError, IntentError, QueryError};
+pub use errors::{IntentError, QueryError, QueryExecutionError};
 #[expect(unused_imports)]
 pub(crate) use key_access::coerce_entity_key;
 pub(crate) use key_access::{

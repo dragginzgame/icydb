@@ -75,7 +75,7 @@ where
             };
         }
 
-        capabilities.streaming_access_shape_safe
+        capabilities.stream_order_contract_safe
             || secondary_pushdown_eligible
             || index_range_limit_enabled
     }
@@ -87,6 +87,6 @@ where
         capabilities: RouteCapabilities,
         index_range_limit_enabled: bool,
     ) -> bool {
-        capabilities.streaming_access_shape_safe || index_range_limit_enabled
+        capabilities.stream_order_contract_safe || index_range_limit_enabled
     }
 }

@@ -70,13 +70,13 @@ impl<'a, K> AccessStrategy<'a, K> {
     pub(in crate::db) const fn load_window_early_stop_hint(
         &self,
         continuation_applied: bool,
-        streaming_access_shape_safe: bool,
+        stream_order_contract_safe: bool,
         fetch_count: Option<usize>,
     ) -> Option<usize> {
         if continuation_applied {
             return None;
         }
-        if !streaming_access_shape_safe {
+        if !stream_order_contract_safe {
             return None;
         }
         if !self.class().ordered() {
