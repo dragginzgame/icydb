@@ -280,3 +280,207 @@ fn runtime_route_capability_shims_are_not_reintroduced() {
             .join(", "),
     );
 }
+
+#[test]
+fn grouped_fold_runtime_uses_grouped_projection_consistency_contract() {
+    let source_path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/load/grouped_fold/ingest.rs");
+    let source = fs::read_to_string(&source_path)
+        .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
+    let runtime_source = strip_cfg_test_items(source.as_str());
+
+    assert!(
+        !runtime_source.contains("plan().scalar_plan().consistency"),
+        "grouped fold runtime must consume grouped route-stage projection consistency contract instead of direct planner scalar-plan consistency reads",
+    );
+}
+
+#[test]
+fn grouped_distinct_runtime_uses_grouped_projection_consistency_contract() {
+    let source_path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/load/grouped_distinct.rs");
+    let source = fs::read_to_string(&source_path)
+        .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
+    let runtime_source = strip_cfg_test_items(source.as_str());
+
+    assert!(
+        !runtime_source.contains("plan.scalar_plan().consistency"),
+        "grouped DISTINCT runtime must consume grouped route-stage projection consistency contract instead of direct planner scalar-plan consistency reads",
+    );
+}
+
+#[test]
+fn load_page_materialization_uses_execution_input_consistency_projection() {
+    let source_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/load/page.rs");
+    let source = fs::read_to_string(&source_path)
+        .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
+    let runtime_source = strip_cfg_test_items(source.as_str());
+
+    assert!(
+        !runtime_source.contains("plan.scalar_plan().consistency"),
+        "load page materialization must consume execution-input consistency projection instead of direct planner scalar-plan consistency reads",
+    );
+}
+
+#[test]
+fn aggregate_field_extrema_uses_prepared_input_consistency_projection() {
+    let source_path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/aggregate/field_extrema.rs");
+    let source = fs::read_to_string(&source_path)
+        .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
+    let runtime_source = strip_cfg_test_items(source.as_str());
+
+    assert!(
+        !runtime_source.contains("prepared.logical_plan.scalar_plan().consistency"),
+        "aggregate field-extrema runtime must consume prepared-input consistency projection instead of direct logical-plan consistency reads",
+    );
+}
+
+#[test]
+fn aggregate_fast_path_uses_projection_consistency_contract() {
+    let source_path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/aggregate/fast_path.rs");
+    let source = fs::read_to_string(&source_path)
+        .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
+    let runtime_source = strip_cfg_test_items(source.as_str());
+
+    assert!(
+        !runtime_source.contains("inputs.logical_plan.scalar_plan().consistency"),
+        "aggregate fast-path runtime must consume input projection consistency contract instead of direct logical-plan consistency reads",
+    );
+}
+
+#[test]
+fn aggregate_primary_key_fast_path_uses_route_budget_safety_filter_gate() {
+    let source_path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/aggregate/fast_path.rs");
+    let source = fs::read_to_string(&source_path)
+        .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
+    let runtime_source = strip_cfg_test_items(source.as_str());
+
+    assert!(
+        !runtime_source.contains("if plan.scalar_plan().predicate.is_some()"),
+        "aggregate primary-key fast-path gate must consume route-owned budget safety filter checks instead of direct scalar-plan predicate reads",
+    );
+}
+
+#[test]
+fn route_hints_use_route_window_and_budget_safety_filter_gates() {
+    let source_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/route/hints.rs");
+    let source = fs::read_to_string(&source_path)
+        .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
+    let runtime_source = strip_cfg_test_items(source.as_str());
+
+    assert!(
+        !runtime_source.contains("let page = plan.scalar_plan().page.as_ref()?;"),
+        "route hinting must consume route-window projections instead of direct scalar-plan page reads for limit-pushdown hint gating",
+    );
+    assert!(
+        !runtime_source.contains("plan.scalar_plan().predicate.is_some()"),
+        "route hinting must consume route-owned budget-safety residual-filter checks instead of direct scalar-plan predicate reads",
+    );
+}
+
+#[test]
+fn delete_runtime_uses_executor_row_read_consistency_helper() {
+    let source_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/delete/mod.rs");
+    let source = fs::read_to_string(&source_path)
+        .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
+    let runtime_source = strip_cfg_test_items(source.as_str());
+
+    assert!(
+        !runtime_source.contains("plan.scalar_plan().consistency"),
+        "delete runtime must consume executor row-read consistency helper instead of direct scalar-plan consistency reads",
+    );
+}
+
+#[test]
+fn kernel_reducer_uses_executor_row_read_consistency_helper() {
+    let source_path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/kernel/reducer.rs");
+    let source = fs::read_to_string(&source_path)
+        .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
+    let runtime_source = strip_cfg_test_items(source.as_str());
+
+    assert!(
+        !runtime_source.contains("plan.scalar_plan().consistency"),
+        "kernel reducer runners must consume executor row-read consistency helper instead of direct scalar-plan consistency reads",
+    );
+}
+
+#[test]
+fn kernel_post_access_runtime_uses_projection_phase_gate_accessors() {
+    let source_path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/kernel/post_access/mod.rs");
+    let source = fs::read_to_string(&source_path)
+        .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
+    let runtime_source = strip_cfg_test_items(source.as_str());
+
+    assert!(
+        !runtime_source.contains("if cursor.is_some() && !self.plan.scalar_plan().mode.is_load()"),
+        "kernel post-access cursor validation must consume post-access mode projection accessor",
+    );
+    assert!(
+        !runtime_source.contains("let filtered = if self.plan.scalar_plan().predicate.is_some()"),
+        "kernel post-access filter phase must consume post-access predicate projection accessor",
+    );
+    assert!(
+        !runtime_source.contains("let logical = self.plan.scalar_plan();"),
+        "kernel post-access phase gates must avoid repeated direct scalar-plan projection bindings",
+    );
+}
+
+#[test]
+fn runtime_scalar_plan_consistency_reads_stay_boundary_local() {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor");
+    let mut sources = Vec::new();
+    collect_rust_sources(source_root.as_path(), &mut sources);
+    sources.sort();
+
+    let allowed: BTreeSet<String> = std::iter::once("src/db/executor/traversal.rs")
+        .map(str::to_string)
+        .collect();
+
+    let mut actual = BTreeSet::new();
+    for source_path in sources {
+        if source_path
+            .components()
+            .any(|part| part.as_os_str() == "tests")
+            || source_path
+                .file_name()
+                .is_some_and(|name| name == "tests.rs")
+        {
+            continue;
+        }
+
+        let source = fs::read_to_string(&source_path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
+        let runtime_source = strip_cfg_test_items(source.as_str());
+        if !runtime_source.contains("scalar_plan().consistency") {
+            continue;
+        }
+
+        let relative = source_path
+            .strip_prefix(Path::new(env!("CARGO_MANIFEST_DIR")))
+            .unwrap_or_else(|err| {
+                panic!(
+                    "failed to compute relative source path for {}: {err}",
+                    source_path.display()
+                )
+            })
+            .to_string_lossy()
+            .replace('\\', "/");
+        actual.insert(relative);
+    }
+
+    let unexpected = actual
+        .iter()
+        .filter(|path| !allowed.contains(*path))
+        .cloned()
+        .collect::<Vec<_>>();
+    assert!(
+        unexpected.is_empty(),
+        "runtime scalar-plan consistency reads must remain boundary-local. Unexpected: {}",
+        unexpected.join(", "),
+    );
+}

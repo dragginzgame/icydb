@@ -7,11 +7,13 @@ use crate::{
     db::{
         codec::cursor::encode_cursor,
         query::plan::AccessPlannedQuery,
-        query::{explain::ExplainPlan, fingerprint::hash_parts},
+        query::{
+            explain::ExplainPlan,
+            fingerprint::{finalize_sha256_digest, hash_parts, new_plan_fingerprint_hasher_v2},
+        },
     },
     traits::FieldValue,
 };
-use sha2::{Digest, Sha256};
 
 ///
 /// PlanFingerprint
@@ -45,19 +47,15 @@ where
     pub(crate) fn fingerprint(&self) -> PlanFingerprint {
         let explain = self.explain();
         let projection = self.projection_spec_for_identity();
-        let mut hasher = Sha256::new();
-        hasher.update(b"planfp:v2");
+        let mut hasher = new_plan_fingerprint_hasher_v2();
         hash_parts::hash_explain_plan_profile_with_projection(
             &mut hasher,
             &explain,
             hash_parts::ExplainHashProfile::FingerprintV2,
             &projection,
         );
-        let digest = hasher.finalize();
-        let mut out = [0u8; 32];
-        out.copy_from_slice(&digest);
 
-        PlanFingerprint(out)
+        PlanFingerprint(finalize_sha256_digest(hasher))
     }
 }
 
@@ -66,8 +64,7 @@ impl ExplainPlan {
     #[must_use]
     pub fn fingerprint(&self) -> PlanFingerprint {
         // Phase 1: hash canonical explain fields under the current fingerprint profile.
-        let mut hasher = Sha256::new();
-        hasher.update(b"planfp:v2");
+        let mut hasher = new_plan_fingerprint_hasher_v2();
         hash_parts::hash_explain_plan_profile(
             &mut hasher,
             self,
@@ -75,11 +72,7 @@ impl ExplainPlan {
         );
 
         // Phase 2: finalize into the fixed-width fingerprint payload.
-        let digest = hasher.finalize();
-        let mut out = [0u8; 32];
-        out.copy_from_slice(&digest);
-
-        PlanFingerprint(out)
+        PlanFingerprint(finalize_sha256_digest(hasher))
     }
 }
 
@@ -110,26 +103,21 @@ mod tests {
     use crate::model::index::IndexModel;
     use crate::types::{Decimal, Ulid};
     use crate::value::Value;
-    use sha2::{Digest, Sha256};
 
     fn fingerprint_with_projection(
         plan: &AccessPlannedQuery<Value>,
         projection: &ProjectionSpec,
     ) -> super::PlanFingerprint {
         let explain = plan.explain();
-        let mut hasher = Sha256::new();
-        hasher.update(b"planfp:v2");
+        let mut hasher = super::super::new_plan_fingerprint_hasher_v2();
         hash_parts::hash_explain_plan_profile_with_projection(
             &mut hasher,
             &explain,
             hash_parts::ExplainHashProfile::FingerprintV2,
             projection,
         );
-        let digest = hasher.finalize();
-        let mut out = [0u8; 32];
-        out.copy_from_slice(&digest);
 
-        super::PlanFingerprint(out)
+        super::PlanFingerprint(super::super::finalize_sha256_digest(hasher))
     }
 
     fn full_scan_query() -> AccessPlannedQuery<Value> {

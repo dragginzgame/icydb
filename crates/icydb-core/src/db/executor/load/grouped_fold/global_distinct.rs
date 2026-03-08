@@ -40,7 +40,7 @@ where
         let compiled_predicate = execution_preparation.compiled_predicate();
 
         let global_row = Self::execute_global_distinct_field_aggregate(
-            route.plan(),
+            route.consistency(),
             ctx,
             resolved,
             compiled_predicate,
@@ -48,9 +48,11 @@ where
             (*aggregate_kind, target_field),
             (scanned_rows, filtered_rows),
         )?;
+        let grouped_window = route.grouped_pagination_window();
         let page_rows = Self::page_global_distinct_grouped_row(
             global_row,
-            route.plan().scalar_plan().page.as_ref(),
+            grouped_window.initial_offset_for_page(),
+            grouped_window.limit(),
         );
         let page_rows = Self::project_grouped_rows_from_projection(
             grouped_projection_spec,

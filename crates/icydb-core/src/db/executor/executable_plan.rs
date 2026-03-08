@@ -15,7 +15,9 @@ use crate::{
                 assemble_load_execution_node_descriptor,
                 assemble_load_execution_verbose_diagnostics,
             },
-            lower_index_prefix_specs, lower_index_range_specs, validate_executor_plan,
+            lower_index_prefix_specs, lower_index_range_specs,
+            traversal::row_read_consistency_for_plan,
+            validate_executor_plan,
         },
         predicate::MissingRowPolicy,
         query::plan::{
@@ -213,7 +215,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
     /// Borrow scalar row-consistency policy for runtime row reads.
     #[must_use]
     pub(in crate::db) const fn consistency(&self) -> MissingRowPolicy {
-        self.plan.scalar_plan().consistency
+        row_read_consistency_for_plan(&self.plan)
     }
 
     /// Borrow scalar ORDER BY contract for this executable plan, if any.

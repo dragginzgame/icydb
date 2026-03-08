@@ -14,6 +14,7 @@ use crate::{
                 commit_delete_row_ops_with_window, mutation_write_context, preflight_mutation_plan,
             },
             plan_metrics::{record_plan_metrics, record_rows_scanned, set_rows_from_len},
+            traversal::row_read_consistency_for_plan,
         },
         response::EntityResponse,
     },
@@ -140,7 +141,7 @@ where
                 &plan.access,
                 index_prefix_specs.as_slice(),
                 index_range_specs.as_slice(),
-                plan.scalar_plan().consistency,
+                row_read_consistency_for_plan(&plan),
             )?;
             record_rows_scanned::<E>(data_rows.len());
 

@@ -15,7 +15,7 @@ use crate::{
             },
             load::{FastPathKeyResult, LoadExecutor},
             route::{
-                FastPathOrder, RoutedKeyStreamRequest,
+                FastPathOrder, RoutedKeyStreamRequest, derive_budget_safety_flags,
                 ensure_index_range_aggregate_fast_path_specs,
                 ensure_secondary_aggregate_fast_path_arity, try_first_verified_fast_path_hit,
             },
@@ -270,7 +270,8 @@ impl ExecutionKernel {
         if !capabilities.is_key_direct_access() {
             return Ok(None);
         }
-        if plan.scalar_plan().predicate.is_some() {
+        let (has_residual_filter, _, _) = derive_budget_safety_flags::<E, _>(plan);
+        if has_residual_filter {
             return Ok(None);
         }
 
@@ -313,7 +314,7 @@ impl ExecutionKernel {
         };
 
         if !Self::secondary_extrema_probe_requires_fallback(
-            inputs.logical_plan.scalar_plan().consistency,
+            inputs.consistency(),
             inputs.kind,
             probe_fetch_hint,
             &probe_output,

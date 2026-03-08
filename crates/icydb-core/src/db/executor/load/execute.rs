@@ -15,8 +15,10 @@ use crate::{
                 FastPathOrder, RoutedKeyStreamRequest, ensure_load_fast_path_spec_arity,
                 try_first_verified_fast_path_hit,
             },
+            traversal::row_read_consistency_for_plan,
         },
         index::{IndexCompilePolicy, compile_index_program, predicate::IndexPredicateExecution},
+        predicate::MissingRowPolicy,
         query::plan::AccessPlannedQuery,
     },
     error::InternalError,
@@ -83,6 +85,9 @@ where
 
     /// Borrow precomputed execution-preparation payloads.
     fn execution_preparation(&self) -> &ExecutionPreparation;
+
+    /// Return row-read missing-row policy for this execution attempt.
+    fn consistency(&self) -> MissingRowPolicy;
 }
 
 impl<E> ExecutionInputsProjection<E> for ExecutionInputs<'_, E>
@@ -103,6 +108,10 @@ where
 
     fn execution_preparation(&self) -> &ExecutionPreparation {
         self.execution_preparation
+    }
+
+    fn consistency(&self) -> MissingRowPolicy {
+        row_read_consistency_for_plan(self.plan)
     }
 }
 

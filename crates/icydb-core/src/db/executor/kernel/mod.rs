@@ -177,6 +177,7 @@ impl ExecutionKernel {
             key_stream: resolved.key_stream_mut(),
             scan_budget_hint: route_plan.scan_hints.load_scan_budget_hint,
             streaming_access_shape_safe: route_plan.streaming_access_shape_safe(),
+            consistency: inputs.consistency(),
             continuation,
         })
     }

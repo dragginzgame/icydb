@@ -25,7 +25,7 @@ use crate::{
             route::access_order_satisfied_by_route_contract,
         },
         predicate::PredicateProgram,
-        query::plan::AccessPlannedQuery,
+        query::plan::{AccessPlannedQuery, DeleteLimitSpec, OrderSpec, PageSpec, QueryMode},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -113,6 +113,31 @@ impl<'a, K> PostAccessPlan<'a, K> {
     const fn new(plan: &'a AccessPlannedQuery<K>) -> Self {
         Self { plan }
     }
+
+    // Project the plan mode through one post-access boundary accessor.
+    const fn mode(&self) -> QueryMode {
+        self.plan.scalar_plan().mode
+    }
+
+    // Project ORDER BY semantics through one post-access boundary accessor.
+    const fn order_spec(&self) -> Option<&OrderSpec> {
+        self.plan.scalar_plan().order.as_ref()
+    }
+
+    // Project page-window semantics through one post-access boundary accessor.
+    const fn page_spec(&self) -> Option<&PageSpec> {
+        self.plan.scalar_plan().page.as_ref()
+    }
+
+    // Project delete-limit semantics through one post-access boundary accessor.
+    const fn delete_limit_spec(&self) -> Option<&DeleteLimitSpec> {
+        self.plan.scalar_plan().delete_limit.as_ref()
+    }
+
+    // Project residual predicate presence through one post-access boundary accessor.
+    const fn has_predicate(&self) -> bool {
+        self.plan.scalar_plan().predicate.is_some()
+    }
 }
 
 impl<K> Deref for PostAccessPlan<'_, K> {
@@ -163,10 +188,12 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
+        let post_access = PostAccessPlan::new(plan);
+
         derive_next_materialized_cursor(
             &plan.access,
-            plan.scalar_plan().order.as_ref(),
-            plan.scalar_plan().page.as_ref(),
+            post_access.order_spec(),
+            post_access.page_spec(),
             rows,
             stats.rows_after_cursor,
             continuation.post_access_cursor_boundary(),
@@ -280,7 +307,7 @@ impl<K> PostAccessPlan<'_, K> {
 
     // Enforce load/delete cursor compatibility before execution phases.
     fn validate_cursor_mode(&self, cursor: Option<&CursorBoundary>) -> Result<(), InternalError> {
-        if cursor.is_some() && !self.plan.scalar_plan().mode.is_load() {
+        if cursor.is_some() && !self.mode().is_load() {
             return Err(InternalError::query_invalid_logical_plan(
                 "delete plans must not carry cursor boundaries",
             ));
@@ -299,7 +326,7 @@ impl<K> PostAccessPlan<'_, K> {
         E: EntityKind<Key = K> + EntityValue,
         R: PlanRow<E>,
     {
-        let filtered = if self.plan.scalar_plan().predicate.is_some() {
+        let filtered = if self.has_predicate() {
             let Some(compiled_predicate) = compiled_predicate else {
                 return Err(invariant(
                     "post-access filtering requires precompiled predicate slots",
@@ -327,11 +354,10 @@ impl<K> PostAccessPlan<'_, K> {
         R: PlanRow<E>,
     {
         let bounded_order_keep = ExecutionKernel::bounded_order_keep_count(self, cursor);
-        let logical = self.plan.scalar_plan();
-        if let Some(order) = &logical.order
+        if let Some(order) = self.order_spec()
             && !order.fields.is_empty()
         {
-            if logical.predicate.is_some() && !filtered {
+            if self.has_predicate() && !filtered {
                 return Err(invariant("ordering must run after filtering"));
             }
 
@@ -374,11 +400,10 @@ impl<K> PostAccessPlan<'_, K> {
         ordered: bool,
         cursor: Option<&CursorBoundary>,
     ) -> Result<(bool, usize), InternalError> {
-        let logical = self.plan.scalar_plan();
-        let paged = if logical.mode.is_load()
-            && let Some(page) = &logical.page
+        let paged = if self.mode().is_load()
+            && let Some(page) = self.page_spec()
         {
-            if logical.order.is_some() && !ordered {
+            if self.order_spec().is_some() && !ordered {
                 return Err(invariant("pagination must run after ordering"));
             }
             window::apply_pagination(
@@ -400,11 +425,10 @@ impl<K> PostAccessPlan<'_, K> {
         rows: &mut Vec<R>,
         ordered: bool,
     ) -> Result<(bool, usize), InternalError> {
-        let logical = self.plan.scalar_plan();
-        let delete_was_limited = if logical.mode.is_delete()
-            && let Some(limit) = &logical.delete_limit
+        let delete_was_limited = if self.mode().is_delete()
+            && let Some(limit) = self.delete_limit_spec()
         {
-            if logical.order.is_some() && !ordered {
+            if self.order_spec().is_some() && !ordered {
                 return Err(invariant("delete limit must run after ordering"));
             }
             window::apply_delete_limit(rows, limit.max_rows);

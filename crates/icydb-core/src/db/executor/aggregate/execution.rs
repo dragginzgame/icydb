@@ -9,8 +9,10 @@ use crate::{
         direction::Direction,
         executor::{
             ExecutionPlan, ExecutionPreparation, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
+            traversal::row_read_consistency_for_plan,
         },
         index::IndexPredicateProgram,
+        predicate::MissingRowPolicy,
         query::builder::AggregateExpr,
         query::plan::AccessPlannedQuery,
     },
@@ -36,6 +38,17 @@ pub(in crate::db::executor) struct AggregateFastPathInputs<'exec, 'ctx, E: Entit
     pub(in crate::db::executor) physical_fetch_hint: Option<usize>,
     pub(in crate::db::executor) kind: super::AggregateKind,
     pub(in crate::db::executor) fold_mode: super::AggregateFoldMode,
+}
+
+impl<E> AggregateFastPathInputs<'_, '_, E>
+where
+    E: EntityKind + EntityValue,
+{
+    /// Return row-read missing-row policy for this aggregate fast-path attempt.
+    #[must_use]
+    pub(in crate::db::executor) const fn consistency(&self) -> MissingRowPolicy {
+        row_read_consistency_for_plan(self.logical_plan)
+    }
 }
 
 ///
@@ -67,4 +80,15 @@ pub(in crate::db::executor) struct PreparedAggregateStreamingInputs<
     pub(in crate::db::executor) logical_plan: AccessPlannedQuery<E::Key>,
     pub(in crate::db::executor) index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
     pub(in crate::db::executor) index_range_specs: Vec<LoweredIndexRangeSpec>,
+}
+
+impl<E> PreparedAggregateStreamingInputs<'_, E>
+where
+    E: EntityKind + EntityValue,
+{
+    /// Return row-read missing-row policy for prepared aggregate streaming.
+    #[must_use]
+    pub(in crate::db::executor) const fn consistency(&self) -> MissingRowPolicy {
+        row_read_consistency_for_plan(&self.logical_plan)
+    }
 }

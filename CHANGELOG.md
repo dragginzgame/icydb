@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `0.45.3` continues cleanup by tightening grouped-query planner validation, keeping cursor token replay behavior stable across equivalent execution paths, and reducing direct field coupling in public paged/error response DTOs.
 - `0.45.4` hardens query identity stability by making equivalent numeric/text coercion filters resolve to the same fingerprint/cursor signature, and adds compile-fail schema tests that lock `_id`/`_ids` relation naming enforcement.
 - `0.45.5` finishes the schema visibility sweep by moving almost all schema-node public fields behind constructor/accessor APIs (keeping only the required public `commit_memory_id` field), which reduces coupling without changing query or codegen behavior.
+- `0.45.6` closes the remaining hash-encoding cleanup by using one shared SHA256 helper path and reduces planner/runtime overlap in post-access plus route/aggregate residual-filter gating, making internals easier to change safely without changing query results.
 
 See detailed breakdown:
 [docs/changelog/0.45.md](docs/changelog/0.45.md)

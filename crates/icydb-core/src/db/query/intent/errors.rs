@@ -367,4 +367,19 @@ mod tests {
             IntentError::GroupedRequiresExecuteGrouped
         ));
     }
+
+    #[test]
+    fn fluent_cursor_order_and_limit_policy_map_to_intent_paging_shape() {
+        let requires_order = IntentError::from(FluentLoadPolicyViolation::CursorRequiresOrder);
+        let requires_limit = IntentError::from(FluentLoadPolicyViolation::CursorRequiresLimit);
+
+        assert!(matches!(
+            requires_order,
+            IntentError::InvalidPagingShape(PagingIntentError::CursorRequiresOrder)
+        ));
+        assert!(matches!(
+            requires_limit,
+            IntentError::InvalidPagingShape(PagingIntentError::CursorRequiresLimit)
+        ));
+    }
 }

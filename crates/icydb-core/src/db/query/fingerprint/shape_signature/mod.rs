@@ -10,11 +10,15 @@ use crate::{
     db::{
         cursor::ContinuationSignature,
         query::plan::AccessPlannedQuery,
-        query::{explain::ExplainPlan, fingerprint::hash_parts},
+        query::{
+            explain::ExplainPlan,
+            fingerprint::{
+                finalize_sha256_digest, hash_parts, new_continuation_signature_hasher_v1,
+            },
+        },
     },
     traits::FieldValue,
 };
-use sha2::{Digest, Sha256};
 
 impl<K> AccessPlannedQuery<K>
 where
@@ -41,19 +45,14 @@ fn continuation_signature_with_projection(
     entity_path: &'static str,
     projection: &crate::db::query::plan::expr::ProjectionSpec,
 ) -> ContinuationSignature {
-    let mut hasher = Sha256::new();
-    hasher.update(b"contsig:v1");
+    let mut hasher = new_continuation_signature_hasher_v1();
     hash_parts::hash_explain_plan_profile_with_projection(
         &mut hasher,
         explain,
         hash_parts::ExplainHashProfile::ContinuationV1 { entity_path },
         projection,
     );
-
-    let digest = hasher.finalize();
-    let mut out = [0u8; 32];
-    out.copy_from_slice(&digest);
-    ContinuationSignature::from_bytes(out)
+    ContinuationSignature::from_bytes(finalize_sha256_digest(hasher))
 }
 
 impl ExplainPlan {
@@ -75,17 +74,12 @@ impl ExplainPlan {
     /// - cursor boundary/token state
     #[must_use]
     pub fn continuation_signature(&self, entity_path: &'static str) -> ContinuationSignature {
-        let mut hasher = Sha256::new();
-        hasher.update(b"contsig:v1");
+        let mut hasher = new_continuation_signature_hasher_v1();
         hash_parts::hash_explain_plan_profile(
             &mut hasher,
             self,
             hash_parts::ExplainHashProfile::ContinuationV1 { entity_path },
         );
-
-        let digest = hasher.finalize();
-        let mut out = [0u8; 32];
-        out.copy_from_slice(&digest);
-        ContinuationSignature::from_bytes(out)
+        ContinuationSignature::from_bytes(finalize_sha256_digest(hasher))
     }
 }

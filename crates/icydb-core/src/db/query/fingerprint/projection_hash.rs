@@ -3,6 +3,8 @@
 //! Does not own: planner projection lowering or continuation profile ordering.
 //! Boundary: semantic-only projection hash bytes independent from alias/explain metadata.
 
+#[cfg(test)]
+use crate::{db::codec::new_hash_sha256, db::query::fingerprint::finalize_sha256_digest};
 use crate::{
     db::numeric::coerce_numeric_decimal,
     db::query::{
@@ -15,8 +17,6 @@ use crate::{
     },
     value::Value,
 };
-#[cfg(test)]
-use sha2::Digest;
 use sha2::Sha256;
 
 ///
@@ -187,13 +187,9 @@ const fn aggregate_kind_tag_v1(kind: AggregateKind) -> u8 {
 
 #[cfg(test)]
 pub(in crate::db) fn projection_hash_for_test(projection: &ProjectionSpec) -> [u8; 32] {
-    let mut hasher = Sha256::new();
+    let mut hasher = new_hash_sha256();
     hash_projection_structural_fingerprint_v1(&mut hasher, projection);
-    let digest = hasher.finalize();
-    let mut out = [0u8; 32];
-    out.copy_from_slice(&digest);
-
-    out
+    finalize_sha256_digest(hasher)
 }
 
 ///
@@ -208,15 +204,12 @@ mod tests {
         plan::expr::{Alias, BinaryOp, Expr, FieldId, ProjectionField, ProjectionSpec},
     };
     use crate::{types::Decimal, value::Value};
-    use sha2::{Digest, Sha256};
+    use sha2::Sha256;
 
     fn hash_projection(spec: &ProjectionSpec) -> [u8; 32] {
-        let mut hasher = Sha256::new();
+        let mut hasher = crate::db::codec::new_hash_sha256();
         hash_projection_structural_fingerprint_v1(&mut hasher, spec);
-        let digest = hasher.finalize();
-        let mut out = [0u8; 32];
-        out.copy_from_slice(&digest);
-        out
+        super::super::finalize_sha256_digest(hasher)
     }
 
     #[test]

@@ -20,7 +20,7 @@ use crate::{
 use crate::db::executor::route::{
     IndexRangeLimitSpec, RouteCapabilities, RouteContinuationPlan, RouteWindowPlan,
     aggregate_bounded_probe_fetch_hint, aggregate_supports_bounded_probe_hint,
-    direction_allows_physical_fetch_hint,
+    derive_budget_safety_flags, direction_allows_physical_fetch_hint,
 };
 
 impl<E> LoadExecutor<E>
@@ -37,6 +37,7 @@ where
     ) -> Option<IndexRangeLimitSpec> {
         let route_window = continuation.window();
         let continuation_capabilities = continuation.capabilities();
+        let (has_residual_filter, _, _) = derive_budget_safety_flags::<E, _>(plan);
         if !capabilities.index_range_limit_pushdown_shape_eligible {
             return None;
         }
@@ -44,25 +45,20 @@ where
             return None;
         }
         if let Some(fetch) = probe_fetch_hint {
-            if plan.scalar_plan().predicate.is_some()
-                && !Self::residual_predicate_pushdown_fetch_is_safe(fetch)
-            {
+            if has_residual_filter && !Self::residual_predicate_pushdown_fetch_is_safe(fetch) {
                 return None;
             }
 
             return Some(IndexRangeLimitSpec { fetch });
         }
 
-        let page = plan.scalar_plan().page.as_ref()?;
-        let limit = page.limit?;
+        let limit = route_window.limit()?;
         if limit == 0 {
             return Some(IndexRangeLimitSpec { fetch: 0 });
         }
 
         let fetch = route_window.fetch_count_for(true)?;
-        if plan.scalar_plan().predicate.is_some()
-            && !Self::residual_predicate_pushdown_fetch_is_safe(fetch)
-        {
+        if has_residual_filter && !Self::residual_predicate_pushdown_fetch_is_safe(fetch) {
             return None;
         }
 
@@ -76,11 +72,8 @@ where
         capabilities: RouteCapabilities,
     ) -> Option<usize> {
         let continuation_capabilities = continuation.capabilities();
-        let limit_zero = plan
-            .scalar_plan()
-            .page
-            .as_ref()
-            .is_some_and(|page| page.limit == Some(0));
+        let route_window = continuation.window();
+        let limit_zero = route_window.limit() == Some(0);
         if limit_zero {
             return plan.access_strategy().load_window_early_stop_hint(
                 continuation_capabilities.applied(),
@@ -89,7 +82,7 @@ where
             );
         }
 
-        let fetch_count = continuation.window().fetch_count_for(true);
+        let fetch_count = route_window.fetch_count_for(true);
         plan.access_strategy().load_window_early_stop_hint(
             continuation_capabilities.applied(),
             capabilities.streaming_access_shape_safe,

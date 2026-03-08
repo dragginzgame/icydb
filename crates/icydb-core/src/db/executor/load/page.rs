@@ -10,7 +10,7 @@ use crate::{
         executor::{
             BudgetedOrderedKeyStream, ExecutionKernel, OrderedKeyStream, ScalarContinuationBindings,
         },
-        predicate::PredicateProgram,
+        predicate::{MissingRowPolicy, PredicateProgram},
         query::plan::AccessPlannedQuery,
         response::{EntityResponse, ProjectedRow},
     },
@@ -37,6 +37,7 @@ where
     pub(in crate::db::executor) key_stream: &'a mut dyn OrderedKeyStream,
     pub(in crate::db::executor) scan_budget_hint: Option<usize>,
     pub(in crate::db::executor) streaming_access_shape_safe: bool,
+    pub(in crate::db::executor) consistency: MissingRowPolicy,
     pub(in crate::db::executor) continuation: ScalarContinuationBindings<'a>,
 }
 
@@ -55,6 +56,7 @@ where
             key_stream,
             scan_budget_hint,
             streaming_access_shape_safe,
+            consistency,
             continuation,
         } = request;
 
@@ -65,9 +67,9 @@ where
         // Phase 2: read rows from the ordered key stream, with optional budget guard.
         let data_rows = if let Some(scan_budget) = scan_budget_hint {
             let mut budgeted = BudgetedOrderedKeyStream::new(key_stream, scan_budget);
-            ctx.rows_from_ordered_key_stream(&mut budgeted, plan.scalar_plan().consistency)?
+            ctx.rows_from_ordered_key_stream(&mut budgeted, consistency)?
         } else {
-            ctx.rows_from_ordered_key_stream(key_stream, plan.scalar_plan().consistency)?
+            ctx.rows_from_ordered_key_stream(key_stream, consistency)?
         };
         let rows_scanned = data_rows.len();
         let mut rows = Context::deserialize_rows(data_rows)?;

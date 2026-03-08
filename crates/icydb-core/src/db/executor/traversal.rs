@@ -4,7 +4,10 @@
 //! semantics. Query semantic validation remains
 //! owned by `db::query::plan::validate`.
 
-use crate::db::query::plan::{AccessPlannedQuery, effective_offset_for_cursor_window};
+use crate::db::{
+    predicate::MissingRowPolicy,
+    query::plan::{AccessPlannedQuery, effective_offset_for_cursor_window},
+};
 
 /// Derive the effective pagination offset for a plan under cursor-window semantics.
 #[must_use]
@@ -32,4 +35,12 @@ pub(in crate::db) fn effective_keep_count_for_limit<K>(
     usize::try_from(effective_offset)
         .unwrap_or(usize::MAX)
         .saturating_add(usize::try_from(limit).unwrap_or(usize::MAX))
+}
+
+/// Derive row-read missing-row policy for one executor-consumed logical plan.
+#[must_use]
+pub(in crate::db::executor) const fn row_read_consistency_for_plan<K>(
+    plan: &AccessPlannedQuery<K>,
+) -> MissingRowPolicy {
+    plan.scalar_plan().consistency
 }

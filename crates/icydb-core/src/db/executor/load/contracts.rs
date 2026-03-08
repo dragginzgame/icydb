@@ -15,7 +15,9 @@ use crate::{
                 ResolvedExecutionKeyStream,
             },
             plan_metrics::GroupedPlanMetricsStrategy,
+            traversal::row_read_consistency_for_plan,
         },
+        predicate::MissingRowPolicy,
         query::plan::{
             AccessPlannedQuery, GroupHavingSpec, GroupedDistinctExecutionStrategy,
             PlannedProjectionLayout,
@@ -254,6 +256,12 @@ where
     const fn index_range_specs(&self) -> &[crate::db::access::LoweredIndexRangeSpec] {
         self.index_specs.index_range_specs.as_slice()
     }
+
+    /// Return grouped row-read missing-row policy.
+    #[must_use]
+    const fn consistency(&self) -> MissingRowPolicy {
+        row_read_consistency_for_plan(self.plan())
+    }
 }
 
 ///
@@ -306,6 +314,9 @@ where
 
     /// Borrow grouped runtime pagination projection.
     fn grouped_pagination_window(&self) -> &GroupedPaginationWindow;
+
+    /// Return grouped row-read missing-row policy.
+    fn consistency(&self) -> MissingRowPolicy;
 
     /// Return grouped continuation capabilities for this execution window.
     fn grouped_continuation_capabilities(&self) -> GroupedContinuationCapabilities;
@@ -376,6 +387,10 @@ where
         self.execution_context
             .continuation()
             .grouped_pagination_window()
+    }
+
+    fn consistency(&self) -> MissingRowPolicy {
+        Self::consistency(self)
     }
 
     fn grouped_continuation_capabilities(&self) -> GroupedContinuationCapabilities {

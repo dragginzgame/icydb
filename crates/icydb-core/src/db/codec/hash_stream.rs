@@ -2,6 +2,18 @@
 
 use sha2::{Digest, Sha256};
 
+/// Build one empty SHA256 stream.
+pub(in crate::db) fn new_hash_sha256() -> Sha256 {
+    Sha256::new()
+}
+
+/// Build one SHA256 stream pre-seeded with a profile tag.
+pub(in crate::db) fn new_hash_sha256_prefixed(prefix: &[u8]) -> Sha256 {
+    let mut hasher = new_hash_sha256();
+    hasher.update(prefix);
+    hasher
+}
+
 /// Write one tag byte into a hash stream.
 pub(in crate::db) fn write_hash_tag_u8(hasher: &mut Sha256, tag: u8) {
     hasher.update([tag]);
@@ -27,4 +39,12 @@ pub(in crate::db) fn write_hash_len_u32(hasher: &mut Sha256, len: usize) {
 pub(in crate::db) fn write_hash_str_u32(hasher: &mut Sha256, value: &str) {
     write_hash_len_u32(hasher, value.len());
     hasher.update(value.as_bytes());
+}
+
+/// Finalize one SHA256 stream into a fixed-width digest payload.
+pub(in crate::db) fn finalize_hash_sha256(hasher: Sha256) -> [u8; 32] {
+    let digest = hasher.finalize();
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&digest);
+    out
 }

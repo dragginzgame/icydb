@@ -554,6 +554,57 @@ mod tests {
     }
 
     #[test]
+    fn entity_field_description_serialization_shape_is_stable() {
+        let encoded = to_cbor_value(&EntityFieldDescription::new(
+            "created_at".to_string(),
+            "timestamp".to_string(),
+            false,
+            true,
+        ));
+        let root = expect_cbor_map(&encoded);
+
+        assert!(
+            map_field(root, "name").is_some(),
+            "EntityFieldDescription must keep `name` field key",
+        );
+        assert!(
+            map_field(root, "kind").is_some(),
+            "EntityFieldDescription must keep `kind` field key",
+        );
+        assert!(
+            map_field(root, "primary_key").is_some(),
+            "EntityFieldDescription must keep `primary_key` field key",
+        );
+        assert!(
+            map_field(root, "queryable").is_some(),
+            "EntityFieldDescription must keep `queryable` field key",
+        );
+    }
+
+    #[test]
+    fn entity_index_description_serialization_shape_is_stable() {
+        let encoded = to_cbor_value(&EntityIndexDescription::new(
+            "idx_created_at".to_string(),
+            false,
+            vec!["created_at".to_string()],
+        ));
+        let root = expect_cbor_map(&encoded);
+
+        assert!(
+            map_field(root, "name").is_some(),
+            "EntityIndexDescription must keep `name` field key",
+        );
+        assert!(
+            map_field(root, "unique").is_some(),
+            "EntityIndexDescription must keep `unique` field key",
+        );
+        assert!(
+            map_field(root, "fields").is_some(),
+            "EntityIndexDescription must keep `fields` field key",
+        );
+    }
+
+    #[test]
     fn entity_relation_description_serialization_shape_is_stable() {
         let encoded = to_cbor_value(&EntityRelationDescription::new(
             "owner_id".to_string(),

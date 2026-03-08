@@ -405,6 +405,52 @@ fn storage_report_serialization_shape_is_stable() {
 }
 
 #[test]
+fn data_store_snapshot_serialization_shape_is_stable() {
+    let encoded = to_cbor_value(&DataStoreSnapshot::new("store_a".to_string(), 2, 64));
+    let root = expect_cbor_map(&encoded);
+
+    assert!(
+        map_field(root, "path").is_some(),
+        "DataStoreSnapshot must keep `path` as serialized field key",
+    );
+    assert!(
+        map_field(root, "entries").is_some(),
+        "DataStoreSnapshot must keep `entries` as serialized field key",
+    );
+    assert!(
+        map_field(root, "memory_bytes").is_some(),
+        "DataStoreSnapshot must keep `memory_bytes` as serialized field key",
+    );
+}
+
+#[test]
+fn index_store_snapshot_serialization_shape_is_stable() {
+    let encoded = to_cbor_value(&IndexStoreSnapshot::new("store_a".to_string(), 3, 2, 1, 96));
+    let root = expect_cbor_map(&encoded);
+
+    assert!(
+        map_field(root, "path").is_some(),
+        "IndexStoreSnapshot must keep `path` as serialized field key",
+    );
+    assert!(
+        map_field(root, "entries").is_some(),
+        "IndexStoreSnapshot must keep `entries` as serialized field key",
+    );
+    assert!(
+        map_field(root, "user_entries").is_some(),
+        "IndexStoreSnapshot must keep `user_entries` as serialized field key",
+    );
+    assert!(
+        map_field(root, "system_entries").is_some(),
+        "IndexStoreSnapshot must keep `system_entries` as serialized field key",
+    );
+    assert!(
+        map_field(root, "memory_bytes").is_some(),
+        "IndexStoreSnapshot must keep `memory_bytes` as serialized field key",
+    );
+}
+
+#[test]
 fn entity_snapshot_serialization_shape_is_stable() {
     let encoded = to_cbor_value(&EntitySnapshot::new(
         "store_a".to_string(),

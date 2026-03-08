@@ -16,6 +16,7 @@ use crate::{
                 AggregateStateFactory, FoldControl, TerminalAggregateState,
             },
             load::CursorPage,
+            traversal::row_read_consistency_for_plan,
         },
         predicate::MissingRowPolicy,
         query::plan::AccessPlannedQuery,
@@ -248,7 +249,7 @@ impl ExecutionKernel {
 
         let mut window = Self::window_cursor_contract(plan, None);
         let mut keys_scanned = 0usize;
-        let consistency = plan.scalar_plan().consistency;
+        let consistency = row_read_consistency_for_plan(plan);
 
         // Phase 2: scan keys, apply fold eligibility/window gates, and feed reducer.
         while !window.exhausted() {
@@ -296,7 +297,7 @@ impl ExecutionKernel {
 
         let mut rows: Vec<(Id<E>, E)> = Vec::new();
         let mut keys_scanned = 0usize;
-        let consistency = plan.scalar_plan().consistency;
+        let consistency = row_read_consistency_for_plan(plan);
 
         // Phase 2: materialize rows from keys and feed ephemeral row borrows to reducer.
         while let Some(data_key) = key_stream.next_key()? {

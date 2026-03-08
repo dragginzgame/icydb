@@ -115,7 +115,7 @@ impl ExecutionKernel {
 
         // Reuse shared aggregate streaming setup and route-owned stream resolution.
         let prepared = Self::prepare_aggregate_streaming_inputs(executor, plan)?;
-        let consistency = prepared.logical_plan.scalar_plan().consistency;
+        let consistency = prepared.consistency();
         let (probe_output, probe_rows_scanned) = Self::fold_field_target_extrema_for_route_plan(
             &prepared,
             consistency,

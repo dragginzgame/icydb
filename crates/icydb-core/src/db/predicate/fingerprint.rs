@@ -31,7 +31,6 @@ mod tests {
         db::predicate::{CompareOp, ComparePredicate, Predicate, coercion::CoercionId, normalize},
         value::Value,
     };
-    use sha2::{Digest, Sha256};
 
     #[test]
     fn hash_predicate_preserves_raw_and_child_order_before_normalization() {
@@ -146,20 +145,14 @@ mod tests {
     }
 
     fn digest(predicate: &Predicate) -> [u8; 32] {
-        let mut hasher = Sha256::new();
+        let mut hasher = crate::db::codec::new_hash_sha256();
         hash_predicate(&mut hasher, predicate);
-        let digest = hasher.finalize();
-        let mut out = [0u8; 32];
-        out.copy_from_slice(&digest);
-        out
+        crate::db::codec::finalize_hash_sha256(hasher)
     }
 
     fn digest_structural(predicate: &Predicate) -> [u8; 32] {
-        let mut hasher = Sha256::new();
+        let mut hasher = crate::db::codec::new_hash_sha256();
         hash_predicate_structural(&mut hasher, predicate);
-        let digest = hasher.finalize();
-        let mut out = [0u8; 32];
-        out.copy_from_slice(&digest);
-        out
+        crate::db::codec::finalize_hash_sha256(hasher)
     }
 }

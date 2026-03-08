@@ -39,7 +39,7 @@ where
         let compiled_predicate = execution_preparation.compiled_predicate();
 
         while let Some(key) = resolved.key_stream_mut().next_key()? {
-            let row = match route.plan().scalar_plan().consistency {
+            let row = match route.consistency() {
                 MissingRowPolicy::Error => ctx.read_strict(&key),
                 MissingRowPolicy::Ignore => ctx.read(&key),
             };
