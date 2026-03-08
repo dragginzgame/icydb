@@ -27,6 +27,7 @@ use crate::{
     error::InternalError,
     obs::sink::{MetricsSink, with_metrics_sink},
     traits::{CanisterKind, EntityKind, EntityValue},
+    value::Value,
 };
 use std::thread::LocalKey;
 
@@ -186,6 +187,14 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         FluentDeleteQuery::new(self, Query::new(consistency).delete())
+    }
+
+    /// Return one constant scalar row equivalent to SQL `SELECT 1`.
+    ///
+    /// This terminal bypasses query planning and access routing entirely.
+    #[must_use]
+    pub const fn select_one(&self) -> Value {
+        Value::Int(1)
     }
 
     /// Return one stable, human-readable index listing for the entity schema.

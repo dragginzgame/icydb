@@ -155,14 +155,14 @@ impl Sub for Timestamp {
 }
 
 impl AsView for Timestamp {
-    type ViewType = u64;
+    type ViewType = Self;
 
     fn as_view(&self) -> Self::ViewType {
-        self.0
+        *self
     }
 
     fn from_view(view: Self::ViewType) -> Self {
-        Self(view)
+        view
     }
 }
 
@@ -384,5 +384,13 @@ mod tests {
         let t = Timestamp::from_secs(77);
         let v = t.to_value();
         assert_eq!(v, Value::Timestamp(t));
+    }
+
+    #[test]
+    fn test_as_view_roundtrip_preserves_semantic_timestamp_type() {
+        let value = Timestamp::from_millis(1_710_013_530_000);
+        let view: Timestamp = value.as_view();
+        assert_eq!(view, value);
+        assert_eq!(Timestamp::from_view(view), value);
     }
 }

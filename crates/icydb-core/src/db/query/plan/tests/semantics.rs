@@ -291,8 +291,8 @@ fn scalar_distinct_execution_strategy_is_planner_lowered_from_access_shape() {
     path_plan.scalar_mut().distinct = true;
     assert_eq!(
         path_plan.distinct_execution_strategy(),
-        DistinctExecutionStrategy::PreOrdered,
-        "single-path DISTINCT should lower to preordered execution strategy",
+        DistinctExecutionStrategy::None,
+        "duplicate-safe single-path DISTINCT should lower to no-op strategy",
     );
 
     let mut composite_plan: AccessPlannedQuery<Value> =
@@ -304,8 +304,18 @@ fn scalar_distinct_execution_strategy_is_planner_lowered_from_access_shape() {
     composite_plan.scalar_mut().distinct = true;
     assert_eq!(
         composite_plan.distinct_execution_strategy(),
+        DistinctExecutionStrategy::PreOrdered,
+        "union DISTINCT should lower to streaming preordered dedup strategy",
+    );
+
+    composite_plan.access = AccessPlan::path(AccessPath::IndexMultiLookup {
+        index: INDEX_MODEL,
+        values: vec![Value::from(7_u64), Value::from(8_u64)],
+    });
+    assert_eq!(
+        composite_plan.distinct_execution_strategy(),
         DistinctExecutionStrategy::HashMaterialize,
-        "composite DISTINCT should lower to materialized execution strategy",
+        "index multi-lookup DISTINCT should retain materialized dedup strategy",
     );
 
     composite_plan.scalar_mut().distinct = false;

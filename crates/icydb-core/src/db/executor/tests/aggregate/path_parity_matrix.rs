@@ -1242,6 +1242,30 @@ fn aggregate_count_key_range_window_scans_offset_plus_limit() {
 }
 
 #[test]
+fn aggregate_exists_full_scan_window_scans_offset_plus_one() {
+    seed_simple_entities(&[8681, 8682, 8683, 8684, 8685, 8686, 8687]);
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    let (exists, scanned) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
+        load.aggregate_exists(
+            Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+                .order_by("id")
+                .offset(2)
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("full-scan EXISTS plan should build"),
+        )
+        .expect("full-scan EXISTS should succeed")
+    });
+
+    assert!(exists, "full-scan EXISTS window should find a matching row");
+    assert_eq!(
+        scanned, 3,
+        "full-scan EXISTS window should scan exactly offset + 1 keys"
+    );
+}
+
+#[test]
 fn aggregate_exists_index_range_window_scans_offset_plus_one() {
     seed_unique_index_range_entities(&[
         (8691, 100),

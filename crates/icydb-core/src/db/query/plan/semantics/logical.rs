@@ -103,10 +103,12 @@ impl<K> AccessPlannedQuery<K> {
             return DistinctExecutionStrategy::None;
         }
 
-        if access_shape_requires_distinct_materialization(&self.access) {
-            DistinctExecutionStrategy::HashMaterialize
-        } else {
-            DistinctExecutionStrategy::PreOrdered
+        // DISTINCT on duplicate-safe single-path access shapes is a planner
+        // no-op for runtime dedup mechanics. Composite shapes can surface
+        // duplicate keys and therefore retain explicit dedup execution.
+        match distinct_runtime_dedup_strategy(&self.access) {
+            Some(strategy) => strategy,
+            None => DistinctExecutionStrategy::None,
         }
     }
 
@@ -153,10 +155,15 @@ impl<K> AccessPlannedQuery<K> {
     }
 }
 
-fn access_shape_requires_distinct_materialization<K>(access: &AccessPlan<K>) -> bool {
+fn distinct_runtime_dedup_strategy<K>(access: &AccessPlan<K>) -> Option<DistinctExecutionStrategy> {
     match access {
-        AccessPlan::Union(_) | AccessPlan::Intersection(_) => true,
-        AccessPlan::Path(path) => path.as_ref().is_index_multi_lookup(),
+        AccessPlan::Union(_) | AccessPlan::Intersection(_) => {
+            Some(DistinctExecutionStrategy::PreOrdered)
+        }
+        AccessPlan::Path(path) if path.as_ref().is_index_multi_lookup() => {
+            Some(DistinctExecutionStrategy::HashMaterialize)
+        }
+        AccessPlan::Path(_) => None,
     }
 }
 

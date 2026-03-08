@@ -76,6 +76,13 @@ fn capture_rows_scanned_for_entity<R>(
     (output, rows_scanned)
 }
 
+fn capture_metrics_events<R>(run: impl FnOnce() -> R) -> (R, Vec<MetricsEvent>) {
+    let sink = AggregateCaptureSink::default();
+    let output = with_metrics_sink(&sink, run);
+
+    (output, sink.into_events())
+}
+
 fn persisted_payload_bytes_for_ids<E>(ids: impl IntoIterator<Item = Id<E>>) -> u64
 where
     E: EntityKind,

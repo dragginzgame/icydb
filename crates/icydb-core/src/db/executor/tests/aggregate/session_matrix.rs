@@ -641,6 +641,18 @@ fn session_load_terminal_explain_projects_seek_labels_for_min_and_max() {
 }
 
 #[test]
+fn session_select_one_returns_constant_without_execution_metrics() {
+    let session = DbSession::new(DB);
+
+    let (value, events) = capture_metrics_events(|| session.select_one());
+    assert_eq!(value, Value::Int(1), "select_one should return constant 1");
+    assert!(
+        events.is_empty(),
+        "select_one should bypass planner/executor metrics emission",
+    );
+}
+
+#[test]
 fn session_show_indexes_reports_primary_and_secondary_indexes() {
     let session = DbSession::new(DB);
 
