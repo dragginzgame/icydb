@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.46.x] - 2026-03-08 - Standards Alignment
+
+- `0.46.0` starts the standards-alignment line with early planner/executor fast paths (`LIMIT 0`, constant-false predicates, and empty-window aggregate short-circuits) plus stronger predicate normalization and plan-stability guards, so no-row queries do less work while returning the same SQL results.
+
+See detailed breakdown:
+[docs/changelog/0.46.md](docs/changelog/0.46.md)
+
+---
+
 ## [0.45.x] - 2026-03-07 - Feature Cleanup
 
 - `0.45.0` starts the feature-cleanup line by tightening internal API boundaries, locking error/serialization contracts, enforcing relation naming/type checks in schema macros, and reducing duplicate planner-vs-executor routing logic without changing query behavior.
