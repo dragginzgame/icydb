@@ -86,7 +86,7 @@ fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_pat
     );
     assert_eq!(
         route_plan.shape().execution_mode(),
-        ExecutionMode::Materialized
+        RouteExecutionMode::Materialized
     );
     assert_eq!(route_plan.continuation().mode(), ContinuationMode::Initial);
     assert_eq!(route_plan.index_range_limit_spec, None);
@@ -104,7 +104,7 @@ fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_pat
     assert!(grouped_observability.eligible());
     assert_eq!(
         grouped_observability.execution_mode(),
-        ExecutionMode::Materialized
+        RouteExecutionMode::Materialized
     );
     assert_eq!(
         grouped_observability.grouped_execution_strategy(),
@@ -140,7 +140,7 @@ fn route_plan_grouped_wrapper_keeps_blocking_shape_under_tight_budget_config() {
     );
     assert_eq!(
         route_plan.shape().execution_mode(),
-        ExecutionMode::Materialized
+        RouteExecutionMode::Materialized
     );
     assert_eq!(route_plan.continuation().mode(), ContinuationMode::Initial);
     assert_eq!(route_plan.index_range_limit_spec, None);
@@ -158,7 +158,7 @@ fn route_plan_grouped_wrapper_keeps_blocking_shape_under_tight_budget_config() {
     assert!(grouped_observability.eligible());
     assert_eq!(
         grouped_observability.execution_mode(),
-        ExecutionMode::Materialized
+        RouteExecutionMode::Materialized
     );
     assert_eq!(
         grouped_observability.grouped_execution_strategy(),
@@ -434,7 +434,7 @@ fn route_plan_grouped_wrapper_observability_vector_is_frozen() {
         GroupedRouteDecisionOutcome::MaterializedFallback,
         None,
         true,
-        ExecutionMode::Materialized,
+        RouteExecutionMode::Materialized,
         crate::db::executor::route::GroupedExecutionStrategy::HashMaterialized,
     );
 
@@ -601,14 +601,14 @@ fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
     );
     assert_eq!(
         route_plan.shape().execution_mode(),
-        ExecutionMode::Materialized
+        RouteExecutionMode::Materialized
     );
     let grouped_observability = route_plan
         .grouped_observability()
         .expect("grouped route should always project grouped observability");
     assert_eq!(
         grouped_observability.execution_mode(),
-        ExecutionMode::Materialized
+        RouteExecutionMode::Materialized
     );
     assert_eq!(
         grouped_observability.grouped_execution_strategy(),
@@ -655,7 +655,7 @@ fn route_matrix_aggregate_count_pk_order_is_streaming_keys_only() {
 
     assert_eq!(
         route_plan.shape().execution_mode(),
-        ExecutionMode::Streaming
+        RouteExecutionMode::Streaming
     );
     assert!(matches!(
         route_plan.aggregate_fold_mode,
@@ -711,7 +711,7 @@ fn route_matrix_aggregate_count_secondary_shape_streams_with_existing_rows() {
 
     assert_eq!(
         route_plan.shape().execution_mode(),
-        ExecutionMode::Streaming
+        RouteExecutionMode::Streaming
     );
     assert!(matches!(
         route_plan.aggregate_fold_mode,
@@ -736,7 +736,7 @@ fn route_matrix_aggregate_count_secondary_shape_with_strict_predicate_streams() 
 
     assert_eq!(
         route_plan.shape().execution_mode(),
-        ExecutionMode::Streaming
+        RouteExecutionMode::Streaming
     );
     assert!(matches!(
         route_plan.aggregate_fold_mode,
@@ -767,7 +767,7 @@ fn route_matrix_aggregate_count_secondary_shape_with_strict_uncertainty_material
 
     assert_eq!(
         route_plan.shape().execution_mode(),
-        ExecutionMode::Materialized
+        RouteExecutionMode::Materialized
     );
     assert!(matches!(
         route_plan.aggregate_fold_mode,
@@ -793,7 +793,7 @@ fn route_matrix_aggregate_distinct_offset_last_disables_probe_hint() {
 
     assert_eq!(
         route_plan.shape().execution_mode(),
-        ExecutionMode::Streaming
+        RouteExecutionMode::Streaming
     );
     assert!(matches!(
         route_plan.aggregate_fold_mode,
@@ -863,7 +863,7 @@ fn route_matrix_aggregate_by_keys_desc_disables_probe_hint_without_reverse_suppo
 
     assert_eq!(
         route_plan.shape().execution_mode(),
-        ExecutionMode::Streaming
+        RouteExecutionMode::Streaming
     );
     assert!(!route_plan.desc_physical_reverse_supported());
     assert_eq!(route_plan.scan_hints.physical_fetch_hint, None);
@@ -970,7 +970,7 @@ fn route_matrix_aggregate_index_range_desc_with_window_enables_pushdown_hint() {
 
     assert_eq!(
         route_plan.shape().execution_mode(),
-        ExecutionMode::Streaming
+        RouteExecutionMode::Streaming
     );
     assert!(route_plan.desc_physical_reverse_supported());
     assert_eq!(route_plan.scan_hints.physical_fetch_hint, Some(3));
@@ -982,21 +982,32 @@ fn route_matrix_aggregate_index_range_desc_with_window_enables_pushdown_hint() {
 
 #[test]
 fn route_matrix_aggregate_count_pushdown_boundary_matrix() {
+    let assert_count_route = |plan: &AccessPlannedQuery<Ulid>,
+                              expected_fold_mode: AggregateFoldMode| {
+        let route_plan =
+            LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+                plan,
+                AggregateKind::Count,
+            );
+        assert_eq!(
+            route_plan.execution_mode,
+            RouteExecutionMode::Streaming,
+            "COUNT pushdown matrix should stay on streaming execution mode",
+        );
+        assert_eq!(
+            route_plan.aggregate_fold_mode, expected_fold_mode,
+            "COUNT pushdown matrix should preserve fold-mode contract",
+        );
+
+        route_plan
+    };
+
     let mut full_scan =
         AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     full_scan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
-    let full_scan_route =
-        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
-            &full_scan,
-            AggregateKind::Count,
-        );
-    assert_eq!(full_scan_route.execution_mode, ExecutionMode::Streaming);
-    assert!(matches!(
-        full_scan_route.aggregate_fold_mode,
-        AggregateFoldMode::KeysOnly
-    ));
+    let _full_scan_route = assert_count_route(&full_scan, AggregateFoldMode::KeysOnly);
 
     let mut key_range = AccessPlannedQuery::new(
         AccessPath::<Ulid>::KeyRange {
@@ -1008,16 +1019,7 @@ fn route_matrix_aggregate_count_pushdown_boundary_matrix() {
     key_range.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
-    let key_range_route =
-        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
-            &key_range,
-            AggregateKind::Count,
-        );
-    assert_eq!(key_range_route.execution_mode, ExecutionMode::Streaming);
-    assert!(matches!(
-        key_range_route.aggregate_fold_mode,
-        AggregateFoldMode::KeysOnly
-    ));
+    let _key_range_route = assert_count_route(&key_range, AggregateFoldMode::KeysOnly);
 
     let mut secondary = AccessPlannedQuery::new(
         AccessPath::<Ulid>::IndexPrefix {
@@ -1032,16 +1034,7 @@ fn route_matrix_aggregate_count_pushdown_boundary_matrix() {
             ("id".to_string(), OrderDirection::Asc),
         ],
     });
-    let secondary_route =
-        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
-            &secondary,
-            AggregateKind::Count,
-        );
-    assert_eq!(secondary_route.execution_mode, ExecutionMode::Streaming);
-    assert!(matches!(
-        secondary_route.aggregate_fold_mode,
-        AggregateFoldMode::ExistingRows
-    ));
+    let _secondary_route = assert_count_route(&secondary, AggregateFoldMode::ExistingRows);
 
     let mut index_range = AccessPlannedQuery::new(
         AccessPath::<Ulid>::index_range(
@@ -1062,12 +1055,7 @@ fn route_matrix_aggregate_count_pushdown_boundary_matrix() {
         limit: Some(2),
         offset: 1,
     });
-    let index_range_route =
-        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
-            &index_range,
-            AggregateKind::Count,
-        );
-    assert_eq!(index_range_route.execution_mode, ExecutionMode::Streaming);
+    let index_range_route = assert_count_route(&index_range, AggregateFoldMode::ExistingRows);
     assert_eq!(
         index_range_route
             .index_range_limit_spec
@@ -1075,10 +1063,6 @@ fn route_matrix_aggregate_count_pushdown_boundary_matrix() {
         Some(3),
         "index-range COUNT with page window should inherit bounded pushdown fetch",
     );
-    assert!(matches!(
-        index_range_route.aggregate_fold_mode,
-        AggregateFoldMode::ExistingRows
-    ));
 }
 
 #[test]
@@ -1245,7 +1229,7 @@ fn route_matrix_aggregate_strict_compile_uncertainty_forces_materialized_executi
         );
     assert_eq!(
         strict_compatible_route.execution_mode,
-        ExecutionMode::Streaming,
+        RouteExecutionMode::Streaming,
         "strict-compilable secondary predicate shapes should keep aggregate streaming eligibility",
     );
 
@@ -1264,7 +1248,7 @@ fn route_matrix_aggregate_strict_compile_uncertainty_forces_materialized_executi
         );
     assert_eq!(
         strict_uncertain_route.execution_mode,
-        ExecutionMode::Materialized,
+        RouteExecutionMode::Materialized,
         "aggregate route planning must force materialized execution when strict index compile fails",
     );
 
@@ -1276,7 +1260,7 @@ fn route_matrix_aggregate_strict_compile_uncertainty_forces_materialized_executi
     .expect("load route plan should build for strict/subset parity boundary shape");
     assert_eq!(
         load_route.execution_mode,
-        ExecutionMode::Streaming,
+        RouteExecutionMode::Streaming,
         "load routing should remain streaming for the same shape via conservative subset policy",
     );
 }

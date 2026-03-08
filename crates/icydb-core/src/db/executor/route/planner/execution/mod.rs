@@ -13,7 +13,7 @@ use crate::{
         aggregate::AggregateKind,
         load::LoadExecutor,
         route::{
-            ExecutionMode, IndexRangeLimitSpec, RouteShapeKind,
+            IndexRangeLimitSpec, RouteExecutionMode, RouteShapeKind,
             planner::{RouteExecutionStage, RouteFeasibilityStage, RouteIntentStage},
         },
     },
@@ -26,11 +26,11 @@ where
 {
     const fn index_range_limit_spec_for_execution_mode(
         feasibility_stage: &RouteFeasibilityStage,
-        execution_mode: ExecutionMode,
+        execution_mode: RouteExecutionMode,
     ) -> Option<IndexRangeLimitSpec> {
         match execution_mode {
-            ExecutionMode::Streaming => feasibility_stage.index_range_limit_spec,
-            ExecutionMode::Materialized => None,
+            RouteExecutionMode::Streaming => feasibility_stage.index_range_limit_spec,
+            RouteExecutionMode::Materialized => None,
         }
     }
 

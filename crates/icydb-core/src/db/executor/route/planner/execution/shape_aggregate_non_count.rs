@@ -3,7 +3,7 @@ use crate::{
         aggregate::AggregateFoldMode,
         load::LoadExecutor,
         route::{
-            ExecutionMode, ExecutionModeRouteCase, RouteShapeKind,
+            ExecutionModeRouteCase, RouteExecutionMode, RouteShapeKind,
             planner::{RouteExecutionStage, RouteFeasibilityStage, RouteIntentStage},
         },
     },
@@ -18,9 +18,9 @@ where
         intent_stage: &RouteIntentStage,
         feasibility_stage: &RouteFeasibilityStage,
         aggregate_force_materialized_due_to_predicate_uncertainty: bool,
-    ) -> ExecutionMode {
+    ) -> RouteExecutionMode {
         if aggregate_force_materialized_due_to_predicate_uncertainty {
-            ExecutionMode::Materialized
+            RouteExecutionMode::Materialized
         } else if Self::aggregate_non_count_streaming_allowed(
             intent_stage.aggregate_expr.as_ref(),
             feasibility_stage.derivation.capabilities,
@@ -30,9 +30,9 @@ where
                 .is_eligible(),
             feasibility_stage.index_range_limit_spec.is_some(),
         ) {
-            ExecutionMode::Streaming
+            RouteExecutionMode::Streaming
         } else {
-            ExecutionMode::Materialized
+            RouteExecutionMode::Materialized
         }
     }
 
@@ -50,7 +50,8 @@ where
         let index_range_limit_spec =
             Self::index_range_limit_spec_for_execution_mode(feasibility_stage, execution_mode);
         debug_assert!(
-            index_range_limit_spec.is_none() || matches!(execution_mode, ExecutionMode::Streaming),
+            index_range_limit_spec.is_none()
+                || matches!(execution_mode, RouteExecutionMode::Streaming),
             "route invariant: aggregate index-range limit pushdown must execute in streaming mode",
         );
 

@@ -87,7 +87,7 @@ where
         debug_assert!(
             matches!(
                 grouped_route_execution_mode,
-                crate::db::executor::route::ExecutionMode::Materialized
+                crate::db::executor::route::RouteExecutionMode::Materialized
             ),
             "grouped execution must remain materialized",
         );

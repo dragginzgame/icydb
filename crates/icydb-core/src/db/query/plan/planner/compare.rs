@@ -2,10 +2,13 @@ use crate::{
     db::{
         access::{AccessPlan, SemanticIndexRangeSpec},
         predicate::{CoercionId, CompareOp, ComparePredicate, SchemaInfo, literal_matches_type},
-        query::plan::planner::{
-            index_literal_matches_schema,
-            prefix::{index_multi_lookup_for_in, index_prefix_for_eq},
-            sorted_indexes,
+        query::plan::{
+            planner::{
+                index_literal_matches_schema,
+                prefix::{index_multi_lookup_for_in, index_prefix_for_eq},
+                sorted_indexes,
+            },
+            stability::canonicalize_in_literal_values,
         },
     },
     model::entity::EntityModel,
@@ -36,12 +39,15 @@ pub(super) fn plan_compare(
         }
         CompareOp::In => {
             if let Value::List(items) = &cmp.value {
+                let canonical_values = canonicalize_in_literal_values(items);
                 // `IN ()` is a constant-empty predicate: no row can satisfy it.
                 // Lower directly to an empty access shape instead of full-scan fallback.
-                if items.is_empty() {
+                if canonical_values.is_empty() {
                     return AccessPlan::by_keys(Vec::new());
                 }
-                if let Some(paths) = index_multi_lookup_for_in(model, schema, &cmp.field, items) {
+                if let Some(paths) =
+                    index_multi_lookup_for_in(model, schema, &cmp.field, &canonical_values)
+                {
                     return AccessPlan::union(paths);
                 }
             }
@@ -106,14 +112,16 @@ fn plan_pk_compare(
             let Value::List(items) = &cmp.value else {
                 return None;
             };
+            let canonical_keys = canonicalize_in_literal_values(items);
 
-            for item in items {
+            for item in &canonical_keys {
                 if !value_matches_pk_model(schema, model, item) {
                     return None;
                 }
             }
-            // NOTE: key order is canonicalized during access-plan normalization.
-            Some(AccessPlan::by_keys(items.clone()))
+            // NOTE: key set canonicalization is planner-owned; access-plan
+            // normalization keeps this idempotent across the full plan tree.
+            Some(AccessPlan::by_keys(canonical_keys))
         }
         _ => {
             // NOTE: Only Eq/In comparisons can be expressed as key access paths.

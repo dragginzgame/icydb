@@ -15,14 +15,14 @@ use crate::db::{
 };
 
 ///
-/// ExecutionMode
+/// RouteExecutionMode
 ///
 /// Canonical route-level execution shape selected by the routing gate.
 /// Keeps streaming-vs-materialized decisions explicit and testable.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) enum ExecutionMode {
+pub(in crate::db::executor) enum RouteExecutionMode {
     Streaming,
     Materialized,
 }
@@ -282,7 +282,7 @@ pub(in crate::db::executor) struct ExecutionRoutePlan {
     pub(in crate::db::executor) direction: Direction,
     pub(in crate::db::executor) route_shape_kind: RouteShapeKind,
     pub(in crate::db::executor) continuation: RouteContinuationPlan,
-    pub(in crate::db::executor) execution_mode: ExecutionMode,
+    pub(in crate::db::executor) execution_mode: RouteExecutionMode,
     pub(in crate::db::executor) execution_mode_case: ExecutionModeRouteCase,
     pub(in crate::db::executor) secondary_pushdown_applicability: PushdownApplicability,
     pub(in crate::db::executor) index_range_limit_spec: Option<IndexRangeLimitSpec>,
@@ -551,7 +551,7 @@ pub(in crate::db::executor) enum ExecutionModeRouteCase {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) struct ExecutionRouteShape {
     route_shape_kind: RouteShapeKind,
-    execution_mode: ExecutionMode,
+    execution_mode: RouteExecutionMode,
     execution_mode_case: ExecutionModeRouteCase,
 }
 
@@ -563,7 +563,7 @@ impl ExecutionRouteShape {
     }
 
     #[must_use]
-    pub(in crate::db::executor) const fn execution_mode(self) -> ExecutionMode {
+    pub(in crate::db::executor) const fn execution_mode(self) -> RouteExecutionMode {
         self.execution_mode
     }
 
@@ -575,12 +575,12 @@ impl ExecutionRouteShape {
 
     #[must_use]
     pub(in crate::db::executor) const fn is_streaming(self) -> bool {
-        matches!(self.execution_mode, ExecutionMode::Streaming)
+        matches!(self.execution_mode, RouteExecutionMode::Streaming)
     }
 
     #[must_use]
     pub(in crate::db::executor) const fn is_materialized(self) -> bool {
-        matches!(self.execution_mode, ExecutionMode::Materialized)
+        matches!(self.execution_mode, RouteExecutionMode::Materialized)
     }
 }
 
@@ -623,7 +623,7 @@ pub(in crate::db::executor) struct GroupedRouteObservability {
     pub(in crate::db::executor::route) outcome: GroupedRouteDecisionOutcome,
     pub(in crate::db::executor::route) rejection_reason: Option<GroupedRouteRejectionReason>,
     pub(in crate::db::executor::route) eligible: bool,
-    pub(in crate::db::executor::route) execution_mode: ExecutionMode,
+    pub(in crate::db::executor::route) execution_mode: RouteExecutionMode,
     pub(in crate::db::executor::route) grouped_execution_strategy: GroupedExecutionStrategy,
 }
 
@@ -646,7 +646,7 @@ impl GroupedRouteObservability {
     }
 
     #[must_use]
-    pub(in crate::db::executor) const fn execution_mode(self) -> ExecutionMode {
+    pub(in crate::db::executor) const fn execution_mode(self) -> RouteExecutionMode {
         self.execution_mode
     }
 

@@ -59,7 +59,7 @@ fn normalize_union_dedups_identical_paths() {
         AccessPlan::by_key(key),
     ]);
 
-    let normalized = normalize_access_plan_value(plan);
+    let normalized = normalize_planned_access_plan_for_stability(plan);
 
     assert_eq!(
         normalized,
@@ -76,7 +76,7 @@ fn normalize_union_sorts_by_key() {
         AccessPlan::by_key(a.clone()),
     ]);
 
-    let normalized = normalize_access_plan_value(plan);
+    let normalized = normalize_planned_access_plan_for_stability(plan);
     let AccessPlan::Union(children) = normalized else {
         panic!("expected union");
     };
@@ -91,7 +91,7 @@ fn normalize_intersection_removes_full_scan() {
     let key = Value::Ulid(Ulid::from_u128(7));
     let plan = AccessPlan::Intersection(vec![AccessPlan::full_scan(), AccessPlan::by_key(key)]);
 
-    let normalized = normalize_access_plan_value(plan);
+    let normalized = normalize_planned_access_plan_for_stability(plan);
 
     assert_eq!(
         normalized,

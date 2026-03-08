@@ -3,7 +3,7 @@ use crate::{
         aggregate::AggregateFoldMode,
         load::LoadExecutor,
         route::{
-            ExecutionMode, ExecutionModeRouteCase, RouteShapeKind,
+            ExecutionModeRouteCase, RouteExecutionMode, RouteShapeKind,
             planner::{RouteExecutionStage, RouteFeasibilityStage},
         },
     },
@@ -16,14 +16,14 @@ where
 {
     pub(super) const fn derive_execution_mode_for_load(
         feasibility_stage: &RouteFeasibilityStage,
-    ) -> ExecutionMode {
+    ) -> RouteExecutionMode {
         if Self::load_streaming_allowed(
             feasibility_stage.derivation.capabilities,
             feasibility_stage.index_range_limit_spec.is_some(),
         ) {
-            ExecutionMode::Streaming
+            RouteExecutionMode::Streaming
         } else {
-            ExecutionMode::Materialized
+            RouteExecutionMode::Materialized
         }
     }
 

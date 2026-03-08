@@ -3,7 +3,7 @@ use crate::{
         aggregate::{AggregateFoldMode, AggregateKind},
         load::LoadExecutor,
         route::{
-            ExecutionMode, ExecutionModeRouteCase, RouteShapeKind,
+            ExecutionModeRouteCase, RouteExecutionMode, RouteShapeKind,
             planner::{RouteExecutionStage, RouteIntentStage},
         },
     },
@@ -31,7 +31,7 @@ where
         RouteExecutionStage {
             route_shape_kind: RouteShapeKind::AggregateGrouped,
             execution_mode_case: ExecutionModeRouteCase::AggregateGrouped,
-            execution_mode: ExecutionMode::Materialized,
+            execution_mode: RouteExecutionMode::Materialized,
             aggregate_fold_mode,
             index_range_limit_spec: None,
         }

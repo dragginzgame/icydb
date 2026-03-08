@@ -157,7 +157,7 @@ where
     // - single-path access only (no union/intersection fan-out)
     // - no residual predicate
     // - paged windows only when ORDER BY is exactly primary key
-    // - no key-direct / multi-lookup shapes with duplicate-key risk
+    // - no multi-lookup index fan-out shapes with duplicate-key risk
     fn streaming_numeric_field_aggregate_eligible(plan: &ExecutablePlan<E>) -> bool {
         if plan.has_predicate() || plan.is_distinct() {
             return false;
@@ -170,7 +170,9 @@ where
         let path_kind = path.capabilities().kind();
         let path_kind_streaming_safe = matches!(
             path_kind,
-            AccessPathKind::FullScan
+            AccessPathKind::ByKey
+                | AccessPathKind::ByKeys
+                | AccessPathKind::FullScan
                 | AccessPathKind::KeyRange
                 | AccessPathKind::IndexPrefix
                 | AccessPathKind::IndexRange
@@ -200,7 +202,10 @@ where
 
         matches!(
             path_kind,
-            AccessPathKind::FullScan | AccessPathKind::KeyRange
+            AccessPathKind::ByKey
+                | AccessPathKind::ByKeys
+                | AccessPathKind::FullScan
+                | AccessPathKind::KeyRange
         )
     }
 

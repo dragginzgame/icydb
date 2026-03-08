@@ -44,7 +44,7 @@ fn route_matrix_field_target_max_pk_shape_enables_single_step_probe_hint() {
         crate::db::query::builder::aggregate::max_by("id"),
     );
 
-    assert_eq!(route.execution_mode, ExecutionMode::Streaming);
+    assert_eq!(route.execution_mode, RouteExecutionMode::Streaming);
     assert!(route.field_max_fast_path_eligible());
     assert_eq!(route.scan_hints.physical_fetch_hint, Some(1));
     assert_eq!(route.aggregate_seek_fetch_hint(), Some(1));
@@ -248,8 +248,8 @@ fn route_matrix_field_target_min_fallback_route_matches_terminal_min() {
             crate::db::query::builder::aggregate::min_by("rank"),
         );
 
-    assert_eq!(terminal_route.execution_mode, ExecutionMode::Streaming);
-    assert_eq!(field_route.execution_mode, ExecutionMode::Materialized);
+    assert_eq!(terminal_route.execution_mode, RouteExecutionMode::Streaming);
+    assert_eq!(field_route.execution_mode, RouteExecutionMode::Materialized);
     assert_eq!(field_route.scan_hints.physical_fetch_hint, None);
     assert_eq!(field_route.scan_hints.load_scan_budget_hint, None);
     assert!(field_route.index_range_limit_spec.is_none());
@@ -283,10 +283,10 @@ fn route_matrix_field_target_unknown_field_fallback_route_matches_terminal_min()
             crate::db::query::builder::aggregate::min_by("missing_field"),
         );
 
-    assert_eq!(terminal_route.execution_mode, ExecutionMode::Streaming);
+    assert_eq!(terminal_route.execution_mode, RouteExecutionMode::Streaming);
     assert_eq!(
         unknown_field_route.execution_mode,
-        ExecutionMode::Materialized
+        RouteExecutionMode::Materialized
     );
     assert_eq!(unknown_field_route.scan_hints.physical_fetch_hint, None);
     assert_eq!(unknown_field_route.scan_hints.load_scan_budget_hint, None);
@@ -321,8 +321,8 @@ fn route_matrix_field_target_max_fallback_route_matches_terminal_max_desc() {
             crate::db::query::builder::aggregate::max_by("rank"),
         );
 
-    assert_eq!(terminal_route.execution_mode, ExecutionMode::Streaming);
-    assert_eq!(field_route.execution_mode, ExecutionMode::Materialized);
+    assert_eq!(terminal_route.execution_mode, RouteExecutionMode::Streaming);
+    assert_eq!(field_route.execution_mode, RouteExecutionMode::Materialized);
     assert_eq!(field_route.scan_hints.physical_fetch_hint, None);
     assert_eq!(field_route.scan_hints.load_scan_budget_hint, None);
     assert!(field_route.index_range_limit_spec.is_none());

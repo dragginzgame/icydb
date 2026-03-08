@@ -32,11 +32,11 @@ use crate::{
 };
 
 use crate::db::executor::route::{
-    AggregateSeekSpec, ContinuationMode, ExecutionMode, ExecutionModeRouteCase, ExecutionRoutePlan,
-    FastPathOrder, GroupedExecutionStrategy, GroupedRouteDecisionOutcome,
-    GroupedRouteObservability, GroupedRouteRejectionReason, IndexRangeLimitSpec,
-    MUTATION_FAST_PATH_ORDER, RouteCapabilities, RouteContinuationPlan, RouteIntent,
-    RouteShapeKind, ScanHintPlan, TopNSeekSpec,
+    AggregateSeekSpec, ContinuationMode, ExecutionModeRouteCase, ExecutionRoutePlan, FastPathOrder,
+    GroupedExecutionStrategy, GroupedRouteDecisionOutcome, GroupedRouteObservability,
+    GroupedRouteRejectionReason, IndexRangeLimitSpec, MUTATION_FAST_PATH_ORDER, RouteCapabilities,
+    RouteContinuationPlan, RouteExecutionMode, RouteIntent, RouteShapeKind, ScanHintPlan,
+    TopNSeekSpec,
 };
 
 ///
@@ -111,7 +111,7 @@ pub(in crate::db::executor::route::planner) struct RouteFeasibilityStage {
 pub(in crate::db::executor::route::planner) struct RouteExecutionStage {
     pub(in crate::db::executor::route::planner) route_shape_kind: RouteShapeKind,
     pub(in crate::db::executor::route::planner) execution_mode_case: ExecutionModeRouteCase,
-    pub(in crate::db::executor::route::planner) execution_mode: ExecutionMode,
+    pub(in crate::db::executor::route::planner) execution_mode: RouteExecutionMode,
     pub(in crate::db::executor::route::planner) aggregate_fold_mode: AggregateFoldMode,
     pub(in crate::db::executor::route::planner) index_range_limit_spec: Option<IndexRangeLimitSpec>,
 }
@@ -133,7 +133,7 @@ impl ExecutionRoutePlan {
                 crate::db::executor::route::AccessWindow::new(0, None, None, None),
                 crate::db::executor::route::AccessWindow::new(0, None, None, None),
             ),
-            execution_mode: ExecutionMode::Materialized,
+            execution_mode: RouteExecutionMode::Materialized,
             execution_mode_case: ExecutionModeRouteCase::Load,
             secondary_pushdown_applicability: PushdownApplicability::NotApplicable,
             index_range_limit_spec: None,
@@ -185,10 +185,12 @@ impl ExecutionRoutePlan {
                 let eligible = self.fast_path_order.is_empty();
                 let (outcome, rejection_reason) = if eligible {
                     match self.execution_mode {
-                        ExecutionMode::Materialized => {
+                        RouteExecutionMode::Materialized => {
                             (GroupedRouteDecisionOutcome::MaterializedFallback, None)
                         }
-                        ExecutionMode::Streaming => (GroupedRouteDecisionOutcome::Selected, None),
+                        RouteExecutionMode::Streaming => {
+                            (GroupedRouteDecisionOutcome::Selected, None)
+                        }
                     }
                 } else {
                     (

@@ -3,7 +3,7 @@ use crate::{
         aggregate::AggregateFoldMode,
         load::LoadExecutor,
         route::{
-            ExecutionMode, ExecutionModeRouteCase, RouteShapeKind,
+            ExecutionModeRouteCase, RouteExecutionMode, RouteShapeKind,
             planner::{RouteExecutionStage, RouteFeasibilityStage},
         },
     },
@@ -17,13 +17,13 @@ where
     pub(super) const fn derive_execution_mode_for_aggregate_count(
         feasibility_stage: &RouteFeasibilityStage,
         aggregate_force_materialized_due_to_predicate_uncertainty: bool,
-    ) -> ExecutionMode {
+    ) -> RouteExecutionMode {
         if aggregate_force_materialized_due_to_predicate_uncertainty {
-            ExecutionMode::Materialized
+            RouteExecutionMode::Materialized
         } else if feasibility_stage.derivation.count_pushdown_eligible {
-            ExecutionMode::Streaming
+            RouteExecutionMode::Streaming
         } else {
-            ExecutionMode::Materialized
+            RouteExecutionMode::Materialized
         }
     }
 
@@ -54,7 +54,7 @@ where
             AggregateFoldMode::KeysOnly
         };
         debug_assert!(
-            !matches!(execution_mode, ExecutionMode::Streaming)
+            !matches!(execution_mode, RouteExecutionMode::Streaming)
                 || matches!(
                     aggregate_fold_mode,
                     AggregateFoldMode::KeysOnly | AggregateFoldMode::ExistingRows

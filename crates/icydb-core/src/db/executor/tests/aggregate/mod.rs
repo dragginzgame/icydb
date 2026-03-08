@@ -13,7 +13,7 @@ use crate::{
         access::AccessPath,
         data::DataKey,
         executor::{
-            ExecutablePlan, ExecutionKernel, aggregate::AggregateKind, route::ExecutionMode,
+            ExecutablePlan, ExecutionKernel, aggregate::AggregateKind, route::RouteExecutionMode,
             saturating_row_len,
         },
         query::{
@@ -1082,12 +1082,12 @@ fn aggregate_empty_window_semantics_match_between_streaming_and_materialized_rou
 
         assert_eq!(
             strict_route.execution_mode,
-            ExecutionMode::Streaming,
+            RouteExecutionMode::Streaming,
             "strict empty-window route should stay streaming for terminal={kind:?}"
         );
         assert_eq!(
             widen_route.execution_mode,
-            ExecutionMode::Materialized,
+            RouteExecutionMode::Materialized,
             "widen empty-window route should force materialized for terminal={kind:?}"
         );
     }
@@ -1197,12 +1197,12 @@ fn aggregate_empty_window_semantics_match_between_streaming_and_materialized_rou
         );
     assert_eq!(
         streaming_count_route.execution_mode,
-        ExecutionMode::Streaming,
+        RouteExecutionMode::Streaming,
         "full-scan empty-window count route should stay streaming"
     );
     assert_eq!(
         materialized_count_route.execution_mode,
-        ExecutionMode::Materialized,
+        RouteExecutionMode::Materialized,
         "uncertain empty-window count route should force materialized"
     );
     let streaming_count = load

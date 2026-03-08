@@ -196,6 +196,87 @@ fn plan_access_uses_index_multi_lookup_for_secondary_in() {
 }
 
 #[test]
+fn plan_access_stability_secondary_in_permutation_and_duplicates_are_canonical() {
+    let model = model_with_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate_a = compare_strict(
+        "tag",
+        CompareOp::In,
+        Value::List(vec![
+            Value::Text("beta".to_string()),
+            Value::Text("alpha".to_string()),
+            Value::Text("beta".to_string()),
+        ]),
+    );
+    let predicate_b = compare_strict(
+        "tag",
+        CompareOp::In,
+        Value::List(vec![
+            Value::Text("alpha".to_string()),
+            Value::Text("beta".to_string()),
+        ]),
+    );
+
+    let plan_a = plan_access(model, &schema, Some(&predicate_a)).expect("plan should build");
+    let plan_b = plan_access(model, &schema, Some(&predicate_b)).expect("plan should build");
+
+    assert_eq!(
+        plan_a, plan_b,
+        "equivalent secondary IN predicates should canonicalize to identical access plans",
+    );
+    assert_eq!(
+        plan_a,
+        AccessPlan::path(AccessPath::IndexMultiLookup {
+            index: INDEX_MODEL,
+            values: vec![
+                Value::Text("alpha".to_string()),
+                Value::Text("beta".to_string()),
+            ],
+        }),
+        "secondary IN canonicalization should sort and deduplicate lookup values",
+    );
+}
+
+#[test]
+fn plan_access_stability_primary_key_in_permutation_and_duplicates_are_canonical() {
+    let model = model_with_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate_a = compare_strict(
+        "id",
+        CompareOp::In,
+        Value::List(vec![
+            Value::Ulid(Ulid::from_u128(3)),
+            Value::Ulid(Ulid::from_u128(1)),
+            Value::Ulid(Ulid::from_u128(3)),
+        ]),
+    );
+    let predicate_b = compare_strict(
+        "id",
+        CompareOp::In,
+        Value::List(vec![
+            Value::Ulid(Ulid::from_u128(1)),
+            Value::Ulid(Ulid::from_u128(3)),
+        ]),
+    );
+
+    let plan_a = plan_access(model, &schema, Some(&predicate_a)).expect("plan should build");
+    let plan_b = plan_access(model, &schema, Some(&predicate_b)).expect("plan should build");
+
+    assert_eq!(
+        plan_a, plan_b,
+        "equivalent primary-key IN predicates should canonicalize to identical access plans",
+    );
+    assert_eq!(
+        plan_a,
+        AccessPlan::path(AccessPath::ByKeys(vec![
+            Value::Ulid(Ulid::from_u128(1)),
+            Value::Ulid(Ulid::from_u128(3)),
+        ])),
+        "primary-key IN canonicalization should sort and deduplicate key lists",
+    );
+}
+
+#[test]
 fn plan_access_secondary_in_singleton_collapses_to_index_prefix() {
     let model = model_with_index();
     let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
@@ -213,6 +294,48 @@ fn plan_access_secondary_in_singleton_collapses_to_index_prefix() {
             index: INDEX_MODEL,
             values: vec![Value::Text("alpha".to_string())],
         }),
+    );
+}
+
+#[test]
+fn plan_access_secondary_in_empty_lowers_to_empty_by_keys() {
+    let model = model_with_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = compare_strict("tag", CompareOp::In, Value::List(Vec::new()));
+
+    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+
+    assert_eq!(
+        plan,
+        AccessPlan::path(AccessPath::ByKeys(Vec::new())),
+        "strict secondary IN [] should lower to an explicit empty by-keys access shape",
+    );
+}
+
+#[test]
+fn plan_access_secondary_in_empty_remains_distinct_from_false_before_constant_folding() {
+    let model = model_with_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let secondary_in_empty = compare_strict("tag", CompareOp::In, Value::List(Vec::new()));
+
+    let plan_from_empty_in =
+        plan_access(model, &schema, Some(&secondary_in_empty)).expect("plan should build");
+    let plan_from_false =
+        plan_access(model, &schema, Some(&Predicate::False)).expect("plan should build");
+
+    assert_eq!(
+        plan_from_empty_in,
+        AccessPlan::path(AccessPath::ByKeys(Vec::new())),
+        "strict secondary IN [] should lower to explicit empty by-keys shape at access planning",
+    );
+    assert_eq!(
+        plan_from_false,
+        AccessPlan::full_scan(),
+        "constant FALSE folding remains a higher-level planning concern outside direct access planning",
+    );
+    assert_ne!(
+        plan_from_empty_in, plan_from_false,
+        "strict secondary IN [] and FALSE should remain distinct at direct access-planning boundary",
     );
 }
 

@@ -13,9 +13,9 @@ mod tests;
 
 use crate::{
     db::{
-        access::{AccessPlan, normalize_access_plan_value},
+        access::AccessPlan,
         predicate::{Predicate, SchemaInfo, normalize as normalize_predicate},
-        query::plan::PlanError,
+        query::plan::{PlanError, stability::normalize_planned_access_plan_for_stability},
     },
     error::InternalError,
     model::entity::EntityModel,
@@ -74,7 +74,11 @@ pub(crate) fn plan_access(
     // - Order specs preserve user order after validation (planner does not reorder).
     // - Field resolution uses SchemaInfo's name map (sorted by field name).
     let normalized = normalize_predicate(predicate);
-    let plan = normalize_access_plan_value(predicate::plan_predicate(model, schema, &normalized)?);
+    let plan = normalize_planned_access_plan_for_stability(predicate::plan_predicate(
+        model,
+        schema,
+        &normalized,
+    )?);
 
     Ok(plan)
 }

@@ -11,7 +11,7 @@ fn route_plan_mutation_is_materialized_with_no_fast_paths_or_hints() {
 
     assert_eq!(
         route_plan.shape().execution_mode(),
-        ExecutionMode::Materialized
+        RouteExecutionMode::Materialized
     );
     assert_eq!(route_plan.fast_path_order(), &MUTATION_FAST_PATH_ORDER);
     assert_eq!(route_plan.direction(), Direction::Asc);

@@ -36,7 +36,7 @@ fn route_plan_shape_descriptor_matches_route_axes() {
     let shape = route_plan.shape();
     assert_eq!(shape.route_shape_kind(), RouteShapeKind::LoadScalar);
     assert_eq!(shape.execution_mode_case(), ExecutionModeRouteCase::Load);
-    assert_eq!(shape.execution_mode(), ExecutionMode::Streaming);
+    assert_eq!(shape.execution_mode(), RouteExecutionMode::Streaming);
     assert!(shape.is_streaming());
 }
 
@@ -79,7 +79,7 @@ fn route_matrix_load_pk_desc_with_page_uses_streaming_budget_and_reverse() {
 
     assert_eq!(
         route_plan.shape().execution_mode(),
-        ExecutionMode::Streaming
+        RouteExecutionMode::Streaming
     );
     assert_eq!(route_plan.direction(), Direction::Desc);
     assert_eq!(route_plan.continuation().mode(), ContinuationMode::Initial);
@@ -128,7 +128,7 @@ fn route_matrix_load_index_range_cursor_without_anchor_disables_pushdown() {
 
     assert_eq!(
         route_plan.shape().execution_mode(),
-        ExecutionMode::Streaming
+        RouteExecutionMode::Streaming
     );
     assert_eq!(
         route_plan.continuation().mode(),
@@ -366,7 +366,7 @@ fn route_matrix_load_non_pk_order_disables_scan_budget_hint() {
 
     assert_eq!(
         route_plan.shape().execution_mode(),
-        ExecutionMode::Materialized
+        RouteExecutionMode::Materialized
     );
     assert_eq!(route_plan.scan_hints.load_scan_budget_hint, None);
 }
@@ -399,7 +399,7 @@ fn route_matrix_load_unique_secondary_order_limit_one_uses_bounded_scan_budget_h
 
     assert_eq!(
         route_plan.shape().execution_mode(),
-        ExecutionMode::Streaming
+        RouteExecutionMode::Streaming
     );
     assert_eq!(route_plan.direction(), Direction::Desc);
     assert_eq!(route_plan.scan_hints.physical_fetch_hint, None);
