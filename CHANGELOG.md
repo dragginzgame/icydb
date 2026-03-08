@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 - `0.46.0` starts the standards-alignment line with early planner/executor fast paths (`LIMIT 0`, constant-false predicates, and empty-window aggregate short-circuits) plus stronger predicate normalization and plan-stability guards, so no-row queries do less work while returning the same SQL results.
 - `0.46.1` continues the line by adding a constant scalar terminal (`select_one`) that returns `1` without query execution overhead and by tightening EXISTS early-stop scan-budget coverage for offset windows.
+- `0.46.2` reduces duplicate planner/runtime logic by centralizing window and covering contracts (including `count_distinct_by` covering reuse), keeping query results the same while making fast-path behavior more consistent across route and EXPLAIN.
 
 See detailed breakdown:
 [docs/changelog/0.46.md](docs/changelog/0.46.md)
