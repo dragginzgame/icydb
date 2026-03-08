@@ -1,10 +1,9 @@
 use crate::{
     db::{
-        access::ExecutionPathKind,
         executor::{
-            AccessStreamBindings, ExecutablePlan, ExecutionKernel, ExecutionPreparation,
-            ExecutionTrace, LoadCursorInput, ResolvedScalarContinuationContext,
-            ScalarRouteContinuationInvariantProjection,
+            AccessStreamBindings, ExecutablePlan, ExecutionKernel, ExecutionPlan,
+            ExecutionPreparation, ExecutionTrace, LoadCursorInput,
+            ResolvedScalarContinuationContext, ScalarRouteContinuationInvariantProjection,
             load::{
                 CursorPage, ExecutionInputs, LoadExecutor,
                 entrypoints::{LoadExecutionMode, LoadExecutionSurface, LoadTracingMode},
@@ -21,6 +20,70 @@ use crate::{
     traits::{EntityKind, EntityValue},
 };
 use std::time::Instant;
+
+// Strategy selected once for unpaged scalar execution hinting so the route-plan
+// mutation phase applies one mechanical outcome.
+enum UnpagedLoadHintStrategy {
+    None,
+    TopNSeekWindow { fetch: usize },
+    PreserveSecondaryOrder,
+}
+
+impl UnpagedLoadHintStrategy {
+    fn resolve(
+        resolved_continuation: &ResolvedScalarContinuationContext,
+        unpaged_rows_mode: bool,
+        top_n_seek_requires_lookahead: bool,
+        route_plan: &ExecutionPlan,
+    ) -> Self {
+        if !unpaged_rows_mode || resolved_continuation.cursor_boundary().is_some() {
+            return Self::None;
+        }
+
+        if let Some(top_n_seek_spec) = route_plan.top_n_seek_spec() {
+            if !route_plan.shape().is_streaming() || !route_plan.streaming_access_shape_safe() {
+                return Self::None;
+            }
+
+            let fetch = if top_n_seek_spec.fetch() == 0 {
+                0
+            } else if !top_n_seek_requires_lookahead {
+                let Some(fetch) = route_plan.continuation().window().fetch_count_for(false) else {
+                    return Self::None;
+                };
+
+                fetch
+            } else {
+                // Deduplicating lookup shapes need one extra lookahead row to
+                // preserve parity after key normalization before windowing.
+                top_n_seek_spec.fetch()
+            };
+
+            return Self::TopNSeekWindow { fetch };
+        }
+
+        if route_plan.secondary_fast_path_eligible()
+            && route_plan.scan_hints.physical_fetch_hint.is_none()
+        {
+            return Self::PreserveSecondaryOrder;
+        }
+
+        Self::None
+    }
+
+    fn apply(self, route_plan: &mut ExecutionPlan) {
+        match self {
+            Self::None => {}
+            Self::TopNSeekWindow { fetch } => {
+                route_plan.scan_hints.physical_fetch_hint = Some(fetch);
+                route_plan.scan_hints.load_scan_budget_hint = Some(fetch);
+            }
+            Self::PreserveSecondaryOrder => {
+                route_plan.scan_hints.physical_fetch_hint = Some(usize::MAX);
+            }
+        }
+    }
+}
 
 impl<E> LoadExecutor<E>
 where
@@ -93,16 +156,11 @@ where
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
         let logical_plan = plan.into_inner();
-        let top_n_seek_requires_lookahead =
-            logical_plan
-                .access_strategy()
-                .as_path()
-                .is_some_and(|path| {
-                    matches!(
-                        path.kind(),
-                        ExecutionPathKind::ByKeys | ExecutionPathKind::IndexMultiLookup
-                    )
-                });
+        let top_n_seek_requires_lookahead = logical_plan
+            .access_strategy()
+            .as_path()
+            .map(|path| path.capabilities())
+            .is_some_and(|capabilities| capabilities.requires_top_n_seek_lookahead());
         let mut route_plan = Self::build_execution_route_plan_for_load(
             &logical_plan,
             resolved_continuation.route_context(),
@@ -173,51 +231,19 @@ where
     // Unpaged `execute()` does not need continuation lookahead rows. For
     // route-eligible top-N seek windows, constrain both access probe and load
     // scan-budget hints to the keep-count window (without continuation +1).
-    const fn apply_unpaged_top_n_seek_hints(
+    fn apply_unpaged_top_n_seek_hints(
         resolved_continuation: &ResolvedScalarContinuationContext,
         unpaged_rows_mode: bool,
         top_n_seek_requires_lookahead: bool,
-        route_plan: &mut crate::db::executor::ExecutionPlan,
+        route_plan: &mut ExecutionPlan,
     ) {
-        if !unpaged_rows_mode {
-            return;
-        }
-        if resolved_continuation.cursor_boundary().is_some() {
-            return;
-        }
+        let strategy = UnpagedLoadHintStrategy::resolve(
+            resolved_continuation,
+            unpaged_rows_mode,
+            top_n_seek_requires_lookahead,
+            route_plan,
+        );
 
-        if let Some(top_n_seek_spec) = route_plan.top_n_seek_spec() {
-            if !route_plan.shape().is_streaming() {
-                return;
-            }
-            if !route_plan.streaming_access_shape_safe() {
-                return;
-            }
-            let fetch = if top_n_seek_spec.fetch() == 0 {
-                0
-            } else if !top_n_seek_requires_lookahead {
-                let Some(fetch) = route_plan.continuation().window().fetch_count_for(false) else {
-                    return;
-                };
-
-                fetch
-            } else {
-                // Deduplicating lookup shapes need one extra lookahead row to
-                // preserve parity after key normalization before windowing.
-                top_n_seek_spec.fetch()
-            };
-
-            route_plan.scan_hints.physical_fetch_hint = Some(fetch);
-            route_plan.scan_hints.load_scan_budget_hint = Some(fetch);
-            return;
-        }
-
-        // Unpaged ordered secondary scans without a top-N window still need to
-        // preserve raw index traversal order for ORDER BY parity.
-        if route_plan.secondary_fast_path_eligible()
-            && route_plan.scan_hints.physical_fetch_hint.is_none()
-        {
-            route_plan.scan_hints.physical_fetch_hint = Some(usize::MAX);
-        }
+        strategy.apply(route_plan);
     }
 }

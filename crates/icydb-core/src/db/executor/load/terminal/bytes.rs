@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        access::{ExecutionPathKind, ExecutionPathPayload},
+        access::{ExecutableAccessPathDispatch, dispatch_executable_access_path},
         data::DataKey,
         direction::Direction,
         executor::{
@@ -11,8 +11,9 @@ use crate::{
                 resolve_any_aggregate_target_slot_from_planner_slot,
             },
             load::LoadExecutor,
+            route::BytesTerminalFastPathContract,
         },
-        query::plan::{FieldSlot as PlannedFieldSlot, OrderDirection},
+        query::plan::FieldSlot as PlannedFieldSlot,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -28,17 +29,21 @@ where
 {
     /// Execute one `bytes()` terminal over the canonical load response.
     pub(in crate::db) fn bytes(&self, plan: ExecutablePlan<E>) -> Result<u64, InternalError> {
-        if let Some(direction) = Self::bytes_pk_window_fast_path_direction(&plan) {
-            Self::record_execution_optimization_hit_for_tests(
-                ExecutionOptimizationCounter::BytesPrimaryKeyFastPath,
-            );
-            return self.bytes_from_pk_store_window(plan, direction);
-        }
-        if let Some(direction) = Self::bytes_stream_window_fast_path_direction(&plan) {
-            Self::record_execution_optimization_hit_for_tests(
-                ExecutionOptimizationCounter::BytesStreamFastPath,
-            );
-            return self.bytes_from_ordered_key_stream_window(plan, direction);
+        if let Some(contract) = Self::derive_bytes_terminal_fast_path_contract(&plan) {
+            return match contract {
+                BytesTerminalFastPathContract::PrimaryKeyWindow(direction) => {
+                    Self::record_execution_optimization_hit_for_tests(
+                        ExecutionOptimizationCounter::BytesPrimaryKeyFastPath,
+                    );
+                    self.bytes_from_pk_store_window(plan, direction)
+                }
+                BytesTerminalFastPathContract::OrderedKeyStreamWindow(direction) => {
+                    Self::record_execution_optimization_hit_for_tests(
+                        ExecutionOptimizationCounter::BytesStreamFastPath,
+                    );
+                    self.bytes_from_ordered_key_stream_window(plan, direction)
+                }
+            };
         }
 
         let response = self.execute(plan)?;
@@ -77,76 +82,6 @@ where
 
         Ok(total)
     }
-
-    // Return the safe PK-shape traversal direction for `bytes()` fast-path
-    // execution when no residual semantics require materialized execution.
-    fn bytes_pk_window_fast_path_direction(plan: &ExecutablePlan<E>) -> Option<Direction> {
-        if plan.has_predicate() || plan.is_distinct() {
-            return None;
-        }
-
-        let direction = match plan.order_spec() {
-            None => Direction::Asc,
-            Some(order) => {
-                if order.fields.len() != 1 {
-                    return None;
-                }
-                let (field, order_direction) = &order.fields[0];
-                if field != E::MODEL.primary_key.name {
-                    return None;
-                }
-
-                match order_direction {
-                    OrderDirection::Asc => Direction::Asc,
-                    OrderDirection::Desc => Direction::Desc,
-                }
-            }
-        };
-
-        let access_strategy = plan.access().resolve_strategy();
-        let path = access_strategy.as_path()?;
-        if !matches!(
-            path.kind(),
-            ExecutionPathKind::FullScan | ExecutionPathKind::KeyRange
-        ) {
-            return None;
-        }
-
-        Some(direction)
-    }
-
-    // Return the stream traversal direction when one scalar shape can fold
-    // bytes directly from routed ordered key streams without materialization.
-    fn bytes_stream_window_fast_path_direction(plan: &ExecutablePlan<E>) -> Option<Direction> {
-        if plan.has_predicate() || plan.is_distinct() {
-            return None;
-        }
-        let access_strategy = plan.access().resolve_strategy();
-        let path = access_strategy.as_path()?;
-
-        let Some(order) = plan.order_spec() else {
-            return Some(Direction::Asc);
-        };
-        if order.fields.len() != 1 {
-            return None;
-        }
-        let (field, order_direction) = &order.fields[0];
-        if field != E::MODEL.primary_key.name {
-            return None;
-        }
-        if !matches!(
-            path.kind(),
-            ExecutionPathKind::ByKey | ExecutionPathKind::ByKeys
-        ) {
-            return None;
-        }
-
-        Some(match order_direction {
-            OrderDirection::Asc => Direction::Asc,
-            OrderDirection::Desc => Direction::Desc,
-        })
-    }
-
     // Fold `bytes()` directly from persisted primary rows over the canonical
     // page window for safe PK full-scan/key-range shapes.
     fn bytes_from_pk_store_window(
@@ -166,13 +101,13 @@ where
         let ctx = self.recovered_context()?;
 
         // Phase 2: fold payload bytes through context traversal adapters.
-        match path.payload() {
-            ExecutionPathPayload::FullScan => {
+        match dispatch_executable_access_path(path) {
+            ExecutableAccessPathDispatch::FullScan => {
                 ctx.sum_row_payload_bytes_full_scan_window(direction, offset, limit)
             }
-            ExecutionPathPayload::KeyRange { start, end } => {
-                let start_key = DataKey::try_new::<E>(**start)?;
-                let end_key = DataKey::try_new::<E>(**end)?;
+            ExecutableAccessPathDispatch::KeyRange { start, end } => {
+                let start_key = DataKey::try_new::<E>(*start)?;
+                let end_key = DataKey::try_new::<E>(*end)?;
                 ctx.sum_row_payload_bytes_key_range_window(
                     &start_key, &end_key, direction, offset, limit,
                 )

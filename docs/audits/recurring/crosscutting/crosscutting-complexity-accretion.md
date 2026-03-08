@@ -50,6 +50,10 @@ Produce:
 | Files >= 600 LOC |  |  |  |
 | Continuation mentions |  |  |  |
 | Continuation decision owners |  |  |  |
+| AccessPath decision owners |  |  |  |
+| AccessPath executor dispatch sites |  |  |  |
+| RouteShape decision owners |  |  |  |
+| Predicate coercion decision owners |  |  |  |
 | Continuation execution consumers |  |  |  |
 | Continuation plumbing modules |  |  |  |
 
@@ -81,12 +85,14 @@ Definitions:
 
 * `switch_sites` = number of distinct match/switch callsites over that enum in runtime scope.
 * `branch_multiplier` = `variants × switch_sites`.
+* `AccessPath executor dispatch sites` = distinct runtime executor callsites that branch on executable AccessPath shape (for example via centralized dispatch adapters).
 
 Flag:
 
 * `branch_multiplier` trend up week-over-week.
 * Enums >8 variants and still growing.
 * Enums mixing planning + execution + storage semantics.
+* Any increase in `AccessPath executor dispatch sites` without an explicit dispatch-consolidation note.
 
 ---
 
@@ -155,6 +161,9 @@ For each concept, classify usage by ownership and layer.
 Target concepts:
 
 * Continuation / cursor anchor semantics
+* AccessPath decision semantics
+* RouteShape decision semantics
+* Predicate coercion decision semantics
 * Envelope boundary checks
 * Bound conversions
 * Plan shape enforcement
@@ -178,6 +187,7 @@ Flag:
 
 * `semantic_layer_count >= 3` (architectural leakage).
 * semantic owner growth without explicit boundary consolidation.
+* Any increase in `AccessPath`, `RouteShape`, or predicate coercion decision-owner count without an explicit ownership-consolidation note.
 
 ---
 
@@ -261,6 +271,8 @@ Before finalizing risk, apply this filter:
 
 * If concept mentions increase **and** decision owners decrease/hold,
   mark as `refactor transient`.
+* If decision-owner count increases for `AccessPath`, `RouteShape`, or predicate coercion,
+  do NOT mark as transient without a documented ownership consolidation.
 * If file count increases due module split **and** hub pressure decreases,
   mark as `structural improvement`.
 

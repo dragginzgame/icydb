@@ -12,6 +12,10 @@ Scope: conceptual growth and branch-surface pressure in `crates/icydb-core/src/d
 | `continuation|anchor` mentions | 936 | 925 | -11 |
 | `continuation|anchor` files | 82 | 86 | +4 |
 | Continuation decision owners | 10 (prior baseline) | 10 (spot-check unchanged) | 0 |
+| AccessPath decision owners | N/A (new metric) | 4 (spot-check baseline) | N/A |
+| AccessPath executor dispatch sites | N/A (new metric) | 2 (post-consolidation spot-check) | N/A |
+| RouteShape decision owners | N/A (new metric) | 3 (spot-check baseline) | N/A |
+| Predicate coercion decision owners | N/A (new metric) | 4 (spot-check baseline) | N/A |
 | Continuation execution consumers | 48 (prior baseline) | 48 (spot-check unchanged) | 0 |
 | Continuation plumbing modules | 21 (prior baseline) | 21 (spot-check unchanged) | 0 |
 
@@ -23,6 +27,10 @@ Scope: conceptual growth and branch-surface pressure in `crates/icydb-core/src/d
 | `ContinuationMode` | 3 | 2 | 6 | Low-Medium |
 | `RouteShapeKind` | 5 | 1 | 5 | Low-Medium |
 | `ErrorClass` | 6 | 6 | 36 | Medium |
+
+AccessPath fan-out note:
+- Global semantic/reference proxy remains high (`89`) because planner/explain/fingerprint surfaces still reference variants.
+- Runtime executor dispatch fan-out is now concentrated to `2` callsites (`stream/access/physical`, `load/terminal/bytes`) via centralized executable dispatch and route/load capability helpers.
 
 ## Step 2 - Branching Pressure
 
@@ -39,6 +47,10 @@ Scope: conceptual growth and branch-surface pressure in `crates/icydb-core/src/d
   - `Cross-layer policy re-derivations: 0`
   - `Comparator definitions outside index: 0`
   - `Enum fan-out > 2 layers: 1`
+- Decision ownership sentinel baseline (new in this run):
+  - `AccessPath decision owners: 4`
+  - `RouteShape decision owners: 3`
+  - `Predicate coercion decision owners: 4`
 - Continuation surface remains broad but did not increase in raw mention count.
 
 ## Complexity Risk Index

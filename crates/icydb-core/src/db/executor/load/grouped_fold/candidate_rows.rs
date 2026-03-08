@@ -13,6 +13,107 @@ use crate::{
     value::Value,
 };
 
+// Strategy selected once per grouped execution to avoid per-row branching on
+// bounded vs unbounded candidate buffering policy.
+enum GroupedCandidateSink {
+    Bounded {
+        rows: Vec<(Value, Vec<Value>)>,
+        selection_bound: usize,
+    },
+    Unbounded {
+        rows: Vec<(Value, Vec<Value>)>,
+        max_groups_bound: usize,
+    },
+}
+
+impl GroupedCandidateSink {
+    fn new(selection_bound: Option<usize>, max_groups_bound: usize) -> Self {
+        match selection_bound {
+            Some(selection_bound) => Self::Bounded {
+                rows: Vec::new(),
+                selection_bound,
+            },
+            None => Self::Unbounded {
+                rows: Vec::new(),
+                max_groups_bound,
+            },
+        }
+    }
+
+    fn push_candidate(
+        &mut self,
+        group_key_value: Value,
+        aggregate_values: Vec<Value>,
+    ) -> Result<(), InternalError> {
+        match self {
+            Self::Bounded {
+                rows,
+                selection_bound,
+            } => {
+                match rows.binary_search_by(|(existing_key, _)| {
+                    canonical_value_compare(existing_key, &group_key_value)
+                }) {
+                    Ok(_) => {
+                        return Err(crate::db::executor::load::invariant(format!(
+                            "grouped finalize produced duplicate canonical group key: {group_key_value:?}"
+                        )));
+                    }
+                    Err(insert_index) => {
+                        rows.insert(insert_index, (group_key_value, aggregate_values));
+                        if rows.len() > *selection_bound {
+                            let _ = rows.pop();
+                        }
+                        debug_assert!(
+                            rows.len() <= *selection_bound,
+                            "bounded grouped candidate rows must stay <= selection_bound",
+                        );
+                    }
+                }
+            }
+            Self::Unbounded {
+                rows,
+                max_groups_bound,
+            } => {
+                rows.push((group_key_value, aggregate_values));
+                debug_assert!(
+                    rows.len() <= *max_groups_bound,
+                    "grouped candidate rows must stay bounded by max_groups",
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    fn into_rows(self) -> Vec<(Value, Vec<Value>)> {
+        match self {
+            Self::Bounded {
+                rows,
+                selection_bound,
+            } => {
+                debug_assert!(
+                    rows.len() <= selection_bound,
+                    "grouped candidate rows must remain bounded by selection_bound",
+                );
+
+                rows
+            }
+            Self::Unbounded {
+                mut rows,
+                max_groups_bound,
+            } => {
+                rows.sort_by(|(left, _), (right, _)| canonical_value_compare(left, right));
+                debug_assert!(
+                    rows.len() <= max_groups_bound,
+                    "grouped candidate rows must remain bounded by max_groups",
+                );
+
+                rows
+            }
+        }
+    }
+}
+
 impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
@@ -61,7 +162,8 @@ where
         let mut primary_iter = finalized_iters.drain(..1).next().ok_or_else(|| {
             crate::db::executor::load::invariant("missing grouped primary iterator")
         })?;
-        let mut grouped_candidate_rows = Vec::<(Value, Vec<Value>)>::new();
+        let mut grouped_candidate_sink =
+            GroupedCandidateSink::new(selection_bound, max_groups_bound);
 
         if limit.is_none_or(|limit| limit != 0) {
             for primary_output in primary_iter.by_ref() {
@@ -106,36 +208,9 @@ where
                     continue;
                 }
 
-                // Keep only the smallest `offset + limit + 1` canonical grouped keys when
-                // paging is bounded so grouped LIMIT does not require one full grouped buffer.
-                if let Some(selection_bound) = selection_bound {
-                    match grouped_candidate_rows.binary_search_by(|(existing_key, _)| {
-                        canonical_value_compare(existing_key, &group_key_value)
-                    }) {
-                        Ok(_) => {
-                            return Err(crate::db::executor::load::invariant(format!(
-                                "grouped finalize produced duplicate canonical group key: {group_key_value:?}"
-                            )));
-                        }
-                        Err(insert_index) => {
-                            grouped_candidate_rows
-                                .insert(insert_index, (group_key_value, aggregate_values));
-                            if grouped_candidate_rows.len() > selection_bound {
-                                let _ = grouped_candidate_rows.pop();
-                            }
-                            debug_assert!(
-                                grouped_candidate_rows.len() <= selection_bound,
-                                "bounded grouped candidate rows must stay <= selection_bound",
-                            );
-                        }
-                    }
-                } else {
-                    grouped_candidate_rows.push((group_key_value, aggregate_values));
-                    debug_assert!(
-                        grouped_candidate_rows.len() <= max_groups_bound,
-                        "grouped candidate rows must stay bounded by max_groups",
-                    );
-                }
+                // Strategy-selected sink keeps loop logic mechanical while preserving
+                // duplicate-check and bounded-candidate invariants.
+                grouped_candidate_sink.push_candidate(group_key_value, aggregate_values)?;
             }
             for (sibling_index, sibling_iter) in finalized_iters.iter_mut().enumerate() {
                 if sibling_iter.next().is_some() {
@@ -144,23 +219,8 @@ where
                     )));
                 }
             }
-            if selection_bound.is_none() {
-                grouped_candidate_rows
-                    .sort_by(|(left, _), (right, _)| canonical_value_compare(left, right));
-            }
-        }
-        if let Some(selection_bound) = selection_bound {
-            debug_assert!(
-                grouped_candidate_rows.len() <= selection_bound,
-                "grouped candidate rows must remain bounded by selection_bound",
-            );
-        } else {
-            debug_assert!(
-                grouped_candidate_rows.len() <= max_groups_bound,
-                "grouped candidate rows must remain bounded by max_groups",
-            );
         }
 
-        Ok(grouped_candidate_rows)
+        Ok(grouped_candidate_sink.into_rows())
     }
 }

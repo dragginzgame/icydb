@@ -12,6 +12,7 @@ mod mode;
 mod planner;
 mod pushdown;
 mod semantics;
+mod terminal;
 
 pub(in crate::db::executor) use capability::derive_budget_safety_flags;
 pub(in crate::db::executor::route) use capability::direction_allows_physical_fetch_hint;
@@ -29,4 +30,7 @@ pub(in crate::db::executor) use semantics::{
     aggregate_bounded_probe_fetch_hint, aggregate_extrema_direction,
     aggregate_materialized_fold_direction, aggregate_supports_bounded_probe_hint,
     direction_from_order,
+};
+pub(in crate::db::executor) use terminal::{
+    BytesTerminalFastPathContract, CountTerminalFastPathContract, ExistsTerminalFastPathContract,
 };

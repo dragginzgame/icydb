@@ -275,6 +275,105 @@ enum FastPathDecision {
     None,
 }
 
+// Strategy selected once from route shape so key-stream resolution does not
+// branch inline on fast-path eligibility policy.
+enum FastPathResolutionStrategy {
+    StreamingFastPathFirst,
+    FallbackOnly,
+}
+
+impl FastPathResolutionStrategy {
+    const fn for_route(route_plan: &ExecutionPlan) -> Self {
+        if route_plan.shape().is_streaming() {
+            Self::StreamingFastPathFirst
+        } else {
+            Self::FallbackOnly
+        }
+    }
+
+    fn resolve_fast_path_decision<E, I>(
+        self,
+        inputs: &I,
+        route_plan: &ExecutionPlan,
+        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
+    ) -> Result<FastPathDecision, InternalError>
+    where
+        E: EntityKind + EntityValue,
+        I: ExecutionInputsProjection<E>,
+    {
+        match self {
+            Self::StreamingFastPathFirst => {
+                LoadExecutor::<E>::evaluate_fast_path(inputs, route_plan, index_predicate_execution)
+            }
+            Self::FallbackOnly => Ok(FastPathDecision::None),
+        }
+    }
+}
+
+// Strategy selected once from verified fast-path route so route-specific stream
+// execution stays centralized.
+enum FastPathRouteHandler {
+    PrimaryKey,
+    SecondaryPrefix,
+    IndexRange { fetch: Option<usize> },
+    None,
+}
+
+impl FastPathRouteHandler {
+    fn resolve(route_plan: &ExecutionPlan, verified_route: FastPathOrder) -> Self {
+        match verified_route {
+            FastPathOrder::PrimaryKey => Self::PrimaryKey,
+            FastPathOrder::SecondaryPrefix => Self::SecondaryPrefix,
+            FastPathOrder::IndexRange => Self::IndexRange {
+                fetch: route_plan
+                    .index_range_limit_spec
+                    .as_ref()
+                    .map(|spec| spec.fetch),
+            },
+            FastPathOrder::PrimaryScan | FastPathOrder::Composite => Self::None,
+        }
+    }
+
+    fn execute<E, I>(
+        self,
+        inputs: &I,
+        route_plan: &ExecutionPlan,
+        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
+    ) -> Result<Option<FastPathKeyResult>, InternalError>
+    where
+        E: EntityKind + EntityValue,
+        I: ExecutionInputsProjection<E>,
+    {
+        match self {
+            Self::PrimaryKey => LoadExecutor::<E>::try_execute_pk_order_stream(
+                inputs.ctx(),
+                inputs.plan(),
+                inputs.stream_bindings().direction(),
+                route_plan.scan_hints.physical_fetch_hint,
+            ),
+            Self::SecondaryPrefix => LoadExecutor::<E>::try_execute_secondary_index_order_stream(
+                inputs.ctx(),
+                inputs.plan(),
+                inputs.stream_bindings().index_prefix_specs.first(),
+                inputs.stream_bindings().direction(),
+                route_plan.scan_hints.physical_fetch_hint,
+                index_predicate_execution,
+            ),
+            Self::IndexRange { fetch: Some(fetch) } => {
+                LoadExecutor::<E>::try_execute_index_range_limit_pushdown_stream(
+                    inputs.ctx(),
+                    inputs.plan(),
+                    inputs.stream_bindings().index_range_specs.first(),
+                    inputs.stream_bindings().continuation,
+                    fetch,
+                    index_predicate_execution,
+                )
+            }
+            Self::IndexRange { fetch: None } | Self::None => Ok(None),
+        }
+    }
+}
+
 impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
@@ -313,15 +412,41 @@ where
                     rejected_keys_counter: Some(&index_predicate_rejected_counter),
                 });
 
-        // Phase 1: evaluate fast paths only when routing selected streaming mode.
-        let route_shape = route_plan.shape();
-        let fast_path_decision = if route_shape.is_streaming() {
-            Self::evaluate_fast_path(inputs, route_plan, index_predicate_execution)?
-        } else {
-            FastPathDecision::None
-        };
-        let resolved = match fast_path_decision {
-            FastPathDecision::Hit(fast) => ResolvedExecutionKeyStream::new(
+        // Phase 1: select fast-path resolution strategy once from route shape.
+        let fast_path_strategy = FastPathResolutionStrategy::for_route(route_plan);
+        let fast_path_decision = fast_path_strategy.resolve_fast_path_decision::<E, I>(
+            inputs,
+            route_plan,
+            index_predicate_execution,
+        )?;
+
+        // Phase 2: materialize from fast-path hit or canonical fallback stream.
+        let resolved = Self::resolve_execution_key_stream_from_decision(
+            fast_path_decision,
+            inputs,
+            route_plan,
+            index_predicate_execution,
+            index_predicate_applied,
+            &index_predicate_rejected_counter,
+        )?;
+
+        Ok(resolved)
+    }
+
+    // Resolve one canonical key stream from fast-path decision output.
+    fn resolve_execution_key_stream_from_decision<I>(
+        fast_path_decision: FastPathDecision,
+        inputs: &I,
+        route_plan: &ExecutionPlan,
+        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
+        index_predicate_applied: bool,
+        index_predicate_rejected_counter: &Cell<u64>,
+    ) -> Result<ResolvedExecutionKeyStream, InternalError>
+    where
+        I: ExecutionInputsProjection<E>,
+    {
+        match fast_path_decision {
+            FastPathDecision::Hit(fast) => Ok(ResolvedExecutionKeyStream::new(
                 fast.ordered_key_stream,
                 Some(Self::decorate_fast_path_optimization_for_route(
                     fast.optimization,
@@ -331,34 +456,49 @@ where
                 index_predicate_applied,
                 index_predicate_rejected_counter.get(),
                 None,
+            )),
+            FastPathDecision::None => Self::resolve_fallback_execution_key_stream(
+                inputs,
+                route_plan,
+                index_predicate_execution,
+                index_predicate_applied,
+                index_predicate_rejected_counter,
             ),
-            FastPathDecision::None => {
-                // Phase 2: resolve canonical fallback access stream.
-                let fallback_fetch_hint =
-                    route_plan.fallback_physical_fetch_hint(inputs.stream_bindings().direction());
-                let descriptor = AccessExecutionDescriptor::from_bindings(
-                    &inputs.plan().access,
-                    *inputs.stream_bindings(),
-                    fallback_fetch_hint,
-                    index_predicate_execution,
-                );
-                let key_stream = Self::resolve_routed_key_stream(
-                    inputs.ctx(),
-                    RoutedKeyStreamRequest::AccessDescriptor(descriptor),
-                )?;
+        }
+    }
 
-                ResolvedExecutionKeyStream::new(
-                    key_stream,
-                    None,
-                    None,
-                    index_predicate_applied,
-                    index_predicate_rejected_counter.get(),
-                    None,
-                )
-            }
-        };
+    // Resolve canonical fallback access stream when no fast path produced rows.
+    fn resolve_fallback_execution_key_stream<I>(
+        inputs: &I,
+        route_plan: &ExecutionPlan,
+        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
+        index_predicate_applied: bool,
+        index_predicate_rejected_counter: &Cell<u64>,
+    ) -> Result<ResolvedExecutionKeyStream, InternalError>
+    where
+        I: ExecutionInputsProjection<E>,
+    {
+        let fallback_fetch_hint =
+            route_plan.fallback_physical_fetch_hint(inputs.stream_bindings().direction());
+        let descriptor = AccessExecutionDescriptor::from_bindings(
+            &inputs.plan().access,
+            *inputs.stream_bindings(),
+            fallback_fetch_hint,
+            index_predicate_execution,
+        );
+        let key_stream = Self::resolve_routed_key_stream(
+            inputs.ctx(),
+            RoutedKeyStreamRequest::AccessDescriptor(descriptor),
+        )?;
 
-        Ok(resolved)
+        Ok(ResolvedExecutionKeyStream::new(
+            key_stream,
+            None,
+            None,
+            index_predicate_applied,
+            index_predicate_rejected_counter.get(),
+            None,
+        ))
     }
 
     /// Evaluate fast-path routes in canonical precedence and return one decision.
@@ -414,37 +554,9 @@ where
     where
         I: ExecutionInputsProjection<E>,
     {
-        match verified_route {
-            FastPathOrder::PrimaryKey => Self::try_execute_pk_order_stream(
-                inputs.ctx(),
-                inputs.plan(),
-                inputs.stream_bindings().direction(),
-                route_plan.scan_hints.physical_fetch_hint,
-            ),
-            FastPathOrder::SecondaryPrefix => Self::try_execute_secondary_index_order_stream(
-                inputs.ctx(),
-                inputs.plan(),
-                inputs.stream_bindings().index_prefix_specs.first(),
-                inputs.stream_bindings().direction(),
-                route_plan.scan_hints.physical_fetch_hint,
-                index_predicate_execution,
-            ),
-            FastPathOrder::IndexRange => {
-                let Some(spec) = route_plan.index_range_limit_spec.as_ref() else {
-                    return Ok(None);
-                };
+        let handler = FastPathRouteHandler::resolve(route_plan, verified_route);
 
-                Self::try_execute_index_range_limit_pushdown_stream(
-                    inputs.ctx(),
-                    inputs.plan(),
-                    inputs.stream_bindings().index_range_specs.first(),
-                    inputs.stream_bindings().continuation,
-                    spec.fetch,
-                    index_predicate_execution,
-                )
-            }
-            FastPathOrder::PrimaryScan | FastPathOrder::Composite => Ok(None),
-        }
+        handler.execute::<E, I>(inputs, route_plan, index_predicate_execution)
     }
 
     // Apply shared path finalization hooks after page materialization.

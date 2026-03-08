@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        access::{ExecutionPathKind, ExecutionPathPayload},
+        access::ExecutionPathPayload,
         direction::Direction,
         executor::{
             AccessExecutionDescriptor, AccessScanContinuationInput, AccessStreamBindings, Context,
@@ -16,6 +16,7 @@ use crate::{
             },
             load::LoadExecutor,
             plan_metrics::record_rows_scanned,
+            route::{CountTerminalFastPathContract, ExistsTerminalFastPathContract},
             validate_executor_plan,
         },
         index::predicate::IndexPredicateExecution,
@@ -37,25 +38,27 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<u32, InternalError> {
-        if Self::pk_cardinality_count_eligible(&plan) {
-            Self::record_execution_optimization_hit_for_tests(
-                ExecutionOptimizationCounter::PrimaryKeyCardinalityCountFastPath,
-            );
-            return self.aggregate_count_from_pk_cardinality(plan);
-        }
-
-        if Self::primary_key_count_eligible(&plan) {
-            Self::record_execution_optimization_hit_for_tests(
-                ExecutionOptimizationCounter::PrimaryKeyCountFastPath,
-            );
-            return self.aggregate_count_from_existing_row_stream(plan);
-        }
-
-        if Self::index_covering_count_eligible(&plan) {
-            Self::record_execution_optimization_hit_for_tests(
-                ExecutionOptimizationCounter::CoveringCountFastPath,
-            );
-            return self.aggregate_count_from_existing_row_stream(plan);
+        if let Some(contract) = Self::derive_count_terminal_fast_path_contract(&plan) {
+            return match contract {
+                CountTerminalFastPathContract::PrimaryKeyCardinality => {
+                    Self::record_execution_optimization_hit_for_tests(
+                        ExecutionOptimizationCounter::PrimaryKeyCardinalityCountFastPath,
+                    );
+                    self.aggregate_count_from_pk_cardinality(plan)
+                }
+                CountTerminalFastPathContract::PrimaryKeyExistingRows(direction) => {
+                    Self::record_execution_optimization_hit_for_tests(
+                        ExecutionOptimizationCounter::PrimaryKeyCountFastPath,
+                    );
+                    self.aggregate_count_from_existing_row_stream(plan, direction)
+                }
+                CountTerminalFastPathContract::IndexCoveringExistingRows(direction) => {
+                    Self::record_execution_optimization_hit_for_tests(
+                        ExecutionOptimizationCounter::CoveringCountFastPath,
+                    );
+                    self.aggregate_count_from_existing_row_stream(plan, direction)
+                }
+            };
         }
 
         match ExecutionKernel::execute_aggregate_spec(self, plan, count())? {
@@ -69,11 +72,15 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<bool, InternalError> {
-        if Self::index_covering_exists_eligible(&plan) {
-            Self::record_execution_optimization_hit_for_tests(
-                ExecutionOptimizationCounter::CoveringExistsFastPath,
-            );
-            return self.aggregate_exists_from_index_covering_stream(plan);
+        if let Some(contract) = Self::derive_exists_terminal_fast_path_contract(&plan) {
+            return match contract {
+                ExistsTerminalFastPathContract::IndexCoveringExistingRows(direction) => {
+                    Self::record_execution_optimization_hit_for_tests(
+                        ExecutionOptimizationCounter::CoveringExistsFastPath,
+                    );
+                    self.aggregate_exists_from_index_covering_stream(plan, direction)
+                }
+            };
         }
 
         match ExecutionKernel::execute_aggregate_spec(self, plan, exists())? {
@@ -200,27 +207,6 @@ where
         }
     }
 
-    // Full-scan and key-range primary-key shapes can compute COUNT from
-    // primary-store cardinality without row materialization or key decoding.
-    fn pk_cardinality_count_eligible(plan: &ExecutablePlan<E>) -> bool {
-        if plan.is_distinct() {
-            return false;
-        }
-        if plan.has_predicate() {
-            return false;
-        }
-
-        let access_strategy = plan.access().resolve_strategy();
-        let Some(path) = access_strategy.as_path() else {
-            return false;
-        };
-
-        matches!(
-            path.kind(),
-            ExecutionPathKind::FullScan | ExecutionPathKind::KeyRange
-        )
-    }
-
     // Resolve COUNT for PK full-scan/key-range shapes from store cardinality
     // while preserving canonical page-window and scan-accounting semantics.
     fn aggregate_count_from_pk_cardinality(
@@ -270,59 +256,15 @@ where
         Ok(count)
     }
 
-    // Primary-key direct-access shapes can count without row materialization by
-    // folding over key streams while preserving missing-row consistency checks.
-    fn primary_key_count_eligible(plan: &ExecutablePlan<E>) -> bool {
-        if plan.has_predicate() {
-            return false;
-        }
-
-        let access_strategy = plan.access().resolve_strategy();
-        let Some(path) = access_strategy.as_path() else {
-            return false;
-        };
-        if !primary_key_count_order_supported::<E>(plan) {
-            return false;
-        }
-
-        matches!(
-            path.kind(),
-            ExecutionPathKind::ByKey | ExecutionPathKind::ByKeys
-        )
-    }
-
-    // Secondary index shapes can count without row materialization by folding
-    // over key streams while still preserving missing-row consistency checks.
-    fn index_covering_count_eligible(plan: &ExecutablePlan<E>) -> bool {
-        // Ordered COUNT windows depend on route/kernel ordering contracts.
-        // Keep this fast path scoped to unordered scalar COUNT shapes.
-        if plan.order_spec().is_some() {
-            return false;
-        }
-
-        // COUNT prefilter pushdown requires one strict all-or-none index
-        // predicate program when a residual predicate exists.
-        let index_shape_supported = plan.access().as_index_prefix_path().is_some()
-            || plan.access().as_index_range_path().is_some();
-        if !index_shape_supported {
-            return false;
-        }
-        if !plan.has_predicate() {
-            return true;
-        }
-
-        plan.execution_preparation().strict_mode().is_some()
-    }
-
     // Fold COUNT over one key stream using `ExistingRows` mode.
     // This avoids entity decode/materialization while preserving stale-key and
     // strict-missing-row semantics via `row_exists_for_key`.
     fn aggregate_count_from_existing_row_stream(
         &self,
         plan: ExecutablePlan<E>,
+        direction: Direction,
     ) -> Result<u32, InternalError> {
         // Phase 1: collect lowered index specs before consuming the executable plan.
-        let direction = count_stream_direction_for_plan(&plan);
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
         let logical_plan = plan.into_inner();
@@ -367,35 +309,13 @@ where
         }
     }
 
-    // Secondary index shapes can satisfy EXISTS using key-stream fold semantics
-    // without row materialization when no residual predicate remains.
-    fn index_covering_exists_eligible(plan: &ExecutablePlan<E>) -> bool {
-        // Ordered EXISTS windows depend on route/kernel ordering contracts.
-        // Keep this fast path scoped to unordered scalar EXISTS shapes.
-        if plan.order_spec().is_some() {
-            return false;
-        }
-
-        // EXISTS prefilter pushdown requires one strict all-or-none index
-        // predicate program when a residual predicate exists.
-        let index_shape_supported = plan.access().as_index_prefix_path().is_some()
-            || plan.access().as_index_range_path().is_some();
-        if !index_shape_supported {
-            return false;
-        }
-        if !plan.has_predicate() {
-            return true;
-        }
-
-        plan.execution_preparation().strict_mode().is_some()
-    }
-
     // Fold EXISTS over an index-backed key stream using `ExistingRows` mode.
     // This keeps stale-key and strict-missing-row behavior aligned with the
     // canonical reducer path while avoiding row decode/materialization.
     fn aggregate_exists_from_index_covering_stream(
         &self,
         plan: ExecutablePlan<E>,
+        direction: Direction,
     ) -> Result<bool, InternalError> {
         // Phase 1: collect lowered index specs before consuming the executable plan.
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
@@ -418,7 +338,7 @@ where
             AccessStreamBindings::new(
                 index_prefix_specs.as_slice(),
                 index_range_specs.as_slice(),
-                AccessScanContinuationInput::new(None, Direction::Asc),
+                AccessScanContinuationInput::new(None, direction),
             ),
             None,
             index_predicate_execution,
@@ -430,7 +350,7 @@ where
             &ctx,
             &logical_plan,
             AggregateKind::Exists,
-            Direction::Asc,
+            direction,
             AggregateFoldMode::ExistingRows,
             key_stream.as_mut(),
         )?;
@@ -440,39 +360,6 @@ where
             AggregateOutput::Exists(value) => Ok(value),
             _ => Err(invariant("covering EXISTS reducer result kind mismatch")),
         }
-    }
-}
-
-// Keep primary-key direct COUNT fast path scoped to unordered or PK-only
-// ordering contracts so route/kernel ordering semantics remain aligned.
-fn primary_key_count_order_supported<E>(plan: &ExecutablePlan<E>) -> bool
-where
-    E: EntityKind,
-{
-    let Some(order) = plan.order_spec() else {
-        return true;
-    };
-    if order.fields.len() != 1 {
-        return false;
-    }
-
-    order.fields[0].0 == E::MODEL.primary_key.name
-}
-
-fn count_stream_direction_for_plan<E>(plan: &ExecutablePlan<E>) -> Direction
-where
-    E: EntityKind,
-{
-    let Some(order) = plan.order_spec() else {
-        return Direction::Asc;
-    };
-    if order.fields.len() != 1 || order.fields[0].0 != E::MODEL.primary_key.name {
-        return Direction::Asc;
-    }
-
-    match order.fields[0].1 {
-        crate::db::query::plan::OrderDirection::Asc => Direction::Asc,
-        crate::db::query::plan::OrderDirection::Desc => Direction::Desc,
     }
 }
 

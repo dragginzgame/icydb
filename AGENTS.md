@@ -32,6 +32,15 @@
 
 ---
 
+## Concurrent Editing During Agent Runs
+
+* User edits made while the coding agent is running are expected in this repository.
+* Mid-run file changes should be treated as normal collaboration, not an automatic stop condition.
+* When concurrent edits are detected, the agent should re-read the affected files and continue unless there is a real conflict on the same logic block.
+* Do not treat unrelated concurrent file changes as an error state.
+
+---
+
 ## Git Hooks
 
 * Hooks path: `.githooks` (auto-configured via `core.hooksPath`).

@@ -18,6 +18,44 @@ use crate::db::executor::load::projection::{
     grouped::GroupedRowView,
 };
 
+// Planner-owned projection strategy selected once before scalar row traversal.
+// Keeps load execution materialization as a strategy call instead of policy
+// branching at call sites.
+enum ScalarProjectionExecutionStrategy<'a> {
+    Identity,
+    Materialized(&'a ProjectionSpec),
+}
+
+impl<'a> ScalarProjectionExecutionStrategy<'a> {
+    fn for_projection<E>(projection: &'a ProjectionSpec) -> Self
+    where
+        E: EntityKind,
+    {
+        if projection_is_model_identity::<E>(projection) {
+            Self::Identity
+        } else {
+            Self::Materialized(projection)
+        }
+    }
+
+    fn materialize_rows<E>(
+        self,
+        rows: &[(Id<E>, E)],
+    ) -> Result<Option<Vec<ProjectedRow<E>>>, InternalError>
+    where
+        E: EntityKind + EntityValue,
+    {
+        match self {
+            Self::Identity => Ok(None),
+            Self::Materialized(projection) => {
+                let projected = project_rows_from_projection::<E>(projection, rows)
+                    .map_err(|err| InternalError::query_invalid_logical_plan(err.to_string()))?;
+                Ok(Some(projected))
+            }
+        }
+    }
+}
+
 ///
 /// ShapePreservingProjection
 ///
@@ -47,14 +85,9 @@ where
         rows: &[(Id<E>, E)],
     ) -> Result<Option<Vec<ProjectedRow<E>>>, InternalError> {
         let projection = plan.projection_spec(E::MODEL);
-        if projection_is_model_identity::<E>(&projection) {
-            return Ok(None);
-        }
+        let strategy = ScalarProjectionExecutionStrategy::for_projection::<E>(&projection);
 
-        let projected = project_rows_from_projection::<E>(&projection, rows)
-            .map_err(|err| InternalError::query_invalid_logical_plan(err.to_string()))?;
-
-        Ok(Some(projected))
+        strategy.materialize_rows(rows)
     }
 }
 

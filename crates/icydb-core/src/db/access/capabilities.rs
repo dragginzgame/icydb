@@ -131,6 +131,55 @@ impl SinglePathAccessCapabilities {
         self.kind
     }
 
+    /// Return whether this path supports the `bytes()` PK-store window fast path.
+    #[must_use]
+    pub(in crate::db) const fn supports_bytes_terminal_primary_key_window(&self) -> bool {
+        matches!(
+            self.kind,
+            AccessPathKind::FullScan | AccessPathKind::KeyRange
+        )
+    }
+
+    /// Return whether this path supports the `bytes()` ordered-key-stream fast path.
+    #[must_use]
+    pub(in crate::db) const fn supports_bytes_terminal_ordered_key_stream_window(&self) -> bool {
+        matches!(
+            self.kind,
+            AccessPathKind::ByKey
+                | AccessPathKind::ByKeys
+                | AccessPathKind::IndexPrefix
+                | AccessPathKind::IndexMultiLookup
+                | AccessPathKind::IndexRange
+        )
+    }
+
+    /// Return whether this path supports COUNT cardinality from PK store metadata.
+    #[must_use]
+    pub(in crate::db) const fn supports_count_terminal_primary_key_cardinality(&self) -> bool {
+        self.supports_bytes_terminal_primary_key_window()
+    }
+
+    /// Return whether this path supports COUNT over existing PK-key streams.
+    #[must_use]
+    pub(in crate::db) const fn supports_count_terminal_primary_key_existing_rows(&self) -> bool {
+        matches!(self.kind, AccessPathKind::ByKey | AccessPathKind::ByKeys)
+    }
+
+    /// Return whether this path supports index-covering COUNT/EXISTS fast paths.
+    #[must_use]
+    pub(in crate::db) const fn supports_index_covering_existing_rows_terminal(&self) -> bool {
+        self.index_prefix_details.is_some() || self.index_range_details.is_some()
+    }
+
+    /// Return whether this path requires one top-N lookahead row in unpaged mode.
+    #[must_use]
+    pub(in crate::db) const fn requires_top_n_seek_lookahead(&self) -> bool {
+        matches!(
+            self.kind,
+            AccessPathKind::ByKeys | AccessPathKind::IndexMultiLookup
+        )
+    }
+
     /// Return true when this path can drive fast-path PK stream access directly.
     /// This does not imply the emitted stream is guaranteed PK-ordered.
     #[must_use]
