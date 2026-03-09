@@ -1,7 +1,5 @@
 mod int128;
 
-pub use int128::*;
-
 use crate::{
     prelude::*,
     traits::{
@@ -16,6 +14,8 @@ use std::{
     iter::Sum,
     ops::{Div, DivAssign, Mul, MulAssign},
 };
+
+pub use int128::*;
 
 ///
 /// Int
@@ -43,10 +43,10 @@ use std::{
 pub struct Int(WrappedInt);
 
 impl Int {
-    #[must_use]
     /// Return sign and base-2^32 magnitude limbs for decimal key encoding.
     ///
     /// This allocates for the returned limb vector.
+    #[must_use]
     pub(crate) fn sign_and_u32_digits(&self) -> (bool, Vec<u32>) {
         (
             self.0.0.cmp(&0.into()).is_lt(),
@@ -68,8 +68,8 @@ impl Int {
         i64::try_from(big).ok()
     }
 
-    #[must_use]
     /// Serialize the arbitrary-precision integer to LEB128 bytes.
+    #[must_use]
     pub fn to_leb128(&self) -> Vec<u8> {
         let mut out = Vec::new();
         self.0.encode(&mut out).expect("Int LEB128 encode");

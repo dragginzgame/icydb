@@ -1,11 +1,11 @@
 mod fixtures;
 
-pub(crate) use fixtures::*;
-
 use canic_cdk::structures::{
     DefaultMemoryImpl,
     memory::{MemoryId, MemoryManager, VirtualMemory},
 };
+
+pub(crate) use fixtures::*;
 
 pub(crate) const RESERVED_INTERNAL_MEMORY_ID: u8 = u8::MAX;
 pub(crate) const TEST_MEMORY_RANGE_START: u8 = 1;

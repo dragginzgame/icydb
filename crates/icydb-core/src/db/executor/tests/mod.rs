@@ -41,7 +41,7 @@ use crate::{
     },
     testing::test_memory,
     traits::{EntityIdentity, EntityKind, EntityValue, Path},
-    types::Ulid,
+    types::{Date, Duration, Timestamp, Ulid},
     value::Value,
 };
 use icydb_derive::FieldProjection;
@@ -293,6 +293,36 @@ crate::test_entity_schema! {
         ("rank", FieldKind::Uint),
         ("tags", FieldKind::List(&PHASE_TAG_KIND)),
         ("label", FieldKind::Text),
+    ],
+    indexes = [],
+    store = TestDataStore,
+    canister = TestCanister,
+}
+
+///
+/// TemporalBoundaryEntity
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+struct TemporalBoundaryEntity {
+    id: Ulid,
+    occurred_on: Date,
+    occurred_at: Timestamp,
+    elapsed: Duration,
+}
+
+crate::test_entity_schema! {
+    ident = TemporalBoundaryEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "TemporalBoundaryEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("occurred_on", FieldKind::Date),
+        ("occurred_at", FieldKind::Timestamp),
+        ("elapsed", FieldKind::Duration),
     ],
     indexes = [],
     store = TestDataStore,

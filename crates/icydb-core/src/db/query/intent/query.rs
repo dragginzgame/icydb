@@ -1,11 +1,11 @@
 use crate::{
     db::{
-        predicate::{CompareOp, MissingRowPolicy, Predicate},
+        predicate::{CoercionId, CompareOp, MissingRowPolicy, Predicate},
         query::{
             builder::aggregate::AggregateExpr,
             explain::{
-                ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainOrderPushdown,
-                ExplainPlan,
+                ExplainAccessPath, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
+                ExplainOrderPushdown, ExplainPlan, ExplainPredicate,
             },
             expr::{FilterExpr, SortExpr},
             intent::{QueryError, access_plan_to_entity_keys, model::QueryModel},
@@ -303,6 +303,10 @@ impl<E: EntityKind> Query<E> {
             "diagnostic.plan.order_pushdown={}",
             plan_order_pushdown_label(explain.order_pushdown())
         ));
+        lines.push(format!(
+            "diagnostic.plan.predicate_pushdown={}",
+            plan_predicate_pushdown_label(explain.predicate(), explain.access())
+        ));
         lines.push(format!("diagnostic.plan.distinct={}", explain.distinct()));
         lines.push(format!("diagnostic.plan.page={:?}", explain.page()));
         lines.push(format!(
@@ -360,6 +364,104 @@ fn plan_order_pushdown_label(order_pushdown: &ExplainOrderPushdown) -> String {
             format!("eligible(index={index},prefix_len={prefix_len})",)
         }
         ExplainOrderPushdown::Rejected(reason) => format!("rejected({reason:?})"),
+    }
+}
+
+fn plan_predicate_pushdown_label(
+    predicate: &ExplainPredicate,
+    access: &ExplainAccessPath,
+) -> String {
+    let access_label = match access {
+        ExplainAccessPath::ByKey { .. } => "by_key",
+        ExplainAccessPath::ByKeys { keys } if keys.is_empty() => "empty_access_contract",
+        ExplainAccessPath::ByKeys { .. } => "by_keys",
+        ExplainAccessPath::KeyRange { .. } => "key_range",
+        ExplainAccessPath::IndexPrefix { .. } => "index_prefix",
+        ExplainAccessPath::IndexMultiLookup { .. } => "index_multi_lookup",
+        ExplainAccessPath::IndexRange { .. } => "index_range",
+        ExplainAccessPath::FullScan => "full_scan",
+        ExplainAccessPath::Union(_) => "union",
+        ExplainAccessPath::Intersection(_) => "intersection",
+    };
+    if matches!(predicate, ExplainPredicate::None) {
+        return "none".to_string();
+    }
+    if matches!(access, ExplainAccessPath::FullScan) {
+        if explain_predicate_contains_non_strict_compare(predicate) {
+            return "fallback(non_strict_compare_coercion)".to_string();
+        }
+        if explain_predicate_contains_empty_prefix_starts_with(predicate) {
+            return "fallback(starts_with_empty_prefix)".to_string();
+        }
+        if explain_predicate_contains_is_null(predicate) {
+            return "fallback(is_null_full_scan)".to_string();
+        }
+
+        return format!("fallback({access_label})");
+    }
+
+    format!("applied({access_label})")
+}
+
+fn explain_predicate_contains_non_strict_compare(predicate: &ExplainPredicate) -> bool {
+    match predicate {
+        ExplainPredicate::Compare { coercion, .. } => coercion.id != CoercionId::Strict,
+        ExplainPredicate::And(children) | ExplainPredicate::Or(children) => children
+            .iter()
+            .any(explain_predicate_contains_non_strict_compare),
+        ExplainPredicate::Not(inner) => explain_predicate_contains_non_strict_compare(inner),
+        ExplainPredicate::None
+        | ExplainPredicate::True
+        | ExplainPredicate::False
+        | ExplainPredicate::IsNull { .. }
+        | ExplainPredicate::IsMissing { .. }
+        | ExplainPredicate::IsEmpty { .. }
+        | ExplainPredicate::IsNotEmpty { .. }
+        | ExplainPredicate::TextContains { .. }
+        | ExplainPredicate::TextContainsCi { .. } => false,
+    }
+}
+
+fn explain_predicate_contains_is_null(predicate: &ExplainPredicate) -> bool {
+    match predicate {
+        ExplainPredicate::IsNull { .. } => true,
+        ExplainPredicate::And(children) | ExplainPredicate::Or(children) => {
+            children.iter().any(explain_predicate_contains_is_null)
+        }
+        ExplainPredicate::Not(inner) => explain_predicate_contains_is_null(inner),
+        ExplainPredicate::None
+        | ExplainPredicate::True
+        | ExplainPredicate::False
+        | ExplainPredicate::Compare { .. }
+        | ExplainPredicate::IsMissing { .. }
+        | ExplainPredicate::IsEmpty { .. }
+        | ExplainPredicate::IsNotEmpty { .. }
+        | ExplainPredicate::TextContains { .. }
+        | ExplainPredicate::TextContainsCi { .. } => false,
+    }
+}
+
+fn explain_predicate_contains_empty_prefix_starts_with(predicate: &ExplainPredicate) -> bool {
+    match predicate {
+        ExplainPredicate::Compare {
+            op: CompareOp::StartsWith,
+            value: Value::Text(prefix),
+            ..
+        } => prefix.is_empty(),
+        ExplainPredicate::And(children) | ExplainPredicate::Or(children) => children
+            .iter()
+            .any(explain_predicate_contains_empty_prefix_starts_with),
+        ExplainPredicate::Not(inner) => explain_predicate_contains_empty_prefix_starts_with(inner),
+        ExplainPredicate::None
+        | ExplainPredicate::True
+        | ExplainPredicate::False
+        | ExplainPredicate::Compare { .. }
+        | ExplainPredicate::IsNull { .. }
+        | ExplainPredicate::IsMissing { .. }
+        | ExplainPredicate::IsEmpty { .. }
+        | ExplainPredicate::IsNotEmpty { .. }
+        | ExplainPredicate::TextContains { .. }
+        | ExplainPredicate::TextContainsCi { .. } => false,
     }
 }
 
@@ -448,5 +550,138 @@ impl<E: EntityKind> CompiledQuery<E> {
     #[must_use]
     pub(in crate::db) fn into_inner(self) -> AccessPlannedQuery<E::Key> {
         self.plan
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{db::predicate::CoercionSpec, types::Ulid};
+
+    fn strict_compare(field: &str, op: CompareOp, value: Value) -> ExplainPredicate {
+        ExplainPredicate::Compare {
+            field: field.to_string(),
+            op,
+            value,
+            coercion: CoercionSpec::new(CoercionId::Strict),
+        }
+    }
+
+    #[test]
+    fn predicate_pushdown_label_prefix_like_and_equivalent_range_share_label() {
+        let starts_with_predicate = strict_compare(
+            "name",
+            CompareOp::StartsWith,
+            Value::Text("foo".to_string()),
+        );
+        let equivalent_range_predicate = ExplainPredicate::And(vec![
+            strict_compare("name", CompareOp::Gte, Value::Text("foo".to_string())),
+            strict_compare("name", CompareOp::Lt, Value::Text("fop".to_string())),
+        ]);
+        let access = ExplainAccessPath::IndexRange {
+            name: "idx_name",
+            fields: vec!["name"],
+            prefix_len: 0,
+            prefix: Vec::new(),
+            lower: std::ops::Bound::Included(Value::Text("foo".to_string())),
+            upper: std::ops::Bound::Excluded(Value::Text("fop".to_string())),
+        };
+
+        assert_eq!(
+            plan_predicate_pushdown_label(&starts_with_predicate, &access),
+            plan_predicate_pushdown_label(&equivalent_range_predicate, &access),
+            "equivalent prefix-like and bounded-range shapes should report identical pushdown reason labels",
+        );
+        assert_eq!(
+            plan_predicate_pushdown_label(&starts_with_predicate, &access),
+            "applied(index_range)"
+        );
+    }
+
+    #[test]
+    fn predicate_pushdown_label_distinguishes_is_null_and_non_strict_full_scan_fallbacks() {
+        let is_null_predicate = ExplainPredicate::IsNull {
+            field: "group".to_string(),
+        };
+        let non_strict_predicate = ExplainPredicate::Compare {
+            field: "group".to_string(),
+            op: CompareOp::Eq,
+            value: Value::Uint(7),
+            coercion: CoercionSpec::new(CoercionId::NumericWiden),
+        };
+        let access = ExplainAccessPath::FullScan;
+
+        assert_eq!(
+            plan_predicate_pushdown_label(&is_null_predicate, &access),
+            "fallback(is_null_full_scan)"
+        );
+        assert_eq!(
+            plan_predicate_pushdown_label(&non_strict_predicate, &access),
+            "fallback(non_strict_compare_coercion)"
+        );
+    }
+
+    #[test]
+    fn predicate_pushdown_label_reports_none_when_no_predicate_is_present() {
+        let predicate = ExplainPredicate::None;
+        let access = ExplainAccessPath::ByKey {
+            key: Value::Ulid(Ulid::from_u128(7)),
+        };
+
+        assert_eq!(plan_predicate_pushdown_label(&predicate, &access), "none");
+    }
+
+    #[test]
+    fn predicate_pushdown_label_reports_empty_access_contract_for_impossible_shapes() {
+        let predicate = ExplainPredicate::Or(vec![
+            ExplainPredicate::IsNull {
+                field: "id".to_string(),
+            },
+            ExplainPredicate::And(vec![
+                ExplainPredicate::Compare {
+                    field: "id".to_string(),
+                    op: CompareOp::In,
+                    value: Value::List(Vec::new()),
+                    coercion: CoercionSpec::new(CoercionId::Strict),
+                },
+                ExplainPredicate::True,
+            ]),
+        ]);
+        let access = ExplainAccessPath::ByKeys { keys: Vec::new() };
+
+        assert_eq!(
+            plan_predicate_pushdown_label(&predicate, &access),
+            "applied(empty_access_contract)"
+        );
+    }
+
+    #[test]
+    fn predicate_pushdown_label_distinguishes_empty_prefix_starts_with_full_scan_fallback() {
+        let empty_prefix_predicate = ExplainPredicate::Compare {
+            field: "label".to_string(),
+            op: CompareOp::StartsWith,
+            value: Value::Text(String::new()),
+            coercion: CoercionSpec::new(CoercionId::Strict),
+        };
+        let non_empty_prefix_predicate = ExplainPredicate::Compare {
+            field: "label".to_string(),
+            op: CompareOp::StartsWith,
+            value: Value::Text("l".to_string()),
+            coercion: CoercionSpec::new(CoercionId::Strict),
+        };
+        let access = ExplainAccessPath::FullScan;
+
+        assert_eq!(
+            plan_predicate_pushdown_label(&empty_prefix_predicate, &access),
+            "fallback(starts_with_empty_prefix)"
+        );
+        assert_eq!(
+            plan_predicate_pushdown_label(&non_empty_prefix_predicate, &access),
+            "fallback(full_scan)"
+        );
     }
 }

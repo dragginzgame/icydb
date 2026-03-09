@@ -76,7 +76,7 @@ macro_rules! impl_session_materialization_methods {
         where
             E: EntityValue,
         {
-            Ok(self.inner.execute()?.is_empty())
+            Ok(self.inner.is_empty()?)
         }
 
         /// Return the row count.
@@ -84,7 +84,7 @@ macro_rules! impl_session_materialization_methods {
         where
             E: EntityValue,
         {
-            Ok(self.inner.execute()?.count())
+            Ok(self.inner.count()?)
         }
 
         /// Require exactly one row.

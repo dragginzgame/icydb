@@ -4,6 +4,8 @@ mod atomic;
 mod view;
 mod visitor;
 
+use crate::{prelude::*, types::Id, value::ValueEnum, visitor::VisitorContext};
+
 pub use atomic::*;
 pub use view::*;
 pub use visitor::*;
@@ -23,8 +25,6 @@ pub use std::{
     hash::Hash,
     ops::{Add, AddAssign, Deref, DerefMut, Div, DivAssign, Mul, MulAssign, Rem, Sub, SubAssign},
 };
-
-use crate::{prelude::*, types::Id, value::ValueEnum, visitor::VisitorContext};
 
 // ============================================================================
 // FOUNDATIONAL KINDS
@@ -330,6 +330,7 @@ pub trait FieldProjection {
 /// Schema affordance classification for query planning and validation.
 /// Describes whether a field is planner-addressable and predicate-queryable.
 ///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FieldValueKind {
     /// Planner-addressable atomic value.
@@ -509,6 +510,7 @@ impl_field_value!(
 ///
 /// For newtypes to expose their innermost value.
 ///
+
 pub trait Inner<T> {
     fn inner(&self) -> &T;
     fn into_inner(self) -> T;
@@ -536,6 +538,7 @@ where
 ///
 /// Transforms a value into a sanitized version.
 ///
+
 pub trait Sanitizer<T> {
     fn sanitize(&self, value: &mut T) -> Result<(), String>;
 }
@@ -545,6 +548,7 @@ pub trait Sanitizer<T> {
 ///
 /// Allows a node to validate values.
 ///
+
 pub trait Validator<T: ?Sized> {
     fn validate(&self, value: &T, ctx: &mut dyn VisitorContext);
 }

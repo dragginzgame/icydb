@@ -75,6 +75,14 @@ where
     where
         E: EntityValue,
     {
+        self.not_exists()
+    }
+
+    /// Execute and return whether no matching row exists.
+    pub fn not_exists(&self) -> Result<bool, QueryError>
+    where
+        E: EntityValue,
+    {
         Ok(!self.exists()?)
     }
 
@@ -92,6 +100,16 @@ where
         E: EntityValue,
     {
         self.explain_scalar_non_paged_terminal(exists())
+    }
+
+    /// Explain scalar `not_exists()` routing without executing the terminal.
+    ///
+    /// This remains an `exists()` execution plan with negated boolean semantics.
+    pub fn explain_not_exists(&self) -> Result<ExplainAggregateTerminalPlan, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.explain_exists()
     }
 
     /// Explain scalar load execution shape without executing the query.

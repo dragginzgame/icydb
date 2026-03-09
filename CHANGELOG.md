@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `0.46.5` makes `sum_by`/`avg_by` faster on safe streaming shapes, adds stricter fail-closed guards for duplicate-risk access paths, and hardens Top-N hint derivation with an explicit deterministic `ORDER BY` check.
 - `0.46.6` centralizes planner stability helpers for deterministic `IN (...)` planning and renames the route-level execution mode type for clearer internal boundaries, without changing query results.
 - `0.46.7` tightens executor visibility boundaries, renames query execution errors for clearer ownership (`QueryExecutionError`), and hardens complexity auditing with decision-owner drift gates (including route-shape ownership staged at intent time).
+- `0.46.8` aligns `exists`/`not_exists`/`is_empty` terminal behavior across core and facade load APIs, adds `explain_not_exists()` parity locks, extends temporal boundary coverage (`Date` `AsView`/serde plus session-level `Date`/`Timestamp`/`Duration` value-path locks), and expands predicate pushdown/stability contracts (including `primary_key IS NULL -> ByKeys([])`, explicit empty-branch intersection/union handling, verbose fallback reason diagnostics for non-strict compare and empty-prefix `starts_with("")`, and route-stage parity locks for equivalent `IN`/empty/`BETWEEN`-vs-`=` predicate classes).
 
 See detailed breakdown:
 [docs/changelog/0.46.md](docs/changelog/0.46.md)

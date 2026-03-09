@@ -3,9 +3,11 @@
 //! Does not own: row-key encoding, commit-window ordering, or index updates.
 //! Boundary: data::store persists RawRow values produced by higher layers.
 
-use super::DataKey;
 use crate::{
-    db::codec::{MAX_ROW_BYTES, deserialize_row},
+    db::{
+        codec::{MAX_ROW_BYTES, deserialize_row},
+        data::DataKey,
+    },
     error::InternalError,
     traits::{EntityKind, Storable},
 };

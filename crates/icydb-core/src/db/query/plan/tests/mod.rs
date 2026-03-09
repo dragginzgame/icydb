@@ -130,6 +130,85 @@ fn plan_access_full_scan_without_predicate() {
 }
 
 #[test]
+fn plan_access_primary_key_is_null_lowers_to_empty_by_keys() {
+    let model = model_with_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = Predicate::IsNull {
+        field: "id".to_string(),
+    };
+
+    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+
+    assert_eq!(
+        plan,
+        AccessPlan::path(AccessPath::ByKeys(Vec::new())),
+        "primary_key IS NULL is unsatisfiable and should lower to explicit empty access shape",
+    );
+}
+
+#[test]
+fn plan_access_secondary_is_null_retains_full_scan_fallback() {
+    let model = model_with_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = Predicate::IsNull {
+        field: "tag".to_string(),
+    };
+
+    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+
+    assert_eq!(
+        plan,
+        AccessPlan::full_scan(),
+        "non-primary IS NULL remains full-scan until nullable/index-aware pushdown is available",
+    );
+}
+
+#[test]
+fn plan_access_primary_key_is_null_or_secondary_eq_collapses_to_secondary_branch() {
+    let model = model_with_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = Predicate::Or(vec![
+        Predicate::IsNull {
+            field: "id".to_string(),
+        },
+        compare_strict("tag", CompareOp::Eq, Value::Text("alpha".to_string())),
+    ]);
+
+    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+
+    assert_eq!(
+        plan,
+        AccessPlan::path(AccessPath::IndexPrefix {
+            index: INDEX_MODEL,
+            values: vec![Value::Text("alpha".to_string())],
+        }),
+        "primary_key IS NULL is an empty OR-identity and should not widen the surviving branch",
+    );
+}
+
+#[test]
+fn plan_access_primary_key_is_null_or_primary_key_is_null_stays_empty() {
+    let model = model_with_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = Predicate::Or(vec![
+        Predicate::IsNull {
+            field: "id".to_string(),
+        },
+        Predicate::IsNull {
+            field: "id".to_string(),
+        },
+    ]);
+
+    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+
+    assert_eq!(
+        plan,
+        AccessPlan::path(AccessPath::ByKeys(Vec::new())),
+        "OR over only impossible primary_key IS NULL branches should remain explicit empty access",
+    );
+}
+
+#[test]
 fn plan_access_uses_primary_key_lookup() {
     let model = model_with_index();
     let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
@@ -340,6 +419,24 @@ fn plan_access_secondary_in_empty_remains_distinct_from_false_before_constant_fo
 }
 
 #[test]
+fn plan_access_secondary_in_empty_in_and_group_collapses_to_empty_by_keys() {
+    let model = model_with_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = Predicate::And(vec![
+        compare_strict("tag", CompareOp::In, Value::List(Vec::new())),
+        compare_strict("tag", CompareOp::Eq, Value::Text("alpha".to_string())),
+    ]);
+
+    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+
+    assert_eq!(
+        plan,
+        AccessPlan::path(AccessPath::ByKeys(Vec::new())),
+        "AND groups that include strict IN [] should collapse to one explicit empty access shape",
+    );
+}
+
+#[test]
 fn plan_access_emits_index_range_for_single_field_between_equivalent_bounds() {
     let model = model_with_index();
     let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
@@ -359,6 +456,26 @@ fn plan_access_emits_index_range_for_single_field_between_equivalent_bounds() {
     );
     assert_eq!(lower, &Bound::Included(Value::Text("alpha".to_string())));
     assert_eq!(upper, &Bound::Included(Value::Text("omega".to_string())));
+}
+
+#[test]
+fn plan_access_stability_single_field_between_equal_bounds_and_eq_share_identical_access_plan() {
+    let model = model_with_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let between_equal_bounds = Predicate::And(vec![
+        compare_strict("tag", CompareOp::Gte, Value::Text("alpha".to_string())),
+        compare_strict("tag", CompareOp::Lte, Value::Text("alpha".to_string())),
+    ]);
+    let strict_eq = compare_strict("tag", CompareOp::Eq, Value::Text("alpha".to_string()));
+
+    let between_plan =
+        plan_access(model, &schema, Some(&between_equal_bounds)).expect("plan should build");
+    let eq_plan = plan_access(model, &schema, Some(&strict_eq)).expect("plan should build");
+
+    assert_eq!(
+        between_plan, eq_plan,
+        "single-field equal-bounds BETWEEN shapes should canonicalize to the same access plan as strict equality",
+    );
 }
 
 #[test]
@@ -423,6 +540,46 @@ fn plan_access_starts_with_max_unicode_prefix_uses_unbounded_upper() {
 
     assert_eq!(lower, &Bound::Included(Value::Text(prefix)));
     assert_eq!(upper, &Bound::Unbounded);
+}
+
+#[test]
+fn plan_access_stability_starts_with_and_equivalent_range_share_identical_access_plan() {
+    let model = model_with_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let starts_with = compare_strict("tag", CompareOp::StartsWith, Value::Text("foo".to_string()));
+    let equivalent_range = Predicate::And(vec![
+        compare_strict("tag", CompareOp::Gte, Value::Text("foo".to_string())),
+        compare_strict("tag", CompareOp::Lt, Value::Text("fop".to_string())),
+    ]);
+
+    let starts_with_plan =
+        plan_access(model, &schema, Some(&starts_with)).expect("starts_with plan should build");
+    let equivalent_range_plan = plan_access(model, &schema, Some(&equivalent_range))
+        .expect("equivalent range plan should build");
+
+    assert_eq!(
+        starts_with_plan, equivalent_range_plan,
+        "equivalent prefix and bounded-range predicates should canonicalize to identical access plans",
+    );
+}
+
+#[test]
+fn plan_access_stability_max_unicode_starts_with_and_equivalent_lower_bound_share_plan() {
+    let model = model_with_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let prefix = char::from_u32(0x10_FFFF).expect("valid scalar").to_string();
+    let starts_with = compare_strict("tag", CompareOp::StartsWith, Value::Text(prefix.clone()));
+    let equivalent_lower_bound = compare_strict("tag", CompareOp::Gte, Value::Text(prefix));
+
+    let starts_with_plan =
+        plan_access(model, &schema, Some(&starts_with)).expect("starts_with plan should build");
+    let lower_bound_plan = plan_access(model, &schema, Some(&equivalent_lower_bound))
+        .expect("lower-bound plan should build");
+
+    assert_eq!(
+        starts_with_plan, lower_bound_plan,
+        "max-unicode prefix has no strict upper bound and should match equivalent lower-bound range planning",
+    );
 }
 
 #[test]

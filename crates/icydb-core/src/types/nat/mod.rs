@@ -1,7 +1,5 @@
 mod nat128;
 
-pub use nat128::*;
-
 use crate::{
     traits::{
         AsView, Atomic, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom, ValidateAuto,
@@ -16,6 +14,8 @@ use std::{
     iter::Sum,
     ops::{Div, DivAssign, Mul, MulAssign},
 };
+
+pub use nat128::*;
 
 ///
 /// Nat
@@ -43,10 +43,10 @@ use std::{
 pub struct Nat(WrappedNat);
 
 impl Nat {
-    #[must_use]
     /// Return base-2^32 limbs for decimal key encoding.
     ///
     /// This allocates for the returned limb vector.
+    #[must_use]
     pub(crate) fn u32_digits(&self) -> Vec<u32> {
         self.0.0.to_u32_digits()
     }
@@ -65,8 +65,8 @@ impl Nat {
         u64::try_from(big).ok()
     }
 
-    #[must_use]
     /// Serialize the arbitrary-precision natural to LEB128 bytes.
+    #[must_use]
     pub fn to_leb128(&self) -> Vec<u8> {
         let mut out = Vec::new();
         self.0.encode(&mut out).expect("Nat LEB128 encode");

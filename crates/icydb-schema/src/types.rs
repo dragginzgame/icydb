@@ -9,6 +9,11 @@ use quote::{ToTokens, format_ident, quote};
 ///
 /// Cardinality
 ///
+/// Schema-level multiplicity marker used by codegen and validation passes.
+/// `One` means a required single value.
+/// `Opt` means an optional slot (nullable / absent is valid).
+/// `Many` means repeated values (for list/set-like shapes).
+///
 
 #[derive(
     CandidType, Clone, Copy, Default, Debug, Deserialize, Display, Eq, FromStr, PartialEq, Serialize,
@@ -37,6 +42,10 @@ impl ToTokens for Cardinality {
 
 ///
 /// Primitive
+///
+/// Scalar primitive catalog used by schema macros and generated runtime wiring.
+/// This enum is the canonical source for primitive capability checks
+/// (ordering, arithmetic, casting, key-encoding, and hashing support).
 ///
 
 #[derive(

@@ -75,6 +75,7 @@ const DIAG_DESCRIPTOR_HAS_TOP_N_SEEK: &str = "diagnostic.descriptor.has_top_n_se
 const DIAG_DESCRIPTOR_HAS_INDEX_RANGE_LIMIT_PUSHDOWN: &str =
     "diagnostic.descriptor.has_index_range_limit_pushdown";
 const DIAG_PLAN_MODE: &str = "diagnostic.plan.mode";
+const DIAG_PLAN_PREDICATE_PUSHDOWN: &str = "diagnostic.plan.predicate_pushdown";
 
 #[test]
 fn singleton_unit_key_insert_and_only_load_round_trip() {
@@ -1188,6 +1189,7 @@ fn query_explain_execution_verbose_diagnostics_snapshot_for_top_n_seek_shape() {
         "diagnostic.descriptor.has_residual_predicate_filter=false",
         "diagnostic.plan.mode=Load(LoadSpec { limit: Some(3), offset: 2 })",
         "diagnostic.plan.order_pushdown=missing_model_context",
+        "diagnostic.plan.predicate_pushdown=none",
         "diagnostic.plan.distinct=false",
         "diagnostic.plan.page=Page { limit: Some(3), offset: 2 }",
         "diagnostic.plan.consistency=Ignore",
@@ -1298,6 +1300,7 @@ fn query_explain_execution_verbose_diagnostics_snapshot_for_index_range_pushdown
         "diagnostic.descriptor.has_residual_predicate_filter=true",
         "diagnostic.plan.mode=Load(LoadSpec { limit: Some(2), offset: 0 })",
         "diagnostic.plan.order_pushdown=missing_model_context",
+        "diagnostic.plan.predicate_pushdown=applied(index_range)",
         "diagnostic.plan.distinct=false",
         "diagnostic.plan.page=Page { limit: Some(2), offset: 0 }",
         "diagnostic.plan.consistency=Ignore",
@@ -1341,6 +1344,7 @@ fn query_explain_execution_verbose_diagnostics_snapshot_for_rejection_shape() {
         "diagnostic.descriptor.has_residual_predicate_filter=false",
         "diagnostic.plan.mode=Load(LoadSpec { limit: None, offset: 0 })",
         "diagnostic.plan.order_pushdown=missing_model_context",
+        "diagnostic.plan.predicate_pushdown=applied(index_prefix)",
         "diagnostic.plan.distinct=false",
         "diagnostic.plan.page=None",
         "diagnostic.plan.consistency=Ignore",
@@ -1410,6 +1414,320 @@ fn query_explain_execution_scalar_surface_defers_projection_and_grouped_node_fam
             "scalar execution descriptors intentionally defer node family {node_type} in 0.42.x",
         );
     }
+}
+
+#[test]
+fn query_explain_execution_verbose_reports_is_null_predicate_pushdown_reason_paths() {
+    let primary_key_is_null_verbose = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::IsNull {
+            field: "id".to_string(),
+        })
+        .explain_execution_verbose()
+        .expect("primary-key is-null verbose explain should build");
+    let secondary_is_null_verbose = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::IsNull {
+            field: "group".to_string(),
+        })
+        .explain_execution_verbose()
+        .expect("secondary is-null verbose explain should build");
+
+    let primary_key_diagnostics = verbose_diagnostics_map(&primary_key_is_null_verbose);
+    let secondary_diagnostics = verbose_diagnostics_map(&secondary_is_null_verbose);
+
+    assert_eq!(
+        primary_key_diagnostics.get(DIAG_PLAN_PREDICATE_PUSHDOWN),
+        Some(&"applied(empty_access_contract)".to_string()),
+        "impossible primary-key IS NULL should surface empty-contract predicate pushdown diagnostics",
+    );
+    assert_eq!(
+        secondary_diagnostics.get(DIAG_PLAN_PREDICATE_PUSHDOWN),
+        Some(&"fallback(is_null_full_scan)".to_string()),
+        "non-primary IS NULL should surface full-scan fallback predicate diagnostics",
+    );
+}
+
+#[test]
+fn query_explain_execution_verbose_reports_non_strict_predicate_fallback_reason_path() {
+    let non_strict_verbose = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "group",
+            CompareOp::Eq,
+            Value::Uint(7),
+            CoercionId::NumericWiden,
+        )))
+        .explain_execution_verbose()
+        .expect("non-strict predicate verbose explain should build");
+
+    let diagnostics = verbose_diagnostics_map(&non_strict_verbose);
+    assert_eq!(
+        diagnostics.get(DIAG_PLAN_PREDICATE_PUSHDOWN),
+        Some(&"fallback(non_strict_compare_coercion)".to_string()),
+        "non-strict indexed compare should surface full-scan fallback predicate diagnostics",
+    );
+    assert_eq!(
+        diagnostics.get(DIAG_ROUTE_PREDICATE_STAGE),
+        Some(&"residual_post_access".to_string()),
+        "non-strict indexed compare should execute as residual post-access predicate stage",
+    );
+}
+
+#[test]
+fn query_explain_execution_verbose_reports_empty_prefix_starts_with_fallback_reason_path() {
+    let empty_prefix_verbose = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "label",
+            CompareOp::StartsWith,
+            Value::Text(String::new()),
+            CoercionId::Strict,
+        )))
+        .explain_execution_verbose()
+        .expect("empty-prefix starts-with verbose explain should build");
+    let non_empty_prefix_verbose = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "label",
+            CompareOp::StartsWith,
+            Value::Text("label".to_string()),
+            CoercionId::Strict,
+        )))
+        .explain_execution_verbose()
+        .expect("non-empty starts-with verbose explain should build");
+
+    let empty_prefix_diagnostics = verbose_diagnostics_map(&empty_prefix_verbose);
+    let non_empty_prefix_diagnostics = verbose_diagnostics_map(&non_empty_prefix_verbose);
+    assert_eq!(
+        empty_prefix_diagnostics.get(DIAG_PLAN_PREDICATE_PUSHDOWN),
+        Some(&"fallback(starts_with_empty_prefix)".to_string()),
+        "empty-prefix starts-with should surface the explicit empty-prefix fallback reason",
+    );
+    assert_eq!(
+        non_empty_prefix_diagnostics.get(DIAG_PLAN_PREDICATE_PUSHDOWN),
+        Some(&"fallback(full_scan)".to_string()),
+        "non-empty starts-with over a non-indexed field should remain generic full-scan fallback",
+    );
+    assert_eq!(
+        empty_prefix_diagnostics.get(DIAG_ROUTE_PREDICATE_STAGE),
+        Some(&"residual_post_access".to_string()),
+        "empty-prefix starts-with fallback should preserve residual predicate stage diagnostics",
+    );
+}
+
+#[test]
+fn query_explain_execution_verbose_diagnostics_snapshot_for_is_null_fallback_shape() {
+    let verbose = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::IsNull {
+            field: "group".to_string(),
+        })
+        .explain_execution_verbose()
+        .expect("is-null fallback verbose explain snapshot should build");
+
+    let diagnostics = verbose_diagnostics_lines(&verbose);
+    let expected = vec![
+        "diagnostic.route.execution_mode=Materialized",
+        "diagnostic.route.fast_path_order=[PrimaryKey, SecondaryPrefix, IndexRange]",
+        "diagnostic.route.continuation_applied=false",
+        "diagnostic.route.limit=None",
+        "diagnostic.route.secondary_order_pushdown=not_applicable",
+        "diagnostic.route.top_n_seek=disabled",
+        "diagnostic.route.index_range_limit_pushdown=disabled",
+        "diagnostic.route.predicate_stage=residual_post_access",
+        "diagnostic.descriptor.has_top_n_seek=false",
+        "diagnostic.descriptor.has_index_range_limit_pushdown=false",
+        "diagnostic.descriptor.has_index_predicate_prefilter=false",
+        "diagnostic.descriptor.has_residual_predicate_filter=true",
+        "diagnostic.plan.mode=Load(LoadSpec { limit: None, offset: 0 })",
+        "diagnostic.plan.order_pushdown=missing_model_context",
+        "diagnostic.plan.predicate_pushdown=fallback(is_null_full_scan)",
+        "diagnostic.plan.distinct=false",
+        "diagnostic.plan.page=None",
+        "diagnostic.plan.consistency=Ignore",
+    ]
+    .into_iter()
+    .map(ToOwned::to_owned)
+    .collect::<Vec<_>>();
+
+    assert_eq!(
+        diagnostics, expected,
+        "is-null fallback verbose diagnostics snapshot drifted; ordering and values are part of the explain contract",
+    );
+}
+
+#[test]
+fn query_explain_execution_verbose_diagnostics_snapshot_for_non_strict_fallback_shape() {
+    let verbose = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "group",
+            CompareOp::Eq,
+            Value::Uint(7),
+            CoercionId::NumericWiden,
+        )))
+        .explain_execution_verbose()
+        .expect("non-strict fallback verbose explain snapshot should build");
+
+    let diagnostics = verbose_diagnostics_lines(&verbose);
+    let expected = vec![
+        "diagnostic.route.execution_mode=Materialized",
+        "diagnostic.route.fast_path_order=[PrimaryKey, SecondaryPrefix, IndexRange]",
+        "diagnostic.route.continuation_applied=false",
+        "diagnostic.route.limit=None",
+        "diagnostic.route.secondary_order_pushdown=not_applicable",
+        "diagnostic.route.top_n_seek=disabled",
+        "diagnostic.route.index_range_limit_pushdown=disabled",
+        "diagnostic.route.predicate_stage=residual_post_access",
+        "diagnostic.descriptor.has_top_n_seek=false",
+        "diagnostic.descriptor.has_index_range_limit_pushdown=false",
+        "diagnostic.descriptor.has_index_predicate_prefilter=false",
+        "diagnostic.descriptor.has_residual_predicate_filter=true",
+        "diagnostic.plan.mode=Load(LoadSpec { limit: None, offset: 0 })",
+        "diagnostic.plan.order_pushdown=missing_model_context",
+        "diagnostic.plan.predicate_pushdown=fallback(non_strict_compare_coercion)",
+        "diagnostic.plan.distinct=false",
+        "diagnostic.plan.page=None",
+        "diagnostic.plan.consistency=Ignore",
+    ]
+    .into_iter()
+    .map(ToOwned::to_owned)
+    .collect::<Vec<_>>();
+
+    assert_eq!(
+        diagnostics, expected,
+        "non-strict fallback verbose diagnostics snapshot drifted; ordering and values are part of the explain contract",
+    );
+}
+
+#[test]
+fn query_explain_execution_verbose_reports_equivalent_empty_contract_reason_paths() {
+    let is_null_verbose = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::IsNull {
+            field: "id".to_string(),
+        })
+        .explain_execution_verbose()
+        .expect("primary-key is-null verbose explain should build");
+    let strict_in_empty_verbose = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "id",
+            CompareOp::In,
+            Value::List(Vec::new()),
+            CoercionId::Strict,
+        )))
+        .explain_execution_verbose()
+        .expect("strict IN [] verbose explain should build");
+
+    let is_null_diagnostics = verbose_diagnostics_map(&is_null_verbose);
+    let strict_in_empty_diagnostics = verbose_diagnostics_map(&strict_in_empty_verbose);
+    assert_eq!(
+        is_null_diagnostics.get(DIAG_PLAN_PREDICATE_PUSHDOWN),
+        Some(&"applied(empty_access_contract)".to_string()),
+        "primary-key is-null should surface empty-contract predicate diagnostics",
+    );
+    assert_eq!(
+        strict_in_empty_diagnostics.get(DIAG_PLAN_PREDICATE_PUSHDOWN),
+        Some(&"applied(empty_access_contract)".to_string()),
+        "strict IN [] should surface empty-contract predicate diagnostics",
+    );
+}
+
+#[test]
+fn query_explain_execution_verbose_reports_equivalent_empty_contract_route_stage_parity() {
+    let is_null_verbose = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::IsNull {
+            field: "id".to_string(),
+        })
+        .explain_execution_verbose()
+        .expect("primary-key is-null verbose explain should build");
+    let strict_in_empty_verbose = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "id",
+            CompareOp::In,
+            Value::List(Vec::new()),
+            CoercionId::Strict,
+        )))
+        .explain_execution_verbose()
+        .expect("strict IN [] verbose explain should build");
+
+    let is_null_diagnostics = verbose_diagnostics_map(&is_null_verbose);
+    let strict_in_empty_diagnostics = verbose_diagnostics_map(&strict_in_empty_verbose);
+    assert_eq!(
+        is_null_diagnostics.get(DIAG_ROUTE_PREDICATE_STAGE),
+        strict_in_empty_diagnostics.get(DIAG_ROUTE_PREDICATE_STAGE),
+        "equivalent empty-contract predicates should keep route predicate-stage diagnostics in parity",
+    );
+}
+
+#[test]
+fn query_explain_execution_verbose_reports_equivalent_in_set_route_stage_parity() {
+    let in_permuted_verbose = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "group",
+            CompareOp::In,
+            Value::List(vec![Value::Uint(8), Value::Uint(7), Value::Uint(8)]),
+            CoercionId::Strict,
+        )))
+        .explain_execution_verbose()
+        .expect("permuted IN verbose explain should build");
+    let in_canonical_verbose = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "group",
+            CompareOp::In,
+            Value::List(vec![Value::Uint(7), Value::Uint(8)]),
+            CoercionId::Strict,
+        )))
+        .explain_execution_verbose()
+        .expect("canonical IN verbose explain should build");
+
+    let in_permuted_diagnostics = verbose_diagnostics_map(&in_permuted_verbose);
+    let in_canonical_diagnostics = verbose_diagnostics_map(&in_canonical_verbose);
+    assert_eq!(
+        in_permuted_diagnostics.get(DIAG_ROUTE_PREDICATE_STAGE),
+        in_canonical_diagnostics.get(DIAG_ROUTE_PREDICATE_STAGE),
+        "equivalent canonical IN sets should keep route predicate-stage diagnostics in parity",
+    );
+}
+
+#[test]
+fn query_explain_execution_verbose_reports_equivalent_between_and_eq_parity() {
+    let equivalent_between_verbose = Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "code",
+                CompareOp::Gte,
+                Value::Uint(100),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "code",
+                CompareOp::Lte,
+                Value::Uint(100),
+                CoercionId::Strict,
+            )),
+        ]))
+        .order_by("code")
+        .order_by("id")
+        .explain_execution_verbose()
+        .expect("equivalent-between verbose explain should build");
+    let strict_eq_verbose = Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "code",
+            CompareOp::Eq,
+            Value::Uint(100),
+            CoercionId::Strict,
+        )))
+        .order_by("code")
+        .order_by("id")
+        .explain_execution_verbose()
+        .expect("strict-eq verbose explain should build");
+
+    let between_diagnostics = verbose_diagnostics_map(&equivalent_between_verbose);
+    let eq_diagnostics = verbose_diagnostics_map(&strict_eq_verbose);
+    assert_eq!(
+        between_diagnostics.get(DIAG_PLAN_PREDICATE_PUSHDOWN),
+        eq_diagnostics.get(DIAG_PLAN_PREDICATE_PUSHDOWN),
+        "equivalent BETWEEN-style bounds and strict equality should report identical pushdown reason labels",
+    );
+    assert_eq!(
+        between_diagnostics.get(DIAG_ROUTE_PREDICATE_STAGE),
+        eq_diagnostics.get(DIAG_ROUTE_PREDICATE_STAGE),
+        "equivalent BETWEEN-style bounds and strict equality should preserve route predicate-stage parity",
+    );
 }
 
 #[test]

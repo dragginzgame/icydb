@@ -2,7 +2,6 @@
 //! Responsibility: load-path execution orchestration, pagination, and trace contracts.
 //! Does not own: logical planning semantics or relation/commit mutation policy.
 //! Boundary: consumes executable load plans and delegates post-access semantics to kernel.
-#![deny(unreachable_patterns)]
 
 mod contracts;
 mod entrypoints;
@@ -22,32 +21,32 @@ mod projection;
 mod secondary_index;
 mod terminal;
 
-pub(in crate::db) use self::contracts::CursorPage;
-pub(in crate::db) use self::contracts::LoadExecutor;
-pub(in crate::db::executor) use self::contracts::{
+pub(in crate::db) use contracts::CursorPage;
+pub(in crate::db) use contracts::LoadExecutor;
+pub(in crate::db::executor) use contracts::{
     FastPathKeyResult, key_stream_comparator_from_direction,
 };
-pub(in crate::db) use self::contracts::{GroupedCursorPage, PageCursor};
-pub(in crate::db::executor::load) use self::contracts::{
+pub(in crate::db) use contracts::{GroupedCursorPage, PageCursor};
+pub(in crate::db::executor::load) use contracts::{
     GroupedFoldStage, GroupedPlannerPayload, GroupedRoutePayload, GroupedRouteStage,
     GroupedRouteStageProjection, GroupedStreamStage, IndexSpecBundle,
 };
 #[cfg(test)]
-pub(in crate::db::executor) use self::entrypoints::{
+pub(in crate::db::executor) use entrypoints::{
     load_execute_stage_order_guard, load_pipeline_state_optional_slot_count_guard,
 };
-pub(in crate::db::executor::load) use self::execute::ExecutionOutcomeMetrics;
-pub(in crate::db::executor) use self::execute::{
+pub(in crate::db::executor::load) use execute::ExecutionOutcomeMetrics;
+pub(in crate::db::executor) use execute::{
     ExecutionInputs, ExecutionInputsProjection, MaterializedExecutionAttempt,
     ResolvedExecutionKeyStream,
 };
-pub(in crate::db::executor::load) use self::fast_stream_route::{
+pub(in crate::db::executor::load) use fast_stream_route::{
     FastStreamRouteKind, FastStreamRouteRequest,
 };
-pub(in crate::db::executor::load) use self::grouped_runtime::{
+pub(in crate::db::executor::load) use grouped_runtime::{
     GroupedContinuationCapabilities, GroupedContinuationContext, GroupedExecutionContext,
     GroupedPaginationWindow, GroupedRuntimeProjection,
 };
-pub(in crate::db::executor) use self::page::PageMaterializationRequest;
+pub(in crate::db::executor) use page::PageMaterializationRequest;
 
 pub(in crate::db::executor::load) use crate::db::error::executor_invariant as invariant;

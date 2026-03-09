@@ -17,6 +17,7 @@ fn session_load_aggregate_terminals_match_execute() {
         .expect("baseline session execute should succeed");
     let expected_count = expected.count();
     let expected_exists = !expected.is_empty();
+    let expected_not_exists = expected.is_empty();
     let expected_min = expected.ids().min();
     let expected_max = expected.ids().max();
     let expected_min_by_id = expected.ids().min();
@@ -31,6 +32,12 @@ fn session_load_aggregate_terminals_match_execute() {
     let actual_exists = load_window()
         .exists()
         .expect("session exists should succeed");
+    let actual_not_exists = load_window()
+        .not_exists()
+        .expect("session not_exists should succeed");
+    let actual_is_empty = load_window()
+        .is_empty()
+        .expect("session is_empty should succeed");
     let actual_min = load_window().min().expect("session min should succeed");
     let actual_max = load_window().max().expect("session max should succeed");
     let actual_min_by_id = load_window()
@@ -50,6 +57,14 @@ fn session_load_aggregate_terminals_match_execute() {
         actual_exists, expected_exists,
         "session exists parity failed"
     );
+    assert_eq!(
+        actual_not_exists, expected_not_exists,
+        "session not_exists parity failed"
+    );
+    assert_eq!(
+        actual_is_empty, expected_not_exists,
+        "session is_empty parity failed"
+    );
     assert_eq!(actual_min, expected_min, "session min parity failed");
     assert_eq!(actual_max, expected_max, "session max parity failed");
     assert_eq!(
@@ -66,6 +81,164 @@ fn session_load_aggregate_terminals_match_execute() {
     );
     assert_eq!(actual_first, expected_first, "session first parity failed");
     assert_eq!(actual_last, expected_last, "session last parity failed");
+}
+
+#[test]
+fn session_load_exists_not_exists_and_is_empty_share_early_stop_scan_budget() {
+    seed_simple_entities(&[8_401, 8_402, 8_403, 8_404, 8_405, 8_406]);
+    let session = DbSession::new(DB);
+    let load_window = || session.load::<SimpleEntity>().order_by("id").offset(2);
+
+    // Phase 1: run the three existence aliases under metrics capture.
+    let (actual_exists, exists_rows_scanned) =
+        capture_rows_scanned_for_entity(SimpleEntity::PATH, || load_window().exists());
+    let (actual_not_exists, not_exists_rows_scanned) =
+        capture_rows_scanned_for_entity(SimpleEntity::PATH, || load_window().not_exists());
+    let (actual_is_empty, is_empty_rows_scanned) =
+        capture_rows_scanned_for_entity(SimpleEntity::PATH, || load_window().is_empty());
+
+    let actual_exists = actual_exists.expect("session exists should succeed");
+    let actual_not_exists = actual_not_exists.expect("session not_exists should succeed");
+    let actual_is_empty = actual_is_empty.expect("session is_empty should succeed");
+
+    // Phase 2: lock semantic parity and early-stop scan-budget parity.
+    assert!(
+        actual_exists,
+        "window should report at least one matching row"
+    );
+    assert!(
+        !actual_not_exists,
+        "not_exists should be false when one matching row is present"
+    );
+    assert!(
+        !actual_is_empty,
+        "is_empty should be false when one matching row is present"
+    );
+    assert_eq!(
+        exists_rows_scanned, 3,
+        "exists should stop after offset + 1 rows on a non-empty ordered window"
+    );
+    assert_eq!(
+        not_exists_rows_scanned, exists_rows_scanned,
+        "not_exists should preserve exists scan-budget behavior"
+    );
+    assert_eq!(
+        is_empty_rows_scanned, exists_rows_scanned,
+        "is_empty should preserve exists scan-budget behavior"
+    );
+}
+
+#[test]
+fn session_load_primary_key_is_null_lowers_to_empty_access_without_scan() {
+    seed_simple_entities(&[8_411, 8_412, 8_413]);
+    let session = DbSession::new(DB);
+    let null_pk_window = || {
+        session.load::<SimpleEntity>().filter(Predicate::IsNull {
+            field: "id".to_string(),
+        })
+    };
+
+    // Phase 1: capture terminal outputs under metrics for the impossible
+    // `primary_key IS NULL` shape.
+    let (actual_count, count_rows_scanned) =
+        capture_rows_scanned_for_entity(SimpleEntity::PATH, || null_pk_window().count());
+    let (actual_exists, exists_rows_scanned) =
+        capture_rows_scanned_for_entity(SimpleEntity::PATH, || null_pk_window().exists());
+    let (actual_not_exists, not_exists_rows_scanned) =
+        capture_rows_scanned_for_entity(SimpleEntity::PATH, || null_pk_window().not_exists());
+
+    let actual_count = actual_count.expect("count should succeed for primary_key IS NULL");
+    let actual_exists = actual_exists.expect("exists should succeed for primary_key IS NULL");
+    let actual_not_exists =
+        actual_not_exists.expect("not_exists should succeed for primary_key IS NULL");
+
+    // Phase 2: assert semantic parity plus zero-scan lower-to-empty behavior.
+    assert_eq!(actual_count, 0, "primary_key IS NULL should match no rows");
+    assert!(
+        !actual_exists,
+        "exists should be false for primary_key IS NULL windows"
+    );
+    assert!(
+        actual_not_exists,
+        "not_exists should be true for primary_key IS NULL windows"
+    );
+    assert_eq!(
+        count_rows_scanned, 0,
+        "count should not scan rows when planner lowers primary_key IS NULL to empty access",
+    );
+    assert_eq!(
+        exists_rows_scanned, 0,
+        "exists should not scan rows when planner lowers primary_key IS NULL to empty access",
+    );
+    assert_eq!(
+        not_exists_rows_scanned, 0,
+        "not_exists should not scan rows when planner lowers primary_key IS NULL to empty access",
+    );
+}
+
+#[test]
+fn session_load_primary_key_is_null_or_id_eq_matches_id_eq_branch_parity() {
+    seed_simple_entities(&[8_421, 8_422, 8_423, 8_424]);
+    let session = DbSession::new(DB);
+    let target = Value::Ulid(Ulid::from_u128(8_423));
+    let eq_id_predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "id",
+        CompareOp::Eq,
+        target,
+        CoercionId::Strict,
+    ));
+    let or_predicate = Predicate::Or(vec![
+        Predicate::IsNull {
+            field: "id".to_string(),
+        },
+        eq_id_predicate.clone(),
+    ]);
+    let strict_eq_window = || {
+        session
+            .load::<SimpleEntity>()
+            .filter(eq_id_predicate.clone())
+            .order_by("id")
+    };
+    let null_or_eq_window = || {
+        session
+            .load::<SimpleEntity>()
+            .filter(or_predicate.clone())
+            .order_by("id")
+    };
+
+    // Phase 1: lock result-set parity between strict id equality and
+    // equivalent OR shape that includes impossible `primary_key IS NULL`.
+    let expected = strict_eq_window()
+        .execute()
+        .expect("strict id equality execute should succeed");
+    let actual = null_or_eq_window()
+        .execute()
+        .expect("null-or-id execute should succeed");
+    assert_eq!(
+        actual.ids().collect::<Vec<_>>(),
+        expected.ids().collect::<Vec<_>>()
+    );
+
+    // Phase 2: lock scalar terminal parity and scan-budget parity.
+    let expected_count = strict_eq_window().count().expect("count should succeed");
+    let actual_count = null_or_eq_window().count().expect("count should succeed");
+    assert_eq!(
+        actual_count, expected_count,
+        "null-or-id count should match strict id-equality count"
+    );
+    let (expected_exists, expected_exists_rows_scanned) =
+        capture_rows_scanned_for_entity(SimpleEntity::PATH, || strict_eq_window().exists());
+    let (actual_exists, actual_exists_rows_scanned) =
+        capture_rows_scanned_for_entity(SimpleEntity::PATH, || null_or_eq_window().exists());
+    assert_eq!(
+        actual_exists.expect("exists should succeed"),
+        expected_exists.expect("exists should succeed"),
+        "null-or-id exists should match strict id-equality exists"
+    );
+    assert_eq!(
+        actual_exists_rows_scanned, expected_exists_rows_scanned,
+        "null-or-id exists should preserve strict id-equality scan budget"
+    );
 }
 
 #[test]
@@ -100,6 +273,67 @@ fn session_load_bytes_matches_execute_window_persisted_payload_sum() {
     assert_eq!(
         actual_bytes, expected_bytes,
         "session bytes parity should match persisted payload byte sum of the effective window"
+    );
+}
+
+#[test]
+fn session_load_temporal_views_and_projection_values_preserve_semantic_types() {
+    let day_one = Date::new_checked(2025, 10, 19).expect("date should build");
+    let day_two = Date::new_checked(2025, 10, 20).expect("date should build");
+    let at_one = Timestamp::from_millis(1_760_868_000_000);
+    let at_two = Timestamp::from_millis(1_760_954_400_000);
+    let elapsed_one = Duration::from_millis(1_500);
+    let elapsed_two = Duration::from_millis(2_750);
+    seed_temporal_boundary_entities(&[
+        (8_941, day_one, at_one, elapsed_one),
+        (8_942, day_two, at_two, elapsed_two),
+    ]);
+    let session = DbSession::new(DB);
+
+    // Phase 1: lock semantic view-field projection types and values.
+    let response = session
+        .load::<TemporalBoundaryEntity>()
+        .order_by("id")
+        .execute()
+        .expect("temporal execute should succeed");
+    let views: Vec<_> = response.views().collect();
+    assert_eq!(views.len(), 2, "temporal fixture should return two rows");
+    let first = &views[0];
+    let second = &views[1];
+    let _: Date = first.occurred_on;
+    let _: Timestamp = first.occurred_at;
+    let _: Duration = first.elapsed;
+    assert_eq!(first.occurred_on, day_one);
+    assert_eq!(second.occurred_on, day_two);
+    assert_eq!(first.occurred_at, at_one);
+    assert_eq!(second.occurred_at, at_two);
+    assert_eq!(first.elapsed, elapsed_one);
+    assert_eq!(second.elapsed, elapsed_two);
+
+    // Phase 2: lock scalar projection value typing for temporal fields.
+    let day_values = session
+        .load::<TemporalBoundaryEntity>()
+        .order_by("id")
+        .values_by("occurred_on")
+        .expect("occurred_on projection should succeed");
+    let at_values = session
+        .load::<TemporalBoundaryEntity>()
+        .order_by("id")
+        .values_by("occurred_at")
+        .expect("occurred_at projection should succeed");
+    let elapsed_values = session
+        .load::<TemporalBoundaryEntity>()
+        .order_by("id")
+        .values_by("elapsed")
+        .expect("elapsed projection should succeed");
+    assert_eq!(day_values, vec![Value::Date(day_one), Value::Date(day_two)]);
+    assert_eq!(
+        at_values,
+        vec![Value::Timestamp(at_one), Value::Timestamp(at_two)]
+    );
+    assert_eq!(
+        elapsed_values,
+        vec![Value::Duration(elapsed_one), Value::Duration(elapsed_two)]
     );
 }
 
@@ -888,6 +1122,42 @@ fn session_load_terminal_explain_reports_standard_route_for_exists() {
         );
         last = pos;
     }
+}
+
+#[test]
+fn session_load_terminal_explain_not_exists_alias_matches_exists_plan() {
+    seed_pushdown_entities(&[
+        (9_431, 7, 10),
+        (9_432, 7, 20),
+        (9_433, 7, 30),
+        (9_434, 8, 99),
+    ]);
+    let session = DbSession::new(DB);
+    let query = || {
+        session
+            .load::<PushdownParityEntity>()
+            .filter(u32_eq_predicate("group", 7))
+            .order_by("rank")
+            .order_by("id")
+    };
+
+    let exists_plan = query()
+        .explain_exists()
+        .expect("session explain_exists should succeed");
+    let not_exists_plan = query()
+        .explain_not_exists()
+        .expect("session explain_not_exists should succeed");
+
+    assert_eq!(
+        not_exists_plan.terminal(),
+        AggregateKind::Exists,
+        "not_exists explain alias should remain backed by exists terminal execution",
+    );
+    assert_eq!(
+        session_aggregate_terminal_plan_snapshot(&not_exists_plan),
+        session_aggregate_terminal_plan_snapshot(&exists_plan),
+        "not_exists explain alias must remain plan-identical to exists explain",
+    );
 }
 
 #[test]

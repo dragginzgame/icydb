@@ -73,8 +73,20 @@ impl<K> AccessPlan<K> {
     #[must_use]
     pub(crate) fn union(children: Vec<Self>) -> Self {
         let mut out = Vec::new();
+        let mut saw_explicit_empty = false;
         for child in children {
             Self::append_union_flattened(&mut out, child);
+        }
+        out.retain(|child| {
+            let is_empty = child.is_explicit_empty();
+            if is_empty {
+                saw_explicit_empty = true;
+            }
+
+            !is_empty
+        });
+        if out.is_empty() && saw_explicit_empty {
+            return Self::by_keys(Vec::new());
         }
 
         Self::collapse_canonical_composite(out, true)
@@ -91,6 +103,9 @@ impl<K> AccessPlan<K> {
         let mut out = Vec::new();
         for child in children {
             Self::append_intersection_flattened(&mut out, child);
+        }
+        if let Some(empty_child) = out.iter().position(Self::is_explicit_empty) {
+            return out.remove(empty_child);
         }
 
         Self::collapse_canonical_composite(out, false)
@@ -109,6 +124,12 @@ impl<K> AccessPlan<K> {
     #[must_use]
     pub(crate) const fn is_single_full_scan(&self) -> bool {
         matches!(self, Self::Path(path) if path.is_full_scan())
+    }
+
+    /// Return true when this plan is exactly one explicit empty key set.
+    #[must_use]
+    pub(crate) fn is_explicit_empty(&self) -> bool {
+        matches!(self, Self::Path(path) if matches!(path.as_ref(), AccessPath::ByKeys(keys) if keys.is_empty()))
     }
 
     /// Borrow index-prefix access details when this is a single IndexPrefix path.
@@ -351,9 +372,45 @@ mod tests {
     }
 
     #[test]
+    fn union_constructor_explicit_empty_is_identity_for_non_empty_children() {
+        let plan: AccessPlan<u64> =
+            AccessPlan::union(vec![AccessPlan::by_key(7), AccessPlan::by_keys(Vec::new())]);
+
+        assert_eq!(plan, AccessPlan::by_key(7));
+    }
+
+    #[test]
+    fn union_constructor_only_explicit_empty_children_stays_explicit_empty() {
+        let plan: AccessPlan<u64> = AccessPlan::union(vec![
+            AccessPlan::by_keys(Vec::new()),
+            AccessPlan::by_keys(Vec::new()),
+        ]);
+
+        assert_eq!(plan, AccessPlan::by_keys(Vec::new()));
+    }
+
+    #[test]
     fn intersection_constructor_empty_collapses_to_full_scan() {
         let plan: AccessPlan<u64> = AccessPlan::intersection(Vec::new());
 
         assert_eq!(plan, AccessPlan::full_scan());
+    }
+
+    #[test]
+    fn intersection_constructor_explicit_empty_annihilates_children() {
+        let plan: AccessPlan<u64> =
+            AccessPlan::intersection(vec![AccessPlan::by_key(9), AccessPlan::by_keys(Vec::new())]);
+
+        assert_eq!(plan, AccessPlan::by_keys(Vec::new()));
+    }
+
+    #[test]
+    fn intersection_constructor_nested_explicit_empty_annihilates_children() {
+        let plan: AccessPlan<u64> = AccessPlan::intersection(vec![AccessPlan::intersection(vec![
+            AccessPlan::by_key(9),
+            AccessPlan::by_keys(Vec::new()),
+        ])]);
+
+        assert_eq!(plan, AccessPlan::by_keys(Vec::new()));
     }
 }

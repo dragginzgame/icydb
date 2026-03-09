@@ -288,4 +288,29 @@ mod tests {
         let date = Date::new_checked(2025, 10, 19).unwrap();
         assert_eq!(format!("{date}"), "2025-10-19");
     }
+
+    #[test]
+    fn test_as_view_roundtrip_preserves_semantic_date_type() {
+        let value = Date::new_checked(2025, 10, 19).expect("date should build");
+        let view: Date = value.as_view();
+        assert_eq!(view, value);
+        assert_eq!(Date::from_view(view), value);
+    }
+
+    #[test]
+    fn test_serde_boundary_uses_iso_string_not_raw_day_count() {
+        let value = Date::new_checked(2025, 10, 19).expect("date should build");
+
+        let bytes = serde_cbor::to_vec(&value).expect("date serialization should succeed");
+        let wire: serde_cbor::Value =
+            serde_cbor::from_slice(&bytes).expect("date cbor decode should succeed");
+        assert_eq!(
+            wire,
+            serde_cbor::Value::Text("2025-10-19".to_string()),
+            "date wire shape must remain ISO text at API boundaries",
+        );
+
+        let decoded: Date = serde_cbor::from_slice(&bytes).expect("date decode should succeed");
+        assert_eq!(decoded, value);
+    }
 }

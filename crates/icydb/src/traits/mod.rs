@@ -1,5 +1,10 @@
 mod aliases;
 
+use crate::error::Error;
+use icydb_core::traits::{
+    AsView as CoreAsView, CreateView as CoreCreateView, UpdateView as CoreUpdateView,
+};
+
 pub use aliases::*;
 
 pub use icydb_core::traits::{
@@ -11,11 +16,6 @@ pub use icydb_core::traits::{
     SanitizeCustom, Sanitizer, Serialize, SingletonEntity, Storable, StoreKind, Sub, SubAssign,
     TypeKind, Validate, ValidateAuto, ValidateCustom, Validator, Visitable,
 };
-use icydb_core::traits::{
-    AsView as CoreAsView, CreateView as CoreCreateView, UpdateView as CoreUpdateView,
-};
-
-use crate::error::Error;
 
 ///
 /// AsView

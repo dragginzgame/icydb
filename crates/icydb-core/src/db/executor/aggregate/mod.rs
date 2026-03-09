@@ -18,15 +18,6 @@ mod terminals;
 #[cfg(test)]
 mod tests;
 
-pub(in crate::db::executor) use contracts::{
-    AggregateEngine, AggregateFoldMode, AggregateKind, AggregateOutput, AggregateState,
-    AggregateStateFactory, ExecutionConfig, ExecutionContext, FoldControl, GroupError,
-    TerminalAggregateState,
-};
-pub(in crate::db::executor) use execution::{
-    AggregateExecutionDescriptor, AggregateFastPathInputs, PreparedAggregateStreamingInputs,
-};
-
 use crate::db::executor::aggregate::field::{
     AggregateFieldValueError, resolve_orderable_aggregate_target_slot,
 };
@@ -48,6 +39,15 @@ use crate::{
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
+};
+
+pub(in crate::db::executor) use contracts::{
+    AggregateEngine, AggregateFoldMode, AggregateKind, AggregateOutput, AggregateState,
+    AggregateStateFactory, ExecutionConfig, ExecutionContext, FoldControl, GroupError,
+    TerminalAggregateState,
+};
+pub(in crate::db::executor) use execution::{
+    AggregateExecutionDescriptor, AggregateFastPathInputs, PreparedAggregateStreamingInputs,
 };
 
 ///

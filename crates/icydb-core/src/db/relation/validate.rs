@@ -1,16 +1,16 @@
-use super::{
-    RelationTargetDecodeContext, RelationTargetMismatchPolicy,
-    decode_relation_target_data_key_for_relation,
-    metadata::{StrongRelationInfo, strong_relations_for_source},
-    reverse_index::{
-        decode_reverse_entry, relation_target_keys_for_source, relation_target_store,
-        reverse_index_key_for_target_value,
-    },
-};
 use crate::{
     db::{
         Db,
         data::{DataKey, RawDataKey},
+        relation::{
+            RelationTargetDecodeContext, RelationTargetMismatchPolicy,
+            decode_relation_target_data_key_for_relation,
+            metadata::{StrongRelationInfo, strong_relations_for_source},
+            reverse_index::{
+                decode_reverse_entry, relation_target_keys_for_source, relation_target_store,
+                reverse_index_key_for_target_value,
+            },
+        },
     },
     error::InternalError,
     obs::sink::{MetricsEvent, record},

@@ -137,6 +137,22 @@ impl<'a, E: EntityKind> FluentLoadQuery<'a, E> {
     // Aggregation helpers
     // ------------------------------------------------------------------
 
+    /// Return whether at least one matching row exists.
+    pub fn exists(&self) -> Result<bool, Error>
+    where
+        E: EntityValue,
+    {
+        Ok(self.inner.exists()?)
+    }
+
+    /// Return whether no matching row exists.
+    pub fn not_exists(&self) -> Result<bool, Error>
+    where
+        E: EntityValue,
+    {
+        Ok(self.inner.not_exists()?)
+    }
+
     /// Return the first matching identifier in response order.
     pub fn first(&self) -> Result<Option<Id<E>>, Error>
     where

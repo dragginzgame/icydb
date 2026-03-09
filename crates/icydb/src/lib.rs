@@ -58,6 +58,12 @@
 // export so things just work in base/
 extern crate self as icydb;
 
+use icydb_core::{
+    error::{ErrorClass, ErrorOrigin, InternalError},
+    traits::Visitable,
+};
+use serde::{Serialize, de::DeserializeOwned};
+
 // crates
 pub use icydb_build as build;
 pub use icydb_build::build;
@@ -205,12 +211,6 @@ pub mod design {
 ///
 /// -------------------------- CODE -----------------------------------
 ///
-use icydb_core::{
-    error::{ErrorClass, ErrorOrigin, InternalError},
-    traits::Visitable,
-};
-use serde::{Serialize, de::DeserializeOwned};
-
 ///
 /// Consts
 ///

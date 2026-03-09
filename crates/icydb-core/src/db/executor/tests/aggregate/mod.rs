@@ -24,7 +24,7 @@ use crate::{
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     obs::sink::{MetricsEvent, MetricsSink, with_metrics_sink},
-    types::{Decimal, Id},
+    types::{Date, Decimal, Duration, Id, Timestamp},
     value::Value,
 };
 use std::cell::RefCell;
@@ -207,6 +207,22 @@ fn seed_phase_entities_custom(rows: Vec<PhaseEntity>) {
     for row in rows {
         save.insert(row)
             .expect("seed custom phase row save should succeed");
+    }
+}
+
+fn seed_temporal_boundary_entities(rows: &[(u128, Date, Timestamp, Duration)]) {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<TemporalBoundaryEntity>::new(DB, false);
+    for (id, occurred_on, occurred_at, elapsed) in rows {
+        save.insert(TemporalBoundaryEntity {
+            id: Ulid::from_u128(*id),
+            occurred_on: *occurred_on,
+            occurred_at: *occurred_at,
+            elapsed: *elapsed,
+        })
+        .expect("seed temporal-boundary row save should succeed");
     }
 }
 

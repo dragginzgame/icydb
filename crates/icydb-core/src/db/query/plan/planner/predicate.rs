@@ -18,12 +18,23 @@ pub(super) fn plan_predicate(
         Predicate::True
         | Predicate::False
         | Predicate::Not(_)
-        | Predicate::IsNull { .. }
         | Predicate::IsMissing { .. }
         | Predicate::IsEmpty { .. }
         | Predicate::IsNotEmpty { .. }
         | Predicate::TextContains { .. }
         | Predicate::TextContainsCi { .. } => AccessPlan::full_scan(),
+        Predicate::IsNull { field } => {
+            // Primary keys are always keyable and therefore never representable
+            // as `Value::Null`; lower this impossible shape to an empty access
+            // contract instead of scanning all rows.
+            if field == model.primary_key.name
+                && matches!(schema.field(field), Some(field_type) if field_type.is_keyable())
+            {
+                AccessPlan::by_keys(Vec::new())
+            } else {
+                AccessPlan::full_scan()
+            }
+        }
         Predicate::And(children) => {
             if let Some(range_spec) = range::index_range_from_and(model, schema, children) {
                 return Ok(AccessPlan::index_range(range_spec));

@@ -1,9 +1,3 @@
-use super::{
-    RelationTargetDecodeContext, RelationTargetMismatchPolicy,
-    decode_relation_target_data_key_for_relation, for_each_relation_target_value,
-    metadata::{StrongRelationInfo, strong_relations_for_source},
-    raw_relation_target_key,
-};
 use crate::{
     db::{
         Db,
@@ -13,6 +7,12 @@ use crate::{
         index::{
             EncodedValue, IndexEntry, IndexEntryReader, IndexId, IndexKeyKind, IndexStore,
             RawIndexEntry, RawIndexKey, raw_keys_for_encoded_prefix_with_kind,
+        },
+        relation::{
+            RelationTargetDecodeContext, RelationTargetMismatchPolicy,
+            decode_relation_target_data_key_for_relation, for_each_relation_target_value,
+            metadata::{StrongRelationInfo, strong_relations_for_source},
+            raw_relation_target_key,
         },
     },
     error::InternalError,
@@ -200,17 +200,21 @@ pub(crate) fn prepare_reverse_relation_index_mutations_for_source<S>(
 where
     S: EntityKind + EntityValue,
 {
+    // Phase 1: short-circuit when the source entity has no strong relations.
     let relations = strong_relations_for_source::<S>(None);
     if relations.is_empty() {
         return Ok(Vec::new());
     }
 
+    // Phase 2: capture the old/new source ids used to remove/insert reverse members.
     let old_source_key = old.map(|entity| entity.id().key());
     let new_source_key = new.map(|entity| entity.id().key());
 
     let mut ops = Vec::new();
 
+    // Phase 3: evaluate each strong relation independently and derive index deltas.
     for relation in relations {
+        // Build target-key sets before/after the mutation to compute membership deltas.
         let old_targets = match old {
             Some(entity) => relation_target_keys_for_source(entity, relation)?,
             None => BTreeSet::new(),
@@ -220,14 +224,17 @@ where
             None => BTreeSet::new(),
         };
 
+        // Resolve the reverse-index store for this relation once per relation.
         let target_store = relation_target_store::<S>(db, relation)?;
 
+        // Only keys touched by either side can produce a reverse-index mutation.
         let touched_target_keys = old_targets
             .union(&new_targets)
             .copied()
             .collect::<BTreeSet<_>>();
 
         for target_raw_key in touched_target_keys {
+            // Determine whether membership actually changed for this target key.
             let old_contains = old_targets.contains(&target_raw_key);
             let new_contains = new_targets.contains(&target_raw_key);
 
@@ -235,6 +242,7 @@ where
                 continue;
             }
 
+            // Decode raw target key and enforce relation target-entity invariants.
             let Some(target_data_key) = decode_relation_target_data_key_for_relation::<S>(
                 relation,
                 &target_raw_key,
@@ -257,11 +265,14 @@ where
                 continue;
             };
 
+            // Load current reverse-index membership for this target (if any).
             let existing = index_reader.read_index_entry(target_store, &reverse_key)?;
             let mut entry = existing
                 .as_ref()
                 .map(|raw| decode_reverse_entry::<S>(relation, &reverse_key, raw))
                 .transpose()?;
+
+            // Apply one membership delta: remove old source membership or insert new.
             let delta_kind = if old_contains && let Some(source_key) = old_source_key {
                 if let Some(current) = entry.as_mut() {
                     current.remove(source_key);
@@ -278,6 +289,7 @@ where
                 PreparedIndexDeltaKind::None
             };
 
+            // Encode next payload; empty membership becomes a delete (`None` value).
             let next_value = if let Some(next_entry) = entry {
                 if next_entry.is_empty() {
                     None
@@ -288,6 +300,7 @@ where
                 None
             };
 
+            // Emit one prepared mutation consumed by commit apply/replay paths.
             ops.push(PreparedIndexMutation {
                 store: target_store,
                 key: reverse_key,

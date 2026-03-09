@@ -35,6 +35,7 @@ Rules:
 - `super::` usage is allowed; reserve it for local module-relative references.
 - Prefer grouped `crate::{...}` imports.
 - Avoid inline `crate::long::path::...` usage inside functions.
+- When deriving or implementing `Display`, prefer `use std::fmt::{self, Display};` for consistency with adjacent formatting impls.
 
 ## 2. Module Header Comments
 
@@ -59,6 +60,12 @@ All public structs and enums should include documentation describing:
 - Where it is used
 - Which layer owns it
 
+Spacing rule for documented type declarations (`struct`, `enum`, `trait`):
+
+- Leave one blank line before the doc comment block.
+- Leave one blank line after the doc comment block and before the type declaration.
+- Apply this consistently so type docs are visually scannable in large files.
+
 Example:
 
 ```rust
@@ -81,6 +88,11 @@ Functions should include documentation when they:
 - Perform planner checks
 - Derive execution contracts
 - Contain non-obvious logic
+
+Ordering rule for documented items with attributes:
+
+- Write doc/comments first, then attributes, then the item declaration.
+- Example order: `/// ...` -> `#[must_use]` -> `pub fn ...`.
 
 Example:
 
@@ -123,6 +135,12 @@ Functions should appear in the following order:
 - Helper functions
 - Internal utilities
 - Tests
+
+When a type and its `impl` live in the same file:
+
+- Place the inherent `impl TypeName { ... }` block immediately below the type definition when feasible.
+- Keep related trait impls adjacent to the type/inherent impls unless a clear module-structure reason requires separation.
+- If a type has many impl blocks, prefer a stable alphabetical ordering (typically by trait name) to reduce scan friction and merge churn.
 
 ## 7. Function Length
 
@@ -183,6 +201,7 @@ match path.kind() {
 
 If tests are split into a separate file, declare `mod tests;` at the top with other module declarations.
 If tests are inline, keep `#[cfg(test)] mod tests { ... }` at the bottom of the module.
+For inline tests, the `///`, `/// TESTS`, `///` banner must have exactly one blank line before it and one blank line after it.
 
 Imported module example (top of file):
 

@@ -108,14 +108,22 @@ impl AccessPlan<Value> {
 
     fn normalize_union(children: Vec<Self>) -> Self {
         let mut out = Vec::new();
+        let mut saw_explicit_empty = false;
 
         for child in children {
             let child = child.normalize_for_access();
             if child.is_single_full_scan() {
                 return Self::full_scan();
             }
+            if child.is_explicit_empty() {
+                saw_explicit_empty = true;
+                continue;
+            }
 
             Self::append_union_child(&mut out, child);
+        }
+        if out.is_empty() && saw_explicit_empty {
+            return Self::path(AccessPath::ByKeys(Vec::new()));
         }
 
         Self::collapse_normalized_composite(out, true)
@@ -129,8 +137,14 @@ impl AccessPlan<Value> {
             if child.is_single_full_scan() {
                 continue;
             }
+            if child.is_explicit_empty() {
+                return child;
+            }
 
             Self::append_intersection_child(&mut out, child);
+        }
+        if let Some(empty_child) = out.iter().position(Self::is_explicit_empty) {
+            return out.remove(empty_child);
         }
 
         Self::collapse_normalized_composite(out, false)
@@ -657,5 +671,39 @@ mod tests {
         let twice = normalize_access_plan_value(once.clone());
 
         assert_eq!(once, twice, "access canonicalization must be idempotent");
+    }
+
+    #[test]
+    fn normalize_intersection_with_explicit_empty_collapses_to_empty() {
+        let normalized = normalize_access_plan_value(AccessPlan::intersection(vec![
+            AccessPlan::path(AccessPath::ByKey(Value::Ulid(Ulid::from_u128(7)))),
+            AccessPlan::path(AccessPath::ByKeys(Vec::new())),
+            AccessPlan::full_scan(),
+        ]));
+
+        assert_eq!(normalized, AccessPlan::path(AccessPath::ByKeys(Vec::new())));
+    }
+
+    #[test]
+    fn normalize_union_with_explicit_empty_collapses_to_non_empty_branch() {
+        let normalized = normalize_access_plan_value(AccessPlan::union(vec![
+            AccessPlan::path(AccessPath::ByKey(Value::Ulid(Ulid::from_u128(7)))),
+            AccessPlan::path(AccessPath::ByKeys(Vec::new())),
+        ]));
+
+        assert_eq!(
+            normalized,
+            AccessPlan::path(AccessPath::ByKey(Value::Ulid(Ulid::from_u128(7))))
+        );
+    }
+
+    #[test]
+    fn normalize_union_only_explicit_empty_children_stays_empty() {
+        let normalized = normalize_access_plan_value(AccessPlan::union(vec![
+            AccessPlan::path(AccessPath::ByKeys(Vec::new())),
+            AccessPlan::path(AccessPath::ByKeys(Vec::new())),
+        ]));
+
+        assert_eq!(normalized, AccessPlan::path(AccessPath::ByKeys(Vec::new())));
     }
 }

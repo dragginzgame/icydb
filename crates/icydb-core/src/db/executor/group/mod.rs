@@ -9,6 +9,11 @@ mod tests;
 mod hash;
 mod key;
 
+use crate::db::{
+    executor::aggregate::{ExecutionConfig, ExecutionContext},
+    query::plan::GroupedExecutionConfig,
+};
+
 pub(in crate::db) use hash::{StableHash, stable_hash_value};
 pub(in crate::db) use key::{
     CanonicalKey, GroupKey, GroupKeySet, KeyCanonicalError, canonical_group_key_equals,
@@ -21,10 +26,6 @@ pub(in crate::db) use key::{
 /// execution budget policy translation between query planning and executor
 /// runtime contracts.
 ///
-use crate::db::{
-    executor::aggregate::{ExecutionConfig, ExecutionContext},
-    query::plan::GroupedExecutionConfig,
-};
 
 const GROUPED_DEFAULT_MAX_GROUPS: u64 = 10_000;
 const GROUPED_DEFAULT_MAX_GROUP_BYTES: u64 = 16 * 1024 * 1024;
