@@ -26,6 +26,7 @@ pub(in crate::db) use private::{SealedIndexEntryReader, SealedPrimaryRowReader};
 
 ///
 /// IndexApplyPlan
+/// Planned apply target for one index store mutation group.
 ///
 
 #[derive(Debug)]
@@ -36,6 +37,7 @@ pub(in crate::db) struct IndexApplyPlan {
 
 ///
 /// IndexMutationPlan
+/// Deterministic mutation plan containing apply targets and commit ops.
 ///
 
 #[derive(Debug)]

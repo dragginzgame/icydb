@@ -116,7 +116,7 @@ where
     Ok(())
 }
 
-// Format operator-facing blocked-delete diagnostics with actionable context.
+/// Format operator-facing blocked-delete diagnostics with actionable context.
 fn blocked_delete_diagnostic<S>(
     relation: StrongRelationInfo,
     source_key: S::Key,

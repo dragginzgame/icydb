@@ -75,7 +75,7 @@ pub(crate) fn encode_canonical_index_component(
     Ok(out)
 }
 
-// Encode the variant-local payload after the canonical variant tag.
+/// Encode the variant-local payload after the canonical variant tag.
 fn encode_component_payload(
     out: &mut Vec<u8>,
     value: &Value,

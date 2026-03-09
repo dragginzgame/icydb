@@ -11,8 +11,8 @@ use quote::quote;
 use std::sync::Arc;
 
 // generate
-#[must_use]
 /// Generate canister actor code for the given schema path.
+#[must_use]
 pub fn generate(canister_path: &str) -> String {
     // load schema and get the specified canister
     let schema = get_schema().expect("schema must be valid before codegen");
@@ -37,14 +37,14 @@ pub(crate) struct ActorBuilder {
 }
 
 impl ActorBuilder {
-    #[must_use]
     /// Create an actor builder for a specific canister.
+    #[must_use]
     pub const fn new(schema: Arc<Schema>, canister: Canister) -> Self {
         Self { schema, canister }
     }
 
-    #[must_use]
     /// Generate the full actor module (db/metrics/query glue).
+    #[must_use]
     pub fn generate(self) -> TokenStream {
         let mut tokens = quote!();
 

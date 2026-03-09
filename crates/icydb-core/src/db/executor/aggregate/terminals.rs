@@ -249,9 +249,9 @@ where
         self.execute_median_field_aggregate_with_slot(plan, target_field.field(), field_slot)
     }
 
-    #[expect(clippy::type_complexity)]
     /// Execute paired extrema `min_max(field)` over the effective aggregate
     /// window using one planner-resolved field slot.
+    #[expect(clippy::type_complexity)]
     pub(in crate::db) fn aggregate_min_max_by_slot(
         &self,
         plan: ExecutablePlan<E>,

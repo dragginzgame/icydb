@@ -7,16 +7,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.46.x] - 2026-03-08 - Standards Alignment
 
-- `0.46.0` starts the standards-alignment line with early planner/executor fast paths (`LIMIT 0`, constant-false predicates, and empty-window aggregate short-circuits) plus stronger predicate normalization and plan-stability guards, so no-row queries do less work while returning the same SQL results.
-- `0.46.1` continues the line by adding a constant scalar terminal (`select_one`) that returns `1` without query execution overhead and by tightening EXISTS early-stop scan-budget coverage for offset windows.
-- `0.46.2` reduces duplicate planner/runtime logic by centralizing window and covering contracts (including `count_distinct_by` covering reuse), removing legacy executor window-toggle branching, and tightening executor visibility boundaries with new structural guards, while keeping query results the same.
-- `0.46.3` tightens executor boundary visibility, adds stronger structural guards to prevent internal API widening, and cleans up remaining route-planner lint issues without changing query behavior.
-- `0.46.4` makes ordered `LIMIT`/Top-N pushdown safer by requiring deterministic `ORDER BY` contracts, lowers strict `IN ()` predicates to an immediate empty access shape, and simplifies planner-to-route access-window projection APIs.
-- `0.46.5` makes `sum_by`/`avg_by` faster on safe streaming shapes, adds stricter fail-closed guards for duplicate-risk access paths, and hardens Top-N hint derivation with an explicit deterministic `ORDER BY` check.
-- `0.46.6` centralizes planner stability helpers for deterministic `IN (...)` planning and renames the route-level execution mode type for clearer internal boundaries, without changing query results.
-- `0.46.7` tightens executor visibility boundaries, renames query execution errors for clearer ownership (`QueryExecutionError`), and hardens complexity auditing with decision-owner drift gates (including route-shape ownership staged at intent time).
-- `0.46.8` makes `exists`/`not_exists`/`is_empty` behave the same across load paths, improves date/time edge-case handling, and makes query fallback behavior easier to understand in verbose explain output.
-- `0.46.9` makes text-prefix query planning more consistent, improves verbose fallback reasons for text operators, and keeps fallback classification stable for non-strict string/contains filters.
+- `0.46.0` adds early planner/runtime shortcuts for queries that cannot return rows, reducing work while keeping query results unchanged.
+- `0.46.1` adds `select_one` for constant scalar reads and tightens `exists` early-stop behavior for offset windows.
+- `0.46.2` removes duplicate window/covering logic between planner and executor, including shared `count_distinct_by` reuse.
+- `0.46.3` tightens executor boundaries and structural guards so internal APIs do not widen accidentally.
+- `0.46.4` makes ordered `LIMIT` pushdown safer with deterministic `ORDER BY` checks and short-circuits strict empty `IN ()`.
+- `0.46.5` speeds up safe `sum_by`/`avg_by` streaming paths and adds stronger fail-closed checks for duplicate-risk routes.
+- `0.46.6` centralizes deterministic `IN (...)` planning helpers and renames route execution mode types for clearer ownership.
+- `0.46.7` renames query execution errors for clearer ownership and adds stronger complexity-drift guard coverage.
+- `0.46.8` aligns `exists`/`not_exists`/`is_empty` behavior across load APIs, expands date/time edge coverage, and improves verbose fallback diagnostics.
+- `0.46.9` locks strict `starts_with` index-lowering parity, adds clearer verbose text-operator fallback reasons, and keeps non-strict fallback precedence stable.
+- `0.46.10` adds temporal grouped-key and distinct-projection locks so `Date`/`Timestamp`/`Duration` values stay semantic at runtime boundaries.
 
 See detailed breakdown:
 [docs/changelog/0.46.md](docs/changelog/0.46.md)
@@ -25,15 +26,15 @@ See detailed breakdown:
 
 ## [0.45.x] - 2026-03-07 - Feature Cleanup
 
-- `0.45.0` starts the feature-cleanup line by tightening internal API boundaries, locking error/serialization contracts, enforcing relation naming/type checks in schema macros, and reducing duplicate planner-vs-executor routing logic without changing query behavior.
-- `0.45.1` continues cleanup by making cursor and EXPLAIN behavior more stable under refactors, consolidating duplicate internal hashing/encoding paths, and splitting large executor modules to make future changes safer.
-- `0.45.2` is a checkpoint cleanup patch that finishes another round of module splits, adds more serialization-shape stability tests for public DTOs, and fixes CI invariant paths after file-to-module moves.
-- `0.45.3` continues cleanup by tightening grouped-query planner validation, keeping cursor token replay behavior stable across equivalent execution paths, and reducing direct field coupling in public paged/error response DTOs.
-- `0.45.4` hardens query identity stability by making equivalent numeric/text coercion filters resolve to the same fingerprint/cursor signature, and adds compile-fail schema tests that lock `_id`/`_ids` relation naming enforcement.
-- `0.45.5` finishes the schema visibility sweep by moving almost all schema-node public fields behind constructor/accessor APIs (keeping only the required public `commit_memory_id` field), which reduces coupling without changing query or codegen behavior.
-- `0.45.6` closes the remaining hash-encoding cleanup by using one shared SHA256 helper path and reduces planner/runtime overlap in post-access plus route/aggregate residual-filter gating, making internals easier to change safely without changing query results.
-- `0.45.7` reduces AccessPath fan-out risk by consolidating executor path-shape decisions behind shared access capability/dispatch boundaries and adds an explicit complexity-audit metric for executor dispatch-site growth.
-- `0.45.8` continues the consolidation pass by unifying fast-stream route execution, centralizing explain-access traversal and rule evaluation helpers, and deduplicating shared invariant/resume-boundary logic without changing query behavior.
+- `0.45.0` tightens internal API and error/serialization contracts, enforces schema relation naming checks, and reduces duplicate planner/executor routing.
+- `0.45.1` stabilizes cursor and EXPLAIN behavior under refactors, consolidates hashing/encoding helpers, and splits large executor modules.
+- `0.45.2` continues module splitting, adds DTO serialization-shape regression tests, and fixes CI invariant paths after file moves.
+- `0.45.3` tightens grouped-query planner validation, locks equivalent cursor replay behavior, and reduces response DTO field coupling.
+- `0.45.4` keeps equivalent numeric/text coercion filters on the same fingerprint/cursor signature and adds compile-fail relation naming tests.
+- `0.45.5` moves almost all schema-node public fields behind constructors/accessors, reducing coupling while keeping behavior unchanged.
+- `0.45.6` finishes shared SHA256 helper cleanup and reduces planner/runtime overlap in post-access and residual-filter routing.
+- `0.45.7` reduces access-path fan-out by consolidating executor dispatch behind shared capability checks and adds a drift-audit metric.
+- `0.45.8` unifies fast-stream route execution and explain traversal helpers, and deduplicates shared invariant/resume-boundary logic.
 
 See detailed breakdown:
 [docs/changelog/0.45.md](docs/changelog/0.45.md)
@@ -42,10 +43,10 @@ See detailed breakdown:
 
 ## [0.44.x] - 2026-03-07 - Optimization Closure
 
-- `0.44.0` starts the optimization-closure line by making common `count()` and `bytes()` queries faster on primary-key full scans and key ranges, improving LIMIT/covering diagnostics and tests, and moving the workspace toolchain to Rust `1.94.0`.
-- `0.44.1` makes more `count()` and `exists()` index-backed queries faster, while keeping the same results and safe fallback behavior when a fast path is not guaranteed.
-- `0.44.2` makes more `bytes()` queries faster for safe unordered secondary-index windows by summing persisted payload sizes directly from streamed keys, with ordered or predicate-heavy shapes still using the canonical fallback path.
-- `0.44.3` simplifies internal access-capability checks and speeds up more `count()`/`bytes()` `.by_ids(...)` queries, including both unordered windows and `ORDER BY id` windows.
+- `0.44.0` speeds up common `count()`/`bytes()` queries on primary-key scans and key ranges, improves LIMIT/covering diagnostics, and moves the workspace to Rust `1.94.0`.
+- `0.44.1` expands safe index-backed fast paths for `count()` and `exists()`, with unchanged fallback behavior when fast-path eligibility is not met.
+- `0.44.2` expands safe `bytes()` fast paths for unordered secondary-index windows, while ordered/predicate-heavy shapes stay on canonical fallback execution.
+- `0.44.3` centralizes access-capability checks and expands `count()`/`bytes()` `.by_ids(...)` speedups for both unordered and `ORDER BY id` windows.
 
 See detailed breakdown:
 [docs/changelog/0.44.md](docs/changelog/0.44.md)

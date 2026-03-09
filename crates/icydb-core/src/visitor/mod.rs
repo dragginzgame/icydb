@@ -119,6 +119,7 @@ pub(crate) trait Visitor {
 // VisitorCore (object-safe traversal)
 // ============================================================================
 
+/// Object-safe visitor contract for immutable traversal dispatch.
 pub trait VisitorCore {
     fn enter(&mut self, node: &dyn Visitable);
     fn exit(&mut self, node: &dyn Visitable);
@@ -273,6 +274,7 @@ pub fn perform_visit<S: Into<PathSegment>>(
 // VisitorMut (mutable)
 // ============================================================================
 
+/// Mutable visitor callbacks paired with a scoped visitor context.
 pub(crate) trait VisitorMut {
     fn enter_mut(&mut self, node: &mut dyn Visitable, ctx: &mut dyn VisitorContext);
     fn exit_mut(&mut self, node: &mut dyn Visitable, ctx: &mut dyn VisitorContext);
@@ -282,6 +284,7 @@ pub(crate) trait VisitorMut {
 // VisitorMutCore
 // ============================================================================
 
+/// Object-safe mutable visitor contract used by traversal drivers.
 pub trait VisitorMutCore {
     fn enter_mut(&mut self, node: &mut dyn Visitable);
     fn exit_mut(&mut self, node: &mut dyn Visitable);
@@ -294,6 +297,7 @@ pub trait VisitorMutCore {
 // VisitorMutAdapter
 // ============================================================================
 
+/// Adapter that binds `VisitorMut` to object-safe traversal and path tracking.
 pub(crate) struct VisitorMutAdapter<V> {
     visitor: V,
     path: Vec<PathSegment>,

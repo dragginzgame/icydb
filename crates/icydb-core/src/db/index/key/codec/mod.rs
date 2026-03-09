@@ -23,11 +23,12 @@ use bounds::{
 use error::{
     ERR_INVALID_INDEX_LENGTH, ERR_INVALID_INDEX_NAME_BYTES, ERR_INVALID_SIZE, ERR_TRAILING_BYTES,
 };
-pub(crate) use scalar::IndexKeyKind;
 use std::cmp::Ordering;
 use tuple::{
     compare_component_segments, compare_length_prefixed_segment, push_segment, read_segment,
 };
+
+pub(crate) use scalar::IndexKeyKind;
 
 ///
 /// IndexKey

@@ -338,6 +338,161 @@ fn session_load_temporal_views_and_projection_values_preserve_semantic_types() {
 }
 
 #[test]
+fn session_load_temporal_grouped_keys_preserve_semantic_types() {
+    let day_one = Date::new_checked(2025, 10, 19).expect("date should build");
+    let day_two = Date::new_checked(2025, 10, 20).expect("date should build");
+    let at_one = Timestamp::from_millis(1_760_868_000_000);
+    let at_two = Timestamp::from_millis(1_760_954_400_000);
+    let elapsed_one = Duration::from_millis(1_500);
+    let elapsed_two = Duration::from_millis(2_750);
+    seed_temporal_boundary_entities(&[
+        (8_943, day_one, at_one, elapsed_one),
+        (8_944, day_one, at_two, elapsed_one),
+        (8_945, day_two, at_two, elapsed_two),
+    ]);
+    let session = DbSession::new(DB);
+
+    // Phase 1: group by Date and lock semantic key typing in grouped output.
+    let by_day = session
+        .load::<TemporalBoundaryEntity>()
+        .group_by("occurred_on")
+        .expect("group_by(occurred_on) should resolve")
+        .aggregate(crate::db::count())
+        .execute_grouped()
+        .expect("grouped by occurred_on should execute");
+    assert_eq!(
+        by_day
+            .rows()
+            .iter()
+            .map(crate::db::GroupedRow::group_key)
+            .collect::<Vec<_>>(),
+        vec![&[Value::Date(day_one)][..], &[Value::Date(day_two)][..]],
+        "grouped Date keys should stay semantic Date values",
+    );
+    assert_eq!(
+        by_day
+            .rows()
+            .iter()
+            .map(crate::db::GroupedRow::aggregate_values)
+            .collect::<Vec<_>>(),
+        vec![&[Value::Uint(2)][..], &[Value::Uint(1)][..]],
+        "grouped Date counts should match fixture cardinality",
+    );
+
+    // Phase 2: group by Timestamp and lock semantic key typing in grouped output.
+    let by_timestamp = session
+        .load::<TemporalBoundaryEntity>()
+        .group_by("occurred_at")
+        .expect("group_by(occurred_at) should resolve")
+        .aggregate(crate::db::count())
+        .execute_grouped()
+        .expect("grouped by occurred_at should execute");
+    assert_eq!(
+        by_timestamp
+            .rows()
+            .iter()
+            .map(crate::db::GroupedRow::group_key)
+            .collect::<Vec<_>>(),
+        vec![
+            &[Value::Timestamp(at_one)][..],
+            &[Value::Timestamp(at_two)][..]
+        ],
+        "grouped Timestamp keys should stay semantic Timestamp values",
+    );
+    assert_eq!(
+        by_timestamp
+            .rows()
+            .iter()
+            .map(crate::db::GroupedRow::aggregate_values)
+            .collect::<Vec<_>>(),
+        vec![&[Value::Uint(1)][..], &[Value::Uint(2)][..]],
+        "grouped Timestamp counts should match fixture cardinality",
+    );
+
+    // Phase 3: group by Duration and lock semantic key typing in grouped output.
+    let by_duration = session
+        .load::<TemporalBoundaryEntity>()
+        .group_by("elapsed")
+        .expect("group_by(elapsed) should resolve")
+        .aggregate(crate::db::count())
+        .execute_grouped()
+        .expect("grouped by elapsed should execute");
+    assert_eq!(
+        by_duration
+            .rows()
+            .iter()
+            .map(crate::db::GroupedRow::group_key)
+            .collect::<Vec<_>>(),
+        vec![
+            &[Value::Duration(elapsed_one)][..],
+            &[Value::Duration(elapsed_two)][..]
+        ],
+        "grouped Duration keys should stay semantic Duration values",
+    );
+    assert_eq!(
+        by_duration
+            .rows()
+            .iter()
+            .map(crate::db::GroupedRow::aggregate_values)
+            .collect::<Vec<_>>(),
+        vec![&[Value::Uint(2)][..], &[Value::Uint(1)][..]],
+        "grouped Duration counts should match fixture cardinality",
+    );
+}
+
+#[test]
+fn session_load_temporal_distinct_projection_values_preserve_semantic_types() {
+    let day_one = Date::new_checked(2025, 10, 19).expect("date should build");
+    let day_two = Date::new_checked(2025, 10, 20).expect("date should build");
+    let at_one = Timestamp::from_millis(1_760_868_000_000);
+    let at_two = Timestamp::from_millis(1_760_954_400_000);
+    let elapsed_one = Duration::from_millis(1_500);
+    let elapsed_two = Duration::from_millis(2_750);
+    seed_temporal_boundary_entities(&[
+        (8_946, day_one, at_one, elapsed_one),
+        (8_947, day_one, at_two, elapsed_one),
+        (8_948, day_two, at_two, elapsed_two),
+    ]);
+    let session = DbSession::new(DB);
+
+    // Phase 1: lock Date/Timestamp/Duration distinct projection typing and
+    // first-observed value ordering under one deterministic window.
+    let distinct_days = session
+        .load::<TemporalBoundaryEntity>()
+        .order_by("id")
+        .distinct_values_by("occurred_on")
+        .expect("distinct_values_by(occurred_on) should succeed");
+    let distinct_timestamps = session
+        .load::<TemporalBoundaryEntity>()
+        .order_by("id")
+        .distinct_values_by("occurred_at")
+        .expect("distinct_values_by(occurred_at) should succeed");
+    let distinct_durations = session
+        .load::<TemporalBoundaryEntity>()
+        .order_by("id")
+        .distinct_values_by("elapsed")
+        .expect("distinct_values_by(elapsed) should succeed");
+
+    // Phase 2: assert semantic temporal value variants are preserved across
+    // distinct projection boundaries.
+    assert_eq!(
+        distinct_days,
+        vec![Value::Date(day_one), Value::Date(day_two)],
+        "distinct Date projections should stay semantic Date values",
+    );
+    assert_eq!(
+        distinct_timestamps,
+        vec![Value::Timestamp(at_one), Value::Timestamp(at_two)],
+        "distinct Timestamp projections should stay semantic Timestamp values",
+    );
+    assert_eq!(
+        distinct_durations,
+        vec![Value::Duration(elapsed_one), Value::Duration(elapsed_two)],
+        "distinct Duration projections should stay semantic Duration values",
+    );
+}
+
+#[test]
 fn session_load_bytes_empty_window_returns_zero() {
     seed_pushdown_entities(&[(8_961, 7, 10), (8_962, 7, 20), (8_963, 8, 99)]);
     let session = DbSession::new(DB);

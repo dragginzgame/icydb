@@ -32,7 +32,7 @@ pub(crate) struct StrongRelationTargetInfo {
     pub(in crate::db::relation) target_store_path: &'static str,
 }
 
-// Resolve a model field-kind into strong relation target metadata (if applicable).
+/// Resolve a model field-kind into strong relation target metadata (if applicable).
 pub(crate) const fn strong_relation_target_from_kind(
     kind: &FieldKind,
 ) -> Option<StrongRelationTargetInfo> {
@@ -66,7 +66,7 @@ pub(crate) const fn strong_relation_target_from_kind(
     }
 }
 
-// Resolve a model field into strong relation metadata (if applicable).
+/// Resolve a model field into strong relation metadata (if applicable).
 const fn strong_relation_from_field(
     field_index: usize,
     field_name: &'static str,
@@ -85,7 +85,7 @@ const fn strong_relation_from_field(
     })
 }
 
-// Resolve strong relation descriptors for a source entity, optionally filtered by target path.
+/// Resolve strong relation descriptors for a source entity, optionally filtered by target path.
 pub(super) fn strong_relations_for_source<S>(
     target_path_filter: Option<&str>,
 ) -> Vec<StrongRelationInfo>

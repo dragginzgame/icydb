@@ -186,8 +186,8 @@ where
     A: OrderedKeyStream,
     B: OrderedKeyStream,
 {
-    #[cfg(test)]
     /// Construct one merge stream using traversal direction.
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db::executor) const fn new(left: A, right: B, direction: Direction) -> Self {
         Self::new_with_comparator(left, right, KeyOrderComparator::from_direction(direction))
@@ -296,8 +296,8 @@ where
     A: OrderedKeyStream,
     B: OrderedKeyStream,
 {
-    #[cfg(test)]
     /// Construct one intersection stream using traversal direction.
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db::executor) const fn new(left: A, right: B, direction: Direction) -> Self {
         Self::new_with_comparator(left, right, KeyOrderComparator::from_direction(direction))

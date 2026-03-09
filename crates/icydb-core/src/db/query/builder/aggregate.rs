@@ -21,7 +21,7 @@ pub struct AggregateExpr {
 }
 
 impl AggregateExpr {
-    // Construct one aggregate expression from explicit shape components.
+    /// Construct one aggregate expression from explicit shape components.
     const fn new(kind: AggregateKind, target_field: Option<String>) -> Self {
         Self {
             kind,
@@ -55,7 +55,7 @@ impl AggregateExpr {
         self.distinct
     }
 
-    // Build one aggregate expression directly from planner semantic parts.
+    /// Build one aggregate expression directly from planner semantic parts.
     pub(in crate::db::query) const fn from_semantic_parts(
         kind: AggregateKind,
         target_field: Option<String>,

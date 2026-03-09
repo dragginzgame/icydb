@@ -24,7 +24,7 @@ use std::{cell::RefCell, collections::BTreeSet, thread::LocalKey};
 
 const REVERSE_INDEX_PREFIX: &str = "~ri";
 
-// Build the canonical reverse-index id for a `(source entity, relation field)` pair.
+/// Build the canonical reverse-index id for a `(source entity, relation field)` pair.
 fn reverse_index_id_for_relation<S>(relation: StrongRelationInfo) -> Result<IndexId, InternalError>
 where
     S: EntityKind,
@@ -65,7 +65,7 @@ where
     Ok(IndexId(name))
 }
 
-// Build a reverse-index key for one target-key value.
+/// Build a reverse-index key for one target-key value.
 pub(super) fn reverse_index_key_for_target_value<S>(
     relation: StrongRelationInfo,
     target_key_value: &Value,
@@ -88,7 +88,7 @@ where
     Ok(Some(key))
 }
 
-// Extract relation-target raw keys from a field value.
+/// Extract relation-target raw keys from a field value.
 fn relation_target_keys_from_value<S>(
     field_name: &str,
     relation: StrongRelationInfo,
@@ -107,7 +107,7 @@ where
     Ok(keys)
 }
 
-// Read relation-target key set from one source entity and relation descriptor.
+/// Read relation-target key set from one source entity and relation descriptor.
 pub(super) fn relation_target_keys_for_source<S>(
     source: &S,
     relation: StrongRelationInfo,
@@ -128,7 +128,7 @@ where
     relation_target_keys_from_value::<S>(relation.field_name, relation, &value)
 }
 
-// Decode a reverse-index entry into source-key membership.
+/// Decode a reverse-index entry into source-key membership.
 pub(super) fn decode_reverse_entry<S>(
     relation: StrongRelationInfo,
     index_key: &RawIndexKey,
@@ -148,7 +148,7 @@ where
     })
 }
 
-// Encode a reverse-index entry with bounded-size error mapping.
+/// Encode a reverse-index entry with bounded-size error mapping.
 fn encode_reverse_entry<S>(
     relation: StrongRelationInfo,
     entry: &IndexEntry<S>,
@@ -166,7 +166,7 @@ where
     })
 }
 
-// Resolve target store handle for one relation descriptor.
+/// Resolve target store handle for one relation descriptor.
 pub(super) fn relation_target_store<S>(
     db: &Db<S::Canister>,
     relation: StrongRelationInfo,

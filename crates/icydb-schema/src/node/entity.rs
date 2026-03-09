@@ -78,14 +78,14 @@ impl Entity {
         &self.ty
     }
 
-    #[must_use]
     /// Return the primary key field if it exists on the entity.
+    #[must_use]
     pub fn get_pk_field(&self) -> Option<&Field> {
         self.fields().get(self.primary_key().field())
     }
 
-    #[must_use]
     /// Resolve the entity name used for schema identity.
+    #[must_use]
     pub fn resolved_name(&self) -> &'static str {
         self.name().unwrap_or_else(|| self.def().ident())
     }

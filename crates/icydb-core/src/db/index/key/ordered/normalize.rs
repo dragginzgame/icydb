@@ -19,7 +19,7 @@ const BIGINT_DECIMAL_CHUNK_WIDTH: usize = 9;
 pub(super) const DECIMAL_POSITIVE_TERMINATOR: u8 = 0x00;
 pub(super) const DECIMAL_NEGATIVE_TERMINATOR: u8 = 0xFF;
 
-// Decimal ordering is sign bucket + exponent + significant digits + terminator.
+/// Decimal ordering is sign bucket + exponent + significant digits + terminator.
 pub(super) fn push_decimal_payload(
     out: &mut Vec<u8>,
     value: Decimal,
@@ -75,7 +75,7 @@ fn write_u128_decimal_digits(mut value: u128, out: &mut [u8; DECIMAL_DIGIT_BUFFE
     len
 }
 
-// Signed big-int ordering uses sign bucket + digit length + digit bytes.
+/// Signed big-int ordering uses sign bucket + digit length + digit bytes.
 pub(super) fn push_signed_bigint_payload(
     out: &mut Vec<u8>,
     value: &Int,
@@ -103,7 +103,7 @@ pub(super) fn push_signed_bigint_payload(
     Ok(())
 }
 
-// Unsigned big-int ordering is length + digit bytes.
+/// Unsigned big-int ordering is length + digit bytes.
 pub(super) fn push_unsigned_bigint_payload(
     out: &mut Vec<u8>,
     value: &Nat,
@@ -135,8 +135,8 @@ fn decimal_exponent(scale: u32, digit_len: usize) -> Result<i32, OrderedValueEnc
     i32::try_from(exponent).map_err(|_| OrderedValueEncodeError::DecimalExponentOverflow)
 }
 
-// Convert little-endian base-2^32 limbs to ASCII decimal digits.
-// This avoids decimal String formatting but still uses temporary vectors.
+/// Convert little-endian base-2^32 limbs to ASCII decimal digits.
+/// This avoids decimal String formatting but still uses temporary vectors.
 fn u32_limbs_to_decimal_digits(mut quotient: Vec<u32>) -> Vec<u8> {
     trim_zero_limbs(&mut quotient);
     if quotient.is_empty() {

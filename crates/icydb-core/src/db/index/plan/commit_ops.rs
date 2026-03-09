@@ -114,7 +114,7 @@ pub(super) fn build_commit_ops_for_index<E: EntityKind>(
     Ok(())
 }
 
-// Derive one insertion baseline entry under old/new key overlap semantics.
+/// Derive one insertion baseline entry under old/new key overlap semantics.
 fn derive_initial_entry_for_insert<E: EntityKind>(
     touched: &mut BTreeMap<RawIndexKey, Option<IndexEntry<E>>>,
     raw_key: &RawIndexKey,

@@ -17,8 +17,8 @@ pub struct ErrorTree {
 }
 
 impl ErrorTree {
-    #[must_use]
     /// Create an empty error tree with no messages or children.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }

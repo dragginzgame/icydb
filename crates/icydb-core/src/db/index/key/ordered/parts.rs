@@ -15,7 +15,7 @@ const ACCOUNT_OWNER_MAX_LEN: usize = Principal::MAX_LENGTH_IN_BYTES as usize;
 const ACCOUNT_SUBACCOUNT_LEN: usize = 32;
 const ACCOUNT_SUBACCOUNT_TAG: u8 = 0x80;
 
-// Account ordering uses the same tuple contract as `Account::cmp`.
+/// Account ordering uses the same tuple contract as `Account::cmp`.
 pub(super) fn push_account_payload(
     out: &mut Vec<u8>,
     account: &Account,
@@ -49,7 +49,7 @@ pub(super) fn push_account_payload(
     Ok(())
 }
 
-// Enum ordering is variant -> path option -> payload option, recursively.
+/// Enum ordering is variant -> path option -> payload option, recursively.
 pub(super) fn push_enum_payload(
     out: &mut Vec<u8>,
     value: &ValueEnum,
@@ -77,9 +77,9 @@ pub(super) fn push_enum_payload(
     Ok(())
 }
 
-// Byte strings are escaped so tuple boundaries remain unambiguous.
-// Segment size bounds for these terminated payloads are enforced by the outer
-// index-key component caps in `IndexKey`, not at this primitive encoder layer.
+/// Byte strings are escaped so tuple boundaries remain unambiguous.
+/// Segment size bounds for these terminated payloads are enforced by the outer
+/// index-key component caps in `IndexKey`, not at this primitive encoder layer.
 pub(super) fn push_terminated_bytes(out: &mut Vec<u8>, bytes: &[u8]) {
     for &byte in bytes {
         if byte == 0 {

@@ -135,9 +135,10 @@ pub(super) fn build_relation_target_raw_key(
         .map_err(RelationTargetRawKeyError::StorageKeyEncode)
 }
 
-// Visit concrete relation target values for one relation field payload.
-// Runtime relation List/Set shapes are represented as `Value::List`, and
-// optional relation slots may be explicit `Value::Null`.
+/// Visit concrete relation target values for one relation field payload.
+///
+/// Runtime relation List/Set shapes are represented as `Value::List`, and
+/// optional relation slots may be explicit `Value::Null`.
 pub(super) fn for_each_relation_target_value(
     value: &Value,
     mut visit: impl FnMut(&Value) -> Result<(), InternalError>,
@@ -158,7 +159,7 @@ pub(super) fn for_each_relation_target_value(
     Ok(())
 }
 
-// Convert a relation value to its target raw data key representation.
+/// Convert a relation value to its target raw data key representation.
 fn raw_relation_target_key<S>(
     field_name: &str,
     relation: StrongRelationInfo,
@@ -181,7 +182,7 @@ where
     })
 }
 
-// Decode a relation target key and validate it against the relation target entity.
+/// Decode a relation target key and validate it against the relation target entity.
 fn decode_relation_target_data_key_for_relation<S>(
     relation: StrongRelationInfo,
     target_raw_key: &RawDataKey,

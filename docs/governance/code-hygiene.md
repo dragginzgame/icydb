@@ -133,6 +133,8 @@ Ordering rule for documented items with attributes:
 
 - Write doc/comments first, then attributes, then the item declaration.
 - Example order: `/// ...` -> `#[must_use]` -> `pub fn ...`.
+- If adjacent comments for one item are mixed (`//` and `///`) from prior edits, normalize them to the current standard:
+  use `///` for item documentation and `//` only for inline/non-item notes.
 
 Example:
 

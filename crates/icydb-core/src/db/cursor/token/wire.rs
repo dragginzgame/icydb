@@ -21,6 +21,29 @@ pub(in crate::db::cursor::token) enum CursorTokenVersion {
     V1,
 }
 
+impl CursorTokenVersion {
+    const V1_TAG: u8 = 1;
+
+    /// Decode one raw wire version into the protocol enum.
+    pub(in crate::db::cursor::token) const fn decode(raw: u8) -> Option<Self> {
+        match raw {
+            Self::V1_TAG => Some(Self::V1),
+            _ => None,
+        }
+    }
+
+    /// Encode this protocol version for wire format output.
+    pub(in crate::db::cursor::token) const fn encode(self) -> u8 {
+        match self {
+            Self::V1 => Self::V1_TAG,
+        }
+    }
+}
+
+///
+/// GroupedCursorTokenVersion
+///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::cursor::token) enum GroupedCursorTokenVersion {
     V1,
@@ -52,25 +75,6 @@ impl GroupedCursorTokenVersion {
     }
 }
 
-impl CursorTokenVersion {
-    const V1_TAG: u8 = 1;
-
-    // Decode one raw wire version into the protocol enum.
-    pub(in crate::db::cursor::token) const fn decode(raw: u8) -> Option<Self> {
-        match raw {
-            Self::V1_TAG => Some(Self::V1),
-            _ => None,
-        }
-    }
-
-    // Encode this protocol version for wire format output.
-    pub(in crate::db::cursor::token) const fn encode(self) -> u8 {
-        match self {
-            Self::V1 => Self::V1_TAG,
-        }
-    }
-}
-
 ///
 /// ContinuationTokenWire
 ///
@@ -88,6 +92,10 @@ pub(in crate::db::cursor::token) struct ContinuationTokenWire {
     pub(in crate::db::cursor::token) index_range_anchor: Option<IndexRangeCursorAnchorWire>,
 }
 
+///
+/// GroupedContinuationTokenWire
+///
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::db::cursor::token) struct GroupedContinuationTokenWire {
     pub(in crate::db::cursor::token) version: u8,
@@ -98,6 +106,10 @@ pub(in crate::db::cursor::token) struct GroupedContinuationTokenWire {
     #[serde(default)]
     pub(in crate::db::cursor::token) initial_offset: u32,
 }
+
+///
+/// IndexRangeCursorAnchorWire
+///
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::db::cursor::token) struct IndexRangeCursorAnchorWire {

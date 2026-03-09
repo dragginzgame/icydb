@@ -25,12 +25,12 @@ pub(super) fn push_segment(bytes: &mut Vec<u8>, segment: &[u8]) {
     bytes.extend_from_slice(segment);
 }
 
-// Compare one raw segment the same way its length-prefixed bytes compare.
+/// Compare one raw segment the same way its length-prefixed bytes compare.
 pub(super) fn compare_length_prefixed_segment(left: &[u8], right: &[u8]) -> Ordering {
     left.len().cmp(&right.len()).then_with(|| left.cmp(right))
 }
 
-// Compare encoded component segments under length-prefixed ordering semantics.
+/// Compare encoded component segments under length-prefixed ordering semantics.
 pub(super) fn compare_component_segments(left: &[Vec<u8>], right: &[Vec<u8>]) -> Ordering {
     for (left_segment, right_segment) in left.iter().zip(right.iter()) {
         let segment_order = compare_length_prefixed_segment(left_segment, right_segment);
