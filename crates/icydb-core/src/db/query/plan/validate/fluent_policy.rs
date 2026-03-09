@@ -43,24 +43,18 @@ const FLUENT_NON_PAGED_POLICY_RULES: &[FluentNonPagedPolicyRule] = &[
     fluent_non_paged_grouped_violation,
 ];
 
-const fn fluent_non_paged_cursor_token_violation(
+fn fluent_non_paged_cursor_token_violation(
     ctx: FluentNonPagedPolicyContext,
 ) -> Option<FluentLoadPolicyViolation> {
-    if ctx.has_cursor_token {
-        return Some(FluentLoadPolicyViolation::CursorRequiresPagedExecution);
-    }
-
-    None
+    ctx.has_cursor_token
+        .then_some(FluentLoadPolicyViolation::CursorRequiresPagedExecution)
 }
 
-const fn fluent_non_paged_grouped_violation(
+fn fluent_non_paged_grouped_violation(
     ctx: FluentNonPagedPolicyContext,
 ) -> Option<FluentLoadPolicyViolation> {
-    if ctx.has_grouping {
-        return Some(FluentLoadPolicyViolation::GroupedRequiresExecuteGrouped);
-    }
-
-    None
+    ctx.has_grouping
+        .then_some(FluentLoadPolicyViolation::GroupedRequiresExecuteGrouped)
 }
 
 ///
@@ -86,14 +80,11 @@ type FluentPagedPolicyRule = fn(FluentPagedPolicyContext) -> Option<FluentLoadPo
 
 const FLUENT_PAGED_POLICY_RULES: &[FluentPagedPolicyRule] = &[fluent_paged_grouped_violation];
 
-const fn fluent_paged_grouped_violation(
+fn fluent_paged_grouped_violation(
     ctx: FluentPagedPolicyContext,
 ) -> Option<FluentLoadPolicyViolation> {
-    if ctx.has_grouping {
-        return Some(FluentLoadPolicyViolation::GroupedRequiresExecuteGrouped);
-    }
-
-    None
+    ctx.has_grouping
+        .then_some(FluentLoadPolicyViolation::GroupedRequiresExecuteGrouped)
 }
 
 /// Validate fluent non-paged load entry policy.
@@ -102,11 +93,7 @@ pub(crate) fn validate_fluent_non_paged_mode(
     has_grouping: bool,
 ) -> Result<(), FluentLoadPolicyViolation> {
     let context = FluentNonPagedPolicyContext::new(has_cursor_token, has_grouping);
-    if let Some(reason) = first_violated_rule(FLUENT_NON_PAGED_POLICY_RULES, context) {
-        return Err(reason);
-    }
-
-    Ok(())
+    first_violated_rule(FLUENT_NON_PAGED_POLICY_RULES, context).map_or(Ok(()), Err)
 }
 
 /// Validate fluent paged load entry policy.
@@ -116,22 +103,23 @@ pub(crate) fn validate_fluent_paged_mode(
     spec: Option<LoadSpec>,
 ) -> Result<(), FluentLoadPolicyViolation> {
     let context = FluentPagedPolicyContext::new(has_grouping);
-    if let Some(reason) = first_violated_rule(FLUENT_PAGED_POLICY_RULES, context) {
-        return Err(reason);
-    }
-
-    let Some(spec) = spec else {
-        return Ok(());
-    };
-
-    validate_cursor_paging_requirements(has_explicit_order, spec).map_err(|err| match err {
-        CursorPagingPolicyError::CursorRequiresOrder => {
-            FluentLoadPolicyViolation::CursorRequiresOrder
-        }
-        CursorPagingPolicyError::CursorRequiresLimit => {
-            FluentLoadPolicyViolation::CursorRequiresLimit
-        }
-    })
+    first_violated_rule(FLUENT_PAGED_POLICY_RULES, context)
+        .map_or(Ok(()), Err)
+        .and_then(|()| match spec {
+            Some(spec) => {
+                validate_cursor_paging_requirements(has_explicit_order, spec).map_err(|err| {
+                    match err {
+                        CursorPagingPolicyError::CursorRequiresOrder => {
+                            FluentLoadPolicyViolation::CursorRequiresOrder
+                        }
+                        CursorPagingPolicyError::CursorRequiresLimit => {
+                            FluentLoadPolicyViolation::CursorRequiresLimit
+                        }
+                    }
+                })
+            }
+            None => Ok(()),
+        })
 }
 
 ///

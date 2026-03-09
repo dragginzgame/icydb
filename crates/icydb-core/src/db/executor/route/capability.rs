@@ -162,22 +162,18 @@ where
         plan: &AccessPlannedQuery<E::Key>,
     ) -> bool {
         let order = plan.scalar_plan().order.as_ref();
-        if order.is_some() {
-            if !secondary_order_contract_is_deterministic(E::MODEL, plan.scalar_plan()) {
-                return false;
-            }
-            let logical_pushdown_eligibility = plan
-                .planner_route_profile(E::MODEL)
-                .logical_pushdown_eligibility();
-            if !secondary_order_contract_active(logical_pushdown_eligibility) {
-                return false;
-            }
-        }
-
+        let order_contract_eligible = order.is_none_or(|_| {
+            secondary_order_contract_is_deterministic(E::MODEL, plan.scalar_plan())
+                && secondary_order_contract_active(
+                    plan.planner_route_profile(E::MODEL)
+                        .logical_pushdown_eligibility(),
+                )
+        });
         let access_class = plan.access_strategy().class();
-        access_class.index_range_limit_pushdown_shape_supported_for_order(
-            order.map(|order| order.fields.as_slice()),
-            E::MODEL.primary_key.name,
-        )
+        order_contract_eligible
+            && access_class.index_range_limit_pushdown_shape_supported_for_order(
+                order.map(|order| order.fields.as_slice()),
+                E::MODEL.primary_key.name,
+            )
     }
 }

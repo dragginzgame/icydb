@@ -99,6 +99,10 @@ If any finding is `PARTIAL`/`FAIL`, or if overall risk index is `>= 6`, include 
 - action
 - target report date/run
 
+For DRY/consolidation reports, if `High-risk divergence-prone patterns > 0`,
+follow-up actions are mandatory even when the overall DRY risk index is below
+`6`.
+
 If no follow-up is required, state that explicitly.
 
 ## 5. History Preservation Rule

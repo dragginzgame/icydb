@@ -19,9 +19,7 @@ where
         feasibility_stage: &RouteFeasibilityStage,
         aggregate_force_materialized_due_to_predicate_uncertainty: bool,
     ) -> RouteExecutionMode {
-        if aggregate_force_materialized_due_to_predicate_uncertainty {
-            RouteExecutionMode::Materialized
-        } else if Self::aggregate_non_count_streaming_allowed(
+        let aggregate_non_count_streaming_allowed = Self::aggregate_non_count_streaming_allowed(
             intent_stage.aggregate_expr.as_ref(),
             feasibility_stage.derivation.capabilities,
             feasibility_stage
@@ -29,10 +27,14 @@ where
                 .secondary_pushdown_applicability
                 .is_eligible(),
             feasibility_stage.index_range_limit_spec.is_some(),
+        );
+
+        match (
+            aggregate_force_materialized_due_to_predicate_uncertainty,
+            aggregate_non_count_streaming_allowed,
         ) {
-            RouteExecutionMode::Streaming
-        } else {
-            RouteExecutionMode::Materialized
+            (true, _) | (_, false) => RouteExecutionMode::Materialized,
+            (false, true) => RouteExecutionMode::Streaming,
         }
     }
 

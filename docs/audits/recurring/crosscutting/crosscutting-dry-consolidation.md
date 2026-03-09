@@ -241,6 +241,15 @@ Provide:
 * Defensive duplications
 * Estimated LoC reduction range (conservative)
 
+If `High-risk divergence duplications > 0`, you MUST include a mandatory
+high-risk ledger and at least one explicit follow-up action with owner boundary
+and target run.
+
+Required high-risk ledger:
+
+| Pattern | Primary Locations | Owner Boundary | Worth Fixing This Cycle? | Rationale |
+| ---- | ---- | ---- | ---- | ---- |
+
 ---
 
 # OUTPUT STRUCTURE

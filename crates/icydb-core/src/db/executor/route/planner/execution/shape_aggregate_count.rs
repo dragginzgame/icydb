@@ -18,12 +18,12 @@ where
         feasibility_stage: &RouteFeasibilityStage,
         aggregate_force_materialized_due_to_predicate_uncertainty: bool,
     ) -> RouteExecutionMode {
-        if aggregate_force_materialized_due_to_predicate_uncertainty {
-            RouteExecutionMode::Materialized
-        } else if feasibility_stage.derivation.count_pushdown_eligible {
-            RouteExecutionMode::Streaming
-        } else {
-            RouteExecutionMode::Materialized
+        match (
+            aggregate_force_materialized_due_to_predicate_uncertainty,
+            feasibility_stage.derivation.count_pushdown_eligible,
+        ) {
+            (true, _) | (_, false) => RouteExecutionMode::Materialized,
+            (false, true) => RouteExecutionMode::Streaming,
         }
     }
 
@@ -38,20 +38,18 @@ where
         );
         let index_range_limit_spec =
             Self::index_range_limit_spec_for_execution_mode(feasibility_stage, execution_mode);
-        let aggregate_fold_mode = if feasibility_stage
-            .derivation
-            .capabilities
-            .count_pushdown_shape_supported
-        {
-            AggregateFoldMode::KeysOnly
-        } else if feasibility_stage
-            .derivation
-            .capabilities
-            .count_pushdown_existing_rows_shape_supported
-        {
-            AggregateFoldMode::ExistingRows
-        } else {
-            AggregateFoldMode::KeysOnly
+        let aggregate_fold_mode = match (
+            feasibility_stage
+                .derivation
+                .capabilities
+                .count_pushdown_shape_supported,
+            feasibility_stage
+                .derivation
+                .capabilities
+                .count_pushdown_existing_rows_shape_supported,
+        ) {
+            (true, _) | (false, false) => AggregateFoldMode::KeysOnly,
+            (false, true) => AggregateFoldMode::ExistingRows,
         };
         debug_assert!(
             !matches!(execution_mode, RouteExecutionMode::Streaming)

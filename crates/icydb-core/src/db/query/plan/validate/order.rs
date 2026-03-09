@@ -20,12 +20,12 @@ pub(crate) fn validate_order(schema: &SchemaInfo, order: &OrderSpec) -> Result<(
             })
             .map_err(PlanError::from)?;
 
-        if !field_type.is_orderable() {
-            // CONTRACT: ORDER BY rejects non-queryable or unordered fields.
-            return Err(PlanError::from(OrderPlanError::UnorderableField {
+        // CONTRACT: ORDER BY rejects non-queryable or unordered fields.
+        field_type.is_orderable().then_some(()).ok_or_else(|| {
+            PlanError::from(OrderPlanError::UnorderableField {
                 field: field.clone(),
-            }));
-        }
+            })
+        })?;
     }
 
     Ok(())
@@ -40,14 +40,15 @@ pub(crate) fn validate_no_duplicate_non_pk_order_fields(
     let pk_field = model.primary_key.name;
 
     for (field, _) in &order.fields {
-        if field == pk_field {
+        let non_pk_field = field != pk_field;
+        if !non_pk_field {
             continue;
         }
-        if !seen.insert(field.as_str()) {
-            return Err(PlanError::from(OrderPlanError::DuplicateOrderField {
+        seen.insert(field.as_str()).then_some(()).ok_or_else(|| {
+            PlanError::from(OrderPlanError::DuplicateOrderField {
                 field: field.clone(),
-            }));
-        }
+            })
+        })?;
     }
 
     Ok(())
@@ -59,26 +60,25 @@ pub(crate) fn validate_primary_key_tie_break(
     model: &EntityModel,
     order: &OrderSpec,
 ) -> Result<(), PlanError> {
-    if order.fields.is_empty() {
-        return Ok(());
-    }
+    order.fields.is_empty().then_some(()).map_or_else(
+        || {
+            let pk_field = model.primary_key.name;
+            let pk_count = order
+                .fields
+                .iter()
+                .filter(|(field, _)| field == pk_field)
+                .count();
+            let trailing_pk = order
+                .fields
+                .last()
+                .is_some_and(|(field, _)| field == pk_field);
 
-    let pk_field = model.primary_key.name;
-    let pk_count = order
-        .fields
-        .iter()
-        .filter(|(field, _)| field == pk_field)
-        .count();
-    let trailing_pk = order
-        .fields
-        .last()
-        .is_some_and(|(field, _)| field == pk_field);
-
-    if pk_count == 1 && trailing_pk {
-        Ok(())
-    } else {
-        Err(PlanError::from(OrderPlanError::MissingPrimaryKeyTieBreak {
-            field: pk_field.to_string(),
-        }))
-    }
+            (pk_count == 1 && trailing_pk).then_some(()).ok_or_else(|| {
+                PlanError::from(OrderPlanError::MissingPrimaryKeyTieBreak {
+                    field: pk_field.to_string(),
+                })
+            })
+        },
+        |()| Ok(()),
+    )
 }

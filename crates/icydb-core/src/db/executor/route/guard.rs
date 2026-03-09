@@ -22,11 +22,9 @@ fn ensure_spec_at_most_one_if_enabled(
     spec_count: usize,
     message: &'static str,
 ) -> Result<(), InternalError> {
-    if fast_path_enabled && spec_count > 1 {
-        return Err(crate::db::error::executor_invariant(message));
-    }
-
-    Ok(())
+    (!(fast_path_enabled && spec_count > 1))
+        .then_some(())
+        .ok_or_else(|| crate::db::error::executor_invariant(message))
 }
 
 // Shared arity guard: enforce exactly one lowered spec when a fast path is enabled.
@@ -35,11 +33,9 @@ fn ensure_spec_exactly_one_if_enabled(
     spec_count: usize,
     message: &'static str,
 ) -> Result<(), InternalError> {
-    if fast_path_enabled && spec_count != 1 {
-        return Err(crate::db::error::executor_invariant(message));
-    }
-
-    Ok(())
+    (!(fast_path_enabled && spec_count != 1))
+        .then_some(())
+        .ok_or_else(|| crate::db::error::executor_invariant(message))
 }
 
 // Guard secondary aggregate fast-path assumptions so index-prefix
@@ -62,22 +58,23 @@ pub(in crate::db::executor) fn ensure_index_range_aggregate_fast_path_specs(
     index_prefix_spec_count: usize,
     index_range_spec_count: usize,
 ) -> Result<(), InternalError> {
-    if !index_range_pushdown_eligible {
-        return Ok(());
-    }
+    index_range_pushdown_eligible.then_some(()).map_or_else(
+        || Ok(()),
+        |()| {
+            (index_prefix_spec_count == 0)
+                .then_some(())
+                .ok_or_else(|| {
+                    crate::db::error::executor_invariant(INDEX_RANGE_AGGREGATE_NO_PREFIX_MESSAGE)
+                })?;
+            ensure_spec_exactly_one_if_enabled(
+                true,
+                index_range_spec_count,
+                INDEX_RANGE_AGGREGATE_EXACT_RANGE_MESSAGE,
+            )?;
 
-    if index_prefix_spec_count != 0 {
-        return Err(crate::db::error::executor_invariant(
-            INDEX_RANGE_AGGREGATE_NO_PREFIX_MESSAGE,
-        ));
-    }
-    ensure_spec_exactly_one_if_enabled(
-        true,
-        index_range_spec_count,
-        INDEX_RANGE_AGGREGATE_EXACT_RANGE_MESSAGE,
-    )?;
-
-    Ok(())
+            Ok(())
+        },
+    )
 }
 
 // Guard load fast-path assumptions so contract/runtime spec boundaries remain

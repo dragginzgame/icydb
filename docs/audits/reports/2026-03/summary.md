@@ -3,8 +3,8 @@
 ## Overview
 
 - run days: `7`
-- report files: `94`
-- unique report types: `35`
+- report files: `97`
+- unique report types: `36`
 
 ## Day Index
 
@@ -14,14 +14,14 @@
 - `2026-03-05`: 25 reports (`summary.md` available at `docs/audits/reports/2026-03/2026-03-05/summary.md`)
 - `2026-03-06`: 6 reports (`summary.md` available at `docs/audits/reports/2026-03/2026-03-06/summary.md`)
 - `2026-03-08`: 15 reports (`summary.md` available at `docs/audits/reports/2026-03/2026-03-08/summary.md`)
-- `2026-03-09`: 15 reports (`summary.md` available at `docs/audits/reports/2026-03/2026-03-09/summary.md`)
+- `2026-03-09`: 18 reports (`summary.md` available at `docs/audits/reports/2026-03/2026-03-09/summary.md`)
 
 ## Coverage Frequency
 
 - `0.40-planner-executor-semantic-ownership.md`: `1` day(s)
 - `access-stream-anchor-interpretation-followup.md`: `1` day(s)
 - `boundary-semantics.md`: `4` day(s)
-- `complexity-accretion-2.md`: `1` day(s)
+- `complexity-accretion-2.md`: `2` day(s)
 - `complexity-accretion.md`: `7` day(s)
 - `cursor-ordering.md`: `4` day(s)
 - `decode-cursor-authority-followup.md`: `1` day(s)
@@ -50,8 +50,9 @@
 - `resource-model-followup-0.37.2.md`: `1` day(s)
 - `state-machine-integrity.md`: `4` day(s)
 - `structural-architecture-continuation-audit.md`: `1` day(s)
+- `summary-2.md`: `1` day(s)
 - `summary.md`: `5` day(s)
-- `velocity-preservation-2.md`: `1` day(s)
+- `velocity-preservation-2.md`: `2` day(s)
 - `velocity-preservation.md`: `7` day(s)
 
 ## Notes

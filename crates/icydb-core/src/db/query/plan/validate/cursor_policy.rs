@@ -13,34 +13,26 @@ pub(crate) const fn validate_cursor_paging_requirements(
     has_order: bool,
     spec: LoadSpec,
 ) -> Result<(), CursorPagingPolicyError> {
-    if !has_order {
-        return Err(CursorPagingPolicyError::CursorRequiresOrder);
+    match (has_order, spec.limit.is_some()) {
+        (false, _) => Err(CursorPagingPolicyError::CursorRequiresOrder),
+        (true, false) => Err(CursorPagingPolicyError::CursorRequiresLimit),
+        (true, true) => Ok(()),
     }
-    if spec.limit.is_none() {
-        return Err(CursorPagingPolicyError::CursorRequiresLimit);
-    }
-
-    Ok(())
 }
 
 /// Validate cursor-order shape and return the logical order contract when present.
-pub(crate) const fn validate_cursor_order_plan_shape(
+pub(crate) fn validate_cursor_order_plan_shape(
     order: Option<&OrderSpec>,
     require_explicit_order: bool,
 ) -> Result<Option<&OrderSpec>, CursorOrderPlanShapeError> {
-    let Some(order) = order else {
-        if require_explicit_order {
-            return Err(CursorOrderPlanShapeError::MissingExplicitOrder);
-        }
-
-        return Ok(None);
-    };
-
-    if order.fields.is_empty() {
-        return Err(CursorOrderPlanShapeError::EmptyOrderSpec);
+    match (order, require_explicit_order) {
+        (None, true) => Err(CursorOrderPlanShapeError::MissingExplicitOrder),
+        (None, false) => Ok(None),
+        (Some(order), _) => (!order.fields.is_empty())
+            .then_some(order)
+            .ok_or(CursorOrderPlanShapeError::EmptyOrderSpec)
+            .map(Some),
     }
-
-    Ok(Some(order))
 }
 
 ///

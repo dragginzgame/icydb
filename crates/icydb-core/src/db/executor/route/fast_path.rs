@@ -31,9 +31,11 @@ where
         let Some(marker) = verify_route(route)? else {
             continue;
         };
-        if let Some(hit) = execute_verified_route(marker)? {
-            return Ok(Some(hit));
-        }
+        let Some(hit) = execute_verified_route(marker)? else {
+            continue;
+        };
+
+        return Ok(Some(hit));
     }
 
     Ok(None)
@@ -48,18 +50,11 @@ where
         plan: &AccessPlannedQuery<E::Key>,
     ) -> bool {
         let logical = plan.scalar_plan();
-        if !logical.mode.is_load() {
-            return false;
-        }
-
         let access_strategy = plan.access_strategy();
         let access_class = access_strategy.class();
         let supports_pk_stream_access = access_strategy
             .as_path()
             .is_some_and(|path| path.capabilities().supports_pk_stream_access());
-        if !supports_pk_stream_access {
-            return false;
-        }
         debug_assert_eq!(
             supports_pk_stream_access,
             access_class.single_path_supports_pk_stream_access(),
@@ -70,7 +65,10 @@ where
             return false;
         };
 
-        order.fields.len() == 1 && order.fields[0].0 == E::MODEL.primary_key.name
+        logical.mode.is_load()
+            && supports_pk_stream_access
+            && order.fields.len() == 1
+            && order.fields[0].0 == E::MODEL.primary_key.name
     }
 
     /// Validate routed access-path shape for PK stream fast-path execution.
@@ -79,16 +77,19 @@ where
     ) -> Result<(), InternalError> {
         let access_strategy = plan.access_strategy();
         let access_class = access_strategy.class();
-        if !access_class.single_path() {
-            return Err(crate::db::error::executor_invariant(
+        access_class.single_path().then_some(()).ok_or_else(|| {
+            crate::db::error::executor_invariant(
                 "pk stream fast-path requires direct access-path execution",
-            ));
-        }
-        if !access_class.single_path_supports_pk_stream_access() {
-            return Err(crate::db::error::executor_invariant(
-                "pk stream fast-path requires full-scan/key-range access path",
-            ));
-        }
+            )
+        })?;
+        access_class
+            .single_path_supports_pk_stream_access()
+            .then_some(())
+            .ok_or_else(|| {
+                crate::db::error::executor_invariant(
+                    "pk stream fast-path requires full-scan/key-range access path",
+                )
+            })?;
 
         let access = access_strategy.as_path().ok_or_else(|| {
             crate::db::error::executor_invariant(
@@ -117,12 +118,10 @@ where
     pub(super) const fn aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
         execution_preparation: &ExecutionPreparation,
     ) -> bool {
-        if execution_preparation.compiled_predicate().is_none() {
-            return false;
-        }
-
-        // Route strict-mode uncertainty must remain aligned with the shared
-        // kernel predicate compiler boundary.
-        execution_preparation.strict_mode().is_none()
+        execution_preparation.compiled_predicate().is_some()
+            &&
+            // Route strict-mode uncertainty must remain aligned with the shared
+            // kernel predicate compiler boundary.
+            execution_preparation.strict_mode().is_none()
     }
 }
