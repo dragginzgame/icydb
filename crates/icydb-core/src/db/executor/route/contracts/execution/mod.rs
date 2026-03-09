@@ -1,3 +1,8 @@
+//! Module: executor::route::contracts::execution
+//! Responsibility: executor route execution-shape contracts and observability payloads.
+//! Does not own: route planning decisions or planner capability derivation policy.
+//! Boundary: exposes stable execution-shape DTOs consumed by route/load/runtime seams.
+
 mod observability;
 mod plan;
 

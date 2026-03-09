@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 - `0.47.0` establishes the audit-pass baseline with prep work, expanded recurring audit coverage, an initial risk summary, and a cleaner docs layout for audits/design tracking.
 - `0.47.1` continues audit-pass hardening by splitting load and grouped-contract execution hotspots, tightening grouped DISTINCT planner/runtime contracts, and updating invariant/guard checks so CI stays aligned with the refactor.
-- `0.47.2` continues structural containment by further splitting route execution and grouped runtime/load contract hubs, making ownership boundaries clearer while keeping query behavior unchanged.
+- `0.47.2` continues structural containment by further splitting route execution, route hinting, and grouped runtime/load contract hubs, making ownership boundaries clearer while keeping query behavior unchanged.
+- `0.47.3` closes the cursor edge-case checklist with explicit composite-anchor and DESC-resume verification, reducing continuation regression risk without changing query behavior.
 
 See detailed breakdown:
 [docs/changelog/0.47.md](docs/changelog/0.47.md)

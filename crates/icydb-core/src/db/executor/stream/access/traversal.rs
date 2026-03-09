@@ -9,6 +9,7 @@ use crate::{
     db::{
         access::AccessPlan,
         data::DataRow,
+        error::executor_invariant,
         executor::{
             Context, ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan,
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
@@ -199,7 +200,7 @@ impl AccessPlanStreamResolver {
         if let Some(index) = path_capabilities.index_prefix_model() {
             for spec in index_prefix_specs {
                 if spec.index() != &index {
-                    return Err(crate::db::error::executor_invariant(
+                    return Err(executor_invariant(
                         "index-prefix spec does not match access path index",
                     ));
                 }
@@ -219,7 +220,7 @@ impl AccessPlanStreamResolver {
             && let Some(index) = path_capabilities.index_range_model()
             && spec.index() != &index
         {
-            return Err(crate::db::error::executor_invariant(
+            return Err(executor_invariant(
                 "index-range spec does not match access path index",
             ));
         }
@@ -300,9 +301,7 @@ impl AccessPlanStreamResolver {
                     spec_cursor
                         .next_index_prefix_specs(path_capabilities.index_prefix_spec_count())
                         .ok_or_else(|| {
-                            crate::db::error::executor_invariant(
-                                "index-prefix execution requires pre-lowered specs",
-                            )
+                            executor_invariant("index-prefix execution requires pre-lowered specs")
                         })?
                 } else {
                     &[]

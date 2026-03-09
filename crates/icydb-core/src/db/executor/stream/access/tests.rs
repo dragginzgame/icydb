@@ -366,9 +366,19 @@ fn aggregate_primary_key_fast_path_uses_route_budget_safety_filter_gate() {
 
 #[test]
 fn route_hints_use_route_window_and_budget_safety_filter_gates() {
-    let source_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/route/hints.rs");
-    let source = fs::read_to_string(&source_path)
-        .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
+    let source_paths = [
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/route/hints/mod.rs"),
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/route/hints/load.rs"),
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/route/hints/aggregate.rs"),
+    ];
+    let source = source_paths
+        .iter()
+        .map(|source_path| {
+            fs::read_to_string(source_path)
+                .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
     let runtime_source = strip_cfg_test_items(source.as_str());
 
     assert!(

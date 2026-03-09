@@ -8,6 +8,7 @@ use crate::{
         access::{ExecutableAccessPathDispatch, dispatch_executable_access_path},
         data::DataKey,
         direction::Direction,
+        error::executor_invariant,
         executor::stream::access::AccessScanContinuationInput,
         executor::{
             Context, ExecutableAccessPath, IndexScan, LoweredIndexPrefixSpec,
@@ -26,6 +27,7 @@ use crate::{
 /// Explicit ordering state for key vectors produced by one access-path resolver.
 /// This keeps normalization behavior local and avoids implicit path-shape proxies.
 ///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum KeyOrderState {
     FinalOrder,
@@ -241,7 +243,7 @@ impl<K> ExecutableAccessPath<'_, K> {
         K: Copy + Ord,
     {
         let [spec] = index_prefix_specs else {
-            return Err(crate::db::error::executor_invariant(
+            return Err(executor_invariant(
                 "index-prefix execution requires pre-lowered index-prefix spec",
             ));
         };
@@ -274,7 +276,7 @@ impl<K> ExecutableAccessPath<'_, K> {
         K: Copy + Ord,
     {
         if index_prefix_specs.len() != value_count {
-            return Err(crate::db::error::executor_invariant(
+            return Err(executor_invariant(
                 "index-multi-lookup execution requires one pre-lowered prefix spec per lookup value",
             ));
         }
@@ -309,7 +311,7 @@ impl<K> ExecutableAccessPath<'_, K> {
         K: Copy + Ord,
     {
         let Some(spec) = index_range_spec else {
-            return Err(crate::db::error::executor_invariant(
+            return Err(executor_invariant(
                 "index-range execution requires pre-lowered index-range spec",
             ));
         };

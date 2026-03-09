@@ -7,6 +7,7 @@ use crate::{
     db::{
         access::AccessPlan,
         direction::Direction,
+        error::executor_invariant,
         executor::{
             Context, ExecutableAccessPlan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             LoweredKey,
@@ -110,12 +111,12 @@ impl<'a> AccessSpecCursor<'a> {
     /// Enforce that all lowered specs were consumed during access-plan traversal.
     pub(in crate::db::executor) fn validate_consumed(&self) -> Result<(), InternalError> {
         if self.index_prefix_offset < self.index_prefix_specs.len() {
-            return Err(crate::db::error::executor_invariant(
+            return Err(executor_invariant(
                 "unused index-prefix executable specs after access-plan traversal",
             ));
         }
         if self.index_range_offset < self.index_range_specs.len() {
-            return Err(crate::db::error::executor_invariant(
+            return Err(executor_invariant(
                 "unused index-range executable specs after access-plan traversal",
             ));
         }
