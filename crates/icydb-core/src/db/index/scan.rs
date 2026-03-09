@@ -233,12 +233,12 @@ impl IndexStore {
         Ok(out)
     }
 
-    // Validate strict continuation advancement when an anchor is present.
-    //
-    // IMPORTANT CROSS-LAYER CONTRACT:
-    // - Planner/cursor-spine validation ensures envelope/signature compatibility.
-    // - This scan-layer guard independently enforces strict monotonic advancement.
-    // - Keep both layers explicit; do not collapse this into planner-only checks.
+    /// Validate strict continuation advancement when an anchor is present.
+    ///
+    /// IMPORTANT CROSS-LAYER CONTRACT:
+    /// - Planner/cursor-spine validation ensures envelope/signature compatibility.
+    /// - This scan-layer guard independently enforces strict monotonic advancement.
+    /// - Keep both layers explicit; do not collapse this into planner-only checks.
     fn ensure_continuation_advanced(
         direction: Direction,
         candidate: &RawIndexKey,
@@ -255,10 +255,10 @@ impl IndexStore {
         Ok(())
     }
 
-    // Validate that continuation anchor is contained by the original range envelope.
-    //
-    // Keep this guard in the scan layer even though planner/cursor validation already
-    // checks containment: this is a defensive contract check against cross-layer misuse.
+    /// Validate that continuation anchor is contained by the original range envelope.
+    ///
+    /// Keep this guard in the scan layer even though planner/cursor validation already
+    /// checks containment: this is a defensive contract check against cross-layer misuse.
     fn ensure_anchor_within_envelope(
         direction: Direction,
         anchor: Option<&RawIndexKey>,

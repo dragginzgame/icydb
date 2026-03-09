@@ -48,7 +48,7 @@ fn resolve_order_spec<E: EntityKind>(order: &OrderSpec) -> ResolvedOrderSpec {
     ResolvedOrderSpec { fields }
 }
 
-// Convert one resolved field slot into the explicit ordering slot used for deterministic comparisons.
+/// Convert one resolved field slot into the explicit ordering slot used for deterministic comparisons.
 fn field_slot_by_index<E: EntityValue>(
     entity: &E,
     field_index: Option<usize>,
@@ -74,9 +74,9 @@ where
     rows.sort_by(|left, right| compare_entities::<E>(entity_of(left), entity_of(right), &resolved));
 }
 
-// Bounded ordering for first-page loads.
-// We select the smallest `keep_count` rows under canonical order and then sort
-// only that prefix. This preserves output and continuation behavior.
+/// Bounded ordering for first-page loads.
+/// We select the smallest `keep_count` rows under canonical order and then sort
+/// only that prefix. This preserves output and continuation behavior.
 pub(in crate::db) fn apply_order_spec_bounded<E, R, F>(
     rows: &mut Vec<R>,
     order: &OrderSpec,
@@ -109,7 +109,7 @@ pub(in crate::db) fn apply_order_spec_bounded<E, R, F>(
     rows.sort_by(|left, right| compare_entities::<E>(entity_of(left), entity_of(right), &resolved));
 }
 
-// Apply a strict continuation boundary using the canonical order comparator.
+/// Apply a strict continuation boundary using the canonical order comparator.
 pub(in crate::db) fn apply_cursor_boundary<E, R, F>(
     rows: &mut Vec<R>,
     order: &OrderSpec,
@@ -137,7 +137,7 @@ pub(in crate::db) fn apply_cursor_boundary<E, R, F>(
     });
 }
 
-// Compare two entities according to the order spec, returning the first non-equal field ordering.
+/// Compare two entities according to the order spec, returning the first non-equal field ordering.
 fn compare_entities<E: EntityValue>(left: &E, right: &E, order: &ResolvedOrderSpec) -> Ordering {
     for slot in &order.fields {
         let ordering = compare_entity_field_pair(left, right, *slot);
@@ -150,7 +150,7 @@ fn compare_entities<E: EntityValue>(left: &E, right: &E, order: &ResolvedOrderSp
     Ordering::Equal
 }
 
-// Compare one configured order field across two entities.
+/// Compare one configured order field across two entities.
 fn compare_entity_field_pair<E: EntityValue>(
     left: &E,
     right: &E,
@@ -163,7 +163,7 @@ fn compare_entity_field_pair<E: EntityValue>(
     apply_order_direction(ordering, slot.direction)
 }
 
-// Compare one configured order field between an entity and a boundary slot.
+/// Compare one configured order field between an entity and a boundary slot.
 fn compare_entity_field_to_boundary<E: EntityValue>(
     entity: &E,
     boundary_slot: &CursorBoundarySlot,
@@ -175,7 +175,7 @@ fn compare_entity_field_to_boundary<E: EntityValue>(
     apply_order_direction(ordering, slot.direction)
 }
 
-// Compare an entity with a continuation boundary using the exact canonical ordering semantics.
+/// Compare an entity with a continuation boundary using the exact canonical ordering semantics.
 fn compare_entity_with_boundary<E: EntityValue>(
     entity: &E,
     order: &ResolvedOrderSpec,

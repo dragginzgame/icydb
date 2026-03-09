@@ -26,7 +26,7 @@ pub(crate) fn lower_projection_intent(
     }
 }
 
-// Lower scalar plans to one explicit field projection per declared entity field.
+/// Lower scalar plans to one explicit field projection per declared entity field.
 fn lower_scalar_projection(model: &EntityModel) -> ProjectionSpec {
     let fields = model
         .fields
@@ -60,8 +60,8 @@ fn lower_grouped_projection_from_plan(grouped: &GroupPlan) -> ProjectionSpec {
     )
 }
 
-// Lower grouped plans to one explicit projection of grouped keys followed by
-// grouped aggregates, preserving declaration order.
+/// Lower grouped plans to one explicit projection of grouped keys followed by
+/// grouped aggregates, preserving declaration order.
 fn lower_grouped_projection(
     group_fields: &[FieldSlot],
     aggregates: &[GroupAggregateSpec],
@@ -83,7 +83,7 @@ fn lower_grouped_projection(
     ProjectionSpec::new(fields)
 }
 
-// Lower one grouped aggregate semantic spec into one canonical aggregate expression.
+/// Lower one grouped aggregate semantic spec into one canonical aggregate expression.
 fn lower_group_aggregate_expr(aggregate: &GroupAggregateSpec) -> AggregateExpr {
     AggregateExpr::from_semantic_parts(
         aggregate.kind(),

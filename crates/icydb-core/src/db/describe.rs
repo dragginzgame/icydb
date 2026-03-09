@@ -261,6 +261,7 @@ impl EntityRelationDescription {
 ///
 /// Describe-surface relation strength projection.
 ///
+
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum EntityRelationStrength {
     Strong,
@@ -272,6 +273,7 @@ pub enum EntityRelationStrength {
 ///
 /// Describe-surface relation cardinality projection.
 ///
+
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum EntityRelationCardinality {
     Single,
@@ -324,7 +326,7 @@ pub(in crate::db) fn describe_entity_model(model: &EntityModel) -> EntitySchemaD
     )
 }
 
-// Resolve relation metadata from one field kind, including list/set relation forms.
+/// Resolve relation metadata from one field kind, including list/set relation forms.
 fn relation_from_field_kind(
     field_name: &str,
     kind: &FieldKind,
@@ -376,7 +378,7 @@ fn relation_from_field_kind(
     }
 }
 
-// Resolve list/set relation metadata only when the collection inner shape is relation.
+/// Resolve list/set relation metadata only when the collection inner shape is relation.
 fn relation_from_collection_relation(
     field_name: &str,
     inner: &FieldKind,
@@ -403,7 +405,7 @@ fn relation_from_collection_relation(
     ))
 }
 
-// Project runtime relation strength into the describe DTO surface.
+/// Project runtime relation strength into the describe DTO surface.
 const fn relation_strength(strength: RelationStrength) -> EntityRelationStrength {
     match strength {
         RelationStrength::Strong => EntityRelationStrength::Strong,
@@ -411,7 +413,7 @@ const fn relation_strength(strength: RelationStrength) -> EntityRelationStrength
     }
 }
 
-// Render one stable field-kind label for describe output.
+/// Render one stable field-kind label for describe output.
 fn summarize_field_kind(kind: &FieldKind) -> String {
     match kind {
         FieldKind::Account => "account".to_string(),
@@ -458,7 +460,7 @@ fn summarize_field_kind(kind: &FieldKind) -> String {
     }
 }
 
-// Render one stable relation-strength label for field-kind summaries.
+/// Render one stable relation-strength label for field-kind summaries.
 const fn summarize_relation_strength(strength: RelationStrength) -> &'static str {
     match strength {
         RelationStrength::Strong => "strong",

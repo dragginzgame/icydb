@@ -82,8 +82,8 @@ pub(in crate::db) const fn has_runtime_hooks<C: CanisterKind>(
     !entity_runtime_hooks.is_empty()
 }
 
-// Resolve exactly one runtime hook for a persisted entity name.
-// Duplicate matches are treated as store invariants.
+/// Resolve exactly one runtime hook for a persisted entity name.
+/// Duplicate matches are treated as store invariants.
 pub(in crate::db) fn resolve_runtime_hook_by_name<'a, C: CanisterKind>(
     entity_runtime_hooks: &'a [EntityRuntimeHooks<C>],
     entity_name: &str,
@@ -110,8 +110,8 @@ pub(in crate::db) fn resolve_runtime_hook_by_name<'a, C: CanisterKind>(
     })
 }
 
-// Resolve exactly one runtime hook for a persisted entity path.
-// Duplicate matches are treated as store invariants.
+/// Resolve exactly one runtime hook for a persisted entity path.
+/// Duplicate matches are treated as store invariants.
 pub(in crate::db) fn resolve_runtime_hook_by_path<'a, C: CanisterKind>(
     entity_runtime_hooks: &'a [EntityRuntimeHooks<C>],
     entity_path: &str,

@@ -47,7 +47,7 @@ pub(crate) fn compile_index_program(
     }
 }
 
-// Compile one resolved predicate tree into one index-only program.
+/// Compile one resolved predicate tree into one index-only program.
 fn compile_index_program_from_resolved(
     predicate: &ResolvedPredicate,
     index_slots: &[usize],
@@ -61,7 +61,7 @@ fn compile_index_program_from_resolved(
     compile_index_program_from_resolved_full(predicate, index_slots)
 }
 
-// Compile an AND node by retaining only safely compilable children.
+/// Compile an AND node by retaining only safely compilable children.
 fn compile_index_program_and_subset(
     children: &[ResolvedPredicate],
     index_slots: &[usize],
@@ -91,7 +91,7 @@ fn compile_index_program_and_subset(
     }
 }
 
-// Compile one resolved predicate tree only when every node is supported.
+/// Compile one resolved predicate tree only when every node is supported.
 fn compile_index_program_from_resolved_full(
     predicate: &ResolvedPredicate,
     index_slots: &[usize],
@@ -124,7 +124,7 @@ fn compile_index_program_from_resolved_full(
     }
 }
 
-// Compile one resolved compare node into index-only compare bytes.
+/// Compile one resolved compare node into index-only compare bytes.
 fn compile_compare_index_node(
     cmp: &ResolvedComparePredicate,
     index_slots: &[usize],

@@ -1205,6 +1205,92 @@ fn query_explain_execution_verbose_diagnostics_snapshot_for_top_n_seek_shape() {
 }
 
 #[test]
+fn query_explain_execution_verbose_reports_temporal_ranked_order_shape_parity() {
+    let top_like_verbose = Query::<TemporalBoundaryEntity>::new(MissingRowPolicy::Ignore)
+        .order_by_desc("occurred_on")
+        .order_by("id")
+        .limit(2)
+        .explain_execution_verbose()
+        .expect("temporal top-like verbose explain should build");
+    let bottom_like_verbose = Query::<TemporalBoundaryEntity>::new(MissingRowPolicy::Ignore)
+        .order_by("occurred_on")
+        .order_by("id")
+        .limit(2)
+        .explain_execution_verbose()
+        .expect("temporal bottom-like verbose explain should build");
+
+    let top_like = verbose_diagnostics_map(&top_like_verbose);
+    let bottom_like = verbose_diagnostics_map(&bottom_like_verbose);
+    let parity_keys = [
+        "diagnostic.route.execution_mode",
+        "diagnostic.route.fast_path_order",
+        "diagnostic.route.continuation_applied",
+        "diagnostic.route.limit",
+        DIAG_ROUTE_SECONDARY_ORDER_PUSHDOWN,
+        DIAG_ROUTE_TOP_N_SEEK,
+        DIAG_ROUTE_INDEX_RANGE_LIMIT_PUSHDOWN,
+        DIAG_ROUTE_PREDICATE_STAGE,
+        DIAG_DESCRIPTOR_HAS_TOP_N_SEEK,
+        DIAG_DESCRIPTOR_HAS_INDEX_RANGE_LIMIT_PUSHDOWN,
+        "diagnostic.descriptor.has_index_predicate_prefilter",
+        "diagnostic.descriptor.has_residual_predicate_filter",
+        DIAG_PLAN_MODE,
+        "diagnostic.plan.order_pushdown",
+        DIAG_PLAN_PREDICATE_PUSHDOWN,
+        "diagnostic.plan.distinct",
+        "diagnostic.plan.page",
+        "diagnostic.plan.consistency",
+    ];
+    for key in parity_keys {
+        assert_eq!(
+            top_like.get(key),
+            bottom_like.get(key),
+            "temporal top-like vs bottom-like ranked query shapes should keep verbose diagnostic parity for key {key}",
+        );
+    }
+}
+
+#[test]
+fn query_explain_execution_verbose_diagnostics_snapshot_for_temporal_ranked_shape() {
+    let verbose = Query::<TemporalBoundaryEntity>::new(MissingRowPolicy::Ignore)
+        .order_by_desc("occurred_on")
+        .order_by("id")
+        .limit(2)
+        .explain_execution_verbose()
+        .expect("temporal ranked verbose explain snapshot should build");
+
+    let diagnostics = verbose_diagnostics_lines(&verbose);
+    let expected = vec![
+        "diagnostic.route.execution_mode=Materialized",
+        "diagnostic.route.fast_path_order=[PrimaryKey, SecondaryPrefix, IndexRange]",
+        "diagnostic.route.continuation_applied=false",
+        "diagnostic.route.limit=Some(2)",
+        "diagnostic.route.secondary_order_pushdown=not_applicable",
+        "diagnostic.route.top_n_seek=disabled",
+        "diagnostic.route.index_range_limit_pushdown=disabled",
+        "diagnostic.route.predicate_stage=none",
+        "diagnostic.descriptor.has_top_n_seek=false",
+        "diagnostic.descriptor.has_index_range_limit_pushdown=false",
+        "diagnostic.descriptor.has_index_predicate_prefilter=false",
+        "diagnostic.descriptor.has_residual_predicate_filter=false",
+        "diagnostic.plan.mode=Load(LoadSpec { limit: Some(2), offset: 0 })",
+        "diagnostic.plan.order_pushdown=missing_model_context",
+        "diagnostic.plan.predicate_pushdown=none",
+        "diagnostic.plan.distinct=false",
+        "diagnostic.plan.page=Page { limit: Some(2), offset: 0 }",
+        "diagnostic.plan.consistency=Ignore",
+    ]
+    .into_iter()
+    .map(ToOwned::to_owned)
+    .collect::<Vec<_>>();
+
+    assert_eq!(
+        diagnostics, expected,
+        "temporal ranked verbose diagnostics snapshot drifted; ordering and values are part of the explain contract",
+    );
+}
+
+#[test]
 fn query_explain_execution_verbose_reports_index_range_limit_pushdown_hints() {
     let range_predicate = Predicate::And(vec![
         Predicate::Compare(ComparePredicate::with_coercion(

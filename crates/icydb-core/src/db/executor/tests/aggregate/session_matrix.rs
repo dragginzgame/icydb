@@ -493,6 +493,263 @@ fn session_load_temporal_distinct_projection_values_preserve_semantic_types() {
 }
 
 #[test]
+fn session_load_temporal_first_last_projection_values_preserve_semantic_types() {
+    let day_one = Date::new_checked(2025, 10, 19).expect("date should build");
+    let day_two = Date::new_checked(2025, 10, 20).expect("date should build");
+    let at_one = Timestamp::from_millis(1_760_868_000_000);
+    let at_two = Timestamp::from_millis(1_760_954_400_000);
+    let elapsed_one = Duration::from_millis(1_500);
+    let elapsed_two = Duration::from_millis(2_750);
+    seed_temporal_boundary_entities(&[
+        (8_949, day_one, at_one, elapsed_one),
+        (8_950, day_two, at_two, elapsed_two),
+    ]);
+    let session = DbSession::new(DB);
+    let load_window = || session.load::<TemporalBoundaryEntity>().order_by("id");
+
+    // Phase 1: lock first-value temporal projection typing for scalar terminals.
+    let first_day = load_window()
+        .first_value_by("occurred_on")
+        .expect("first_value_by(occurred_on) should succeed");
+    let first_timestamp = load_window()
+        .first_value_by("occurred_at")
+        .expect("first_value_by(occurred_at) should succeed");
+    let first_duration = load_window()
+        .first_value_by("elapsed")
+        .expect("first_value_by(elapsed) should succeed");
+
+    // Phase 2: lock last-value temporal projection typing for scalar terminals.
+    let last_day = load_window()
+        .last_value_by("occurred_on")
+        .expect("last_value_by(occurred_on) should succeed");
+    let last_timestamp = load_window()
+        .last_value_by("occurred_at")
+        .expect("last_value_by(occurred_at) should succeed");
+    let last_duration = load_window()
+        .last_value_by("elapsed")
+        .expect("last_value_by(elapsed) should succeed");
+
+    assert_eq!(first_day, Some(Value::Date(day_one)));
+    assert_eq!(first_timestamp, Some(Value::Timestamp(at_one)));
+    assert_eq!(first_duration, Some(Value::Duration(elapsed_one)));
+    assert_eq!(last_day, Some(Value::Date(day_two)));
+    assert_eq!(last_timestamp, Some(Value::Timestamp(at_two)));
+    assert_eq!(last_duration, Some(Value::Duration(elapsed_two)));
+}
+
+#[test]
+fn session_load_temporal_values_with_ids_preserve_semantic_types() {
+    let day_one = Date::new_checked(2025, 10, 19).expect("date should build");
+    let day_two = Date::new_checked(2025, 10, 20).expect("date should build");
+    let at_one = Timestamp::from_millis(1_760_868_000_000);
+    let at_two = Timestamp::from_millis(1_760_954_400_000);
+    let elapsed_one = Duration::from_millis(1_500);
+    let elapsed_two = Duration::from_millis(2_750);
+    let id_one = Id::<TemporalBoundaryEntity>::from_key(Ulid::from_u128(8_951));
+    let id_two = Id::<TemporalBoundaryEntity>::from_key(Ulid::from_u128(8_952));
+    seed_temporal_boundary_entities(&[
+        (8_951, day_one, at_one, elapsed_one),
+        (8_952, day_two, at_two, elapsed_two),
+    ]);
+    let session = DbSession::new(DB);
+    let load_window = || session.load::<TemporalBoundaryEntity>().order_by("id");
+
+    // Phase 1: lock temporal typing for id/value projection pairs.
+    let day_pairs = load_window()
+        .values_by_with_ids("occurred_on")
+        .expect("values_by_with_ids(occurred_on) should succeed");
+    let timestamp_pairs = load_window()
+        .values_by_with_ids("occurred_at")
+        .expect("values_by_with_ids(occurred_at) should succeed");
+    let duration_pairs = load_window()
+        .values_by_with_ids("elapsed")
+        .expect("values_by_with_ids(elapsed) should succeed");
+
+    // Phase 2: assert semantic temporal variants are preserved alongside ids.
+    assert_eq!(
+        day_pairs,
+        vec![
+            (id_one, Value::Date(day_one)),
+            (id_two, Value::Date(day_two))
+        ]
+    );
+    assert_eq!(
+        timestamp_pairs,
+        vec![
+            (id_one, Value::Timestamp(at_one)),
+            (id_two, Value::Timestamp(at_two))
+        ]
+    );
+    assert_eq!(
+        duration_pairs,
+        vec![
+            (id_one, Value::Duration(elapsed_one)),
+            (id_two, Value::Duration(elapsed_two))
+        ]
+    );
+}
+
+#[test]
+fn session_load_temporal_ranked_projection_values_preserve_semantic_types() {
+    let day_one = Date::new_checked(2025, 10, 19).expect("date should build");
+    let day_two = Date::new_checked(2025, 10, 20).expect("date should build");
+    let day_three = Date::new_checked(2025, 10, 21).expect("date should build");
+    let at_one = Timestamp::from_millis(1_760_868_000_000);
+    let at_two = Timestamp::from_millis(1_760_954_400_000);
+    let at_three = Timestamp::from_millis(1_761_040_800_000);
+    let elapsed_one = Duration::from_millis(1_500);
+    let elapsed_two = Duration::from_millis(2_750);
+    let elapsed_three = Duration::from_millis(4_100);
+    let id_one = Id::<TemporalBoundaryEntity>::from_key(Ulid::from_u128(8_953));
+    let id_two = Id::<TemporalBoundaryEntity>::from_key(Ulid::from_u128(8_954));
+    let id_three = Id::<TemporalBoundaryEntity>::from_key(Ulid::from_u128(8_955));
+    seed_temporal_boundary_entities(&[
+        (8_953, day_one, at_one, elapsed_one),
+        (8_954, day_two, at_two, elapsed_two),
+        (8_955, day_three, at_three, elapsed_three),
+    ]);
+    let session = DbSession::new(DB);
+    let load_window = || session.load::<TemporalBoundaryEntity>();
+
+    // Phase 1: lock temporal value typing for ranked value projections.
+    let top_days = load_window()
+        .top_k_by_values("occurred_on", 2)
+        .expect("top_k_by_values(occurred_on) should succeed");
+    let bottom_days = load_window()
+        .bottom_k_by_values("occurred_on", 2)
+        .expect("bottom_k_by_values(occurred_on) should succeed");
+    let top_timestamps = load_window()
+        .top_k_by_values("occurred_at", 2)
+        .expect("top_k_by_values(occurred_at) should succeed");
+    let bottom_timestamps = load_window()
+        .bottom_k_by_values("occurred_at", 2)
+        .expect("bottom_k_by_values(occurred_at) should succeed");
+    let top_durations = load_window()
+        .top_k_by_values("elapsed", 2)
+        .expect("top_k_by_values(elapsed) should succeed");
+    let bottom_durations = load_window()
+        .bottom_k_by_values("elapsed", 2)
+        .expect("bottom_k_by_values(elapsed) should succeed");
+
+    assert_eq!(top_days, vec![Value::Date(day_three), Value::Date(day_two)]);
+    assert_eq!(
+        bottom_days,
+        vec![Value::Date(day_one), Value::Date(day_two)]
+    );
+    assert_eq!(
+        top_timestamps,
+        vec![Value::Timestamp(at_three), Value::Timestamp(at_two)]
+    );
+    assert_eq!(
+        bottom_timestamps,
+        vec![Value::Timestamp(at_one), Value::Timestamp(at_two)]
+    );
+    assert_eq!(
+        top_durations,
+        vec![Value::Duration(elapsed_three), Value::Duration(elapsed_two)]
+    );
+    assert_eq!(
+        bottom_durations,
+        vec![Value::Duration(elapsed_one), Value::Duration(elapsed_two)]
+    );
+
+    // Phase 2: lock temporal value typing for ranked id/value projections.
+    let top_day_pairs = load_window()
+        .top_k_by_with_ids("occurred_on", 2)
+        .expect("top_k_by_with_ids(occurred_on) should succeed");
+    let bottom_day_pairs = load_window()
+        .bottom_k_by_with_ids("occurred_on", 2)
+        .expect("bottom_k_by_with_ids(occurred_on) should succeed");
+    let top_timestamp_pairs = load_window()
+        .top_k_by_with_ids("occurred_at", 2)
+        .expect("top_k_by_with_ids(occurred_at) should succeed");
+    let bottom_duration_pairs = load_window()
+        .bottom_k_by_with_ids("elapsed", 2)
+        .expect("bottom_k_by_with_ids(elapsed) should succeed");
+
+    assert_eq!(
+        top_day_pairs,
+        vec![
+            (id_three, Value::Date(day_three)),
+            (id_two, Value::Date(day_two))
+        ]
+    );
+    assert_eq!(
+        bottom_day_pairs,
+        vec![
+            (id_one, Value::Date(day_one)),
+            (id_two, Value::Date(day_two))
+        ]
+    );
+    assert_eq!(
+        top_timestamp_pairs,
+        vec![
+            (id_three, Value::Timestamp(at_three)),
+            (id_two, Value::Timestamp(at_two))
+        ]
+    );
+    assert_eq!(
+        bottom_duration_pairs,
+        vec![
+            (id_one, Value::Duration(elapsed_one)),
+            (id_two, Value::Duration(elapsed_two))
+        ]
+    );
+}
+
+#[test]
+fn session_load_temporal_ranked_row_terminals_preserve_semantic_types() {
+    let day_one = Date::new_checked(2025, 10, 19).expect("date should build");
+    let day_two = Date::new_checked(2025, 10, 20).expect("date should build");
+    let day_three = Date::new_checked(2025, 10, 21).expect("date should build");
+    let at_one = Timestamp::from_millis(1_760_868_000_000);
+    let at_two = Timestamp::from_millis(1_760_954_400_000);
+    let at_three = Timestamp::from_millis(1_761_040_800_000);
+    let elapsed_one = Duration::from_millis(1_500);
+    let elapsed_two = Duration::from_millis(2_750);
+    let elapsed_three = Duration::from_millis(4_100);
+    seed_temporal_boundary_entities(&[
+        (8_956, day_one, at_one, elapsed_one),
+        (8_957, day_two, at_two, elapsed_two),
+        (8_958, day_three, at_three, elapsed_three),
+    ]);
+    let session = DbSession::new(DB);
+    let load_window = || session.load::<TemporalBoundaryEntity>();
+
+    // Phase 1: lock top-k row terminal typing and ordering for temporal ranking.
+    let top_response = load_window()
+        .top_k_by("occurred_on", 2)
+        .expect("top_k_by(occurred_on, 2) should succeed");
+    let top_views: Vec<_> = top_response.views().collect();
+    assert_eq!(top_views.len(), 2, "top_k_by should return two rows");
+    let _: Date = top_views[0].occurred_on;
+    let _: Timestamp = top_views[0].occurred_at;
+    let _: Duration = top_views[0].elapsed;
+    assert_eq!(top_views[0].occurred_on, day_three);
+    assert_eq!(top_views[1].occurred_on, day_two);
+    assert_eq!(top_views[0].occurred_at, at_three);
+    assert_eq!(top_views[1].occurred_at, at_two);
+    assert_eq!(top_views[0].elapsed, elapsed_three);
+    assert_eq!(top_views[1].elapsed, elapsed_two);
+
+    // Phase 2: lock bottom-k row terminal typing and ordering for temporal ranking.
+    let bottom_response = load_window()
+        .bottom_k_by("elapsed", 2)
+        .expect("bottom_k_by(elapsed, 2) should succeed");
+    let bottom_views: Vec<_> = bottom_response.views().collect();
+    assert_eq!(bottom_views.len(), 2, "bottom_k_by should return two rows");
+    let _: Date = bottom_views[0].occurred_on;
+    let _: Timestamp = bottom_views[0].occurred_at;
+    let _: Duration = bottom_views[0].elapsed;
+    assert_eq!(bottom_views[0].elapsed, elapsed_one);
+    assert_eq!(bottom_views[1].elapsed, elapsed_two);
+    assert_eq!(bottom_views[0].occurred_on, day_one);
+    assert_eq!(bottom_views[1].occurred_on, day_two);
+    assert_eq!(bottom_views[0].occurred_at, at_one);
+    assert_eq!(bottom_views[1].occurred_at, at_two);
+}
+
+#[test]
 fn session_load_bytes_empty_window_returns_zero() {
     seed_pushdown_entities(&[(8_961, 7, 10), (8_962, 7, 20), (8_963, 8, 99)]);
     let session = DbSession::new(DB);
@@ -1312,6 +1569,111 @@ fn session_load_terminal_explain_not_exists_alias_matches_exists_plan() {
         session_aggregate_terminal_plan_snapshot(&not_exists_plan),
         session_aggregate_terminal_plan_snapshot(&exists_plan),
         "not_exists explain alias must remain plan-identical to exists explain",
+    );
+}
+
+#[test]
+fn session_load_terminal_explain_first_last_preserve_temporal_order_shape_parity() {
+    let day_one = Date::new_checked(2025, 10, 19).expect("date should build");
+    let day_two = Date::new_checked(2025, 10, 20).expect("date should build");
+    let day_three = Date::new_checked(2025, 10, 21).expect("date should build");
+    let at_one = Timestamp::from_millis(1_760_868_000_000);
+    let at_two = Timestamp::from_millis(1_760_954_400_000);
+    let at_three = Timestamp::from_millis(1_761_040_800_000);
+    let elapsed_one = Duration::from_millis(1_500);
+    let elapsed_two = Duration::from_millis(2_750);
+    let elapsed_three = Duration::from_millis(4_100);
+    seed_temporal_boundary_entities(&[
+        (9_441, day_one, at_one, elapsed_one),
+        (9_442, day_two, at_two, elapsed_two),
+        (9_443, day_three, at_three, elapsed_three),
+    ]);
+    let session = DbSession::new(DB);
+    let temporal_window = || {
+        session
+            .load::<TemporalBoundaryEntity>()
+            .order_by("occurred_on")
+            .order_by("id")
+    };
+
+    // Phase 1: build explain plans for both temporal boundary terminals.
+    let first_plan = temporal_window()
+        .explain_first()
+        .expect("session explain_first should succeed");
+    let last_plan = temporal_window()
+        .explain_last()
+        .expect("session explain_last should succeed");
+    assert_eq!(first_plan.terminal(), AggregateKind::First);
+    assert_eq!(last_plan.terminal(), AggregateKind::Last);
+    assert_eq!(
+        first_plan.route(),
+        crate::db::ExplainAggregateTerminalRoute::Standard,
+        "first explain should remain on the standard terminal route",
+    );
+    assert_eq!(
+        last_plan.route(),
+        crate::db::ExplainAggregateTerminalRoute::Standard,
+        "last explain should remain on the standard terminal route",
+    );
+
+    // Phase 2: lock query and execution parity for shared temporal shape fields.
+    assert_eq!(
+        first_plan.query().access(),
+        last_plan.query().access(),
+        "first vs last explain should preserve access-shape parity for equivalent temporal windows",
+    );
+    assert_eq!(first_plan.query().order_by(), last_plan.query().order_by());
+    assert_eq!(first_plan.query().page(), last_plan.query().page());
+    assert_eq!(first_plan.query().grouping(), last_plan.query().grouping());
+    assert_eq!(
+        first_plan.query().order_pushdown(),
+        last_plan.query().order_pushdown()
+    );
+    assert_eq!(
+        first_plan.query().consistency(),
+        last_plan.query().consistency()
+    );
+    assert_eq!(
+        first_plan.execution().access_strategy(),
+        last_plan.execution().access_strategy(),
+    );
+    assert_eq!(
+        first_plan.execution().execution_mode(),
+        last_plan.execution().execution_mode(),
+        "first vs last temporal explains should agree on execution-mode classification",
+    );
+    assert_eq!(
+        first_plan.execution().ordering_source(),
+        last_plan.execution().ordering_source(),
+        "first vs last temporal explains should agree on ordering-source classification",
+    );
+    assert_eq!(first_plan.execution().limit(), None);
+    assert_eq!(last_plan.execution().limit(), None);
+    assert!(!first_plan.execution().cursor());
+    assert!(!last_plan.execution().cursor());
+
+    // Phase 3: keep descriptor parity except for terminal-specific node labels.
+    let first_node = first_plan.execution_node_descriptor();
+    let last_node = last_plan.execution_node_descriptor();
+    assert_eq!(
+        first_node.node_type(),
+        crate::db::ExplainExecutionNodeType::AggregateFirst
+    );
+    assert_eq!(
+        last_node.node_type(),
+        crate::db::ExplainExecutionNodeType::AggregateLast
+    );
+    assert_eq!(first_node.execution_mode(), last_node.execution_mode());
+    assert_eq!(first_node.access_strategy(), last_node.access_strategy());
+    assert_eq!(first_node.ordering_source(), last_node.ordering_source());
+    assert_eq!(first_node.limit(), last_node.limit());
+    assert_eq!(first_node.cursor(), last_node.cursor());
+    assert_eq!(first_node.covering_scan(), last_node.covering_scan());
+    assert_eq!(first_node.rows_expected(), last_node.rows_expected());
+    assert_eq!(
+        first_node.node_properties(),
+        last_node.node_properties(),
+        "first vs last descriptor metadata should remain stable for equivalent temporal windows",
     );
 }
 

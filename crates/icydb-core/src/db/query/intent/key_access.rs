@@ -42,7 +42,7 @@ pub(crate) struct KeyAccessState<K> {
     pub(in crate::db::query::intent) access: KeyAccess<K>,
 }
 
-// Build a model-level access plan for key-only intents.
+/// Build a model-level access plan for key-only intents.
 pub(crate) fn build_access_plan_from_keys<K>(access: &KeyAccess<K>) -> AccessPlan<Value>
 where
     K: FieldValue,
@@ -62,7 +62,7 @@ where
     normalize_access_plan_value(plan)
 }
 
-// Convert model-level access plans into entity-keyed access plans.
+/// Convert model-level access plans into entity-keyed access plans.
 pub(crate) fn access_plan_to_entity_keys<E: EntityKind>(
     model: &EntityModel,
     access: AccessPlan<Value>,
@@ -70,7 +70,7 @@ pub(crate) fn access_plan_to_entity_keys<E: EntityKind>(
     access.into_executable::<E>(model)
 }
 
-// Convert model-level key values into typed entity keys.
+/// Convert model-level key values into typed entity keys.
 pub(crate) fn coerce_entity_key<E: EntityKind>(
     model: &EntityModel,
     key: &Value,

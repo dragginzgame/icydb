@@ -61,7 +61,7 @@ enum FieldPresence {
     Missing,
 }
 
-// Compile field-name predicates to stable field-slot predicates once per query.
+/// Compile field-name predicates to stable field-slot predicates once per query.
 fn compile_predicate_program<E: EntityKind>(
     predicate: &PredicateExecutionModel,
 ) -> ResolvedPredicate {
@@ -122,7 +122,7 @@ fn compile_predicate_program<E: EntityKind>(
     }
 }
 
-// Read one field from an entity by pre-resolved slot.
+/// Read one field from an entity by pre-resolved slot.
 fn field_from_slot<E: EntityValue>(entity: &E, field_slot: Option<usize>) -> FieldPresence {
     let value = field_slot.and_then(|slot| entity.get_value_by_index(slot));
 
@@ -132,7 +132,7 @@ fn field_from_slot<E: EntityValue>(entity: &E, field_slot: Option<usize>) -> Fie
     }
 }
 
-// Evaluate one slot-based field predicate only when the field is present.
+/// Evaluate one slot-based field predicate only when the field is present.
 fn on_present_slot<E: EntityValue>(
     entity: &E,
     field_slot: Option<usize>,
@@ -144,7 +144,7 @@ fn on_present_slot<E: EntityValue>(
     }
 }
 
-// Evaluate one slot-resolved predicate against one entity.
+/// Evaluate one slot-resolved predicate against one entity.
 fn eval_with_resolved_slots<E: EntityValue>(entity: &E, predicate: &ResolvedPredicate) -> bool {
     // Evaluate recursively against slot-resolved predicates.
     match predicate {
@@ -186,7 +186,7 @@ fn eval_with_resolved_slots<E: EntityValue>(entity: &E, predicate: &ResolvedPred
     }
 }
 
-// Evaluate a slot-resolved comparison predicate against one entity.
+/// Evaluate a slot-resolved comparison predicate against one entity.
 fn eval_compare_with_resolved_slots<E: EntityValue>(
     entity: &E,
     cmp: &ResolvedComparePredicate,
@@ -198,7 +198,7 @@ fn eval_compare_with_resolved_slots<E: EntityValue>(
     eval_compare_values(&actual, cmp.op, &cmp.value, &cmp.coercion)
 }
 
-// Shared compare-op semantics for slot-path evaluation.
+/// Shared compare-op semantics for slot-path evaluation.
 pub(in crate::db) fn eval_compare_values(
     actual: &Value,
     op: CompareOp,
@@ -229,7 +229,7 @@ pub(in crate::db) fn eval_compare_values(
     }
 }
 
-// Determine whether a value is considered empty for `IsEmpty` checks.
+/// Determine whether a value is considered empty for `IsEmpty` checks.
 const fn is_empty_value(value: &Value) -> bool {
     match value {
         Value::Text(text) => text.is_empty(),
@@ -238,7 +238,7 @@ const fn is_empty_value(value: &Value) -> bool {
     }
 }
 
-// Check whether a value equals any element in a list.
+/// Check whether a value equals any element in a list.
 fn in_list(actual: &Value, list: &Value, coercion: &CoercionSpec) -> Option<bool> {
     let Value::List(items) = list else {
         return None;
@@ -256,9 +256,9 @@ fn in_list(actual: &Value, list: &Value, coercion: &CoercionSpec) -> Option<bool
     saw_valid.then_some(false)
 }
 
-// Check whether a collection contains another value.
-//
-// CONTRACT: text substring matching uses TextContains/TextContainsCi only.
+/// Check whether a collection contains another value.
+///
+/// CONTRACT: text substring matching uses TextContains/TextContainsCi only.
 fn contains(actual: &Value, needle: &Value, coercion: &CoercionSpec) -> bool {
     if matches!(actual, Value::Text(_)) {
         return false;

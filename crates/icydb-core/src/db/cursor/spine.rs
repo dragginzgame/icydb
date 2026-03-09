@@ -152,7 +152,7 @@ where
     )
 }
 
-// Decode and validate one continuation cursor against a canonical plan surface.
+/// Decode and validate one continuation cursor against a canonical plan surface.
 fn decode_validated_cursor(
     cursor: &[u8],
     entity_path: &'static str,
@@ -167,7 +167,7 @@ fn decode_validated_cursor(
 
     Ok(token)
 }
-// Validate continuation token signature against the executable signature.
+/// Validate continuation token signature against the executable signature.
 fn validate_cursor_signature(
     entity_path: &'static str,
     expected_signature: &ContinuationSignature,
@@ -184,7 +184,7 @@ fn validate_cursor_signature(
     Ok(())
 }
 
-// Validate the canonical structured cursor payload and materialize executor state.
+/// Validate the canonical structured cursor payload and materialize executor state.
 fn validate_structured_cursor<E: EntityKind, S: CursorPlanSurface<E::Key>>(
     boundary: CursorBoundary,
     index_range_anchor: Option<IndexRangeCursorAnchor>,
@@ -212,10 +212,10 @@ where
     ))
 }
 
-// Shared invariant gate for decoded cursor boundary + optional index-range anchor.
-//
-// This is the single cursor-spine boundary for direction, window-shape,
-// boundary arity/type, and index-range anchor compatibility checks.
+/// Shared invariant gate for decoded cursor boundary + optional index-range anchor.
+///
+/// This is the single cursor-spine boundary for direction, window-shape,
+/// boundary arity/type, and index-range anchor compatibility checks.
 fn validate_cursor_boundary_anchor_invariants<E: EntityKind, S: CursorPlanSurface<E::Key>>(
     boundary: &CursorBoundary,
     index_range_anchor: Option<&IndexRangeCursorAnchor>,

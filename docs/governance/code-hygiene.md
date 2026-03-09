@@ -98,6 +98,8 @@ Spacing rule for documented type declarations (`struct`, `enum`, `trait`):
 
 - Leave one blank line before the doc comment block.
 - Leave one blank line after the doc comment block and before the type declaration.
+- When attributes are present (for example `#[derive(...)]`), keep that same blank line between the
+  doc block and the first attribute; this applies equally to structs, enums, and traits.
 - Apply this consistently so type docs are visually scannable in large files.
 
 Error-enum variant formatting:

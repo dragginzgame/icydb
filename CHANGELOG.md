@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `0.46.8` aligns `exists`/`not_exists`/`is_empty` behavior across load APIs, expands date/time edge coverage, and improves verbose fallback diagnostics.
 - `0.46.9` locks strict `starts_with` index-lowering parity, adds clearer verbose text-operator fallback reasons, and keeps non-strict fallback precedence stable.
 - `0.46.10` adds temporal grouped-key and distinct-projection locks so `Date`/`Timestamp`/`Duration` values stay semantic at runtime boundaries.
+- `0.46.11` adds temporal projection, ranked-row terminal, and explain parity locks (including `explain_first`/`explain_last`) so first/last, id/value, and ranked outputs keep semantic `Date`/`Timestamp`/`Duration` values, and closes the `0.46` standards-alignment track matrix.
 
 See detailed breakdown:
 [docs/changelog/0.46.md](docs/changelog/0.46.md)

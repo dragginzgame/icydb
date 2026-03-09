@@ -92,45 +92,45 @@ impl CursorPlanError {
         "cursor pagination requires non-empty ordering"
     }
 
-    // Construct one invalid cursor-token decode error.
+    /// Construct one invalid cursor-token decode error.
     pub(in crate::db) const fn invalid_continuation_cursor(reason: CursorDecodeError) -> Self {
         Self::InvalidContinuationCursor { reason }
     }
 
-    // Construct the canonical invalid-continuation payload error variant.
+    /// Construct the canonical invalid-continuation payload error variant.
     pub(in crate::db) fn invalid_continuation_cursor_payload(reason: impl Into<String>) -> Self {
         Self::InvalidContinuationCursorPayload {
             reason: reason.into(),
         }
     }
 
-    // Construct one cursor invariant-violation error variant.
+    /// Construct one cursor invariant-violation error variant.
     pub(in crate::db) fn continuation_cursor_invariant(reason: impl Into<String>) -> Self {
         Self::ContinuationCursorInvariantViolation {
             reason: reason.into(),
         }
     }
 
-    // Construct one invariant error for missing explicit cursor ordering.
+    /// Construct one invariant error for missing explicit cursor ordering.
     pub(in crate::db) fn cursor_requires_order() -> Self {
         Self::continuation_cursor_invariant(InternalError::executor_invariant_message(
             Self::cursor_requires_order_message(),
         ))
     }
 
-    // Construct one invariant error for empty cursor ORDER BY specifications.
+    /// Construct one invariant error for empty cursor ORDER BY specifications.
     pub(in crate::db) fn cursor_requires_non_empty_order() -> Self {
         Self::continuation_cursor_invariant(InternalError::executor_invariant_message(
             Self::cursor_requires_non_empty_order_message(),
         ))
     }
 
-    // Construct one cursor version mismatch error.
+    /// Construct one cursor version mismatch error.
     pub(in crate::db) const fn continuation_cursor_version_mismatch(version: u8) -> Self {
         Self::ContinuationCursorVersionMismatch { version }
     }
 
-    // Construct one cursor-signature mismatch error for the current entity path.
+    /// Construct one cursor-signature mismatch error for the current entity path.
     pub(in crate::db) fn continuation_cursor_signature_mismatch(
         entity_path: &'static str,
         expected: &ContinuationSignature,
@@ -143,7 +143,7 @@ impl CursorPlanError {
         }
     }
 
-    // Construct one cursor boundary arity mismatch error.
+    /// Construct one cursor boundary arity mismatch error.
     pub(in crate::db) const fn continuation_cursor_boundary_arity_mismatch(
         expected: usize,
         found: usize,
@@ -151,7 +151,7 @@ impl CursorPlanError {
         Self::ContinuationCursorBoundaryArityMismatch { expected, found }
     }
 
-    // Construct one cursor window mismatch error.
+    /// Construct one cursor window mismatch error.
     pub(in crate::db) const fn continuation_cursor_window_mismatch(
         expected_offset: u32,
         actual_offset: u32,
@@ -162,7 +162,7 @@ impl CursorPlanError {
         }
     }
 
-    // Construct one non-primary-key boundary type mismatch error.
+    /// Construct one non-primary-key boundary type mismatch error.
     pub(in crate::db) fn continuation_cursor_boundary_type_mismatch(
         field: impl Into<String>,
         expected: impl Into<String>,
@@ -175,7 +175,7 @@ impl CursorPlanError {
         }
     }
 
-    // Construct one primary-key boundary type mismatch error.
+    /// Construct one primary-key boundary type mismatch error.
     pub(in crate::db) fn continuation_cursor_primary_key_type_mismatch(
         field: impl Into<String>,
         expected: impl Into<String>,
@@ -188,7 +188,7 @@ impl CursorPlanError {
         }
     }
 
-    // Map cursor token decode failures into canonical plan-surface cursor errors.
+    /// Map cursor token decode failures into canonical plan-surface cursor errors.
     pub(in crate::db) fn from_token_wire_error(err: TokenWireError) -> Self {
         match err {
             TokenWireError::Encode(message) | TokenWireError::Decode(message) => {
