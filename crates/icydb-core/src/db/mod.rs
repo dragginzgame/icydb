@@ -198,8 +198,8 @@ impl<C: CanisterKind> Db<C> {
 }
 
 impl<C: CanisterKind> Db<C> {
-    #[must_use]
     /// Return whether this db has any registered runtime hook callbacks.
+    #[must_use]
     pub(crate) const fn has_runtime_hooks(&self) -> bool {
         commit::has_runtime_hooks(self.entity_runtime_hooks)
     }

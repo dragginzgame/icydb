@@ -396,6 +396,9 @@ fn plan_predicate_pushdown_label(
         if explain_predicate_contains_is_null(predicate) {
             return "fallback(is_null_full_scan)".to_string();
         }
+        if explain_predicate_contains_text_scan_operator(predicate) {
+            return "fallback(text_operator_full_scan)".to_string();
+        }
 
         return format!("fallback({access_label})");
     }
@@ -462,6 +465,29 @@ fn explain_predicate_contains_empty_prefix_starts_with(predicate: &ExplainPredic
         | ExplainPredicate::IsNotEmpty { .. }
         | ExplainPredicate::TextContains { .. }
         | ExplainPredicate::TextContainsCi { .. } => false,
+    }
+}
+
+fn explain_predicate_contains_text_scan_operator(predicate: &ExplainPredicate) -> bool {
+    match predicate {
+        ExplainPredicate::Compare {
+            op: CompareOp::EndsWith,
+            ..
+        }
+        | ExplainPredicate::TextContains { .. }
+        | ExplainPredicate::TextContainsCi { .. } => true,
+        ExplainPredicate::And(children) | ExplainPredicate::Or(children) => children
+            .iter()
+            .any(explain_predicate_contains_text_scan_operator),
+        ExplainPredicate::Not(inner) => explain_predicate_contains_text_scan_operator(inner),
+        ExplainPredicate::Compare { .. }
+        | ExplainPredicate::None
+        | ExplainPredicate::True
+        | ExplainPredicate::False
+        | ExplainPredicate::IsNull { .. }
+        | ExplainPredicate::IsMissing { .. }
+        | ExplainPredicate::IsEmpty { .. }
+        | ExplainPredicate::IsNotEmpty { .. } => false,
     }
 }
 
@@ -682,6 +708,70 @@ mod tests {
         assert_eq!(
             plan_predicate_pushdown_label(&non_empty_prefix_predicate, &access),
             "fallback(full_scan)"
+        );
+    }
+
+    #[test]
+    fn predicate_pushdown_label_reports_text_operator_full_scan_fallback() {
+        let text_contains = ExplainPredicate::TextContainsCi {
+            field: "label".to_string(),
+            value: Value::Text("needle".to_string()),
+        };
+        let ends_with = ExplainPredicate::Compare {
+            field: "label".to_string(),
+            op: CompareOp::EndsWith,
+            value: Value::Text("fix".to_string()),
+            coercion: CoercionSpec::new(CoercionId::Strict),
+        };
+        let access = ExplainAccessPath::FullScan;
+
+        assert_eq!(
+            plan_predicate_pushdown_label(&text_contains, &access),
+            "fallback(text_operator_full_scan)"
+        );
+        assert_eq!(
+            plan_predicate_pushdown_label(&ends_with, &access),
+            "fallback(text_operator_full_scan)"
+        );
+    }
+
+    #[test]
+    fn predicate_pushdown_label_keeps_collection_contains_on_generic_full_scan_fallback() {
+        let collection_contains = ExplainPredicate::Compare {
+            field: "tags".to_string(),
+            op: CompareOp::Contains,
+            value: Value::Uint(7),
+            coercion: CoercionSpec::new(CoercionId::CollectionElement),
+        };
+        let access = ExplainAccessPath::FullScan;
+
+        assert_eq!(
+            plan_predicate_pushdown_label(&collection_contains, &access),
+            "fallback(non_strict_compare_coercion)"
+        );
+        assert_ne!(
+            plan_predicate_pushdown_label(&collection_contains, &access),
+            "fallback(text_operator_full_scan)"
+        );
+    }
+
+    #[test]
+    fn predicate_pushdown_label_non_strict_ends_with_uses_non_strict_fallback_precedence() {
+        let non_strict_ends_with = ExplainPredicate::Compare {
+            field: "label".to_string(),
+            op: CompareOp::EndsWith,
+            value: Value::Text("fix".to_string()),
+            coercion: CoercionSpec::new(CoercionId::TextCasefold),
+        };
+        let access = ExplainAccessPath::FullScan;
+
+        assert_eq!(
+            plan_predicate_pushdown_label(&non_strict_ends_with, &access),
+            "fallback(non_strict_compare_coercion)"
+        );
+        assert_ne!(
+            plan_predicate_pushdown_label(&non_strict_ends_with, &access),
+            "fallback(text_operator_full_scan)"
         );
     }
 }

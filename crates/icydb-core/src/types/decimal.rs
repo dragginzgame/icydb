@@ -59,6 +59,7 @@ impl DecimalParts {
 ///
 /// User-facing parse failure for decimal text input.
 ///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ParseDecimalError {
     message: String,
@@ -110,10 +111,10 @@ impl Decimal {
         MAX_SUPPORTED_SCALE
     }
 
-    #[must_use]
     /// Construct a decimal from mantissa and scale.
     ///
     /// Panics when `scale` exceeds the supported range.
+    #[must_use]
     pub const fn new(num: i64, scale: u32) -> Self {
         assert!(
             scale <= MAX_SUPPORTED_SCALE,
@@ -122,8 +123,8 @@ impl Decimal {
         Self::new_unchecked(num, scale)
     }
 
-    #[must_use]
     /// Fallible constructor from mantissa and scale.
+    #[must_use]
     pub const fn try_new(num: i64, scale: u32) -> Option<Self> {
         if scale > MAX_SUPPORTED_SCALE {
             return None;
@@ -132,11 +133,11 @@ impl Decimal {
         Some(Self::new_unchecked(num, scale))
     }
 
-    #[must_use]
     /// Unchecked constructor from mantissa and scale.
     ///
     /// This constructor may violate the decimal scale invariant and should only
     /// be used when the caller already enforces `scale <= MAX_SUPPORTED_SCALE`.
+    #[must_use]
     pub const fn new_unchecked(num: i64, scale: u32) -> Self {
         Self {
             mantissa: num as i128,
@@ -313,8 +314,8 @@ impl Decimal {
     /// WRAPPED FUNCTIONS
     ///
 
-    #[must_use]
     /// Round to a given number of decimal places.
+    #[must_use]
     pub const fn round_dp(&self, dp: u32) -> Self {
         if self.scale <= dp {
             return *self;
@@ -345,8 +346,8 @@ impl Decimal {
         }
     }
 
-    #[must_use]
     /// Return the absolute value of the decimal.
+    #[must_use]
     pub const fn abs(&self) -> Self {
         Self {
             mantissa: self.mantissa.saturating_abs(),
@@ -392,8 +393,8 @@ impl Decimal {
         self.checked_rem_impl(rhs)
     }
 
-    #[must_use]
     /// Integer exponentiation.
+    #[must_use]
     pub fn powu(&self, exp: u64) -> Self {
         if exp == 0 {
             return Self::new(1, 0);
@@ -418,14 +419,14 @@ impl Decimal {
         acc
     }
 
-    #[must_use]
     /// Build from a raw mantissa and scale.
+    #[must_use]
     pub fn from_i128_with_scale(num: i128, scale: u32) -> Self {
         Self::checked_from_mantissa_scale(num, scale).unwrap_or(Self::ZERO)
     }
 
-    #[must_use]
     /// Normalize trailing zeros.
+    #[must_use]
     pub const fn normalize(&self) -> Self {
         let (mantissa, scale) = self.normalized_parts();
         Self { mantissa, scale }

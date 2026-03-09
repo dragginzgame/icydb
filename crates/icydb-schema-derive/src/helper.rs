@@ -65,8 +65,8 @@ pub fn to_path<T: ToTokens>(t: &T) -> TokenStream {
     quote! { <#t as ::icydb::traits::Path>::PATH }
 }
 
-#[must_use]
 /// Split a comma-separated list into idents for Darling parsing.
+#[must_use]
 pub fn split_idents(s: String) -> Vec<Ident> {
     s.split(',')
         .map(str::trim)

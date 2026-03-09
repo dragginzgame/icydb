@@ -23,6 +23,7 @@ use thiserror::Error as ThisError;
 pub enum Float64DecodeError {
     #[error("invalid float64 length: {len} bytes")]
     InvalidSize { len: usize },
+
     #[error("non-finite float64 payload")]
     NonFinite,
 }
@@ -38,8 +39,8 @@ pub enum Float64DecodeError {
 pub struct Float64(f64);
 
 impl Float64 {
-    #[must_use]
     /// Fallible constructor that rejects non-finite values and normalizes -0.0.
+    #[must_use]
     pub fn try_new(v: f64) -> Option<Self> {
         if !v.is_finite() {
             return None;

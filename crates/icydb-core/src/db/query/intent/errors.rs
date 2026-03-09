@@ -67,8 +67,8 @@ pub enum QueryExecutionError {
 }
 
 impl QueryExecutionError {
-    #[must_use]
     /// Borrow the wrapped classified runtime error.
+    #[must_use]
     pub const fn as_internal(&self) -> &InternalError {
         match self {
             Self::Corruption(err)

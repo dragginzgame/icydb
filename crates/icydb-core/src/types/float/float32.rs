@@ -16,6 +16,19 @@ use std::{
 use thiserror::Error as ThisError;
 
 ///
+/// Float32DecodeError
+///
+
+#[derive(Debug, ThisError)]
+pub enum Float32DecodeError {
+    #[error("invalid float32 length: {len} bytes")]
+    InvalidSize { len: usize },
+
+    #[error("non-finite float32 payload")]
+    NonFinite,
+}
+
+///
 /// Float32
 ///
 /// Finite f32 only; -0.0 canonically stored as 0.0
@@ -26,8 +39,8 @@ use thiserror::Error as ThisError;
 pub struct Float32(f32);
 
 impl Float32 {
-    #[must_use]
     /// Fallible constructor that rejects non-finite values and normalizes -0.0.
+    #[must_use]
     pub fn try_new(v: f32) -> Option<Self> {
         if !v.is_finite() {
             return None;
@@ -191,18 +204,6 @@ impl PartialOrd for Float32 {
 impl SanitizeAuto for Float32 {}
 
 impl SanitizeCustom for Float32 {}
-
-///
-/// Float32DecodeError
-///
-
-#[derive(Debug, ThisError)]
-pub enum Float32DecodeError {
-    #[error("invalid float32 length: {len} bytes")]
-    InvalidSize { len: usize },
-    #[error("non-finite float32 payload")]
-    NonFinite,
-}
 
 impl TryFrom<&[u8]> for Float32 {
     type Error = Float32DecodeError;

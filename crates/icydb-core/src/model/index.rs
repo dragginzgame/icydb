@@ -58,8 +58,8 @@ impl IndexModel {
         self.unique
     }
 
-    #[must_use]
     /// Whether this index's field prefix matches the start of another index.
+    #[must_use]
     pub fn is_prefix_of(&self, other: &Self) -> bool {
         self.fields().len() < other.fields().len() && other.fields().starts_with(self.fields())
     }

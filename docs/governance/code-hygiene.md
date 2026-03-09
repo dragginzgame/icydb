@@ -37,6 +37,40 @@ Rules:
 - Avoid inline `crate::long::path::...` usage inside functions.
 - When deriving or implementing `Display`, prefer `use std::fmt::{self, Display};` for consistency with adjacent formatting impls.
 
+Required top-of-file sequence (module files):
+
+1. `mod ...;` declarations
+2. one blank line
+3. `use ...;` imports
+4. one blank line
+5. `pub use ...;` / `pub(crate) use ...;` / `pub(in ...) use ...;` re-exports
+6. one blank line
+7. constants, type declarations, and functions
+
+This includes test-only re-exports/imports:
+
+- `#[cfg(test)] pub use ...;` still belongs in the re-export block.
+- `#[cfg(test)] mod tests;` belongs with the `mod ...;` declarations.
+
+Example:
+
+```rust
+mod alpha;
+mod beta;
+#[cfg(test)]
+mod tests;
+
+use crate::something::Thing;
+use std::collections::BTreeMap;
+
+pub use alpha::Alpha;
+pub(crate) use beta::Beta;
+#[cfg(test)]
+pub(crate) use beta::beta_for_test;
+
+const LIMIT: usize = 128;
+```
+
 ## 2. Module Header Comments
 
 Every module should begin with a module-level documentation header describing ownership and boundaries.
@@ -65,6 +99,12 @@ Spacing rule for documented type declarations (`struct`, `enum`, `trait`):
 - Leave one blank line before the doc comment block.
 - Leave one blank line after the doc comment block and before the type declaration.
 - Apply this consistently so type docs are visually scannable in large files.
+
+Error-enum variant formatting:
+
+- Keep one blank line between variant blocks (attribute + variant).
+- Keep a blank line after the last variant block before the closing `}`.
+- Prefer alphabetical variant order by variant name for readability and low-friction diffs.
 
 Example:
 

@@ -19,7 +19,7 @@ use thiserror::Error as ThisError;
 use ulid::Ulid as WrappedUlid;
 
 ///
-/// Error
+/// UlidError
 ///
 
 #[derive(Debug, ThisError)]
@@ -75,8 +75,8 @@ impl Ulid {
         Self::try_generate().unwrap_or_else(|_| Self::nil())
     }
 
-    #[must_use]
     /// Monotonic increment; returns `None` on overflow.
+    #[must_use]
     pub fn increment(&self) -> Option<Self> {
         self.0.increment().map(Self::from)
     }

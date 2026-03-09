@@ -1,8 +1,8 @@
 pub mod implementor;
 
-pub use implementor::*;
-
 use crate::{prelude::*, view::*};
+
+pub use implementor::*;
 
 ///
 /// Common interface for all node generators.

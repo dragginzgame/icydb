@@ -57,8 +57,8 @@ pub(in crate::db::executor) const fn field_kind_supports_numeric_aggregation(
     field_kind_supports_aggregate_numeric(kind)
 }
 
-#[must_use]
 /// Return whether the named field supports deterministic aggregate ordering.
+#[must_use]
 pub(in crate::db::executor) fn field_is_orderable<E: EntityKind>(field: &str) -> bool {
     let Some(field_model) = E::MODEL
         .fields

@@ -1,11 +1,11 @@
 mod number;
 
-pub use number::*;
-
 use crate::prelude::*;
 use darling::{Error as DarlingError, FromMeta, ast::NestedMeta};
 use derive_more::Deref;
 use syn::{Lit, LitStr, Path};
+
+pub use number::*;
 
 ///
 /// Arg
@@ -121,6 +121,7 @@ impl ToTokens for Arg {
         tokens.extend(q);
     }
 }
+
 ///
 /// Args
 /// Generic re-useable list of arguments

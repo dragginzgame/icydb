@@ -82,8 +82,8 @@ impl Account {
         }
     }
 
-    #[must_use]
     /// Test helper that builds a deterministic account from a byte seed.
+    #[must_use]
     pub fn dummy(v: u8) -> Self {
         let p = Principal::from_slice(&[v]);
         let s = [v; 32];

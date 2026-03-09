@@ -94,6 +94,7 @@ fn compile_index_program_operator_matrix_matches_strict_subset() {
             CompareOp::NotIn,
             Value::List(vec![Value::Uint(11), Value::Uint(12)]),
         ),
+        (CompareOp::StartsWith, Value::Text("x".to_string())),
     ];
     for (op, value) in eligible {
         let predicate = ResolvedPredicate::Compare(ResolvedComparePredicate {
@@ -113,7 +114,6 @@ fn compile_index_program_operator_matrix_matches_strict_subset() {
 
     let ineligible = [
         (CompareOp::Contains, Value::Text("x".to_string())),
-        (CompareOp::StartsWith, Value::Text("x".to_string())),
         (CompareOp::EndsWith, Value::Text("x".to_string())),
     ];
     for (op, value) in ineligible {
@@ -131,6 +131,172 @@ fn compile_index_program_operator_matrix_matches_strict_subset() {
             "op {op:?} should stay on fallback execution",
         );
     }
+}
+
+#[test]
+fn compile_index_program_starts_with_compiles_to_bounded_range_compare_pair() {
+    let predicate = ResolvedPredicate::Compare(ResolvedComparePredicate {
+        field_slot: Some(1),
+        op: CompareOp::StartsWith,
+        value: Value::Text("foo".to_string()),
+        coercion: CoercionSpec::new(CoercionId::Strict),
+    });
+
+    let program = compile_index_program(&predicate, &[1], IndexCompilePolicy::ConservativeSubset)
+        .expect("strict starts-with should compile for index prefilter");
+    let expected_lower =
+        literal_index_component_bytes(&Value::Text("foo".to_string())).expect("lower bytes");
+    let expected_upper =
+        literal_index_component_bytes(&Value::Text("fop".to_string())).expect("upper bytes");
+
+    assert_eq!(
+        program,
+        IndexPredicateProgram::And(vec![
+            IndexPredicateProgram::Compare {
+                component_index: 0,
+                op: IndexCompareOp::Gte,
+                literal: IndexLiteral::One(expected_lower),
+            },
+            IndexPredicateProgram::Compare {
+                component_index: 0,
+                op: IndexCompareOp::Lt,
+                literal: IndexLiteral::One(expected_upper),
+            },
+        ]),
+    );
+}
+
+#[test]
+fn compile_index_program_starts_with_rejects_empty_prefix() {
+    let predicate = ResolvedPredicate::Compare(ResolvedComparePredicate {
+        field_slot: Some(1),
+        op: CompareOp::StartsWith,
+        value: Value::Text(String::new()),
+        coercion: CoercionSpec::new(CoercionId::Strict),
+    });
+
+    let program = compile_index_program(&predicate, &[1], IndexCompilePolicy::ConservativeSubset);
+    assert!(program.is_none());
+}
+
+#[test]
+fn compile_index_program_starts_with_high_unicode_skips_surrogate_gap_upper_bound() {
+    let prefix = format!("foo{}", char::from_u32(0xD7FF).expect("valid scalar"));
+    let predicate = ResolvedPredicate::Compare(ResolvedComparePredicate {
+        field_slot: Some(1),
+        op: CompareOp::StartsWith,
+        value: Value::Text(prefix.clone()),
+        coercion: CoercionSpec::new(CoercionId::Strict),
+    });
+
+    let program = compile_index_program(&predicate, &[1], IndexCompilePolicy::ConservativeSubset)
+        .expect("strict starts-with should compile for high-unicode prefix");
+    let expected_lower =
+        literal_index_component_bytes(&Value::Text(prefix)).expect("lower bytes should convert");
+    let expected_upper = literal_index_component_bytes(&Value::Text(format!(
+        "foo{}",
+        char::from_u32(0xE000).expect("valid scalar")
+    )))
+    .expect("upper bytes should skip surrogate gap");
+
+    assert_eq!(
+        program,
+        IndexPredicateProgram::And(vec![
+            IndexPredicateProgram::Compare {
+                component_index: 0,
+                op: IndexCompareOp::Gte,
+                literal: IndexLiteral::One(expected_lower),
+            },
+            IndexPredicateProgram::Compare {
+                component_index: 0,
+                op: IndexCompareOp::Lt,
+                literal: IndexLiteral::One(expected_upper),
+            },
+        ]),
+    );
+}
+
+#[test]
+fn compile_index_program_starts_with_max_unicode_compiles_to_lower_bound_only() {
+    let prefix = char::from_u32(0x10_FFFF).expect("valid scalar").to_string();
+    let predicate = ResolvedPredicate::Compare(ResolvedComparePredicate {
+        field_slot: Some(1),
+        op: CompareOp::StartsWith,
+        value: Value::Text(prefix.clone()),
+        coercion: CoercionSpec::new(CoercionId::Strict),
+    });
+
+    let program = compile_index_program(&predicate, &[1], IndexCompilePolicy::ConservativeSubset)
+        .expect("max-unicode starts-with should compile to one lower-bound compare");
+    let expected_lower =
+        literal_index_component_bytes(&Value::Text(prefix)).expect("lower bytes should convert");
+
+    assert_eq!(
+        program,
+        IndexPredicateProgram::Compare {
+            component_index: 0,
+            op: IndexCompareOp::Gte,
+            literal: IndexLiteral::One(expected_lower),
+        },
+    );
+}
+
+#[test]
+fn compile_index_program_strict_mode_accepts_starts_with_bounded_prefix() {
+    let predicate = ResolvedPredicate::Compare(ResolvedComparePredicate {
+        field_slot: Some(1),
+        op: CompareOp::StartsWith,
+        value: Value::Text("foo".to_string()),
+        coercion: CoercionSpec::new(CoercionId::Strict),
+    });
+
+    let program = compile_index_program(&predicate, &[1], IndexCompilePolicy::StrictAllOrNone)
+        .expect("strict-all-or-none should compile starts-with when fully index-expressible");
+    let expected_lower =
+        literal_index_component_bytes(&Value::Text("foo".to_string())).expect("lower bytes");
+    let expected_upper =
+        literal_index_component_bytes(&Value::Text("fop".to_string())).expect("upper bytes");
+
+    assert_eq!(
+        program,
+        IndexPredicateProgram::And(vec![
+            IndexPredicateProgram::Compare {
+                component_index: 0,
+                op: IndexCompareOp::Gte,
+                literal: IndexLiteral::One(expected_lower),
+            },
+            IndexPredicateProgram::Compare {
+                component_index: 0,
+                op: IndexCompareOp::Lt,
+                literal: IndexLiteral::One(expected_upper),
+            },
+        ]),
+    );
+}
+
+#[test]
+fn compile_index_program_strict_mode_accepts_starts_with_max_unicode_prefix() {
+    let prefix = char::from_u32(0x10_FFFF).expect("valid scalar").to_string();
+    let predicate = ResolvedPredicate::Compare(ResolvedComparePredicate {
+        field_slot: Some(1),
+        op: CompareOp::StartsWith,
+        value: Value::Text(prefix.clone()),
+        coercion: CoercionSpec::new(CoercionId::Strict),
+    });
+
+    let program = compile_index_program(&predicate, &[1], IndexCompilePolicy::StrictAllOrNone)
+        .expect("strict-all-or-none should compile max-unicode starts-with lower-bound form");
+    let expected_lower =
+        literal_index_component_bytes(&Value::Text(prefix)).expect("lower bytes should convert");
+
+    assert_eq!(
+        program,
+        IndexPredicateProgram::Compare {
+            component_index: 0,
+            op: IndexCompareOp::Gte,
+            literal: IndexLiteral::One(expected_lower),
+        },
+    );
 }
 
 #[test]

@@ -33,8 +33,8 @@ pub struct EntityRuntimeHooks<C: CanisterKind> {
 }
 
 impl<C: CanisterKind> EntityRuntimeHooks<C> {
-    #[must_use]
     /// Build one runtime hook contract for a concrete runtime entity.
+    #[must_use]
     pub(in crate::db) const fn new(
         entity_name: &'static str,
         entity_path: &'static str,
@@ -51,8 +51,8 @@ impl<C: CanisterKind> EntityRuntimeHooks<C> {
         }
     }
 
-    #[must_use]
     /// Build runtime hooks from one entity type.
+    #[must_use]
     pub const fn for_entity<E>() -> Self
     where
         E: EntityKind<Canister = C> + EntityValue,

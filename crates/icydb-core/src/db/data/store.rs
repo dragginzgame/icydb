@@ -20,8 +20,8 @@ use derive_more::Deref;
 pub struct DataStore(BTreeMap<RawDataKey, RawRow, VirtualMemory<DefaultMemoryImpl>>);
 
 impl DataStore {
-    #[must_use]
     /// Initialize a data store with the provided backing memory.
+    #[must_use]
     pub fn init(memory: VirtualMemory<DefaultMemoryImpl>) -> Self {
         Self(BTreeMap::init(memory))
     }

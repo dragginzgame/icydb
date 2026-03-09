@@ -131,34 +131,34 @@ impl EntityName {
         })
     }
 
-    #[must_use]
     /// Return the stored entity-name length.
+    #[must_use]
     pub const fn len(&self) -> usize {
         self.len as usize
     }
 
-    #[must_use]
     /// Return whether the stored entity-name length is zero.
+    #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
-    #[must_use]
     /// Borrow raw identity bytes excluding trailing fixed-buffer padding.
+    #[must_use]
     pub fn as_bytes(&self) -> &[u8] {
         &self.bytes[..self.len()]
     }
 
-    #[must_use]
     /// Borrow the entity name as UTF-8 text.
+    #[must_use]
     pub fn as_str(&self) -> &str {
         // Invariant: construction and decoding enforce ASCII-only storage,
         // so UTF-8 decoding cannot fail.
         std::str::from_utf8(self.as_bytes()).expect("EntityName invariant: ASCII-only storage")
     }
 
-    #[must_use]
     /// Encode this identity into its fixed-size persisted representation.
+    #[must_use]
     pub fn to_bytes(self) -> [u8; Self::STORED_SIZE_USIZE] {
         let mut out = [0u8; Self::STORED_SIZE_USIZE];
         out[0] = self.len;
@@ -194,8 +194,8 @@ impl EntityName {
         })
     }
 
-    #[must_use]
     /// Return a maximal sortable entity identity sentinel value.
+    #[must_use]
     pub const fn max_storable() -> Self {
         Self {
             len: MAX_ENTITY_NAME_LEN as u8,
@@ -296,22 +296,22 @@ impl IndexName {
         })
     }
 
-    #[must_use]
     /// Borrow raw index-identity bytes excluding trailing fixed-buffer padding.
+    #[must_use]
     pub fn as_bytes(&self) -> &[u8] {
         &self.bytes[..self.len as usize]
     }
 
-    #[must_use]
     /// Borrow the index identity as UTF-8 text.
+    #[must_use]
     pub fn as_str(&self) -> &str {
         // Invariant: construction and decoding enforce ASCII-only storage,
         // so UTF-8 decoding cannot fail.
         std::str::from_utf8(self.as_bytes()).expect("IndexName invariant: ASCII-only storage")
     }
 
-    #[must_use]
     /// Encode this identity into its fixed-size persisted representation.
+    #[must_use]
     pub fn to_bytes(self) -> [u8; Self::STORED_SIZE_USIZE] {
         let mut out = [0u8; Self::STORED_SIZE_USIZE];
         out[..2].copy_from_slice(&self.len.to_be_bytes());
@@ -354,8 +354,8 @@ impl IndexName {
         *len = end;
     }
 
-    #[must_use]
     /// Return a maximal sortable index identity sentinel value.
+    #[must_use]
     pub const fn max_storable() -> Self {
         Self {
             len: MAX_INDEX_NAME_LEN as u16,

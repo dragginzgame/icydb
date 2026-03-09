@@ -241,6 +241,40 @@ crate::test_entity_schema! {
 }
 
 ///
+/// TextPrefixParityEntity
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+struct TextPrefixParityEntity {
+    id: Ulid,
+    label: String,
+}
+
+static TEXT_PREFIX_PARITY_INDEX_FIELDS: [&str; 1] = ["label"];
+static TEXT_PREFIX_PARITY_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
+    "label_prefix",
+    TestDataStore::PATH,
+    &TEXT_PREFIX_PARITY_INDEX_FIELDS,
+    false,
+)];
+
+crate::test_entity_schema! {
+    ident = TextPrefixParityEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "TextPrefixParityEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("label", FieldKind::Text),
+    ],
+    indexes = [&TEXT_PREFIX_PARITY_INDEX_MODELS[0]],
+    store = TestDataStore,
+    canister = TestCanister,
+}
+
+///
 /// SingletonUnitEntity
 ///
 

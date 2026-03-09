@@ -1512,6 +1512,94 @@ fn query_explain_execution_verbose_reports_empty_prefix_starts_with_fallback_rea
 }
 
 #[test]
+fn query_explain_execution_verbose_reports_text_operator_fallback_reason_path() {
+    let text_contains_ci_verbose = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::TextContainsCi {
+            field: "label".to_string(),
+            value: Value::Text("label".to_string()),
+        })
+        .explain_execution_verbose()
+        .expect("text-contains-ci verbose explain should build");
+    let ends_with_verbose = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "label",
+            CompareOp::EndsWith,
+            Value::Text("fix".to_string()),
+            CoercionId::Strict,
+        )))
+        .explain_execution_verbose()
+        .expect("ends-with verbose explain should build");
+
+    let text_contains_ci_diagnostics = verbose_diagnostics_map(&text_contains_ci_verbose);
+    let ends_with_diagnostics = verbose_diagnostics_map(&ends_with_verbose);
+    assert_eq!(
+        text_contains_ci_diagnostics.get(DIAG_PLAN_PREDICATE_PUSHDOWN),
+        Some(&"fallback(text_operator_full_scan)".to_string()),
+        "text contains-ci should surface dedicated text-operator full-scan fallback reason",
+    );
+    assert_eq!(
+        ends_with_diagnostics.get(DIAG_PLAN_PREDICATE_PUSHDOWN),
+        Some(&"fallback(text_operator_full_scan)".to_string()),
+        "ends-with compare should surface dedicated text-operator full-scan fallback reason",
+    );
+    assert_eq!(
+        text_contains_ci_diagnostics.get(DIAG_ROUTE_PREDICATE_STAGE),
+        Some(&"residual_post_access".to_string()),
+        "text-operator fallback should preserve residual predicate-stage diagnostics",
+    );
+}
+
+#[test]
+fn query_explain_execution_verbose_non_strict_ends_with_uses_non_strict_fallback_precedence() {
+    let non_strict_ends_with_verbose = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "label",
+            CompareOp::EndsWith,
+            Value::Text("fix".to_string()),
+            CoercionId::TextCasefold,
+        )))
+        .explain_execution_verbose()
+        .expect("non-strict ends-with verbose explain should build");
+
+    let diagnostics = verbose_diagnostics_map(&non_strict_ends_with_verbose);
+    assert_eq!(
+        diagnostics.get(DIAG_PLAN_PREDICATE_PUSHDOWN),
+        Some(&"fallback(non_strict_compare_coercion)".to_string()),
+        "non-strict ends-with should report non-strict compare fallback reason",
+    );
+    assert_ne!(
+        diagnostics.get(DIAG_PLAN_PREDICATE_PUSHDOWN),
+        Some(&"fallback(text_operator_full_scan)".to_string()),
+        "non-strict ends-with should not be classified as text-operator fallback",
+    );
+}
+
+#[test]
+fn query_explain_execution_verbose_keeps_collection_contains_on_generic_full_scan_fallback() {
+    let collection_contains_verbose = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "tags",
+            CompareOp::Contains,
+            Value::Uint(7),
+            CoercionId::CollectionElement,
+        )))
+        .explain_execution_verbose()
+        .expect("collection contains verbose explain should build");
+
+    let diagnostics = verbose_diagnostics_map(&collection_contains_verbose);
+    assert_eq!(
+        diagnostics.get(DIAG_PLAN_PREDICATE_PUSHDOWN),
+        Some(&"fallback(non_strict_compare_coercion)".to_string()),
+        "collection-element contains should continue to report non-strict compare fallback",
+    );
+    assert_ne!(
+        diagnostics.get(DIAG_PLAN_PREDICATE_PUSHDOWN),
+        Some(&"fallback(text_operator_full_scan)".to_string()),
+        "collection-element contains should not be classified as text-operator fallback",
+    );
+}
+
+#[test]
 fn query_explain_execution_verbose_diagnostics_snapshot_for_is_null_fallback_shape() {
     let verbose = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(Predicate::IsNull {
@@ -1727,6 +1815,131 @@ fn query_explain_execution_verbose_reports_equivalent_between_and_eq_parity() {
         between_diagnostics.get(DIAG_ROUTE_PREDICATE_STAGE),
         eq_diagnostics.get(DIAG_ROUTE_PREDICATE_STAGE),
         "equivalent BETWEEN-style bounds and strict equality should preserve route predicate-stage parity",
+    );
+}
+
+#[test]
+fn query_explain_execution_verbose_reports_equivalent_prefix_like_route_stage_parity() {
+    let starts_with_verbose = Query::<TextPrefixParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "label",
+            CompareOp::StartsWith,
+            Value::Text("foo".to_string()),
+            CoercionId::Strict,
+        )))
+        .order_by("label")
+        .order_by("id")
+        .explain_execution_verbose()
+        .expect("starts-with verbose explain should build");
+    let equivalent_range_verbose = Query::<TextPrefixParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "label",
+                CompareOp::Gte,
+                Value::Text("foo".to_string()),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "label",
+                CompareOp::Lt,
+                Value::Text("fop".to_string()),
+                CoercionId::Strict,
+            )),
+        ]))
+        .order_by("label")
+        .order_by("id")
+        .explain_execution_verbose()
+        .expect("equivalent-range verbose explain should build");
+
+    let starts_with_diagnostics = verbose_diagnostics_map(&starts_with_verbose);
+    let equivalent_range_diagnostics = verbose_diagnostics_map(&equivalent_range_verbose);
+    assert_eq!(
+        starts_with_diagnostics.get(DIAG_PLAN_PREDICATE_PUSHDOWN),
+        equivalent_range_diagnostics.get(DIAG_PLAN_PREDICATE_PUSHDOWN),
+        "equivalent prefix-like and bounded-range forms should report identical predicate pushdown reason labels",
+    );
+    assert_eq!(
+        starts_with_diagnostics.get(DIAG_ROUTE_PREDICATE_STAGE),
+        equivalent_range_diagnostics.get(DIAG_ROUTE_PREDICATE_STAGE),
+        "equivalent prefix-like and bounded-range forms should preserve route predicate-stage parity",
+    );
+}
+
+#[test]
+fn query_explain_execution_verbose_reports_indexed_prefix_like_strict_prefilter_stage() {
+    let starts_with_verbose = Query::<TextPrefixParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "label",
+            CompareOp::StartsWith,
+            Value::Text("foo".to_string()),
+            CoercionId::Strict,
+        )))
+        .order_by("label")
+        .order_by("id")
+        .explain_execution_verbose()
+        .expect("starts-with verbose explain should build");
+
+    let diagnostics = verbose_diagnostics_map(&starts_with_verbose);
+    assert_eq!(
+        diagnostics.get(DIAG_PLAN_PREDICATE_PUSHDOWN),
+        Some(&"applied(index_range)".to_string()),
+        "indexed starts-with should report index-range pushdown at plan diagnostics",
+    );
+    assert_eq!(
+        diagnostics.get(DIAG_ROUTE_PREDICATE_STAGE),
+        Some(&"index_prefilter(strict_all_or_none)".to_string()),
+        "indexed strict starts-with should compile to strict index prefilter route stage",
+    );
+    assert_eq!(
+        diagnostics.get("diagnostic.descriptor.has_index_predicate_prefilter"),
+        Some(&"true".to_string()),
+        "indexed strict starts-with should emit index prefilter descriptor node",
+    );
+    assert_eq!(
+        diagnostics.get("diagnostic.descriptor.has_residual_predicate_filter"),
+        Some(&"false".to_string()),
+        "indexed strict starts-with should not require residual predicate filtering",
+    );
+}
+
+#[test]
+fn query_explain_execution_verbose_reports_max_unicode_prefix_like_parity() {
+    let prefix = char::from_u32(0x10_FFFF).expect("valid scalar").to_string();
+    let starts_with_verbose = Query::<TextPrefixParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "label",
+            CompareOp::StartsWith,
+            Value::Text(prefix.clone()),
+            CoercionId::Strict,
+        )))
+        .order_by("label")
+        .order_by("id")
+        .explain_execution_verbose()
+        .expect("max-unicode starts-with verbose explain should build");
+    let equivalent_lower_bound_verbose =
+        Query::<TextPrefixParityEntity>::new(MissingRowPolicy::Ignore)
+            .filter(Predicate::Compare(ComparePredicate::with_coercion(
+                "label",
+                CompareOp::Gte,
+                Value::Text(prefix),
+                CoercionId::Strict,
+            )))
+            .order_by("label")
+            .order_by("id")
+            .explain_execution_verbose()
+            .expect("equivalent lower-bound verbose explain should build");
+
+    let starts_with_diagnostics = verbose_diagnostics_map(&starts_with_verbose);
+    let lower_bound_diagnostics = verbose_diagnostics_map(&equivalent_lower_bound_verbose);
+    assert_eq!(
+        starts_with_diagnostics.get(DIAG_PLAN_PREDICATE_PUSHDOWN),
+        lower_bound_diagnostics.get(DIAG_PLAN_PREDICATE_PUSHDOWN),
+        "max-unicode prefix-like and equivalent lower-bound forms should report identical predicate pushdown reason labels",
+    );
+    assert_eq!(
+        starts_with_diagnostics.get(DIAG_ROUTE_PREDICATE_STAGE),
+        lower_bound_diagnostics.get(DIAG_ROUTE_PREDICATE_STAGE),
+        "max-unicode prefix-like and equivalent lower-bound forms should preserve route predicate-stage parity",
     );
 }
 

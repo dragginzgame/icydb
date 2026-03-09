@@ -155,7 +155,9 @@ fn compile_compare_index_node(
                 | CompareOp::NotIn
                 | CompareOp::Contains
                 | CompareOp::StartsWith
-                | CompareOp::EndsWith => unreachable!("op branch must match index compare subset"),
+                | CompareOp::EndsWith => {
+                    unreachable!("op branch must match index compare subset")
+                }
             };
 
             Some(IndexPredicateProgram::Compare {
@@ -195,6 +197,66 @@ fn compile_compare_index_node(
                 literal: IndexLiteral::Many(literals),
             })
         }
-        CompareOp::Contains | CompareOp::StartsWith | CompareOp::EndsWith => None,
+        CompareOp::StartsWith => compile_starts_with_index_node(component_index, &cmp.value),
+        CompareOp::Contains | CompareOp::EndsWith => None,
     }
+}
+
+fn compile_starts_with_index_node(
+    component_index: usize,
+    value: &Value,
+) -> Option<IndexPredicateProgram> {
+    let Value::Text(prefix) = value else {
+        return None;
+    };
+    if prefix.is_empty() {
+        return None;
+    }
+
+    let lower_literal = literal_index_component_bytes(&Value::Text(prefix.clone()))?;
+    let lower = IndexPredicateProgram::Compare {
+        component_index,
+        op: IndexCompareOp::Gte,
+        literal: IndexLiteral::One(lower_literal),
+    };
+
+    let Some(upper_prefix) = next_text_prefix(prefix) else {
+        return Some(lower);
+    };
+
+    let upper_literal = literal_index_component_bytes(&Value::Text(upper_prefix))?;
+    let upper = IndexPredicateProgram::Compare {
+        component_index,
+        op: IndexCompareOp::Lt,
+        literal: IndexLiteral::One(upper_literal),
+    };
+
+    Some(IndexPredicateProgram::And(vec![lower, upper]))
+}
+
+fn next_text_prefix(prefix: &str) -> Option<String> {
+    let mut chars = prefix.chars().collect::<Vec<_>>();
+    for index in (0..chars.len()).rev() {
+        let Some(next_char) = next_unicode_scalar(chars[index]) else {
+            continue;
+        };
+        chars.truncate(index);
+        chars.push(next_char);
+        return Some(chars.into_iter().collect());
+    }
+
+    None
+}
+
+fn next_unicode_scalar(value: char) -> Option<char> {
+    if value == char::MAX {
+        return None;
+    }
+
+    let mut next = u32::from(value).saturating_add(1);
+    if (0xD800..=0xDFFF).contains(&next) {
+        next = 0xE000;
+    }
+
+    char::from_u32(next)
 }

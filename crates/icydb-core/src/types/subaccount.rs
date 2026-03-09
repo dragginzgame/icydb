@@ -52,8 +52,8 @@ impl Subaccount {
         Self(array)
     }
 
-    #[must_use]
     /// Recover a ULID from the lower 16 bytes of the subaccount.
+    #[must_use]
     pub fn to_ulid(&self) -> Ulid {
         let bytes = self.to_array();
         let ulid_bytes: [u8; 16] = bytes[16..].try_into().expect("slice has exactly 16 bytes");

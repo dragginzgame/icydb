@@ -411,8 +411,8 @@ fn read_perf_counter() -> u64 {
 }
 
 impl<E: EntityKind> Span<E> {
-    #[must_use]
     /// Start a metrics span for a specific entity and executor kind.
+    #[must_use]
     pub(crate) fn new(kind: ExecKind) -> Self {
         record(MetricsEvent::ExecStart {
             kind,
