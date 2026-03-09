@@ -10,7 +10,7 @@ use crate::{
         contracts::canonical_value_compare,
         executor::{
             aggregate::AggregateEngine,
-            load::{GroupedPaginationWindow, GroupedRouteStageProjection, LoadExecutor},
+            load::{GroupedPaginationWindow, GroupedRouteStageProjection, LoadExecutor, invariant},
         },
     },
     error::InternalError,
@@ -64,7 +64,7 @@ impl GroupedCandidateSink {
                     canonical_value_compare(existing_key, &group_key_value)
                 }) {
                     Ok(_) => {
-                        return Err(crate::db::executor::load::invariant(format!(
+                        return Err(invariant(format!(
                             "grouped finalize produced duplicate canonical group key: {group_key_value:?}"
                         )));
                     }
@@ -160,7 +160,7 @@ where
             None
         };
         if aggregate_count == 0 {
-            return Err(crate::db::executor::load::invariant(
+            return Err(invariant(
                 "grouped execution requires at least one aggregate terminal",
             ));
         }
@@ -168,9 +168,10 @@ where
             .into_iter()
             .map(|engine| engine.finalize_grouped().map(Vec::into_iter))
             .collect::<Result<Vec<_>, _>>()?;
-        let mut primary_iter = finalized_iters.drain(..1).next().ok_or_else(|| {
-            crate::db::executor::load::invariant("missing grouped primary iterator")
-        })?;
+        let mut primary_iter = finalized_iters
+            .drain(..1)
+            .next()
+            .ok_or_else(|| invariant("missing grouped primary iterator"))?;
         let mut grouped_candidate_sink =
             GroupedCandidateSink::new(selection_bound, max_groups_bound);
 
@@ -181,7 +182,7 @@ where
                 aggregate_values.push(Self::aggregate_output_to_value(primary_output.output()));
                 for (sibling_index, sibling_iter) in finalized_iters.iter_mut().enumerate() {
                     let sibling_output = sibling_iter.next().ok_or_else(|| {
-                        crate::db::executor::load::invariant(format!(
+                        invariant(format!(
                             "grouped finalize alignment missing sibling aggregate row: sibling_index={sibling_index}"
                         ))
                     })?;
@@ -189,7 +190,7 @@ where
                     if canonical_value_compare(sibling_group_key, &group_key_value)
                         != Ordering::Equal
                     {
-                        return Err(crate::db::executor::load::invariant(format!(
+                        return Err(invariant(format!(
                             "grouped finalize alignment mismatch at sibling_index={sibling_index}: primary_key={group_key_value:?}, sibling_key={sibling_group_key:?}"
                         )));
                     }
@@ -223,7 +224,7 @@ where
             }
             for (sibling_index, sibling_iter) in finalized_iters.iter_mut().enumerate() {
                 if sibling_iter.next().is_some() {
-                    return Err(crate::db::executor::load::invariant(format!(
+                    return Err(invariant(format!(
                         "grouped finalize alignment has trailing sibling rows: sibling_index={sibling_index}"
                     )));
                 }

@@ -3,16 +3,17 @@
 //! Does not own: route-intent normalization or execution-mode selection.
 //! Boundary: staged feasibility derivation for route planning.
 
+mod gates;
+mod grouped_strategy;
+
 use crate::{
     db::{
-        contracts::first_violated_rule,
-        direction::Direction,
         executor::{
             aggregate::AggregateKind,
             continuation::ScalarContinuationContext,
             load::LoadExecutor,
             route::{
-                GroupedExecutionStrategy, RouteContinuationPlan, ScanHintPlan,
+                RouteContinuationPlan, ScanHintPlan,
                 planner::{RouteDerivationContext, RouteFeasibilityStage, RouteIntentStage},
             },
         },
@@ -25,116 +26,13 @@ use crate::{
     traits::{EntityKind, EntityValue},
 };
 
-///
-/// IndexRangeLimitGateReason
-///
-/// Route-owned reasons why index-range limit pushdown derivation is skipped.
-/// Keeps feasibility policy explicit and additive as route rules evolve.
-///
+use crate::db::executor::route::planner::feasibility::gates::{
+    index_range_limit_pushdown_allowed_for_grouped, load_scan_hints_allowed_for_intent,
+};
+use crate::db::executor::route::planner::feasibility::grouped_strategy::grouped_execution_strategy_for_runtime;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum IndexRangeLimitGateReason {
-    GroupedIntent,
-}
-
-///
-/// IndexRangeLimitGateContext
-///
-/// Minimal policy context for index-range limit pushdown pre-gates.
-/// This context is intentionally pure and independent from execution mechanics.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct IndexRangeLimitGateContext {
-    grouped: bool,
-}
-
-impl IndexRangeLimitGateContext {
-    #[must_use]
-    const fn new(grouped: bool) -> Self {
-        Self { grouped }
-    }
-}
-
-type IndexRangeLimitFeasibilityRule =
-    fn(IndexRangeLimitGateContext) -> Option<IndexRangeLimitGateReason>;
-
-const INDEX_RANGE_LIMIT_FEASIBILITY_RULES: &[IndexRangeLimitFeasibilityRule] =
-    &[index_range_limit_gate_grouped_violation];
-
-fn index_range_limit_gate_grouped_violation(
-    ctx: IndexRangeLimitGateContext,
-) -> Option<IndexRangeLimitGateReason> {
-    ctx.grouped
-        .then_some(IndexRangeLimitGateReason::GroupedIntent)
-}
-
-///
-/// LoadScanHintGateReason
-///
-/// Route-owned reasons why load-bound scan hints are suppressed.
-/// Applies to load probe fetch hints and load scan-budget hints uniformly.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum LoadScanHintGateReason {
-    AggregateIntent,
-    GroupedIntent,
-}
-
-///
-/// LoadScanHintGateContext
-///
-/// Pure policy context for load-bound scan hint eligibility.
-/// This remains independent from hint derivation mechanics.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct LoadScanHintGateContext {
-    has_aggregate: bool,
-    grouped: bool,
-}
-
-impl LoadScanHintGateContext {
-    #[must_use]
-    const fn new(has_aggregate: bool, grouped: bool) -> Self {
-        Self {
-            has_aggregate,
-            grouped,
-        }
-    }
-}
-
-type LoadScanHintFeasibilityRule = fn(LoadScanHintGateContext) -> Option<LoadScanHintGateReason>;
-
-const LOAD_SCAN_HINT_FEASIBILITY_RULES: &[LoadScanHintFeasibilityRule] = &[
-    load_scan_hint_gate_aggregate_intent_violation,
-    load_scan_hint_gate_grouped_intent_violation,
-];
-
-fn load_scan_hint_gate_aggregate_intent_violation(
-    ctx: LoadScanHintGateContext,
-) -> Option<LoadScanHintGateReason> {
-    ctx.has_aggregate
-        .then_some(LoadScanHintGateReason::AggregateIntent)
-}
-
-fn load_scan_hint_gate_grouped_intent_violation(
-    ctx: LoadScanHintGateContext,
-) -> Option<LoadScanHintGateReason> {
-    ctx.grouped.then_some(LoadScanHintGateReason::GroupedIntent)
-}
-
-const fn index_range_limit_pushdown_allowed(rejection: Option<IndexRangeLimitGateReason>) -> bool {
-    rejection.is_none()
-}
-
-const fn load_scan_hints_allowed(
-    kind: Option<AggregateKind>,
-    rejection: Option<LoadScanHintGateReason>,
-) -> bool {
-    kind.is_none() && rejection.is_none()
-}
+#[cfg(test)]
+pub(in crate::db::executor) use grouped_strategy::grouped_ordered_runtime_revalidation_flag_count_guard;
 
 impl<E> LoadExecutor<E>
 where
@@ -159,11 +57,8 @@ where
             probe_fetch_hint,
         );
         let kind = intent_stage.kind();
-        let index_range_limit_gate = IndexRangeLimitGateContext::new(intent_stage.grouped);
-        let index_range_limit_gate_rejection =
-            first_violated_rule(INDEX_RANGE_LIMIT_FEASIBILITY_RULES, index_range_limit_gate);
         let index_range_limit_pushdown_enabled =
-            index_range_limit_pushdown_allowed(index_range_limit_gate_rejection);
+            index_range_limit_pushdown_allowed_for_grouped(intent_stage.grouped);
 
         // COUNT fold-mode discipline: non-count pushdowns must not route COUNT
         // through non-COUNT streaming fast paths.
@@ -266,10 +161,7 @@ where
         let count_pushdown_eligible = kind.is_some_and(|aggregate_kind| {
             Self::is_count_pushdown_eligible(aggregate_kind, capabilities)
         });
-        let load_scan_hint_gate = LoadScanHintGateContext::new(kind.is_some(), grouped);
-        let load_scan_hint_gate_rejection =
-            first_violated_rule(LOAD_SCAN_HINT_FEASIBILITY_RULES, load_scan_hint_gate);
-        let load_scan_hints_enabled = load_scan_hints_allowed(kind, load_scan_hint_gate_rejection);
+        let load_scan_hints_enabled = load_scan_hints_allowed_for_intent(kind, grouped);
         let keep_access_window = *continuation.keep_access_window();
 
         // Aggregate probes must not assume DESC physical reverse traversal
@@ -317,14 +209,13 @@ where
             // Planner strategy hint already captures grouped semantic policy
             // (including HAVING operator admissibility). Route feasibility only
             // revalidates physical/runtime capability constraints.
-            let grouped_ordered_eligibility = derive_grouped_ordered_eligibility(
+            grouped_execution_strategy_for_runtime(
                 plan,
                 planner_grouped_strategy_hint,
                 direction,
                 capabilities.desc_physical_reverse_supported,
                 capabilities.stream_order_contract_safe,
-            );
-            grouped_execution_strategy_for_plan_hint(grouped_ordered_eligibility)
+            )
         });
 
         RouteDerivationContext {
@@ -342,64 +233,4 @@ where
             grouped_execution_strategy,
         }
     }
-}
-
-///
-/// GroupedOrderedEligibility
-///
-/// Executor-owned grouped ordered-strategy eligibility matrix.
-/// This matrix revalidates planner ordered-group hints against runtime capability
-/// constraints before strategy projection.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct GroupedOrderedEligibility {
-    ordered_hint: bool,
-    direction_compatible: bool,
-    stream_order_contract_safe: bool,
-}
-
-impl GroupedOrderedEligibility {
-    const fn is_eligible(self) -> bool {
-        self.ordered_hint && self.direction_compatible && self.stream_order_contract_safe
-    }
-}
-
-// Derive one grouped ordered-strategy eligibility matrix snapshot.
-const fn derive_grouped_ordered_eligibility<K>(
-    _plan: &AccessPlannedQuery<K>,
-    plan_hint: GroupedPlanStrategyHint,
-    direction: Direction,
-    desc_physical_reverse_supported: bool,
-    stream_order_contract_safe: bool,
-) -> GroupedOrderedEligibility {
-    GroupedOrderedEligibility {
-        ordered_hint: matches!(plan_hint, GroupedPlanStrategyHint::OrderedGroup),
-        direction_compatible: !matches!(direction, Direction::Desc)
-            || desc_physical_reverse_supported,
-        stream_order_contract_safe,
-    }
-}
-
-// Resolve one route-level grouped strategy from one revalidated eligibility matrix.
-const fn grouped_execution_strategy_for_plan_hint(
-    grouped_ordered_eligibility: GroupedOrderedEligibility,
-) -> GroupedExecutionStrategy {
-    if grouped_ordered_eligibility.is_eligible() {
-        GroupedExecutionStrategy::OrderedMaterialized
-    } else {
-        GroupedExecutionStrategy::HashMaterialized
-    }
-}
-
-#[cfg(test)]
-pub(in crate::db::executor) const fn grouped_ordered_runtime_revalidation_flag_count_guard() -> usize
-{
-    let _ = GroupedOrderedEligibility {
-        ordered_hint: false,
-        direction_compatible: false,
-        stream_order_contract_safe: false,
-    };
-
-    3
 }

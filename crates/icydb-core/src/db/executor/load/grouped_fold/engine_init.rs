@@ -2,7 +2,7 @@ use crate::{
     db::{
         executor::{
             aggregate::{AggregateEngine, ExecutionContext},
-            load::{GroupedRouteStageProjection, LoadExecutor},
+            load::{GroupedRouteStageProjection, LoadExecutor, invariant},
             route::aggregate_materialized_fold_direction,
         },
         query::plan::GroupedDistinctExecutionStrategy,
@@ -27,7 +27,8 @@ where
     {
         if matches!(
             route.grouped_distinct_execution_strategy(),
-            GroupedDistinctExecutionStrategy::GlobalDistinctFieldAggregate { .. }
+            GroupedDistinctExecutionStrategy::GlobalDistinctFieldCount { .. }
+                | GroupedDistinctExecutionStrategy::GlobalDistinctFieldSum { .. }
         ) {
             return Ok((Vec::new(), Vec::new()));
         }
@@ -42,12 +43,12 @@ where
                     .grouped_aggregate_exprs()
                     .get(aggregate_index)
                     .ok_or_else(|| {
-                        crate::db::executor::load::invariant(format!(
+                        invariant(format!(
                             "grouped aggregate index out of bounds for projection layout: projection_index={projection_index}, aggregate_index={aggregate_index}"
                         ))
                     })?;
                 if aggregate_expr.target_field().is_some() {
-                    return Err(crate::db::executor::load::invariant(format!(
+                    return Err(invariant(format!(
                         "grouped field-target aggregate reached executor after planning: {:?}",
                         aggregate_expr.kind()
                     )));

@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ## [0.47.x] - 2026-03-09 - Audit Pass
 
 - `0.47.0` establishes the audit-pass baseline with prep work, expanded recurring audit coverage, an initial risk summary, and a cleaner docs layout for audits/design tracking.
-- `0.47.1` continues the audit-pass hardening work by splitting a load-execution hotspot into smaller modules and updating invariant/guard checks so CI contracts stay aligned after the refactor.
+- `0.47.1` continues audit-pass hardening by splitting load and grouped-contract execution hotspots, tightening grouped DISTINCT planner/runtime contracts, and updating invariant/guard checks so CI stays aligned with the refactor.
 
 See detailed breakdown:
 [docs/changelog/0.47.md](docs/changelog/0.47.md)

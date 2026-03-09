@@ -7,7 +7,7 @@ use crate::db::query::{
     builder::aggregate::{count_by, sum},
     plan::{
         AggregateKind, FieldSlot, GroupAggregateSpec, GroupHavingSpec, GroupPlan, GroupSpec,
-        GroupedExecutionConfig,
+        GroupedExecutionConfig, validate::GroupPlanError,
     },
 };
 
@@ -94,6 +94,34 @@ impl GroupDistinctPolicyReason {
             }
             Self::GlobalDistinctUnsupportedAggregateKind => {
                 "global DISTINCT grouped aggregate shape supports COUNT/SUM only"
+            }
+        }
+    }
+
+    /// Project this grouped DISTINCT policy reason into a planner-domain
+    /// grouped plan error.
+    #[must_use]
+    pub(in crate::db::query::plan) fn planner_group_plan_error(
+        self,
+        unsupported_kind: Option<AggregateKind>,
+    ) -> GroupPlanError {
+        match self {
+            Self::DistinctHavingUnsupported => GroupPlanError::DistinctHavingUnsupported,
+            Self::DistinctAdjacencyEligibilityRequired => {
+                GroupPlanError::DistinctAdjacencyEligibilityRequired
+            }
+            Self::GlobalDistinctHavingUnsupported
+            | Self::GlobalDistinctRequiresSingleAggregate
+            | Self::GlobalDistinctRequiresFieldTargetAggregate
+            | Self::GlobalDistinctRequiresDistinctAggregateTerminal => {
+                GroupPlanError::GlobalDistinctAggregateShapeUnsupported
+            }
+            Self::GlobalDistinctUnsupportedAggregateKind => {
+                let kind = unsupported_kind.map_or_else(
+                    || "Unknown".to_string(),
+                    |aggregate_kind| format!("{aggregate_kind:?}"),
+                );
+                GroupPlanError::DistinctAggregateKindUnsupported { index: 0, kind }
             }
         }
     }

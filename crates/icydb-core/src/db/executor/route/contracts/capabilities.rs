@@ -1,0 +1,58 @@
+use crate::db::executor::aggregate::capability::AggregateFieldExtremaIneligibilityReason;
+
+///
+/// FieldExtremaIneligibilityReason
+///
+/// Route-surfaced alias of aggregate-policy field-extrema ineligibility reasons.
+/// This preserves route diagnostics while aggregate capability policy owns derivation.
+///
+
+pub(in crate::db::executor) type FieldExtremaIneligibilityReason =
+    AggregateFieldExtremaIneligibilityReason;
+
+///
+/// RouteCapabilities
+///
+/// Canonical derived capability snapshot for one logical plan and direction.
+/// Route planning derives this once, then consumes it for eligibility and hint
+/// decisions to reduce drift across helpers.
+///
+
+#[expect(clippy::struct_excessive_bools)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) struct RouteCapabilities {
+    pub(in crate::db::executor) stream_order_contract_safe: bool,
+    pub(in crate::db::executor) pk_order_fast_path_eligible: bool,
+    pub(in crate::db::executor) desc_physical_reverse_supported: bool,
+    pub(in crate::db::executor) count_pushdown_shape_supported: bool,
+    pub(in crate::db::executor) count_pushdown_existing_rows_shape_supported: bool,
+    pub(in crate::db::executor) index_range_limit_pushdown_shape_supported: bool,
+    pub(in crate::db::executor) composite_aggregate_fast_path_eligible: bool,
+    pub(in crate::db::executor) bounded_probe_hint_safe: bool,
+    pub(in crate::db::executor) field_min_fast_path_eligible: bool,
+    pub(in crate::db::executor) field_max_fast_path_eligible: bool,
+    pub(in crate::db::executor) field_min_fast_path_ineligibility_reason:
+        Option<FieldExtremaIneligibilityReason>,
+    pub(in crate::db::executor) field_max_fast_path_ineligibility_reason:
+        Option<FieldExtremaIneligibilityReason>,
+}
+
+#[cfg(test)]
+pub(in crate::db::executor) const fn route_capability_flag_count_guard() -> usize {
+    let _ = RouteCapabilities {
+        stream_order_contract_safe: false,
+        pk_order_fast_path_eligible: false,
+        desc_physical_reverse_supported: false,
+        count_pushdown_shape_supported: false,
+        count_pushdown_existing_rows_shape_supported: false,
+        index_range_limit_pushdown_shape_supported: false,
+        composite_aggregate_fast_path_eligible: false,
+        bounded_probe_hint_safe: false,
+        field_min_fast_path_eligible: false,
+        field_max_fast_path_eligible: false,
+        field_min_fast_path_ineligibility_reason: None,
+        field_max_fast_path_ineligibility_reason: None,
+    };
+
+    10
+}

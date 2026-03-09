@@ -1,7 +1,9 @@
 use crate::{
     db::{
+        GroupedRow,
         executor::load::{
             GroupedPaginationWindow, GroupedRouteStageProjection, LoadExecutor, PageCursor,
+            invariant,
         },
         query::plan::expr::ProjectionSpec,
     },
@@ -20,13 +22,13 @@ where
         grouped_projection_spec: &ProjectionSpec,
         grouped_candidate_rows: Vec<(Value, Vec<Value>)>,
         pagination_window: &GroupedPaginationWindow,
-    ) -> Result<(Vec<crate::db::GroupedRow>, Option<PageCursor>), InternalError>
+    ) -> Result<(Vec<GroupedRow>, Option<PageCursor>), InternalError>
     where
         R: GroupedRouteStageProjection<E>,
     {
         let limit = pagination_window.limit();
         let initial_offset_for_page = pagination_window.initial_offset_for_page();
-        let mut page_rows = Vec::<crate::db::GroupedRow>::new();
+        let mut page_rows = Vec::<GroupedRow>::new();
         let mut last_emitted_group_key: Option<Vec<Value>> = None;
         let mut has_more = false;
         let mut groups_skipped_for_offset = 0usize;
@@ -46,7 +48,7 @@ where
             let emitted_group_key = match group_key_value {
                 Value::List(values) => values,
                 value => {
-                    return Err(crate::db::executor::load::invariant(format!(
+                    return Err(invariant(format!(
                         "grouped canonical key must be Value::List, found {value:?}"
                     )));
                 }

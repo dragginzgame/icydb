@@ -231,10 +231,8 @@ impl GroupedDistinctPolicyContract {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum GroupedDistinctExecutionStrategy {
     None,
-    GlobalDistinctFieldAggregate {
-        kind: AggregateKind,
-        target_field: String,
-    },
+    GlobalDistinctFieldCount { target_field: String },
+    GlobalDistinctFieldSum { target_field: String },
 }
 
 // Lower grouped DISTINCT execution strategy from validated grouped planner semantics.
@@ -244,12 +242,23 @@ fn grouped_distinct_execution_strategy(
     having: Option<&GroupHavingSpec>,
 ) -> Result<GroupedDistinctExecutionStrategy, InternalError> {
     match resolve_global_distinct_field_aggregate(group_fields, aggregates, having) {
-        Ok(Some(aggregate)) => Ok(
-            GroupedDistinctExecutionStrategy::GlobalDistinctFieldAggregate {
-                kind: aggregate.kind(),
+        Ok(Some(aggregate)) => match aggregate.kind() {
+            AggregateKind::Count => {
+                Ok(GroupedDistinctExecutionStrategy::GlobalDistinctFieldCount {
+                    target_field: aggregate.target_field().to_string(),
+                })
+            }
+            AggregateKind::Sum => Ok(GroupedDistinctExecutionStrategy::GlobalDistinctFieldSum {
                 target_field: aggregate.target_field().to_string(),
-            },
-        ),
+            }),
+            AggregateKind::Exists
+            | AggregateKind::Min
+            | AggregateKind::Max
+            | AggregateKind::First
+            | AggregateKind::Last => Err(planner_invariant(
+                "planner grouped DISTINCT strategy handoff must lower only COUNT/SUM field-target aggregates",
+            )),
+        },
         Ok(None) => Ok(GroupedDistinctExecutionStrategy::None),
         Err(reason) => Err(planner_invariant(format!(
             "planner grouped DISTINCT strategy handoff must be validated before executor handoff: {}",

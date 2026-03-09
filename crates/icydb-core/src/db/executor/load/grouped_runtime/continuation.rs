@@ -1,15 +1,9 @@
-//! Module: executor::load::grouped_runtime
-//! Responsibility: runtime grouped pagination contracts and grouped continuation helpers.
-//! Does not own: grouped planner policy derivation or route feasibility selection.
-//! Boundary: provides grouped runtime primitives consumed by load/fold stages.
-
 use crate::{
     db::{
         cursor::ContinuationSignature,
-        direction::Direction,
         executor::{
-            ContinuationEngine, ExecutionTrace, load::PageCursor,
-            plan_metrics::GroupedPlanMetricsStrategy,
+            ContinuationEngine,
+            load::{PageCursor, invariant},
         },
         query::plan::GroupedContinuationWindow,
     },
@@ -189,7 +183,7 @@ impl GroupedContinuationContext {
         last_group_key: Vec<Value>,
     ) -> Result<PageCursor, InternalError> {
         if last_group_key.len() != self.continuation_boundary_arity {
-            return Err(crate::db::error::executor_invariant(format!(
+            return Err(invariant(format!(
                 "grouped continuation boundary arity mismatch: expected {}, found {}",
                 self.continuation_boundary_arity,
                 last_group_key.len()
@@ -203,123 +197,6 @@ impl GroupedContinuationContext {
                 self.grouped_pagination_window.resume_initial_offset(),
             ),
         ))
-    }
-}
-
-///
-/// GroupedRuntimeProjection
-///
-/// Runtime grouped execution projection shared across grouped stream/fold/output
-/// stages. Keeps routed direction, grouped plan-metrics strategy, and optional
-/// execution trace under one runtime-boundary object.
-///
-
-pub(in crate::db::executor::load) struct GroupedRuntimeProjection {
-    direction: Direction,
-    grouped_plan_metrics_strategy: GroupedPlanMetricsStrategy,
-    execution_trace: Option<ExecutionTrace>,
-}
-
-impl GroupedRuntimeProjection {
-    /// Construct grouped runtime projection from routed direction/metrics/trace.
-    #[must_use]
-    pub(in crate::db::executor::load) const fn new(
-        direction: Direction,
-        grouped_plan_metrics_strategy: GroupedPlanMetricsStrategy,
-        execution_trace: Option<ExecutionTrace>,
-    ) -> Self {
-        Self {
-            direction,
-            grouped_plan_metrics_strategy,
-            execution_trace,
-        }
-    }
-
-    /// Return routed grouped stream direction.
-    #[must_use]
-    pub(in crate::db::executor::load) const fn direction(&self) -> Direction {
-        self.direction
-    }
-
-    /// Return grouped plan-metrics strategy for grouped stream observability.
-    #[must_use]
-    pub(in crate::db::executor::load) const fn grouped_plan_metrics_strategy(
-        &self,
-    ) -> GroupedPlanMetricsStrategy {
-        self.grouped_plan_metrics_strategy
-    }
-
-    /// Borrow optional grouped execution trace for observability mutation.
-    pub(in crate::db::executor::load) const fn execution_trace_mut(
-        &mut self,
-    ) -> &mut Option<ExecutionTrace> {
-        &mut self.execution_trace
-    }
-
-    /// Consume projection and return final grouped execution trace payload.
-    pub(in crate::db::executor::load) const fn into_execution_trace(
-        self,
-    ) -> Option<ExecutionTrace> {
-        self.execution_trace
-    }
-}
-
-///
-/// GroupedExecutionContext
-///
-/// Grouped runtime execution context artifacts derived at grouped route stage.
-/// Keeps cursor/runtime direction, continuation signature, trace, and grouped
-/// metrics strategy together for grouped stream/fold/output stages.
-///
-
-pub(in crate::db::executor::load) struct GroupedExecutionContext {
-    continuation: GroupedContinuationContext,
-    runtime: GroupedRuntimeProjection,
-}
-
-impl GroupedExecutionContext {
-    /// Construct grouped execution context from continuation + runtime projection.
-    #[must_use]
-    pub(in crate::db::executor::load) const fn new(
-        continuation: GroupedContinuationContext,
-        runtime: GroupedRuntimeProjection,
-    ) -> Self {
-        Self {
-            continuation,
-            runtime,
-        }
-    }
-
-    /// Return routed grouped stream direction.
-    #[must_use]
-    pub(in crate::db::executor::load) const fn direction(&self) -> Direction {
-        self.runtime.direction()
-    }
-
-    /// Return grouped plan-metrics strategy for grouped stream observability.
-    #[must_use]
-    pub(in crate::db::executor::load) const fn grouped_plan_metrics_strategy(
-        &self,
-    ) -> GroupedPlanMetricsStrategy {
-        self.runtime.grouped_plan_metrics_strategy()
-    }
-
-    /// Borrow grouped continuation context.
-    #[must_use]
-    pub(in crate::db::executor::load) const fn continuation(&self) -> &GroupedContinuationContext {
-        &self.continuation
-    }
-
-    /// Borrow optional grouped execution trace for observability mutation.
-    pub(in crate::db::executor::load) const fn execution_trace_mut(
-        &mut self,
-    ) -> &mut Option<ExecutionTrace> {
-        self.runtime.execution_trace_mut()
-    }
-
-    /// Consume grouped execution context and return final grouped execution trace payload.
-    pub(in crate::db::executor::load) fn into_execution_trace(self) -> Option<ExecutionTrace> {
-        self.runtime.into_execution_trace()
     }
 }
 

@@ -19,7 +19,6 @@ use crate::{
         },
         numeric::{NumericArithmeticOp, apply_numeric_arithmetic},
         predicate::MissingRowPolicy,
-        query::plan::{AggregateKind, GroupDistinctPolicyReason},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -39,11 +38,10 @@ where
         resolved: &mut ResolvedExecutionKeyStream,
         compiled_predicate: Option<&crate::db::predicate::PredicateProgram>,
         grouped_execution_context: &mut ExecutionContext,
-        aggregate_spec: (AggregateKind, &str),
+        execution_spec: (&str, bool),
         row_counters: (&mut usize, &mut usize),
     ) -> Result<GroupedRow, InternalError> {
-        let (aggregate_kind, target_field) = aggregate_spec;
-        let aggregate_kind_is_sum = global_distinct_kind_is_sum(aggregate_kind)?;
+        let (target_field, aggregate_kind_is_sum) = execution_spec;
         let (scanned_rows, filtered_rows) = row_counters;
         let field_slot = if aggregate_kind_is_sum {
             Self::resolve_numeric_field_slot(target_field)?
@@ -153,18 +151,6 @@ fn page_global_distinct_grouped_row_for_window(
     vec![row]
 }
 
-// Validate grouped global DISTINCT aggregate kind at runtime boundary.
-// Planner should enforce this, but executor must fail-closed for bypassed shapes.
-fn global_distinct_kind_is_sum(aggregate_kind: AggregateKind) -> Result<bool, InternalError> {
-    if !aggregate_kind.supports_global_distinct_without_group_keys() {
-        return Err(crate::db::executor::load::invariant(
-            GroupDistinctPolicyReason::GlobalDistinctUnsupportedAggregateKind.invariant_message(),
-        ));
-    }
-
-    Ok(aggregate_kind.is_sum())
-}
-
 ///
 /// TESTS
 ///
@@ -172,32 +158,6 @@ fn global_distinct_kind_is_sum(aggregate_kind: AggregateKind) -> Result<bool, In
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn grouped_global_distinct_kind_guard_accepts_count_and_sum() {
-        assert!(
-            !global_distinct_kind_is_sum(AggregateKind::Count)
-                .expect("COUNT should be accepted by global DISTINCT kind guard")
-        );
-        assert!(
-            global_distinct_kind_is_sum(AggregateKind::Sum)
-                .expect("SUM should be accepted by global DISTINCT kind guard")
-        );
-    }
-
-    #[test]
-    fn grouped_global_distinct_kind_guard_rejects_non_count_sum() {
-        let err = global_distinct_kind_is_sum(AggregateKind::Exists)
-            .expect_err("non COUNT/SUM global DISTINCT aggregate kind must fail closed");
-
-        assert_eq!(err.class, crate::error::ErrorClass::InvariantViolation);
-        assert_eq!(err.origin, crate::error::ErrorOrigin::Query);
-        assert!(
-            err.message
-                .contains("global DISTINCT grouped aggregate shape supports COUNT/SUM only"),
-            "global DISTINCT kind guard must expose planner-policy invariant message: {err:?}",
-        );
-    }
 
     #[test]
     fn global_distinct_grouped_row_paging_offset_consumes_singleton_row() {

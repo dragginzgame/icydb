@@ -1,3 +1,8 @@
+//! Module: query::plan::validate::grouped
+//! Responsibility: grouped-plan semantic validation slices (policy, cursor, structure, projection).
+//! Does not own: executor runtime fail-closed checks or grouped execution orchestration.
+//! Boundary: planner validation composes these helpers before route/executor handoff.
+
 mod cursor;
 mod policy;
 mod projection_expr;

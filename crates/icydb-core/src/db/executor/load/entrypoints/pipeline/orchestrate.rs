@@ -1,104 +1,22 @@
+//! Module: executor::load::entrypoints::pipeline::orchestrate
+//! Responsibility: staged orchestration for unified scalar/grouped load execution.
+//! Does not own: load mode contract definitions or route/access planning semantics.
+//! Boundary: executes the canonical six-stage load orchestration pipeline.
+
 use crate::{
-    db::{
-        executor::{
-            ExecutablePlan, ExecutionTrace, LoadCursorInput, PreparedLoadCursor,
-            RequestedLoadExecutionShape,
-            load::{CursorPage, GroupedCursorPage, LoadExecutor},
+    db::executor::{
+        ExecutablePlan, ExecutionTrace, LoadCursorInput, PreparedLoadCursor,
+        load::{
+            CursorPage, GroupedCursorPage, LoadExecutor,
+            entrypoints::pipeline::{
+                LoadExecutionMode, LoadExecutionSurface, LoadMode, LoadTracingMode,
+            },
+            invariant,
         },
-        response::EntityResponse,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
 };
-
-///
-/// LoadTracingMode
-///
-/// Trace emission contract for one load orchestration request.
-///
-
-#[derive(Clone, Copy)]
-pub(in crate::db::executor::load) enum LoadTracingMode {
-    Disabled,
-    Enabled,
-}
-
-///
-/// LoadMode
-///
-/// Canonical load pipeline mode selected before staged execution starts.
-/// This is the single mode-selection boundary for load orchestration.
-///
-
-#[derive(Clone, Copy)]
-enum LoadMode {
-    ScalarRows,
-    ScalarPage,
-    GroupedPage,
-}
-
-///
-/// LoadExecutionMode
-///
-/// Unified load entrypoint mode bundle used by `execute_load`.
-/// Encodes one canonical load mode plus tracing contract.
-///
-
-#[derive(Clone, Copy)]
-pub(in crate::db::executor::load) struct LoadExecutionMode {
-    mode: LoadMode,
-    tracing: LoadTracingMode,
-}
-
-impl LoadExecutionMode {
-    // Build one scalar unpaged rows mode contract.
-    pub(in crate::db::executor::load) const fn scalar_unpaged_rows() -> Self {
-        Self {
-            mode: LoadMode::ScalarRows,
-            tracing: LoadTracingMode::Disabled,
-        }
-    }
-
-    // Build one scalar paged mode contract with configurable tracing.
-    pub(in crate::db::executor::load) const fn scalar_paged(tracing: LoadTracingMode) -> Self {
-        Self {
-            mode: LoadMode::ScalarPage,
-            tracing,
-        }
-    }
-
-    // Build one grouped paged mode contract with configurable tracing.
-    pub(in crate::db::executor::load) const fn grouped_paged(tracing: LoadTracingMode) -> Self {
-        Self {
-            mode: LoadMode::GroupedPage,
-            tracing,
-        }
-    }
-
-    // Validate one mode tuple so wrappers cannot silently drift.
-    fn validate(self) -> Result<(), InternalError> {
-        if matches!(
-            (self.mode, self.tracing),
-            (LoadMode::ScalarRows, LoadTracingMode::Enabled)
-        ) {
-            Err(crate::db::executor::load::invariant(
-                "scalar rows load mode must not request tracing output",
-            ))
-        } else {
-            Ok(())
-        }
-    }
-
-    // Resolve entrypoint-selected mode into the requested scalar/grouped execution shape.
-    pub(in crate::db::executor::load) const fn requested_shape(
-        self,
-    ) -> RequestedLoadExecutionShape {
-        match self.mode {
-            LoadMode::ScalarRows | LoadMode::ScalarPage => RequestedLoadExecutionShape::Scalar,
-            LoadMode::GroupedPage => RequestedLoadExecutionShape::Grouped,
-        }
-    }
-}
 
 ///
 /// LoadExecutionContext
@@ -124,6 +42,7 @@ impl LoadExecutionContext {
 /// Access-stage payload extracted from execution context.
 /// Carries normalized plan/cursor artifacts into grouping/projection stage.
 ///
+
 struct LoadAccessInputs<E: EntityKind> {
     plan: ExecutablePlan<E>,
     cursor: PreparedLoadCursor,
@@ -165,21 +84,6 @@ enum LoadExecutionPayload<E: EntityKind> {
     Grouped(GroupedCursorPage),
 }
 
-///
-/// LoadExecutionSurface
-///
-/// Finalized load output surface for entrypoint wrappers.
-/// Encodes one terminal response shape so wrapper adapters do not carry
-/// payload/trace pairing branches.
-///
-
-pub(in crate::db::executor::load) enum LoadExecutionSurface<E: EntityKind> {
-    ScalarRows(EntityResponse<E>),
-    ScalarPage(CursorPage<E>),
-    ScalarPageWithTrace(CursorPage<E>, Option<ExecutionTrace>),
-    GroupedPageWithTrace(GroupedCursorPage, Option<ExecutionTrace>),
-}
-
 impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
@@ -214,9 +118,7 @@ where
     ) -> Result<LoadAccessState<E>, InternalError> {
         execution_mode.validate()?;
         if !plan.mode().is_load() {
-            return Err(crate::db::executor::load::invariant(
-                "load executor requires load plans",
-            ));
+            return Err(invariant("load executor requires load plans"));
         }
 
         let resolved_cursor = Self::resolve_entrypoint_cursor(&plan, cursor, execution_mode)?;
@@ -349,9 +251,7 @@ where
     ) -> Result<CursorPage<E>, InternalError> {
         match payload {
             LoadExecutionPayload::Scalar(page) => Ok(page),
-            LoadExecutionPayload::Grouped(_) => {
-                Err(crate::db::executor::load::invariant(mismatch_message))
-            }
+            LoadExecutionPayload::Grouped(_) => Err(invariant(mismatch_message)),
         }
     }
 
@@ -362,9 +262,7 @@ where
     ) -> Result<GroupedCursorPage, InternalError> {
         match payload {
             LoadExecutionPayload::Grouped(page) => Ok(page),
-            LoadExecutionPayload::Scalar(_) => {
-                Err(crate::db::executor::load::invariant(mismatch_message))
-            }
+            LoadExecutionPayload::Scalar(_) => Err(invariant(mismatch_message)),
         }
     }
 }

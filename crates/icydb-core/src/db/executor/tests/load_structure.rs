@@ -145,11 +145,11 @@ fn executor_internal_stream_and_window_types_do_not_widen_to_pub_crate() {
             "pub(crate) struct KeyOrderComparator",
         ),
         (
-            "src/db/executor/load/contracts.rs",
+            "src/db/executor/load/contracts/mod.rs",
             "pub(crate) struct CursorPage",
         ),
         (
-            "src/db/executor/load/contracts.rs",
+            "src/db/executor/load/contracts/mod.rs",
             "pub(crate) struct LoadExecutor",
         ),
         ("src/db/executor/mod.rs", "pub(crate) enum ExecutorError"),

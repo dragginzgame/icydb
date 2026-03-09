@@ -1,3 +1,8 @@
+//! Module: executor::continuation
+//! Responsibility: executor-owned continuation cursor resolution and token-emission contracts.
+//! Does not own: planner cursor semantics, query policy validation, or cursor wire codec rules.
+//! Boundary: load entrypoints consume this module for shape-aware continuation runtime state.
+
 mod capabilities;
 mod engine;
 mod scalar;

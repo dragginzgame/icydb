@@ -3,12 +3,12 @@
 //! Does not own: full index-key framing or index-store traversal.
 //! Boundary: used by index-key build/predicate compile/range lowering.
 
-use crate::{db::index::key::ordered::semantics::OrderedEncode, value::Value};
-
 mod error;
 mod normalize;
 mod parts;
 mod semantics;
+
+use crate::{db::index::key::ordered::semantics::OrderedEncode, value::Value};
 
 pub(crate) use error::OrderedValueEncodeError;
 

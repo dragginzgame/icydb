@@ -1,3 +1,8 @@
+//! Module: cursor::token
+//! Responsibility: typed continuation token wire contracts for scalar/grouped cursor paths.
+//! Does not own: cursor compatibility validation, ordering policy, or resume-bound semantics.
+//! Boundary: defines versioned token payloads consumed by cursor encode/decode boundaries.
+
 mod error;
 mod grouped;
 mod scalar;

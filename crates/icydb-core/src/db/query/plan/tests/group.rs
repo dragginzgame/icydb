@@ -1053,15 +1053,42 @@ fn grouped_executor_handoff_lowers_global_distinct_execution_strategy() {
     assert_eq!(handoff.aggregate_exprs().len(), 1);
     assert!(matches!(
         handoff.distinct_execution_strategy(),
-        GroupedDistinctExecutionStrategy::GlobalDistinctFieldAggregate {
-            kind: AggregateKind::Count,
-            target_field
-        } if target_field == "tag"
+        GroupedDistinctExecutionStrategy::GlobalDistinctFieldCount { target_field }
+            if target_field == "tag"
     ));
     assert_eq!(
         handoff.distinct_policy_violation_for_executor(),
         None,
         "global grouped DISTINCT execution strategy lowering should not project scalar DISTINCT policy violations",
+    );
+}
+
+#[test]
+fn grouped_executor_handoff_lowers_global_distinct_sum_execution_strategy() {
+    let base = load_plan(AccessPlan::path(AccessPath::FullScan));
+    let grouped = grouped_plan(
+        base,
+        vec![],
+        vec![GroupAggregateSpec {
+            kind: AggregateKind::Sum,
+            target_field: Some("rank".to_string()),
+            distinct: true,
+        }],
+    );
+
+    let handoff =
+        grouped_executor_handoff(&grouped).expect("grouped logical plans should build handoff");
+    assert_eq!(handoff.group_fields().len(), 0);
+    assert_eq!(handoff.aggregate_exprs().len(), 1);
+    assert!(matches!(
+        handoff.distinct_execution_strategy(),
+        GroupedDistinctExecutionStrategy::GlobalDistinctFieldSum { target_field }
+            if target_field == "rank"
+    ));
+    assert_eq!(
+        handoff.distinct_policy_violation_for_executor(),
+        None,
+        "global grouped DISTINCT SUM strategy lowering should not project scalar DISTINCT policy violations",
     );
 }
 

@@ -8,7 +8,7 @@ use crate::{
         Context,
         executor::{
             AccessExecutionDescriptor, ExecutionOptimization,
-            load::{FastPathKeyResult, LoadExecutor},
+            load::{FastPathKeyResult, LoadExecutor, invariant},
             route::RoutedKeyStreamRequest,
         },
     },
@@ -35,11 +35,9 @@ where
         )?;
 
         // Phase 2: enforce exact row-scan count hint required by fast-path observability.
-        let rows_scanned = key_stream.exact_key_count_hint().ok_or_else(|| {
-            crate::db::error::executor_invariant(
-                "fast-path stream must expose an exact key-count hint",
-            )
-        })?;
+        let rows_scanned = key_stream
+            .exact_key_count_hint()
+            .ok_or_else(|| invariant("fast-path stream must expose an exact key-count hint"))?;
 
         Ok(FastPathKeyResult {
             ordered_key_stream: key_stream,

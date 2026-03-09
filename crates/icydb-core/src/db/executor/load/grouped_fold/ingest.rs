@@ -7,8 +7,8 @@ use crate::{
         data::DataKey,
         executor::{
             aggregate::{AggregateEngine, ExecutionContext, FoldControl},
-            group::CanonicalKey,
-            load::{GroupedRouteStageProjection, GroupedStreamStage, LoadExecutor},
+            group::{CanonicalKey, KeyCanonicalError},
+            load::{GroupedRouteStageProjection, GroupedStreamStage, LoadExecutor, invariant},
         },
         predicate::MissingRowPolicy,
     },
@@ -62,7 +62,7 @@ where
                 .iter()
                 .map(|field| {
                     entity.get_value_by_index(field.index()).ok_or_else(|| {
-                        crate::db::executor::load::invariant(format!(
+                        invariant(format!(
                             "grouped field slot missing on entity: index={}",
                             field.index()
                         ))
@@ -71,7 +71,7 @@ where
                 .collect::<Result<Vec<_>, _>>()?;
             let group_key = Value::List(group_values)
                 .canonical_key()
-                .map_err(crate::db::executor::group::KeyCanonicalError::into_internal_error)?;
+                .map_err(KeyCanonicalError::into_internal_error)?;
             let canonical_group_value = group_key.canonical_value().clone();
             let data_key = DataKey::try_new::<E>(id.key())?;
 

@@ -10,7 +10,7 @@ use crate::{
         executor::{
             AccessExecutionDescriptor, AccessScanContinuationInput, AccessStreamBindings,
             ExecutionOptimization, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
-            load::{FastPathKeyResult, LoadExecutor},
+            load::{FastPathKeyResult, LoadExecutor, invariant},
         },
         index::predicate::IndexPredicateExecution,
         query::plan::AccessPlannedQuery,
@@ -118,9 +118,7 @@ where
                 effective_fetch,
                 index_predicate_execution,
             ),
-            _ => Err(crate::db::executor::load::invariant(
-                "fast-stream route kind/request mismatch",
-            )),
+            _ => Err(invariant("fast-stream route kind/request mismatch")),
         }
     }
 
@@ -165,7 +163,7 @@ where
             return Ok(None);
         };
         let Some(index_prefix_spec) = index_prefix_spec else {
-            return Err(crate::db::executor::load::invariant(
+            return Err(invariant(
                 "index-prefix executable spec must be materialized for index-prefix plans",
             ));
         };
@@ -215,7 +213,7 @@ where
             return Ok(None);
         };
         let Some(index_range_spec) = index_range_spec else {
-            return Err(crate::db::executor::load::invariant(
+            return Err(invariant(
                 "index-range executable spec must be materialized for index-range plans",
             ));
         };
