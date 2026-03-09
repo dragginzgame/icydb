@@ -204,6 +204,7 @@ Verify:
 * Unique violation classification consistent
 * Recovery re-enforces unique constraint
 * Replay does not skip unique validation
+* Live apply and replay apply preserve unique-conflict class parity
 * Replace handles same-value update correctly
 * Delete + reinsert same value allowed
 
@@ -216,7 +217,7 @@ Attempt to find:
 
 Produce:
 
-| Scenario | Unique Enforced? | Recovery Enforced? | Risk |
+| Scenario | Unique Enforced? | Recovery Enforced? | Live/Replay Class Parity? | Risk |
 
 ---
 
@@ -300,6 +301,13 @@ Verify:
 * Same error classification
 * Same reverse mutation logic
 * Idempotence
+* Same unique-conflict class (`Conflict`) with boundary-owned origin
+
+Required scenario lock:
+
+| Scenario | Live Path Expected | Replay Path Expected | Evidence |
+| --- | --- | --- | --- |
+| Duplicate unique insert (`new key`, same unique value) | `ErrorClass::Conflict`, index-owned origin | `ErrorClass::Conflict`, recovery-owned origin | commit + mutation parity tests |
 
 ---
 

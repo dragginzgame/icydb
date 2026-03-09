@@ -23,11 +23,11 @@ where
         access_window: AccessWindow,
         capabilities: RouteCapabilities,
     ) -> Option<usize> {
-        if !capabilities.bounded_probe_hint_safe {
-            return None;
+        if capabilities.bounded_probe_hint_safe {
+            Self::bounded_window_fetch_hint(access_window)
+        } else {
+            None
         }
-
-        Self::bounded_window_fetch_hint(access_window)
     }
 
     pub(in crate::db::executor::route) fn aggregate_probe_fetch_hint(
@@ -41,44 +41,37 @@ where
         // Field-target extrema probe hints require deterministic tie coverage.
         // MIN(field) ASC can always short-circuit on the first existing row.
         // MAX(field) DESC can short-circuit only when ties are impossible.
-        if aggregate.target_field().is_some() {
-            if matches!((kind, direction), (AggregateKind::Min, Direction::Asc)) {
-                if !capabilities.field_min_fast_path_eligible {
-                    return None;
-                }
-            } else if matches!((kind, direction), (AggregateKind::Max, Direction::Desc)) {
-                if !capabilities.field_max_fast_path_eligible {
-                    return None;
-                }
-                if !Self::field_target_max_probe_shape_is_tie_free(plan, aggregate) {
-                    return None;
-                }
-            } else {
-                return None;
+        let field_target_eligible = match (aggregate.target_field(), kind, direction) {
+            (Some(_), AggregateKind::Min, Direction::Asc) => {
+                capabilities.field_min_fast_path_eligible
             }
-        }
-        if !aggregate_supports_bounded_probe_hint(kind) {
-            return None;
-        }
-        if !direction_allows_physical_fetch_hint(
-            direction,
-            capabilities.desc_physical_reverse_supported,
-        ) {
-            return None;
-        }
-        if !capabilities.bounded_probe_hint_safe {
-            return None;
-        }
+            (Some(_), AggregateKind::Max, Direction::Desc) => {
+                capabilities.field_max_fast_path_eligible
+                    && Self::field_target_max_probe_shape_is_tie_free(plan, aggregate)
+            }
+            (Some(_), _, _) => false,
+            (None, _, _) => true,
+        };
+        field_target_eligible.then_some(())?;
+
+        (aggregate_supports_bounded_probe_hint(kind)
+            && direction_allows_physical_fetch_hint(
+                direction,
+                capabilities.desc_physical_reverse_supported,
+            )
+            && capabilities.bounded_probe_hint_safe)
+            .then_some(())?;
 
         if access_window.is_zero_window() {
-            return Some(0);
-        }
-        let offset = access_window.lower_bound();
-        let page_limit = access_window
-            .page_limit()
-            .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
+            Some(0)
+        } else {
+            let offset = access_window.lower_bound();
+            let page_limit = access_window
+                .page_limit()
+                .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
 
-        aggregate_bounded_probe_fetch_hint(kind, direction, offset, page_limit)
+            aggregate_bounded_probe_fetch_hint(kind, direction, offset, page_limit)
+        }
     }
 
     // Build an explicit aggregate seek contract when bounded aggregate probe
@@ -111,17 +104,15 @@ where
         plan: &AccessPlannedQuery<E::Key>,
         aggregate: &AggregateExpr,
     ) -> bool {
-        let Some(target_field) = aggregate.target_field() else {
-            return false;
-        };
+        aggregate.target_field().is_some_and(|target_field| {
+            let access_class = plan.access_strategy().class();
+            let index_model = access_class
+                .single_path_index_prefix_details()
+                .or_else(|| access_class.single_path_index_range_details())
+                .map(|(index, _)| index);
 
-        let access_class = plan.access_strategy().class();
-        let index_model = access_class
-            .single_path_index_prefix_details()
-            .or_else(|| access_class.single_path_index_range_details())
-            .map(|(index, _)| index);
-
-        Self::is_tie_free_probe_target(target_field, index_model)
+            Self::is_tie_free_probe_target(target_field, index_model)
+        })
     }
 
     // One canonical tie-free target guard for bounded MAX(field) probe hints.
@@ -132,19 +123,14 @@ where
         target_field: &str,
         index_model: Option<crate::model::index::IndexModel>,
     ) -> bool {
-        if target_field == E::MODEL.primary_key.name {
-            return true;
-        }
-
-        let Some(index_model) = index_model else {
-            return false;
-        };
-
-        index_model.is_unique()
-            && index_model.fields().len() == 1
-            && index_model
-                .fields()
-                .first()
-                .is_some_and(|field| *field == target_field)
+        (target_field == E::MODEL.primary_key.name)
+            || index_model.is_some_and(|index_model| {
+                index_model.is_unique()
+                    && index_model.fields().len() == 1
+                    && index_model
+                        .fields()
+                        .first()
+                        .is_some_and(|field| *field == target_field)
+            })
     }
 }

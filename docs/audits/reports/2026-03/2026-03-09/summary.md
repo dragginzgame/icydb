@@ -30,6 +30,11 @@
 - Layer-authority and architecture text-scan invariant scripts are green.
 - Index-range, field-projection, and memory-id invariant scripts are green.
 - Resource-model checklist remains fully compliant (`PASS=7`).
+- Index-integrity unique enforcement parity now has explicit live/replay
+  conflict-class lock coverage in commit tests.
+- Route aggregate-hint branch surface was reduced in working tree
+  (`route/hints/aggregate.rs if: 12 -> 2`; `executor/route if proxy: 47 -> 37`)
+  while preserving route authority invariants.
 - Structural pressure increased in runtime size, continuation spread, and route-planner hub pressure.
 - Cross-layer semantic authority drift remains controlled (no comparator leaks, no policy re-derivation leaks).
 
@@ -54,3 +59,8 @@
 - `cargo test -p icydb-core grouped_fluent_execute_supports_cursor_continuation -- --nocapture` -> PASS
 - `cargo test -p icydb-core route_feature_budget_shape_kinds_stay_within_soft_delta -- --nocapture` -> PASS
 - `cargo test -p icydb-core access_plan_rejects_misaligned_index_range_spec -- --nocapture` -> PASS
+- `cargo test -p icydb-core unique_conflict_classification_parity_holds_between_live_apply_and_replay -- --nocapture` -> PASS
+- `cargo test -p icydb-core recovery_replay_interrupted_conflicting_unique_batch_fails_closed -- --nocapture` -> PASS
+- `cargo test -p icydb-core route_hints_use_route_window_and_budget_safety_filter_gates -- --nocapture` -> PASS
+- `cargo clippy -p icydb-core -- -D warnings` -> PASS
+- `make check-invariants` -> PASS

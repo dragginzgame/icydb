@@ -3,11 +3,6 @@ use canic_cdk::utils::time::now_millis;
 use canic_utils::rand::next_u128;
 use std::cell::RefCell;
 
-//
-// GENERATOR
-// has to keep state to make sure key order is maintained
-//
-
 thread_local! {
     static GENERATOR: RefCell<Generator> = RefCell::new(Generator::default());
 }

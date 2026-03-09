@@ -17,6 +17,7 @@
 | Continuation anchor must remain inside envelope | `crates/icydb-core/src/db/index/scan.rs` (`ensure_anchor_within_envelope`) | PASS | Low |
 | Resume must strictly advance | `crates/icydb-core/src/db/index/scan.rs` (`ensure_continuation_advanced`) and `crates/icydb-core/src/db/index/envelope.rs` (`continuation_advanced`) | PASS | Low |
 | Index-range plan/runtime spec alignment enforced | `db::executor::context::tests::access_plan_rejects_misaligned_index_range_spec` | PASS | Low-Medium |
+| Unique-conflict classification parity holds between live apply and replay apply | `db::commit::tests::unique_conflict_classification_parity_holds_between_live_apply_and_replay` | PASS | Low-Medium |
 
 ## Encoding, Namespace, and Mutation Checks
 
@@ -26,6 +27,7 @@
 | Bound rewrite keeps strict exclusion semantics | `crates/icydb-core/src/db/index/envelope.rs` (`resume_bounds_from_refs`) | PASS |
 | Apply sequence is guarded by commit-window protocol | `crates/icydb-core/src/db/executor/mutation/commit_window.rs` (`open_commit_window`) | PASS |
 | Recovery replay path remains deterministic | `crates/icydb-core/src/db/commit/recovery.rs` + `replay_commit_marker_row_ops` | PASS |
+| Interrupted conflicting unique replay fails closed and remains retry-safe | `db::commit::tests::recovery_replay_interrupted_conflicting_unique_batch_fails_closed` | PASS |
 
 ## Overall Index Integrity Risk Index
 
@@ -41,3 +43,5 @@
 - `bash scripts/ci/check-layer-authority-invariants.sh` -> PASS
 - `cargo test -p icydb-core access_plan_rejects_misaligned_index_range_spec -- --nocapture` -> PASS
 - `cargo test -p icydb-core anchor_containment_guard_rejects_out_of_envelope_anchor -- --nocapture` -> PASS
+- `cargo test -p icydb-core unique_conflict_classification_parity_holds_between_live_apply_and_replay -- --nocapture` -> PASS
+- `cargo test -p icydb-core recovery_replay_interrupted_conflicting_unique_batch_fails_closed -- --nocapture` -> PASS

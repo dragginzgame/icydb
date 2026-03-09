@@ -8,6 +8,7 @@ use crate::{
             rollback_prepared_row_ops_reverse, snapshot_row_rollback, store,
         },
         data::{DataKey, DataStore, RawDataKey, RawRow, StorageKey},
+        executor::SaveExecutor,
         index::{IndexKey, IndexStore, RawIndexEntry},
         registry::{StoreHandle, StoreRegistry},
         relation::validate_delete_strong_relations_for_source,
@@ -1212,6 +1213,95 @@ fn recovery_replay_interrupted_conflicting_unique_batch_fails_closed() {
     assert!(
         commit_marker_present().expect("commit marker check should succeed"),
         "retry failure must keep marker persisted",
+    );
+
+    store::with_commit_store(|store| {
+        store.clear_infallible();
+        Ok(())
+    })
+    .expect("commit marker cleanup should succeed");
+}
+
+#[test]
+fn unique_conflict_classification_parity_holds_between_live_apply_and_replay() {
+    reset_recovery_state();
+
+    // Phase 1: capture live save-path unique conflict classification.
+    let save = SaveExecutor::<RecoveryUniqueEntity>::new(DB, false);
+    save.insert(RecoveryUniqueEntity {
+        id: Ulid::from_u128(9211),
+        email: "dup-live-replay@example.com".to_string(),
+    })
+    .expect("seed unique row should save in live path");
+    let live_err = save
+        .insert(RecoveryUniqueEntity {
+            id: Ulid::from_u128(9212),
+            email: "dup-live-replay@example.com".to_string(),
+        })
+        .expect_err("live save path should reject duplicate unique value");
+    assert_eq!(live_err.class, ErrorClass::Conflict);
+    assert_eq!(live_err.origin, ErrorOrigin::Index);
+    assert!(
+        live_err.message.contains("index constraint violation"),
+        "live unique conflict should remain explicit: {live_err:?}"
+    );
+
+    // Phase 2: capture replay-path unique conflict classification for the same semantic conflict.
+    reset_recovery_state();
+    let replay_first = RecoveryUniqueEntity {
+        id: Ulid::from_u128(9221),
+        email: "dup-live-replay@example.com".to_string(),
+    };
+    let replay_second = RecoveryUniqueEntity {
+        id: Ulid::from_u128(9222),
+        email: "dup-live-replay@example.com".to_string(),
+    };
+
+    let replay_first_key = DataKey::try_new::<RecoveryUniqueEntity>(replay_first.id)
+        .expect("first replay key should build")
+        .to_raw()
+        .expect("first replay key should encode");
+    let replay_second_key = DataKey::try_new::<RecoveryUniqueEntity>(replay_second.id)
+        .expect("second replay key should build")
+        .to_raw()
+        .expect("second replay key should encode");
+
+    let replay_first_row =
+        serialize(&replay_first).expect("first replay row serialization should succeed");
+    let replay_second_row =
+        serialize(&replay_second).expect("second replay row serialization should succeed");
+
+    let replay_marker = CommitMarker::new(vec![
+        row_op_for_path_with_schema(
+            RecoveryUniqueEntity::PATH,
+            replay_first_key.as_bytes().to_vec(),
+            None,
+            Some(replay_first_row),
+            commit_schema_fingerprint_for_entity::<RecoveryUniqueEntity>(),
+        ),
+        row_op_for_path_with_schema(
+            RecoveryUniqueEntity::PATH,
+            replay_second_key.as_bytes().to_vec(),
+            None,
+            Some(replay_second_row),
+            commit_schema_fingerprint_for_entity::<RecoveryUniqueEntity>(),
+        ),
+    ])
+    .expect("replay unique-conflict marker should build");
+    begin_commit(replay_marker).expect("begin_commit should persist replay conflict marker");
+
+    let replay_err = ensure_recovered(&DB)
+        .expect_err("replay recovery should reject duplicate unique value marker");
+    assert_eq!(replay_err.class, ErrorClass::Conflict);
+    assert_eq!(replay_err.class, live_err.class);
+    assert_eq!(replay_err.origin, ErrorOrigin::Recovery);
+    assert!(
+        replay_err.message.contains("index constraint violation"),
+        "replay unique conflict should remain explicit: {replay_err:?}"
+    );
+    assert!(
+        commit_marker_present().expect("commit marker check should succeed"),
+        "failed replay unique conflict must keep marker persisted for retry",
     );
 
     store::with_commit_store(|store| {
