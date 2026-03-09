@@ -14,6 +14,7 @@ use std::{
 };
 use time::{Date as TimeDate, Duration as TimeDuration, Month, format_description::FormatItem};
 
+// FORMAT
 static FORMAT: OnceLock<Vec<FormatItem<'static>>> = OnceLock::new();
 
 ///
