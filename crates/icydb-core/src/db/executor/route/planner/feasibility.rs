@@ -62,14 +62,11 @@ type IndexRangeLimitFeasibilityRule =
 const INDEX_RANGE_LIMIT_FEASIBILITY_RULES: &[IndexRangeLimitFeasibilityRule] =
     &[index_range_limit_gate_grouped_violation];
 
-const fn index_range_limit_gate_grouped_violation(
+fn index_range_limit_gate_grouped_violation(
     ctx: IndexRangeLimitGateContext,
 ) -> Option<IndexRangeLimitGateReason> {
-    if ctx.grouped {
-        return Some(IndexRangeLimitGateReason::GroupedIntent);
-    }
-
-    None
+    ctx.grouped
+        .then_some(IndexRangeLimitGateReason::GroupedIntent)
 }
 
 ///
@@ -115,24 +112,17 @@ const LOAD_SCAN_HINT_FEASIBILITY_RULES: &[LoadScanHintFeasibilityRule] = &[
     load_scan_hint_gate_grouped_intent_violation,
 ];
 
-const fn load_scan_hint_gate_aggregate_intent_violation(
+fn load_scan_hint_gate_aggregate_intent_violation(
     ctx: LoadScanHintGateContext,
 ) -> Option<LoadScanHintGateReason> {
-    if ctx.has_aggregate {
-        return Some(LoadScanHintGateReason::AggregateIntent);
-    }
-
-    None
+    ctx.has_aggregate
+        .then_some(LoadScanHintGateReason::AggregateIntent)
 }
 
-const fn load_scan_hint_gate_grouped_intent_violation(
+fn load_scan_hint_gate_grouped_intent_violation(
     ctx: LoadScanHintGateContext,
 ) -> Option<LoadScanHintGateReason> {
-    if ctx.grouped {
-        return Some(LoadScanHintGateReason::GroupedIntent);
-    }
-
-    None
+    ctx.grouped.then_some(LoadScanHintGateReason::GroupedIntent)
 }
 
 const fn index_range_limit_pushdown_allowed(rejection: Option<IndexRangeLimitGateReason>) -> bool {
@@ -177,28 +167,27 @@ where
 
         // COUNT fold-mode discipline: non-count pushdowns must not route COUNT
         // through non-COUNT streaming fast paths.
-        let index_range_limit_spec = if index_range_limit_pushdown_enabled {
-            Self::assess_index_range_limit_pushdown(
-                plan,
-                route_continuation,
-                derivation.scan_hints.physical_fetch_hint,
-                derivation.capabilities,
-            )
-        } else {
-            None
-        };
-        if kind.is_none()
-            && !intent_stage.grouped
-            && let (Some(index_range_limit_spec), Some(load_scan_budget_hint)) = (
-                index_range_limit_spec,
-                derivation.scan_hints.load_scan_budget_hint,
-            )
-        {
-            debug_assert_eq!(
-                index_range_limit_spec.fetch, load_scan_budget_hint,
-                "route invariant: load index-range fetch hint and load scan budget must remain aligned"
-            );
-        }
+        let index_range_limit_spec = index_range_limit_pushdown_enabled
+            .then(|| {
+                Self::assess_index_range_limit_pushdown(
+                    plan,
+                    route_continuation,
+                    derivation.scan_hints.physical_fetch_hint,
+                    derivation.capabilities,
+                )
+            })
+            .flatten();
+        let _ = (kind.is_none() && !intent_stage.grouped)
+            .then_some(())
+            .and_then(|()| {
+                index_range_limit_spec.zip(derivation.scan_hints.load_scan_budget_hint)
+            })
+            .inspect(|(index_range_limit_spec, load_scan_budget_hint)| {
+                debug_assert_eq!(
+                    index_range_limit_spec.fetch, *load_scan_budget_hint,
+                    "route invariant: load index-range fetch hint and load scan budget must remain aligned"
+                );
+            });
         debug_assert!(
             index_range_limit_spec.is_none()
                 || derivation
@@ -215,13 +204,19 @@ where
                             .count_pushdown_existing_rows_shape_supported),
             "route invariant: COUNT pushdown eligibility must match COUNT-safe capability set",
         );
-        if kind.is_none() && !intent_stage.grouped {
-            debug_assert_eq!(
-                derivation.scan_hints.load_scan_budget_hint,
-                Self::load_scan_budget_hint(plan, route_continuation, derivation.capabilities),
-                "route invariant: load scan-budget hints must match access-strategy early-stop contract",
-            );
-        }
+        let _ = (kind.is_none() && !intent_stage.grouped)
+            .then_some(())
+            .inspect(|()| {
+                debug_assert_eq!(
+                    derivation.scan_hints.load_scan_budget_hint,
+                    Self::load_scan_budget_hint(
+                        plan,
+                        route_continuation,
+                        derivation.capabilities
+                    ),
+                    "route invariant: load scan-budget hints must match access-strategy early-stop contract",
+                );
+            });
         debug_assert!(
             !intent_stage.grouped
                 || derivation.scan_hints.load_scan_budget_hint.is_none()
@@ -279,11 +274,9 @@ where
 
         // Aggregate probes must not assume DESC physical reverse traversal
         // when the access shape cannot emit descending order natively.
-        let count_pushdown_probe_fetch_hint = if count_pushdown_eligible {
-            Self::count_pushdown_fetch_hint(keep_access_window, capabilities)
-        } else {
-            None
-        };
+        let count_pushdown_probe_fetch_hint = count_pushdown_eligible
+            .then(|| Self::count_pushdown_fetch_hint(keep_access_window, capabilities))
+            .flatten();
         let aggregate_terminal_probe_fetch_hint = aggregate_expr.and_then(|aggregate| {
             Self::aggregate_probe_fetch_hint(
                 plan,
@@ -298,28 +291,18 @@ where
         });
         let aggregate_physical_fetch_hint =
             count_pushdown_probe_fetch_hint.or(aggregate_terminal_probe_fetch_hint);
-        let top_n_seek_spec = if load_scan_hints_enabled {
-            Self::top_n_seek_spec(plan, continuation, capabilities)
-        } else {
-            None
-        };
-
-        let load_physical_fetch_hint = if load_scan_hints_enabled {
-            probe_fetch_hint
-        } else {
-            None
-        };
-        let physical_fetch_hint = if kind.is_some() {
-            aggregate_physical_fetch_hint
-        } else {
-            load_physical_fetch_hint
-        };
-        let load_scan_budget_hint = if load_scan_hints_enabled {
-            Self::load_scan_budget_hint(plan, continuation, capabilities)
-        } else {
-            None
-        };
-        let grouped_execution_strategy = if grouped {
+        let top_n_seek_spec = load_scan_hints_enabled
+            .then(|| Self::top_n_seek_spec(plan, continuation, capabilities))
+            .flatten();
+        let load_physical_fetch_hint = load_scan_hints_enabled
+            .then_some(probe_fetch_hint)
+            .flatten();
+        let physical_fetch_hint =
+            kind.map_or(load_physical_fetch_hint, |_| aggregate_physical_fetch_hint);
+        let load_scan_budget_hint = load_scan_hints_enabled
+            .then(|| Self::load_scan_budget_hint(plan, continuation, capabilities))
+            .flatten();
+        let grouped_execution_strategy = grouped.then(|| {
             debug_assert!(
                 grouped_plan_strategy_hint.is_some(),
                 "route invariant: grouped feasibility derivation requires planner-projected grouped strategy hint",
@@ -341,12 +324,8 @@ where
                 capabilities.desc_physical_reverse_supported,
                 capabilities.stream_order_contract_safe,
             );
-            Some(grouped_execution_strategy_for_plan_hint(
-                grouped_ordered_eligibility,
-            ))
-        } else {
-            None
-        };
+            grouped_execution_strategy_for_plan_hint(grouped_ordered_eligibility)
+        });
 
         RouteDerivationContext {
             direction,

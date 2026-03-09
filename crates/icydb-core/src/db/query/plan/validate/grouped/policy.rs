@@ -1,4 +1,5 @@
 use crate::db::{
+    contracts::first_violated_rule,
     predicate::SchemaInfo,
     query::plan::{
         AggregateKind, GroupAggregateSpec, GroupDistinctAdmissibility, GroupDistinctPolicyReason,
@@ -8,37 +9,70 @@ use crate::db::{
     },
 };
 
-#[derive(Clone, Copy)]
-enum GroupedHavingPolicyRule {
-    CompareOperatorSupported,
-}
+type GroupedHavingPolicyRule = for<'a> fn(GroupedHavingPolicyContext<'a>) -> Option<GroupPlanError>;
+type GroupedAggregatePolicyRule =
+    for<'a> fn(GroupedAggregatePolicyContext<'a>) -> Option<GroupPlanError>;
+type GlobalDistinctAggregatePolicyRule =
+    for<'a> fn(GlobalDistinctAggregatePolicyContext<'a>) -> Option<GroupPlanError>;
 
-const GROUPED_HAVING_POLICY_RULES: &[GroupedHavingPolicyRule] =
-    &[GroupedHavingPolicyRule::CompareOperatorSupported];
-
-#[derive(Clone, Copy)]
-enum GroupedAggregatePolicyRule {
-    DistinctKindSupported,
-    DistinctFieldTargetUnsupported,
-    FieldTargetUnsupported,
-}
-
+const GROUPED_HAVING_POLICY_RULES: &[GroupedHavingPolicyRule] = &[grouped_having_compare_op_rule];
 const GROUPED_AGGREGATE_POLICY_RULES: &[GroupedAggregatePolicyRule] = &[
-    GroupedAggregatePolicyRule::DistinctKindSupported,
-    GroupedAggregatePolicyRule::DistinctFieldTargetUnsupported,
-    GroupedAggregatePolicyRule::FieldTargetUnsupported,
+    grouped_aggregate_distinct_kind_supported_rule,
+    grouped_aggregate_distinct_field_target_unsupported_rule,
+    grouped_aggregate_field_target_unsupported_rule,
+];
+const GLOBAL_DISTINCT_AGGREGATE_POLICY_RULES: &[GlobalDistinctAggregatePolicyRule] = &[
+    global_distinct_target_field_known_rule,
+    global_distinct_sum_target_numeric_rule,
 ];
 
 #[derive(Clone, Copy)]
-enum GlobalDistinctAggregatePolicyRule {
-    TargetFieldKnown,
-    SumTargetNumeric,
+struct GroupedHavingPolicyContext<'a> {
+    index: usize,
+    clause: &'a crate::db::query::plan::GroupHavingClause,
 }
 
-const GLOBAL_DISTINCT_AGGREGATE_POLICY_RULES: &[GlobalDistinctAggregatePolicyRule] = &[
-    GlobalDistinctAggregatePolicyRule::TargetFieldKnown,
-    GlobalDistinctAggregatePolicyRule::SumTargetNumeric,
-];
+impl<'a> GroupedHavingPolicyContext<'a> {
+    #[must_use]
+    const fn new(index: usize, clause: &'a crate::db::query::plan::GroupHavingClause) -> Self {
+        Self { index, clause }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct GroupedAggregatePolicyContext<'a> {
+    index: usize,
+    aggregate: &'a GroupAggregateSpec,
+}
+
+impl<'a> GroupedAggregatePolicyContext<'a> {
+    #[must_use]
+    const fn new(index: usize, aggregate: &'a GroupAggregateSpec) -> Self {
+        Self { index, aggregate }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct GlobalDistinctAggregatePolicyContext<'a> {
+    schema: &'a SchemaInfo,
+    aggregate_kind: AggregateKind,
+    target_field: &'a str,
+}
+
+impl<'a> GlobalDistinctAggregatePolicyContext<'a> {
+    #[must_use]
+    const fn new(
+        schema: &'a SchemaInfo,
+        aggregate_kind: AggregateKind,
+        target_field: &'a str,
+    ) -> Self {
+        Self {
+            schema,
+            aggregate_kind,
+            target_field,
+        }
+    }
+}
 
 // Validate grouped policy gates independent from structural shape checks.
 pub(in crate::db::query::plan::validate) fn validate_group_policy(
@@ -142,86 +176,72 @@ fn first_grouped_having_policy_violation(
     index: usize,
     clause: &crate::db::query::plan::GroupHavingClause,
 ) -> Option<GroupPlanError> {
-    for rule in GROUPED_HAVING_POLICY_RULES {
-        if let Some(reason) = evaluate_grouped_having_policy_rule(*rule, index, clause) {
-            return Some(reason);
-        }
-    }
-
-    None
+    first_violated_rule(
+        GROUPED_HAVING_POLICY_RULES,
+        GroupedHavingPolicyContext::new(index, clause),
+    )
 }
 
-fn evaluate_grouped_having_policy_rule(
-    rule: GroupedHavingPolicyRule,
-    index: usize,
-    clause: &crate::db::query::plan::GroupHavingClause,
-) -> Option<GroupPlanError> {
-    match rule {
-        GroupedHavingPolicyRule::CompareOperatorSupported => {
-            if grouped_having_compare_op_supported(clause.op()) {
-                None
-            } else {
-                Some(GroupPlanError::HavingUnsupportedCompareOp {
-                    index,
-                    op: format!("{:?}", clause.op()),
-                })
-            }
+fn grouped_having_compare_op_rule(ctx: GroupedHavingPolicyContext<'_>) -> Option<GroupPlanError> {
+    (!grouped_having_compare_op_supported(ctx.clause.op())).then(|| {
+        GroupPlanError::HavingUnsupportedCompareOp {
+            index: ctx.index,
+            op: format!("{:?}", ctx.clause.op()),
         }
-    }
+    })
 }
 
 fn first_grouped_aggregate_policy_violation(
     index: usize,
     aggregate: &GroupAggregateSpec,
 ) -> Option<GroupPlanError> {
-    for rule in GROUPED_AGGREGATE_POLICY_RULES {
-        if let Some(reason) = evaluate_grouped_aggregate_policy_rule(*rule, index, aggregate) {
-            return Some(reason);
-        }
-    }
-
-    None
+    first_violated_rule(
+        GROUPED_AGGREGATE_POLICY_RULES,
+        GroupedAggregatePolicyContext::new(index, aggregate),
+    )
 }
 
-fn evaluate_grouped_aggregate_policy_rule(
-    rule: GroupedAggregatePolicyRule,
-    index: usize,
-    aggregate: &GroupAggregateSpec,
+fn grouped_aggregate_distinct_kind_supported_rule(
+    ctx: GroupedAggregatePolicyContext<'_>,
 ) -> Option<GroupPlanError> {
-    match rule {
-        GroupedAggregatePolicyRule::DistinctKindSupported => {
-            if aggregate.distinct() && !aggregate.kind().supports_grouped_distinct_v1() {
-                Some(GroupPlanError::DistinctAggregateKindUnsupported {
-                    index,
-                    kind: format!("{:?}", aggregate.kind()),
-                })
-            } else {
-                None
-            }
+    (ctx.aggregate.distinct() && !ctx.aggregate.kind().supports_grouped_distinct_v1()).then(|| {
+        GroupPlanError::DistinctAggregateKindUnsupported {
+            index: ctx.index,
+            kind: format!("{:?}", ctx.aggregate.kind()),
         }
-        GroupedAggregatePolicyRule::DistinctFieldTargetUnsupported => aggregate
-            .target_field
-            .as_ref()
-            .filter(|_| aggregate.distinct())
-            .map(
-                |target_field| GroupPlanError::DistinctAggregateFieldTargetUnsupported {
-                    index,
-                    kind: format!("{:?}", aggregate.kind()),
-                    field: target_field.clone(),
-                },
-            ),
-        GroupedAggregatePolicyRule::FieldTargetUnsupported => aggregate
-            .target_field
-            .as_ref()
-            .filter(|_| !aggregate.distinct())
-            .map(
-                |target_field| GroupPlanError::FieldTargetAggregatesUnsupported {
-                    index,
-                    kind: format!("{:?}", aggregate.kind()),
-                    field: target_field.clone(),
-                },
-            ),
-    }
+    })
+}
+
+fn grouped_aggregate_distinct_field_target_unsupported_rule(
+    ctx: GroupedAggregatePolicyContext<'_>,
+) -> Option<GroupPlanError> {
+    ctx.aggregate
+        .target_field
+        .as_ref()
+        .filter(|_| ctx.aggregate.distinct())
+        .map(
+            |target_field| GroupPlanError::DistinctAggregateFieldTargetUnsupported {
+                index: ctx.index,
+                kind: format!("{:?}", ctx.aggregate.kind()),
+                field: target_field.clone(),
+            },
+        )
+}
+
+fn grouped_aggregate_field_target_unsupported_rule(
+    ctx: GroupedAggregatePolicyContext<'_>,
+) -> Option<GroupPlanError> {
+    ctx.aggregate
+        .target_field
+        .as_ref()
+        .filter(|_| !ctx.aggregate.distinct())
+        .map(
+            |target_field| GroupPlanError::FieldTargetAggregatesUnsupported {
+                index: ctx.index,
+                kind: format!("{:?}", ctx.aggregate.kind()),
+                field: target_field.clone(),
+            },
+        )
 }
 
 fn first_global_distinct_aggregate_policy_violation(
@@ -229,48 +249,35 @@ fn first_global_distinct_aggregate_policy_violation(
     aggregate_kind: AggregateKind,
     target_field: &str,
 ) -> Option<GroupPlanError> {
-    for rule in GLOBAL_DISTINCT_AGGREGATE_POLICY_RULES {
-        if let Some(reason) = evaluate_global_distinct_aggregate_policy_rule(
-            *rule,
-            schema,
-            aggregate_kind,
-            target_field,
-        ) {
-            return Some(reason);
-        }
-    }
-
-    None
+    first_violated_rule(
+        GLOBAL_DISTINCT_AGGREGATE_POLICY_RULES,
+        GlobalDistinctAggregatePolicyContext::new(schema, aggregate_kind, target_field),
+    )
 }
 
-fn evaluate_global_distinct_aggregate_policy_rule(
-    rule: GlobalDistinctAggregatePolicyRule,
-    schema: &SchemaInfo,
-    aggregate_kind: AggregateKind,
-    target_field: &str,
+fn global_distinct_target_field_known_rule(
+    ctx: GlobalDistinctAggregatePolicyContext<'_>,
 ) -> Option<GroupPlanError> {
-    match rule {
-        GlobalDistinctAggregatePolicyRule::TargetFieldKnown => schema
-            .field(target_field)
-            .is_none()
-            .then(|| GroupPlanError::UnknownAggregateTargetField {
-                index: 0,
-                field: target_field.to_string(),
-            }),
-        GlobalDistinctAggregatePolicyRule::SumTargetNumeric => {
-            if !aggregate_kind.is_sum() {
-                return None;
-            }
-
-            schema
-                .field(target_field)
-                .filter(|field_type| !field_type.supports_numeric_coercion())
-                .map(|_| GroupPlanError::GlobalDistinctSumTargetNotNumeric {
-                    index: 0,
-                    field: target_field.to_string(),
-                })
+    ctx.schema.field(ctx.target_field).is_none().then(|| {
+        GroupPlanError::UnknownAggregateTargetField {
+            index: 0,
+            field: ctx.target_field.to_string(),
         }
-    }
+    })
+}
+
+fn global_distinct_sum_target_numeric_rule(
+    ctx: GlobalDistinctAggregatePolicyContext<'_>,
+) -> Option<GroupPlanError> {
+    ctx.aggregate_kind
+        .is_sum()
+        .then_some(())
+        .and_then(|()| ctx.schema.field(ctx.target_field))
+        .filter(|field_type| !field_type.supports_numeric_coercion())
+        .map(|_| GroupPlanError::GlobalDistinctSumTargetNotNumeric {
+            index: 0,
+            field: ctx.target_field.to_string(),
+        })
 }
 
 // Map one grouped DISTINCT policy reason to planner-visible grouped plan errors.

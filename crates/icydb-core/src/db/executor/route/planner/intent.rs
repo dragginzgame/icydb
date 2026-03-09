@@ -15,6 +15,19 @@ use crate::{
     traits::{EntityKind, EntityValue},
 };
 
+// Keep route-shape intent mapping in one helper so grouped/count/non-count
+// classification cannot drift between stage construction and invariant checks.
+const fn route_shape_kind_for_intent(grouped: bool, kind: Option<AggregateKind>) -> RouteShapeKind {
+    match (grouped, kind) {
+        (true, _) => RouteShapeKind::AggregateGrouped,
+        (false, Some(aggregate_kind)) if aggregate_kind.is_count() => {
+            RouteShapeKind::AggregateCount
+        }
+        (false, Some(_)) => RouteShapeKind::AggregateNonCount,
+        (false, None) => RouteShapeKind::LoadScalar,
+    }
+}
+
 impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
@@ -26,7 +39,7 @@ where
             RouteIntent::Load => RouteIntentStage {
                 aggregate_expr: None,
                 grouped: false,
-                route_shape_kind: RouteShapeKind::LoadScalar,
+                route_shape_kind: route_shape_kind_for_intent(false, None),
                 grouped_plan_strategy_hint: None,
                 fast_path_order: &LOAD_FAST_PATH_ORDER,
                 aggregate_force_materialized_due_to_predicate_uncertainty: false,
@@ -35,15 +48,11 @@ where
                 aggregate,
                 aggregate_force_materialized_due_to_predicate_uncertainty,
             } => {
-                let route_shape_kind = if aggregate.kind().is_count() {
-                    RouteShapeKind::AggregateCount
-                } else {
-                    RouteShapeKind::AggregateNonCount
-                };
+                let aggregate_kind = aggregate.kind();
                 RouteIntentStage {
                     aggregate_expr: Some(aggregate),
                     grouped: false,
-                    route_shape_kind,
+                    route_shape_kind: route_shape_kind_for_intent(false, Some(aggregate_kind)),
                     grouped_plan_strategy_hint: None,
                     fast_path_order: &AGGREGATE_FAST_PATH_ORDER,
                     aggregate_force_materialized_due_to_predicate_uncertainty,
@@ -55,7 +64,7 @@ where
             } => RouteIntentStage {
                 aggregate_expr: None,
                 grouped: true,
-                route_shape_kind: RouteShapeKind::AggregateGrouped,
+                route_shape_kind: route_shape_kind_for_intent(true, None),
                 grouped_plan_strategy_hint: Some(grouped_plan_strategy_hint),
                 fast_path_order: &GROUPED_AGGREGATE_FAST_PATH_ORDER,
                 aggregate_force_materialized_due_to_predicate_uncertainty,
@@ -78,15 +87,7 @@ where
             !stage.grouped || stage.aggregate_expr.is_none() && stage.fast_path_order.is_empty(),
             "route invariant: grouped intent must not carry scalar aggregate specs or fast-path routes",
         );
-        let expected_route_shape_kind = if stage.grouped {
-            RouteShapeKind::AggregateGrouped
-        } else if stage.kind().is_some_and(AggregateKind::is_count) {
-            RouteShapeKind::AggregateCount
-        } else if stage.kind().is_some() {
-            RouteShapeKind::AggregateNonCount
-        } else {
-            RouteShapeKind::LoadScalar
-        };
+        let expected_route_shape_kind = route_shape_kind_for_intent(stage.grouped, stage.kind());
         debug_assert!(
             stage.route_shape_kind == expected_route_shape_kind,
             "route invariant: route intent shape kind must remain aligned with grouped + aggregate intent",
