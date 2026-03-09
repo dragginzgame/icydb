@@ -1,3 +1,8 @@
+//! Module: executor::load::grouped_fold::candidate_rows
+//! Responsibility: grouped fold candidate buffering/ranking sinks for pagination windows.
+//! Does not own: grouped planner policy semantics or aggregate contract derivation.
+//! Boundary: selects and applies grouped candidate retention strategy during fold execution.
+
 use std::cmp::Ordering;
 
 use crate::{

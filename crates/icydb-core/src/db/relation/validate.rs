@@ -1,3 +1,8 @@
+//! Module: relation::validate
+//! Responsibility: relation integrity validation for strong relation delete/mutation safety.
+//! Does not own: relation metadata derivation or reverse-index mutation construction.
+//! Boundary: enforces relation target/source consistency before destructive operations.
+
 use crate::{
     db::{
         Db,

@@ -1,3 +1,8 @@
+//! Module: query::plan::continuation
+//! Responsibility: planner-owned continuation contracts and grouped/scalar resume windows.
+//! Does not own: cursor token decoding internals or executor-side re-derivation policy.
+//! Boundary: emits immutable continuation semantics consumed by runtime layers.
+
 use crate::{
     db::{
         access::AccessPlan,

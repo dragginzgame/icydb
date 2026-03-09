@@ -1,3 +1,8 @@
+//! Module: relation::metadata
+//! Responsibility: extract and expose strong-relation metadata descriptors from entity models.
+//! Does not own: relation validation execution or reverse-index mutation application.
+//! Boundary: defines lightweight relation metadata contracts consumed by relation validators.
+
 use crate::{
     model::field::{FieldKind, RelationStrength},
     traits::EntityKind,

@@ -1,3 +1,8 @@
+//! Module: query::plan::semantics::access_projection
+//! Responsibility: project access-plan/access-path semantics into diagnostics-facing shapes.
+//! Does not own: access-path construction or planner route-selection decisions.
+//! Boundary: provides visitor-based projection adapters for explain/diagnostic consumers.
+
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},

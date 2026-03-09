@@ -54,20 +54,10 @@ pub(in crate::db::executor) fn stream_order_contract_safe<E, K>(
 where
     E: EntitySchema<Key = K>,
 {
-    if !plan.scalar_plan().mode.is_load() {
-        return false;
-    }
-
     let (has_residual_filter, _, requires_post_access_sort) =
         derive_budget_safety_flags::<E, K>(plan);
-    if has_residual_filter {
-        return false;
-    }
-    if requires_post_access_sort {
-        return false;
-    }
 
-    true
+    plan.scalar_plan().mode.is_load() && !has_residual_filter && !requires_post_access_sort
 }
 
 fn access_order_satisfied_by_path<E, K>(plan: &AccessPlannedQuery<K>) -> bool
@@ -104,8 +94,8 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
-    /// Derive one canonical route capability snapshot for a plan + direction.
-    pub(in crate::db::executor::route) fn derive_route_capabilities(
+    /// Derive one canonical execution capability snapshot for a plan + direction.
+    pub(in crate::db::executor::route) fn derive_execution_capabilities(
         plan: &AccessPlannedQuery<E::Key>,
         direction: Direction,
         aggregate_expr: Option<&AggregateExpr>,
@@ -150,11 +140,7 @@ where
         access: &AccessPlan<E::Key>,
         direction: Direction,
     ) -> bool {
-        if !matches!(direction, Direction::Desc) {
-            return false;
-        }
-
-        Self::access_supports_reverse_traversal(access)
+        matches!(direction, Direction::Desc) && Self::access_supports_reverse_traversal(access)
     }
 
     fn access_supports_reverse_traversal(access: &AccessPlan<E::Key>) -> bool {

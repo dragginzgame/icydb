@@ -1,3 +1,8 @@
+//! Module: cursor::token::grouped
+//! Responsibility: grouped continuation token domain type and wire conversion helpers.
+//! Does not own: scalar continuation token policy or planner continuation semantics.
+//! Boundary: maps grouped cursor tokens between runtime domain and bounded wire payloads.
+
 use crate::{
     db::{
         codec::deserialize_protocol_payload, cursor::ContinuationSignature, direction::Direction,

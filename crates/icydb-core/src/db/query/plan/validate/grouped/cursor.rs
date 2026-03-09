@@ -1,3 +1,8 @@
+//! Module: query::plan::validate::grouped::cursor
+//! Responsibility: grouped cursor-order feasibility checks for planner validation.
+//! Does not own: runtime grouped cursor continuation behavior or token decoding.
+//! Boundary: validates grouped order/paging alignment before plan admission.
+
 use crate::db::query::plan::{
     FieldSlot, GroupSpec, OrderSpec, ScalarPlan,
     validate::{GroupPlanError, PlanError},

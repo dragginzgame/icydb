@@ -1,3 +1,8 @@
+//! Module: db::registry
+//! Responsibility: thread-local store registry lifecycle and lookup authority.
+//! Does not own: store encode/decode semantics or query/executor planning behavior.
+//! Boundary: manages registry state for named data/index stores and typed registry errors.
+
 use crate::{
     db::{data::DataStore, index::IndexStore},
     error::{ErrorClass, ErrorOrigin, InternalError},

@@ -1,3 +1,8 @@
+//! Module: access::execution_contract::summary
+//! Responsibility: debug/diagnostic summarization of executable access contracts.
+//! Does not own: access contract construction or runtime traversal semantics.
+//! Boundary: renders executable access plans/paths into stable human-readable summaries.
+
 use crate::{
     db::access::execution_contract::{
         ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan, ExecutionPathPayload,

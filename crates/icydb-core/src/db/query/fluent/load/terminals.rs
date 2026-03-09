@@ -1,3 +1,8 @@
+//! Module: query::fluent::load::terminals
+//! Responsibility: fluent load terminal APIs and terminal-plan explanation entrypoints.
+//! Does not own: planner semantic validation or executor runtime routing decisions.
+//! Boundary: delegates to session planning/execution and returns typed query results.
+
 use crate::{
     db::{
         DbSession,

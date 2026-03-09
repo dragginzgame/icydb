@@ -1,3 +1,8 @@
+//! Module: query::intent::state
+//! Responsibility: internal mutable query-intent state transitions across load/delete modes.
+//! Does not own: planner semantic validation or executor runtime behavior.
+//! Boundary: records intent-shape state consumed by planner-owned validation/build stages.
+
 use crate::db::{
     predicate::Predicate,
     query::{

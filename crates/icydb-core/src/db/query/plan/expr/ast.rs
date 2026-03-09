@@ -1,3 +1,8 @@
+//! Module: query::plan::expr::ast
+//! Responsibility: planner expression AST domain types and field/operator identifiers.
+//! Does not own: expression type inference policy or runtime expression evaluation.
+//! Boundary: defines canonical expression tree structures consumed by planner validation/lowering.
+
 use crate::{db::query::builder::aggregate::AggregateExpr, value::Value};
 
 ///

@@ -1,3 +1,8 @@
+//! Module: predicate::schema::model_checks
+//! Responsibility: schema model/index integrity checks used during schema info construction.
+//! Does not own: query planning policy or runtime predicate evaluation.
+//! Boundary: validates entity/index model consistency for predicate schema metadata.
+
 use crate::{
     db::{
         identity::{EntityName, IndexName},

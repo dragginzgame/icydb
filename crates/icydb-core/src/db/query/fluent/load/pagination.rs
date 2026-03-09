@@ -1,3 +1,8 @@
+//! Module: query::fluent::load::pagination
+//! Responsibility: fluent paged-query wrapper APIs and cursor continuation terminals.
+//! Does not own: planner semantic validation or runtime execution internals.
+//! Boundary: exposes paged execution surfaces over fluent load query contracts.
+
 use crate::{
     db::{
         PagedGroupedExecutionWithTrace, PagedLoadExecution, PagedLoadExecutionWithTrace,

@@ -1,3 +1,8 @@
+//! Module: query::intent::errors
+//! Responsibility: query-intent-facing typed error taxonomy and domain conversions.
+//! Does not own: planner rule evaluation or runtime execution policy decisions.
+//! Boundary: unifies intent/planner/cursor/resource errors into query API error classes.
+
 use crate::{
     db::{
         cursor::CursorPlanError,

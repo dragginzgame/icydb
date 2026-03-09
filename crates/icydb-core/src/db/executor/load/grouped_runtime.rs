@@ -1,3 +1,8 @@
+//! Module: executor::load::grouped_runtime
+//! Responsibility: runtime grouped pagination contracts and grouped continuation helpers.
+//! Does not own: grouped planner policy derivation or route feasibility selection.
+//! Boundary: provides grouped runtime primitives consumed by load/fold stages.
+
 use crate::{
     db::{
         cursor::ContinuationSignature,

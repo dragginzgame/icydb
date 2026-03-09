@@ -140,7 +140,7 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
-    pub(in crate::db::executor::route::planner) fn derive_route_feasibility_stage(
+    pub(in crate::db::executor::route::planner) fn derive_execution_feasibility_stage(
         plan: &AccessPlannedQuery<E::Key>,
         continuation: &ScalarContinuationContext,
         probe_fetch_hint: Option<usize>,
@@ -261,7 +261,7 @@ where
             || Self::derive_load_route_direction(plan),
             |aggregate| Self::derive_aggregate_route_direction(plan, aggregate),
         );
-        let capabilities = Self::derive_route_capabilities(plan, direction, aggregate_expr);
+        let capabilities = Self::derive_execution_capabilities(plan, direction, aggregate_expr);
         let kind = aggregate_expr.map(AggregateExpr::kind);
         let count_pushdown_eligible = kind.is_some_and(|aggregate_kind| {
             Self::is_count_pushdown_eligible(aggregate_kind, capabilities)

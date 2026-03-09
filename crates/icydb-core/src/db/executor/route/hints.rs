@@ -40,18 +40,15 @@ where
         let access_window = *continuation.fetch_access_window();
         let continuation_capabilities = continuation.capabilities();
         let (has_residual_filter, _, _) = derive_budget_safety_flags::<E, _>(plan);
-        if !capabilities.index_range_limit_pushdown_shape_supported {
-            return None;
-        }
-        if !continuation_capabilities.index_range_limit_pushdown_allowed() {
-            return None;
-        }
+        capabilities
+            .index_range_limit_pushdown_shape_supported
+            .then_some(())?;
+        continuation_capabilities
+            .index_range_limit_pushdown_allowed()
+            .then_some(())?;
         let fetch = probe_fetch_hint.or_else(|| Self::bounded_window_fetch_hint(access_window))?;
-        if has_residual_filter && !Self::residual_predicate_pushdown_fetch_is_safe(fetch) {
-            return None;
-        }
-
-        Some(IndexRangeLimitSpec { fetch })
+        (!has_residual_filter || Self::residual_predicate_pushdown_fetch_is_safe(fetch))
+            .then_some(IndexRangeLimitSpec { fetch })
     }
 
     // Shared load-page scan-budget hint gate.
@@ -84,18 +81,10 @@ where
             .order
             .as_ref()
             .is_some_and(|order| !order.fields.is_empty());
-        if !logical.mode.is_load() || !has_order {
-            return None;
-        }
-        if !secondary_order_contract_is_deterministic(E::MODEL, logical) {
-            return None;
-        }
-        if !capabilities.stream_order_contract_safe {
-            return None;
-        }
-        if continuation_capabilities.applied() {
-            return None;
-        }
+        (logical.mode.is_load() && has_order).then_some(())?;
+        secondary_order_contract_is_deterministic(E::MODEL, logical).then_some(())?;
+        capabilities.stream_order_contract_safe.then_some(())?;
+        (!continuation_capabilities.applied()).then_some(())?;
 
         let access_window = *continuation.fetch_access_window();
 
@@ -209,9 +198,7 @@ where
         capabilities: RouteCapabilities,
         access_window: AccessWindow,
     ) -> Option<AggregateSeekSpec> {
-        if !aggregate.kind().is_extrema() {
-            return None;
-        }
+        aggregate.kind().is_extrema().then_some(())?;
         let fetch = Self::aggregate_probe_fetch_hint(
             plan,
             aggregate,

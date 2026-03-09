@@ -37,8 +37,8 @@ pub(in crate::db::executor) use crate::db::diagnostics::{ExecutionOptimization, 
 pub(super) use context::*;
 pub(in crate::db::executor) use continuation::{
     ContinuationCapabilities, ContinuationEngine, LoadCursorInput, PreparedLoadCursor,
-    RequestedLoadExecutionShape, ResolvedScalarContinuationContext, ScalarContinuationBindings,
-    ScalarRouteContinuationInvariantProjection,
+    RequestedLoadExecutionShape, ResolvedLoadCursorContext, ResolvedScalarContinuationContext,
+    ScalarContinuationBindings, ScalarRouteContinuationInvariantProjection,
 };
 pub(super) use delete::DeleteExecutor;
 pub(in crate::db) use executable_plan::{ExecutablePlan, ExecutionStrategy};

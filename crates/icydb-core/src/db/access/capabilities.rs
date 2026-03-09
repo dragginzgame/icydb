@@ -433,28 +433,31 @@ const fn derive_access_path_capabilities<K>(
     }
 }
 
-fn access_plan_first_index_range_details_internal<K>(
+fn summarize_access_plan_runtime_shape<K>(
     access: &ExecutableAccessPlan<'_, K>,
-) -> Option<IndexShapeDetails> {
+) -> (Option<IndexShapeDetails>, bool) {
     match access.node() {
-        ExecutableAccessNode::Path(path) => path.capabilities().index_range_details(),
+        ExecutableAccessNode::Path(path) => (
+            path.capabilities().index_range_details(),
+            path.capabilities().supports_reverse_traversal(),
+        ),
         ExecutableAccessNode::Union(children) | ExecutableAccessNode::Intersection(children) => {
-            children
-                .iter()
-                .find_map(access_plan_first_index_range_details_internal)
-        }
-    }
-}
+            let mut first_index_range_details = None;
+            let mut all_paths_support_reverse_traversal = true;
+            for child in children {
+                let (child_index_range_details, child_reverse_supported) =
+                    summarize_access_plan_runtime_shape(child);
 
-fn access_plan_supports_reverse_traversal_internal<K>(
-    access: &ExecutableAccessPlan<'_, K>,
-) -> bool {
-    match access.node() {
-        ExecutableAccessNode::Path(path) => path.capabilities().supports_reverse_traversal(),
-        ExecutableAccessNode::Union(children) | ExecutableAccessNode::Intersection(children) => {
-            children
-                .iter()
-                .all(access_plan_supports_reverse_traversal_internal)
+                if first_index_range_details.is_none() {
+                    first_index_range_details = child_index_range_details;
+                }
+                all_paths_support_reverse_traversal &= child_reverse_supported;
+            }
+
+            (
+                first_index_range_details,
+                all_paths_support_reverse_traversal,
+            )
         }
     }
 }
@@ -467,14 +470,14 @@ fn derive_access_capabilities<K>(access: &ExecutableAccessPlan<'_, K>) -> Access
         ExecutableAccessNode::Path(path) => Some(path.capabilities()),
         ExecutableAccessNode::Union(_) | ExecutableAccessNode::Intersection(_) => None,
     };
+    let (first_index_range_details, all_paths_support_reverse_traversal) =
+        summarize_access_plan_runtime_shape(access);
 
     AccessCapabilities {
         plan_kind,
         single_path,
-        first_index_range_details: access_plan_first_index_range_details_internal(access),
-        all_paths_support_reverse_traversal: access_plan_supports_reverse_traversal_internal(
-            access,
-        ),
+        first_index_range_details,
+        all_paths_support_reverse_traversal,
     }
 }
 

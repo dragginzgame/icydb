@@ -1,3 +1,8 @@
+//! Module: query::plan::logical_builder
+//! Responsibility: construct logical planning inputs and logical plan contracts from query intent.
+//! Does not own: access-path planning heuristics or runtime executor routing.
+//! Boundary: emits planner-domain logical plan structures prior to access planning.
+
 use crate::{
     db::{
         predicate::{MissingRowPolicy, Predicate},

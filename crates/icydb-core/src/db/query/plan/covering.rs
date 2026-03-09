@@ -1,3 +1,8 @@
+//! Module: query::plan::covering
+//! Responsibility: planner covering-projection eligibility and order-contract derivation.
+//! Does not own: runtime projection materialization or executor ordering enforcement.
+//! Boundary: exposes planner-only covering contracts for index-backed paths.
+
 use crate::db::{
     access::AccessPlan,
     direction::Direction,

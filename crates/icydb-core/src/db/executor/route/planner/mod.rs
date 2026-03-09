@@ -260,7 +260,7 @@ where
             ));
         }
 
-        let capabilities = Self::derive_route_capabilities(plan, Direction::Asc, None);
+        let capabilities = Self::derive_execution_capabilities(plan, Direction::Asc, None);
 
         Ok(ExecutionRoutePlan::for_mutation(capabilities))
     }
@@ -346,7 +346,7 @@ where
         let intent_stage = Self::derive_route_intent_stage(intent);
 
         // Phase 3: derive continuation/window/capability feasibility.
-        let feasibility_stage = Self::derive_route_feasibility_stage(
+        let feasibility_stage = Self::derive_execution_feasibility_stage(
             plan,
             continuation,
             probe_fetch_hint,

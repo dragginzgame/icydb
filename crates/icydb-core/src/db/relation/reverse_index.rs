@@ -1,3 +1,8 @@
+//! Module: relation::reverse_index
+//! Responsibility: maintain reverse-index relation targets for strong relation consistency.
+//! Does not own: planner query semantics or execution routing policies.
+//! Boundary: applies relation reverse-index mutations during commit pathways.
+
 use crate::{
     db::{
         Db,

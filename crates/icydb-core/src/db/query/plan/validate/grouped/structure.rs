@@ -44,30 +44,29 @@ fn validate_grouped_having_structure(
 
     for (index, clause) in having.clauses().iter().enumerate() {
         match clause.symbol() {
-            GroupHavingSymbol::GroupField(field_slot) => {
-                if !group
+            GroupHavingSymbol::GroupField(field_slot)
+                if group
                     .group_fields
                     .iter()
-                    .any(|group_field| group_field.index() == field_slot.index())
-                {
-                    return Err(PlanError::from(
-                        GroupPlanError::HavingNonGroupFieldReference {
-                            index,
-                            field: field_slot.field().to_string(),
-                        },
-                    ));
-                }
+                    .any(|group_field| group_field.index() == field_slot.index()) => {}
+            GroupHavingSymbol::GroupField(field_slot) => {
+                return Err(PlanError::from(
+                    GroupPlanError::HavingNonGroupFieldReference {
+                        index,
+                        field: field_slot.field().to_string(),
+                    },
+                ));
             }
+            GroupHavingSymbol::AggregateIndex(aggregate_index)
+                if *aggregate_index < group.aggregates.len() => {}
             GroupHavingSymbol::AggregateIndex(aggregate_index) => {
-                if *aggregate_index >= group.aggregates.len() {
-                    return Err(PlanError::from(
-                        GroupPlanError::HavingAggregateIndexOutOfBounds {
-                            index,
-                            aggregate_index: *aggregate_index,
-                            aggregate_count: group.aggregates.len(),
-                        },
-                    ));
-                }
+                return Err(PlanError::from(
+                    GroupPlanError::HavingAggregateIndexOutOfBounds {
+                        index,
+                        aggregate_index: *aggregate_index,
+                        aggregate_count: group.aggregates.len(),
+                    },
+                ));
             }
         }
     }
@@ -81,43 +80,45 @@ fn validate_group_spec_structure(
     model: &EntityModel,
     group: &GroupSpec,
 ) -> Result<(), PlanError> {
-    if group.group_fields.is_empty() {
-        if group.aggregates.iter().any(GroupAggregateSpec::distinct) {
-            return Ok(());
-        }
-
-        return Err(PlanError::from(GroupPlanError::EmptyGroupFields));
+    match (
+        group.group_fields.is_empty(),
+        group.aggregates.iter().any(GroupAggregateSpec::distinct),
+    ) {
+        (true, true) => return Ok(()),
+        (true, false) => return Err(PlanError::from(GroupPlanError::EmptyGroupFields)),
+        (false, _) => {}
     }
-    if group.aggregates.is_empty() {
-        return Err(PlanError::from(GroupPlanError::EmptyAggregates));
-    }
+    (!group.aggregates.is_empty())
+        .then_some(())
+        .ok_or_else(|| PlanError::from(GroupPlanError::EmptyAggregates))?;
 
     let mut seen_group_slots = BTreeSet::<usize>::new();
     for field_slot in &group.group_fields {
-        if model.fields.get(field_slot.index()).is_none() {
-            return Err(PlanError::from(GroupPlanError::UnknownGroupField {
+        model.fields.get(field_slot.index()).ok_or_else(|| {
+            PlanError::from(GroupPlanError::UnknownGroupField {
                 field: field_slot.field().to_string(),
-            }));
-        }
-        if !seen_group_slots.insert(field_slot.index()) {
-            return Err(PlanError::from(GroupPlanError::DuplicateGroupField {
-                field: field_slot.field().to_string(),
-            }));
-        }
+            })
+        })?;
+        seen_group_slots
+            .insert(field_slot.index())
+            .then_some(())
+            .ok_or_else(|| {
+                PlanError::from(GroupPlanError::DuplicateGroupField {
+                    field: field_slot.field().to_string(),
+                })
+            })?;
     }
 
     for (index, aggregate) in group.aggregates.iter().enumerate() {
         let Some(target_field) = aggregate.target_field.as_ref() else {
             continue;
         };
-        if schema.field(target_field).is_none() {
-            return Err(PlanError::from(
-                GroupPlanError::UnknownAggregateTargetField {
-                    index,
-                    field: target_field.clone(),
-                },
-            ));
-        }
+        schema.field(target_field).ok_or_else(|| {
+            PlanError::from(GroupPlanError::UnknownAggregateTargetField {
+                index,
+                field: target_field.clone(),
+            })
+        })?;
     }
 
     Ok(())

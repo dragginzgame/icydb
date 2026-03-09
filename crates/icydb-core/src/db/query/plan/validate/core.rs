@@ -1,3 +1,8 @@
+//! Module: query::plan::validate::core
+//! Responsibility: core planner semantic validation orchestration for scalar/grouped plans.
+//! Does not own: executor defensive runtime checks or cursor token protocol concerns.
+//! Boundary: coordinates planner validation gates into typed plan errors.
+
 use crate::{
     db::{
         access::validate_access_structure_model as validate_access_structure_model_shared,

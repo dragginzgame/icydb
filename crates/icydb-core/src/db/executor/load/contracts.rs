@@ -1,3 +1,8 @@
+//! Module: executor::load::contracts
+//! Responsibility: executor-owned scalar/grouped load contract helpers and pagination contracts.
+//! Does not own: planner semantics, intent validation, or access-path selection policy.
+//! Boundary: consumes planned query contracts and drives load execution helpers.
+
 use crate::{
     db::{
         Context, Db, GroupedRow,
@@ -6,10 +11,6 @@ use crate::{
         executor::{
             ExecutionOptimization, ExecutionPreparation, ExecutionTrace, KeyOrderComparator,
             OrderedKeyStreamBox,
-            aggregate::field::{
-                AggregateFieldValueError, FieldSlot, resolve_any_aggregate_target_slot,
-                resolve_numeric_aggregate_target_slot,
-            },
             load::{
                 GroupedContinuationCapabilities, GroupedExecutionContext, GroupedPaginationWindow,
                 ResolvedExecutionKeyStream,
@@ -575,41 +576,5 @@ impl GroupedFoldStage {
     // Consume folded stage and return final grouped page payload.
     pub(in crate::db::executor::load) fn into_page(self) -> GroupedCursorPage {
         self.page
-    }
-}
-
-impl<E> LoadExecutor<E>
-where
-    E: EntityKind + EntityValue,
-{
-    /// Construct one load executor bound to a database handle and debug mode.
-    #[must_use]
-    pub(in crate::db) const fn new(db: Db<E::Canister>, debug: bool) -> Self {
-        Self { db, debug }
-    }
-
-    /// Recover one canonical read context for kernel-owned execution setup.
-    pub(in crate::db::executor) fn recovered_context(
-        &self,
-    ) -> Result<crate::db::Context<'_, E>, InternalError> {
-        self.db.recovered_context::<E>()
-    }
-
-    // Resolve one aggregate target field into a stable slot with canonical
-    // field-error taxonomy mapping.
-    pub(in crate::db::executor) fn resolve_any_field_slot(
-        target_field: &str,
-    ) -> Result<FieldSlot, InternalError> {
-        resolve_any_aggregate_target_slot::<E>(target_field)
-            .map_err(AggregateFieldValueError::into_internal_error)
-    }
-
-    // Resolve one numeric aggregate target field into a stable slot with
-    // canonical field-error taxonomy mapping.
-    pub(in crate::db::executor) fn resolve_numeric_field_slot(
-        target_field: &str,
-    ) -> Result<FieldSlot, InternalError> {
-        resolve_numeric_aggregate_target_slot::<E>(target_field)
-            .map_err(AggregateFieldValueError::into_internal_error)
     }
 }

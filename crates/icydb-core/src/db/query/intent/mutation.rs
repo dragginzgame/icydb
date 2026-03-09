@@ -1,3 +1,8 @@
+//! Module: query::intent::mutation
+//! Responsibility: query-intent mutation helpers for scalar/grouped/load/delete intent state.
+//! Does not own: final planner validation or executor route/runtime semantics.
+//! Boundary: applies fluent/query API mutations to internal intent state contracts.
+
 use crate::db::{
     predicate::Predicate,
     query::{

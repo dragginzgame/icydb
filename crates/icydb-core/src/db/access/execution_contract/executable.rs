@@ -1,3 +1,8 @@
+//! Module: access::execution_contract::executable
+//! Responsibility: normalized executable access-path contract representation for traversal.
+//! Does not own: planner access-path derivation or executor route precedence policy.
+//! Boundary: carries compact executable access metadata consumed by runtime traversal layers.
+
 use crate::{
     db::access::execution_contract::{
         AccessExecutionMode, ExecutionBounds, ExecutionDistinctMode, ExecutionOrdering,

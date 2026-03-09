@@ -1,3 +1,8 @@
+//! Module: access::execution_contract::strategy
+//! Responsibility: access strategy object combining executable path contract and route class.
+//! Does not own: planner access-plan selection or executor dispatch precedence semantics.
+//! Boundary: centralizes access lowering plus route-class derivation under access ownership.
+
 use crate::db::access::{
     execution_contract::{
         AccessRouteClass, ExecutableAccessPath, ExecutableAccessPlan,

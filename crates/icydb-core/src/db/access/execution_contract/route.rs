@@ -1,3 +1,8 @@
+//! Module: access::execution_contract::route
+//! Responsibility: access-owned route classification contracts for executable access plans.
+//! Does not own: executor runtime dispatch policy or planner semantic validation.
+//! Boundary: exposes route capability snapshots consumed by route/executor layers.
+
 use crate::{
     db::{
         access::{

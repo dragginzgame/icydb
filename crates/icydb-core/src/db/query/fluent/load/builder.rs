@@ -1,3 +1,8 @@
+//! Module: query::fluent::load::builder
+//! Responsibility: fluent load-query builder surface and immutable query-intent mutation API.
+//! Does not own: planner semantic validation or runtime execution dispatch.
+//! Boundary: accumulates typed load intent and delegates planning/execution to session/query APIs.
+
 use crate::{
     db::{
         DbSession,

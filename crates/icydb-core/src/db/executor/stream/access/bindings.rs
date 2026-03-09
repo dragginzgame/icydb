@@ -1,3 +1,8 @@
+//! Module: executor::stream::access::bindings
+//! Responsibility: canonical access-stream binding contracts for executor traversal setup.
+//! Does not own: access-path planning semantics or runtime row materialization policy.
+//! Boundary: provides typed stream input/output contracts across execution seams.
+
 use crate::{
     db::{
         access::AccessPlan,

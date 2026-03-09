@@ -1,3 +1,8 @@
+//! Module: query::plan::order_contract
+//! Responsibility: planner-owned execution ordering contracts and direction normalization.
+//! Does not own: runtime order application mechanics or cursor wire token encoding.
+//! Boundary: exposes immutable order contracts consumed across planner/executor boundaries.
+
 use crate::db::{
     direction::Direction,
     query::plan::{OrderDirection, OrderSpec},

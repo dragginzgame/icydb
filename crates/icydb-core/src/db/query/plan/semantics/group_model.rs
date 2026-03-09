@@ -1,3 +1,8 @@
+//! Module: query::plan::semantics::group_model
+//! Responsibility: grouped semantic model helpers for aggregates, symbols, and group fields.
+//! Does not own: grouped runtime fold execution or cursor token handling.
+//! Boundary: derives planner-owned grouped semantic projections from query/model inputs.
+
 use crate::{
     db::query::{
         builder::AggregateExpr,

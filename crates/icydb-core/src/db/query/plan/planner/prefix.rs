@@ -1,3 +1,8 @@
+//! Module: query::plan::planner::prefix
+//! Responsibility: planner prefix/multi-lookup access-path derivation from predicate equality sets.
+//! Does not own: runtime index traversal execution or continuation resume behavior.
+//! Boundary: maps prefix-capable predicates into planner-owned access plan candidates.
+
 use crate::{
     db::{
         access::AccessPlan,

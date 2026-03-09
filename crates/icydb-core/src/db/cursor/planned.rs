@@ -1,3 +1,8 @@
+//! Module: cursor::planned
+//! Responsibility: executor-facing planned cursor state after validation.
+//! Does not own: cursor validation policy derivation or token wire encoding.
+//! Boundary: carries validated cursor boundary/anchor/offset state into runtime execution.
+
 use crate::db::cursor::{CursorBoundary, ValidatedInEnvelopeIndexRangeCursorAnchor};
 use crate::value::Value;
 

@@ -1,3 +1,8 @@
+//! Module: query::plan::semantics::group_distinct
+//! Responsibility: grouped DISTINCT admissibility and grouped aggregate policy semantics.
+//! Does not own: grouped runtime enforcement or load-stage execution mechanics.
+//! Boundary: provides planner-shared grouped DISTINCT policy reasoning contracts.
+
 use crate::db::query::{
     builder::aggregate::{count_by, sum},
     plan::{
@@ -12,6 +17,7 @@ use crate::db::query::{
 /// Canonical grouped DISTINCT policy rejection reasons shared across planner
 /// and executor defensive boundaries.
 ///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum GroupDistinctPolicyReason {
     DistinctHavingUnsupported,
@@ -29,6 +35,7 @@ pub(crate) enum GroupDistinctPolicyReason {
 /// Shared grouped DISTINCT policy contract used to keep planner semantics and
 /// executor defensive assertions aligned.
 ///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum GroupDistinctAdmissibility {
     Allowed,
@@ -41,6 +48,7 @@ pub(crate) enum GroupDistinctAdmissibility {
 /// Canonical semantic projection of the supported global DISTINCT field-target
 /// grouped aggregate shape.
 ///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct GlobalDistinctFieldAggregate<'a> {
     kind: AggregateKind,

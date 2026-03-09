@@ -1,3 +1,8 @@
+//! Module: query::plan::planner::compare
+//! Responsibility: planner compare-predicate access-path planning and index-range lowering.
+//! Does not own: runtime comparator enforcement or continuation resume execution details.
+//! Boundary: derives compare-driven `AccessPlan` semantics from schema/predicate contracts.
+
 use crate::{
     db::{
         access::{AccessPlan, SemanticIndexRangeSpec},

@@ -1,3 +1,8 @@
+//! Module: query::plan::expr::type_inference
+//! Responsibility: infer deterministic planner expression type classes from schema and AST.
+//! Does not own: runtime projection evaluation or expression execution behavior.
+//! Boundary: returns planner-domain type information and typed plan errors.
+
 use crate::{
     db::{
         numeric::field_kind_supports_expr_numeric,

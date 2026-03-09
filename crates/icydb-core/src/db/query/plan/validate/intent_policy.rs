@@ -52,34 +52,19 @@ const INTENT_PLAN_SHAPE_POLICY_RULES: &[IntentPlanShapePolicyRule] = &[
     intent_delete_limit_requires_order_violation,
 ];
 
-const fn intent_delete_offset_violation(
-    ctx: IntentPlanShapePolicyContext,
-) -> Option<PolicyPlanError> {
-    if ctx.is_delete_mode && ctx.has_delete_offset {
-        return Some(PolicyPlanError::DeletePlanWithOffset);
-    }
-
-    None
+fn intent_delete_offset_violation(ctx: IntentPlanShapePolicyContext) -> Option<PolicyPlanError> {
+    (ctx.is_delete_mode && ctx.has_delete_offset).then_some(PolicyPlanError::DeletePlanWithOffset)
 }
 
-const fn intent_delete_grouping_violation(
-    ctx: IntentPlanShapePolicyContext,
-) -> Option<PolicyPlanError> {
-    if ctx.is_delete_mode && ctx.grouped {
-        return Some(PolicyPlanError::DeletePlanWithGrouping);
-    }
-
-    None
+fn intent_delete_grouping_violation(ctx: IntentPlanShapePolicyContext) -> Option<PolicyPlanError> {
+    (ctx.is_delete_mode && ctx.grouped).then_some(PolicyPlanError::DeletePlanWithGrouping)
 }
 
-const fn intent_delete_limit_requires_order_violation(
+fn intent_delete_limit_requires_order_violation(
     ctx: IntentPlanShapePolicyContext,
 ) -> Option<PolicyPlanError> {
-    if ctx.is_delete_mode && ctx.has_delete_limit && !ctx.has_order {
-        return Some(PolicyPlanError::DeleteLimitRequiresOrder);
-    }
-
-    None
+    (ctx.is_delete_mode && ctx.has_delete_limit && !ctx.has_order)
+        .then_some(PolicyPlanError::DeleteLimitRequiresOrder)
 }
 
 ///
@@ -123,34 +108,25 @@ const INTENT_KEY_ACCESS_POLICY_RULES: &[IntentKeyAccessPolicyRule] = &[
     intent_only_with_predicate_violation,
 ];
 
-const fn intent_key_access_conflict_violation(
+fn intent_key_access_conflict_violation(
     ctx: IntentKeyAccessPolicyContext,
 ) -> Option<IntentKeyAccessPolicyViolation> {
-    if ctx.has_key_access_conflict {
-        return Some(IntentKeyAccessPolicyViolation::KeyAccessConflict);
-    }
-
-    None
+    ctx.has_key_access_conflict
+        .then_some(IntentKeyAccessPolicyViolation::KeyAccessConflict)
 }
 
-const fn intent_by_ids_with_predicate_violation(
+fn intent_by_ids_with_predicate_violation(
     ctx: IntentKeyAccessPolicyContext,
 ) -> Option<IntentKeyAccessPolicyViolation> {
-    if ctx.is_many_selector && ctx.has_predicate {
-        return Some(IntentKeyAccessPolicyViolation::ByIdsWithPredicate);
-    }
-
-    None
+    (ctx.is_many_selector && ctx.has_predicate)
+        .then_some(IntentKeyAccessPolicyViolation::ByIdsWithPredicate)
 }
 
-const fn intent_only_with_predicate_violation(
+fn intent_only_with_predicate_violation(
     ctx: IntentKeyAccessPolicyContext,
 ) -> Option<IntentKeyAccessPolicyViolation> {
-    if ctx.is_only_selector && ctx.has_predicate {
-        return Some(IntentKeyAccessPolicyViolation::OnlyWithPredicate);
-    }
-
-    None
+    (ctx.is_only_selector && ctx.has_predicate)
+        .then_some(IntentKeyAccessPolicyViolation::OnlyWithPredicate)
 }
 
 /// Validate intent-level plan-shape rules derived from query mode + modifiers.
@@ -169,11 +145,7 @@ pub(crate) fn validate_intent_plan_shape(
         delete_has_offset,
         matches!(&mode, QueryMode::Delete(spec) if spec.limit.is_some()),
     );
-    if let Some(reason) = first_violated_rule(INTENT_PLAN_SHAPE_POLICY_RULES, context) {
-        return Err(reason);
-    }
-
-    Ok(())
+    first_violated_rule(INTENT_PLAN_SHAPE_POLICY_RULES, context).map_or(Ok(()), Err)
 }
 
 /// Validate intent key-access policy before planning.
@@ -188,11 +160,7 @@ pub(crate) fn validate_intent_key_access_policy(
         has_predicate,
     );
 
-    if let Some(reason) = first_violated_rule(INTENT_KEY_ACCESS_POLICY_RULES, context) {
-        return Err(reason);
-    }
-
-    Ok(())
+    first_violated_rule(INTENT_KEY_ACCESS_POLICY_RULES, context).map_or(Ok(()), Err)
 }
 
 ///

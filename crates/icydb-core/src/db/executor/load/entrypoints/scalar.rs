@@ -1,3 +1,8 @@
+//! Module: executor::load::entrypoints::scalar
+//! Responsibility: scalar load execution entrypoint orchestration and trace wiring.
+//! Does not own: planner semantic ownership or grouped-runtime execution policy.
+//! Boundary: executes scalar planned routes through load kernels and continuation inputs.
+
 use crate::{
     db::{
         access::single_path_capabilities,

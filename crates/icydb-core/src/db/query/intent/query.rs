@@ -1,3 +1,8 @@
+//! Module: query::intent::query
+//! Responsibility: typed query-intent construction and planner handoff for entity queries.
+//! Does not own: runtime execution semantics or access-path execution behavior.
+//! Boundary: exposes query APIs and emits planner-owned compiled query contracts.
+
 use crate::{
     db::{
         predicate::{CoercionId, CompareOp, MissingRowPolicy, Predicate},

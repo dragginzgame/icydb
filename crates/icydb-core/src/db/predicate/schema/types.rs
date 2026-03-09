@@ -1,3 +1,8 @@
+//! Module: predicate::schema::types
+//! Responsibility: compact predicate-schema type system for validation and coercion checks.
+//! Does not own: planner route selection or runtime predicate execution behavior.
+//! Boundary: defines scalar/field type compatibility surfaces used by predicate validation.
+
 use crate::{
     model::field::FieldKind,
     traits::FieldValueKind,

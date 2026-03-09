@@ -1,3 +1,8 @@
+//! Module: cursor::error
+//! Responsibility: cursor-domain typed error taxonomy and invariant construction helpers.
+//! Does not own: planner policy derivation or runtime execution routing semantics.
+//! Boundary: classifies continuation token/anchor/order/window failures for cursor consumers.
+
 use crate::{
     db::{
         codec::cursor::CursorDecodeError,

@@ -57,24 +57,22 @@ where
     pub(in crate::db::executor) fn derive_bytes_terminal_fast_path_contract(
         plan: &ExecutablePlan<E>,
     ) -> Option<BytesTerminalFastPathContract> {
-        if plan.has_predicate() || plan.is_distinct() {
-            return None;
-        }
+        (!plan.has_predicate() && !plan.is_distinct()).then_some(())?;
 
         let direction = bytes_terminal_direction_from_order::<E>(plan)?;
         let access_strategy = plan.access().resolve_strategy();
         let capabilities = access_strategy.as_path().map(single_path_capabilities)?;
 
-        if capabilities.supports_bytes_terminal_primary_key_window() {
-            return Some(BytesTerminalFastPathContract::PrimaryKeyWindow(direction));
-        }
-        if capabilities.supports_bytes_terminal_ordered_key_stream_window() {
-            return Some(BytesTerminalFastPathContract::OrderedKeyStreamWindow(
-                direction,
-            ));
-        }
-
-        None
+        capabilities
+            .supports_bytes_terminal_primary_key_window()
+            .then_some(BytesTerminalFastPathContract::PrimaryKeyWindow(direction))
+            .or_else(|| {
+                capabilities
+                    .supports_bytes_terminal_ordered_key_stream_window()
+                    .then_some(BytesTerminalFastPathContract::OrderedKeyStreamWindow(
+                        direction,
+                    ))
+            })
     }
 
     // Derive one route-owned `count()` terminal fast-path contract.
@@ -84,42 +82,34 @@ where
         let access_strategy = plan.access().resolve_strategy();
         let capabilities = access_strategy.as_path().map(single_path_capabilities)?;
 
-        if !plan.is_distinct()
+        (!plan.is_distinct()
             && !plan.has_predicate()
-            && capabilities.supports_count_terminal_primary_key_cardinality()
-        {
-            return Some(CountTerminalFastPathContract::PrimaryKeyCardinality);
-        }
-
-        if !plan.has_predicate()
-            && primary_key_count_order_supported_for_terminal::<E>(plan)
-            && capabilities.supports_count_terminal_primary_key_existing_rows()
-        {
-            return Some(CountTerminalFastPathContract::PrimaryKeyExistingRows(
+            && capabilities.supports_count_terminal_primary_key_cardinality())
+        .then_some(CountTerminalFastPathContract::PrimaryKeyCardinality)
+        .or_else(|| {
+            (!plan.has_predicate()
+                && primary_key_count_order_supported_for_terminal::<E>(plan)
+                && capabilities.supports_count_terminal_primary_key_existing_rows())
+            .then_some(CountTerminalFastPathContract::PrimaryKeyExistingRows(
                 count_stream_direction_for_terminal::<E>(plan),
-            ));
-        }
-
-        if plan.index_covering_existing_rows_terminal_eligible() {
-            return Some(CountTerminalFastPathContract::IndexCoveringExistingRows(
-                Direction::Asc,
-            ));
-        }
-
-        None
+            ))
+        })
+        .or_else(|| {
+            plan.index_covering_existing_rows_terminal_eligible()
+                .then_some(CountTerminalFastPathContract::IndexCoveringExistingRows(
+                    Direction::Asc,
+                ))
+        })
     }
 
     // Derive one route-owned `exists()` terminal fast-path contract.
     pub(in crate::db::executor) fn derive_exists_terminal_fast_path_contract(
         plan: &ExecutablePlan<E>,
     ) -> Option<ExistsTerminalFastPathContract> {
-        if plan.index_covering_existing_rows_terminal_eligible() {
-            return Some(ExistsTerminalFastPathContract::IndexCoveringExistingRows(
+        plan.index_covering_existing_rows_terminal_eligible()
+            .then_some(ExistsTerminalFastPathContract::IndexCoveringExistingRows(
                 Direction::Asc,
-            ));
-        }
-
-        None
+            ))
     }
 }
 
@@ -131,15 +121,12 @@ where
     let Some(order) = plan.order_spec() else {
         return Some(Direction::Asc);
     };
-    if order.fields.len() != 1 {
-        return None;
+    match order.fields.as_slice() {
+        [(field, order_direction)] if field == E::MODEL.primary_key.name => {
+            Some(direction_from_order(*order_direction))
+        }
+        _ => None,
     }
-    let (field, order_direction) = &order.fields[0];
-    if field != E::MODEL.primary_key.name {
-        return None;
-    }
-
-    Some(direction_from_order(*order_direction))
 }
 
 // Keep primary-key direct COUNT fast path scoped to unordered or PK-only ordering contracts.
@@ -150,11 +137,10 @@ where
     let Some(order) = plan.order_spec() else {
         return true;
     };
-    if order.fields.len() != 1 {
-        return false;
-    }
-
-    order.fields[0].0 == E::MODEL.primary_key.name
+    matches!(
+        order.fields.as_slice(),
+        [(field, _)] if field == E::MODEL.primary_key.name
+    )
 }
 
 // Derive COUNT key-stream traversal direction from the PK-only order contract.
@@ -165,11 +151,12 @@ where
     let Some(order) = plan.order_spec() else {
         return Direction::Asc;
     };
-    if order.fields.len() != 1 || order.fields[0].0 != E::MODEL.primary_key.name {
-        return Direction::Asc;
+    match order.fields.as_slice() {
+        [(field, order_direction)] if field == E::MODEL.primary_key.name => {
+            direction_from_order(*order_direction)
+        }
+        _ => Direction::Asc,
     }
-
-    direction_from_order(order.fields[0].1)
 }
 
 // Convert one ORDER BY direction contract into execution traversal direction.

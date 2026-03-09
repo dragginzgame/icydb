@@ -1,3 +1,8 @@
+//! Module: cursor::boundary
+//! Responsibility: cursor boundary slot modeling and deterministic cursor boundary handling.
+//! Does not own: planner query validation policy or access-path execution routing.
+//! Boundary: defines cursor-boundary domain types shared by cursor planning/runtime paths.
+
 use crate::{
     db::{
         contracts::canonical_value_compare,

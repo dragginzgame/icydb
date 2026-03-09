@@ -12,6 +12,7 @@ use crate::db::{
 /// Canonical grouped cursor-policy violations shared by planner and executor
 /// boundaries so grouped continuation rules are not reimplemented per layer.
 ///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum GroupedCursorPolicyViolation {
     ContinuationRequiresLimit,

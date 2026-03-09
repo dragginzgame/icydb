@@ -1,3 +1,8 @@
+//! Module: executor::continuation::scalar
+//! Responsibility: scalar continuation planning/runtime bindings for access resume behavior.
+//! Does not own: cursor token encoding policy or planner semantic ownership.
+//! Boundary: consumes validated continuation contracts and computes scalar resume inputs.
+
 use crate::{
     db::{
         access::LoweredKey,

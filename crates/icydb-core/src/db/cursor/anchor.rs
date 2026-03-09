@@ -1,3 +1,8 @@
+//! Module: cursor::anchor
+//! Responsibility: validate and normalize index-range cursor anchors against runtime invariants.
+//! Does not own: cursor token wire encoding or planner continuation policy semantics.
+//! Boundary: proves anchor identity/key-namespace/component invariants before resume use.
+
 use crate::{
     db::{
         access::lower_cursor_anchor_index_range_bounds,

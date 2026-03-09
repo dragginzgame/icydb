@@ -1,3 +1,8 @@
+//! Module: predicate::schema::validate
+//! Responsibility: schema-aware predicate validation and unsupported-feature rejection.
+//! Does not own: planner routing decisions or executor runtime filtering behavior.
+//! Boundary: validates predicate/type semantics before planning and execution.
+
 use crate::{
     db::predicate::{
         CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate,

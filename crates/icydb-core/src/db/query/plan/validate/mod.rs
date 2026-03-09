@@ -1,3 +1,8 @@
+//! Module: query::plan::validate
+//! Responsibility: planner-owned query semantic validation and plan-policy enforcement.
+//! Does not own: executor defensive runtime checks or execution-route dispatch semantics.
+//! Boundary: emits plan-domain typed errors before executor handoff.
+//!
 //! Query-plan validation for planner-owned logical semantics.
 //!
 //! Validation ownership contract:

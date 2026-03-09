@@ -1,3 +1,8 @@
+//! Module: query::plan::validate::cursor_policy
+//! Responsibility: planner cursor policy feasibility checks for load/order plan shapes.
+//! Does not own: cursor token decode/encode semantics or runtime cursor advancement behavior.
+//! Boundary: validates cursor paging/order prerequisites before plan admission.
+
 use crate::db::query::plan::{
     LoadSpec, OrderSpec,
     validate::{CursorOrderPlanShapeError, CursorPagingPolicyError},

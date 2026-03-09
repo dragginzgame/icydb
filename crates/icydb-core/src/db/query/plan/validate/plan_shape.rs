@@ -1,3 +1,8 @@
+//! Module: query::plan::validate::plan_shape
+//! Responsibility: logical plan-shape policy validation and explicit policy context mapping.
+//! Does not own: cursor wire semantics or executor defensive runtime checks.
+//! Boundary: enforces planner plan-shape policy constraints before execution handoff.
+
 use crate::db::query::plan::{LogicalPlan, OrderSpec, QueryMode, validate::PolicyPlanError};
 
 ///

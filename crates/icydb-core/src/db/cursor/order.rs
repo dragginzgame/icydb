@@ -1,3 +1,8 @@
+//! Module: cursor::order
+//! Responsibility: cursor order-resolution and deterministic boundary comparison helpers.
+//! Does not own: cursor wire encoding or planner order-policy derivation.
+//! Boundary: resolves order fields and compares cursor boundaries under order contracts.
+
 use crate::{
     db::{
         cursor::{

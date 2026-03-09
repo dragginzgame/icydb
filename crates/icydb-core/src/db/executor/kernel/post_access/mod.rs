@@ -1,4 +1,7 @@
-//! Kernel-owned post-access execution semantics for planned queries.
+//! Module: executor::kernel::post_access
+//! Responsibility: kernel-owned post-access execution semantics for planned queries.
+//! Does not own: planner validation semantics or access-path route selection.
+//! Boundary: applies post-access ordering/window behavior over materialized rows.
 
 mod order_cursor;
 #[cfg(test)]

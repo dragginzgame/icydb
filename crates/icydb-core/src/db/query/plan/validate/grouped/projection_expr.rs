@@ -1,3 +1,8 @@
+//! Module: query::plan::validate::grouped::projection_expr
+//! Responsibility: grouped projection-expression compatibility validation at planner boundary.
+//! Does not own: runtime grouped projection evaluation or executor fallback behavior.
+//! Boundary: enforces grouped projection expression field/symbol compatibility rules.
+
 use crate::db::{
     predicate::SchemaInfo,
     query::plan::{

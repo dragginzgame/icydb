@@ -1,3 +1,8 @@
+//! Module: cursor::continuation
+//! Responsibility: derive next continuation token state from materialized/scanned rows.
+//! Does not own: planner continuation policy derivation or token wire schema definitions.
+//! Boundary: computes runtime continuation progression under access/order/page contracts.
+
 use crate::{
     db::{
         access::{AccessPlan, LoweredKey},

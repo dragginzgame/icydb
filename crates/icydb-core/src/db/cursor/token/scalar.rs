@@ -1,3 +1,8 @@
+//! Module: cursor::token::scalar
+//! Responsibility: scalar continuation token domain type and wire conversion helpers.
+//! Does not own: grouped continuation semantics or planner continuation policy decisions.
+//! Boundary: maps scalar cursor token between in-memory domain and bounded wire payload.
+
 use crate::{
     db::{
         codec::deserialize_protocol_payload,

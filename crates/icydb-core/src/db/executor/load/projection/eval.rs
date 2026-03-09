@@ -1,3 +1,8 @@
+//! Module: executor::load::projection::eval
+//! Responsibility: evaluate planned projection expressions against runtime row contexts.
+//! Does not own: expression type inference or planner semantic validation policy.
+//! Boundary: provides executor-side projection evaluation and typed evaluation errors.
+
 use crate::{
     db::executor::load::projection::grouped::GroupedRowView,
     db::{

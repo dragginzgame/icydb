@@ -1,3 +1,8 @@
+//! Module: query::plan::validate::fluent_policy
+//! Responsibility: fluent API policy validation for paged/non-paged grouped and cursor usage.
+//! Does not own: core planner semantic validation outside fluent policy constraints.
+//! Boundary: evaluates fluent-entrypoint policy rules into planner policy violations.
+
 use crate::db::{
     contracts::first_violated_rule,
     query::plan::{

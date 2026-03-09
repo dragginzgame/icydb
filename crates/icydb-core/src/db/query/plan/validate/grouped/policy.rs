@@ -1,3 +1,8 @@
+//! Module: query::plan::validate::grouped::policy
+//! Responsibility: grouped-plan policy checks and grouped DISTINCT admissibility mapping.
+//! Does not own: grouped runtime execution guards or aggregate runtime evaluation.
+//! Boundary: maps grouped policy reasons into planner-domain grouped plan errors.
+
 use crate::db::{
     contracts::first_violated_rule,
     predicate::SchemaInfo,
@@ -26,6 +31,10 @@ const GLOBAL_DISTINCT_AGGREGATE_POLICY_RULES: &[GlobalDistinctAggregatePolicyRul
     global_distinct_sum_target_numeric_rule,
 ];
 
+///
+/// GroupedHavingPolicyContext
+///
+
 #[derive(Clone, Copy)]
 struct GroupedHavingPolicyContext<'a> {
     index: usize,
@@ -39,6 +48,10 @@ impl<'a> GroupedHavingPolicyContext<'a> {
     }
 }
 
+///
+/// GroupedAggregatePolicyContext
+///
+
 #[derive(Clone, Copy)]
 struct GroupedAggregatePolicyContext<'a> {
     index: usize,
@@ -51,6 +64,10 @@ impl<'a> GroupedAggregatePolicyContext<'a> {
         Self { index, aggregate }
     }
 }
+
+///
+/// GlobalDistinctAggregatePolicyContext
+///
 
 #[derive(Clone, Copy)]
 struct GlobalDistinctAggregatePolicyContext<'a> {
@@ -107,13 +124,12 @@ fn validate_grouped_having_policy(having: Option<&GroupHavingSpec>) -> Result<()
         return Ok(());
     };
 
-    for (index, clause) in having.clauses().iter().enumerate() {
-        if let Some(reason) = first_grouped_having_policy_violation(index, clause) {
-            return Err(PlanError::from(reason));
-        }
-    }
-
-    Ok(())
+    having
+        .clauses()
+        .iter()
+        .enumerate()
+        .find_map(|(index, clause)| first_grouped_having_policy_violation(index, clause))
+        .map_or(Ok(()), |reason| Err(PlanError::from(reason)))
 }
 
 // Validate grouped execution policy over a structurally valid grouped spec.
@@ -123,17 +139,17 @@ fn validate_group_spec_policy(
     having: Option<&GroupHavingSpec>,
 ) -> Result<(), PlanError> {
     if group.group_fields.is_empty() {
-        validate_global_distinct_aggregate_without_group_keys(schema, group, having)?;
-        return Ok(());
+        validate_global_distinct_aggregate_without_group_keys(schema, group, having)
+    } else {
+        group
+            .aggregates
+            .iter()
+            .enumerate()
+            .find_map(|(index, aggregate)| {
+                first_grouped_aggregate_policy_violation(index, aggregate)
+            })
+            .map_or(Ok(()), |reason| Err(PlanError::from(reason)))
     }
-
-    for (index, aggregate) in group.aggregates.iter().enumerate() {
-        if let Some(reason) = first_grouped_aggregate_policy_violation(index, aggregate) {
-            return Err(PlanError::from(reason));
-        }
-    }
-
-    Ok(())
 }
 
 // Validate the restricted global DISTINCT aggregate shape (`GROUP BY` omitted).
@@ -161,15 +177,12 @@ fn validate_global_distinct_aggregate_without_group_keys(
         }
     };
 
-    if let Some(reason) = first_global_distinct_aggregate_policy_violation(
+    first_global_distinct_aggregate_policy_violation(
         schema,
         aggregate.kind(),
         aggregate.target_field(),
-    ) {
-        return Err(PlanError::from(reason));
-    }
-
-    Ok(())
+    )
+    .map_or(Ok(()), |reason| Err(PlanError::from(reason)))
 }
 
 fn first_grouped_having_policy_violation(

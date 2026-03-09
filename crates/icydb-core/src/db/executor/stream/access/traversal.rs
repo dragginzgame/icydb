@@ -1,3 +1,8 @@
+//! Module: executor::stream::access::traversal
+//! Responsibility: build and execute access-path traversal streams for runtime loading.
+//! Does not own: access-plan construction or planner routing semantics.
+//! Boundary: lowers executable access contracts into ordered key/data stream traversal.
+
 #[cfg(test)]
 use crate::db::access::{AccessPath, lower_executable_access_path};
 use crate::{

@@ -43,7 +43,8 @@ fn route_plan_shape_descriptor_matches_route_axes() {
 #[test]
 fn runtime_route_consumers_avoid_direct_execution_mode_field_reads() {
     let runtime_consumers = [
-        "src/db/executor/load/execute.rs",
+        "src/db/executor/load/execute/mod.rs",
+        "src/db/executor/load/execute/fast_path.rs",
         "src/db/executor/load/entrypoints/scalar.rs",
         "src/db/executor/aggregate/mod.rs",
         "src/db/executor/explain/descriptor.rs",

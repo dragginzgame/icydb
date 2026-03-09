@@ -31,12 +31,9 @@ fn validated_secondary_order_fields_for_contract<'a>(
     logical: &'a ScalarPlan,
     logical_pushdown_eligibility: LogicalPushdownEligibility,
 ) -> Option<Vec<(&'a str, Direction)>> {
-    if !secondary_order_contract_active(logical_pushdown_eligibility) {
-        return None;
-    }
-    if !secondary_order_contract_is_deterministic(model, logical) {
-        return None;
-    }
+    (secondary_order_contract_active(logical_pushdown_eligibility)
+        && secondary_order_contract_is_deterministic(model, logical))
+    .then_some(())?;
 
     let order_fields = logical
         .order
@@ -87,40 +84,30 @@ where
     let Some(order) = logical.order.as_ref() else {
         return false;
     };
-    if order.fields.is_empty() {
-        return false;
-    }
-
     let access_class = plan.access_strategy().class();
-    if order.fields.len() == 1
-        && order.fields[0].0 == E::MODEL.primary_key.name
-        && access_class.ordered()
-    {
-        return true;
-    }
-
     let logical_pushdown_eligibility = plan
         .planner_route_profile(E::MODEL)
         .logical_pushdown_eligibility();
-    if !secondary_order_contract_active(logical_pushdown_eligibility) {
-        return false;
-    }
-
     let index_prefix_details = access_class.single_path_index_prefix_details();
     let index_range_details = access_class.single_path_index_range_details();
-    if index_prefix_details.is_none() && index_range_details.is_none() {
-        return false;
-    }
-    if let Some((index, _)) = index_prefix_details
-        && !index.is_unique()
-    {
-        return false;
-    }
-
-    derive_secondary_pushdown_applicability_from_contract(
+    let has_order_fields = !order.fields.is_empty();
+    let primary_key_order_satisfied = order.fields.len() == 1
+        && order.fields[0].0 == E::MODEL.primary_key.name
+        && access_class.ordered();
+    let secondary_contract_active = secondary_order_contract_active(logical_pushdown_eligibility);
+    let has_index_path = index_prefix_details.is_some() || index_range_details.is_some();
+    let unique_prefix_ok = index_prefix_details.is_none_or(|(index, _)| index.is_unique());
+    let secondary_pushdown_eligible = derive_secondary_pushdown_applicability_from_contract(
         E::MODEL,
         plan,
         logical_pushdown_eligibility,
     )
-    .is_eligible()
+    .is_eligible();
+
+    has_order_fields
+        && (primary_key_order_satisfied
+            || (secondary_contract_active
+                && has_index_path
+                && unique_prefix_ok
+                && secondary_pushdown_eligible))
 }

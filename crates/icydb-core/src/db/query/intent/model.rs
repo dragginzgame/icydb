@@ -1,3 +1,8 @@
+//! Module: query::intent::model
+//! Responsibility: query-intent model normalization and planner handoff construction.
+//! Does not own: executor runtime behavior or post-plan execution routing.
+//! Boundary: turns fluent/query intent state into validated logical/planned contracts.
+
 use crate::{
     db::{
         access::AccessPlan,

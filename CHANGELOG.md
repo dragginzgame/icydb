@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.47.x] - 2026-03-09 - Audit Pass
+
+- `0.47.1` continues the audit-pass hardening work by splitting a load-execution hotspot into smaller modules and updating invariant/guard checks so CI contracts stay aligned after the refactor.
+
+See detailed breakdown:
+[docs/changelog/0.47.md](docs/changelog/0.47.md)
+
+---
+
 ## [0.46.x] - 2026-03-08 - Standards Alignment
 
 - `0.46.0` adds early planner/runtime shortcuts for queries that cannot return rows, reducing work while keeping query results unchanged.

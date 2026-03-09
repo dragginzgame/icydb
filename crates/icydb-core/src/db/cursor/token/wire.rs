@@ -1,3 +1,8 @@
+//! Module: cursor::token::wire
+//! Responsibility: wire-format token payload structures and cursor token versioning.
+//! Does not own: cursor planning policy or runtime traversal semantics.
+//! Boundary: defines serializable cursor token protocol schema for scalar/grouped continuations.
+
 use crate::{
     db::{
         cursor::{CursorBoundary, token::IndexRangeCursorAnchor},

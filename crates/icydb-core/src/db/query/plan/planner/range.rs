@@ -1,3 +1,8 @@
+//! Module: query::plan::planner::range
+//! Responsibility: planner range-constraint extraction and index-range candidate derivation.
+//! Does not own: runtime range traversal execution or cursor persistence format.
+//! Boundary: computes planner-side range constraints from predicate semantics.
+
 use crate::{
     db::{
         access::SemanticIndexRangeSpec,

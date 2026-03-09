@@ -3,6 +3,7 @@
 //! Does not own: logical planning semantics or relation/commit mutation policy.
 //! Boundary: consumes executable load plans and delegates post-access semantics to kernel.
 
+mod context;
 mod contracts;
 mod entrypoints;
 mod execute;

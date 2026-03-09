@@ -1,3 +1,8 @@
+//! Module: cursor::spine
+//! Responsibility: centralized cursor validation spine for continuation resume contracts.
+//! Does not own: cursor wire serialization format or planner query-shape semantics.
+//! Boundary: validates direction/window/boundary/anchor invariants before resume execution.
+
 use crate::{
     db::{
         cursor::{

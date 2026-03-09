@@ -1,3 +1,8 @@
+//! Module: query::plan::semantics::logical
+//! Responsibility: logical-plan semantic lowering from planner contracts to access-planned queries.
+//! Does not own: access-path index selection internals or runtime execution behavior.
+//! Boundary: derives planner-owned execution semantics, shape signatures, and continuation policy.
+
 use crate::{
     db::{
         access::AccessPlan,
