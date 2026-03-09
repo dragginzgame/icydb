@@ -149,6 +149,9 @@ impl FilterExpr {
     // Lowering
     // ─────────────────────────────────────────────────────────────
 
+    /// Lower this API-level filter expression into core predicate IR.
+    ///
+    /// Lowering applies explicit coercion policies so execution semantics are stable.
     #[expect(clippy::too_many_lines)]
     pub fn lower<E: EntityKind>(&self) -> Result<CoreFilterExpr, QueryError> {
         let lower_pred =
@@ -306,16 +309,19 @@ impl FilterExpr {
     // Boolean
     // ─────────────────────────────────────────────────────────────
 
+    /// Build an `And` expression from a list of child expressions.
     #[must_use]
     pub const fn and(exprs: Vec<Self>) -> Self {
         Self::And(exprs)
     }
 
+    /// Build an `Or` expression from a list of child expressions.
     #[must_use]
     pub const fn or(exprs: Vec<Self>) -> Self {
         Self::Or(exprs)
     }
 
+    /// Negate one child expression.
     #[must_use]
     #[expect(clippy::should_implement_trait)]
     pub fn not(expr: Self) -> Self {
@@ -326,6 +332,7 @@ impl FilterExpr {
     // Scalar comparisons
     // ─────────────────────────────────────────────────────────────
 
+    /// Compare `field == value`.
     pub fn eq(field: impl Into<String>, value: impl FieldValue) -> Self {
         Self::Eq {
             field: field.into(),
@@ -333,6 +340,7 @@ impl FilterExpr {
         }
     }
 
+    /// Compare `field != value`.
     pub fn ne(field: impl Into<String>, value: impl FieldValue) -> Self {
         Self::Ne {
             field: field.into(),
@@ -340,6 +348,7 @@ impl FilterExpr {
         }
     }
 
+    /// Compare `field < value`.
     pub fn lt(field: impl Into<String>, value: impl FieldValue) -> Self {
         Self::Lt {
             field: field.into(),
@@ -347,6 +356,7 @@ impl FilterExpr {
         }
     }
 
+    /// Compare `field <= value`.
     pub fn lte(field: impl Into<String>, value: impl FieldValue) -> Self {
         Self::Lte {
             field: field.into(),
@@ -354,6 +364,7 @@ impl FilterExpr {
         }
     }
 
+    /// Compare `field > value`.
     pub fn gt(field: impl Into<String>, value: impl FieldValue) -> Self {
         Self::Gt {
             field: field.into(),
@@ -361,6 +372,7 @@ impl FilterExpr {
         }
     }
 
+    /// Compare `field >= value`.
     pub fn gte(field: impl Into<String>, value: impl FieldValue) -> Self {
         Self::Gte {
             field: field.into(),
@@ -368,6 +380,7 @@ impl FilterExpr {
         }
     }
 
+    /// Compare `field IN values`.
     pub fn in_list(
         field: impl Into<String>,
         values: impl IntoIterator<Item = impl FieldValue>,
@@ -378,6 +391,7 @@ impl FilterExpr {
         }
     }
 
+    /// Compare `field NOT IN values`.
     pub fn not_in(
         field: impl Into<String>,
         values: impl IntoIterator<Item = impl FieldValue>,
@@ -392,6 +406,7 @@ impl FilterExpr {
     // Collection
     // ─────────────────────────────────────────────────────────────
 
+    /// Compare collection `field CONTAINS value`.
     pub fn contains(field: impl Into<String>, value: impl FieldValue) -> Self {
         Self::Contains {
             field: field.into(),
@@ -403,6 +418,7 @@ impl FilterExpr {
     // Text predicates
     // ─────────────────────────────────────────────────────────────
 
+    /// Compare case-sensitive substring containment.
     pub fn text_contains(field: impl Into<String>, value: impl FieldValue) -> Self {
         Self::TextContains {
             field: field.into(),
@@ -410,6 +426,7 @@ impl FilterExpr {
         }
     }
 
+    /// Compare case-insensitive substring containment.
     pub fn text_contains_ci(field: impl Into<String>, value: impl FieldValue) -> Self {
         Self::TextContainsCi {
             field: field.into(),
@@ -417,6 +434,7 @@ impl FilterExpr {
         }
     }
 
+    /// Compare case-sensitive prefix match.
     pub fn starts_with(field: impl Into<String>, value: impl FieldValue) -> Self {
         Self::StartsWith {
             field: field.into(),
@@ -424,6 +442,7 @@ impl FilterExpr {
         }
     }
 
+    /// Compare case-insensitive prefix match.
     pub fn starts_with_ci(field: impl Into<String>, value: impl FieldValue) -> Self {
         Self::StartsWithCi {
             field: field.into(),
@@ -431,6 +450,7 @@ impl FilterExpr {
         }
     }
 
+    /// Compare case-sensitive suffix match.
     pub fn ends_with(field: impl Into<String>, value: impl FieldValue) -> Self {
         Self::EndsWith {
             field: field.into(),
@@ -438,6 +458,7 @@ impl FilterExpr {
         }
     }
 
+    /// Compare case-insensitive suffix match.
     pub fn ends_with_ci(field: impl Into<String>, value: impl FieldValue) -> Self {
         Self::EndsWithCi {
             field: field.into(),
@@ -449,30 +470,35 @@ impl FilterExpr {
     // Presence / nullability
     // ─────────────────────────────────────────────────────────────
 
+    /// Match rows where `field` is present and null.
     pub fn is_null(field: impl Into<String>) -> Self {
         Self::IsNull {
             field: field.into(),
         }
     }
 
+    /// Match rows where `field` is present and non-null.
     pub fn is_not_null(field: impl Into<String>) -> Self {
         Self::IsNotNull {
             field: field.into(),
         }
     }
 
+    /// Match rows where `field` is absent.
     pub fn is_missing(field: impl Into<String>) -> Self {
         Self::IsMissing {
             field: field.into(),
         }
     }
 
+    /// Match rows where `field` is present and empty.
     pub fn is_empty(field: impl Into<String>) -> Self {
         Self::IsEmpty {
             field: field.into(),
         }
     }
 
+    /// Match rows where `field` is present and non-empty.
     pub fn is_not_empty(field: impl Into<String>) -> Self {
         Self::IsNotEmpty {
             field: field.into(),
@@ -491,16 +517,19 @@ pub struct SortExpr {
 }
 
 impl SortExpr {
+    /// Build a sort specification from ordered `(field, direction)` pairs.
     #[must_use]
     pub const fn new(fields: Vec<(String, OrderDirection)>) -> Self {
         Self { fields }
     }
 
+    /// Borrow the ordered sort fields.
     #[must_use]
     pub fn fields(&self) -> &[(String, OrderDirection)] {
         &self.fields
     }
 
+    /// Lower this API-level sort expression into core sort IR.
     #[must_use]
     pub fn lower(&self) -> CoreSortExpr {
         let fields = self

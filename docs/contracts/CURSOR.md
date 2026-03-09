@@ -5,8 +5,8 @@ Date: 2026-02-12
 This file captures a point-in-time audit checkpoint.
 Normative cursor guarantees are defined in `docs/contracts/QUERY_CONTRACT.md`.
 Release tracking for cursor-related work lives in
-`docs/status/archive/0.9-status.md` and
-`docs/status/archive/0.10-status.md`.
+`docs/design/archive/0.9-status.md` and
+`docs/design/archive/0.10-status.md`.
 
 ## Done
 

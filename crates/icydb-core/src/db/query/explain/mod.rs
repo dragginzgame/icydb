@@ -55,6 +55,7 @@ pub struct ExplainPlan {
 /// Executor-projected scalar aggregate terminal route label for explain output.
 /// Keeps seek-edge fast-path labels explicit without exposing route internals.
 ///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExplainAggregateTerminalRoute {
     Standard,
@@ -68,6 +69,7 @@ pub enum ExplainAggregateTerminalRoute {
 /// Combined explain payload for one scalar aggregate terminal request.
 /// Includes logical explain projection plus executor route label.
 ///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExplainAggregateTerminalPlan {
     pub(crate) query: ExplainPlan,
@@ -82,6 +84,7 @@ pub struct ExplainAggregateTerminalPlan {
 /// Stable ordering-origin projection used by terminal execution explain output.
 /// This keeps index-seek labels and materialized fallback labels explicit.
 ///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExplainExecutionOrderingSource {
     AccessOrder,
@@ -95,6 +98,7 @@ pub enum ExplainExecutionOrderingSource {
 ///
 /// Stable execution-mode projection used by execution explain descriptors.
 ///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExplainExecutionMode {
     Streaming,
@@ -108,6 +112,7 @@ pub enum ExplainExecutionMode {
 /// This keeps execution authority projection centralized and avoids ad-hoc
 /// terminal-specific explain branching at call sites.
 ///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExplainExecutionDescriptor {
     pub(crate) access_strategy: ExplainAccessPath,
@@ -125,6 +130,7 @@ pub struct ExplainExecutionDescriptor {
 ///
 /// Stable execution-node vocabulary for EXPLAIN descriptor projection.
 ///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExplainExecutionNodeType {
     ByKeyLookup,
@@ -168,6 +174,7 @@ pub enum ExplainExecutionNodeType {
 /// Canonical execution-node descriptor used by EXPLAIN text/verbose/json
 /// renderers. Optional fields are node-family specific and are additive.
 ///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExplainExecutionNodeDescriptor {
     pub(crate) node_type: ExplainExecutionNodeType,
@@ -356,6 +363,7 @@ impl ExplainExecutionDescriptor {
 }
 
 impl ExplainAggregateTerminalPlan {
+    /// Build an execution-node descriptor for aggregate terminal plans.
     #[must_use]
     pub fn execution_node_descriptor(&self) -> ExplainExecutionNodeDescriptor {
         ExplainExecutionNodeDescriptor {
@@ -401,6 +409,7 @@ const fn aggregate_execution_node_type(
 }
 
 impl ExplainExecutionNodeType {
+    /// Return the stable string label used by explain renderers.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -520,6 +529,7 @@ impl ExplainExecutionNodeDescriptor {
         &self.node_properties
     }
 
+    /// Render this execution subtree as a compact text tree.
     #[must_use]
     pub fn render_text_tree(&self) -> String {
         let mut lines = Vec::new();
@@ -527,6 +537,7 @@ impl ExplainExecutionNodeDescriptor {
         lines.join("\n")
     }
 
+    /// Render this execution subtree as canonical JSON.
     #[must_use]
     pub fn render_json_canonical(&self) -> String {
         let mut out = String::new();
@@ -534,6 +545,7 @@ impl ExplainExecutionNodeDescriptor {
         out
     }
 
+    /// Render this execution subtree as a verbose text tree with properties.
     #[must_use]
     pub fn render_text_tree_verbose(&self) -> String {
         let mut lines = Vec::new();
@@ -1115,6 +1127,7 @@ pub enum ExplainGrouping {
 ///
 /// Deterministic explain projection of grouped strategy selection.
 ///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExplainGroupedStrategy {
     HashGroup,
@@ -1275,6 +1288,7 @@ pub enum ExplainOrderPushdown {
 /// Deterministic projection of logical access path shape for diagnostics.
 /// Mirrors planner-selected structural paths without runtime cursor state.
 ///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExplainAccessPath {
     ByKey {
@@ -1317,6 +1331,7 @@ pub enum ExplainAccessPath {
 /// Deterministic projection of canonical predicate structure for explain output.
 /// This preserves normalized predicate shape used by hashing/fingerprints.
 ///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExplainPredicate {
     None,
@@ -1358,6 +1373,7 @@ pub enum ExplainPredicate {
 ///
 /// Deterministic projection of canonical ORDER BY shape.
 ///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExplainOrderBy {
     None,

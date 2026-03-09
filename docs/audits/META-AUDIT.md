@@ -39,12 +39,12 @@ The following edges are forbidden unless explicitly approved and documented:
 ## 4. Required Audit Coverage
 
 Recurring domains under `docs/audits/recurring/` must continuously cover:
-- planner contracts
+- range/boundary contracts
 - executor boundaries
 - cursor/order guarantees
 - access/index integrity
 - storage/recovery consistency
-- invariants and boundary preservation
+- global invariant preservation
 - error/contracts taxonomy integrity
 
 Cross-domain findings belong in `recurring/crosscutting/`.
@@ -58,7 +58,7 @@ Required:
 - identify broken boundary or invariant
 - record concrete evidence path
 - preserve all historical reports
-- keep reports grouped by day under `docs/audits/reports/YYYY-MM-DD/`
+- keep reports grouped by month/day under `docs/audits/reports/YYYY-MM/YYYY-MM-DD/`
 - include report preamble fields (scope, baseline path, method tag, comparability status)
 - include verification readout outcomes with explicit `PASS`/`FAIL`/`BLOCKED` status
 - document method changes and mark non-comparable deltas when formulas/scope change

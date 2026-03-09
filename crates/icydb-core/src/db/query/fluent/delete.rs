@@ -48,6 +48,7 @@ where
     // Intent inspection
     // ------------------------------------------------------------------
 
+    /// Borrow the current immutable query intent.
     #[must_use]
     pub const fn query(&self) -> &Query<E> {
         &self.query
@@ -82,34 +83,40 @@ where
     // Query Refinement
     // ------------------------------------------------------------------
 
+    /// Add a typed predicate expression directly.
     #[must_use]
     pub fn filter(mut self, predicate: Predicate) -> Self {
         self.query = self.query.filter(predicate);
         self
     }
 
+    /// Add a serialized filter expression after lowering and validation.
     pub fn filter_expr(mut self, expr: FilterExpr) -> Result<Self, QueryError> {
         self.query = self.query.filter_expr(expr)?;
         Ok(self)
     }
 
+    /// Add sort clauses from a serialized sort expression.
     pub fn sort_expr(mut self, expr: SortExpr) -> Result<Self, QueryError> {
         self.query = self.query.sort_expr(expr)?;
         Ok(self)
     }
 
+    /// Append ascending order for one field.
     #[must_use]
     pub fn order_by(mut self, field: impl AsRef<str>) -> Self {
         self.query = self.query.order_by(field);
         self
     }
 
+    /// Append descending order for one field.
     #[must_use]
     pub fn order_by_desc(mut self, field: impl AsRef<str>) -> Self {
         self.query = self.query.order_by_desc(field);
         self
     }
 
+    /// Bound the number of rows affected by this delete.
     #[must_use]
     pub fn limit(mut self, limit: u32) -> Self {
         self.query = self.query.limit(limit);
@@ -120,6 +127,7 @@ where
     // Planning / diagnostics
     // ------------------------------------------------------------------
 
+    /// Build explain metadata for the current query.
     pub fn explain(&self) -> Result<ExplainPlan, QueryError> {
         self.query.explain()
     }
@@ -134,10 +142,12 @@ where
         self.session.trace_query(self.query())
     }
 
+    /// Build the validated logical plan without compiling execution details.
     pub fn planned(&self) -> Result<PlannedQuery<E>, QueryError> {
         self.query.planned()
     }
 
+    /// Build the compiled executable plan for this query.
     pub fn plan(&self) -> Result<CompiledQuery<E>, QueryError> {
         self.query.plan()
     }

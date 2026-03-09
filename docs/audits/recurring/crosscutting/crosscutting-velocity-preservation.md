@@ -50,8 +50,10 @@ Capture previous-run values first.
 | Velocity Risk Index |  |  |  |
 | Cross-layer leakage crossings |  |  |  |
 | Avg files touched per feature slice |  |  |  |
+| Median files touched |  |  |  |
 | p95 files touched |  |  |  |
 | Top gravity-well fan-in |  |  |  |
+| Route-planner HIP cross-layer count |  |  |  |
 
 If previous data is unavailable, mark baseline as `N/A`.
 
@@ -148,6 +150,37 @@ Domain count categories:
 
 ---
 
+# STEP 3A — Hub Contract Containment (Required)
+
+Track designated coordination hubs against explicit contract boundaries.
+
+Produce:
+
+| Hub Module | Contract Boundary | Cross-Layer Families | Previous | Delta | Allowed Max | Status | Risk |
+| ---- | ---- | ----: | ----: | ----: | ----: | ---- | ---- |
+
+Required hubs:
+
+* `executor/route/planner/mod.rs`
+* `executor/load/mod.rs` (or split successor modules)
+
+Required route-planner contract:
+
+* planner -> `RouteShape` -> executor dispatch
+* route planner consumes access-route contracts, not access internals
+
+Required load-hub containment direction:
+
+* decompose toward `dispatch`, `strategy`, `terminal` ownership seams
+* avoid mixed policy + dispatch + terminal logic in one hub file
+
+Gate guidance:
+
+* route-planner cross-layer families target `<=1`
+* persistent `>1` for two comparable runs requires explicit decomposition plan
+
+---
+
 # STEP 4 — Change Multiplier Matrix (Deterministic)
 
 Map feature axes to subsystems, then compute deterministic multiplier.
@@ -199,6 +232,14 @@ Produce:
 | p95 files touched |  |  |  |
 
 If PR-level history is unavailable locally, compute from audited feature slices and mark as `slice-sampled`.
+
+SLO gates (slice-sampled acceptable when PR history unavailable):
+
+* median files touched `<= 8`
+* p95 files touched `<= 15`
+
+If an SLO gate is missed in a comparable run, record an explicit follow-up with
+owner boundary and target date.
 
 ---
 
@@ -268,11 +309,12 @@ Produce:
 
 Score each bucket (1–10), then apply weighted aggregate:
 
-* enum shock radius ×3
+* enum shock radius ×2
 * CAF trend ×2
 * cross-layer leakage ×2
 * gravity-well growth ×2
-* edit blast radius ×1
+* hub contract containment ×2
+* edit blast radius (with SLO result) ×2
 
 Produce:
 
@@ -297,13 +339,14 @@ Interpretation:
 2. Revised CAF + ELS + Containment summary
 3. Boundary Leakage Trend Table
 4. Gravity-Well Growth + Edit Frequency Table
-5. Density-Adjusted Enum Shock Radius Hotspots
-6. Edit Blast Radius Summary
-7. Size-Adjusted Subsystem Independence Scores
-8. Independent-Axis Growth Warnings
-9. Decision Surface Size Trends
-10. Refactor-Transient vs True-Drag Findings
-11. Verification Readout (`PASS`/`FAIL`/`BLOCKED`)
+5. Hub Contract Containment Table
+6. Density-Adjusted Enum Shock Radius Hotspots
+7. Edit Blast Radius Summary + SLO status
+8. Size-Adjusted Subsystem Independence Scores
+9. Independent-Axis Growth Warnings
+10. Decision Surface Size Trends
+11. Refactor-Transient vs True-Drag Findings
+12. Verification Readout (`PASS`/`FAIL`/`BLOCKED`)
 
 Run metadata must include:
 

@@ -8,7 +8,7 @@ This document defines how to run and store architecture audits under `docs/audit
 Recurring audits are stable, repeatable audit definitions that run on a schedule and enforce architectural contracts.
 
 Location:
-- `docs/audits/recurring/<domain>/<domain>-<focus>.md`
+- `docs/audits/recurring/<domain>/<focus>.md`
 
 ### Oneoff audits
 Oneoff audits are release-scoped or incident-scoped investigations that are not part of the recurring baseline.
@@ -20,18 +20,18 @@ Location:
 Reports are historical outputs from audit runs.
 
 Location:
-- `docs/audits/reports/YYYY-MM-DD/<scope>.md`
-- Reports must always be grouped by day directory.
+- `docs/audits/reports/YYYY-MM/YYYY-MM-DD/<scope>.md`
+- Reports must always be grouped by month, then day directory.
 
 ## 2. Domain Structure
 
 Recurring audits are organized by subsystem domain:
 - `planner/`
+- `range/`
 - `executor/`
-- `cursor/`
 - `access/`
 - `storage/`
-- `invariants/`
+- `integrity/`
 - `contracts/`
 - `crosscutting/` for multi-subsystem audits
 
@@ -41,10 +41,10 @@ Domain descriptors are maintained in:
 ## 3. Naming Conventions
 
 Use these file patterns:
-- Recurring definitions: `<domain>-<focus>.md`
+- Recurring definitions: `<focus>.md` (domain context is the parent directory)
 - Oneoff definitions: `<version>-<topic>.md`
 - Reports (inside day directory): `<scope>.md`
-- Required report directory: `docs/audits/reports/YYYY-MM-DD/`
+- Required report directory: `docs/audits/reports/YYYY-MM/YYYY-MM-DD/`
 
 ## 4. Audit Execution Discipline
 
@@ -52,7 +52,7 @@ For each audit run:
 1. Use one audit definition per run.
 2. Keep prompt scope fixed for the run.
 3. Record findings with structured risk levels.
-4. Save output as a new report file under `docs/audits/reports/YYYY-MM-DD/`.
+4. Save output as a new report file under `docs/audits/reports/YYYY-MM/YYYY-MM-DD/`.
 5. Never overwrite prior run artifacts.
 
 For crosscutting structure/velocity runs, include the required Hub Import Pressure metric:

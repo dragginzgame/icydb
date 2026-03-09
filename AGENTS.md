@@ -41,6 +41,14 @@
 
 ---
 
+## Agent File Links
+
+* When referencing files in agent responses, always use absolute filesystem paths so links are clickable in VS Code.
+* Relative paths are allowed in code and commands, but response links must be absolute.
+* Example: `/home/adam/projects/icydb/crates/icydb-core/src/db/session.rs:53`
+
+---
+
 ## Git Hooks
 
 * Hooks path: `.githooks` (auto-configured via `core.hooksPath`).

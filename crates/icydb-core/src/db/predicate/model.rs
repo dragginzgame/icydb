@@ -31,57 +31,68 @@ pub enum Predicate {
 }
 
 impl Predicate {
+    /// Build an `And` predicate from child predicates.
     #[must_use]
     pub const fn and(preds: Vec<Self>) -> Self {
         Self::And(preds)
     }
 
+    /// Build an `Or` predicate from child predicates.
     #[must_use]
     pub const fn or(preds: Vec<Self>) -> Self {
         Self::Or(preds)
     }
 
+    /// Negate one predicate.
     #[must_use]
     #[expect(clippy::should_implement_trait)]
     pub fn not(pred: Self) -> Self {
         Self::Not(Box::new(pred))
     }
 
+    /// Compare `field == value`.
     #[must_use]
     pub fn eq(field: String, value: Value) -> Self {
         Self::Compare(ComparePredicate::eq(field, value))
     }
 
+    /// Compare `field != value`.
     #[must_use]
     pub fn ne(field: String, value: Value) -> Self {
         Self::Compare(ComparePredicate::ne(field, value))
     }
 
+    /// Compare `field < value`.
     #[must_use]
     pub fn lt(field: String, value: Value) -> Self {
         Self::Compare(ComparePredicate::lt(field, value))
     }
 
+    /// Compare `field <= value`.
     #[must_use]
     pub fn lte(field: String, value: Value) -> Self {
         Self::Compare(ComparePredicate::lte(field, value))
     }
 
+    /// Compare `field > value`.
     #[must_use]
     pub fn gt(field: String, value: Value) -> Self {
         Self::Compare(ComparePredicate::gt(field, value))
     }
 
+    /// Compare `field >= value`.
     #[must_use]
     pub fn gte(field: String, value: Value) -> Self {
         Self::Compare(ComparePredicate::gte(field, value))
     }
 
+    /// Compare `field IN values`.
     #[must_use]
     pub fn in_(field: String, values: Vec<Value>) -> Self {
         Self::Compare(ComparePredicate::in_(field, values))
     }
 
+    /// Compare `field NOT IN values`.
     #[must_use]
     pub fn not_in(field: String, values: Vec<Value>) -> Self {
         Self::Compare(ComparePredicate::not_in(field, values))
@@ -144,6 +155,7 @@ pub enum CompareOp {
 }
 
 impl CompareOp {
+    /// Return the stable wire tag for this compare operator.
     #[must_use]
     pub const fn tag(self) -> u8 {
         self as u8
@@ -188,41 +200,49 @@ impl ComparePredicate {
         }
     }
 
+    /// Build `Eq` comparison.
     #[must_use]
     pub fn eq(field: String, value: Value) -> Self {
         Self::new(field, CompareOp::Eq, value)
     }
 
+    /// Build `Ne` comparison.
     #[must_use]
     pub fn ne(field: String, value: Value) -> Self {
         Self::new(field, CompareOp::Ne, value)
     }
 
+    /// Build `Lt` comparison.
     #[must_use]
     pub fn lt(field: String, value: Value) -> Self {
         Self::new(field, CompareOp::Lt, value)
     }
 
+    /// Build `Lte` comparison.
     #[must_use]
     pub fn lte(field: String, value: Value) -> Self {
         Self::new(field, CompareOp::Lte, value)
     }
 
+    /// Build `Gt` comparison.
     #[must_use]
     pub fn gt(field: String, value: Value) -> Self {
         Self::new(field, CompareOp::Gt, value)
     }
 
+    /// Build `Gte` comparison.
     #[must_use]
     pub fn gte(field: String, value: Value) -> Self {
         Self::new(field, CompareOp::Gte, value)
     }
 
+    /// Build `In` comparison.
     #[must_use]
     pub fn in_(field: String, values: Vec<Value>) -> Self {
         Self::new(field, CompareOp::In, Value::List(values))
     }
 
+    /// Build `NotIn` comparison.
     #[must_use]
     pub fn not_in(field: String, values: Vec<Value>) -> Self {
         Self::new(field, CompareOp::NotIn, Value::List(values))

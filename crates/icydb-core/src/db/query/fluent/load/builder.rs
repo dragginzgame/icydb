@@ -48,6 +48,7 @@ where
     // Intent inspection
     // ------------------------------------------------------------------
 
+    /// Borrow the current immutable query intent.
     #[must_use]
     pub const fn query(&self) -> &Query<E> {
         &self.query
@@ -95,24 +96,29 @@ where
     // Query Refinement
     // ------------------------------------------------------------------
 
+    /// Add a typed predicate expression directly.
     #[must_use]
     pub fn filter(self, predicate: Predicate) -> Self {
         self.map_query(|query| query.filter(predicate))
     }
 
+    /// Add a serialized filter expression after lowering and validation.
     pub fn filter_expr(self, expr: FilterExpr) -> Result<Self, QueryError> {
         self.try_map_query(|query| query.filter_expr(expr))
     }
 
+    /// Add sort clauses from a serialized sort expression.
     pub fn sort_expr(self, expr: SortExpr) -> Result<Self, QueryError> {
         self.try_map_query(|query| query.sort_expr(expr))
     }
 
+    /// Append ascending order for one field.
     #[must_use]
     pub fn order_by(self, field: impl AsRef<str>) -> Self {
         self.map_query(|query| query.order_by(field))
     }
 
+    /// Append descending order for one field.
     #[must_use]
     pub fn order_by_desc(self, field: impl AsRef<str>) -> Self {
         self.map_query(|query| query.order_by_desc(field))
@@ -192,6 +198,7 @@ where
     // Planning / diagnostics
     // ------------------------------------------------------------------
 
+    /// Build explain metadata for the current query.
     pub fn explain(&self) -> Result<ExplainPlan, QueryError> {
         self.query.explain()
     }
@@ -206,6 +213,7 @@ where
         self.session.trace_query(self.query())
     }
 
+    /// Build the validated logical plan without compiling execution details.
     pub fn planned(&self) -> Result<PlannedQuery<E>, QueryError> {
         if let Some(err) = self.cursor_intent_error() {
             return Err(QueryError::Intent(err));
@@ -214,6 +222,7 @@ where
         self.query.planned()
     }
 
+    /// Build the compiled executable plan for this query.
     pub fn plan(&self) -> Result<CompiledQuery<E>, QueryError> {
         if let Some(err) = self.cursor_intent_error() {
             return Err(QueryError::Intent(err));
@@ -228,6 +237,7 @@ where
     E: EntityKind + SingletonEntity,
     E::Key: Default,
 {
+    /// Constrain this query to the singleton entity row.
     #[must_use]
     pub fn only(self) -> Self {
         self.map_query(Query::only)
