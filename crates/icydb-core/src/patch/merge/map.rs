@@ -1,3 +1,8 @@
+//! Module: patch::merge::map
+//! Responsibility: module-local ownership and contracts for patch::merge::map.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::{
     patch::{MapPatch, merge::error::MergePatchError},
     traits::UpdateView,

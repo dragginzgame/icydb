@@ -1,3 +1,8 @@
+//! Module: db::executor::load::projection::grouped
+//! Responsibility: module-local ownership and contracts for db::executor::load::projection::grouped.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::{
     db::query::{builder::AggregateExpr, plan::FieldSlot},
     value::Value,

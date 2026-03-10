@@ -1,3 +1,9 @@
+//! Module: visitor
+//!
+//! Responsibility: module-local ownership and contracts for visitor.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 pub(crate) mod context;
 pub(crate) mod sanitize;
 pub(crate) mod validate;

@@ -1,3 +1,8 @@
+//! Module: types::ulid::fixture
+//! Responsibility: module-local ownership and contracts for types::ulid::fixture.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::types::Ulid;
 use canic_utils::hash::hash_u128;
 use ulid::Ulid as WrappedUlid;
@@ -31,9 +36,9 @@ impl Ulid {
     }
 }
 
-//
-// TESTS
-//
+///
+/// TESTS
+///
 
 #[cfg(test)]
 mod tests {

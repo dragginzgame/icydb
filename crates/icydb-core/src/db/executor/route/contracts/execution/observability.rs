@@ -1,3 +1,8 @@
+//! Module: db::executor::route::contracts::execution::observability
+//! Responsibility: module-local ownership and contracts for db::executor::route::contracts::execution::observability.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::db::executor::route::contracts::execution::{
     GroupedExecutionStrategy, RouteExecutionMode,
 };

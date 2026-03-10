@@ -9,7 +9,7 @@ use crate::{
     db::{
         Db, EntityResponse, EntitySchemaDescription, FluentDeleteQuery, FluentLoadQuery,
         MissingRowPolicy, PagedGroupedExecutionWithTrace, PagedLoadExecutionWithTrace, PlanError,
-        Query, QueryError, QueryTracePlan, StoreRegistry, TraceExecutionStrategy,
+        Query, QueryError, QueryTracePlan, StorageReport, StoreRegistry, TraceExecutionStrategy,
         WriteBatchResponse,
         access::AccessStrategy,
         commit::EntityRuntimeHooks,
@@ -234,6 +234,14 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         describe_entity_model(E::MODEL)
+    }
+
+    /// Build one point-in-time storage report for observability endpoints.
+    pub fn storage_report(
+        &self,
+        name_to_path: &[(&'static str, &'static str)],
+    ) -> Result<StorageReport, InternalError> {
+        self.db.storage_report(name_to_path)
     }
 
     // ---------------------------------------------------------------------

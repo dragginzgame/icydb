@@ -1,3 +1,8 @@
+//! Module: db::executor::aggregate::field::tests
+//! Responsibility: module-local ownership and contracts for db::executor::aggregate::field::tests.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use super::{
     AggregateFieldValueError, FieldSlot, apply_aggregate_direction,
     compare_entities_by_orderable_field, compare_entities_for_field_extrema,

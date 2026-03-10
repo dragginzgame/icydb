@@ -10,7 +10,7 @@ pub fn generate(_builder: &ActorBuilder) -> TokenStream {
         /// Includes data/index store stats and per-entity breakdown by store.
         #[::icydb::__reexports::canic_cdk::query]
         pub fn icydb_snapshot() -> Result<::icydb::obs::StorageReport, ::icydb::Error> {
-            Ok(::icydb::obs::storage_report(&DB, &[])?)
+            Ok(db().storage_report(&[])?)
         }
 
         /// Ephemeral event report with optional `window_start_ms` window-start filter.

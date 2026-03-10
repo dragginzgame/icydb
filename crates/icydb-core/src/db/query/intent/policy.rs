@@ -1,3 +1,8 @@
+//! Module: db::query::intent::policy
+//! Responsibility: module-local ownership and contracts for db::query::intent::policy.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::db::query::{
     intent::{IntentError, KeyAccessKind, state::QueryIntent},
     plan::{

@@ -1,3 +1,8 @@
+//! Module: db::query::plan::semantics::grouped_strategy
+//! Responsibility: module-local ownership and contracts for db::query::plan::semantics::grouped_strategy.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::db::{
     access::AccessPlan,
     query::plan::{AccessPlannedQuery, FieldSlot, GroupAggregateSpec, OrderSpec},

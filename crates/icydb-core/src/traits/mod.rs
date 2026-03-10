@@ -1,3 +1,9 @@
+//! Module: traits
+//!
+//! Responsibility: module-local ownership and contracts for traits.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 #[macro_use]
 mod macros;
 mod atomic;

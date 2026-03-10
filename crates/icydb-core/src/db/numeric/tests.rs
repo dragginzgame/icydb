@@ -1,3 +1,8 @@
+//! Module: db::numeric::tests
+//! Responsibility: module-local ownership and contracts for db::numeric::tests.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::{
     db::numeric::{
         NumericArithmeticOp, apply_numeric_arithmetic, coerce_numeric_decimal, compare_numeric_eq,

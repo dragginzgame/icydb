@@ -1,3 +1,8 @@
+//! Module: obs::metrics
+//! Responsibility: module-local ownership and contracts for obs::metrics.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 //! Runtime metrics are update-only by contract.
 //! Query-side instrumentation is intentionally not surfaced by `report`, so
 //! query metrics are non-existent by design under IC query semantics.

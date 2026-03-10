@@ -1,3 +1,8 @@
+//! Module: db::query::fingerprint::tests
+//! Responsibility: module-local ownership and contracts for db::query::fingerprint::tests.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::db::query::fingerprint::{
     new_continuation_signature_hasher_v1, new_plan_fingerprint_hasher_v2,
 };

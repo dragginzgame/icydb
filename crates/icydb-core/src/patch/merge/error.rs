@@ -1,3 +1,8 @@
+//! Module: patch::merge::error
+//! Responsibility: module-local ownership and contracts for patch::merge::error.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use thiserror::Error as ThisError;
 
 ///

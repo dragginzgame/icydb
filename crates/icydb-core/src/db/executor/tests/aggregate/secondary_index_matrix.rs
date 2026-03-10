@@ -1,3 +1,8 @@
+//! Module: db::executor::tests::aggregate::secondary_index_matrix
+//! Responsibility: module-local ownership and contracts for db::executor::tests::aggregate::secondary_index_matrix.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use super::*;
 
 const SECONDARY_INDEX_ORDER_ROWS: [(u128, u32, u32); 5] = [

@@ -1,3 +1,8 @@
+//! Module: value::hash::tests
+//! Responsibility: module-local ownership and contracts for value::hash::tests.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use super::*;
 use crate::{
     types::{Decimal, Float32 as F32, Float64 as F64},

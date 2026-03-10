@@ -1,3 +1,8 @@
+//! Module: lib
+//! Responsibility: module-local ownership and contracts for lib.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 //! Core runtime for IcyDB: entity traits, values, executors, visitors, and
 //! the ergonomics exported via the `prelude`.
 #![warn(unreachable_pub)] // too complex to adhere to right now

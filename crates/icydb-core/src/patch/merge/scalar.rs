@@ -1,3 +1,8 @@
+//! Module: patch::merge::scalar
+//! Responsibility: module-local ownership and contracts for patch::merge::scalar.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::{
     patch::merge::error::MergePatchError,
     traits::{Atomic, UpdateView},

@@ -1,3 +1,8 @@
+//! Module: db::query::intent::order
+//! Responsibility: module-local ownership and contracts for db::query::intent::order.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::db::query::plan::{OrderDirection, OrderSpec};
 
 /// Helper to append an ordering field while preserving existing order spec.

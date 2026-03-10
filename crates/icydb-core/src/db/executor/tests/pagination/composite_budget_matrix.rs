@@ -1,3 +1,8 @@
+//! Module: db::executor::tests::pagination::composite_budget_matrix
+//! Responsibility: module-local ownership and contracts for db::executor::tests::pagination::composite_budget_matrix.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use super::*;
 
 #[test]

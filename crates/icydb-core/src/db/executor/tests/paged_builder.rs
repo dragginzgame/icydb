@@ -1,3 +1,8 @@
+//! Module: db::executor::tests::paged_builder
+//! Responsibility: module-local ownership and contracts for db::executor::tests::paged_builder.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use super::*;
 use proptest::prelude::*;
 use std::cmp::Ordering;

@@ -1,3 +1,8 @@
+//! Module: db::executor::tests::load_structure
+//! Responsibility: module-local ownership and contracts for db::executor::tests::load_structure.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use super::*;
 use crate::db::executor::load::{
     load_execute_stage_order_guard, load_pipeline_state_optional_slot_count_guard,

@@ -1,3 +1,8 @@
+//! Module: db::executor::tests::pagination
+//! Responsibility: module-local ownership and contracts for db::executor::tests::pagination.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 #![expect(clippy::too_many_lines)]
 use super::*;
 use crate::{

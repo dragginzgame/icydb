@@ -1,3 +1,8 @@
+//! Module: db::executor::load::terminal::bytes
+//! Responsibility: module-local ownership and contracts for db::executor::load::terminal::bytes.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::{
     db::{
         access::{ExecutableAccessPathDispatch, dispatch_executable_access_path},

@@ -1,3 +1,8 @@
+//! Module: db::query::api::private
+//! Responsibility: module-local ownership and contracts for db::query::api::private.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::{db::EntityResponse, prelude::*};
 
 ///

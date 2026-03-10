@@ -1,3 +1,8 @@
+//! Module: db::executor::load::entrypoints::grouped
+//! Responsibility: module-local ownership and contracts for db::executor::load::entrypoints::grouped.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::{
     db::{
         cursor::GroupedPlannedCursor,

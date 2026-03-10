@@ -1,3 +1,8 @@
+//! Module: types::blob
+//! Responsibility: module-local ownership and contracts for types::blob.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::{
     traits::{
         AsView, Atomic, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom, ValidateAuto,

@@ -1,3 +1,8 @@
+//! Module: db::cursor::signature
+//! Responsibility: module-local ownership and contracts for db::cursor::signature.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 ///
 /// ContinuationSignature
 ///

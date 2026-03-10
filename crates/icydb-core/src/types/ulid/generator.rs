@@ -1,3 +1,8 @@
+//! Module: types::ulid::generator
+//! Responsibility: module-local ownership and contracts for types::ulid::generator.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::types::{Ulid, UlidError};
 use canic_cdk::utils::time::now_millis;
 use canic_utils::rand::next_u128;

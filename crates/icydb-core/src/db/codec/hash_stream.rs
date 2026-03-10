@@ -1,3 +1,8 @@
+//! Module: db::codec::hash_stream
+//! Responsibility: module-local ownership and contracts for db::codec::hash_stream.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 //! Shared hash-stream primitive writers for deterministic SHA256 contracts.
 
 use sha2::{Digest, Sha256};

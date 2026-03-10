@@ -1,3 +1,8 @@
+//! Module: db::executor::tests::aggregate::session_matrix
+//! Responsibility: module-local ownership and contracts for db::executor::tests::aggregate::session_matrix.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use super::*;
 
 #[test]
@@ -1742,6 +1747,44 @@ fn session_load_explain_execution_projects_descriptor_tree_for_ordered_limited_i
         "execution root should expose rejected access-choice reason-code metadata",
     );
     assert!(
+        descriptor
+            .node_properties()
+            .contains_key("covering_scan_reason"),
+        "execution root should expose covering-scan reason metadata",
+    );
+    assert!(
+        descriptor.node_properties().contains_key("scan_direction"),
+        "execution root should expose scan direction metadata",
+    );
+    assert!(
+        descriptor
+            .node_properties()
+            .contains_key("continuation_mode"),
+        "execution root should expose continuation mode metadata",
+    );
+    assert!(
+        descriptor.node_properties().contains_key("resume_from"),
+        "execution root should expose resume-source metadata",
+    );
+    assert!(
+        descriptor
+            .node_properties()
+            .contains_key("fast_path_selected"),
+        "execution root should expose selected fast-path metadata",
+    );
+    assert!(
+        descriptor
+            .node_properties()
+            .contains_key("fast_path_selected_reason"),
+        "execution root should expose selected fast-path reason metadata",
+    );
+    assert!(
+        descriptor
+            .node_properties()
+            .contains_key("fast_path_rejections"),
+        "execution root should expose rejected fast-path reason metadata",
+    );
+    assert!(
         explain_execution_contains_node_type(
             &descriptor,
             crate::db::ExplainExecutionNodeType::IndexPredicatePrefilter,
@@ -1906,6 +1949,28 @@ fn session_load_explain_execution_access_root_matrix_is_stable() {
 }
 
 #[test]
+fn session_load_explain_execution_covering_scan_reports_true_for_unordered_strict_index_shape() {
+    seed_pushdown_entities(&[(9_726, 7, 10), (9_727, 7, 20), (9_728, 8, 30)]);
+    let session = DbSession::new(DB);
+    let descriptor = session
+        .load::<PushdownParityEntity>()
+        .filter(u32_eq_predicate_strict("group", 7))
+        .explain_execution()
+        .expect("unordered strict index-prefix explain execution should succeed");
+
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(true),
+        "unordered strict index-prefix load shapes should report covering eligibility",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("covering_scan_reason"),
+        Some(&Value::from("index_covering_existing_rows_eligible")),
+        "covering-eligible loads should expose explicit covering reason code",
+    );
+}
+
+#[test]
 #[expect(clippy::too_many_lines)]
 fn session_load_explain_execution_predicate_stage_and_limit_zero_matrix_is_stable() {
     seed_pushdown_entities(&[
@@ -2036,7 +2101,7 @@ fn session_load_explain_execution_text_and_json_snapshot_for_strict_index_prefix
     let text_tree = query
         .explain_execution_text()
         .expect("strict index-prefix execution text explain should succeed");
-    let expected_text = r#"IndexPrefixScan execution_mode=Materialized access=IndexPrefix(group_rank) covering_scan=false node_properties=access_choice_alternatives=List([]),access_choice_chosen=Text("index:group_rank"),access_choice_chosen_reason=Text("single_candidate"),access_choice_rejections=List([]),prefix_len=Uint(1)
+    let expected_text = r#"IndexPrefixScan execution_mode=Materialized access=IndexPrefix(group_rank) covering_scan=false node_properties=access_choice_alternatives=List([]),access_choice_chosen=Text("index:group_rank"),access_choice_chosen_reason=Text("single_candidate"),access_choice_rejections=List([]),continuation_mode=Text("initial"),covering_scan_reason=Text("order_requires_materialization"),fast_path_rejections=List([Text("primary_key=pk_order_fast_path_ineligible"), Text("index_range=index_range_limit_pushdown_disabled")]),fast_path_selected=Text("secondary_prefix"),fast_path_selected_reason=Text("secondary_order_pushdown_eligible"),prefix_len=Uint(1),resume_from=Text("none"),scan_direction=Text("asc")
   IndexPredicatePrefilter execution_mode=Materialized predicate_pushdown=strict_all_or_none node_properties=pushdown=Text("group=Uint(7)")
   SecondaryOrderPushdown execution_mode=Materialized node_properties=index=Text("group_rank"),prefix_len=Uint(1)
   OrderByMaterializedSort execution_mode=Materialized node_properties=order_satisfied_by_index=Bool(false)
@@ -2049,7 +2114,7 @@ fn session_load_explain_execution_text_and_json_snapshot_for_strict_index_prefix
     let descriptor_json = query
         .explain_execution_json()
         .expect("strict index-prefix execution json explain should succeed");
-    let expected_json = r#"{"node_type":"IndexPrefixScan","execution_mode":"Materialized","access_strategy":{"type":"IndexPrefix","name":"group_rank","fields":["group","rank"],"prefix_len":1,"values":["Uint(7)"]},"predicate_pushdown":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":false,"rows_expected":null,"children":[{"node_type":"IndexPredicatePrefilter","execution_mode":"Materialized","access_strategy":null,"predicate_pushdown":"strict_all_or_none","residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"pushdown":"Text(\"group=Uint(7)\")"}},{"node_type":"SecondaryOrderPushdown","execution_mode":"Materialized","access_strategy":null,"predicate_pushdown":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"index":"Text(\"group_rank\")","prefix_len":"Uint(1)"}},{"node_type":"OrderByMaterializedSort","execution_mode":"Materialized","access_strategy":null,"predicate_pushdown":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"order_satisfied_by_index":"Bool(false)"}},{"node_type":"LimitOffset","execution_mode":"Materialized","access_strategy":null,"predicate_pushdown":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":2,"cursor":false,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"offset":"Uint(1)"}}],"node_properties":{"access_choice_alternatives":"List([])","access_choice_chosen":"Text(\"index:group_rank\")","access_choice_chosen_reason":"Text(\"single_candidate\")","access_choice_rejections":"List([])","prefix_len":"Uint(1)"}}"#;
+    let expected_json = r#"{"node_type":"IndexPrefixScan","execution_mode":"Materialized","access_strategy":{"type":"IndexPrefix","name":"group_rank","fields":["group","rank"],"prefix_len":1,"values":["Uint(7)"]},"predicate_pushdown":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":false,"rows_expected":null,"children":[{"node_type":"IndexPredicatePrefilter","execution_mode":"Materialized","access_strategy":null,"predicate_pushdown":"strict_all_or_none","residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"pushdown":"Text(\"group=Uint(7)\")"}},{"node_type":"SecondaryOrderPushdown","execution_mode":"Materialized","access_strategy":null,"predicate_pushdown":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"index":"Text(\"group_rank\")","prefix_len":"Uint(1)"}},{"node_type":"OrderByMaterializedSort","execution_mode":"Materialized","access_strategy":null,"predicate_pushdown":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"order_satisfied_by_index":"Bool(false)"}},{"node_type":"LimitOffset","execution_mode":"Materialized","access_strategy":null,"predicate_pushdown":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":2,"cursor":false,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"offset":"Uint(1)"}}],"node_properties":{"access_choice_alternatives":"List([])","access_choice_chosen":"Text(\"index:group_rank\")","access_choice_chosen_reason":"Text(\"single_candidate\")","access_choice_rejections":"List([])","continuation_mode":"Text(\"initial\")","covering_scan_reason":"Text(\"order_requires_materialization\")","fast_path_rejections":"List([Text(\"primary_key=pk_order_fast_path_ineligible\"), Text(\"index_range=index_range_limit_pushdown_disabled\")])","fast_path_selected":"Text(\"secondary_prefix\")","fast_path_selected_reason":"Text(\"secondary_order_pushdown_eligible\")","prefix_len":"Uint(1)","resume_from":"Text(\"none\")","scan_direction":"Text(\"asc\")"}}"#;
     assert_eq!(
         descriptor_json, expected_json,
         "execution json snapshot drifted: actual={descriptor_json}",

@@ -1,3 +1,8 @@
+//! Module: db::executor::tests::aggregate::path_parity_matrix
+//! Responsibility: module-local ownership and contracts for db::executor::tests::aggregate::path_parity_matrix.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use super::*;
 
 const DISTINCT_ASC_ROWS: [u128; 6] = [8301, 8302, 8303, 8304, 8305, 8306];

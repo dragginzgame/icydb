@@ -1,3 +1,8 @@
+//! Module: db::identity
+//! Responsibility: module-local ownership and contracts for db::identity.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 #![expect(clippy::cast_possible_truncation)]
 //! Module: identity
 //! Responsibility: validated entity/index naming and stable byte ordering contracts.

@@ -1,3 +1,8 @@
+//! Module: types::tests_temporal_boundary
+//! Responsibility: module-local ownership and contracts for types::tests_temporal_boundary.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::types::{Date, Duration, Timestamp};
 use serde::{Deserialize, Serialize};
 

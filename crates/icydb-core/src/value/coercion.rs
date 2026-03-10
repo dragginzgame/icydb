@@ -1,3 +1,8 @@
+//! Module: value::coercion
+//! Responsibility: module-local ownership and contracts for value::coercion.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 //! Coercion-routing family classification for `Value`.
 //!
 //! This module defines only coarse routing categories used by coercion tables.

@@ -1,3 +1,8 @@
+//! Module: db::identity::tests
+//! Responsibility: module-local ownership and contracts for db::identity::tests.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use super::*;
 
 const ENTITY_64: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";

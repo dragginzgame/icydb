@@ -1,3 +1,8 @@
+//! Module: db::executor::tests::stream_key
+//! Responsibility: module-local ownership and contracts for db::executor::tests::stream_key.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::{
     db::{
         data::{DataKey, StorageKey},

@@ -1,3 +1,9 @@
+//! Module: obs
+//!
+//! Responsibility: module-local ownership and contracts for obs.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 //! Observability: runtime telemetry (metrics) and sink abstractions.
 //!
 //! This module does not access storage internals directly.

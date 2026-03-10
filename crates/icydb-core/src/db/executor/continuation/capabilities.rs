@@ -1,3 +1,8 @@
+//! Module: db::executor::continuation::capabilities
+//! Responsibility: module-local ownership and contracts for db::executor::continuation::capabilities.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::db::{executor::route::ContinuationMode, query::plan::ContinuationPolicy};
 
 ///
@@ -41,7 +46,6 @@ impl ContinuationCapabilities {
 
     /// Return route continuation mode projected by this capability snapshot.
     #[must_use]
-    #[cfg(test)]
     pub(in crate::db::executor) const fn mode(self) -> ContinuationMode {
         self.mode
     }

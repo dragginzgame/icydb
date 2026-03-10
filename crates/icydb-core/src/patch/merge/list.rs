@@ -1,3 +1,8 @@
+//! Module: patch::merge::list
+//! Responsibility: module-local ownership and contracts for patch::merge::list.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::{
     patch::{ListPatch, merge::error::MergePatchError},
     traits::UpdateView,

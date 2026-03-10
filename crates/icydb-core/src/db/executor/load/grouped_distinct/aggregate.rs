@@ -1,3 +1,8 @@
+//! Module: db::executor::load::grouped_distinct::aggregate
+//! Responsibility: module-local ownership and contracts for db::executor::load::grouped_distinct::aggregate.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::{
     db::{
         Context, GroupedRow,

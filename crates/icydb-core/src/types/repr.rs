@@ -1,3 +1,8 @@
+//! Module: types::repr
+//! Responsibility: module-local ownership and contracts for types::repr.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 ///
 /// Repr
 ///

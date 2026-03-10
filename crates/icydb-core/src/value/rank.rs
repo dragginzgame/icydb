@@ -1,3 +1,8 @@
+//! Module: value::rank
+//! Responsibility: module-local ownership and contracts for value::rank.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::value::{Value, tag};
 
 ///

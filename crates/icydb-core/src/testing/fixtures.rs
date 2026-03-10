@@ -1,3 +1,8 @@
+//! Module: testing::fixtures
+//! Responsibility: module-local ownership and contracts for testing::fixtures.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::model::{entity::EntityModel, field::FieldModel, index::IndexModel};
 
 /// Construct a test `EntityModel` from static components.

@@ -9,7 +9,7 @@ use crate::{
         response::{PagedGroupedResponse, Response, WriteBatchResponse, WriteResponse},
     },
     error::Error,
-    obs::MetricsSink,
+    obs::{MetricsSink, StorageReport},
     traits::{CanisterKind, EntityKind, EntityValue, Update, UpdateView},
     types::Id,
 };
@@ -118,6 +118,14 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         self.inner.describe_entity::<E>()
+    }
+
+    /// Build one point-in-time storage report for observability endpoints.
+    pub fn storage_report(
+        &self,
+        name_to_path: &[(&'static str, &'static str)],
+    ) -> Result<StorageReport, Error> {
+        Ok(self.inner.storage_report(name_to_path)?)
     }
 
     // ------------------------------------------------------------------

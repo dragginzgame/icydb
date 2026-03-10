@@ -9,11 +9,15 @@ use crate::{
             PushdownApplicability, SecondaryOrderPushdownEligibility,
             SecondaryOrderPushdownRejection,
         },
+        direction::Direction,
         executor::{
             ExecutionPreparation, LoadExecutor,
             aggregate::AggregateFoldMode,
             continuation::ScalarContinuationContext,
-            route::{AggregateSeekSpec, ExecutionRoutePlan, ExecutionRouteShape, TopNSeekSpec},
+            route::{
+                AggregateSeekSpec, ContinuationMode, ExecutionRoutePlan, ExecutionRouteShape,
+                FastPathOrder, TopNSeekSpec,
+            },
         },
         query::{
             builder::AggregateExpr,
@@ -55,14 +59,21 @@ where
     let mut root = access_execution_node_descriptor(access_strategy, execution_mode);
     annotate_access_root_node_properties(&mut root, &route_plan);
     annotate_access_choice_node_properties(&mut root, E::MODEL, plan);
-    root.covering_scan = Some(load_covering_scan_eligible());
+    let strict_predicate_compatible = execution_preparation.strict_mode().is_some();
+    let covering_scan = load_covering_scan_eligible(plan, strict_predicate_compatible);
+    root.covering_scan = Some(covering_scan);
+    root.node_properties.insert(
+        "covering_scan_reason".to_string(),
+        Value::from(load_covering_scan_reason(plan, strict_predicate_compatible)),
+    );
+    annotate_fast_path_reason_node_properties(&mut root, &route_plan);
 
     // Phase 3: project route/planner modifiers in execution order as descriptor children.
     let explain_predicate = explain_predicate_for_plan::<E>(plan);
     for predicate_stage in predicate_stage_descriptors(
         explain_predicate,
         root.access_strategy.as_ref(),
-        execution_preparation.strict_mode().is_some(),
+        strict_predicate_compatible,
         execution_mode,
     ) {
         root.children.push(predicate_stage);
@@ -129,6 +140,7 @@ where
         let mut node =
             empty_execution_node_descriptor(ExplainExecutionNodeType::CursorResume, execution_mode);
         node.cursor = Some(true);
+        annotate_cursor_resume_node_properties(&mut node, &route_plan);
         root.children.push(node);
     }
 
@@ -305,6 +317,7 @@ fn annotate_access_root_node_properties(
     node: &mut ExplainExecutionNodeDescriptor,
     route_plan: &ExecutionRoutePlan,
 ) {
+    let continuation_capabilities = route_plan.continuation().capabilities();
     if let Some(prefix_len) = access_prefix_len(node.access_strategy.as_ref()) {
         node.node_properties.insert(
             "prefix_len".to_string(),
@@ -315,13 +328,48 @@ fn annotate_access_root_node_properties(
         node.node_properties
             .insert("fetch".to_string(), Value::from(u64_from_usize(fetch)));
     }
+    node.node_properties.insert(
+        "scan_direction".to_string(),
+        Value::from(direction_code(route_plan.direction())),
+    );
+    node.node_properties.insert(
+        "continuation_mode".to_string(),
+        Value::from(continuation_mode_code(continuation_capabilities.mode())),
+    );
+    node.node_properties.insert(
+        "resume_from".to_string(),
+        Value::from(resume_from_label(continuation_capabilities.mode())),
+    );
 }
 
-// Scalar load routes currently materialize entity rows after access-key
-// discovery, so execution is not index-only. Keep this explicit in explain
-// output so future index-only load paths can flip this contract intentionally.
-const fn load_covering_scan_eligible() -> bool {
-    false
+// Scalar-load covering projection reflects planner-side index-covering
+// existing-row eligibility under current strict predicate contracts.
+fn load_covering_scan_eligible<K>(
+    plan: &AccessPlannedQuery<K>,
+    strict_predicate_compatible: bool,
+) -> bool {
+    index_covering_existing_rows_terminal_eligible(plan, strict_predicate_compatible)
+}
+
+fn load_covering_scan_reason<K>(
+    plan: &AccessPlannedQuery<K>,
+    strict_predicate_compatible: bool,
+) -> &'static str {
+    if plan.scalar_plan().order.is_some() {
+        return "order_requires_materialization";
+    }
+
+    let index_shape_supported =
+        plan.access.as_index_prefix_path().is_some() || plan.access.as_index_range_path().is_some();
+    if !index_shape_supported {
+        return "access_not_covering_index_shape";
+    }
+
+    if plan.scalar_plan().predicate.is_some() && !strict_predicate_compatible {
+        return "predicate_not_strict_prefilter_compatible";
+    }
+
+    "index_covering_existing_rows_eligible"
 }
 
 fn annotate_access_choice_node_properties<K>(
@@ -385,6 +433,152 @@ fn scan_fetch_pushdown(route_plan: &ExecutionRoutePlan) -> Option<usize> {
         .top_n_seek_spec()
         .map(TopNSeekSpec::fetch)
         .or_else(|| route_plan.index_range_limit_spec.map(|spec| spec.fetch))
+}
+
+fn annotate_cursor_resume_node_properties(
+    node: &mut ExplainExecutionNodeDescriptor,
+    route_plan: &ExecutionRoutePlan,
+) {
+    let continuation_mode = route_plan.continuation().capabilities().mode();
+    node.node_properties.insert(
+        "scan_direction".to_string(),
+        Value::from(direction_code(route_plan.direction())),
+    );
+    node.node_properties.insert(
+        "continuation_mode".to_string(),
+        Value::from(continuation_mode_code(continuation_mode)),
+    );
+    node.node_properties.insert(
+        "resume_from".to_string(),
+        Value::from(resume_from_label(continuation_mode)),
+    );
+}
+
+fn annotate_fast_path_reason_node_properties(
+    node: &mut ExplainExecutionNodeDescriptor,
+    route_plan: &ExecutionRoutePlan,
+) {
+    let mut selected: Option<FastPathOrder> = None;
+    let mut rejections = Vec::new();
+    for route in route_plan.fast_path_order() {
+        if route_plan.load_fast_path_route_eligible(*route) {
+            if selected.is_none() {
+                selected = Some(*route);
+            }
+        } else {
+            rejections.push(Value::from(format!(
+                "{}={}",
+                fast_path_label(*route),
+                fast_path_rejection_reason(*route, route_plan),
+            )));
+        }
+    }
+
+    let (selected_label, selected_reason) = if let Some(route) = selected {
+        (
+            fast_path_label(route),
+            fast_path_selected_reason(route, route_plan),
+        )
+    } else {
+        ("none", "materialized_fallback")
+    };
+    node.node_properties.insert(
+        "fast_path_selected".to_string(),
+        Value::from(selected_label),
+    );
+    node.node_properties.insert(
+        "fast_path_selected_reason".to_string(),
+        Value::from(selected_reason),
+    );
+    node.node_properties
+        .insert("fast_path_rejections".to_string(), Value::List(rejections));
+}
+
+const fn fast_path_label(route: FastPathOrder) -> &'static str {
+    match route {
+        FastPathOrder::PrimaryKey => "primary_key",
+        FastPathOrder::SecondaryPrefix => "secondary_prefix",
+        FastPathOrder::PrimaryScan => "primary_scan",
+        FastPathOrder::IndexRange => "index_range",
+        FastPathOrder::Composite => "composite",
+    }
+}
+
+const fn fast_path_selected_reason(
+    route: FastPathOrder,
+    route_plan: &ExecutionRoutePlan,
+) -> &'static str {
+    match route {
+        FastPathOrder::PrimaryKey => "pk_order_fast_path_eligible",
+        FastPathOrder::SecondaryPrefix => {
+            if route_plan.secondary_fast_path_eligible() {
+                "secondary_order_pushdown_eligible"
+            } else if route_plan.field_min_fast_path_eligible()
+                || route_plan.field_max_fast_path_eligible()
+            {
+                "field_extrema_probe_eligible"
+            } else {
+                "secondary_prefix_fast_path_eligible"
+            }
+        }
+        FastPathOrder::IndexRange => "index_range_limit_pushdown_enabled",
+        FastPathOrder::PrimaryScan => "primary_scan_fast_path_eligible",
+        FastPathOrder::Composite => "composite_fast_path_eligible",
+    }
+}
+
+const fn fast_path_rejection_reason(
+    route: FastPathOrder,
+    route_plan: &ExecutionRoutePlan,
+) -> &'static str {
+    match route {
+        FastPathOrder::PrimaryKey => "pk_order_fast_path_ineligible",
+        FastPathOrder::SecondaryPrefix => match &route_plan.secondary_pushdown_applicability {
+            PushdownApplicability::NotApplicable => "secondary_order_not_applicable",
+            PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Rejected(_)) => {
+                "secondary_order_rejected"
+            }
+            PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Eligible {
+                ..
+            }) => "secondary_prefix_ineligible",
+        },
+        FastPathOrder::IndexRange => {
+            if route_plan
+                .continuation()
+                .capabilities()
+                .index_range_limit_pushdown_allowed()
+            {
+                "index_range_limit_pushdown_disabled"
+            } else {
+                "continuation_disallows_index_range_limit"
+            }
+        }
+        FastPathOrder::PrimaryScan => "primary_scan_ineligible",
+        FastPathOrder::Composite => "composite_ineligible",
+    }
+}
+
+const fn direction_code(direction: Direction) -> &'static str {
+    match direction {
+        Direction::Asc => "asc",
+        Direction::Desc => "desc",
+    }
+}
+
+const fn continuation_mode_code(mode: ContinuationMode) -> &'static str {
+    match mode {
+        ContinuationMode::Initial => "initial",
+        ContinuationMode::CursorBoundary => "cursor_boundary",
+        ContinuationMode::IndexRangeAnchor => "index_range_anchor",
+    }
+}
+
+const fn resume_from_label(mode: ContinuationMode) -> &'static str {
+    match mode {
+        ContinuationMode::Initial => "none",
+        ContinuationMode::CursorBoundary => "cursor_boundary",
+        ContinuationMode::IndexRangeAnchor => "index_range_anchor",
+    }
 }
 
 const fn access_node_type(access: &ExplainAccessRoute) -> ExplainExecutionNodeType {

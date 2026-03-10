@@ -1,3 +1,8 @@
+//! Module: db::codec
+//! Responsibility: module-local ownership and contracts for db::codec.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 //! DB codec boundary for engine payload decoding/encoding policy.
 //!
 //! This module is the only DB-level boundary allowed to call

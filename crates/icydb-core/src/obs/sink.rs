@@ -1,3 +1,8 @@
+//! Module: obs::sink
+//! Responsibility: module-local ownership and contracts for obs::sink.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 //! Metrics sink boundary.
 //!
 //! Core DB logic MUST NOT depend on obs::metrics directly.

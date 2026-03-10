@@ -1,6 +1,11 @@
-use super::super::{UNIQUE_INDEX_RANGE_INDEX_MODELS, UniqueIndexRangeEntity};
+//! Module: db::executor::tests::route::load_matrix
+//! Responsibility: module-local ownership and contracts for db::executor::tests::route::load_matrix.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use super::*;
 use crate::db::executor::route::RouteShapeKind;
+use crate::db::executor::tests::{UNIQUE_INDEX_RANGE_INDEX_MODELS, UniqueIndexRangeEntity};
 
 #[test]
 fn route_plan_load_uses_route_owned_fast_path_order() {

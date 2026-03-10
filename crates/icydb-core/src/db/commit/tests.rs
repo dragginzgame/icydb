@@ -1,3 +1,8 @@
+//! Module: db::commit::tests
+//! Responsibility: module-local ownership and contracts for db::commit::tests.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::{
     db::{
         Db, EntityRuntimeHooks,

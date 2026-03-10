@@ -1,3 +1,8 @@
+//! Module: db::query::intent::key_access
+//! Responsibility: module-local ownership and contracts for db::query::intent::key_access.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::{
     db::{
         access::{AccessPlan, AccessPlanError, normalize_access_plan_value},

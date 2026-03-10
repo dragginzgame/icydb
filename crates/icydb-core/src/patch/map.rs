@@ -1,3 +1,8 @@
+//! Module: patch::map
+//! Responsibility: module-local ownership and contracts for patch::map.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use candid::CandidType;
 use serde::{Deserialize, Serialize};
 

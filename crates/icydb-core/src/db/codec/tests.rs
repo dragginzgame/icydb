@@ -1,3 +1,8 @@
+//! Module: db::codec::tests
+//! Responsibility: module-local ownership and contracts for db::codec::tests.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::{
     error::{ErrorClass, ErrorOrigin},
     serialize::SerializeError,

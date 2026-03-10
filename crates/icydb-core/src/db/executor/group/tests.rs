@@ -1,3 +1,8 @@
+//! Module: db::executor::group::tests
+//! Responsibility: module-local ownership and contracts for db::executor::group::tests.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use super::{
     GroupedExecutionConfig, grouped_budget_observability,
     grouped_execution_config_from_planner_config, grouped_execution_context_from_planner_config,

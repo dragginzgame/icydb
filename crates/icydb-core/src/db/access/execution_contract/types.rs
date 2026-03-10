@@ -1,3 +1,8 @@
+//! Module: db::access::execution_contract::types
+//! Responsibility: module-local ownership and contracts for db::access::execution_contract::types.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::{db::direction::Direction, model::index::IndexModel, value::Value};
 use std::ops::Bound;
 

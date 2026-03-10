@@ -1,3 +1,8 @@
+//! Module: db::executor::tests::aggregate
+//! Responsibility: module-local ownership and contracts for db::executor::tests::aggregate.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 mod core_contract_matrix;
 mod field_projection_matrix;
 mod path_parity_matrix;

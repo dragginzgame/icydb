@@ -1,3 +1,8 @@
+//! Module: db::executor::load::grouped_fold::global_distinct
+//! Responsibility: module-local ownership and contracts for db::executor::load::grouped_fold::global_distinct.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::{
     db::{
         executor::{

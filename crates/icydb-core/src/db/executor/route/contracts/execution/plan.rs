@@ -1,3 +1,8 @@
+//! Module: db::executor::route::contracts::execution::plan
+//! Responsibility: module-local ownership and contracts for db::executor::route::contracts::execution::plan.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 #[cfg(test)]
 use crate::db::executor::route::contracts::FieldExtremaIneligibilityReason;
 use crate::db::{

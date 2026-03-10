@@ -1,3 +1,8 @@
+//! Module: db::query::policy
+//! Responsibility: module-local ownership and contracts for db::query::policy.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 //! Cursor pagination policy rules shared by fluent/intent entry surfaces.
 //!
 //! Plan-shape policy validation (ORDER emptiness, delete-limit/order coupling,

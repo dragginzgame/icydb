@@ -1,3 +1,8 @@
+//! Module: db::query::plan::validate::errors
+//! Responsibility: module-local ownership and contracts for db::query::plan::validate::errors.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::db::{access::AccessPlanError, cursor::CursorPlanError, predicate::ValidateError};
 use thiserror::Error as ThisError;
 

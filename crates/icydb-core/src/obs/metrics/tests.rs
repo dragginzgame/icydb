@@ -1,3 +1,8 @@
+//! Module: obs::metrics::tests
+//! Responsibility: module-local ownership and contracts for obs::metrics::tests.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::obs::metrics::{
     EntityCounters, EntitySummary, EventOps, EventPerf, EventReport, EventState,
     report_window_start, reset_all, with_state, with_state_mut,

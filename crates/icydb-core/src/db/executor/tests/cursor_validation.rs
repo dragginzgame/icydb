@@ -1,3 +1,8 @@
+//! Module: db::executor::tests::cursor_validation
+//! Responsibility: module-local ownership and contracts for db::executor::tests::cursor_validation.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use super::*;
 use crate::db::{
     cursor::{CursorPlanError, GroupedContinuationToken},

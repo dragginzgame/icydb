@@ -1,3 +1,8 @@
+//! Module: types::int
+//! Responsibility: module-local ownership and contracts for types::int.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 mod int128;
 
 use crate::{

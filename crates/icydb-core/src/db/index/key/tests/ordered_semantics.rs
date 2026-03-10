@@ -1,3 +1,8 @@
+//! Module: db::index::key::tests::ordered_semantics
+//! Responsibility: module-local ownership and contracts for db::index::key::tests::ordered_semantics.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::{
     db::index::key::{OrderedValueEncodeError, ordered::encode_canonical_index_component},
     types::{

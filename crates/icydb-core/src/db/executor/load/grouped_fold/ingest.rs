@@ -1,3 +1,8 @@
+//! Module: db::executor::load::grouped_fold::ingest
+//! Responsibility: module-local ownership and contracts for db::executor::load::grouped_fold::ingest.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use std::cmp::Ordering;
 
 use crate::{

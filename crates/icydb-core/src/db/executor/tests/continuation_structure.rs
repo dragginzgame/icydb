@@ -1,3 +1,8 @@
+//! Module: db::executor::tests::continuation_structure
+//! Responsibility: module-local ownership and contracts for db::executor::tests::continuation_structure.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use std::{
     collections::BTreeMap,
     fs,

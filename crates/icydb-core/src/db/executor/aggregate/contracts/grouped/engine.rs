@@ -1,3 +1,8 @@
+//! Module: db::executor::aggregate::contracts::grouped::engine
+//! Responsibility: module-local ownership and contracts for db::executor::aggregate::contracts::grouped::engine.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::{
     db::{
         contracts::canonical_value_compare,

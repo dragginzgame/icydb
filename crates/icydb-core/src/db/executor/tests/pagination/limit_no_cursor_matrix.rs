@@ -1,3 +1,8 @@
+//! Module: db::executor::tests::pagination::limit_no_cursor_matrix
+//! Responsibility: module-local ownership and contracts for db::executor::tests::pagination::limit_no_cursor_matrix.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use super::*;
 use crate::obs::sink::{MetricsEvent, MetricsSink, with_metrics_sink};
 use std::cell::RefCell;

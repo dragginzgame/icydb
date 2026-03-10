@@ -1,3 +1,8 @@
+//! Module: db::query::explain::tests
+//! Responsibility: module-local ownership and contracts for db::query::explain::tests.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use super::*;
 use crate::db::access::{AccessPath, AccessPlan};
 use crate::db::predicate::{CompareOp, MissingRowPolicy, Predicate};

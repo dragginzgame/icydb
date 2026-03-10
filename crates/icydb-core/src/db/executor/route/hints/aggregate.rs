@@ -1,3 +1,8 @@
+//! Module: db::executor::route::hints::aggregate
+//! Responsibility: module-local ownership and contracts for db::executor::route::hints::aggregate.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::{
     db::{
         direction::Direction,

@@ -1,3 +1,8 @@
+//! Module: db::query
+//! Responsibility: module-local ownership and contracts for db::query.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 //! Query subsystem (Tier-2 boundary within `db`).
 //!
 //! This module defines the *semantic query contract* for IcyDB:

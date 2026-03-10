@@ -1,3 +1,8 @@
+//! Module: value::wire
+//! Responsibility: module-local ownership and contracts for value::wire.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::{
     types::*,
     value::{MapValueError, Value, ValueEnum},

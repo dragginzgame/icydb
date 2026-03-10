@@ -1,3 +1,8 @@
+//! Module: db::executor::load::terminal::ranking::take
+//! Responsibility: module-local ownership and contracts for db::executor::load::terminal::ranking::take.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::{
     db::{
         executor::{ExecutablePlan, load::LoadExecutor},

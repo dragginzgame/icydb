@@ -1,3 +1,9 @@
+//! Module: patch
+//!
+//! Responsibility: module-local ownership and contracts for patch.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 pub(crate) mod list;
 pub(crate) mod map;
 pub(crate) mod merge;

@@ -1,3 +1,9 @@
+//! Module: sanitize
+//!
+//! Responsibility: module-local ownership and contracts for sanitize.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::{
     traits::Visitable,
     visitor::{

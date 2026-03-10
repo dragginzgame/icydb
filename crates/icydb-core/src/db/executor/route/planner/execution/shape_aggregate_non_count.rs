@@ -1,3 +1,8 @@
+//! Module: db::executor::route::planner::execution::shape_aggregate_non_count
+//! Responsibility: module-local ownership and contracts for db::executor::route::planner::execution::shape_aggregate_non_count.
+//! Does not own: cross-module orchestration outside this module.
+//! Boundary: exposes this module API while keeping implementation details internal.
+
 use crate::{
     db::executor::{
         aggregate::AggregateFoldMode,

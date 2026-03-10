@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 - `0.48.0` makes plan hashes and continuation signatures independent from EXPLAIN formatting, keeps cursor continuation safety checks fail-closed under one cursor-owned contract, and preserves explain/runtime parity with expanded regression coverage.
 - `0.48.1` expands EXPLAIN observability for index routes with clearer predicate/order/fetch metadata and planner-derived access-choice reason codes, without changing query execution behavior.
+- `0.48.2` adds clearer EXPLAIN execution diagnostics (covering-scan eligibility, cursor resume metadata, and fast-path reason codes) and fixes a DB codegen bug so generated `icydb_snapshot()` uses the active database handle correctly.
 
 See detailed breakdown:
 [docs/changelog/0.48.md](docs/changelog/0.48.md)
