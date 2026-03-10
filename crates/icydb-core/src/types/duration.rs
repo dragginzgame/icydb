@@ -8,8 +8,11 @@ use crate::{
 };
 use candid::CandidType;
 use derive_more::{Display, FromStr};
-use serde::{Deserialize, Serialize};
-use std::ops::{Add, AddAssign, Sub, SubAssign};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::{
+    fmt,
+    ops::{Add, AddAssign, Sub, SubAssign},
+};
 
 // Invariant:
 // Timestamp and Duration are both millisecond-native.
@@ -24,22 +27,8 @@ use std::ops::{Add, AddAssign, Sub, SubAssign};
 ///
 
 #[derive(
-    CandidType,
-    Clone,
-    Copy,
-    Debug,
-    Default,
-    Display,
-    Eq,
-    FromStr,
-    PartialEq,
-    Hash,
-    Ord,
-    PartialOrd,
-    Serialize,
-    Deserialize,
+    CandidType, Clone, Copy, Debug, Default, Display, Eq, FromStr, PartialEq, Hash, Ord, PartialOrd,
 )]
-#[serde(transparent)]
 #[repr(transparent)]
 pub struct Duration(u64);
 
@@ -153,6 +142,50 @@ impl Duration {
                 * Self::SECS_PER_MIN
                 * Self::MS_PER_SEC)
     }
+
+    /// Parse integer milliseconds or unit-suffixed strings (`ms`, `s`, `m`, `h`, `d`).
+    pub fn parse_flexible(s: &str) -> Result<Self, String> {
+        if let Ok(n) = s.parse::<u64>() {
+            return Ok(Self::from_millis(n));
+        }
+
+        if let Some(v) = s.strip_suffix("ms") {
+            return v
+                .parse::<u64>()
+                .map(Self::from_millis)
+                .map_err(|e| e.to_string());
+        }
+
+        if let Some(v) = s.strip_suffix("s") {
+            return v
+                .parse::<u64>()
+                .map(Self::from_secs)
+                .map_err(|e| e.to_string());
+        }
+
+        if let Some(v) = s.strip_suffix("m") {
+            return v
+                .parse::<u64>()
+                .map(Self::from_minutes)
+                .map_err(|e| e.to_string());
+        }
+
+        if let Some(v) = s.strip_suffix("h") {
+            return v
+                .parse::<u64>()
+                .map(Self::from_hours)
+                .map_err(|e| e.to_string());
+        }
+
+        if let Some(v) = s.strip_suffix("d") {
+            return v
+                .parse::<u64>()
+                .map(Self::from_days)
+                .map_err(|e| e.to_string());
+        }
+
+        Err("invalid duration format".to_string())
+    }
 }
 
 impl Add for Duration {
@@ -192,6 +225,61 @@ impl AsView for Duration {
 
     fn from_view(view: Self::ViewType) -> Self {
         view
+    }
+}
+
+impl Serialize for Duration {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_u64(self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for Duration {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct DurationVisitor;
+
+        impl serde::de::Visitor<'_> for DurationVisitor {
+            type Value = Duration;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "milliseconds or duration string")
+            }
+
+            fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E> {
+                Ok(Duration::from_millis(v))
+            }
+
+            fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                let millis =
+                    u64::try_from(v).map_err(|_| E::custom("duration must be non-negative"))?;
+                Ok(Duration::from_millis(millis))
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Duration::parse_flexible(v).map_err(E::custom)
+            }
+
+            fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                self.visit_str(&v)
+            }
+        }
+
+        deserializer.deserialize_any(DurationVisitor)
     }
 }
 
@@ -308,5 +396,97 @@ mod tests {
         let view: Duration = value.as_view();
         assert_eq!(view, value);
         assert_eq!(Duration::from_view(view), value);
+    }
+
+    #[test]
+    fn test_duration_parse_integer() {
+        let parsed = Duration::parse_flexible("5000").unwrap();
+        assert_eq!(parsed, Duration::from_millis(5_000));
+    }
+
+    #[test]
+    fn test_duration_parse_units() {
+        assert_eq!(
+            Duration::parse_flexible("150ms").unwrap(),
+            Duration::from_millis(150)
+        );
+        assert_eq!(
+            Duration::parse_flexible("5s").unwrap(),
+            Duration::from_secs(5)
+        );
+        assert_eq!(
+            Duration::parse_flexible("10m").unwrap(),
+            Duration::from_minutes(10)
+        );
+        assert_eq!(
+            Duration::parse_flexible("2h").unwrap(),
+            Duration::from_hours(2)
+        );
+        assert_eq!(
+            Duration::parse_flexible("3d").unwrap(),
+            Duration::from_days(3)
+        );
+    }
+
+    #[test]
+    fn test_duration_parse_rejects_invalid_units_and_whitespace() {
+        assert!(Duration::parse_flexible("3w").is_err());
+        assert!(Duration::parse_flexible(" 5000 ").is_err());
+    }
+
+    #[test]
+    fn test_duration_parse_rejects_overflow_inputs() {
+        assert!(Duration::parse_flexible("18446744073709551616").is_err());
+        assert!(Duration::parse_flexible("18446744073709551616s").is_err());
+    }
+
+    #[test]
+    fn test_duration_constructors_and_addition_saturate_on_overflow() {
+        assert_eq!(Duration::from_secs(u64::MAX), Duration::MAX);
+        assert_eq!(Duration::from_minutes(u64::MAX), Duration::MAX);
+        assert_eq!(Duration::from_hours(u64::MAX), Duration::MAX);
+        assert_eq!(Duration::from_days(u64::MAX), Duration::MAX);
+        assert_eq!(Duration::from_weeks(u64::MAX), Duration::MAX);
+
+        let almost_max = Duration::from_millis(u64::MAX - 1);
+        assert_eq!(almost_max + Duration::from_millis(10), Duration::MAX);
+    }
+
+    #[test]
+    fn test_json_duration_roundtrip() {
+        let d = Duration::from_secs(5);
+        let json = serde_json::to_string(&d).unwrap();
+        assert_eq!(json, "5000");
+        let parsed: Duration = serde_json::from_str(&json).unwrap();
+        assert_eq!(d, parsed);
+    }
+
+    #[test]
+    fn test_json_duration_string_deserialization() {
+        let from_millis: Duration = serde_json::from_str("\"5000\"").unwrap();
+        assert_eq!(from_millis, Duration::from_millis(5_000));
+
+        let from_seconds: Duration = serde_json::from_str("\"5s\"").unwrap();
+        assert_eq!(from_seconds, Duration::from_secs(5));
+    }
+
+    #[test]
+    fn test_serde_cbor_boundary_uses_integer_millis_not_text_duration() {
+        let d = Duration::from_secs(5);
+
+        let bytes = serde_cbor::to_vec(&d).expect("duration serialization should succeed");
+        let wire: serde_cbor::Value =
+            serde_cbor::from_slice(&bytes).expect("duration cbor decode should succeed");
+
+        match wire {
+            serde_cbor::Value::Integer(millis) => {
+                assert_eq!(millis, 5_000);
+            }
+            other => panic!("duration wire shape must remain integer millis, got {other:?}"),
+        }
+
+        let decoded: Duration =
+            serde_cbor::from_slice(&bytes).expect("duration decode should succeed");
+        assert_eq!(decoded, d);
     }
 }

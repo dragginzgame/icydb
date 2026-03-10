@@ -187,7 +187,7 @@ fn write_to_hasher(value: &Value, h: &mut Xxh3) -> Result<(), InternalError> {
             feed_bytes(h, s.as_bytes());
         }
         Value::Timestamp(t) => {
-            feed_u64(h, t.repr());
+            feed_i64(h, t.repr());
         }
         Value::Uint(u) => {
             feed_u64(h, *u);

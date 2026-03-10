@@ -343,7 +343,7 @@ impl StorageKey {
                 ensure_zero_padding(Self::TIMESTAMP_SIZE, "timestamp")?;
                 let mut buf = [0u8; Self::TIMESTAMP_SIZE];
                 buf.copy_from_slice(&payload[..Self::TIMESTAMP_SIZE]);
-                Ok(Self::Timestamp(Timestamp::from_repr(u64::from_be_bytes(
+                Ok(Self::Timestamp(Timestamp::from_repr(i64::from_be_bytes(
                     buf,
                 ))))
             }

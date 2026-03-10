@@ -5,7 +5,8 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.47.x] - 2026-03-09 - Audit Pass
+## [0.47.x] - 2026-03-10 - Audit Pass
+
 
 - `0.47.0` establishes the audit-pass baseline with prep work, expanded recurring audit coverage, an initial risk summary, and a cleaner docs layout for audits/design tracking.
 - `0.47.1` continues audit-pass hardening by splitting load and grouped-contract execution hotspots, tightening grouped DISTINCT planner/runtime contracts, and updating invariant/guard checks so CI stays aligned with the refactor.
@@ -14,6 +15,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `0.47.4` adds a live-vs-replay unique-conflict parity lock, hardens recurring index-integrity parity checks, and reduces route/planner structural pressure by splitting planner type inference and simplifying aggregate route-hint branching.
 - `0.47.5` continues structural containment by reducing route/validation branch pressure (including another route-planner/cursor-policy trim pass), splitting load projection/ranking terminals and grouped validation modules into clearer runtime boundaries, tightening route fast-path guard contracts, and requiring explicit DRY follow-ups whenever high-risk divergence seams are detected.
 - `0.47.6` continues load-hub decomposition by splitting scalar/orchestrate/fast-path/fast-stream-route/candidate/projection operator modules, updates audit governance so same-day reruns always compare to the day baseline, and re-runs crosscutting audits with stable risk scores (`complexity 6/10`, `velocity 5/10`, `module 5/10`, `layer 4/10`, `DRY 5/10`).
+- `0.47.7` ⚠️ introduces breaking temporal API-boundary contract enforcement: `Date` now must be `"YYYY-MM-DD"`, `Timestamp` must be RFC3339 text, and `Duration` remains integer milliseconds in JSON payloads.
 
 See detailed breakdown:
 [docs/changelog/0.47.md](docs/changelog/0.47.md)

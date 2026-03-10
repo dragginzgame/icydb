@@ -17,8 +17,16 @@ use time::{Date as TimeDate, Duration as TimeDuration, Month, format_description
 // FORMAT
 static FORMAT: OnceLock<Vec<FormatItem<'static>>> = OnceLock::new();
 
+// Invariant:
+// Date is internally stored as days since Unix epoch (`i32`).
+// API/JSON serialization uses ISO-8601 text (`YYYY-MM-DD`).
+// Ordering and arithmetic remain numeric and deterministic over day counts.
+
 ///
 /// Date
+///
+/// Stored as days since Unix epoch.
+/// API/JSON wire format is ISO-8601 text (`YYYY-MM-DD`).
 ///
 
 #[derive(
@@ -53,6 +61,10 @@ impl Date {
         }
     }
 
+    /// Build a date from calendar parts with sanitizing behavior.
+    ///
+    /// Month and day are clamped into a valid calendar date when possible.
+    /// Impossible year-month combinations fall back to [`Date::EPOCH`].
     #[must_use]
     pub fn new(y: i32, m: u8, d: u8) -> Self {
         let m = m.clamp(1, 12);
@@ -77,6 +89,9 @@ impl Date {
         }
     }
 
+    /// Build a date from calendar parts using strict validation.
+    ///
+    /// Returns `None` when any component is out of range.
     #[must_use]
     pub fn new_checked(y: i32, m: u8, d: u8) -> Option<Self> {
         let month = Month::try_from(m).ok()?;
@@ -84,30 +99,43 @@ impl Date {
         Some(Self::from_time_date(date))
     }
 
+    /// Construct directly from internal day-count representation.
     #[must_use]
-    pub const fn get(self) -> i32 {
+    pub const fn from_days_since_epoch(days: i32) -> Self {
+        Self(days)
+    }
+
+    /// Return the internal day-count representation.
+    #[must_use]
+    pub const fn as_days_since_epoch(self) -> i32 {
         self.0
     }
 
-    /// Returns the year component (e.g. 2025)
+    /// Backward-compatible alias for [`Date::as_days_since_epoch`].
+    #[must_use]
+    pub const fn get(self) -> i32 {
+        self.as_days_since_epoch()
+    }
+
+    /// Returns the year component (e.g. 2025).
     #[must_use]
     pub fn year(self) -> i32 {
         self.to_time_date().year()
     }
 
-    /// Returns the month component (1–12)
+    /// Returns the month component (1-12).
     #[must_use]
     pub fn month(self) -> u8 {
         self.to_time_date().month().into()
     }
 
-    /// Returns the day-of-month component (1–31)
+    /// Returns the day-of-month component (1-31).
     #[must_use]
     pub fn day(self) -> u8 {
         self.to_time_date().day()
     }
 
-    /// Parse an ISO `YYYY-MM-DD` string into a `Date`.
+    /// Parse a strict ISO `YYYY-MM-DD` string into a `Date`.
     pub fn parse(s: &str) -> Option<Self> {
         let format =
             FORMAT.get_or_init(|| time::format_description::parse("[year]-[month]-[day]").unwrap());
@@ -115,6 +143,16 @@ impl Date {
         TimeDate::parse(s, format).ok().map(Self::from_time_date)
     }
 
+    /// Parse supported text date inputs.
+    ///
+    /// This currently mirrors [`Date::parse`] and intentionally keeps
+    /// accepted formats strict and unambiguous.
+    #[must_use]
+    pub fn parse_flexible(s: &str) -> Option<Self> {
+        Self::parse(s)
+    }
+
+    // `time::Date` arithmetic returns `i64` day deltas; this type is fixed to `i32`.
     #[expect(clippy::cast_possible_truncation)]
     fn from_time_date(date: TimeDate) -> Self {
         let epoch = Self::epoch_date();
@@ -122,6 +160,7 @@ impl Date {
         Self(days as i32)
     }
 
+    // Rebuild calendar components from internal epoch-day storage for display/helpers.
     fn to_time_date(self) -> TimeDate {
         let epoch = Self::epoch_date();
         let delta = TimeDuration::days(self.0.into());
@@ -249,12 +288,21 @@ impl Visitable for Date {}
 mod tests {
     use super::*;
 
+    // Internal semantic/storage representation behavior.
+
     #[test]
     fn from_ymd_and_to_naive_date_round_trip() {
         let date = Date::new(2024, 10, 19);
         assert_eq!(date.year(), 2024);
         assert_eq!(date.month(), 10);
         assert_eq!(date.day(), 19);
+    }
+
+    #[test]
+    fn new_sanitizes_out_of_range_month_and_day() {
+        let sanitized = Date::new(2025, 13, 99);
+        let strict = Date::new_checked(2025, 12, 31).expect("strict date should build");
+        assert_eq!(sanitized, strict);
     }
 
     #[test]
@@ -277,11 +325,21 @@ mod tests {
     }
 
     #[test]
-    fn ordering_and_equality_work() {
+    fn ordering_and_equality_follow_internal_day_count() {
         let d1 = Date::new_checked(2020, 1, 1).unwrap();
         let d2 = Date::new_checked(2021, 1, 1).unwrap();
+
         assert!(d1 < d2);
+        assert!(d1.as_days_since_epoch() < d2.as_days_since_epoch());
         assert_eq!(d1, d1);
+    }
+
+    #[test]
+    fn internal_day_count_helpers_round_trip() {
+        let days = -365;
+        let date = Date::from_days_since_epoch(days);
+        assert_eq!(date.as_days_since_epoch(), days);
+        assert_eq!(date.get(), days);
     }
 
     #[test]
@@ -291,11 +349,86 @@ mod tests {
     }
 
     #[test]
+    fn parse_flexible_stays_iso_strict() {
+        assert_eq!(
+            Date::parse_flexible("2025-10-19"),
+            Date::new_checked(2025, 10, 19)
+        );
+        assert!(Date::parse_flexible("10/19/2025").is_none());
+        assert!(Date::parse_flexible("2025-10-19T00:00:00Z").is_none());
+    }
+
+    #[test]
+    fn parse_supports_pre_epoch_and_leap_year_cases() {
+        assert_eq!(
+            Date::parse("1900-01-01"),
+            Date::new_checked(1900, 1, 1),
+            "expected non-leap-century date to parse",
+        );
+        assert_eq!(
+            Date::parse("1969-12-31"),
+            Date::new_checked(1969, 12, 31),
+            "expected pre-epoch date to parse",
+        );
+        assert_eq!(
+            Date::parse("2000-02-29"),
+            Date::new_checked(2000, 2, 29),
+            "expected leap-day date to parse",
+        );
+    }
+
+    #[test]
+    fn parse_rejects_invalid_non_leap_day() {
+        assert!(Date::parse("1900-02-29").is_none());
+    }
+
+    #[test]
+    fn extreme_internal_day_values_format_without_panicking() {
+        let min_rendered = Date::MIN.to_string();
+        let max_rendered = Date::MAX.to_string();
+
+        assert!(!min_rendered.is_empty());
+        assert!(!max_rendered.is_empty());
+    }
+
+    #[test]
     fn test_as_view_roundtrip_preserves_semantic_date_type() {
         let value = Date::new_checked(2025, 10, 19).expect("date should build");
         let view: Date = value.as_view();
         assert_eq!(view, value);
         assert_eq!(Date::from_view(view), value);
+    }
+
+    // API boundary serialization behavior.
+
+    #[test]
+    fn test_json_serializes_as_iso_string() {
+        let date = Date::new_checked(2025, 10, 19).unwrap();
+        let json = serde_json::to_string(&date).unwrap();
+        assert_eq!(json, "\"2025-10-19\"");
+    }
+
+    #[test]
+    fn test_json_deserializes_from_iso_string() {
+        let date: Date = serde_json::from_str("\"2025-10-19\"").unwrap();
+        assert_eq!(date, Date::new_checked(2025, 10, 19).unwrap());
+    }
+
+    #[test]
+    fn test_json_rejects_invalid_iso_string() {
+        let err = serde_json::from_str::<Date>("\"2025-13-40\"").unwrap_err();
+        assert!(err.to_string().contains("invalid date"));
+
+        let err = serde_json::from_str::<Date>("1710013530000").unwrap_err();
+        assert!(err.to_string().contains("string"));
+    }
+
+    #[test]
+    fn test_pre_epoch_date_roundtrip() {
+        let date = Date::new_checked(1960, 1, 1).unwrap();
+        let json = serde_json::to_string(&date).unwrap();
+        let parsed: Date = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, date);
     }
 
     #[test]
