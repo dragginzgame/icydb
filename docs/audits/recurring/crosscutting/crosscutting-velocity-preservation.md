@@ -43,7 +43,14 @@ Velocity degrades when:
 
 # STEP 0 — Baseline Capture (Mandatory)
 
-Capture previous-run values first.
+Capture baseline values first.
+
+Baseline source rule:
+
+* first run of day (`velocity-preservation.md`): compare to the latest prior
+  comparable velocity report (or `N/A` if none)
+* same-day rerun (`velocity-preservation-*.md`): compare to that day's
+  `velocity-preservation.md` baseline
 
 | Metric | Previous | Current | Delta |
 | ---- | ----: | ----: | ----: |
@@ -55,7 +62,8 @@ Capture previous-run values first.
 | Top gravity-well fan-in |  |  |  |
 | Route-planner HIP cross-layer count |  |  |  |
 
-If previous data is unavailable, mark baseline as `N/A`.
+If no prior comparable report exists for the first run of day, mark baseline as
+`N/A` and treat that first run as the daily baseline.
 
 ---
 
@@ -350,7 +358,9 @@ Interpretation:
 
 Run metadata must include:
 
-- compared baseline report path (or `N/A`)
+- compared baseline report path (daily baseline rule: first run of day compares
+  to latest prior comparable report or `N/A`; same-day reruns compare to that
+  day's `velocity-preservation.md` baseline)
 - method tag/version
 - comparability status (`comparable` or `non-comparable` with reason)
 

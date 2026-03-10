@@ -64,83 +64,17 @@ impl IndexStore {
         limit: usize,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Vec<DataKey>, InternalError> {
-        // Phase 1: validate envelope/anchor preconditions and derive scan bounds.
-        if limit == 0 {
-            return Ok(Vec::new());
-        }
-
-        Self::ensure_anchor_within_envelope(
-            continuation.direction(),
-            continuation.anchor(),
-            bounds,
-        )?;
-
-        let (start_raw, end_raw) = match continuation.anchor() {
-            Some(anchor) => {
-                resume_bounds_from_refs(continuation.direction(), bounds.0, bounds.1, anchor)
-            }
-            None => (bounds.0.clone(), bounds.1.clone()),
-        };
-
-        if envelope_is_empty(&start_raw, &end_raw) {
-            return Ok(Vec::new());
-        }
-
-        // Phase 2: scan in directional order and decode entries until limit.
-        let mut out = Vec::new();
-
-        match continuation.direction() {
-            Direction::Asc => {
-                for entry in self.map.range((start_raw, end_raw)) {
-                    let raw_key = entry.key();
-                    let value = entry.value();
-
-                    Self::ensure_continuation_advanced(
-                        continuation.direction(),
-                        raw_key,
-                        continuation.anchor(),
-                    )?;
-
-                    if Self::decode_index_entry_and_push::<E>(
-                        index,
-                        raw_key,
-                        &value,
-                        &mut out,
-                        Some(limit),
-                        "range resolve",
-                        index_predicate_execution,
-                    )? {
-                        return Ok(out);
-                    }
-                }
-            }
-            Direction::Desc => {
-                for entry in self.map.range((start_raw, end_raw)).rev() {
-                    let raw_key = entry.key();
-                    let value = entry.value();
-
-                    Self::ensure_continuation_advanced(
-                        continuation.direction(),
-                        raw_key,
-                        continuation.anchor(),
-                    )?;
-
-                    if Self::decode_index_entry_and_push::<E>(
-                        index,
-                        raw_key,
-                        &value,
-                        &mut out,
-                        Some(limit),
-                        "range resolve",
-                        index_predicate_execution,
-                    )? {
-                        return Ok(out);
-                    }
-                }
-            }
-        }
-
-        Ok(out)
+        self.resolve_raw_range_limited(bounds, continuation, limit, |raw_key, value, out| {
+            Self::decode_index_entry_and_push::<E>(
+                index,
+                raw_key,
+                value,
+                out,
+                Some(limit),
+                "range resolve",
+                index_predicate_execution,
+            )
+        })
     }
 
     pub(in crate::db) fn resolve_data_values_with_component_in_raw_range_limited<E: EntityKind>(
@@ -152,6 +86,31 @@ impl IndexStore {
         component_index: usize,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Vec<(DataKey, Vec<u8>)>, InternalError> {
+        self.resolve_raw_range_limited(bounds, continuation, limit, |raw_key, value, out| {
+            Self::decode_index_entry_and_push_with_component::<E>(
+                index,
+                raw_key,
+                value,
+                out,
+                Some(limit),
+                component_index,
+                "range resolve",
+                index_predicate_execution,
+            )
+        })
+    }
+
+    // Resolve one bounded directional raw-range scan with shared continuation guards.
+    fn resolve_raw_range_limited<T, F>(
+        &self,
+        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
+        continuation: IndexScanContinuationInput<'_>,
+        limit: usize,
+        mut decode_and_push: F,
+    ) -> Result<Vec<T>, InternalError>
+    where
+        F: FnMut(&RawIndexKey, &StoredIndexValue, &mut Vec<T>) -> Result<bool, InternalError>,
+    {
         // Phase 1: validate envelope/anchor preconditions and derive scan bounds.
         if limit == 0 {
             return Ok(Vec::new());
@@ -176,28 +135,22 @@ impl IndexStore {
 
         // Phase 2: scan in directional order and decode entries until limit.
         let mut out = Vec::new();
+        let direction = continuation.direction();
+        let anchor = continuation.anchor();
 
-        match continuation.direction() {
+        match direction {
             Direction::Asc => {
                 for entry in self.map.range((start_raw, end_raw)) {
                     let raw_key = entry.key();
                     let value = entry.value();
 
-                    Self::ensure_continuation_advanced(
-                        continuation.direction(),
-                        raw_key,
-                        continuation.anchor(),
-                    )?;
-
-                    if Self::decode_index_entry_and_push_with_component::<E>(
-                        index,
+                    if Self::scan_range_entry(
+                        direction,
+                        anchor,
                         raw_key,
                         &value,
                         &mut out,
-                        Some(limit),
-                        component_index,
-                        "range resolve",
-                        index_predicate_execution,
+                        &mut decode_and_push,
                     )? {
                         return Ok(out);
                     }
@@ -208,21 +161,13 @@ impl IndexStore {
                     let raw_key = entry.key();
                     let value = entry.value();
 
-                    Self::ensure_continuation_advanced(
-                        continuation.direction(),
-                        raw_key,
-                        continuation.anchor(),
-                    )?;
-
-                    if Self::decode_index_entry_and_push_with_component::<E>(
-                        index,
+                    if Self::scan_range_entry(
+                        direction,
+                        anchor,
                         raw_key,
                         &value,
                         &mut out,
-                        Some(limit),
-                        component_index,
-                        "range resolve",
-                        index_predicate_execution,
+                        &mut decode_and_push,
                     )? {
                         return Ok(out);
                     }
@@ -231,6 +176,22 @@ impl IndexStore {
         }
 
         Ok(out)
+    }
+
+    // Apply continuation advancement guard and one decode/push attempt for an entry.
+    fn scan_range_entry<T, F>(
+        direction: Direction,
+        anchor: Option<&RawIndexKey>,
+        raw_key: &RawIndexKey,
+        value: &StoredIndexValue,
+        out: &mut Vec<T>,
+        decode_and_push: &mut F,
+    ) -> Result<bool, InternalError>
+    where
+        F: FnMut(&RawIndexKey, &StoredIndexValue, &mut Vec<T>) -> Result<bool, InternalError>,
+    {
+        Self::ensure_continuation_advanced(direction, raw_key, anchor)?;
+        decode_and_push(raw_key, value, out)
     }
 
     /// Validate strict continuation advancement when an anchor is present.

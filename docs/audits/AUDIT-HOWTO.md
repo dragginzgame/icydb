@@ -55,6 +55,21 @@ For each audit run:
 4. Save output as a new report file under `docs/audits/reports/YYYY-MM/YYYY-MM-DD/`.
 5. Never overwrite prior run artifacts.
 
+### Daily baseline rule (mandatory)
+
+For each day directory (`YYYY-MM/YYYY-MM-DD`) and each audit scope:
+- the first run file (`<scope>.md`) is the canonical baseline for that day
+- same-day reruns (`<scope>-2.md`, `<scope>-3.md`, ...) must compare against
+  `docs/audits/reports/YYYY-MM/YYYY-MM-DD/<scope>.md`
+- reruns must not chain deltas against the previous rerun file
+
+Baseline selection guidance:
+- first run of day:
+  - compare against the latest prior comparable report for the same scope, or
+    `N/A` if no prior comparable report exists
+- same-day rerun:
+  - compare against that day's canonical baseline file for the same scope
+
 For crosscutting structure/velocity runs, include the required Hub Import Pressure metric:
 - top imports for each hub module
 - unique sibling subsystem import count
@@ -65,7 +80,9 @@ For crosscutting structure/velocity runs, include the required Hub Import Pressu
 
 Each report must include a short preamble block with:
 - scope
-- compared baseline report path (or `N/A` if first run)
+- compared baseline report path
+  - first run of day: latest prior comparable scope report path (or `N/A`)
+  - same-day rerun: that day's canonical scope baseline path (`<scope>.md`)
 - code snapshot identifier (for example `git rev-parse --short HEAD`, or `N/A`)
 - method tag/version (for example `Method V3`)
 - comparability status:

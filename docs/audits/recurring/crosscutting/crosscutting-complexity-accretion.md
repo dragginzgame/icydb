@@ -39,7 +39,14 @@ Assume this audit runs weekly and results are diffed.
 
 # STEP 0 — Baseline Capture (Mandatory)
 
-Capture previous-run values before computing current metrics.
+Capture baseline values before computing current metrics.
+
+Baseline source rule:
+
+* first run of day (`complexity-accretion.md`): compare to the latest prior
+  comparable complexity report (or `N/A` if none)
+* same-day rerun (`complexity-accretion-*.md`): compare to that day's
+  `complexity-accretion.md` baseline
 
 Produce:
 
@@ -57,7 +64,8 @@ Produce:
 | Continuation execution consumers |  |  |  |
 | Continuation plumbing modules |  |  |  |
 
-If previous values are unavailable, mark `N/A` and treat this run as baseline.
+If no prior comparable report exists for the first run of day, mark previous
+values as `N/A` and treat that first run as the daily baseline.
 
 ---
 
@@ -297,7 +305,9 @@ Produce:
 
 Run metadata must include:
 
-- compared baseline report path (or `N/A`)
+- compared baseline report path (daily baseline rule: first run of day compares
+  to latest prior comparable report or `N/A`; same-day reruns compare to that
+  day's `complexity-accretion.md` baseline)
 - method tag/version
 - comparability status (`comparable` or `non-comparable` with reason)
 

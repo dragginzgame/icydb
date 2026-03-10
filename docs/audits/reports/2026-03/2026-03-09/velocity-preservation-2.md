@@ -12,7 +12,7 @@ Method: revised CAF model (`revised_caf = max(subsystems, layers) x flow_axes`) 
 
 ## Step 0 - Baseline Capture
 
-| Metric | Previous (2026-03-09 earlier run) | Current (2026-03-09 rerun) | Delta |
+| Metric | Baseline (2026-03-09 first run) | Current (2026-03-09 rerun 2) | Delta |
 | ---- | ----: | ----: | ----: |
 | Velocity Risk Index | 6.0 | 5.0 | -1.0 |
 | Cross-layer leakage crossings (tracked boundaries) | 1 | 1 | 0 |
@@ -32,7 +32,7 @@ Method: revised CAF model (`revised_caf = max(subsystems, layers) x flow_axes`) 
 
 ## Step 2 - Boundary Leakage (Mechanical)
 
-| Boundary | Import/Type Crossings | Previous (2026-03-09 earlier run) | Delta | Risk |
+| Boundary | Import/Type Crossings | Baseline (2026-03-09 first run) | Delta | Risk |
 | ---- | ----: | ----: | ----: | ---- |
 | planner -> executor types | 0 | 0 | 0 | Low |
 | executor -> planner validation helpers | 1 boundary family | 1 | stable | Medium-Low |
@@ -50,7 +50,7 @@ Method: revised CAF model (`revised_caf = max(subsystems, layers) x flow_axes`) 
 
 ## Hub Import Pressure (Required Metric)
 
-| Hub Module | Top Import Tokens | Unique Sibling Subsystems | Cross-Layer Count | Delta vs Previous |
+| Hub Module | Top Import Tokens | Unique Sibling Subsystems | Cross-Layer Count | Delta vs Baseline |
 | ---- | ---- | ----: | ----: | ---- |
 | `executor/route/planner/mod.rs` | `executor(2)` | 1 | 1 | improved (`2 -> 1`) |
 | `executor/load/mod.rs` | `executor(6)` | 1 | 0 | stable |

@@ -1,0 +1,114 @@
+mod projections;
+
+use crate::{
+    db::{
+        executor::{
+            aggregate::field::{
+                AggregateFieldValueError, FieldSlot, compare_orderable_field_values,
+                extract_orderable_field_value,
+            },
+            load::LoadExecutor,
+        },
+        response::EntityResponse,
+    },
+    error::InternalError,
+    traits::{EntityKind, EntityValue},
+    types::Id,
+    value::Value,
+};
+use std::cmp::Ordering;
+
+// Field ranking direction for k-selection terminals.
+#[derive(Clone, Copy)]
+enum RankedFieldDirection {
+    Descending,
+    Ascending,
+}
+
+impl RankedFieldDirection {
+    // Determine whether the candidate value outranks the current value under
+    // the selected direction contract.
+    const fn candidate_precedes(self, candidate_vs_current: Ordering) -> bool {
+        match self {
+            Self::Descending => matches!(candidate_vs_current, Ordering::Greater),
+            Self::Ascending => matches!(candidate_vs_current, Ordering::Less),
+        }
+    }
+}
+
+impl<E> LoadExecutor<E>
+where
+    E: EntityKind + EntityValue,
+{
+    // Reduce one materialized response into deterministic top-k ranked rows
+    // ordered by `(field_value_desc, primary_key_asc)`.
+    pub(super) fn top_k_ranked_rows_from_materialized(
+        response: EntityResponse<E>,
+        target_field: &str,
+        field_slot: FieldSlot,
+        take_count: u32,
+    ) -> Result<Vec<(Id<E>, E, Value)>, InternalError> {
+        Self::rank_k_rows_from_materialized(
+            response,
+            target_field,
+            field_slot,
+            take_count,
+            RankedFieldDirection::Descending,
+        )
+    }
+
+    // Reduce one materialized response into deterministic bottom-k ranked rows
+    // ordered by `(field_value_asc, primary_key_asc)`.
+    pub(super) fn bottom_k_ranked_rows_from_materialized(
+        response: EntityResponse<E>,
+        target_field: &str,
+        field_slot: FieldSlot,
+        take_count: u32,
+    ) -> Result<Vec<(Id<E>, E, Value)>, InternalError> {
+        Self::rank_k_rows_from_materialized(
+            response,
+            target_field,
+            field_slot,
+            take_count,
+            RankedFieldDirection::Ascending,
+        )
+    }
+
+    // Shared ranked-row helper for all top/bottom k terminal families.
+    // Memory contract:
+    // - Ranking is applied to the materialized effective response window only.
+    // - Memory growth is bounded by the effective execute() response size.
+    // - No streaming heap optimization is used in 0.29 by design.
+    fn rank_k_rows_from_materialized(
+        response: EntityResponse<E>,
+        target_field: &str,
+        field_slot: FieldSlot,
+        take_count: u32,
+        direction: RankedFieldDirection,
+    ) -> Result<Vec<(Id<E>, E, Value)>, InternalError> {
+        let mut ordered_rows: Vec<(Id<E>, E, Value)> = Vec::new();
+        for row in response {
+            let (id, entity) = row.into_parts();
+            let value = extract_orderable_field_value(&entity, target_field, field_slot)
+                .map_err(AggregateFieldValueError::into_internal_error)?;
+            let mut insert_index = ordered_rows.len();
+            for (index, (current_id, _, current_value)) in ordered_rows.iter().enumerate() {
+                let ordering = compare_orderable_field_values(target_field, &value, current_value)
+                    .map_err(AggregateFieldValueError::into_internal_error)?;
+                let outranks_current = direction.candidate_precedes(ordering);
+                let tie_breaks_by_pk = ordering == Ordering::Equal && id.key() < current_id.key();
+                if outranks_current || tie_breaks_by_pk {
+                    insert_index = index;
+                    break;
+                }
+            }
+            ordered_rows.insert(insert_index, (id, entity, value));
+        }
+        let take_len = usize::try_from(take_count).unwrap_or(usize::MAX);
+        if ordered_rows.len() > take_len {
+            ordered_rows.truncate(take_len);
+        }
+
+        Ok(ordered_rows)
+    }
+}

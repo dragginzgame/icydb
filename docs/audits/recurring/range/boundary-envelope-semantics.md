@@ -304,7 +304,9 @@ Produce:
 
 Run metadata must include:
 
-- compared baseline report path (or `N/A`)
+- compared baseline report path (daily baseline rule: first run of day compares
+  to latest prior comparable report or `N/A`; same-day reruns compare to that
+  day's `boundary-semantics.md` baseline)
 - method tag/version
 - comparability status (`comparable` or `non-comparable` with reason)
 

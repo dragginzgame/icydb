@@ -60,6 +60,9 @@ Required:
 - preserve all historical reports
 - keep reports grouped by month/day under `docs/audits/reports/YYYY-MM/YYYY-MM-DD/`
 - include report preamble fields (scope, baseline path, method tag, comparability status)
+- enforce daily baseline discipline per scope:
+  - first run of day (`<scope>.md`) is the canonical daily baseline
+  - same-day reruns compare to that baseline, not to prior reruns
 - include verification readout outcomes with explicit `PASS`/`FAIL`/`BLOCKED` status
 - document method changes and mark non-comparable deltas when formulas/scope change
 

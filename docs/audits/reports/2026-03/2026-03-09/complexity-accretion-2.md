@@ -10,7 +10,7 @@
 
 ## Step 0 - Baseline Capture
 
-| Metric | Previous (2026-03-09 earlier run) | Current (2026-03-09 rerun) | Delta |
+| Metric | Baseline (2026-03-09 first run) | Current (2026-03-09 rerun 2) | Delta |
 | ---- | ----: | ----: | ----: |
 | Runtime files in scope | 310 | 336 | +26 |
 | Runtime LOC | 63,342 | 63,161 | -181 |
@@ -32,7 +32,7 @@
 
 ## Step 2 - Branching Pressure
 
-| Area | Previous (2026-03-09 earlier run) | Current (2026-03-09 rerun) | Delta | Risk |
+| Area | Baseline (2026-03-09 first run) | Current (2026-03-09 rerun 2) | Delta | Risk |
 | ---- | ---- | ---- | ---- | ---- |
 | `executor/route` (`if`, `match`) | `if=89`, `match=16` | `if=18`, `match=23` | `-71 if`, `+7 match` | Medium |
 | `executor/load` (`if`, `match`) | `if=69`, `match=51` | `if=67`, `match=51` | `-2 if`, `0 match` | Medium-High |

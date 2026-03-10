@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `0.47.3` closes the cursor edge-case checklist with explicit composite-anchor and DESC-resume verification, reducing continuation regression risk without changing query behavior.
 - `0.47.4` adds a live-vs-replay unique-conflict parity lock, hardens recurring index-integrity parity checks, and reduces route/planner structural pressure by splitting planner type inference and simplifying aggregate route-hint branching.
 - `0.47.5` continues structural containment by reducing route/validation branch pressure (including another route-planner/cursor-policy trim pass), splitting load projection/ranking terminals and grouped validation modules into clearer runtime boundaries, tightening route fast-path guard contracts, and requiring explicit DRY follow-ups whenever high-risk divergence seams are detected.
+- `0.47.6` continues load-hub decomposition by splitting scalar/orchestrate/fast-path/fast-stream-route/candidate/projection operator modules, updates audit governance so same-day reruns always compare to the day baseline, and re-runs crosscutting audits with stable risk scores (`complexity 6/10`, `velocity 5/10`, `module 5/10`, `layer 4/10`, `DRY 5/10`).
 
 See detailed breakdown:
 [docs/changelog/0.47.md](docs/changelog/0.47.md)

@@ -13,6 +13,15 @@ This directory contains recurring architecture/correctness audits.
 - recurring audits run on the project's weekly audit cycle
 - crosscutting and high-risk domains may be rerun within the same week when needed
 
+## Daily Baseline Policy
+
+- for each audit scope on a given day, the first report file (`<scope>.md`) is
+  the canonical baseline for that day
+- same-day reruns (`<scope>-2.md`, `<scope>-3.md`, ...) must compare to that
+  day's `<scope>.md` baseline, not the previous rerun
+- first run of day should compare against the latest prior comparable report
+  for that scope (or `N/A` if unavailable)
+
 ## Scoring Interpretation
 
 - `1-3`: low risk / structurally healthy

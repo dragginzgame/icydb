@@ -25,9 +25,9 @@ repository = "https://github.com/dragginzgame/icydb"
 [workspace.dependencies]
 bencher = "0.1.5"
 candid = "0.10"
-canic-cdk = "0.13.6"
-canic-memory = "0.13.6"
-canic-utils = "0.13.6"
+canic-cdk = "0.14.2"
+canic-memory = "0.14.2"
+canic-utils = "0.14.2"
 ctor = "0.6"
 darling = "0.23"
 derive_more = { version = "2.0", default-features = false, features = ["full"] }
