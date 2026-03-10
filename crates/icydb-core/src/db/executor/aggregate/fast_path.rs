@@ -9,7 +9,7 @@ use crate::{
         direction::Direction,
         executor::{
             AccessExecutionDescriptor, AccessScanContinuationInput, AccessStreamBindings,
-            ExecutionKernel, access_descriptor_from_plan_bindings,
+            ExecutionKernel,
             aggregate::{
                 AggregateFastPathInputs, AggregateFoldMode, AggregateKind, AggregateOutput,
             },
@@ -423,11 +423,13 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
-        let descriptor = access_descriptor_from_plan_bindings(
+        let descriptor = AccessExecutionDescriptor::from_bindings(
             &inputs.logical_plan.access,
-            inputs.index_prefix_specs,
-            inputs.index_range_specs,
-            AccessScanContinuationInput::new(None, inputs.direction),
+            AccessStreamBindings::new(
+                inputs.index_prefix_specs,
+                inputs.index_range_specs,
+                AccessScanContinuationInput::new(None, inputs.direction),
+            ),
             inputs.physical_fetch_hint,
             Self::aggregate_index_predicate_execution(inputs.index_predicate_program),
         );

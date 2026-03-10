@@ -38,7 +38,7 @@ pub(crate) use errors::{
 pub(crate) use errors::{PlanPolicyError, PlanUserError};
 pub(crate) use fluent_policy::{validate_fluent_non_paged_mode, validate_fluent_paged_mode};
 #[cfg(test)]
-pub(in crate::db::query) use grouped::validate_group_projection_expr_compatibility_for_test;
+pub(in crate::db::query) use grouped::validate_group_projection_expr_compatibility;
 pub(crate) use intent_policy::{validate_intent_key_access_policy, validate_intent_plan_shape};
 pub(crate) use order::validate_order;
 pub(crate) use plan_shape::{has_explicit_order, validate_order_shape, validate_plan_shape};

@@ -4,8 +4,8 @@ use crate::{
         data::DataKey,
         direction::Direction,
         executor::{
-            AccessScanContinuationInput, ExecutablePlan, ExecutionOptimizationCounter,
-            access_descriptor_from_plan_bindings,
+            AccessExecutionDescriptor, AccessScanContinuationInput, AccessStreamBindings,
+            ExecutablePlan, ExecutionOptimizationCounter,
             aggregate::field::{
                 AggregateFieldValueError, extract_orderable_field_value,
                 resolve_any_aggregate_target_slot_from_planner_slot,
@@ -130,11 +130,13 @@ where
         let consistency = plan.consistency();
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
-        let descriptor = access_descriptor_from_plan_bindings(
+        let descriptor = AccessExecutionDescriptor::from_bindings(
             plan.access(),
-            index_prefix_specs.as_slice(),
-            index_range_specs.as_slice(),
-            AccessScanContinuationInput::new(None, direction),
+            AccessStreamBindings::new(
+                index_prefix_specs.as_slice(),
+                index_range_specs.as_slice(),
+                AccessScanContinuationInput::new(None, direction),
+            ),
             None,
             None,
         );

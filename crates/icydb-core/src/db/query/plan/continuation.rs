@@ -12,7 +12,7 @@ use crate::{
         },
         query::plan::{
             AccessPlannedQuery, ExecutionOrderContract, ExecutionShapeSignature,
-            GroupedCursorPolicyViolation, grouped_cursor_policy_violation_for_continuation,
+            GroupedCursorPolicyViolation, grouped_cursor_policy_violation,
         },
     },
     error::InternalError,
@@ -461,7 +461,7 @@ impl<K: FieldValue + Clone> AccessPlannedQuery<K> {
         let access = self.access.clone();
         let grouped_cursor_policy_violation = self
             .grouped_plan()
-            .and_then(|grouped| grouped_cursor_policy_violation_for_continuation(grouped, true));
+            .and_then(|grouped| grouped_cursor_policy_violation(grouped, true));
 
         Some(ContinuationContract::new(
             shape_signature,

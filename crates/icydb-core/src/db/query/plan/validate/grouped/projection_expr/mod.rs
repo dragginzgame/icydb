@@ -17,7 +17,7 @@ use crate::db::{
 use std::collections::HashSet;
 
 // Validate GROUP BY expression compatibility over canonical projection semantics.
-pub(in crate::db::query::plan::validate) fn validate_group_projection_expr_compatibility(
+pub(in crate::db::query) fn validate_group_projection_expr_compatibility(
     group: &GroupSpec,
     projection: &ProjectionSpec,
 ) -> Result<(), PlanError> {
@@ -65,12 +65,4 @@ pub(in crate::db::query::plan::validate) fn validate_projection_expr_types(
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-pub(in crate::db::query) fn validate_group_projection_expr_compatibility_for_test(
-    group: &GroupSpec,
-    projection: &ProjectionSpec,
-) -> Result<(), PlanError> {
-    validate_group_projection_expr_compatibility(group, projection)
 }

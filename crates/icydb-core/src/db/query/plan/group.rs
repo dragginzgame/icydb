@@ -12,7 +12,7 @@ use crate::{
             GroupDistinctAdmissibility, GroupDistinctPolicyReason, GroupHavingSpec,
             GroupedExecutionConfig, GroupedPlanStrategyHint,
             expr::{Expr, ProjectionField, ProjectionSpec},
-            grouped_distinct_admissibility, grouped_plan_strategy_hint_for_plan,
+            grouped_distinct_admissibility, grouped_plan_strategy_hint,
             resolve_global_distinct_field_aggregate, validate_grouped_projection_layout,
         },
     },
@@ -154,12 +154,11 @@ pub(in crate::db) fn grouped_executor_handoff<K>(
         aggregate_exprs.len(),
     )
     .map(|()| true)?;
-    let grouped_plan_strategy_hint =
-        grouped_plan_strategy_hint_for_plan(plan).ok_or_else(|| {
-            planner_invariant(
-                "grouped executor handoff must carry grouped strategy hint for grouped plans",
-            )
-        })?;
+    let grouped_plan_strategy_hint = grouped_plan_strategy_hint(plan).ok_or_else(|| {
+        planner_invariant(
+            "grouped executor handoff must carry grouped strategy hint for grouped plans",
+        )
+    })?;
     let grouped_distinct_policy_contract = grouped_distinct_policy_contract(
         grouped.scalar.distinct,
         grouped.having.is_some(),

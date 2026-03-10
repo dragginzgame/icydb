@@ -8,9 +8,8 @@ use crate::{
         access::ExecutionPathPayload,
         direction::Direction,
         executor::{
-            AccessScanContinuationInput, Context, ExecutablePlan, ExecutionKernel,
-            ExecutionOptimizationCounter, ExecutionPreparation,
-            access_descriptor_from_plan_bindings,
+            AccessExecutionDescriptor, AccessScanContinuationInput, AccessStreamBindings, Context,
+            ExecutablePlan, ExecutionKernel, ExecutionOptimizationCounter, ExecutionPreparation,
             aggregate::{
                 AggregateFoldMode, AggregateKind, AggregateOutput,
                 aggregate_zero_output_if_window_empty,
@@ -386,11 +385,13 @@ where
 
         // Phase 2: resolve the access key stream directly from index-backed bindings.
         let ctx = self.recovered_context()?;
-        let descriptor = access_descriptor_from_plan_bindings(
+        let descriptor = AccessExecutionDescriptor::from_bindings(
             &logical_plan.access,
-            index_prefix_specs.as_slice(),
-            index_range_specs.as_slice(),
-            AccessScanContinuationInput::new(None, direction),
+            AccessStreamBindings::new(
+                index_prefix_specs.as_slice(),
+                index_range_specs.as_slice(),
+                AccessScanContinuationInput::new(None, direction),
+            ),
             None,
             index_predicate_execution,
         );
@@ -439,11 +440,13 @@ where
 
         // Phase 2: resolve the access key stream directly from index-backed bindings.
         let ctx = self.recovered_context()?;
-        let descriptor = access_descriptor_from_plan_bindings(
+        let descriptor = AccessExecutionDescriptor::from_bindings(
             &logical_plan.access,
-            index_prefix_specs.as_slice(),
-            index_range_specs.as_slice(),
-            AccessScanContinuationInput::new(None, direction),
+            AccessStreamBindings::new(
+                index_prefix_specs.as_slice(),
+                index_range_specs.as_slice(),
+                AccessScanContinuationInput::new(None, direction),
+            ),
             None,
             index_predicate_execution,
         );

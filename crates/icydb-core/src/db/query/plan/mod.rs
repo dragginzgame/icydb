@@ -71,6 +71,7 @@ pub(crate) use semantics::{
 };
 pub(in crate::db) use semantics::{
     LogicalPushdownEligibility, derive_logical_pushdown_eligibility,
+    grouped_cursor_policy_violation, grouped_plan_strategy_hint,
     secondary_order_contract_is_deterministic,
 };
 #[cfg(test)]
@@ -90,25 +91,3 @@ pub(crate) use validate::{
 };
 #[cfg(test)]
 pub(crate) use validate::{PlanPolicyError, PlanUserError};
-
-pub(in crate::db) fn grouped_cursor_policy_violation_for_continuation(
-    grouped: &GroupPlan,
-    cursor_present: bool,
-) -> Option<GroupedCursorPolicyViolation> {
-    semantics::grouped_cursor_policy_violation(grouped, cursor_present)
-}
-
-// Project grouped strategy hint for consumers that need grouped execution guidance.
-pub(in crate::db) fn grouped_plan_strategy_hint_for_plan<K>(
-    plan: &AccessPlannedQuery<K>,
-) -> Option<GroupedPlanStrategyHint> {
-    semantics::grouped_plan_strategy_hint(plan)
-}
-
-#[cfg(test)]
-pub(crate) fn grouped_cursor_policy_violation_for_test(
-    grouped: &GroupPlan,
-    cursor_present: bool,
-) -> Option<GroupedCursorPolicyViolation> {
-    semantics::grouped_cursor_policy_violation(grouped, cursor_present)
-}

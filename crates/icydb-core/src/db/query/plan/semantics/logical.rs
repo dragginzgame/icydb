@@ -10,8 +10,7 @@ use crate::{
             AccessPlannedQuery, ContinuationPolicy, DistinctExecutionStrategy,
             ExecutionShapeSignature, GroupPlan, LogicalPlan, PlannerRouteProfile, QueryMode,
             ScalarPlan, derive_logical_pushdown_eligibility, expr::ProjectionSpec,
-            grouped_cursor_policy_violation_for_continuation, lower_projection_identity,
-            lower_projection_intent,
+            grouped_cursor_policy_violation, lower_projection_identity, lower_projection_intent,
         },
     },
     model::entity::EntityModel,
@@ -173,9 +172,9 @@ fn distinct_runtime_dedup_strategy<K>(access: &AccessPlan<K>) -> Option<Distinct
 }
 
 fn derive_continuation_policy_validated<K>(plan: &AccessPlannedQuery<K>) -> ContinuationPolicy {
-    let is_grouped_safe = plan.grouped_plan().is_none_or(|grouped| {
-        grouped_cursor_policy_violation_for_continuation(grouped, true).is_none()
-    });
+    let is_grouped_safe = plan
+        .grouped_plan()
+        .is_none_or(|grouped| grouped_cursor_policy_violation(grouped, true).is_none());
 
     ContinuationPolicy::new(
         true, // Continuation resume windows require anchor semantics for pushdown-safe replay.

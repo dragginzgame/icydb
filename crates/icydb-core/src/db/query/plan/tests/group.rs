@@ -11,12 +11,12 @@ use crate::{
             PlanUserError, QueryMode,
             expr::{Alias, BinaryOp, Expr, FieldId, ProjectionField, ProjectionSpec},
             global_distinct_field_aggregate_admissibility,
-            global_distinct_group_spec_for_semantic_aggregate,
-            grouped_cursor_policy_violation_for_test, grouped_distinct_admissibility,
-            grouped_executor_handoff, is_global_distinct_field_aggregate_candidate,
+            global_distinct_group_spec_for_semantic_aggregate, grouped_cursor_policy_violation,
+            grouped_distinct_admissibility, grouped_executor_handoff,
+            is_global_distinct_field_aggregate_candidate,
             validate::{
                 ExprPlanError, PlanError, PolicyPlanError,
-                validate_group_projection_expr_compatibility_for_test, validate_query_semantics,
+                validate_group_projection_expr_compatibility, validate_query_semantics,
             },
             validate_group_query_semantics,
         },
@@ -300,7 +300,7 @@ fn grouped_cursor_policy_violation_contract_is_shared_for_limit_and_global_disti
         .grouped_plan()
         .expect("grouped plan should be present");
     assert_eq!(
-        grouped_cursor_policy_violation_for_test(grouped_without_limit_plan, true)
+        grouped_cursor_policy_violation(grouped_without_limit_plan, true)
             .map(GroupedCursorPolicyViolation::invariant_message),
         Some("grouped continuation cursors require an explicit LIMIT"),
         "grouped cursor contract should require explicit limit when continuation is present",
@@ -329,7 +329,7 @@ fn grouped_cursor_policy_violation_contract_is_shared_for_limit_and_global_disti
         .grouped_plan()
         .expect("grouped plan should be present");
     assert_eq!(
-        grouped_cursor_policy_violation_for_test(grouped_global_distinct_plan, true)
+        grouped_cursor_policy_violation(grouped_global_distinct_plan, true)
             .map(GroupedCursorPolicyViolation::invariant_message),
         Some("global DISTINCT grouped aggregates do not support continuation cursors"),
         "global DISTINCT grouped cursor policy should reject continuation reuse",
@@ -1376,7 +1376,7 @@ fn grouped_projection_expr_compatibility_accepts_group_fields_and_aggregates_wit
         },
     ]);
 
-    validate_group_projection_expr_compatibility_for_test(&group, &projection).expect(
+    validate_group_projection_expr_compatibility(&group, &projection).expect(
         "grouped projection compatibility should allow grouped fields, aliases, and aggregates",
     );
 }
@@ -1392,7 +1392,7 @@ fn grouped_projection_expr_compatibility_rejects_non_group_field_reference() {
         alias: None,
     }]);
 
-    let err = validate_group_projection_expr_compatibility_for_test(&group, &projection)
+    let err = validate_group_projection_expr_compatibility(&group, &projection)
         .expect_err("grouped projection compatibility should reject non-group field references");
     assert!(is_expr_plan_error(&err, |inner| matches!(
         inner,
@@ -1412,8 +1412,9 @@ fn grouped_projection_expr_compatibility_rejects_non_group_field_in_mixed_aggreg
         alias: None,
     }]);
 
-    let err = validate_group_projection_expr_compatibility_for_test(&group, &projection)
-        .expect_err("mixed expressions must still reject non-group field references outside aggregate nodes");
+    let err = validate_group_projection_expr_compatibility(&group, &projection).expect_err(
+        "mixed expressions must still reject non-group field references outside aggregate nodes",
+    );
     assert!(is_expr_plan_error(&err, |inner| matches!(
         inner,
         ExprPlanError::GroupedProjectionReferencesNonGroupField { index } if *index == 0

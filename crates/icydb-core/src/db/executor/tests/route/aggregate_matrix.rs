@@ -11,9 +11,7 @@ use crate::db::{
         ExplainGroupAggregate, ExplainGroupField, ExplainGroupHaving, ExplainGroupHavingClause,
         ExplainGroupHavingSymbol, ExplainGroupedStrategy, ExplainGrouping,
     },
-    query::plan::{
-        GroupDistinctPolicyReason, GroupedPlanStrategyHint, grouped_plan_strategy_hint_for_plan,
-    },
+    query::plan::{GroupDistinctPolicyReason, GroupedPlanStrategyHint, grouped_plan_strategy_hint},
 };
 
 // Snapshot grouped policy decisions across planner, grouped handoff, and route projection.
@@ -25,8 +23,8 @@ fn grouped_policy_snapshot(
     GroupedExecutionStrategy,
     bool,
 ) {
-    let planner_hint = grouped_plan_strategy_hint_for_plan(plan)
-        .expect("grouped plans should project planner hints");
+    let planner_hint =
+        grouped_plan_strategy_hint(plan).expect("grouped plans should project planner hints");
     let handoff = grouped_executor_handoff(plan).expect("grouped plans should project handoff");
     let distinct_violation = handoff.distinct_policy_violation_for_executor();
     let route_plan =
@@ -275,8 +273,8 @@ fn route_plan_grouped_wrapper_downgrades_ordered_strategy_for_unsupported_having
     let grouped_observability = route_plan
         .grouped_observability()
         .expect("grouped route should project grouped observability payload");
-    let planner_hint = grouped_plan_strategy_hint_for_plan(&grouped)
-        .expect("grouped plans should project strategy hints");
+    let planner_hint =
+        grouped_plan_strategy_hint(&grouped).expect("grouped plans should project strategy hints");
 
     assert_eq!(
         planner_hint,
