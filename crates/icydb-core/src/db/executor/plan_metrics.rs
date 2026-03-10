@@ -5,7 +5,7 @@
 
 use crate::{
     db::access::AccessPlan,
-    obs::sink::{GroupedPlanStrategy, MetricsEvent, PlanKind, Span, record},
+    metrics::sink::{GroupedPlanStrategy, MetricsEvent, PlanKind, Span, record},
     traits::EntityKind,
 };
 

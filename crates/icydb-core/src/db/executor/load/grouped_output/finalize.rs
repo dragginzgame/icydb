@@ -44,7 +44,7 @@ where
             execution_time_micros,
         );
 
-        let mut span = crate::obs::sink::Span::<E>::new(crate::obs::sink::ExecKind::Load);
+        let mut span = crate::metrics::sink::Span::<E>::new(crate::metrics::sink::ExecKind::Load);
         span.set_rows(u64::try_from(rows_returned).unwrap_or(u64::MAX));
         if folded.should_check_filtered_rows_upper_bound() {
             debug_assert!(

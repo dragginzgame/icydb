@@ -6,11 +6,12 @@
 use crate::{
     db::{
         access::AccessPlan,
-        predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo},
+        predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::plan::{
             planner::{compare, index_literal_matches_schema, prefix, range},
             stability::canonicalize_in_literal_values,
         },
+        schema::SchemaInfo,
     },
     error::InternalError,
     model::entity::EntityModel,

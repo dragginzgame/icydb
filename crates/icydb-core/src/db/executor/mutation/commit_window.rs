@@ -19,8 +19,8 @@ use crate::{
         },
     },
     error::InternalError,
+    metrics::sink::{MetricsEvent, record},
     model::index::IndexModel,
-    obs::sink::{MetricsEvent, record},
     traits::{EntityKind, EntityValue},
 };
 use std::{cell::RefCell, collections::BTreeMap, ops::Bound, ptr, thread::LocalKey};

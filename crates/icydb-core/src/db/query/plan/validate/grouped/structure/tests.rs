@@ -6,13 +6,14 @@
 use super::*;
 use crate::{
     db::{
-        predicate::{CompareOp, SchemaInfo},
+        predicate::CompareOp,
         query::plan::{
             AggregateKind, FieldSlot, GroupAggregateSpec, GroupHavingClause, GroupHavingSpec,
             GroupHavingSymbol, GroupSpec, GroupedExecutionConfig,
             expr::{Expr, FieldId, ProjectionField, ProjectionSpec},
             validate::{ExprPlanError, PlanUserError},
         },
+        schema::SchemaInfo,
     },
     model::{entity::EntityModel, field::FieldKind, index::IndexModel},
     traits::EntitySchema,

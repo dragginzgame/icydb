@@ -7,12 +7,12 @@
 mod tests;
 
 use crate::db::{
-    predicate::SchemaInfo,
     query::plan::{
         FieldSlot, GroupSpec,
         expr::{ProjectionField, ProjectionSpec, expr_references_only_fields, infer_expr_type},
         validate::{ExprPlanError, PlanError},
     },
+    schema::SchemaInfo,
 };
 use std::collections::HashSet;
 

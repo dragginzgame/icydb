@@ -20,7 +20,7 @@ use crate::{
         index::IndexCompilePolicy,
     },
     error::InternalError,
-    obs::sink::{ExecKind, Span},
+    metrics::sink::{ExecKind, Span},
     traits::{EntityKind, EntityValue},
 };
 use std::time::Instant;

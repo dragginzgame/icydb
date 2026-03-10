@@ -6,12 +6,12 @@
 use crate::{
     db::{
         cursor::CursorPlanError,
-        predicate::ValidateError,
         query::plan::{
             CursorPagingPolicyError, FluentLoadPolicyViolation, IntentKeyAccessPolicyViolation,
             PlanError, PlannerError, PolicyPlanError,
         },
         response::ResponseError,
+        schema::ValidateError,
     },
     error::{ErrorClass, InternalError},
 };

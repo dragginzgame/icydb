@@ -7,9 +7,8 @@ use crate::{
     db::{
         Db, EntityRuntimeHooks,
         commit::{
-            CommitMarker, CommitRowOp, begin_commit, commit_marker_present,
-            commit_schema_fingerprint_for_entity, ensure_recovered, finish_commit,
-            init_commit_store_for_tests, prepare_row_commit_for_entity,
+            CommitMarker, CommitRowOp, begin_commit, commit_marker_present, ensure_recovered,
+            finish_commit, init_commit_store_for_tests, prepare_row_commit_for_entity,
             rollback_prepared_row_ops_reverse, snapshot_row_rollback, store,
         },
         data::{DataKey, DataStore, RawDataKey, RawRow, StorageKey},
@@ -17,6 +16,7 @@ use crate::{
         index::{IndexKey, IndexStore, RawIndexEntry},
         registry::{StoreHandle, StoreRegistry},
         relation::validate_delete_strong_relations_for_source,
+        schema::commit_schema_fingerprint_for_entity,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::{field::FieldKind, index::IndexModel},

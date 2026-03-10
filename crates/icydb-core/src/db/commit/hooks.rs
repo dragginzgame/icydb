@@ -8,9 +8,10 @@ use crate::{
         Db,
         commit::{
             CommitRowOp, CommitSchemaFingerprint, PreparedRowCommitOp,
-            commit_schema_fingerprint_for_entity, prepare_row_commit_for_entity,
+            prepare_row_commit_for_entity,
         },
         relation::StrongRelationDeleteValidateFn,
+        schema::commit_schema_fingerprint_for_entity,
     },
     error::InternalError,
     traits::{CanisterKind, EntityIdentity, EntityKind, EntityValue},

@@ -11,8 +11,9 @@ mod structural_guards;
 
 use crate::{
     db::access::{AccessPath, AccessPlan},
-    db::predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo},
+    db::predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
     db::query::plan::plan_access,
+    db::schema::SchemaInfo,
     model::{entity::EntityModel, field::FieldKind, index::IndexModel},
     traits::EntitySchema,
     types::Ulid,

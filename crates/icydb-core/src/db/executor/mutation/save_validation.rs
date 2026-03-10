@@ -6,8 +6,9 @@
 use crate::{
     db::{
         executor::mutation::save::SaveExecutor,
-        predicate::{SchemaInfo, canonical_cmp, literal_matches_type},
+        predicate::canonical_cmp,
         relation::validate_save_strong_relations,
+        schema::{SchemaInfo, literal_matches_type},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::{entity::resolve_primary_key_slot, field::FieldKind},

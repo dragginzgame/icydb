@@ -7,10 +7,9 @@ use crate::{
     db::{
         access::SemanticIndexRangeSpec,
         numeric::compare_numeric_order,
-        predicate::{
-            CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo, canonical_cmp,
-        },
+        predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, canonical_cmp},
         query::plan::planner::{index_literal_matches_schema, sorted_indexes},
+        schema::SchemaInfo,
     },
     model::{entity::EntityModel, index::IndexModel},
     value::Value,

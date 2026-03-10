@@ -5,11 +5,11 @@
 
 use crate::{
     db::{
-        predicate::SchemaInfo,
         query::plan::{
             OrderSpec,
             validate::{OrderPlanError, PlanError},
         },
+        schema::SchemaInfo,
     },
     model::entity::EntityModel,
 };

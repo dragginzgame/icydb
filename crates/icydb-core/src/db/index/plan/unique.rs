@@ -13,8 +13,8 @@ use crate::{
         },
     },
     error::InternalError,
+    metrics::sink::{MetricsEvent, record},
     model::{entity::resolve_field_slot, index::IndexModel},
-    obs::sink::{MetricsEvent, record},
     traits::{EntityKind, EntityValue, FieldValue},
 };
 use std::{cell::RefCell, collections::BTreeSet, ops::Bound, thread::LocalKey};

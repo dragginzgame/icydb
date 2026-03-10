@@ -21,9 +21,8 @@ use crate::{
     db::{
         Db, DbSession, EntityRuntimeHooks,
         commit::{
-            CommitMarker, begin_commit, commit_marker_present,
-            commit_schema_fingerprint_for_entity, ensure_recovered, init_commit_store_for_tests,
-            prepare_row_commit_for_entity,
+            CommitMarker, begin_commit, commit_marker_present, ensure_recovered,
+            init_commit_store_for_tests, prepare_row_commit_for_entity,
         },
         cursor::{ContinuationSignature, ContinuationToken, CursorBoundary, CursorBoundarySlot},
         data::DataStore,
@@ -39,6 +38,7 @@ use crate::{
         },
         registry::StoreRegistry,
         relation::validate_delete_strong_relations_for_source,
+        schema::commit_schema_fingerprint_for_entity,
     },
     model::{
         field::{FieldKind, RelationStrength},

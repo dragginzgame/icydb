@@ -15,8 +15,8 @@ pub(crate) mod scalar_registry;
 // public exports are one module level down
 pub mod db;
 pub mod error;
+pub mod metrics;
 pub mod model;
-pub mod obs;
 pub mod patch;
 pub mod sanitize;
 pub mod serialize;

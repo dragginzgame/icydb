@@ -1,4 +1,4 @@
-//! Module: predicate::schema::types
+//! Module: db::schema::types
 //! Responsibility: compact predicate-schema type system for validation and coercion checks.
 //! Does not own: planner route selection or runtime predicate execution behavior.
 //! Boundary: defines scalar/field type compatibility surfaces used by predicate validation.
@@ -229,7 +229,7 @@ pub(crate) fn literal_matches_type(literal: &Value, field_type: &FieldType) -> b
     }
 }
 
-pub(in crate::db::predicate::schema) fn field_type_from_model_kind(kind: &FieldKind) -> FieldType {
+pub(crate) fn field_type_from_model_kind(kind: &FieldKind) -> FieldType {
     match kind {
         FieldKind::Account => FieldType::Scalar(ScalarType::Account),
         FieldKind::Blob => FieldType::Scalar(ScalarType::Blob),

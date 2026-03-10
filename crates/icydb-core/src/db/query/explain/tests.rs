@@ -4,7 +4,9 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use super::*;
-use crate::db::access::{AccessPath, AccessPlan};
+use crate::db::access::{
+    AccessPath, AccessPlan, SecondaryOrderPushdownEligibility, SecondaryOrderPushdownRejection,
+};
 use crate::db::predicate::{CompareOp, MissingRowPolicy, Predicate};
 use crate::db::query::builder::field::FieldRef;
 use crate::db::query::intent::{KeyAccess, build_access_plan_from_keys};
@@ -17,7 +19,7 @@ use crate::model::{field::FieldKind, index::IndexModel};
 use crate::traits::EntitySchema;
 use crate::types::Ulid;
 use crate::value::Value;
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, ops::Bound};
 
 const PUSHDOWN_INDEX_FIELDS: [&str; 1] = ["tag"];
 const PUSHDOWN_INDEX: IndexModel = IndexModel::new(

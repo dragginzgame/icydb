@@ -6,15 +6,16 @@
 use crate::{
     db::{
         Db,
-        commit::{CommitRowOp, commit_schema_fingerprint_for_entity},
+        commit::CommitRowOp,
         data::{DataKey, RawRow, decode_and_validate_entity_key},
         executor::{
             Context, ExecutorError,
             mutation::{commit_save_row_ops_with_window, mutation_write_context},
         },
+        schema::commit_schema_fingerprint_for_entity,
     },
     error::InternalError,
-    obs::sink::{ExecKind, MetricsEvent, Span, record},
+    metrics::sink::{ExecKind, MetricsEvent, Span, record},
     serialize::serialize,
     traits::{EntityKind, EntityValue},
 };

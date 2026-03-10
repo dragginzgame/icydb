@@ -6,11 +6,9 @@
 use crate::{
     db::{
         access::AccessPlan,
-        predicate::{
-            Predicate, SchemaInfo, ValidateError, normalize, normalize_enum_literals,
-            reject_unsupported_query_features,
-        },
+        predicate::{Predicate, normalize, normalize_enum_literals},
         query::plan::{PlannerError, plan_access},
+        schema::{SchemaInfo, ValidateError, reject_unsupported_query_features},
     },
     model::entity::EntityModel,
     value::Value,

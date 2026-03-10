@@ -4,7 +4,7 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::{
-    db::predicate::{SchemaInfo, ValidateError},
+    db::schema::{SchemaInfo, ValidateError},
     model::{
         field::{FieldKind, FieldModel},
         index::IndexModel,

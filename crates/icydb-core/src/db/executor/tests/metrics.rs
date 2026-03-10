@@ -4,7 +4,7 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use super::*;
-use crate::obs::sink::{MetricsEvent, MetricsSink, with_metrics_sink};
+use crate::metrics::sink::{MetricsEvent, MetricsSink, with_metrics_sink};
 use std::cell::RefCell;
 
 ///

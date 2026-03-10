@@ -5,10 +5,9 @@
 
 use crate::{
     db::{
-        predicate::{
-            CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo, literal_matches_type,
-        },
+        predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::{explain::ExplainAccessPath, plan::AccessPlannedQuery},
+        schema::{SchemaInfo, literal_matches_type},
     },
     model::{entity::EntityModel, index::IndexModel},
     traits::FieldValue,

@@ -1,18 +1,15 @@
-//! Module: predicate::schema::validate
+//! Module: db::schema::validate
 //! Responsibility: schema-aware predicate validation and unsupported-feature rejection.
 //! Does not own: planner routing decisions or executor runtime filtering behavior.
 //! Boundary: validates predicate/type semantics before planning and execution.
 
 use crate::{
-    db::predicate::{
-        CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate,
-        model::UnsupportedQueryFeature,
-        schema::{
-            errors::ValidateError,
-            model_checks::SchemaInfo,
-            types::{FieldType, literal_matches_type},
+    db::{
+        predicate::{
+            CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate,
+            UnsupportedQueryFeature, supports_coercion,
         },
-        supports_coercion,
+        schema::{FieldType, SchemaInfo, ValidateError, literal_matches_type},
     },
     value::{CoercionFamilyExt, Value},
 };

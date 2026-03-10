@@ -1,15 +1,11 @@
-//! Module: obs::metrics
-//! Responsibility: module-local ownership and contracts for obs::metrics.
+//! Module: metrics::state
+//! Responsibility: module-local ownership and contracts for metrics::state.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 //! Runtime metrics are update-only by contract.
 //! Query-side instrumentation is intentionally not surfaced by `report`, so
 //! query metrics are non-existent by design under IC query semantics.
-
-#[cfg(test)]
-#[expect(clippy::float_cmp)]
-mod tests;
 
 use candid::CandidType;
 use canic_cdk::utils::time::now_millis;

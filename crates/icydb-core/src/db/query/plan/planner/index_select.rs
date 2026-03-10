@@ -4,7 +4,10 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::{
-    db::predicate::{CompareOp, SchemaInfo, literal_matches_type},
+    db::{
+        predicate::CompareOp,
+        schema::{SchemaInfo, literal_matches_type},
+    },
     model::{entity::EntityModel, index::IndexModel},
     value::Value,
 };

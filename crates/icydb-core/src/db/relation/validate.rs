@@ -18,7 +18,7 @@ use crate::{
         },
     },
     error::InternalError,
-    obs::sink::{MetricsEvent, record},
+    metrics::sink::{MetricsEvent, record},
     traits::{EntityKind, EntityValue, Path},
     value::Value,
 };

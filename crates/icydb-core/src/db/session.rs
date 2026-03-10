@@ -14,7 +14,6 @@ use crate::{
         access::AccessStrategy,
         commit::EntityRuntimeHooks,
         cursor::decode_optional_cursor_token,
-        describe::describe_entity_model,
         executor::{
             DeleteExecutor, ExecutablePlan, ExecutionStrategy, ExecutorPlanError, LoadExecutor,
             SaveExecutor,
@@ -23,9 +22,10 @@ use crate::{
             builder::aggregate::AggregateExpr, explain::ExplainAggregateTerminalPlan,
             plan::QueryMode,
         },
+        schema::{describe_entity_model, show_indexes_for_model},
     },
     error::InternalError,
-    obs::sink::{MetricsSink, with_metrics_sink},
+    metrics::sink::{MetricsSink, with_metrics_sink},
     traits::{CanisterKind, EntityKind, EntityValue},
     value::Value,
 };
@@ -208,20 +208,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        let mut indexes = Vec::with_capacity(E::MODEL.indexes.len().saturating_add(1));
-        indexes.push(format!("PRIMARY KEY ({})", E::MODEL.primary_key.name));
-
-        for index in E::MODEL.indexes {
-            let kind = if index.is_unique() {
-                "UNIQUE INDEX"
-            } else {
-                "INDEX"
-            };
-            let fields = index.fields().join(", ");
-            indexes.push(format!("{kind} {} ({fields})", index.name()));
-        }
-
-        indexes
+        show_indexes_for_model(E::MODEL)
     }
 
     /// Return one structured schema description for the entity.

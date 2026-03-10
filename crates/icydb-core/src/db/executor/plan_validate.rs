@@ -4,9 +4,7 @@
 //! Boundary: catches internal planner/executor contract mismatches early.
 
 use crate::{
-    db::{
-        access::validate_access_structure, predicate::SchemaInfo, query::plan::AccessPlannedQuery,
-    },
+    db::{access::validate_access_structure, query::plan::AccessPlannedQuery, schema::SchemaInfo},
     error::InternalError,
     traits::EntityKind,
 };

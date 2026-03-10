@@ -6,7 +6,6 @@
 use crate::{
     db::{
         numeric::field_kind_supports_expr_numeric,
-        predicate::SchemaInfo,
         query::{
             builder::aggregate::AggregateExpr,
             plan::{
@@ -15,6 +14,7 @@ use crate::{
                 validate::ExprPlanError,
             },
         },
+        schema::SchemaInfo,
     },
     model::field::FieldKind,
     value::Value,

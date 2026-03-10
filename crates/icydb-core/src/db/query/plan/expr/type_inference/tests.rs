@@ -5,11 +5,11 @@
 
 use crate::{
     db::{
-        predicate::SchemaInfo,
         query::{
             builder::aggregate::{AggregateExpr, min, min_by, sum},
             plan::{AggregateKind, PlanError, PlanUserError, validate::ExprPlanError},
         },
+        schema::SchemaInfo,
     },
     model::{entity::EntityModel, field::FieldKind, index::IndexModel},
     value::Value,

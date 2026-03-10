@@ -7,8 +7,7 @@ use crate::{
     db::{
         Db,
         commit::{
-            CommitRowOp, commit_marker_present, commit_schema_fingerprint_for_entity,
-            ensure_recovered, init_commit_store_for_tests,
+            CommitRowOp, commit_marker_present, ensure_recovered, init_commit_store_for_tests,
         },
         data::{DataKey, DataStore, RawRow},
         executor::{
@@ -22,13 +21,14 @@ use crate::{
         query::intent::Query,
         registry::StoreRegistry,
         relation::validate_save_strong_relations,
+        schema::commit_schema_fingerprint_for_entity,
     },
     error::{ErrorClass, ErrorOrigin},
+    metrics::{metrics_report, metrics_reset_all},
     model::{
         field::{FieldKind, RelationStrength},
         index::IndexModel,
     },
-    obs::{metrics_report, metrics_reset_all},
     serialize::serialize,
     testing::test_memory,
     traits::{EntityIdentity, Path},

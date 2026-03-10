@@ -19,8 +19,9 @@ mod tests;
 use crate::{
     db::{
         access::AccessPlan,
-        predicate::{Predicate, SchemaInfo, normalize as normalize_predicate},
+        predicate::{Predicate, normalize as normalize_predicate},
         query::plan::{PlanError, stability::normalize_planned_access_plan_for_stability},
+        schema::SchemaInfo,
     },
     error::InternalError,
     model::entity::EntityModel,

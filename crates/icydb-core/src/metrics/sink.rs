@@ -1,16 +1,16 @@
-//! Module: obs::sink
-//! Responsibility: module-local ownership and contracts for obs::sink.
+//! Module: metrics::sink
+//! Responsibility: module-local ownership and contracts for metrics::sink.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 //! Metrics sink boundary.
 //!
-//! Core DB logic MUST NOT depend on obs::metrics directly.
+//! Core DB logic MUST NOT depend on metrics::state directly.
 //! All instrumentation flows through MetricsEvent and MetricsSink.
 //!
 //! This module is the only allowed bridge between execution logic
 //! and the global metrics state.
-use crate::{obs::metrics, traits::EntityKind};
+use crate::{metrics::state as metrics, traits::EntityKind};
 use std::{cell::RefCell, marker::PhantomData};
 
 thread_local! {
@@ -642,12 +642,12 @@ mod tests {
         metrics_reset_all();
 
         record(MetricsEvent::ReverseIndexDelta {
-            entity_path: "obs::tests::Entity",
+            entity_path: "metrics::tests::Entity",
             inserts: 3,
             removes: 2,
         });
         record(MetricsEvent::RelationValidation {
-            entity_path: "obs::tests::Entity",
+            entity_path: "metrics::tests::Entity",
             reverse_lookups: 5,
             blocked_deletes: 1,
         });
@@ -663,7 +663,7 @@ mod tests {
 
         let entity = counters
             .entities
-            .get("obs::tests::Entity")
+            .get("metrics::tests::Entity")
             .expect("entity counters should be present");
         assert_eq!(entity.reverse_index_inserts, 3);
         assert_eq!(entity.reverse_index_removes, 2);

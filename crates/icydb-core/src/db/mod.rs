@@ -7,13 +7,13 @@
 pub(crate) mod access;
 pub(crate) mod contracts;
 pub(crate) mod cursor;
-pub(crate) mod describe;
 pub(crate) mod diagnostics;
 pub(crate) mod identity;
 pub(crate) mod predicate;
 pub(crate) mod query;
 pub(crate) mod registry;
 pub(crate) mod response;
+pub(crate) mod schema;
 pub(crate) mod session;
 
 pub(in crate::db) mod codec;
@@ -43,10 +43,6 @@ pub use codec::cursor::{decode_cursor, encode_cursor};
 pub use commit::EntityRuntimeHooks;
 pub use data::DataStore;
 pub(crate) use data::StorageKey;
-pub use describe::{
-    EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
-    EntityRelationDescription, EntityRelationStrength, EntitySchemaDescription,
-};
 pub use diagnostics::{
     ExecutionAccessPathVariant, ExecutionMetrics, ExecutionOptimization, ExecutionTrace,
     StorageReport,
@@ -55,7 +51,6 @@ pub use identity::{EntityName, IndexName};
 pub use index::IndexStore;
 pub use predicate::{
     CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate, UnsupportedQueryFeature,
-    ValidateError,
 };
 pub use query::{
     api::ResponseCardinalityExt,
@@ -82,6 +77,10 @@ pub use response::{
     EntityResponse, GroupedRow, PagedGroupedExecution, PagedGroupedExecutionWithTrace,
     PagedLoadExecution, PagedLoadExecutionWithTrace, ProjectedRow, ProjectionResponse,
     Response as RowResponse, ResponseError, ResponseRow, Row, WriteBatchResponse,
+};
+pub use schema::{
+    EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
+    EntityRelationDescription, EntityRelationStrength, EntitySchemaDescription, ValidateError,
 };
 pub use session::DbSession;
 

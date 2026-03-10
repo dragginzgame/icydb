@@ -1,12 +1,12 @@
-//! Module: db::predicate::schema::errors
-//! Responsibility: module-local ownership and contracts for db::predicate::schema::errors.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Module: db::schema::errors
+//! Responsibility: schema validation error taxonomy for runtime schema contracts.
+//! Does not own: predicate AST or planning policy logic.
+//! Boundary: error surface for schema construction and predicate-schema validation.
 
 use crate::{
     db::{
         identity::{EntityNameError, IndexNameError},
-        predicate::{CoercionId, model::UnsupportedQueryFeature},
+        predicate::{CoercionId, UnsupportedQueryFeature},
     },
     model::index::IndexModel,
 };

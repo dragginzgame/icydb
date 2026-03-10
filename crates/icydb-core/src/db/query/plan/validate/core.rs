@@ -6,7 +6,6 @@
 use crate::{
     db::{
         access::validate_access_structure_model as validate_access_structure_model_shared,
-        predicate::{SchemaInfo, validate},
         query::plan::{
             AccessPlannedQuery, LogicalPlan, OrderSpec, ScalarPlan,
             validate::{
@@ -22,6 +21,7 @@ use crate::{
                 validate_plan_shape,
             },
         },
+        schema::{SchemaInfo, validate},
     },
     model::entity::EntityModel,
     value::Value,

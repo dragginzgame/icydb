@@ -8,8 +8,8 @@ use crate::{
         AccessPathKind, ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan,
         ExecutionPathKind, ExecutionPathPayload,
     },
+    metrics::sink::PlanKind,
     model::index::IndexModel,
-    obs::sink::PlanKind,
 };
 
 ///

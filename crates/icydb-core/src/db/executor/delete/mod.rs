@@ -6,7 +6,7 @@
 use crate::{
     db::{
         Db,
-        commit::{CommitRowOp, commit_schema_fingerprint_for_entity},
+        commit::CommitRowOp,
         data::{DataKey, DataRow, RawRow, decode_and_validate_entity_key},
         executor::{
             ExecutablePlan, ExecutionKernel, ExecutionPreparation, ExecutorError, PlanRow,
@@ -17,9 +17,10 @@ use crate::{
             traversal::row_read_consistency_for_plan,
         },
         response::EntityResponse,
+        schema::commit_schema_fingerprint_for_entity,
     },
     error::InternalError,
-    obs::sink::{ExecKind, Span},
+    metrics::sink::{ExecKind, Span},
     traits::{EntityKind, EntityValue},
     types::Id,
 };

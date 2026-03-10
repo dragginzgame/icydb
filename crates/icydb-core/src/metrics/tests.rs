@@ -1,11 +1,10 @@
-//! Module: obs::metrics::tests
-//! Responsibility: module-local ownership and contracts for obs::metrics::tests.
+//! Module: metrics::tests
+//! Responsibility: module-local ownership and contracts for metrics::tests.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::obs::metrics::{
-    EntityCounters, EntitySummary, EventOps, EventPerf, EventReport, EventState,
-    report_window_start, reset_all, with_state, with_state_mut,
+use crate::metrics::state::{
+    EntityCounters, report_window_start, reset_all, with_state, with_state_mut,
 };
 use serde::Serialize;
 use serde_cbor::Value as CborValue;
@@ -84,53 +83,40 @@ fn report_sorts_entities_by_average_rows() {
     });
 
     let report = report_window_start(None);
-    let paths: Vec<_> = report
-        .entity_counters
+    let summaries = report.entity_counters();
+    let paths: Vec<_> = summaries
         .iter()
-        .map(|e| e.path.as_str())
+        .map(super::state::EntitySummary::path)
         .collect();
 
     // Order by avg rows per load desc, then rows_loaded desc, then path asc.
     assert_eq!(paths, ["beta", "alpha", "gamma"]);
-    assert_eq!(report.entity_counters[0].avg_rows_per_load, 5.0);
-    assert_eq!(report.entity_counters[1].avg_rows_per_load, 3.0);
-    assert_eq!(report.entity_counters[2].avg_rows_per_load, 3.0);
+    assert_eq!(summaries[0].avg_rows_per_load(), 5.0);
+    assert_eq!(summaries[1].avg_rows_per_load(), 3.0);
+    assert_eq!(summaries[2].avg_rows_per_load(), 3.0);
 }
 
 #[test]
 fn event_report_serialization_shape_is_stable() {
-    let report = EventReport {
-        counters: Some(EventState {
-            ops: EventOps {
-                load_calls: 1,
-                rows_loaded: 2,
-                rows_scanned: 3,
-                non_atomic_partial_rows_committed: 4,
+    reset_all();
+    with_state_mut(|state| {
+        state.ops.load_calls = 1;
+        state.ops.rows_loaded = 2;
+        state.ops.rows_scanned = 3;
+        state.ops.non_atomic_partial_rows_committed = 4;
+        state.perf.load_inst_total = 11;
+        state.perf.load_inst_max = 12;
+        state.entities.insert(
+            "alpha".to_string(),
+            EntityCounters {
+                load_calls: 5,
+                rows_loaded: 8,
                 ..Default::default()
             },
-            perf: EventPerf {
-                load_inst_total: 11,
-                load_inst_max: 12,
-                ..Default::default()
-            },
-            entities: BTreeMap::from([(
-                "alpha".to_string(),
-                EntityCounters {
-                    load_calls: 5,
-                    rows_loaded: 8,
-                    ..Default::default()
-                },
-            )]),
-            window_start_ms: 99,
-        }),
-        entity_counters: vec![EntitySummary {
-            path: "alpha".to_string(),
-            load_calls: 5,
-            rows_loaded: 8,
-            avg_rows_per_load: 1.6,
-            ..Default::default()
-        }],
-    };
+        );
+        state.window_start_ms = 99;
+    });
+    let report = report_window_start(None);
 
     let encoded = to_cbor_value(&report);
     let root = expect_cbor_map(&encoded);
@@ -165,26 +151,36 @@ fn event_report_serialization_shape_is_stable() {
 
 #[test]
 fn entity_summary_serialization_shape_is_stable() {
-    let encoded = to_cbor_value(&EntitySummary {
-        path: "alpha".to_string(),
-        load_calls: 5,
-        delete_calls: 6,
-        rows_loaded: 8,
-        rows_scanned: 9,
-        rows_deleted: 10,
-        avg_rows_per_load: 1.6,
-        avg_rows_scanned_per_load: 1.8,
-        avg_rows_per_delete: 2.0,
-        index_inserts: 11,
-        index_removes: 12,
-        reverse_index_inserts: 13,
-        reverse_index_removes: 14,
-        relation_reverse_lookups: 15,
-        relation_delete_blocks: 16,
-        unique_violations: 17,
-        non_atomic_partial_commits: 18,
-        non_atomic_partial_rows_committed: 19,
+    reset_all();
+    with_state_mut(|state| {
+        state.entities.insert(
+            "alpha".to_string(),
+            EntityCounters {
+                load_calls: 5,
+                save_calls: 7,
+                delete_calls: 6,
+                rows_loaded: 8,
+                rows_scanned: 9,
+                rows_deleted: 10,
+                index_inserts: 11,
+                index_removes: 12,
+                reverse_index_inserts: 13,
+                reverse_index_removes: 14,
+                relation_reverse_lookups: 15,
+                relation_delete_blocks: 16,
+                unique_violations: 17,
+                non_atomic_partial_commits: 18,
+                non_atomic_partial_rows_committed: 19,
+            },
+        );
     });
+    let report = report_window_start(None);
+    let summary = report
+        .entity_counters()
+        .first()
+        .expect("entity summary should exist for populated state");
+    let encoded = to_cbor_value(summary);
+
     let root = expect_cbor_map(&encoded);
     assert!(
         map_field(root, "path").is_some(),

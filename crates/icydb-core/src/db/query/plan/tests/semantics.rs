@@ -7,8 +7,8 @@ use crate::{
     db::{
         access::{AccessPath, AccessPlan, AccessPlanError},
         predicate::{
-            CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate, SchemaInfo,
-            UnsupportedQueryFeature, ValidateError,
+            CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate,
+            UnsupportedQueryFeature,
         },
         query::{
             plan::validate::{
@@ -20,6 +20,7 @@ use crate::{
                 PlanUserError, QueryMode,
             },
         },
+        schema::{SchemaInfo, ValidateError},
     },
     model::{entity::EntityModel, field::FieldKind, index::IndexModel},
     traits::EntitySchema,

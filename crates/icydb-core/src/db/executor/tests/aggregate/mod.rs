@@ -28,7 +28,7 @@ use crate::{
         response::EntityResponse,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
-    obs::sink::{MetricsEvent, MetricsSink, with_metrics_sink},
+    metrics::sink::{MetricsEvent, MetricsSink, with_metrics_sink},
     types::{Date, Decimal, Duration, Id, Timestamp},
     value::Value,
 };

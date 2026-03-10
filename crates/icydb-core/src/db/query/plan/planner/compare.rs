@@ -6,7 +6,7 @@
 use crate::{
     db::{
         access::{AccessPlan, SemanticIndexRangeSpec},
-        predicate::{CoercionId, CompareOp, ComparePredicate, SchemaInfo, literal_matches_type},
+        predicate::{CoercionId, CompareOp, ComparePredicate},
         query::plan::{
             planner::{
                 index_literal_matches_schema,
@@ -15,6 +15,7 @@ use crate::{
             },
             stability::canonicalize_in_literal_values,
         },
+        schema::{SchemaInfo, literal_matches_type},
     },
     model::entity::EntityModel,
     value::Value,

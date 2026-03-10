@@ -1,4 +1,4 @@
-//! Module: describe
+//! Module: db::schema::describe
 //! Responsibility: deterministic entity-schema introspection DTOs for runtime consumers.
 //! Does not own: query planning, execution routing, or relation enforcement semantics.
 //! Boundary: projects `EntityModel`/`FieldKind` into stable describe surfaces.

@@ -5,11 +5,9 @@
 
 use crate::db::query::plan::{OrderDirection, PlanError, validate::validate_order};
 use crate::db::{
-    predicate::{
-        Predicate, SchemaInfo, ValidateError, normalize, normalize_enum_literals,
-        reject_unsupported_query_features, validate,
-    },
+    predicate::{Predicate, normalize, normalize_enum_literals},
     query::plan::OrderSpec,
+    schema::{SchemaInfo, ValidateError, reject_unsupported_query_features, validate},
 };
 use thiserror::Error as ThisError;
 

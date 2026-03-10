@@ -4,12 +4,12 @@ mod macros;
 
 use crate::{
     db::{
-        EntitySchemaDescription,
+        EntitySchemaDescription, StorageReport,
         query::{MissingRowPolicy, Query, QueryTracePlan},
         response::{PagedGroupedResponse, Response, WriteBatchResponse, WriteResponse},
     },
     error::Error,
-    obs::{MetricsSink, StorageReport},
+    metrics::MetricsSink,
     traits::{CanisterKind, EntityKind, EntityValue, Update, UpdateView},
     types::Id,
 };

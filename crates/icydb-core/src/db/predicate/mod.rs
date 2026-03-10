@@ -11,22 +11,17 @@ mod normalize;
 mod resolved;
 mod row_policy;
 mod runtime;
-mod schema;
 mod semantics;
 mod simplify;
 
 pub use coercion::CoercionId;
 pub use model::{CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature};
 pub use row_policy::MissingRowPolicy;
-pub use schema::ValidateError;
 
 pub(crate) use coercion::CoercionSpec;
 pub(in crate::db) use coercion::supports_coercion;
 pub(crate) use model::PredicateExecutionModel;
 pub(in crate::db) use normalize::{normalize, normalize_enum_literals};
-pub(crate) use schema::{
-    SchemaInfo, literal_matches_type, reject_unsupported_query_features, validate,
-};
 
 pub(in crate::db) use fingerprint::hash_predicate;
 pub(in crate::db) use resolved::{ResolvedComparePredicate, ResolvedPredicate};

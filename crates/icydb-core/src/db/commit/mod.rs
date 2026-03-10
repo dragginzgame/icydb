@@ -47,9 +47,8 @@ pub(in crate::db) use hooks::{
 };
 pub(in crate::db) use marker::CommitRowOp;
 pub(in crate::db) use marker::{
-    CommitIndexOp, CommitMarker, CommitSchemaFingerprint, MAX_COMMIT_BYTES,
-    commit_schema_fingerprint_for_entity, decode_data_key, decode_index_entry, decode_index_key,
-    validate_commit_marker_shape,
+    CommitIndexOp, CommitMarker, CommitSchemaFingerprint, MAX_COMMIT_BYTES, decode_data_key,
+    decode_index_entry, decode_index_key, validate_commit_marker_shape,
 };
 pub(in crate::db) use prepare::{
     prepare_row_commit_for_entity, prepare_row_commit_for_entity_with_readers,

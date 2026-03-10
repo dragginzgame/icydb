@@ -23,7 +23,7 @@
 //! - `traits` / `types` / `value` / `view` / `visitor`
 //!   Stable runtime and schema-facing building blocks used by generated code.
 //!
-//! - `model` / `obs` *(internal)*
+//! - `model` / `metrics` *(internal)*
 //!   Runtime model and metrics internals. Exposed for advanced tooling only;
 //!   not part of the supported semver surface.
 //!
@@ -94,10 +94,8 @@ pub mod model {
 }
 
 #[doc(hidden)]
-pub mod obs {
-    pub use icydb_core::obs::{
-        EventReport, MetricsSink, StorageReport, metrics_report, metrics_reset_all, storage_report,
-    };
+pub mod metrics {
+    pub use icydb_core::metrics::{EventReport, MetricsSink, metrics_report, metrics_reset_all};
 }
 
 pub mod patch {

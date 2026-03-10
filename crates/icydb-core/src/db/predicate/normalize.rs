@@ -4,9 +4,12 @@
 //! Boundary: normalize before validation/planning/fingerprinting.
 
 use crate::{
-    db::predicate::{
-        CompareOp, ComparePredicate, Predicate, SchemaInfo, ValidateError,
-        encoding::encode_predicate_sort_key, simplify::simplify_and_compare_constraints,
+    db::{
+        predicate::{
+            CompareOp, ComparePredicate, Predicate, encoding::encode_predicate_sort_key,
+            simplify::simplify_and_compare_constraints,
+        },
+        schema::{SchemaInfo, ValidateError},
     },
     model::field::FieldKind,
     value::Value,

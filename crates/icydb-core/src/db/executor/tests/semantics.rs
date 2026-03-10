@@ -2959,7 +2959,7 @@ fn recovery_replays_reverse_relation_index_mutations() {
         raw_key.as_bytes().to_vec(),
         None,
         Some(row_bytes),
-        crate::db::commit::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
+        crate::db::schema::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
     )])
     .expect("commit marker creation should succeed");
 
@@ -3254,7 +3254,7 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
         source_a_key.as_bytes().to_vec(),
         None,
         Some(source_a_row.clone()),
-        crate::db::commit::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
+        crate::db::schema::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
     )])
     .expect("save A marker creation should succeed");
     begin_commit(save_a_marker).expect("begin_commit should persist marker");
@@ -3277,7 +3277,7 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
         source_b_key.as_bytes().to_vec(),
         None,
         Some(source_b_row),
-        crate::db::commit::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
+        crate::db::schema::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
     )])
     .expect("save B marker creation should succeed");
     begin_commit(save_b_marker).expect("begin_commit should persist marker");
@@ -3300,7 +3300,7 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
         source_a_key.as_bytes().to_vec(),
         Some(source_a_row),
         None,
-        crate::db::commit::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
+        crate::db::schema::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
     )])
     .expect("delete marker creation should succeed");
     begin_commit(delete_a_marker).expect("begin_commit should persist marker");
@@ -3405,7 +3405,7 @@ fn recovery_replays_retarget_update_moves_reverse_index_membership() {
         source_key.as_bytes().to_vec(),
         Some(before),
         Some(after),
-        crate::db::commit::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
+        crate::db::schema::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
     )])
     .expect("commit marker creation should succeed");
     begin_commit(marker).expect("begin_commit should persist marker");
@@ -3503,14 +3503,14 @@ fn recovery_rollback_restores_reverse_index_state_on_prepare_error() {
             source_key.as_bytes().to_vec(),
             Some(update_before),
             Some(update_after),
-            crate::db::commit::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
+            crate::db::schema::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
         ),
         crate::db::commit::CommitRowOp::new(
             RelationSourceEntity::PATH,
             vec![7, 8, 9],
             None,
             Some(vec![1]),
-            crate::db::commit::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
+            crate::db::schema::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
         ),
     ])
     .expect("commit marker creation should succeed");
@@ -3689,14 +3689,14 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
             source_1_key.as_bytes().to_vec(),
             Some(source_1_before),
             Some(source_1_after),
-            crate::db::commit::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
+            crate::db::schema::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
         ),
         crate::db::commit::CommitRowOp::new(
             RelationSourceEntity::PATH,
             source_2_key.as_bytes().to_vec(),
             Some(source_2_same.clone()),
             Some(source_2_same),
-            crate::db::commit::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
+            crate::db::schema::commit_schema_fingerprint_for_entity::<RelationSourceEntity>(),
         ),
     ])
     .expect("commit marker creation should succeed");

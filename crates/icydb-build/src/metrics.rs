@@ -9,7 +9,7 @@ pub fn generate(_builder: &ActorBuilder) -> TokenStream {
         /// Storage snapshot (live view).
         /// Includes data/index store stats and per-entity breakdown by store.
         #[::icydb::__reexports::canic_cdk::query]
-        pub fn icydb_snapshot() -> Result<::icydb::obs::StorageReport, ::icydb::Error> {
+        pub fn icydb_snapshot() -> Result<::icydb::db::StorageReport, ::icydb::Error> {
             Ok(db().storage_report(&[])?)
         }
 
@@ -17,14 +17,14 @@ pub fn generate(_builder: &ActorBuilder) -> TokenStream {
         /// If `window_start_ms` is newer than the current in-memory window start,
         /// returns an empty report.
         #[::icydb::__reexports::canic_cdk::query]
-        pub fn icydb_metrics(window_start_ms: Option<u64>) -> Result<::icydb::obs::EventReport, ::icydb::Error> {
-            Ok(::icydb::obs::metrics_report(window_start_ms))
+        pub fn icydb_metrics(window_start_ms: Option<u64>) -> Result<::icydb::metrics::EventReport, ::icydb::Error> {
+            Ok(::icydb::metrics::metrics_report(window_start_ms))
         }
 
         /// Reset ephemeral event state and refresh `window_start_ms`.
         #[::icydb::__reexports::canic_cdk::update]
         pub fn icydb_metrics_reset() -> Result<(), ::icydb::Error> {
-            ::icydb::obs::metrics_reset_all();
+            ::icydb::metrics::metrics_reset_all();
 
             Ok(())
         }

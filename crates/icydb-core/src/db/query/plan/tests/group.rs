@@ -6,7 +6,7 @@
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},
-        predicate::{CompareOp, MissingRowPolicy, SchemaInfo},
+        predicate::{CompareOp, MissingRowPolicy},
         query::plan::{
             AccessPlannedQuery, AggregateKind, DeleteLimitSpec, DeleteSpec, FieldSlot,
             GroupAggregateSpec, GroupDistinctAdmissibility, GroupDistinctPolicyReason,
@@ -25,6 +25,7 @@ use crate::{
             },
             validate_group_query_semantics,
         },
+        schema::SchemaInfo,
     },
     model::{field::FieldKind, index::IndexModel},
     traits::EntitySchema,

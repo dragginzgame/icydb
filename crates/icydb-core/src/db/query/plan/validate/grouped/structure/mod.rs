@@ -8,13 +8,13 @@ mod tests;
 
 use crate::{
     db::{
-        predicate::SchemaInfo,
         query::plan::{
             GroupAggregateSpec, GroupHavingSpec, GroupHavingSymbol, GroupSpec,
             expr::ProjectionSpec,
             validate::grouped::projection_expr::validate_group_projection_expr_compatibility,
             validate::{GroupPlanError, PlanError},
         },
+        schema::SchemaInfo,
     },
     model::entity::EntityModel,
 };

@@ -6,12 +6,12 @@
 use super::*;
 use crate::{
     db::{
-        predicate::SchemaInfo,
         query::plan::{
             AggregateKind, FieldSlot, GroupAggregateSpec, GroupSpec, GroupedExecutionConfig,
             expr::{Alias, BinaryOp, Expr, FieldId, ProjectionField, ProjectionSpec},
             validate::{ExprPlanError, PlanUserError},
         },
+        schema::SchemaInfo,
     },
     model::{entity::EntityModel, field::FieldKind, index::IndexModel},
     traits::EntitySchema,

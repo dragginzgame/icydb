@@ -8,12 +8,12 @@ mod rules;
 mod tests;
 
 use crate::db::{
-    predicate::SchemaInfo,
     query::plan::{
         GroupAggregateSpec, GroupDistinctAdmissibility, GroupHavingSpec, GroupSpec, ScalarPlan,
         grouped_distinct_admissibility, resolve_global_distinct_field_aggregate,
         validate::{GroupPlanError, PlanError},
     },
+    schema::SchemaInfo,
 };
 
 use crate::db::query::plan::validate::grouped::policy::rules::{

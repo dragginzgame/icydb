@@ -6,7 +6,7 @@
 use crate::{
     db::{
         access::AccessPlan,
-        predicate::{CompareOp, MissingRowPolicy, Predicate, SchemaInfo},
+        predicate::{CompareOp, MissingRowPolicy, Predicate},
         query::{
             builder::aggregate::AggregateExpr,
             expr::{FilterExpr, SortExpr, SortLowerError},
@@ -20,6 +20,7 @@ use crate::{
                 validate_query_semantics,
             },
         },
+        schema::SchemaInfo,
     },
     model::entity::EntityModel,
     traits::FieldValue,

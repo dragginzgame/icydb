@@ -14,7 +14,7 @@ use crate::{
         executor::load::{CursorPage, LoadExecutor},
         executor::plan_metrics::set_rows_from_len,
     },
-    obs::sink::Span,
+    metrics::sink::Span,
     traits::{EntityKind, EntityValue},
 };
 

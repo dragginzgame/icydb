@@ -5,11 +5,11 @@
 
 use crate::db::{
     contracts::first_violated_rule,
-    predicate::SchemaInfo,
     query::plan::{
         AggregateKind, GroupAggregateSpec, grouped_having_compare_op_supported,
         validate::GroupPlanError,
     },
+    schema::SchemaInfo,
 };
 
 type GroupedHavingPolicyRule = for<'a> fn(GroupedHavingPolicyContext<'a>) -> Option<GroupPlanError>;
