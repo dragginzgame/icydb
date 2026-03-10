@@ -382,6 +382,76 @@ fn plan_access_secondary_in_singleton_collapses_to_index_prefix() {
 }
 
 #[test]
+fn plan_access_stability_secondary_or_eq_lowers_to_index_multi_lookup() {
+    let model = model_with_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = Predicate::Or(vec![
+        compare_strict("tag", CompareOp::Eq, Value::Text("beta".to_string())),
+        compare_strict("tag", CompareOp::Eq, Value::Text("alpha".to_string())),
+        compare_strict("tag", CompareOp::Eq, Value::Text("beta".to_string())),
+    ]);
+
+    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+
+    assert_eq!(
+        plan,
+        AccessPlan::path(AccessPath::IndexMultiLookup {
+            index: INDEX_MODEL,
+            values: vec![
+                Value::Text("alpha".to_string()),
+                Value::Text("beta".to_string()),
+            ],
+        }),
+        "same-field strict OR equality should canonicalize through bounded IN planning",
+    );
+}
+
+#[test]
+fn plan_access_stability_primary_key_or_eq_lowers_to_by_keys() {
+    let model = model_with_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = Predicate::Or(vec![
+        compare_strict("id", CompareOp::Eq, Value::Ulid(Ulid::from_u128(3))),
+        compare_strict("id", CompareOp::Eq, Value::Ulid(Ulid::from_u128(1))),
+        compare_strict("id", CompareOp::Eq, Value::Ulid(Ulid::from_u128(3))),
+    ]);
+
+    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+
+    assert_eq!(
+        plan,
+        AccessPlan::path(AccessPath::ByKeys(vec![
+            Value::Ulid(Ulid::from_u128(1)),
+            Value::Ulid(Ulid::from_u128(3)),
+        ])),
+        "same-field strict OR equality over primary key should canonicalize into ByKeys",
+    );
+}
+
+#[test]
+fn plan_access_secondary_or_eq_with_non_strict_branch_stays_fail_closed() {
+    let model = model_with_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = Predicate::Or(vec![
+        compare_strict("tag", CompareOp::Eq, Value::Text("alpha".to_string())),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "tag",
+            CompareOp::Eq,
+            Value::Text("beta".to_string()),
+            CoercionId::TextCasefold,
+        )),
+    ]);
+
+    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+
+    assert_eq!(
+        plan,
+        AccessPlan::full_scan(),
+        "OR rewrite must remain fail-closed when any branch is non-strict",
+    );
+}
+
+#[test]
 fn plan_access_secondary_in_empty_lowers_to_empty_by_keys() {
     let model = model_with_index();
     let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
@@ -438,6 +508,25 @@ fn plan_access_secondary_in_empty_in_and_group_collapses_to_empty_by_keys() {
         plan,
         AccessPlan::path(AccessPath::ByKeys(Vec::new())),
         "AND groups that include strict IN [] should collapse to one explicit empty access shape",
+    );
+}
+
+#[test]
+fn plan_access_secondary_in_mixed_literal_types_stays_fail_closed() {
+    let model = model_with_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = compare_strict(
+        "tag",
+        CompareOp::In,
+        Value::List(vec![Value::Text("alpha".to_string()), Value::Uint(7)]),
+    );
+
+    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+
+    assert_eq!(
+        plan,
+        AccessPlan::full_scan(),
+        "strict IN pushdown must fail closed when any literal is schema-incompatible",
     );
 }
 

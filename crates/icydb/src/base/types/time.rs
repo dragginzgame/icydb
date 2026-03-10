@@ -2,7 +2,9 @@ use crate::design::prelude::*;
 
 ///
 /// CreatedAt
-/// if zero gets sanitized to the current Timestamp
+///
+/// Creation timestamp wrapper.
+/// A zero value is sanitized to the current `Timestamp`.
 ///
 
 #[newtype(
@@ -14,7 +16,9 @@ pub struct CreatedAt {}
 
 ///
 /// UpdatedAt
-/// always gets sanitized to the current Timestamp
+///
+/// Last-updated timestamp wrapper.
+/// Always sanitized to the current `Timestamp`.
 ///
 
 #[newtype(
@@ -27,6 +31,8 @@ pub struct UpdatedAt {}
 ///
 /// Milliseconds
 ///
+/// Duration wrapper expressed in milliseconds.
+///
 
 #[newtype(primitive = "Nat64", item(prim = "Nat64"))]
 pub struct Milliseconds {}
@@ -34,12 +40,16 @@ pub struct Milliseconds {}
 ///
 /// Seconds
 ///
+/// Duration wrapper expressed in seconds.
+///
 
 #[newtype(primitive = "Nat64", item(prim = "Nat64"))]
 pub struct Seconds {}
 
 ///
 /// Minutes
+///
+/// Duration wrapper expressed in minutes.
 ///
 
 #[newtype(primitive = "Nat64", item(prim = "Nat64"))]

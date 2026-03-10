@@ -3,6 +3,9 @@ use crate::{design::prelude::*, traits::Validator, visitor::VisitorContext};
 ///
 /// InArray
 ///
+/// Validates that an input value appears in a fixed allow-list.
+/// This is useful for small enum-like domains represented as raw values.
+///
 
 #[validator]
 pub struct InArray<T> {
@@ -10,6 +13,7 @@ pub struct InArray<T> {
 }
 
 impl<T> InArray<T> {
+    /// Builds an allow-list validator from the provided set of accepted values.
     #[must_use]
     pub const fn new(values: Vec<T>) -> Self {
         Self { values }

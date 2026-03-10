@@ -3,6 +3,7 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
+use super::{DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, StorageReport, storage_report};
 use crate::{
     db::{
         Db,
@@ -18,8 +19,6 @@ use crate::{
 use serde::Serialize;
 use serde_cbor::Value as CborValue;
 use std::{borrow::Cow, cell::RefCell, collections::BTreeMap};
-
-use super::{DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, StorageReport, storage_report};
 
 crate::test_canister! {
     ident = DiagnosticsCanister,

@@ -7,6 +7,8 @@ use crate::design::prelude::*;
 ///
 /// Memo
 ///
+/// Opaque blob memo payload used by Internet Computer transfer flows.
+///
 
 #[newtype(primitive = "Blob", item(prim = "Blob"))]
 pub struct Memo {}

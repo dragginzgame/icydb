@@ -76,6 +76,12 @@ const DIAG_ROUTE_SECONDARY_ORDER_PUSHDOWN: &str = "diagnostic.route.secondary_or
 const DIAG_ROUTE_TOP_N_SEEK: &str = "diagnostic.route.top_n_seek";
 const DIAG_ROUTE_INDEX_RANGE_LIMIT_PUSHDOWN: &str = "diagnostic.route.index_range_limit_pushdown";
 const DIAG_ROUTE_PREDICATE_STAGE: &str = "diagnostic.route.predicate_stage";
+const DIAG_ROUTE_PROJECTED_FIELDS: &str = "diagnostic.route.projected_fields";
+const DIAG_ROUTE_PROJECTION_PUSHDOWN: &str = "diagnostic.route.projection_pushdown";
+const DIAG_ROUTE_ACCESS_CHOICE_CHOSEN: &str = "diagnostic.route.access_choice_chosen";
+const DIAG_ROUTE_ACCESS_CHOICE_CHOSEN_REASON: &str = "diagnostic.route.access_choice_chosen_reason";
+const DIAG_ROUTE_ACCESS_CHOICE_ALTERNATIVES: &str = "diagnostic.route.access_choice_alternatives";
+const DIAG_ROUTE_ACCESS_CHOICE_REJECTIONS: &str = "diagnostic.route.access_choice_rejections";
 const DIAG_DESCRIPTOR_HAS_TOP_N_SEEK: &str = "diagnostic.descriptor.has_top_n_seek";
 const DIAG_DESCRIPTOR_HAS_INDEX_RANGE_LIMIT_PUSHDOWN: &str =
     "diagnostic.descriptor.has_index_range_limit_pushdown";
@@ -1085,6 +1091,38 @@ fn secondary_in_explain_uses_index_multi_lookup_access_shape() {
 }
 
 #[test]
+fn secondary_or_eq_explain_uses_index_multi_lookup_access_shape() {
+    let explain = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Or(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "group",
+                CompareOp::Eq,
+                Value::Uint(8),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "group",
+                CompareOp::Eq,
+                Value::Uint(7),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "group",
+                CompareOp::Eq,
+                Value::Uint(8),
+                CoercionId::Strict,
+            )),
+        ]))
+        .explain()
+        .expect("secondary OR equality explain should build");
+
+    assert!(
+        matches!(explain.access(), ExplainAccessPath::IndexMultiLookup { .. }),
+        "same-field strict OR equality should lower to index-multi-lookup access shape",
+    );
+}
+
+#[test]
 fn query_explain_execution_text_and_json_surfaces_are_stable() {
     let id = Ulid::from_u128(9_101);
     let query = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore).by_id(id);
@@ -1188,6 +1226,12 @@ fn query_explain_execution_verbose_diagnostics_snapshot_for_top_n_seek_shape() {
         "diagnostic.route.top_n_seek=fetch(6)",
         "diagnostic.route.index_range_limit_pushdown=disabled",
         "diagnostic.route.predicate_stage=none",
+        "diagnostic.route.projected_fields=[\"id\"]",
+        "diagnostic.route.projection_pushdown=false",
+        "diagnostic.route.access_choice_chosen=full_scan",
+        "diagnostic.route.access_choice_chosen_reason=non_index_access",
+        "diagnostic.route.access_choice_alternatives=[]",
+        "diagnostic.route.access_choice_rejections=[]",
         "diagnostic.descriptor.has_top_n_seek=true",
         "diagnostic.descriptor.has_index_range_limit_pushdown=false",
         "diagnostic.descriptor.has_index_predicate_prefilter=false",
@@ -1235,6 +1279,12 @@ fn query_explain_execution_verbose_reports_temporal_ranked_order_shape_parity() 
         DIAG_ROUTE_TOP_N_SEEK,
         DIAG_ROUTE_INDEX_RANGE_LIMIT_PUSHDOWN,
         DIAG_ROUTE_PREDICATE_STAGE,
+        DIAG_ROUTE_PROJECTED_FIELDS,
+        DIAG_ROUTE_PROJECTION_PUSHDOWN,
+        DIAG_ROUTE_ACCESS_CHOICE_CHOSEN,
+        DIAG_ROUTE_ACCESS_CHOICE_CHOSEN_REASON,
+        DIAG_ROUTE_ACCESS_CHOICE_ALTERNATIVES,
+        DIAG_ROUTE_ACCESS_CHOICE_REJECTIONS,
         DIAG_DESCRIPTOR_HAS_TOP_N_SEEK,
         DIAG_DESCRIPTOR_HAS_INDEX_RANGE_LIMIT_PUSHDOWN,
         "diagnostic.descriptor.has_index_predicate_prefilter",
@@ -1274,6 +1324,12 @@ fn query_explain_execution_verbose_diagnostics_snapshot_for_temporal_ranked_shap
         "diagnostic.route.top_n_seek=disabled",
         "diagnostic.route.index_range_limit_pushdown=disabled",
         "diagnostic.route.predicate_stage=none",
+        "diagnostic.route.projected_fields=[\"id\", \"occurred_on\", \"occurred_at\", \"elapsed\"]",
+        "diagnostic.route.projection_pushdown=false",
+        "diagnostic.route.access_choice_chosen=full_scan",
+        "diagnostic.route.access_choice_chosen_reason=non_index_access",
+        "diagnostic.route.access_choice_alternatives=[]",
+        "diagnostic.route.access_choice_rejections=[]",
         "diagnostic.descriptor.has_top_n_seek=false",
         "diagnostic.descriptor.has_index_range_limit_pushdown=false",
         "diagnostic.descriptor.has_index_predicate_prefilter=false",
@@ -1385,6 +1441,12 @@ fn query_explain_execution_verbose_diagnostics_snapshot_for_index_range_pushdown
         "diagnostic.route.top_n_seek=disabled",
         "diagnostic.route.index_range_limit_pushdown=fetch(3)",
         "diagnostic.route.predicate_stage=residual_post_access",
+        "diagnostic.route.projected_fields=[\"id\", \"code\", \"label\"]",
+        "diagnostic.route.projection_pushdown=false",
+        "diagnostic.route.access_choice_chosen=index:code_unique",
+        "diagnostic.route.access_choice_chosen_reason=single_candidate",
+        "diagnostic.route.access_choice_alternatives=[]",
+        "diagnostic.route.access_choice_rejections=[]",
         "diagnostic.descriptor.has_top_n_seek=false",
         "diagnostic.descriptor.has_index_range_limit_pushdown=true",
         "diagnostic.descriptor.has_index_predicate_prefilter=false",
@@ -1429,6 +1491,12 @@ fn query_explain_execution_verbose_diagnostics_snapshot_for_rejection_shape() {
         "diagnostic.route.top_n_seek=disabled",
         "diagnostic.route.index_range_limit_pushdown=disabled",
         "diagnostic.route.predicate_stage=index_prefilter(strict_all_or_none)",
+        "diagnostic.route.projected_fields=[\"id\", \"group\", \"rank\", \"label\"]",
+        "diagnostic.route.projection_pushdown=false",
+        "diagnostic.route.access_choice_chosen=index:group_rank",
+        "diagnostic.route.access_choice_chosen_reason=single_candidate",
+        "diagnostic.route.access_choice_alternatives=[]",
+        "diagnostic.route.access_choice_rejections=[]",
         "diagnostic.descriptor.has_top_n_seek=false",
         "diagnostic.descriptor.has_index_range_limit_pushdown=false",
         "diagnostic.descriptor.has_index_predicate_prefilter=true",
@@ -1709,6 +1777,12 @@ fn query_explain_execution_verbose_diagnostics_snapshot_for_is_null_fallback_sha
         "diagnostic.route.top_n_seek=disabled",
         "diagnostic.route.index_range_limit_pushdown=disabled",
         "diagnostic.route.predicate_stage=residual_post_access",
+        "diagnostic.route.projected_fields=[\"id\", \"group\", \"rank\", \"label\"]",
+        "diagnostic.route.projection_pushdown=false",
+        "diagnostic.route.access_choice_chosen=full_scan",
+        "diagnostic.route.access_choice_chosen_reason=non_index_access",
+        "diagnostic.route.access_choice_alternatives=[]",
+        "diagnostic.route.access_choice_rejections=[]",
         "diagnostic.descriptor.has_top_n_seek=false",
         "diagnostic.descriptor.has_index_range_limit_pushdown=false",
         "diagnostic.descriptor.has_index_predicate_prefilter=false",
@@ -1752,6 +1826,12 @@ fn query_explain_execution_verbose_diagnostics_snapshot_for_non_strict_fallback_
         "diagnostic.route.top_n_seek=disabled",
         "diagnostic.route.index_range_limit_pushdown=disabled",
         "diagnostic.route.predicate_stage=residual_post_access",
+        "diagnostic.route.projected_fields=[\"id\", \"group\", \"rank\", \"label\"]",
+        "diagnostic.route.projection_pushdown=false",
+        "diagnostic.route.access_choice_chosen=full_scan",
+        "diagnostic.route.access_choice_chosen_reason=non_index_access",
+        "diagnostic.route.access_choice_alternatives=[]",
+        "diagnostic.route.access_choice_rejections=[]",
         "diagnostic.descriptor.has_top_n_seek=false",
         "diagnostic.descriptor.has_index_range_limit_pushdown=false",
         "diagnostic.descriptor.has_index_predicate_prefilter=false",

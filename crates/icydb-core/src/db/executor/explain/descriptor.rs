@@ -28,6 +28,7 @@ use crate::{
             },
             plan::{
                 AccessPlannedQuery, AggregateKind, DistinctExecutionStrategy,
+                expr::{Expr, ProjectionField},
                 index_covering_existing_rows_terminal_eligible,
                 project_access_choice_explain_snapshot,
             },
@@ -66,6 +67,7 @@ where
         "covering_scan_reason".to_string(),
         Value::from(load_covering_scan_reason(plan, strict_predicate_compatible)),
     );
+    annotate_projection_pushdown_node_properties::<E>(&mut root, plan, covering_scan);
     annotate_fast_path_reason_node_properties(&mut root, &route_plan);
 
     // Phase 3: project route/planner modifiers in execution order as descriptor children.
@@ -153,6 +155,7 @@ pub(in crate::db::executor) fn assemble_load_execution_verbose_diagnostics<E>(
 ) -> Result<Vec<String>, InternalError>
 where
     E: EntityKind + EntityValue,
+    E::Key: FieldValue,
 {
     // Phase 1: build canonical route authority inputs for load mode.
     let execution_preparation = ExecutionPreparation::for_plan::<E>(plan);
@@ -160,6 +163,13 @@ where
     let route_plan =
         LoadExecutor::<E>::build_execution_route_plan_for_load(plan, &continuation, None)?;
     let route_shape = route_plan.shape();
+    let strict_predicate_compatible = execution_preparation.strict_mode().is_some();
+    let projected_fields = plan
+        .projection_spec(E::MODEL)
+        .fields()
+        .map(projection_field_label)
+        .collect::<Vec<_>>();
+    let projection_pushdown = load_covering_scan_eligible(plan, strict_predicate_compatible);
 
     // Phase 2: emit deterministic route-level diagnostics used by verbose surfaces.
     let mut lines = vec![
@@ -202,13 +212,40 @@ where
 
     let predicate_stage = if plan.scalar_plan().predicate.is_none() {
         "none".to_string()
-    } else if execution_preparation.strict_mode().is_some() {
+    } else if strict_predicate_compatible {
         "index_prefilter(strict_all_or_none)".to_string()
     } else {
         "residual_post_access".to_string()
     };
     lines.push(format!(
         "diagnostic.route.predicate_stage={predicate_stage}"
+    ));
+    lines.push(format!(
+        "diagnostic.route.projected_fields={projected_fields:?}"
+    ));
+    lines.push(format!(
+        "diagnostic.route.projection_pushdown={projection_pushdown}"
+    ));
+    let access_choice = project_access_choice_explain_snapshot(E::MODEL, plan);
+    lines.push(format!(
+        "diagnostic.route.access_choice_chosen={}",
+        access_choice.chosen_label
+    ));
+    lines.push(format!(
+        "diagnostic.route.access_choice_chosen_reason={}",
+        access_choice.chosen_reason.code()
+    ));
+    lines.push(format!(
+        "diagnostic.route.access_choice_alternatives={:?}",
+        access_choice.alternatives
+    ));
+    let rejections = access_choice
+        .rejected
+        .into_iter()
+        .map(|entry| entry.render())
+        .collect::<Vec<_>>();
+    lines.push(format!(
+        "diagnostic.route.access_choice_rejections={rejections:?}"
     ));
 
     Ok(lines)
@@ -223,6 +260,7 @@ where
     E: EntityKind + EntityValue,
 {
     let aggregation = aggregate.kind();
+    let projected_field = aggregate.target_field().map(str::to_string);
 
     // Phase 1: derive one aggregate route plan using precomputed execution preparation.
     let execution_preparation = ExecutionPreparation::for_plan::<E>(plan);
@@ -248,7 +286,12 @@ where
     let execution_mode = explain_execution_mode(route_shape);
     let covering_projection =
         aggregate_covering_projection_for_terminal(plan, aggregation, &execution_preparation);
-    let node_properties = explain_node_properties_for_route(&route_plan, aggregation);
+    let node_properties = explain_node_properties_for_route(
+        &route_plan,
+        aggregation,
+        projected_field.as_deref(),
+        covering_projection,
+    );
 
     // Phase 3: emit one stable descriptor payload consumed by explain surfaces.
     ExplainExecutionDescriptor {
@@ -324,6 +367,10 @@ fn annotate_access_root_node_properties(
             Value::from(u64_from_usize(prefix_len)),
         );
     }
+    if let Some(prefix_values) = access_prefix_values(node.access_strategy.as_ref()) {
+        node.node_properties
+            .insert("prefix_values".to_string(), Value::List(prefix_values));
+    }
     if let Some(fetch) = scan_fetch_pushdown(route_plan) {
         node.node_properties
             .insert("fetch".to_string(), Value::from(u64_from_usize(fetch)));
@@ -370,6 +417,49 @@ fn load_covering_scan_reason<K>(
     }
 
     "index_covering_existing_rows_eligible"
+}
+
+fn annotate_projection_pushdown_node_properties<E>(
+    node: &mut ExplainExecutionNodeDescriptor,
+    plan: &AccessPlannedQuery<E::Key>,
+    covering_scan: bool,
+) where
+    E: EntityKind + EntityValue,
+{
+    let projection = plan.projection_spec(E::MODEL);
+    let projected_fields = projection
+        .fields()
+        .map(projection_field_label)
+        .map(Value::from)
+        .collect();
+    node.node_properties.insert(
+        "projected_fields".to_string(),
+        Value::List(projected_fields),
+    );
+    node.node_properties.insert(
+        "projection_pushdown".to_string(),
+        Value::from(covering_scan),
+    );
+}
+
+fn projection_field_label(field: &ProjectionField) -> String {
+    match field {
+        ProjectionField::Scalar { expr, .. } => projection_expr_label(expr),
+    }
+}
+
+// Keep projection metadata deterministic and planner-owned by reducing each
+// expression to one stable field-like label for explain projection output.
+fn projection_expr_label(expr: &Expr) -> String {
+    match expr {
+        Expr::Field(field) => field.as_str().to_string(),
+        Expr::Alias { expr, .. } | Expr::Unary { expr, .. } => projection_expr_label(expr),
+        Expr::Aggregate(aggregate) => aggregate
+            .target_field()
+            .map_or_else(|| "aggregate".to_string(), str::to_string),
+        Expr::Literal(_) => "literal".to_string(),
+        Expr::Binary { .. } => "expr".to_string(),
+    }
 }
 
 fn annotate_access_choice_node_properties<K>(
@@ -420,6 +510,23 @@ const fn access_prefix_len(access_strategy: Option<&ExplainAccessRoute>) -> Opti
             | ExplainAccessRoute::ByKeys { .. }
             | ExplainAccessRoute::KeyRange { .. }
             | ExplainAccessRoute::IndexMultiLookup { .. }
+            | ExplainAccessRoute::FullScan
+            | ExplainAccessRoute::Union(_)
+            | ExplainAccessRoute::Intersection(_),
+        )
+        | None => None,
+    }
+}
+
+fn access_prefix_values(access_strategy: Option<&ExplainAccessRoute>) -> Option<Vec<Value>> {
+    match access_strategy {
+        Some(ExplainAccessRoute::IndexMultiLookup { values, .. }) => Some(values.clone()),
+        Some(
+            ExplainAccessRoute::ByKey { .. }
+            | ExplainAccessRoute::ByKeys { .. }
+            | ExplainAccessRoute::KeyRange { .. }
+            | ExplainAccessRoute::IndexPrefix { .. }
+            | ExplainAccessRoute::IndexRange { .. }
             | ExplainAccessRoute::FullScan
             | ExplainAccessRoute::Union(_)
             | ExplainAccessRoute::Intersection(_),
@@ -852,6 +959,8 @@ const fn explain_execution_mode(route_shape: ExecutionRouteShape) -> ExplainExec
 fn explain_node_properties_for_route(
     route_plan: &ExecutionRoutePlan,
     aggregation: AggregateKind,
+    projected_field: Option<&str>,
+    covering_projection: bool,
 ) -> BTreeMap<String, Value> {
     let mut node_properties = BTreeMap::new();
 
@@ -866,8 +975,42 @@ fn explain_node_properties_for_route(
             Value::from(aggregate_fold_mode_label(route_plan.aggregate_fold_mode)),
         );
     }
+    node_properties.insert(
+        "projected_field".to_string(),
+        Value::from(projected_field.unwrap_or("none")),
+    );
+    node_properties.insert(
+        "projection_mode".to_string(),
+        Value::from(aggregate_projection_mode_label(
+            aggregation,
+            projected_field.is_some(),
+            covering_projection,
+        )),
+    );
 
     node_properties
+}
+
+const fn aggregate_projection_mode_label(
+    aggregation: AggregateKind,
+    has_projected_field: bool,
+    covering_projection: bool,
+) -> &'static str {
+    if has_projected_field {
+        if covering_projection {
+            "field_index_only"
+        } else {
+            "field_materialized"
+        }
+    } else {
+        match aggregation {
+            AggregateKind::Count | AggregateKind::Exists | AggregateKind::Sum => "scalar_aggregate",
+            AggregateKind::Min
+            | AggregateKind::Max
+            | AggregateKind::First
+            | AggregateKind::Last => "entity_terminal",
+        }
+    }
 }
 
 const fn aggregate_fold_mode_label(mode: AggregateFoldMode) -> &'static str {

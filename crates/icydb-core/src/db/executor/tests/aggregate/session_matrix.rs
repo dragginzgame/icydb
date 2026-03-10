@@ -1112,8 +1112,8 @@ execution_ordering_source=IndexSeekFirst { fetch: 1 }
 execution_limit=None
 execution_cursor=false
 execution_covering_projection=false
-execution_node_properties={\"fetch\": Uint(1)}
-execution_node_json={\"node_type\":\"AggregateSeekFirst\",\"execution_mode\":\"Materialized\",\"access_strategy\":{\"type\":\"FullScan\"},\"predicate_pushdown\":null,\"residual_predicate\":null,\"projection\":null,\"ordering_source\":\"IndexSeekFirst\",\"limit\":null,\"cursor\":false,\"covering_scan\":false,\"rows_expected\":null,\"children\":[],\"node_properties\":{\"fetch\":\"Uint(1)\"}}";
+execution_node_properties={\"fetch\": Uint(1), \"projected_field\": Text(\"none\"), \"projection_mode\": Text(\"entity_terminal\")}
+execution_node_json={\"node_type\":\"AggregateSeekFirst\",\"execution_mode\":\"Materialized\",\"access_strategy\":{\"type\":\"FullScan\"},\"predicate_pushdown\":null,\"residual_predicate\":null,\"projection\":null,\"ordering_source\":\"IndexSeekFirst\",\"limit\":null,\"cursor\":false,\"covering_scan\":false,\"rows_expected\":null,\"children\":[],\"node_properties\":{\"fetch\":\"Uint(1)\",\"projected_field\":\"Text(\\\"none\\\")\",\"projection_mode\":\"Text(\\\"entity_terminal\\\")\"}}";
     assert_eq!(
         min_actual, min_expected,
         "seek-route terminal explain snapshot drifted: actual={min_actual}",
@@ -1148,8 +1148,8 @@ execution_ordering_source=AccessOrder
 execution_limit=None
 execution_cursor=false
 execution_covering_projection=false
-execution_node_properties={}
-execution_node_json={\"node_type\":\"AggregateExists\",\"execution_mode\":\"Streaming\",\"access_strategy\":{\"type\":\"ByKey\",\"key\":\"Ulid(Ulid(Ulid(9821)))\"},\"predicate_pushdown\":null,\"residual_predicate\":null,\"projection\":null,\"ordering_source\":\"AccessOrder\",\"limit\":null,\"cursor\":false,\"covering_scan\":false,\"rows_expected\":null,\"children\":[],\"node_properties\":{}}";
+execution_node_properties={\"projected_field\": Text(\"none\"), \"projection_mode\": Text(\"scalar_aggregate\")}
+execution_node_json={\"node_type\":\"AggregateExists\",\"execution_mode\":\"Streaming\",\"access_strategy\":{\"type\":\"ByKey\",\"key\":\"Ulid(Ulid(Ulid(9821)))\"},\"predicate_pushdown\":null,\"residual_predicate\":null,\"projection\":null,\"ordering_source\":\"AccessOrder\",\"limit\":null,\"cursor\":false,\"covering_scan\":false,\"rows_expected\":null,\"children\":[],\"node_properties\":{\"projected_field\":\"Text(\\\"none\\\")\",\"projection_mode\":\"Text(\\\"scalar_aggregate\\\")\"}}";
     assert_eq!(
         exists_actual, exists_expected,
         "standard-route terminal explain snapshot drifted: actual={exists_actual}",
@@ -1200,6 +1200,16 @@ fn session_load_terminal_explain_projects_seek_labels_for_min_and_max() {
         Some(&Value::from(1u64)),
         "seek explain descriptor should expose seek fetch metadata",
     );
+    assert_eq!(
+        min_execution.node_properties().get("projected_field"),
+        Some(&Value::from("none")),
+        "seek explain descriptor should expose projected-field metadata",
+    );
+    assert_eq!(
+        min_execution.node_properties().get("projection_mode"),
+        Some(&Value::from("entity_terminal")),
+        "seek explain descriptor should expose projection-mode metadata",
+    );
     let min_node = min_terminal_plan.execution_node_descriptor();
     assert_eq!(
         min_node.node_type(),
@@ -1214,6 +1224,10 @@ fn session_load_terminal_explain_projects_seek_labels_for_min_and_max() {
         min_node.node_properties().get("fetch"),
         Some(&Value::from(1u64))
     );
+    assert_eq!(
+        min_node.node_properties().get("projection_mode"),
+        Some(&Value::from("entity_terminal"))
+    );
     let min_tree = min_node.render_text_tree();
     assert!(
         min_tree.contains("AggregateSeekFirst execution_mode=Materialized"),
@@ -1227,7 +1241,9 @@ fn session_load_terminal_explain_projects_seek_labels_for_min_and_max() {
     assert!(
         min_json.contains("\"node_type\":\"AggregateSeekFirst\"")
             && min_json.contains("\"execution_mode\":\"Materialized\"")
-            && min_json.contains("\"node_properties\":{\"fetch\":\"Uint(1)\"}"),
+            && min_json.contains("\"fetch\":\"Uint(1)\"")
+            && min_json.contains("\"projected_field\":\"Text(\\\"none\\\")\"")
+            && min_json.contains("\"projection_mode\":\"Text(\\\"entity_terminal\\\")\""),
         "json rendering should expose canonical aggregate seek descriptor fields",
     );
 
@@ -1264,6 +1280,16 @@ fn session_load_terminal_explain_projects_seek_labels_for_min_and_max() {
         Some(&Value::from(1u64)),
         "seek explain descriptor should expose seek fetch metadata",
     );
+    assert_eq!(
+        max_execution.node_properties().get("projected_field"),
+        Some(&Value::from("none")),
+        "seek explain descriptor should expose projected-field metadata",
+    );
+    assert_eq!(
+        max_execution.node_properties().get("projection_mode"),
+        Some(&Value::from("entity_terminal")),
+        "seek explain descriptor should expose projection-mode metadata",
+    );
     let max_node = max_terminal_plan.execution_node_descriptor();
     assert_eq!(
         max_node.node_type(),
@@ -1278,6 +1304,10 @@ fn session_load_terminal_explain_projects_seek_labels_for_min_and_max() {
         max_node.node_properties().get("fetch"),
         Some(&Value::from(1u64))
     );
+    assert_eq!(
+        max_node.node_properties().get("projection_mode"),
+        Some(&Value::from("entity_terminal"))
+    );
     let max_tree = max_node.render_text_tree();
     assert!(
         max_tree.contains("AggregateSeekLast execution_mode=Materialized"),
@@ -1286,7 +1316,9 @@ fn session_load_terminal_explain_projects_seek_labels_for_min_and_max() {
     let max_json = max_node.render_json_canonical();
     assert!(
         max_json.contains("\"node_type\":\"AggregateSeekLast\"")
-            && max_json.contains("\"node_properties\":{\"fetch\":\"Uint(1)\"}"),
+            && max_json.contains("\"fetch\":\"Uint(1)\"")
+            && max_json.contains("\"projected_field\":\"Text(\\\"none\\\")\"")
+            && max_json.contains("\"projection_mode\":\"Text(\\\"entity_terminal\\\")\""),
         "json rendering should expose canonical aggregate seek descriptor fields",
     );
 }
@@ -1486,9 +1518,15 @@ fn session_load_terminal_explain_reports_standard_route_for_exists() {
         !exists_execution.covering_projection(),
         "ordered exists explain shape should not mark index-only covering projection",
     );
-    assert!(
-        exists_execution.node_properties().is_empty(),
-        "standard explain descriptor should emit no extra node properties by default",
+    assert_eq!(
+        exists_execution.node_properties().get("projected_field"),
+        Some(&Value::from("none")),
+        "standard explain descriptor should expose projected-field metadata",
+    );
+    assert_eq!(
+        exists_execution.node_properties().get("projection_mode"),
+        Some(&Value::from("scalar_aggregate")),
+        "standard explain descriptor should expose scalar projection-mode metadata",
     );
     let exists_node = exists_terminal_plan.execution_node_descriptor();
     assert_eq!(
@@ -1503,9 +1541,10 @@ fn session_load_terminal_explain_reports_standard_route_for_exists() {
         exists_node.access_strategy(),
         Some(exists_execution.access_strategy())
     );
-    assert!(
-        exists_node.node_properties().is_empty(),
-        "standard terminal descriptor should keep node_properties empty",
+    assert_eq!(
+        exists_node.node_properties().get("projection_mode"),
+        Some(&Value::from("scalar_aggregate")),
+        "standard terminal descriptor should expose scalar projection-mode metadata",
     );
     let exists_tree = exists_node.render_text_tree();
     assert!(
@@ -1785,6 +1824,18 @@ fn session_load_explain_execution_projects_descriptor_tree_for_ordered_limited_i
         "execution root should expose rejected fast-path reason metadata",
     );
     assert!(
+        descriptor
+            .node_properties()
+            .contains_key("projected_fields"),
+        "execution root should expose projected-fields metadata",
+    );
+    assert!(
+        descriptor
+            .node_properties()
+            .contains_key("projection_pushdown"),
+        "execution root should expose projection-pushdown metadata",
+    );
+    assert!(
         explain_execution_contains_node_type(
             &descriptor,
             crate::db::ExplainExecutionNodeType::IndexPredicatePrefilter,
@@ -1925,6 +1976,11 @@ fn session_load_explain_execution_access_root_matrix_is_stable() {
         crate::db::ExplainExecutionNodeType::IndexMultiLookup,
         "IN predicate on indexed field should keep index-multi root",
     );
+    assert_eq!(
+        multi.node_properties().get("prefix_values"),
+        Some(&Value::List(vec![Value::from(7u64), Value::from(8u64)])),
+        "index-multi roots should expose canonical IN prefix values",
+    );
 
     seed_unique_index_range_entities(&[
         (9_721, 101),
@@ -1967,6 +2023,21 @@ fn session_load_explain_execution_covering_scan_reports_true_for_unordered_stric
         descriptor.node_properties().get("covering_scan_reason"),
         Some(&Value::from("index_covering_existing_rows_eligible")),
         "covering-eligible loads should expose explicit covering reason code",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("projection_pushdown"),
+        Some(&Value::from(true)),
+        "covering-eligible loads should expose projection-pushdown eligibility",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("projected_fields"),
+        Some(&Value::List(vec![
+            Value::from("id"),
+            Value::from("group"),
+            Value::from("rank"),
+            Value::from("label"),
+        ])),
+        "projection metadata should preserve canonical field order",
     );
 }
 
@@ -2101,7 +2172,7 @@ fn session_load_explain_execution_text_and_json_snapshot_for_strict_index_prefix
     let text_tree = query
         .explain_execution_text()
         .expect("strict index-prefix execution text explain should succeed");
-    let expected_text = r#"IndexPrefixScan execution_mode=Materialized access=IndexPrefix(group_rank) covering_scan=false node_properties=access_choice_alternatives=List([]),access_choice_chosen=Text("index:group_rank"),access_choice_chosen_reason=Text("single_candidate"),access_choice_rejections=List([]),continuation_mode=Text("initial"),covering_scan_reason=Text("order_requires_materialization"),fast_path_rejections=List([Text("primary_key=pk_order_fast_path_ineligible"), Text("index_range=index_range_limit_pushdown_disabled")]),fast_path_selected=Text("secondary_prefix"),fast_path_selected_reason=Text("secondary_order_pushdown_eligible"),prefix_len=Uint(1),resume_from=Text("none"),scan_direction=Text("asc")
+    let expected_text = r#"IndexPrefixScan execution_mode=Materialized access=IndexPrefix(group_rank) covering_scan=false node_properties=access_choice_alternatives=List([]),access_choice_chosen=Text("index:group_rank"),access_choice_chosen_reason=Text("single_candidate"),access_choice_rejections=List([]),continuation_mode=Text("initial"),covering_scan_reason=Text("order_requires_materialization"),fast_path_rejections=List([Text("primary_key=pk_order_fast_path_ineligible"), Text("index_range=index_range_limit_pushdown_disabled")]),fast_path_selected=Text("secondary_prefix"),fast_path_selected_reason=Text("secondary_order_pushdown_eligible"),prefix_len=Uint(1),projected_fields=List([Text("id"), Text("group"), Text("rank"), Text("label")]),projection_pushdown=Bool(false),resume_from=Text("none"),scan_direction=Text("asc")
   IndexPredicatePrefilter execution_mode=Materialized predicate_pushdown=strict_all_or_none node_properties=pushdown=Text("group=Uint(7)")
   SecondaryOrderPushdown execution_mode=Materialized node_properties=index=Text("group_rank"),prefix_len=Uint(1)
   OrderByMaterializedSort execution_mode=Materialized node_properties=order_satisfied_by_index=Bool(false)
@@ -2114,7 +2185,7 @@ fn session_load_explain_execution_text_and_json_snapshot_for_strict_index_prefix
     let descriptor_json = query
         .explain_execution_json()
         .expect("strict index-prefix execution json explain should succeed");
-    let expected_json = r#"{"node_type":"IndexPrefixScan","execution_mode":"Materialized","access_strategy":{"type":"IndexPrefix","name":"group_rank","fields":["group","rank"],"prefix_len":1,"values":["Uint(7)"]},"predicate_pushdown":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":false,"rows_expected":null,"children":[{"node_type":"IndexPredicatePrefilter","execution_mode":"Materialized","access_strategy":null,"predicate_pushdown":"strict_all_or_none","residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"pushdown":"Text(\"group=Uint(7)\")"}},{"node_type":"SecondaryOrderPushdown","execution_mode":"Materialized","access_strategy":null,"predicate_pushdown":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"index":"Text(\"group_rank\")","prefix_len":"Uint(1)"}},{"node_type":"OrderByMaterializedSort","execution_mode":"Materialized","access_strategy":null,"predicate_pushdown":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"order_satisfied_by_index":"Bool(false)"}},{"node_type":"LimitOffset","execution_mode":"Materialized","access_strategy":null,"predicate_pushdown":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":2,"cursor":false,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"offset":"Uint(1)"}}],"node_properties":{"access_choice_alternatives":"List([])","access_choice_chosen":"Text(\"index:group_rank\")","access_choice_chosen_reason":"Text(\"single_candidate\")","access_choice_rejections":"List([])","continuation_mode":"Text(\"initial\")","covering_scan_reason":"Text(\"order_requires_materialization\")","fast_path_rejections":"List([Text(\"primary_key=pk_order_fast_path_ineligible\"), Text(\"index_range=index_range_limit_pushdown_disabled\")])","fast_path_selected":"Text(\"secondary_prefix\")","fast_path_selected_reason":"Text(\"secondary_order_pushdown_eligible\")","prefix_len":"Uint(1)","resume_from":"Text(\"none\")","scan_direction":"Text(\"asc\")"}}"#;
+    let expected_json = r#"{"node_type":"IndexPrefixScan","execution_mode":"Materialized","access_strategy":{"type":"IndexPrefix","name":"group_rank","fields":["group","rank"],"prefix_len":1,"values":["Uint(7)"]},"predicate_pushdown":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":false,"rows_expected":null,"children":[{"node_type":"IndexPredicatePrefilter","execution_mode":"Materialized","access_strategy":null,"predicate_pushdown":"strict_all_or_none","residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"pushdown":"Text(\"group=Uint(7)\")"}},{"node_type":"SecondaryOrderPushdown","execution_mode":"Materialized","access_strategy":null,"predicate_pushdown":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"index":"Text(\"group_rank\")","prefix_len":"Uint(1)"}},{"node_type":"OrderByMaterializedSort","execution_mode":"Materialized","access_strategy":null,"predicate_pushdown":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"order_satisfied_by_index":"Bool(false)"}},{"node_type":"LimitOffset","execution_mode":"Materialized","access_strategy":null,"predicate_pushdown":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":2,"cursor":false,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"offset":"Uint(1)"}}],"node_properties":{"access_choice_alternatives":"List([])","access_choice_chosen":"Text(\"index:group_rank\")","access_choice_chosen_reason":"Text(\"single_candidate\")","access_choice_rejections":"List([])","continuation_mode":"Text(\"initial\")","covering_scan_reason":"Text(\"order_requires_materialization\")","fast_path_rejections":"List([Text(\"primary_key=pk_order_fast_path_ineligible\"), Text(\"index_range=index_range_limit_pushdown_disabled\")])","fast_path_selected":"Text(\"secondary_prefix\")","fast_path_selected_reason":"Text(\"secondary_order_pushdown_eligible\")","prefix_len":"Uint(1)","projected_fields":"List([Text(\"id\"), Text(\"group\"), Text(\"rank\"), Text(\"label\")])","projection_pushdown":"Bool(false)","resume_from":"Text(\"none\")","scan_direction":"Text(\"asc\")"}}"#;
     assert_eq!(
         descriptor_json, expected_json,
         "execution json snapshot drifted: actual={descriptor_json}",

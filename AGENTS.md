@@ -258,7 +258,8 @@ Commenting quality is a merge gate: code that is correct but under-documented is
 
 ### Required
 
-* Every public module (`mod`) declaration and every public API item MUST have doc comments (`///`).
+* Public API items (`struct`, `enum`, `trait`, `fn`, type aliases, and public re-exports) MUST have doc comments (`///`).
+* `mod` declarations are wiring and SHOULD NOT be individually documented; document the module in its root file instead when needed.
 * Every public `struct`, `enum`, `trait`, and `fn` MUST have a doc comment (`///`).
 * Public `struct` and `trait` definitions MUST be preceded by **at least three consecutive doc comment lines**.
 * Every non-trivial `struct` or `trait` (public or private) MUST be preceded by **at least three consecutive doc comment lines**.

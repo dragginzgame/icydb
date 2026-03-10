@@ -6,8 +6,11 @@
 use crate::{
     db::{
         access::AccessPlan,
-        predicate::{Predicate, SchemaInfo},
-        query::plan::planner::{compare, prefix, range},
+        predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo},
+        query::plan::{
+            planner::{compare, index_literal_matches_schema, prefix, range},
+            stability::canonicalize_in_literal_values,
+        },
     },
     error::InternalError,
     model::entity::EntityModel,
@@ -60,13 +63,62 @@ pub(super) fn plan_predicate(
             AccessPlan::intersection(plans)
         }
         Predicate::Or(children) => AccessPlan::union(
-            children
-                .iter()
-                .map(|child| plan_predicate(model, schema, child))
-                .collect::<Result<Vec<_>, _>>()?,
+            if let Some(rewritten) = plan_strict_same_field_eq_or(model, schema, children) {
+                vec![rewritten]
+            } else {
+                children
+                    .iter()
+                    .map(|child| plan_predicate(model, schema, child))
+                    .collect::<Result<Vec<_>, _>>()?
+            },
         ),
         Predicate::Compare(cmp) => compare::plan_compare(model, schema, cmp),
     };
 
     Ok(plan)
+}
+
+// Fold strictly bounded OR-equality shapes (`a=v1 OR a=v2 ...`) into one
+// canonical IN planning path so access selection and explain metadata align.
+fn plan_strict_same_field_eq_or(
+    model: &EntityModel,
+    schema: &SchemaInfo,
+    children: &[Predicate],
+) -> Option<AccessPlan<Value>> {
+    if children.len() < 2 {
+        return None;
+    }
+
+    let mut field: Option<&str> = None;
+    let mut values = Vec::with_capacity(children.len());
+    for child in children {
+        let Predicate::Compare(cmp) = child else {
+            return None;
+        };
+        if cmp.coercion.id != CoercionId::Strict || cmp.op != CompareOp::Eq {
+            return None;
+        }
+        if !index_literal_matches_schema(schema, &cmp.field, &cmp.value) {
+            return None;
+        }
+        if let Some(current) = field {
+            if current != cmp.field {
+                return None;
+            }
+        } else {
+            field = Some(cmp.field.as_str());
+        }
+        values.push(cmp.value.clone());
+    }
+
+    let field = field?;
+    let canonical_values = canonicalize_in_literal_values(&values);
+    let in_compare = ComparePredicate::with_coercion(
+        field,
+        CompareOp::In,
+        Value::List(canonical_values),
+        CoercionId::Strict,
+    );
+
+    Some(compare::plan_compare(model, schema, &in_compare))
 }

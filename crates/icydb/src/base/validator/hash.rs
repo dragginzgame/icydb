@@ -3,6 +3,9 @@ use crate::{design::prelude::*, traits::Validator};
 ///
 /// Sha256
 ///
+/// Validates canonical SHA-256 hex digests.
+/// Accepted values are exactly 64 ASCII hexadecimal characters.
+///
 
 #[validator]
 pub struct Sha256;

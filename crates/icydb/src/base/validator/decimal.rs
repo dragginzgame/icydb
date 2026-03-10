@@ -3,6 +3,9 @@ use crate::{design::prelude::*, traits::Validator};
 ///
 /// MaxDecimalPlaces
 ///
+/// Enforces an upper bound on fractional precision for `Decimal` values.
+/// Values with a larger scale than `target` are rejected.
+///
 
 #[validator]
 pub struct MaxDecimalPlaces {

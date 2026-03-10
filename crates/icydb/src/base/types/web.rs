@@ -3,6 +3,8 @@ use crate::design::prelude::*;
 ///
 /// MimeType
 ///
+/// MIME type text wrapper sanitized and validated by web base rules.
+///
 
 #[newtype(
     primitive = "Text",
@@ -16,6 +18,8 @@ pub struct MimeType {}
 
 ///
 /// Url
+///
+/// URL text wrapper sanitized and validated by web base rules.
 ///
 
 #[newtype(

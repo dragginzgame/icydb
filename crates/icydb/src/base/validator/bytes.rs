@@ -3,6 +3,9 @@ use crate::{design::prelude::*, traits::Validator};
 ///
 /// Utf8
 ///
+/// Validates that a byte slice is well-formed UTF-8.
+/// Emits a single issue when decoding fails.
+///
 
 #[validator]
 pub struct Utf8;
