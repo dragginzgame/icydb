@@ -11,7 +11,6 @@ use crate::{
             load::{
                 GroupedCursorPage, LoadExecutor,
                 entrypoints::{LoadExecutionMode, LoadExecutionSurface, LoadTracingMode},
-                invariant,
             },
         },
     },
@@ -37,7 +36,7 @@ where
         )?;
         match surface {
             LoadExecutionSurface::GroupedPageWithTrace(page, trace) => Ok((page, trace)),
-            _ => Err(invariant(
+            _ => Err(InternalError::query_executor_invariant(
                 "grouped traced entrypoint must produce grouped traced page surface",
             )),
         }

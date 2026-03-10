@@ -13,7 +13,6 @@ use crate::{
             validate_index_scan_continuation_envelope,
         },
         direction::Direction,
-        error::cursor_invariant,
         index::{IndexKey, RawIndexKey},
         query::plan::{OrderSpec, PageSpec, effective_offset_for_cursor_window},
     },
@@ -112,8 +111,10 @@ where
     };
 
     let Some(order) = order else {
-        return Err(cursor_invariant(
-            "cannot build continuation cursor without ordering",
+        return Err(InternalError::cursor_invariant(
+            InternalError::executor_invariant_message(
+                "cannot build continuation cursor without ordering",
+            ),
         ));
     };
 
@@ -144,15 +145,19 @@ where
     let boundary = cursor_boundary_from_entity(entity, order);
     let token = if let Some((index, _, _, _)) = access.as_index_range_path() {
         let index_key = IndexKey::new(entity, index)?.ok_or_else(|| {
-            cursor_invariant("cursor row is not indexable for planned index-range access")
+            InternalError::cursor_invariant(InternalError::executor_invariant_message(
+                "cursor row is not indexable for planned index-range access",
+            ))
         })?;
         let last_emitted_raw_key = index_key.to_raw();
         let advanced = previous_index_range_anchor.is_none_or(|previous_anchor_raw_key| {
             continuation_advanced(direction, &last_emitted_raw_key, previous_anchor_raw_key)
         });
         if !advanced {
-            return Err(cursor_invariant(
-                "index-range continuation anchor must advance strictly against previous anchor",
+            return Err(InternalError::cursor_invariant(
+                InternalError::executor_invariant_message(
+                    "index-range continuation anchor must advance strictly against previous anchor",
+                ),
             ));
         }
         debug_assert!(

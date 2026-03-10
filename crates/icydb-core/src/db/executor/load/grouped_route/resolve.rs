@@ -12,7 +12,7 @@ use crate::{
                 GroupedContinuationCapabilities, GroupedContinuationContext,
                 GroupedExecutionContext, GroupedPaginationWindow, GroupedPlannerPayload,
                 GroupedRoutePayload, GroupedRouteStage, GroupedRuntimeProjection, IndexSpecBundle,
-                LoadExecutor, invariant,
+                LoadExecutor,
             },
             route::{GroupedRouteDecisionOutcome, RouteExecutionMode},
         },
@@ -33,7 +33,9 @@ where
     ) -> Result<GroupedRouteStage<E>, InternalError> {
         let grouped_handoff = plan.grouped_handoff()?;
         if let Some(reason) = grouped_handoff.distinct_policy_violation_for_executor() {
-            return Err(invariant(reason.invariant_message()));
+            return Err(InternalError::query_executor_invariant(
+                reason.invariant_message(),
+            ));
         }
         let grouped_execution = grouped_handoff.execution();
         let group_fields = grouped_handoff.group_fields().to_vec();
@@ -50,7 +52,9 @@ where
             Self::build_execution_route_plan_for_grouped_handoff(grouped_handoff);
         let grouped_route_observability =
             grouped_route_plan.grouped_observability().ok_or_else(|| {
-                invariant("grouped route planning must emit grouped observability payload")
+                InternalError::query_executor_invariant(
+                    "grouped route planning must emit grouped observability payload",
+                )
             })?;
         let grouped_route_outcome = grouped_route_observability.outcome();
         let grouped_route_rejection_reason = grouped_route_observability.rejection_reason();

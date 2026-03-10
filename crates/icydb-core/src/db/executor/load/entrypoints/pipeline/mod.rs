@@ -9,7 +9,7 @@ use crate::{
     db::{
         executor::{
             ExecutionTrace, RequestedLoadExecutionShape,
-            load::{CursorPage, GroupedCursorPage, invariant},
+            load::{CursorPage, GroupedCursorPage},
         },
         response::EntityResponse,
     },
@@ -92,7 +92,7 @@ impl LoadExecutionMode {
             (self.mode, self.tracing),
             (LoadMode::ScalarRows, LoadTracingMode::Enabled)
         ) {
-            Err(invariant(
+            Err(InternalError::query_executor_invariant(
                 "scalar rows load mode must not request tracing output",
             ))
         } else {

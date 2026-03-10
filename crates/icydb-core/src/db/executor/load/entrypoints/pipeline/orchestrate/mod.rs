@@ -14,7 +14,6 @@ use crate::{
         load::{
             LoadExecutor,
             entrypoints::pipeline::{LoadExecutionMode, LoadExecutionSurface, LoadMode},
-            invariant,
         },
     },
     error::InternalError,
@@ -63,7 +62,9 @@ where
     ) -> Result<LoadAccessState<E>, InternalError> {
         execution_mode.validate()?;
         if !plan.mode().is_load() {
-            return Err(invariant("load executor requires load plans"));
+            return Err(InternalError::query_executor_invariant(
+                "load executor requires load plans",
+            ));
         }
 
         let resolved_cursor = Self::resolve_entrypoint_cursor(&plan, cursor, execution_mode)?;

@@ -71,7 +71,9 @@ impl AggregateFieldValueError {
             }
             Self::MissingFieldValue { .. }
             | Self::FieldValueTypeMismatch { .. }
-            | Self::IncomparableFieldValues { .. } => crate::db::error::executor_invariant(message),
+            | Self::IncomparableFieldValues { .. } => {
+                InternalError::query_executor_invariant(message)
+            }
         }
     }
 }

@@ -25,7 +25,7 @@ use crate::{
 };
 
 use crate::db::executor::load::terminal::{
-    bytes_page_window_state, invariant, saturating_add_payload_len, serialized_value_len,
+    bytes_page_window_state, saturating_add_payload_len, serialized_value_len,
 };
 
 impl<E> LoadExecutor<E>
@@ -98,7 +98,7 @@ where
         let page = plan.page_spec().cloned();
         let access_strategy = plan.access().resolve_strategy();
         let Some(path) = access_strategy.as_path() else {
-            return Err(invariant(
+            return Err(InternalError::query_executor_invariant(
                 "bytes PK fast path requires single-path access strategy",
             ));
         };
@@ -117,7 +117,7 @@ where
                     &start_key, &end_key, direction, offset, limit,
                 )
             }
-            _ => Err(invariant(
+            _ => Err(InternalError::query_executor_invariant(
                 "bytes PK fast path requires full-scan or key-range access",
             )),
         }

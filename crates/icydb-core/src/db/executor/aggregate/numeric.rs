@@ -93,7 +93,7 @@ where
         match value {
             Some(crate::value::Value::Decimal(value)) => Ok(Some(value)),
             Some(crate::value::Value::Null) | None => Ok(None),
-            Some(value) => Err(crate::db::error::executor_invariant(format!(
+            Some(value) => Err(InternalError::query_executor_invariant(format!(
                 "global SUM(DISTINCT field) grouped output type mismatch: {value:?}",
             ))),
         }
@@ -303,7 +303,7 @@ fn finalize_numeric_field_output(
         NumericFieldAggregateKind::Sum => sum,
         NumericFieldAggregateKind::Avg => {
             let Some(divisor) = Decimal::from_num(row_count) else {
-                return Err(crate::db::error::executor_invariant(
+                return Err(InternalError::query_executor_invariant(
                     "numeric field AVG divisor conversion overflowed decimal bounds",
                 ));
             };
@@ -323,7 +323,7 @@ fn add_numeric_decimal(sum: Decimal, value: Decimal) -> Result<Decimal, Internal
         &Value::Decimal(sum),
         &Value::Decimal(value),
     ) else {
-        return Err(crate::db::error::executor_invariant(
+        return Err(InternalError::query_executor_invariant(
             "numeric aggregate addition produced non-coercible decimal operands",
         ));
     };
@@ -339,7 +339,7 @@ fn divide_numeric_decimal(sum: Decimal, divisor: Decimal) -> Result<Decimal, Int
         &Value::Decimal(sum),
         &Value::Decimal(divisor),
     ) else {
-        return Err(crate::db::error::executor_invariant(
+        return Err(InternalError::query_executor_invariant(
             "numeric aggregate division produced non-coercible decimal operands",
         ));
     };

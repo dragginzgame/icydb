@@ -7,7 +7,7 @@ use crate::{
     db::{
         executor::{
             aggregate::{AggregateEngine, ExecutionContext},
-            load::{GroupedRouteStageProjection, LoadExecutor, invariant},
+            load::{GroupedRouteStageProjection, LoadExecutor},
             route::aggregate_materialized_fold_direction,
         },
         query::plan::GroupedDistinctExecutionStrategy,
@@ -48,12 +48,12 @@ where
                     .grouped_aggregate_exprs()
                     .get(aggregate_index)
                     .ok_or_else(|| {
-                        invariant(format!(
+                        InternalError::query_executor_invariant(format!(
                             "grouped aggregate index out of bounds for projection layout: projection_index={projection_index}, aggregate_index={aggregate_index}"
                         ))
                     })?;
                 if aggregate_expr.target_field().is_some() {
-                    return Err(invariant(format!(
+                    return Err(InternalError::query_executor_invariant(format!(
                         "grouped field-target aggregate reached executor after planning: {:?}",
                         aggregate_expr.kind()
                     )));

@@ -67,7 +67,7 @@ where
         plan: &AccessPlannedQuery<E::Key>,
     ) -> Result<ExecutionPlan, InternalError> {
         if !plan.scalar_plan().mode.is_delete() {
-            return Err(crate::db::error::executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "mutation route planning requires delete plans",
             ));
         }

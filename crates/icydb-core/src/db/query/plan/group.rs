@@ -4,7 +4,6 @@
 //! Boundary: explicit grouped query-to-executor transfer surface.
 
 use crate::{
-    db::error::planner_invariant,
     db::query::{
         builder::AggregateExpr,
         plan::{
@@ -141,8 +140,10 @@ pub(in crate::db) fn grouped_executor_handoff<K>(
 ) -> Result<GroupedExecutorHandoff<'_, K>, InternalError> {
     // Grouped handoff is valid only for plans with grouped execution payload.
     let Some(grouped) = plan.grouped_plan() else {
-        return Err(planner_invariant(
-            "grouped executor handoff requires grouped logical plans",
+        return Err(InternalError::planner_invariant(
+            InternalError::executor_invariant_message(
+                "grouped executor handoff requires grouped logical plans",
+            ),
         ));
     };
     let projection_spec = plan.projection_spec_for_identity();
@@ -155,9 +156,9 @@ pub(in crate::db) fn grouped_executor_handoff<K>(
     )
     .map(|()| true)?;
     let grouped_plan_strategy_hint = grouped_plan_strategy_hint(plan).ok_or_else(|| {
-        planner_invariant(
+        InternalError::planner_invariant(InternalError::executor_invariant_message(
             "grouped executor handoff must carry grouped strategy hint for grouped plans",
-        )
+        ))
     })?;
     let grouped_distinct_policy_contract = grouped_distinct_policy_contract(
         grouped.scalar.distinct,
@@ -254,15 +255,19 @@ fn grouped_distinct_execution_strategy(
             | AggregateKind::Min
             | AggregateKind::Max
             | AggregateKind::First
-            | AggregateKind::Last => Err(planner_invariant(
-                "planner grouped DISTINCT strategy handoff must lower only COUNT/SUM field-target aggregates",
+            | AggregateKind::Last => Err(InternalError::planner_invariant(
+                InternalError::executor_invariant_message(
+                    "planner grouped DISTINCT strategy handoff must lower only COUNT/SUM field-target aggregates",
+                ),
             )),
         },
         Ok(None) => Ok(GroupedDistinctExecutionStrategy::None),
-        Err(reason) => Err(planner_invariant(format!(
-            "planner grouped DISTINCT strategy handoff must be validated before executor handoff: {}",
-            reason.invariant_message()
-        ))),
+        Err(reason) => Err(InternalError::planner_invariant(
+            InternalError::executor_invariant_message(format!(
+                "planner grouped DISTINCT strategy handoff must be validated before executor handoff: {}",
+                reason.invariant_message()
+            )),
+        )),
     }
 }
 
@@ -305,13 +310,17 @@ fn planned_projection_layout_and_aggregate_exprs_from_spec(
                         aggregate_exprs.push(aggregate_expr.clone());
                     }
                     Expr::Literal(_) | Expr::Unary { .. } | Expr::Binary { .. } => {
-                        return Err(planner_invariant(format!(
-                            "grouped projection layout expects only field/aggregate expressions; found non-grouped projection expression at index={index}"
-                        )));
+                        return Err(InternalError::planner_invariant(
+                            InternalError::executor_invariant_message(format!(
+                                "grouped projection layout expects only field/aggregate expressions; found non-grouped projection expression at index={index}"
+                            )),
+                        ));
                     }
                     Expr::Alias { .. } => {
-                        return Err(planner_invariant(
-                            "grouped projection layout alias normalization must remove alias wrappers",
+                        return Err(InternalError::planner_invariant(
+                            InternalError::executor_invariant_message(
+                                "grouped projection layout alias normalization must remove alias wrappers",
+                            ),
                         ));
                     }
                 }

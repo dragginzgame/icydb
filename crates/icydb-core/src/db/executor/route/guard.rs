@@ -24,7 +24,7 @@ fn ensure_spec_at_most_one_if_enabled(
 ) -> Result<(), InternalError> {
     (!(fast_path_enabled && spec_count > 1))
         .then_some(())
-        .ok_or_else(|| crate::db::error::executor_invariant(message))
+        .ok_or_else(|| InternalError::query_executor_invariant(message))
 }
 
 // Shared arity guard: enforce exactly one lowered spec when a fast path is enabled.
@@ -35,7 +35,7 @@ fn ensure_spec_exactly_one_if_enabled(
 ) -> Result<(), InternalError> {
     (!(fast_path_enabled && spec_count != 1))
         .then_some(())
-        .ok_or_else(|| crate::db::error::executor_invariant(message))
+        .ok_or_else(|| InternalError::query_executor_invariant(message))
 }
 
 // Guard secondary aggregate fast-path assumptions so index-prefix
@@ -64,7 +64,7 @@ pub(in crate::db::executor) fn ensure_index_range_aggregate_fast_path_specs(
             (index_prefix_spec_count == 0)
                 .then_some(())
                 .ok_or_else(|| {
-                    crate::db::error::executor_invariant(INDEX_RANGE_AGGREGATE_NO_PREFIX_MESSAGE)
+                    InternalError::query_executor_invariant(INDEX_RANGE_AGGREGATE_NO_PREFIX_MESSAGE)
                 })?;
             ensure_spec_exactly_one_if_enabled(
                 true,

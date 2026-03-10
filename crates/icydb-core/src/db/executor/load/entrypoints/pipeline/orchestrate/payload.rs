@@ -10,7 +10,6 @@ use crate::{
             LoadExecutionSurface, LoadMode, LoadTracingMode,
             orchestrate::state::{LoadExecutionPayload, LoadPayloadState},
         },
-        invariant,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -103,7 +102,9 @@ where
     ) -> Result<CursorPage<E>, InternalError> {
         match payload {
             LoadExecutionPayload::Scalar(page) => Ok(page),
-            LoadExecutionPayload::Grouped(_) => Err(invariant(mismatch_message)),
+            LoadExecutionPayload::Grouped(_) => {
+                Err(InternalError::query_executor_invariant(mismatch_message))
+            }
         }
     }
 
@@ -114,7 +115,9 @@ where
     ) -> Result<GroupedCursorPage, InternalError> {
         match payload {
             LoadExecutionPayload::Grouped(page) => Ok(page),
-            LoadExecutionPayload::Scalar(_) => Err(invariant(mismatch_message)),
+            LoadExecutionPayload::Scalar(_) => {
+                Err(InternalError::query_executor_invariant(mismatch_message))
+            }
         }
     }
 }

@@ -122,7 +122,7 @@ where
         }
 
         if !plan.mode().is_delete() {
-            return Err(crate::db::error::executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "delete executor requires delete plans",
             ));
         }

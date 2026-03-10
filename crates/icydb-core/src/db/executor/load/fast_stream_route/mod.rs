@@ -11,7 +11,7 @@ use crate::{
         direction::Direction,
         executor::{
             AccessScanContinuationInput, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
-            load::{FastPathKeyResult, LoadExecutor, invariant},
+            load::{FastPathKeyResult, LoadExecutor},
         },
         index::predicate::IndexPredicateExecution,
         query::plan::AccessPlannedQuery,
@@ -119,7 +119,9 @@ where
                 effective_fetch,
                 index_predicate_execution,
             ),
-            _ => Err(invariant("fast-stream route kind/request mismatch")),
+            _ => Err(InternalError::query_executor_invariant(
+                "fast-stream route kind/request mismatch",
+            )),
         }
     }
 }

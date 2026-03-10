@@ -15,7 +15,7 @@ use crate::{
                 },
             },
             group::{CanonicalKey, GroupKeySet, KeyCanonicalError},
-            load::{LoadExecutor, ResolvedExecutionKeyStream, invariant},
+            load::{LoadExecutor, ResolvedExecutionKeyStream},
         },
         numeric::{NumericArithmeticOp, apply_numeric_arithmetic},
         predicate::MissingRowPolicy,
@@ -103,7 +103,7 @@ where
                     &Value::Decimal(sum),
                     &Value::Decimal(numeric_value),
                 ) else {
-                    return Err(invariant(
+                    return Err(InternalError::query_executor_invariant(
                         "global grouped SUM(DISTINCT field) addition failed numeric coercion",
                     ));
                 };

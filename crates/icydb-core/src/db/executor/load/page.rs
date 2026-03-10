@@ -6,7 +6,7 @@
 use crate::{
     db::{
         Context,
-        executor::load::{CursorPage, LoadExecutor, PageCursor, invariant},
+        executor::load::{CursorPage, LoadExecutor, PageCursor},
         executor::{
             BudgetedOrderedKeyStream, ExecutionKernel, OrderedKeyStream, ScalarContinuationBindings,
         },
@@ -116,14 +116,14 @@ where
         };
 
         if projected_rows.len() != rows.len() {
-            return Err(invariant(
+            return Err(InternalError::query_executor_invariant(
                 "projection materialization cardinality mismatch against post-access rows",
             ));
         }
 
         for ((row_id, _), projected_row) in rows.iter().zip(projected_rows.iter()) {
             if projected_row.id() != *row_id {
-                return Err(invariant(
+                return Err(InternalError::query_executor_invariant(
                     "projection materialization id alignment mismatch against post-access rows",
                 ));
             }

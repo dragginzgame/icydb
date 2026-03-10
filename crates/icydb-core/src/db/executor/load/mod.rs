@@ -49,5 +49,3 @@ pub(in crate::db::executor::load) use grouped_runtime::{
     GroupedPaginationWindow, GroupedRuntimeProjection,
 };
 pub(in crate::db::executor) use page::PageMaterializationRequest;
-
-pub(in crate::db::executor::load) use crate::db::error::executor_invariant as invariant;

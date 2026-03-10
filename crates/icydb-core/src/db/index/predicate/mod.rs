@@ -146,7 +146,7 @@ pub(in crate::db) fn eval_index_program_on_decoded_key(
             literal,
         } => {
             let Some(component) = key.component(*component_index) else {
-                return Err(crate::db::error::executor_invariant(
+                return Err(InternalError::query_executor_invariant(
                     "index-only predicate program referenced missing index component",
                 ));
             };

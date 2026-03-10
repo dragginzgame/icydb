@@ -375,15 +375,19 @@ impl<C: CanisterKind> DbSession<C> {
         let plan = query.plan()?.into_executable();
         match plan.execution_strategy().map_err(QueryError::execute)? {
             ExecutionStrategy::PrimaryKey => {
-                return Err(QueryError::execute(crate::db::error::executor_invariant(
-                    "cursor pagination requires explicit or grouped ordering",
-                )));
+                return Err(QueryError::execute(
+                    InternalError::query_executor_invariant(
+                        "cursor pagination requires explicit or grouped ordering",
+                    ),
+                ));
             }
             ExecutionStrategy::Ordered => {}
             ExecutionStrategy::Grouped => {
-                return Err(QueryError::execute(crate::db::error::executor_invariant(
-                    "grouped plans require execute_grouped(...)",
-                )));
+                return Err(QueryError::execute(
+                    InternalError::query_executor_invariant(
+                        "grouped plans require execute_grouped(...)",
+                    ),
+                ));
             }
         }
 
@@ -404,9 +408,11 @@ impl<C: CanisterKind> DbSession<C> {
             .next_cursor
             .map(|token| {
                 let Some(token) = token.as_scalar() else {
-                    return Err(QueryError::execute(crate::db::error::executor_invariant(
-                        "scalar load pagination emitted grouped continuation token",
-                    )));
+                    return Err(QueryError::execute(
+                        InternalError::query_executor_invariant(
+                            "scalar load pagination emitted grouped continuation token",
+                        ),
+                    ));
                 };
 
                 token.encode().map_err(|err| {
@@ -442,9 +448,11 @@ impl<C: CanisterKind> DbSession<C> {
             plan.execution_strategy().map_err(QueryError::execute)?,
             ExecutionStrategy::Grouped
         ) {
-            return Err(QueryError::execute(crate::db::error::executor_invariant(
-                "execute_grouped requires grouped logical plans",
-            )));
+            return Err(QueryError::execute(
+                InternalError::query_executor_invariant(
+                    "execute_grouped requires grouped logical plans",
+                ),
+            ));
         }
 
         // Phase 2: decode external grouped cursor token and validate against plan.
@@ -464,9 +472,11 @@ impl<C: CanisterKind> DbSession<C> {
             .next_cursor
             .map(|token| {
                 let Some(token) = token.as_grouped() else {
-                    return Err(QueryError::execute(crate::db::error::executor_invariant(
-                        "grouped pagination emitted scalar continuation token",
-                    )));
+                    return Err(QueryError::execute(
+                        InternalError::query_executor_invariant(
+                            "grouped pagination emitted scalar continuation token",
+                        ),
+                    ));
                 };
 
                 token.encode().map_err(|err| {

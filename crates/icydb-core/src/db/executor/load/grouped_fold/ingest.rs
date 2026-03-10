@@ -13,7 +13,7 @@ use crate::{
         executor::{
             aggregate::{AggregateEngine, ExecutionContext, FoldControl},
             group::{CanonicalKey, KeyCanonicalError},
-            load::{GroupedRouteStageProjection, GroupedStreamStage, LoadExecutor, invariant},
+            load::{GroupedRouteStageProjection, GroupedStreamStage, LoadExecutor},
         },
         predicate::MissingRowPolicy,
     },
@@ -67,7 +67,7 @@ where
                 .iter()
                 .map(|field| {
                     entity.get_value_by_index(field.index()).ok_or_else(|| {
-                        invariant(format!(
+                        InternalError::query_executor_invariant(format!(
                             "grouped field slot missing on entity: index={}",
                             field.index()
                         ))

@@ -3,11 +3,7 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::{
-    db::{contracts::canonical_value_compare, executor::load::invariant},
-    error::InternalError,
-    value::Value,
-};
+use crate::{db::contracts::canonical_value_compare, error::InternalError, value::Value};
 
 ///
 /// GroupedCandidateSink
@@ -55,7 +51,7 @@ impl GroupedCandidateSink {
                     canonical_value_compare(existing_key, &group_key_value)
                 }) {
                     Ok(_) => {
-                        return Err(invariant(format!(
+                        return Err(InternalError::query_executor_invariant(format!(
                             "grouped finalize produced duplicate canonical group key: {group_key_value:?}"
                         )));
                     }

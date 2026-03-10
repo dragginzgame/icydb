@@ -8,7 +8,6 @@ use crate::{
         GroupedRow,
         executor::load::{
             GroupedPaginationWindow, GroupedRouteStageProjection, LoadExecutor, PageCursor,
-            invariant,
         },
         query::plan::expr::ProjectionSpec,
     },
@@ -53,7 +52,7 @@ where
             let emitted_group_key = match group_key_value {
                 Value::List(values) => values,
                 value => {
-                    return Err(invariant(format!(
+                    return Err(InternalError::query_executor_invariant(format!(
                         "grouped canonical key must be Value::List, found {value:?}"
                     )));
                 }

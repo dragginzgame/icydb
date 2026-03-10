@@ -6,10 +6,7 @@
 use crate::{
     db::{
         GroupedRow,
-        executor::{
-            aggregate::AggregateOutput,
-            load::{LoadExecutor, invariant},
-        },
+        executor::{aggregate::AggregateOutput, load::LoadExecutor},
         query::{
             builder::AggregateExpr,
             plan::{FieldSlot, PlannedProjectionLayout, expr::ProjectionSpec},
@@ -79,7 +76,7 @@ where
             Vec::with_capacity(projection_layout.group_field_positions().len());
         for position in projection_layout.group_field_positions() {
             let Some(value) = projected_values.get(*position) else {
-                return Err(invariant(format!(
+                return Err(InternalError::query_executor_invariant(format!(
                     "grouped projection layout group-field position out of bounds: position={position}, projected_len={}",
                     projected_values.len()
                 )));
@@ -91,7 +88,7 @@ where
             Vec::with_capacity(projection_layout.aggregate_positions().len());
         for position in projection_layout.aggregate_positions() {
             let Some(value) = projected_values.get(*position) else {
-                return Err(invariant(format!(
+                return Err(InternalError::query_executor_invariant(format!(
                     "grouped projection layout aggregate position out of bounds: position={position}, projected_len={}",
                     projected_values.len()
                 )));

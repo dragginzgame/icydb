@@ -331,7 +331,7 @@ impl<K> PostAccessPlan<'_, K> {
     {
         let filtered = if self.has_predicate() {
             let Some(compiled_predicate) = compiled_predicate else {
-                return Err(crate::db::error::executor_invariant(
+                return Err(InternalError::query_executor_invariant(
                     "post-access filtering requires precompiled predicate slots",
                 ));
             };
@@ -361,7 +361,7 @@ impl<K> PostAccessPlan<'_, K> {
             && !order.fields.is_empty()
         {
             if self.has_predicate() && !filtered {
-                return Err(crate::db::error::executor_invariant(
+                return Err(InternalError::query_executor_invariant(
                     "ordering must run after filtering",
                 ));
             }
@@ -409,7 +409,7 @@ impl<K> PostAccessPlan<'_, K> {
             && let Some(page) = self.page_spec()
         {
             if self.order_spec().is_some() && !ordered {
-                return Err(crate::db::error::executor_invariant(
+                return Err(InternalError::query_executor_invariant(
                     "pagination must run after ordering",
                 ));
             }
@@ -436,7 +436,7 @@ impl<K> PostAccessPlan<'_, K> {
             && let Some(limit) = self.delete_limit_spec()
         {
             if self.order_spec().is_some() && !ordered {
-                return Err(crate::db::error::executor_invariant(
+                return Err(InternalError::query_executor_invariant(
                     "delete limit must run after ordering",
                 ));
             }

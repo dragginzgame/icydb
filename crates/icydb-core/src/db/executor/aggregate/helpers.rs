@@ -185,7 +185,7 @@ where
             return Ok(None);
         };
         let Some((max_id, _)) = max_candidate else {
-            return Err(crate::db::error::executor_invariant(
+            return Err(InternalError::query_executor_invariant(
                 "min_max(field) reduction produced a min id without a max id",
             ));
         };
@@ -237,7 +237,7 @@ where
         let decode_row = |row| {
             let mut decoded = Context::<E>::deserialize_rows(vec![(key.clone(), row)])?;
             let Some((_, entity)) = decoded.pop() else {
-                return Err(crate::db::error::executor_invariant(
+                return Err(InternalError::query_executor_invariant(
                     "field-extrema row decode expected one decoded entity",
                 ));
             };
@@ -261,7 +261,7 @@ where
         kind: AggregateKind,
     ) -> Result<Direction, InternalError> {
         aggregate_extrema_direction(kind).ok_or_else(|| {
-            crate::db::error::executor_invariant(
+            InternalError::query_executor_invariant(
                 "field-target aggregate direction requires MIN/MAX terminal",
             )
         })

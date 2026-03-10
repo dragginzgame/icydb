@@ -10,7 +10,7 @@ use crate::{
         executor::{
             AccessExecutionDescriptor, AccessScanContinuationInput, AccessStreamBindings,
             ExecutionOptimization, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
-            load::{FastPathKeyResult, LoadExecutor, invariant},
+            load::{FastPathKeyResult, LoadExecutor},
         },
         index::predicate::IndexPredicateExecution,
         query::plan::AccessPlannedQuery,
@@ -64,7 +64,7 @@ where
             return Ok(None);
         };
         let Some(index_prefix_spec) = index_prefix_spec else {
-            return Err(invariant(
+            return Err(InternalError::query_executor_invariant(
                 "index-prefix executable spec must be materialized for index-prefix plans",
             ));
         };
@@ -114,7 +114,7 @@ where
             return Ok(None);
         };
         let Some(index_range_spec) = index_range_spec else {
-            return Err(invariant(
+            return Err(InternalError::query_executor_invariant(
                 "index-range executable spec must be materialized for index-range plans",
             ));
         };
