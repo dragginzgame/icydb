@@ -5,9 +5,10 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.48.x] - 2026-03-10 - Explain Boundary and Identity Hardening
+## [0.48.x] - 2026-03-10 - EXPLAIN and Other Features
 
 - `0.48.0` makes plan hashes and continuation signatures independent from EXPLAIN formatting, keeps cursor continuation safety checks fail-closed under one cursor-owned contract, and preserves explain/runtime parity with expanded regression coverage.
+- `0.48.1` expands EXPLAIN observability for index routes with clearer predicate/order/fetch metadata and planner-derived access-choice reason codes, without changing query execution behavior.
 
 See detailed breakdown:
 [docs/changelog/0.48.md](docs/changelog/0.48.md)

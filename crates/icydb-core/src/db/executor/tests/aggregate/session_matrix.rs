@@ -1678,6 +1678,7 @@ fn session_load_terminal_explain_first_last_preserve_temporal_order_shape_parity
 }
 
 #[test]
+#[expect(clippy::too_many_lines)]
 fn session_load_explain_execution_projects_descriptor_tree_for_ordered_limited_index_access() {
     seed_pushdown_entities(&[
         (9_501, 7, 10),
@@ -1701,6 +1702,45 @@ fn session_load_explain_execution_projects_descriptor_tree_for_ordered_limited_i
         descriptor.access_strategy().is_some(),
         "execution descriptor root should carry one canonical access projection",
     );
+    if matches!(
+        descriptor.node_type(),
+        crate::db::ExplainExecutionNodeType::IndexPrefixScan
+            | crate::db::ExplainExecutionNodeType::IndexRangeScan
+    ) {
+        assert!(
+            descriptor.node_properties().contains_key("prefix_len"),
+            "index scan roots should expose matched prefix length metadata",
+        );
+    }
+    assert_eq!(
+        descriptor.covering_scan(),
+        Some(false),
+        "scalar load execution roots should report explicit non-covering status",
+    );
+    assert!(
+        descriptor
+            .node_properties()
+            .contains_key("access_choice_chosen"),
+        "execution root should expose chosen access-choice metadata",
+    );
+    assert!(
+        descriptor
+            .node_properties()
+            .contains_key("access_choice_alternatives"),
+        "execution root should expose alternative access-choice metadata",
+    );
+    assert!(
+        descriptor
+            .node_properties()
+            .contains_key("access_choice_chosen_reason"),
+        "execution root should expose chosen access-choice reason-code metadata",
+    );
+    assert!(
+        descriptor
+            .node_properties()
+            .contains_key("access_choice_rejections"),
+        "execution root should expose rejected access-choice reason-code metadata",
+    );
     assert!(
         explain_execution_contains_node_type(
             &descriptor,
@@ -1721,6 +1761,11 @@ fn session_load_explain_execution_projects_descriptor_tree_for_ordered_limited_i
             Some(&Value::from(3u64)),
             "top-n seek node should report bounded fetch count (offset + limit)",
         );
+        assert_eq!(
+            descriptor.node_properties().get("fetch"),
+            Some(&Value::from(3u64)),
+            "scan root should mirror pushed fetch count when top-n seek is active",
+        );
     }
 
     let limit_node = descriptor
@@ -1733,6 +1778,22 @@ fn session_load_explain_execution_projects_descriptor_tree_for_ordered_limited_i
         limit_node.node_properties().get("offset"),
         Some(&Value::from(1u64)),
         "limit/offset node should keep logical offset metadata",
+    );
+    let order_node = descriptor
+        .children()
+        .iter()
+        .find(|child| {
+            child.node_type() == crate::db::ExplainExecutionNodeType::OrderByAccessSatisfied
+                || child.node_type() == crate::db::ExplainExecutionNodeType::OrderByMaterializedSort
+        })
+        .expect("ordered shape should project one ORDER BY execution node");
+    assert_eq!(
+        order_node.node_properties().get("order_satisfied_by_index"),
+        Some(&Value::from(matches!(
+            order_node.node_type(),
+            crate::db::ExplainExecutionNodeType::OrderByAccessSatisfied
+        ))),
+        "order node should expose explicit index-order satisfaction metadata",
     );
 
     let text_tree = descriptor.render_text_tree();
@@ -1845,6 +1906,7 @@ fn session_load_explain_execution_access_root_matrix_is_stable() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines)]
 fn session_load_explain_execution_predicate_stage_and_limit_zero_matrix_is_stable() {
     seed_pushdown_entities(&[
         (9_731, 7, 10),
@@ -1875,6 +1937,16 @@ fn session_load_explain_execution_predicate_stage_and_limit_zero_matrix_is_stabl
         ),
         "strict index-compatible predicate should not emit residual stage node",
     );
+    let strict_prefilter_node = explain_execution_find_first_node(
+        &strict_prefilter,
+        crate::db::ExplainExecutionNodeType::IndexPredicatePrefilter,
+    )
+    .expect("strict index-compatible predicate should project prefilter node");
+    assert_eq!(
+        strict_prefilter_node.node_properties().get("pushdown"),
+        Some(&Value::from("group=Uint(7)")),
+        "strict prefilter node should expose pushed predicate summary",
+    );
 
     let residual_predicate = Predicate::And(vec![
         u32_eq_predicate_strict("group", 7),
@@ -1898,6 +1970,16 @@ fn session_load_explain_execution_predicate_stage_and_limit_zero_matrix_is_stabl
             crate::db::ExplainExecutionNodeType::ResidualPredicateFilter,
         ),
         "mixed index/non-index predicate should emit residual stage node",
+    );
+    let residual_node = explain_execution_find_first_node(
+        &residual,
+        crate::db::ExplainExecutionNodeType::ResidualPredicateFilter,
+    )
+    .expect("mixed index/non-index predicate should project residual node");
+    assert_eq!(
+        residual_node.predicate_pushdown(),
+        Some("group=Uint(7)"),
+        "residual node should report pushed access predicate separately from residual filter",
     );
 
     let limit_zero = session
@@ -1954,10 +2036,10 @@ fn session_load_explain_execution_text_and_json_snapshot_for_strict_index_prefix
     let text_tree = query
         .explain_execution_text()
         .expect("strict index-prefix execution text explain should succeed");
-    let expected_text = r#"IndexPrefixScan execution_mode=Materialized access=IndexPrefix(group_rank)
-  IndexPredicatePrefilter execution_mode=Materialized predicate_pushdown=strict_all_or_none
+    let expected_text = r#"IndexPrefixScan execution_mode=Materialized access=IndexPrefix(group_rank) covering_scan=false node_properties=access_choice_alternatives=List([]),access_choice_chosen=Text("index:group_rank"),access_choice_chosen_reason=Text("single_candidate"),access_choice_rejections=List([]),prefix_len=Uint(1)
+  IndexPredicatePrefilter execution_mode=Materialized predicate_pushdown=strict_all_or_none node_properties=pushdown=Text("group=Uint(7)")
   SecondaryOrderPushdown execution_mode=Materialized node_properties=index=Text("group_rank"),prefix_len=Uint(1)
-  OrderByMaterializedSort execution_mode=Materialized
+  OrderByMaterializedSort execution_mode=Materialized node_properties=order_satisfied_by_index=Bool(false)
   LimitOffset execution_mode=Materialized limit=2 cursor=false node_properties=offset=Uint(1)"#;
     assert_eq!(
         text_tree, expected_text,
@@ -1967,7 +2049,7 @@ fn session_load_explain_execution_text_and_json_snapshot_for_strict_index_prefix
     let descriptor_json = query
         .explain_execution_json()
         .expect("strict index-prefix execution json explain should succeed");
-    let expected_json = r#"{"node_type":"IndexPrefixScan","execution_mode":"Materialized","access_strategy":{"type":"IndexPrefix","name":"group_rank","fields":["group","rank"],"prefix_len":1,"values":["Uint(7)"]},"predicate_pushdown":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[{"node_type":"IndexPredicatePrefilter","execution_mode":"Materialized","access_strategy":null,"predicate_pushdown":"strict_all_or_none","residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{}},{"node_type":"SecondaryOrderPushdown","execution_mode":"Materialized","access_strategy":null,"predicate_pushdown":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"index":"Text(\"group_rank\")","prefix_len":"Uint(1)"}},{"node_type":"OrderByMaterializedSort","execution_mode":"Materialized","access_strategy":null,"predicate_pushdown":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{}},{"node_type":"LimitOffset","execution_mode":"Materialized","access_strategy":null,"predicate_pushdown":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":2,"cursor":false,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"offset":"Uint(1)"}}],"node_properties":{}}"#;
+    let expected_json = r#"{"node_type":"IndexPrefixScan","execution_mode":"Materialized","access_strategy":{"type":"IndexPrefix","name":"group_rank","fields":["group","rank"],"prefix_len":1,"values":["Uint(7)"]},"predicate_pushdown":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":false,"rows_expected":null,"children":[{"node_type":"IndexPredicatePrefilter","execution_mode":"Materialized","access_strategy":null,"predicate_pushdown":"strict_all_or_none","residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"pushdown":"Text(\"group=Uint(7)\")"}},{"node_type":"SecondaryOrderPushdown","execution_mode":"Materialized","access_strategy":null,"predicate_pushdown":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"index":"Text(\"group_rank\")","prefix_len":"Uint(1)"}},{"node_type":"OrderByMaterializedSort","execution_mode":"Materialized","access_strategy":null,"predicate_pushdown":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"order_satisfied_by_index":"Bool(false)"}},{"node_type":"LimitOffset","execution_mode":"Materialized","access_strategy":null,"predicate_pushdown":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":2,"cursor":false,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"offset":"Uint(1)"}}],"node_properties":{"access_choice_alternatives":"List([])","access_choice_chosen":"Text(\"index:group_rank\")","access_choice_chosen_reason":"Text(\"single_candidate\")","access_choice_rejections":"List([])","prefix_len":"Uint(1)"}}"#;
     assert_eq!(
         descriptor_json, expected_json,
         "execution json snapshot drifted: actual={descriptor_json}",

@@ -3,6 +3,7 @@
 //! Does not own: plan-model construction or semantic helper implementation details.
 //! Boundary: intent/explain/planner/validator consumers import from this root only.
 
+mod access_choice;
 mod access_plan;
 mod access_planner;
 mod constant_predicate;
@@ -25,6 +26,7 @@ mod stability;
 mod tests;
 pub(crate) mod validate;
 
+pub(in crate::db) use access_choice::project_access_choice_explain_snapshot;
 pub(crate) use access_plan::AccessPlannedQuery;
 pub(in crate::db::query) use access_planner::{
     AccessPlanningInputs, normalize_query_predicate, plan_query_access,

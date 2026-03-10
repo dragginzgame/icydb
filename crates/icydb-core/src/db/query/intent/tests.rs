@@ -751,6 +751,59 @@ fn grouped_aggregate_builder_fingerprint_parity_preserves_projection_order_shape
 }
 
 #[test]
+fn plan_hash_snapshot_is_stable_across_explain_surfaces() {
+    // Phase 1: build one deterministic scalar query shape and capture baseline hash surfaces.
+    let query = Query::<PlanSingleton>::new(MissingRowPolicy::Ignore).by_id(Unit);
+
+    let baseline_hash = query
+        .plan_hash_hex()
+        .expect("baseline plan hash should build");
+    let planned_hash = query
+        .planned()
+        .expect("planned query should build for hash parity")
+        .plan_hash_hex();
+    let compiled_hash = query
+        .plan()
+        .expect("compiled query should build for hash parity")
+        .plan_hash_hex();
+
+    // Phase 2: force logical + execution explain surfaces for the same query shape.
+    let _logical_explain = query
+        .explain()
+        .expect("logical explain should build for plan-hash parity lock");
+    let _execution_text = query
+        .explain_execution_text()
+        .expect("execution text explain should build for plan-hash parity lock");
+    let _execution_json = query
+        .explain_execution_json()
+        .expect("execution json explain should build for plan-hash parity lock");
+    let _execution_verbose = query
+        .explain_execution_verbose()
+        .expect("execution verbose explain should build for plan-hash parity lock");
+
+    // Phase 3: re-read hash after explain rendering and lock deterministic parity.
+    let hash_after_explain = query
+        .plan_hash_hex()
+        .expect("plan hash should still build after explain rendering");
+    assert_eq!(
+        baseline_hash, planned_hash,
+        "planned-query plan hash must match query plan-hash surface",
+    );
+    assert_eq!(
+        baseline_hash, compiled_hash,
+        "compiled-query plan hash must match query plan-hash surface",
+    );
+    assert_eq!(
+        baseline_hash, hash_after_explain,
+        "explain rendering surfaces must not change semantic plan-hash identity",
+    );
+    assert_eq!(
+        baseline_hash, "f6e27beeb3af3c4d5452276f4df4dec295507812e31199646625ac5f7e45fcb6",
+        "plan-hash snapshot drifted; update only for intentional semantic identity changes",
+    );
+}
+
+#[test]
 fn grouped_aggregate_builder_continuation_token_bytes_match_helper_shape() {
     let helper_plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .order_by("name")

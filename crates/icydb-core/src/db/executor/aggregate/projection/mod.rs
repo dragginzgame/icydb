@@ -58,6 +58,8 @@ use crate::{
 type IdValueProjection<E> = Vec<(Id<E>, Value)>;
 type CoveringProjectionPairRows = Vec<(DataKey, Value)>;
 type CoveringProjectionPairs = (CoveringProjectionContext, CoveringProjectionPairRows);
+type CoveringProjectionPairsResolution = Result<Option<CoveringProjectionPairs>, InternalError>;
+type CoveringProjectionComponentRows = Vec<(DataKey, Vec<u8>)>;
 
 impl<E> LoadExecutor<E>
 where
@@ -416,7 +418,7 @@ where
         &self,
         plan: &ExecutablePlan<E>,
         target_field: &PlannedFieldSlot,
-    ) -> Result<Option<CoveringProjectionPairs>, InternalError> {
+    ) -> CoveringProjectionPairsResolution {
         if plan.has_predicate() {
             return Ok(None);
         }
@@ -491,7 +493,7 @@ where
         plan: &ExecutablePlan<E>,
         component_index: usize,
         direction: Direction,
-    ) -> Result<Vec<(DataKey, Vec<u8>)>, InternalError> {
+    ) -> Result<CoveringProjectionComponentRows, InternalError> {
         let ctx = self.recovered_context()?;
         let continuation = IndexScanContinuationInput::new(None, direction);
 

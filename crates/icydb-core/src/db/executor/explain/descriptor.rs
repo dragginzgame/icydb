@@ -13,7 +13,7 @@ use crate::{
             ExecutionPreparation, LoadExecutor,
             aggregate::AggregateFoldMode,
             continuation::ScalarContinuationContext,
-            route::{AggregateSeekSpec, ExecutionRoutePlan, ExecutionRouteShape},
+            route::{AggregateSeekSpec, ExecutionRoutePlan, ExecutionRouteShape, TopNSeekSpec},
         },
         query::{
             builder::AggregateExpr,
@@ -25,14 +25,15 @@ use crate::{
             plan::{
                 AccessPlannedQuery, AggregateKind, DistinctExecutionStrategy,
                 index_covering_existing_rows_terminal_eligible,
+                project_access_choice_explain_snapshot,
             },
         },
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
+    traits::{EntityKind, EntityValue, FieldValue},
     value::Value,
 };
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, ops::Bound};
 
 // Assemble one canonical scalar load execution descriptor tree through route authority.
 pub(in crate::db::executor) fn assemble_load_execution_node_descriptor<E>(
@@ -52,11 +53,15 @@ where
     let execution_mode = explain_execution_mode(route_shape);
     let access_strategy = ExplainAccessRoute::from_access_plan(&plan.access);
     let mut root = access_execution_node_descriptor(access_strategy, execution_mode);
+    annotate_access_root_node_properties(&mut root, &route_plan);
+    annotate_access_choice_node_properties(&mut root, E::MODEL, plan);
+    root.covering_scan = Some(load_covering_scan_eligible());
 
     // Phase 3: project route/planner modifiers in execution order as descriptor children.
     let explain_predicate = explain_predicate_for_plan::<E>(plan);
     for predicate_stage in predicate_stage_descriptors(
         explain_predicate,
+        root.access_strategy.as_ref(),
         execution_preparation.strict_mode().is_some(),
         execution_mode,
     ) {
@@ -81,10 +86,15 @@ where
         } else {
             ExplainExecutionNodeType::OrderByMaterializedSort
         };
-        root.children.push(empty_execution_node_descriptor(
-            order_node_type,
-            execution_mode,
-        ));
+        let mut order_node = empty_execution_node_descriptor(order_node_type, execution_mode);
+        order_node.node_properties.insert(
+            "order_satisfied_by_index".to_string(),
+            Value::from(matches!(
+                order_node_type,
+                ExplainExecutionNodeType::OrderByAccessSatisfied
+            )),
+        );
+        root.children.push(order_node);
     }
 
     match plan.distinct_execution_strategy() {
@@ -291,6 +301,92 @@ fn access_execution_node_descriptor(
     node
 }
 
+fn annotate_access_root_node_properties(
+    node: &mut ExplainExecutionNodeDescriptor,
+    route_plan: &ExecutionRoutePlan,
+) {
+    if let Some(prefix_len) = access_prefix_len(node.access_strategy.as_ref()) {
+        node.node_properties.insert(
+            "prefix_len".to_string(),
+            Value::from(u64_from_usize(prefix_len)),
+        );
+    }
+    if let Some(fetch) = scan_fetch_pushdown(route_plan) {
+        node.node_properties
+            .insert("fetch".to_string(), Value::from(u64_from_usize(fetch)));
+    }
+}
+
+// Scalar load routes currently materialize entity rows after access-key
+// discovery, so execution is not index-only. Keep this explicit in explain
+// output so future index-only load paths can flip this contract intentionally.
+const fn load_covering_scan_eligible() -> bool {
+    false
+}
+
+fn annotate_access_choice_node_properties<K>(
+    node: &mut ExplainExecutionNodeDescriptor,
+    model: &crate::model::entity::EntityModel,
+    plan: &AccessPlannedQuery<K>,
+) where
+    K: FieldValue,
+{
+    let access_choice = project_access_choice_explain_snapshot(model, plan);
+    node.node_properties.insert(
+        "access_choice_chosen".to_string(),
+        Value::from(access_choice.chosen_label),
+    );
+    node.node_properties.insert(
+        "access_choice_chosen_reason".to_string(),
+        Value::from(access_choice.chosen_reason.code()),
+    );
+
+    let alternatives = access_choice
+        .alternatives
+        .into_iter()
+        .map(Value::from)
+        .collect();
+    node.node_properties.insert(
+        "access_choice_alternatives".to_string(),
+        Value::List(alternatives),
+    );
+    let rejected = access_choice
+        .rejected
+        .into_iter()
+        .map(|entry| Value::from(entry.render()))
+        .collect();
+    node.node_properties.insert(
+        "access_choice_rejections".to_string(),
+        Value::List(rejected),
+    );
+}
+
+const fn access_prefix_len(access_strategy: Option<&ExplainAccessRoute>) -> Option<usize> {
+    match access_strategy {
+        Some(
+            ExplainAccessRoute::IndexPrefix { prefix_len, .. }
+            | ExplainAccessRoute::IndexRange { prefix_len, .. },
+        ) => Some(*prefix_len),
+        Some(
+            ExplainAccessRoute::ByKey { .. }
+            | ExplainAccessRoute::ByKeys { .. }
+            | ExplainAccessRoute::KeyRange { .. }
+            | ExplainAccessRoute::IndexMultiLookup { .. }
+            | ExplainAccessRoute::FullScan
+            | ExplainAccessRoute::Union(_)
+            | ExplainAccessRoute::Intersection(_),
+        )
+        | None => None,
+    }
+}
+
+fn scan_fetch_pushdown(route_plan: &ExecutionRoutePlan) -> Option<usize> {
+    route_plan
+        .top_n_seek_spec()
+        .map(TopNSeekSpec::fetch)
+        .or_else(|| route_plan.index_range_limit_spec.map(|spec| spec.fetch))
+}
+
 const fn access_node_type(access: &ExplainAccessRoute) -> ExplainExecutionNodeType {
     match access {
         ExplainAccessRoute::ByKey { .. } => ExplainExecutionNodeType::ByKeyLookup,
@@ -429,6 +525,7 @@ fn top_n_seek_descriptor(
 
 fn predicate_stage_descriptors(
     explain_predicate: Option<ExplainPredicate>,
+    access_strategy: Option<&ExplainAccessRoute>,
     strict_prefilter_compiled: bool,
     execution_mode: ExplainExecutionMode,
 ) -> Vec<ExplainExecutionNodeDescriptor> {
@@ -442,6 +539,11 @@ fn predicate_stage_descriptors(
             execution_mode,
         );
         node.predicate_pushdown = Some("strict_all_or_none".to_string());
+        let pushdown_predicate = access_strategy
+            .and_then(pushdown_predicate_from_access_strategy)
+            .unwrap_or_else(|| format!("{explain_predicate:?}"));
+        node.node_properties
+            .insert("pushdown".to_string(), Value::from(pushdown_predicate));
         return vec![node];
     }
 
@@ -449,9 +551,88 @@ fn predicate_stage_descriptors(
         ExplainExecutionNodeType::ResidualPredicateFilter,
         execution_mode,
     );
+    node.predicate_pushdown = access_strategy.and_then(pushdown_predicate_from_access_strategy);
     node.residual_predicate = Some(explain_predicate);
 
     vec![node]
+}
+
+fn pushdown_predicate_from_access_strategy(access: &ExplainAccessRoute) -> Option<String> {
+    match access {
+        ExplainAccessRoute::IndexPrefix {
+            fields,
+            prefix_len,
+            values,
+            ..
+        } => prefix_predicate_text(fields, values, *prefix_len),
+        ExplainAccessRoute::IndexRange {
+            fields,
+            prefix_len,
+            prefix,
+            lower,
+            upper,
+            ..
+        } => index_range_pushdown_predicate_text(fields, *prefix_len, prefix, lower, upper),
+        ExplainAccessRoute::IndexMultiLookup { fields, values, .. } => {
+            let field = fields.first()?;
+            if values.is_empty() {
+                None
+            } else {
+                Some(format!("{field} IN {values:?}"))
+            }
+        }
+        ExplainAccessRoute::ByKey { .. }
+        | ExplainAccessRoute::ByKeys { .. }
+        | ExplainAccessRoute::KeyRange { .. }
+        | ExplainAccessRoute::FullScan
+        | ExplainAccessRoute::Union(_)
+        | ExplainAccessRoute::Intersection(_) => None,
+    }
+}
+
+fn prefix_predicate_text(fields: &[&str], values: &[Value], prefix_len: usize) -> Option<String> {
+    let applied_len = prefix_len.min(fields.len()).min(values.len());
+    if applied_len == 0 {
+        return None;
+    }
+
+    let mut parts = Vec::with_capacity(applied_len);
+    for idx in 0..applied_len {
+        parts.push(format!("{}={:?}", fields[idx], values[idx]));
+    }
+
+    Some(parts.join(" AND "))
+}
+
+fn index_range_pushdown_predicate_text(
+    fields: &[&str],
+    prefix_len: usize,
+    prefix: &[Value],
+    lower: &Bound<Value>,
+    upper: &Bound<Value>,
+) -> Option<String> {
+    let mut parts = Vec::new();
+    if let Some(prefix_text) = prefix_predicate_text(fields, prefix, prefix_len) {
+        parts.push(prefix_text);
+    }
+
+    let range_field = fields.get(prefix_len).copied().unwrap_or("index_range");
+    match lower {
+        Bound::Included(value) => parts.push(format!("{range_field}>={value:?}")),
+        Bound::Excluded(value) => parts.push(format!("{range_field}>{value:?}")),
+        Bound::Unbounded => {}
+    }
+    match upper {
+        Bound::Included(value) => parts.push(format!("{range_field}<={value:?}")),
+        Bound::Excluded(value) => parts.push(format!("{range_field}<{value:?}")),
+        Bound::Unbounded => {}
+    }
+
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join(" AND "))
+    }
 }
 
 fn explain_predicate_for_plan<E>(plan: &AccessPlannedQuery<E::Key>) -> Option<ExplainPredicate>
