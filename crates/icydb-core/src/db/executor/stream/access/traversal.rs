@@ -18,7 +18,7 @@ use crate::{
                     bindings::{
                         AccessExecutionDescriptor, AccessScanContinuationInput, AccessSpecCursor,
                         AccessStreamBindings, AccessStreamInputs, IndexStreamConstraints,
-                        StreamExecutionHints,
+                        StreamExecutionHints, access_descriptor_from_plan_bindings,
                     },
                     physical,
                 },
@@ -146,7 +146,14 @@ where
             index_range_specs,
             continuation,
         };
-        let descriptor = AccessExecutionDescriptor::from_bindings(access, bindings, None, None);
+        let descriptor = access_descriptor_from_plan_bindings(
+            access,
+            bindings.index_prefix_specs,
+            bindings.index_range_specs,
+            bindings.continuation,
+            None,
+            None,
+        );
         let mut key_stream = self.ordered_key_stream_from_access_descriptor(descriptor)?;
 
         self.rows_from_ordered_key_stream(key_stream.as_mut(), consistency)

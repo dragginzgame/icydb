@@ -6,6 +6,7 @@
 use crate::{
     db::{
         Db,
+        cursor::IndexScanContinuationInput,
         data::{
             DataKey, DataRow, DataStore, RawDataKey, RawRow, decode_and_validate_entity_key,
             format_entity_key_for_mismatch,
@@ -13,8 +14,8 @@ use crate::{
         direction::Direction,
         executor::{ExecutorError, OrderedKeyStream, saturating_row_len},
         index::{
-            IndexEntryReader, IndexScanContinuationInput, IndexStore, PrimaryRowReader,
-            RawIndexEntry, RawIndexKey, SealedIndexEntryReader, SealedPrimaryRowReader,
+            IndexEntryReader, IndexStore, PrimaryRowReader, RawIndexEntry, RawIndexKey,
+            SealedIndexEntryReader, SealedPrimaryRowReader,
         },
         predicate::MissingRowPolicy,
     },

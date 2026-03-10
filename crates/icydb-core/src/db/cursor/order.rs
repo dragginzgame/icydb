@@ -8,7 +8,6 @@ use crate::{
         cursor::{
             CursorBoundary, CursorBoundarySlot, apply_order_direction, compare_boundary_slots,
         },
-        index::continuation_advances_from_ordering,
         query::plan::{OrderDirection, OrderSpec},
     },
     model::entity::resolve_field_slot,
@@ -134,11 +133,7 @@ pub(in crate::db) fn apply_cursor_boundary<E, R, F>(
 
     // Strict continuation: keep only rows greater than the boundary under canonical order.
     rows.retain(|row| {
-        continuation_advances_from_ordering(compare_entity_with_boundary::<E>(
-            entity_of(row),
-            &resolved,
-            boundary,
-        ))
+        compare_entity_with_boundary::<E>(entity_of(row), &resolved, boundary).is_gt()
     });
 }
 

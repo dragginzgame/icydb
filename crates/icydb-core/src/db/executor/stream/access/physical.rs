@@ -6,6 +6,7 @@
 use crate::{
     db::{
         access::{ExecutableAccessPathDispatch, dispatch_executable_access_path},
+        cursor::IndexScanContinuationInput,
         data::DataKey,
         direction::Direction,
         error::executor_invariant,
@@ -14,7 +15,7 @@ use crate::{
             Context, ExecutableAccessPath, IndexScan, LoweredIndexPrefixSpec,
             LoweredIndexRangeSpec, OrderedKeyStreamBox, PrimaryScan, VecOrderedKeyStream,
         },
-        index::{IndexScanContinuationInput, predicate::IndexPredicateExecution},
+        index::predicate::IndexPredicateExecution,
     },
     error::InternalError,
     model::index::IndexModel,

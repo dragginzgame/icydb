@@ -8,8 +8,9 @@ use crate::{
         access::AccessPathKind,
         direction::Direction,
         executor::{
-            AccessExecutionDescriptor, AccessScanContinuationInput, AccessStreamBindings,
-            ExecutablePlan, ExecutionKernel, ExecutionOptimizationCounter, ExecutionPreparation,
+            AccessScanContinuationInput, ExecutablePlan, ExecutionKernel,
+            ExecutionOptimizationCounter, ExecutionPreparation,
+            access_descriptor_from_plan_bindings,
             aggregate::aggregate_window_is_provably_empty,
             aggregate::field::{
                 FieldSlot, extract_numeric_field_decimal,
@@ -244,13 +245,11 @@ where
             }
         });
         let ctx = self.recovered_context()?;
-        let descriptor = AccessExecutionDescriptor::from_bindings(
+        let descriptor = access_descriptor_from_plan_bindings(
             &logical_plan.access,
-            AccessStreamBindings::new(
-                index_prefix_specs.as_slice(),
-                index_range_specs.as_slice(),
-                AccessScanContinuationInput::new(None, direction),
-            ),
+            index_prefix_specs.as_slice(),
+            index_range_specs.as_slice(),
+            AccessScanContinuationInput::new(None, direction),
             None,
             index_predicate_execution,
         );

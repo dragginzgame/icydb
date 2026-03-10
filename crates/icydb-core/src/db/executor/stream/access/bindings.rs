@@ -6,13 +6,14 @@
 use crate::{
     db::{
         access::AccessPlan,
+        cursor::IndexScanContinuationInput,
         direction::Direction,
         error::executor_invariant,
         executor::{
             Context, ExecutableAccessPlan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             LoweredKey,
         },
-        index::{IndexScanContinuationInput, predicate::IndexPredicateExecution},
+        index::predicate::IndexPredicateExecution,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -236,6 +237,24 @@ impl<'a, K> AccessExecutionDescriptor<'a, K> {
             index_predicate_execution,
         }
     }
+}
+
+/// Build one access execution descriptor from structural access + lowered spec slices.
+#[must_use]
+pub(in crate::db::executor) fn access_descriptor_from_plan_bindings<'a, K>(
+    access: &'a AccessPlan<K>,
+    index_prefix_specs: &'a [LoweredIndexPrefixSpec],
+    index_range_specs: &'a [LoweredIndexRangeSpec],
+    continuation: AccessScanContinuationInput<'a>,
+    physical_fetch_hint: Option<usize>,
+    index_predicate_execution: Option<IndexPredicateExecution<'a>>,
+) -> AccessExecutionDescriptor<'a, K> {
+    AccessExecutionDescriptor::from_bindings(
+        access,
+        AccessStreamBindings::new(index_prefix_specs, index_range_specs, continuation),
+        physical_fetch_hint,
+        index_predicate_execution,
+    )
 }
 
 ///

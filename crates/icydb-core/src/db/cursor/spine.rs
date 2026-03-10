@@ -7,7 +7,8 @@ use crate::{
     db::{
         cursor::{
             ContinuationSignature, ContinuationToken, CursorBoundary, CursorPlanError,
-            IndexRangeCursorAnchor, PlannedCursor, ValidatedInEnvelopeIndexRangeCursorAnchor,
+            GroupedContinuationToken, GroupedPlannedCursor, IndexRangeCursorAnchor, PlannedCursor,
+            ValidatedInEnvelopeIndexRangeCursorAnchor,
             anchor::{
                 validate_index_range_anchor, validate_index_range_boundary_anchor_consistency,
             },
@@ -256,4 +257,55 @@ where
     )?;
 
     Ok(validated_index_range_anchor)
+}
+
+/// Validate and materialize grouped cursor state through the canonical cursor spine.
+pub(in crate::db) fn validate_grouped_cursor(
+    cursor: Option<&[u8]>,
+    entity_path: &'static str,
+    continuation_signature: ContinuationSignature,
+    expected_initial_offset: u32,
+) -> Result<GroupedPlannedCursor, CursorPlanError> {
+    let Some(cursor) = cursor else {
+        return Ok(GroupedPlannedCursor::none());
+    };
+    let token = decode_grouped_cursor_token(cursor)?;
+
+    validate_cursor_signature(entity_path, &continuation_signature, &token.signature())?;
+    validate_grouped_cursor_direction(token.direction())?;
+    validate_cursor_window_offset(expected_initial_offset, token.initial_offset())?;
+
+    Ok(GroupedPlannedCursor::new(
+        token.last_group_key().to_vec(),
+        token.initial_offset(),
+    ))
+}
+
+/// Revalidate grouped cursor offset compatibility for executor-provided state.
+pub(in crate::db) fn validate_grouped_cursor_state(
+    expected_initial_offset: u32,
+    cursor: GroupedPlannedCursor,
+) -> Result<GroupedPlannedCursor, CursorPlanError> {
+    if cursor.is_empty() {
+        return Ok(GroupedPlannedCursor::none());
+    }
+    validate_cursor_window_offset(expected_initial_offset, cursor.initial_offset())?;
+
+    Ok(cursor)
+}
+
+// Decode one grouped continuation token through the grouped token codec boundary.
+fn decode_grouped_cursor_token(cursor: &[u8]) -> Result<GroupedContinuationToken, CursorPlanError> {
+    GroupedContinuationToken::decode(cursor).map_err(CursorPlanError::from_token_wire_error)
+}
+
+// Grouped continuation cursors are constrained to ascending logical order.
+fn validate_grouped_cursor_direction(direction: Direction) -> Result<(), CursorPlanError> {
+    if direction != Direction::Asc {
+        return Err(CursorPlanError::invalid_continuation_cursor_payload(
+            "grouped continuation cursor direction must be ascending",
+        ));
+    }
+
+    Ok(())
 }

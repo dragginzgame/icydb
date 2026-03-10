@@ -5,11 +5,12 @@
 
 use crate::{
     db::{
+        cursor::IndexScanContinuationInput,
         data::DataKey,
         direction::Direction,
         executor::LoweredKey,
         executor::{Context, LoweredIndexPrefixSpec, LoweredIndexRangeSpec},
-        index::{IndexScanContinuationInput, predicate::IndexPredicateExecution},
+        index::predicate::IndexPredicateExecution,
     },
     error::InternalError,
     model::index::IndexModel,

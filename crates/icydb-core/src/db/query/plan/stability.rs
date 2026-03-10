@@ -4,7 +4,7 @@
 //! Boundary: planner uses these helpers to keep equivalent query shapes stable.
 
 use crate::{
-    db::access::{AccessPlan, normalize_access_plan_value},
+    db::access::{AccessPlan, canonicalize_value_set, normalize_access_plan_value},
     value::Value,
 };
 
@@ -15,8 +15,7 @@ use crate::{
 #[must_use]
 pub(in crate::db::query::plan) fn canonicalize_in_literal_values(values: &[Value]) -> Vec<Value> {
     let mut canonical = values.to_vec();
-    canonical.sort_by(Value::canonical_cmp);
-    canonical.dedup();
+    canonicalize_value_set(&mut canonical);
     canonical
 }
 

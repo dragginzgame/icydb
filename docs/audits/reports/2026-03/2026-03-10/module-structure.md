@@ -1,20 +1,20 @@
-# Velocity Preservation Audit - 2026-03-10
+# Structure / Module / Visibility Discipline Audit - 2026-03-10
 
 ## Report Preamble
 
-- scope: feature agility and cross-layer amplification risk in recent development slices
-- compared baseline report path: `docs/audits/reports/2026-03/2026-03-09/velocity-preservation.md`
+- scope: `icydb-core` db subsystem structural boundaries and visibility discipline
+- compared baseline report path: `docs/audits/reports/2026-03/2026-03-09/module-structure.md`
 - code snapshot identifier: `6e83fc25`
 - method tag/version: `Method V3`
 - comparability status: `comparable`
 
-## Findings
+## Structural Findings
 
 | Check | Evidence | Status | Risk |
 | ---- | ---- | ---- | ---- |
-| Layer-authority boundaries remain intact | `bash scripts/ci/check-layer-authority-invariants.sh` | PASS | Medium |
-| Architecture text-scan invariant remains clean | `bash scripts/ci/check-architecture-text-scan-invariants.sh` | PASS | Low |
-| Route-shape feature-budget guard test passes | `cargo test -p icydb-core route_feature_budget_shape_kinds_stay_within_soft_delta -- --nocapture` | PASS | Medium |
+| Upward imports / cross-layer policy re-derivations | `bash scripts/ci/check-layer-authority-invariants.sh` | PASS (`0` / `0`) | Low |
+| Architecture text-scan invariant | `bash scripts/ci/check-architecture-text-scan-invariants.sh` | PASS | Low |
+| Runtime compile stability | `cargo check -p icydb-core` | PASS | Medium |
 
 ## Hub Import Pressure (Required Metric)
 
@@ -24,7 +24,7 @@
 | `executor/load/mod.rs` | `executor` | 1 | 0 | stable |
 | `access/execution_contract/mod.rs` | `access` | 1 | 0 | stable |
 
-## Velocity Risk Index
+## Overall Structural Risk Index
 
 **5/10**
 
@@ -36,4 +36,4 @@
 
 - `bash scripts/ci/check-layer-authority-invariants.sh` -> PASS
 - `bash scripts/ci/check-architecture-text-scan-invariants.sh` -> PASS
-- `cargo test -p icydb-core route_feature_budget_shape_kinds_stay_within_soft_delta -- --nocapture` -> PASS
+- `cargo check -p icydb-core` -> PASS

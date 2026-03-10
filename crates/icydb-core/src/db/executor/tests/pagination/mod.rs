@@ -3,12 +3,10 @@ use super::*;
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},
-        cursor::ContinuationToken,
+        cursor::{ContinuationToken, IndexScanContinuationInput},
         direction::Direction,
         executor::ExecutablePlan,
-        index::{
-            EncodedValue, IndexScanContinuationInput, RawIndexKey, raw_keys_for_encoded_prefix,
-        },
+        index::{EncodedValue, RawIndexKey, raw_keys_for_encoded_prefix},
         query::{
             explain::{ExplainAccessPath, ExplainOrderPushdown},
             plan::{

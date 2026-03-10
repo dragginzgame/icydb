@@ -9,8 +9,8 @@ mod tests;
 mod anchor;
 pub(crate) mod boundary;
 mod continuation;
+mod envelope;
 mod error;
-mod grouped_validate;
 mod order;
 mod planned;
 mod range_token;
@@ -36,10 +36,16 @@ use crate::{
 pub(in crate::db) use anchor::ValidatedInEnvelopeIndexRangeCursorAnchor;
 pub(crate) use boundary::{CursorBoundary, CursorBoundarySlot};
 pub(in crate::db) use boundary::{
-    apply_order_direction, compare_boundary_slots, decode_pk_cursor_boundary as decode_pk_boundary,
-    validate_cursor_boundary_for_order, validate_cursor_direction, validate_cursor_window_offset,
+    apply_order_direction, compare_boundary_slots, validate_cursor_boundary_for_order,
+    validate_cursor_direction, validate_cursor_window_offset,
 };
-pub(in crate::db) use continuation::next_cursor_for_materialized_rows;
+pub(in crate::db) use continuation::{
+    IndexScanContinuationInput, next_cursor_for_materialized_rows,
+};
+pub(in crate::db) use envelope::{
+    continuation_advanced, resume_bounds_from_refs, validate_index_scan_continuation_advancement,
+    validate_index_scan_continuation_envelope,
+};
 pub(crate) use error::CursorPlanError;
 pub(in crate::db) use order::{apply_order_spec, apply_order_spec_bounded};
 pub(in crate::db) use planned::{GroupedPlannedCursor, PlannedCursor};
@@ -126,12 +132,7 @@ pub(in crate::db) fn prepare_grouped_cursor(
 ) -> Result<GroupedPlannedCursor, CursorPlanError> {
     validate_grouped_cursor_order_plan(order)?;
 
-    grouped_validate::validate_grouped_cursor(
-        cursor,
-        entity_path,
-        continuation_signature,
-        initial_offset,
-    )
+    spine::validate_grouped_cursor(cursor, entity_path, continuation_signature, initial_offset)
 }
 
 /// Revalidate grouped cursor state through grouped cursor invariants.
@@ -139,7 +140,7 @@ pub(in crate::db) fn revalidate_grouped_cursor(
     initial_offset: u32,
     cursor: GroupedPlannedCursor,
 ) -> Result<GroupedPlannedCursor, CursorPlanError> {
-    grouped_validate::revalidate_grouped_cursor_state(initial_offset, cursor)
+    spine::validate_grouped_cursor_state(initial_offset, cursor)
 }
 
 /// Decode a typed primary-key cursor boundary for PK-ordered executor paths.
@@ -149,7 +150,7 @@ pub(in crate::db) fn decode_pk_cursor_boundary<E>(
 where
     E: EntityKind,
 {
-    decode_pk_boundary::<E>(boundary).map_err(map_pk_cursor_decode_error)
+    boundary::decode_pk_cursor_boundary::<E>(boundary).map_err(map_pk_cursor_decode_error)
 }
 
 // Map cursor decode variants into explicit pk-cursor invariant taxonomy.

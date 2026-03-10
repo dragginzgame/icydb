@@ -114,8 +114,7 @@ where
                     continue;
                 }
                 if let Some(resume_boundary) = resume_boundary
-                    && canonical_value_compare(&group_key_value, resume_boundary)
-                        != Ordering::Greater
+                    && !canonical_value_compare(&group_key_value, resume_boundary).is_gt()
                 {
                     continue;
                 }

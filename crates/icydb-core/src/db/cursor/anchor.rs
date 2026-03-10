@@ -157,13 +157,13 @@ fn validate_anchor_in_envelope<E: EntityKind>(
     prefix: &[crate::value::Value],
     lower: &std::ops::Bound<crate::value::Value>,
     upper: &std::ops::Bound<crate::value::Value>,
-    direction: Direction,
+    _direction: Direction,
 ) -> Result<ValidatedInEnvelopeIndexRangeCursorAnchor, CursorPlanError> {
     let (range_start, range_end) =
         lower_cursor_anchor_index_range_bounds::<E>(index, prefix, lower, upper)
             .map_err(CursorPlanError::invalid_continuation_cursor_payload)?;
 
-    if !KeyEnvelope::new(direction, range_start, range_end).contains(anchor.lowered_key()) {
+    if !KeyEnvelope::new(range_start, range_end).contains(anchor.lowered_key()) {
         return Err(CursorPlanError::invalid_continuation_cursor_payload(
             "index-range continuation anchor is outside the original range envelope",
         ));

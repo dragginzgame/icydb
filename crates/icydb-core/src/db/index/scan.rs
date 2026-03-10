@@ -5,13 +5,17 @@
 
 use crate::{
     db::{
+        cursor::{
+            IndexScanContinuationInput, resume_bounds_from_refs,
+            validate_index_scan_continuation_advancement,
+            validate_index_scan_continuation_envelope,
+        },
         data::DataKey,
         direction::Direction,
         index::{
-            IndexKey, anchor_within_envelope, continuation_advanced, envelope_is_empty,
+            IndexKey, envelope_is_empty,
             key::RawIndexKey,
             predicate::{IndexPredicateExecution, eval_index_execution_on_decoded_key},
-            resume_bounds_from_refs,
             store::{IndexStore, StoredIndexValue},
         },
     },
@@ -20,40 +24,6 @@ use crate::{
     traits::EntityKind,
 };
 use std::ops::Bound;
-
-///
-/// IndexScanContinuationInput
-///
-/// Index-scan continuation input contract for directional resume traversal.
-/// Bundles optional exclusive resume anchor plus scan direction so scan-layer
-/// range traversal consumes one continuation boundary object.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) struct IndexScanContinuationInput<'a> {
-    anchor: Option<&'a RawIndexKey>,
-    direction: Direction,
-}
-
-impl<'a> IndexScanContinuationInput<'a> {
-    /// Build one index-scan continuation input.
-    #[must_use]
-    pub(in crate::db) const fn new(anchor: Option<&'a RawIndexKey>, direction: Direction) -> Self {
-        Self { anchor, direction }
-    }
-
-    /// Borrow optional exclusive continuation anchor.
-    #[must_use]
-    pub(in crate::db) const fn anchor(&self) -> Option<&'a RawIndexKey> {
-        self.anchor
-    }
-
-    /// Borrow scan direction for continuation traversal.
-    #[must_use]
-    pub(in crate::db) const fn direction(&self) -> Direction {
-        self.direction
-    }
-}
 
 impl IndexStore {
     pub(in crate::db) fn resolve_data_values_in_raw_range_limited<E: EntityKind>(
@@ -116,11 +86,7 @@ impl IndexStore {
             return Ok(Vec::new());
         }
 
-        Self::ensure_anchor_within_envelope(
-            continuation.direction(),
-            continuation.anchor(),
-            bounds,
-        )?;
+        validate_index_scan_continuation_envelope(continuation.anchor(), bounds.0, bounds.1)?;
 
         let (start_raw, end_raw) = match continuation.anchor() {
             Some(anchor) => {
@@ -190,50 +156,8 @@ impl IndexStore {
     where
         F: FnMut(&RawIndexKey, &StoredIndexValue, &mut Vec<T>) -> Result<bool, InternalError>,
     {
-        Self::ensure_continuation_advanced(direction, raw_key, anchor)?;
+        validate_index_scan_continuation_advancement(direction, anchor, raw_key)?;
         decode_and_push(raw_key, value, out)
-    }
-
-    /// Validate strict continuation advancement when an anchor is present.
-    ///
-    /// IMPORTANT CROSS-LAYER CONTRACT:
-    /// - Planner/cursor-spine validation ensures envelope/signature compatibility.
-    /// - This scan-layer guard independently enforces strict monotonic advancement.
-    /// - Keep both layers explicit; do not collapse this into planner-only checks.
-    fn ensure_continuation_advanced(
-        direction: Direction,
-        candidate: &RawIndexKey,
-        anchor: Option<&RawIndexKey>,
-    ) -> Result<(), InternalError> {
-        if let Some(anchor) = anchor
-            && !continuation_advanced(direction, candidate, anchor)
-        {
-            return Err(InternalError::index_invariant(
-                "index-range continuation scan did not advance beyond the anchor",
-            ));
-        }
-
-        Ok(())
-    }
-
-    /// Validate that continuation anchor is contained by the original range envelope.
-    ///
-    /// Keep this guard in the scan layer even though planner/cursor validation already
-    /// checks containment: this is a defensive contract check against cross-layer misuse.
-    fn ensure_anchor_within_envelope(
-        direction: Direction,
-        anchor: Option<&RawIndexKey>,
-        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
-    ) -> Result<(), InternalError> {
-        if let Some(anchor) = anchor
-            && !anchor_within_envelope(direction, anchor, bounds.0, bounds.1)
-        {
-            return Err(InternalError::index_invariant(
-                "index-range continuation anchor is outside the requested range envelope",
-            ));
-        }
-
-        Ok(())
     }
 
     fn decode_index_entry_and_push<E: EntityKind>(
@@ -340,87 +264,5 @@ impl IndexStore {
         }
 
         Ok(false)
-    }
-}
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests {
-    use crate::{
-        db::{
-            direction::Direction,
-            index::{RawIndexKey, envelope_is_empty, resume_bounds_from_refs},
-        },
-        error::{ErrorClass, ErrorOrigin},
-        traits::Storable,
-    };
-    use std::{borrow::Cow, ops::Bound};
-
-    use super::IndexStore;
-
-    fn raw_key(byte: u8) -> RawIndexKey {
-        <RawIndexKey as Storable>::from_bytes(Cow::Owned(vec![byte]))
-    }
-
-    #[test]
-    fn continuation_advancement_guard_rejects_non_advanced_candidate_asc() {
-        let anchor = raw_key(0x10);
-        let candidate = raw_key(0x10);
-
-        let err =
-            IndexStore::ensure_continuation_advanced(Direction::Asc, &candidate, Some(&anchor))
-                .expect_err("ASC continuation candidate equal to anchor must be rejected");
-
-        assert_eq!(err.class, ErrorClass::InvariantViolation);
-        assert_eq!(err.origin, ErrorOrigin::Index);
-    }
-
-    #[test]
-    fn continuation_advancement_guard_rejects_non_advanced_candidate_desc() {
-        let anchor = raw_key(0x10);
-        let candidate = raw_key(0x11);
-
-        let err =
-            IndexStore::ensure_continuation_advanced(Direction::Desc, &candidate, Some(&anchor))
-                .expect_err(
-                    "DESC continuation candidate not strictly after anchor must be rejected",
-                );
-
-        assert_eq!(err.class, ErrorClass::InvariantViolation);
-        assert_eq!(err.origin, ErrorOrigin::Index);
-    }
-
-    #[test]
-    fn anchor_containment_guard_rejects_out_of_envelope_anchor() {
-        let lower = Bound::Included(raw_key(0x10));
-        let upper = Bound::Excluded(raw_key(0x20));
-        let anchor = raw_key(0x20);
-
-        let err = IndexStore::ensure_anchor_within_envelope(
-            Direction::Asc,
-            Some(&anchor),
-            (&lower, &upper),
-        )
-        .expect_err("out-of-envelope continuation anchor must be rejected");
-
-        assert_eq!(err.class, ErrorClass::InvariantViolation);
-        assert_eq!(err.origin, ErrorOrigin::Index);
-    }
-
-    #[test]
-    fn anchor_equal_to_upper_resumes_to_empty_envelope() {
-        let lower = Bound::Included(raw_key(0x10));
-        let upper = Bound::Included(raw_key(0x20));
-        let anchor = raw_key(0x20);
-
-        let (resumed_lower, resumed_upper) =
-            resume_bounds_from_refs(Direction::Asc, &lower, &upper, &anchor);
-        assert!(
-            envelope_is_empty(&resumed_lower, &resumed_upper),
-            "anchor==upper must resume to an empty envelope so scan can short-circuit",
-        );
     }
 }

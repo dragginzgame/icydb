@@ -7,18 +7,51 @@ use crate::{
     db::{
         access::{AccessPlan, LoweredKey},
         cursor::{
-            ContinuationSignature, ContinuationToken, CursorBoundary, cursor_anchor_from_index_key,
-            cursor_boundary_from_entity,
+            ContinuationSignature, ContinuationToken, CursorBoundary, continuation_advanced,
+            cursor_anchor_from_index_key, cursor_boundary_from_entity,
         },
         direction::Direction,
         error::cursor_invariant,
-        index::{IndexKey, continuation_advanced},
+        index::{IndexKey, RawIndexKey},
         query::plan::{OrderSpec, PageSpec, effective_offset_for_cursor_window},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
     types::Id,
 };
+
+///
+/// IndexScanContinuationInput
+///
+/// Index-scan continuation input contract for directional resume traversal.
+/// Bundles optional exclusive resume anchor plus scan direction so scan-layer
+/// range traversal consumes one continuation boundary object.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct IndexScanContinuationInput<'a> {
+    anchor: Option<&'a RawIndexKey>,
+    direction: Direction,
+}
+
+impl<'a> IndexScanContinuationInput<'a> {
+    /// Build one index-scan continuation input.
+    #[must_use]
+    pub(in crate::db) const fn new(anchor: Option<&'a RawIndexKey>, direction: Direction) -> Self {
+        Self { anchor, direction }
+    }
+
+    /// Borrow optional exclusive continuation anchor.
+    #[must_use]
+    pub(in crate::db) const fn anchor(&self) -> Option<&'a RawIndexKey> {
+        self.anchor
+    }
+
+    /// Borrow scan direction for continuation traversal.
+    #[must_use]
+    pub(in crate::db) const fn direction(&self) -> Direction {
+        self.direction
+    }
+}
 
 /// Derive the next continuation token from one post-access materialized page.
 #[expect(clippy::too_many_arguments)]

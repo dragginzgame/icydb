@@ -12,6 +12,7 @@ mod decode;
 
 use crate::{
     db::{
+        cursor::IndexScanContinuationInput,
         data::DataKey,
         direction::Direction,
         executor::{
@@ -35,7 +36,6 @@ use crate::{
             group::GroupKeySet,
             load::LoadExecutor,
         },
-        index::IndexScanContinuationInput,
         predicate::MissingRowPolicy,
         query::{
             builder::{
@@ -43,7 +43,7 @@ use crate::{
                 aggregate::{count, exists, first, last, max, min},
             },
             plan::{
-                CoveringProjectionOrder, FieldSlot as PlannedFieldSlot,
+                CoveringProjectionContext, CoveringProjectionOrder, FieldSlot as PlannedFieldSlot,
                 constant_covering_projection_value_from_access,
             },
         },
@@ -372,66 +372,16 @@ where
         plan: &ExecutablePlan<E>,
         target_field: &PlannedFieldSlot,
     ) -> Result<Option<CoveringProjectionValues>, InternalError> {
-        if plan.has_predicate() {
-            return Ok(None);
-        }
-
-        let Some(context) =
-            covering_index_projection_context::<E>(plan.access(), plan, target_field.field())
+        let Some((context, projected_pairs)) =
+            self.covering_index_projection_pairs_if_eligible(plan, target_field)?
         else {
             return Ok(None);
         };
 
-        let scan_direction = match context.order_contract {
-            CoveringProjectionOrder::IndexOrder(direction) => direction,
-            CoveringProjectionOrder::PrimaryKeyOrder(_) => Direction::Asc,
-        };
-        let raw_pairs = self.read_covering_projection_component_pairs(
-            plan,
-            context.component_index,
-            scan_direction,
-        )?;
-
-        let mut projected_pairs = Vec::with_capacity(raw_pairs.len());
-        let ctx = self.recovered_context()?;
-        for (data_key, component_bytes) in raw_pairs {
-            match plan.consistency() {
-                MissingRowPolicy::Ignore => match ctx.read(&data_key) {
-                    Ok(_) => {}
-                    Err(err) if err.is_not_found() => continue,
-                    Err(err) => return Err(err),
-                },
-                MissingRowPolicy::Error => {
-                    ctx.read_strict(&data_key)?;
-                }
-            }
-
-            let Some(value) = decode_covering_projection_component(&component_bytes)? else {
-                return Ok(None);
-            };
-            projected_pairs.push((data_key, value));
-        }
-
-        match context.order_contract {
-            CoveringProjectionOrder::PrimaryKeyOrder(Direction::Asc) => {
-                projected_pairs.sort_by(|left, right| left.0.cmp(&right.0));
-            }
-            CoveringProjectionOrder::PrimaryKeyOrder(Direction::Desc) => {
-                projected_pairs.sort_by(|left, right| right.0.cmp(&left.0));
-            }
-            CoveringProjectionOrder::IndexOrder(Direction::Asc | Direction::Desc) => {}
-        }
-
-        let (offset, limit) = scalar_window_for_covering_projection(plan.page_spec());
-        let mut values = Vec::new();
-        for (_, value) in projected_pairs.into_iter().skip(offset) {
-            if let Some(limit) = limit
-                && values.len() == limit
-            {
-                break;
-            }
-            values.push(value);
-        }
+        let values = projected_pairs
+            .into_iter()
+            .map(|(_, value)| value)
+            .collect();
 
         Ok(Some(CoveringProjectionValues { values, context }))
     }
@@ -443,6 +393,28 @@ where
         plan: &ExecutablePlan<E>,
         target_field: &PlannedFieldSlot,
     ) -> Result<Option<IdValueProjection<E>>, InternalError> {
+        let Some((_, projected_pairs)) =
+            self.covering_index_projection_pairs_if_eligible(plan, target_field)?
+        else {
+            return Ok(None);
+        };
+
+        let mut projected_values = Vec::with_capacity(projected_pairs.len());
+        for (data_key, value) in projected_pairs {
+            let id = Id::from_key(data_key.try_key::<E>()?);
+            projected_values.push((id, value));
+        }
+
+        Ok(Some(projected_values))
+    }
+
+    // Resolve one index-covered projection pair vector with routing metadata so
+    // field-value terminals can share decode, policy, ordering, and window logic.
+    fn covering_index_projection_pairs_if_eligible(
+        &self,
+        plan: &ExecutablePlan<E>,
+        target_field: &PlannedFieldSlot,
+    ) -> Result<Option<(CoveringProjectionContext, Vec<(DataKey, Value)>)>, InternalError> {
         if plan.has_predicate() {
             return Ok(None);
         }
@@ -497,18 +469,17 @@ where
         }
 
         let (offset, limit) = scalar_window_for_covering_projection(plan.page_spec());
-        let mut projected_values = Vec::new();
+        let mut windowed_pairs = Vec::new();
         for (data_key, value) in projected_pairs.into_iter().skip(offset) {
             if let Some(limit) = limit
-                && projected_values.len() == limit
+                && windowed_pairs.len() == limit
             {
                 break;
             }
-            let id = Id::from_key(data_key.try_key::<E>()?);
-            projected_values.push((id, value));
+            windowed_pairs.push((data_key, value));
         }
 
-        Ok(Some(projected_values))
+        Ok(Some((context, windowed_pairs)))
     }
 
     // Read one index-backed `(data_key, encoded_component)` stream for covering

@@ -26,12 +26,16 @@ fn canonicalize_access_plans_value(plans: &mut [AccessPlan<Value>]) {
 
 /// Canonicalize a list of key values for deterministic ByKeys plans.
 fn canonicalize_key_values(keys: &mut Vec<Value>) {
-    keys.sort_by(Value::canonical_cmp);
-    keys.dedup();
+    canonicalize_value_set(keys);
 }
 
 /// Canonicalize a list of index literal values for deterministic set semantics.
 fn canonicalize_index_literal_values(values: &mut Vec<Value>) {
+    canonicalize_value_set(values);
+}
+
+/// Canonicalize one value set with deterministic order + dedup semantics.
+pub(in crate::db) fn canonicalize_value_set(values: &mut Vec<Value>) {
     values.sort_by(Value::canonical_cmp);
     values.dedup();
 }
