@@ -8,7 +8,9 @@ use crate::{
         access::{AccessPlan, LoweredKey},
         cursor::{
             ContinuationSignature, ContinuationToken, CursorBoundary, continuation_advanced,
-            cursor_anchor_from_index_key, cursor_boundary_from_entity,
+            cursor_anchor_from_index_key, cursor_boundary_from_entity, resume_bounds_from_refs,
+            validate_index_scan_continuation_advancement,
+            validate_index_scan_continuation_envelope,
         },
         direction::Direction,
         error::cursor_invariant,
@@ -19,6 +21,7 @@ use crate::{
     traits::{EntityKind, EntityValue},
     types::Id,
 };
+use std::ops::Bound;
 
 ///
 /// IndexScanContinuationInput
@@ -40,16 +43,34 @@ impl<'a> IndexScanContinuationInput<'a> {
         Self { anchor, direction }
     }
 
-    /// Borrow optional exclusive continuation anchor.
-    #[must_use]
-    pub(in crate::db) const fn anchor(&self) -> Option<&'a RawIndexKey> {
-        self.anchor
-    }
-
     /// Borrow scan direction for continuation traversal.
     #[must_use]
     pub(in crate::db) const fn direction(&self) -> Direction {
         self.direction
+    }
+
+    /// Validate continuation-envelope compatibility and derive resumed scan
+    /// bounds for one directional index scan.
+    pub(in crate::db) fn resume_bounds(
+        &self,
+        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
+    ) -> Result<(Bound<RawIndexKey>, Bound<RawIndexKey>), InternalError> {
+        validate_index_scan_continuation_envelope(self.anchor, bounds.0, bounds.1)?;
+
+        let resumed_bounds = match self.anchor {
+            Some(anchor) => resume_bounds_from_refs(self.direction, bounds.0, bounds.1, anchor),
+            None => (bounds.0.clone(), bounds.1.clone()),
+        };
+
+        Ok(resumed_bounds)
+    }
+
+    /// Validate strict directional advancement for one raw-key scan candidate.
+    pub(in crate::db) fn validate_candidate_advancement(
+        &self,
+        candidate: &RawIndexKey,
+    ) -> Result<(), InternalError> {
+        validate_index_scan_continuation_advancement(self.direction, self.anchor, candidate)
     }
 }
 

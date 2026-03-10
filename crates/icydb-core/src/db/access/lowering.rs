@@ -152,7 +152,6 @@ const fn lower_executable_path_dispatch<K>(
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum LoweredIndexNotIndexableReasonScope {
     ValidatedSpec,
-    CursorContinuationAnchor,
 }
 
 ///
@@ -276,22 +275,6 @@ fn lower_index_range_bounds_for_scope<E: EntityKind>(
         .map_err(|err| map_index_range_not_indexable_reason(scope, err))
 }
 
-// Lower one semantic range envelope for cursor-anchor containment checks.
-pub(in crate::db) fn lower_cursor_anchor_index_range_bounds<E: EntityKind>(
-    index: &IndexModel,
-    prefix: &[Value],
-    lower: &Bound<Value>,
-    upper: &Bound<Value>,
-) -> Result<(Bound<LoweredKey>, Bound<LoweredKey>), &'static str> {
-    lower_index_range_bounds_for_scope::<E>(
-        index,
-        prefix,
-        lower,
-        upper,
-        LoweredIndexNotIndexableReasonScope::CursorContinuationAnchor,
-    )
-}
-
 // Collect index-prefix specs in deterministic depth-first traversal order.
 fn collect_index_prefix_specs<E: EntityKind>(
     access: &AccessPlan<E::Key>,
@@ -408,12 +391,6 @@ const fn map_index_range_not_indexable_reason(
             "validated index-range prefix is not indexable",
             "validated index-range lower bound is not indexable",
             "validated index-range upper bound is not indexable",
-        ),
-        LoweredIndexNotIndexableReasonScope::CursorContinuationAnchor => map_bound_encode_error(
-            err,
-            "index-range continuation anchor prefix is not indexable",
-            "index-range cursor lower continuation bound is not indexable",
-            "index-range cursor upper continuation bound is not indexable",
         ),
     }
 }

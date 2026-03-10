@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.48.x] - 2026-03-10 - Explain Boundary and Identity Hardening
+
+- `0.48.0` makes plan hashes and continuation signatures independent from EXPLAIN formatting, keeps cursor continuation safety checks fail-closed under one cursor-owned contract, and preserves explain/runtime parity with expanded regression coverage.
+
+See detailed breakdown:
+[docs/changelog/0.48.md](docs/changelog/0.48.md)
+
+---
+
 ## [0.47.x] - 2026-03-10 - Audit Pass
 
 

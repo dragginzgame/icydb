@@ -223,10 +223,12 @@ impl<E: EntityKind> Query<E> {
 
     /// Return a stable plan hash for this intent.
     ///
-    /// The hash is derived from the canonical explain projection and is suitable
+    /// The hash is derived from canonical planner contracts and is suitable
     /// for diagnostics, explain diffing, and cache key construction.
     pub fn plan_hash_hex(&self) -> Result<String, QueryError> {
-        Ok(self.explain()?.fingerprint().to_string())
+        let plan = self.build_plan()?;
+
+        Ok(plan.fingerprint().to_string())
     }
 
     /// Explain executor-selected scalar load execution shape without running it.
@@ -537,7 +539,7 @@ impl<E: EntityKind> PlannedQuery<E> {
     /// Return the stable plan hash for this planned query.
     #[must_use]
     pub fn plan_hash_hex(&self) -> String {
-        self.explain().fingerprint().to_string()
+        self.plan.fingerprint().to_string()
     }
 }
 
@@ -568,7 +570,7 @@ impl<E: EntityKind> CompiledQuery<E> {
     /// Return the stable plan hash for this compiled query.
     #[must_use]
     pub fn plan_hash_hex(&self) -> String {
-        self.explain().fingerprint().to_string()
+        self.plan.fingerprint().to_string()
     }
 
     /// Borrow planner-lowered projection semantics for this compiled query.

@@ -1,5 +1,5 @@
 //! Module: query::fingerprint::fingerprint
-//! Responsibility: deterministic plan fingerprint derivation from explain models.
+//! Responsibility: deterministic plan fingerprint derivation from planner contracts.
 //! Does not own: explain projection assembly or execution-plan compilation.
 //! Boundary: stable plan identity hash surface for diagnostics/caching.
 
@@ -43,14 +43,12 @@ where
 {
     /// Compute a stable fingerprint for this logical plan.
     #[must_use]
-    #[cfg(test)]
-    pub(crate) fn fingerprint(&self) -> PlanFingerprint {
-        let explain = self.explain();
+    pub(in crate::db) fn fingerprint(&self) -> PlanFingerprint {
         let projection = self.projection_spec_for_identity();
         let mut hasher = new_plan_fingerprint_hasher_v2();
-        hash_parts::hash_explain_plan_profile_with_projection(
+        hash_parts::hash_planned_query_profile_with_projection(
             &mut hasher,
-            &explain,
+            self,
             hash_parts::ExplainHashProfile::FingerprintV2,
             &projection,
         );

@@ -1396,7 +1396,7 @@ fn session_trace_query_reports_plan_hash_and_route_summary() {
         .expect("session trace_query should succeed");
     let expected_hash = query
         .plan_hash_hex()
-        .expect("query plan hash should derive from explain model");
+        .expect("query plan hash should derive from planner contracts");
     let trace_explain = trace.explain();
     let query_explain = query
         .explain()

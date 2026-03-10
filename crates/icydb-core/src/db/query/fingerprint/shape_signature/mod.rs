@@ -1,5 +1,5 @@
 //! Module: query::fingerprint::continuation_signature
-//! Responsibility: deterministic continuation-signature derivation from explain plans.
+//! Responsibility: deterministic continuation-signature derivation from planner contracts.
 //! Does not own: continuation token decoding/validation.
 //! Boundary: query-plan shape signature surface used by cursor token checks.
 
@@ -33,13 +33,28 @@ where
         &self,
         entity_path: &'static str,
     ) -> ContinuationSignature {
-        let explain = self.explain();
         let projection = self.projection_spec_for_identity();
 
-        continuation_signature_with_projection(&explain, entity_path, &projection)
+        continuation_signature_for_plan_with_projection(self, entity_path, &projection)
     }
 }
 
+fn continuation_signature_for_plan_with_projection<K: FieldValue>(
+    plan: &AccessPlannedQuery<K>,
+    entity_path: &'static str,
+    projection: &crate::db::query::plan::expr::ProjectionSpec,
+) -> ContinuationSignature {
+    let mut hasher = new_continuation_signature_hasher_v1();
+    hash_parts::hash_planned_query_profile_with_projection(
+        &mut hasher,
+        plan,
+        hash_parts::ExplainHashProfile::ContinuationV1 { entity_path },
+        projection,
+    );
+    ContinuationSignature::from_bytes(finalize_sha256_digest(hasher))
+}
+
+#[cfg(test)]
 fn continuation_signature_with_projection(
     explain: &ExplainPlan,
     entity_path: &'static str,

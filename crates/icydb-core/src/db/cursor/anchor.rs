@@ -5,13 +5,13 @@
 
 use crate::{
     db::{
-        access::lower_cursor_anchor_index_range_bounds,
         cursor::{CursorPlanError, IndexRangeCursorAnchor},
         direction::Direction,
         executor::ExecutableAccessPath,
         index::{
-            IndexId, IndexKey, IndexKeyKind, KeyEnvelope, PrimaryKeyEquivalenceError, RawIndexKey,
-            primary_key_matches_value,
+            IndexId, IndexKey, IndexKeyKind, IndexRangeBoundEncodeError, KeyEnvelope,
+            PrimaryKeyEquivalenceError, RawIndexKey, primary_key_matches_value,
+            raw_bounds_for_semantic_index_component_range,
         },
     },
     traits::{EntityKind, FieldValue, Storable},
@@ -172,6 +172,32 @@ fn validate_anchor_in_envelope<E: EntityKind>(
     Ok(ValidatedInEnvelopeIndexRangeCursorAnchor::from_identity(
         anchor,
     ))
+}
+
+// Lower one semantic index-range envelope into raw bounds for cursor-anchor
+// containment checks. Cursor owns the scope-specific reason mapping.
+fn lower_cursor_anchor_index_range_bounds<E: EntityKind>(
+    index: &crate::model::index::IndexModel,
+    prefix: &[crate::value::Value],
+    lower: &std::ops::Bound<crate::value::Value>,
+    upper: &std::ops::Bound<crate::value::Value>,
+) -> Result<(std::ops::Bound<RawIndexKey>, std::ops::Bound<RawIndexKey>), &'static str> {
+    raw_bounds_for_semantic_index_component_range::<E>(index, prefix, lower, upper)
+        .map_err(map_cursor_anchor_bound_encode_error)
+}
+
+const fn map_cursor_anchor_bound_encode_error(err: IndexRangeBoundEncodeError) -> &'static str {
+    match err {
+        IndexRangeBoundEncodeError::Prefix => {
+            "index-range continuation anchor prefix is not indexable"
+        }
+        IndexRangeBoundEncodeError::Lower => {
+            "index-range cursor lower continuation bound is not indexable"
+        }
+        IndexRangeBoundEncodeError::Upper => {
+            "index-range cursor upper continuation bound is not indexable"
+        }
+    }
 }
 
 // Validate optional index-range cursor anchor against the planned access envelope.

@@ -1,7 +1,7 @@
 //! Module: query::fingerprint
 //! Responsibility: deterministic query-plan fingerprint/signature primitives.
 //! Does not own: explain projection construction or query-plan validation.
-//! Boundary: hash surface over `query::explain` models for plan identity checks.
+//! Boundary: hash surface over planner-owned contracts for plan identity checks.
 
 mod aggregate_hash;
 pub(crate) mod fingerprint;

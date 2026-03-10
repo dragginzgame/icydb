@@ -6,6 +6,7 @@
 
 use crate::{
     db::{
+        access::AccessPlan,
         codec::{write_hash_str_u32, write_hash_tag_u8, write_hash_u32, write_hash_u64},
         predicate::{MissingRowPolicy, Predicate, hash_predicate as hash_model_predicate},
         query::{
@@ -19,11 +20,14 @@ use crate::{
             },
             fingerprint::projection_hash::hash_projection_structural_fingerprint_v1,
             plan::{
-                AccessPlanProjection, OrderDirection, QueryMode, expr::ProjectionSpec,
-                project_explain_access_path,
+                AccessPlanProjection, AccessPlannedQuery, DeleteLimitSpec, GroupHavingClause,
+                GroupHavingSpec, GroupHavingSymbol, GroupedPlanStrategyHint, OrderDirection,
+                OrderSpec, PageSpec, QueryMode, expr::ProjectionSpec, grouped_plan_strategy_hint,
+                project_access_plan, project_explain_access_path,
             },
         },
     },
+    traits::FieldValue,
     value::{Value, hash_value},
 };
 use sha2::{Digest, Sha256};
@@ -149,6 +153,131 @@ impl AccessPlanProjection<Value> for FingerprintVisitor<'_> {
 }
 
 ///
+/// PlanFingerprintVisitor
+///
+/// Access-plan hash visitor over planner-owned canonical access contracts.
+/// This keeps identity hashing independent from explain DTO projection.
+///
+
+struct PlanFingerprintVisitor<'a> {
+    hasher: &'a mut Sha256,
+}
+
+impl<K> AccessPlanProjection<K> for PlanFingerprintVisitor<'_>
+where
+    K: FieldValue,
+{
+    type Output = ();
+
+    fn by_key(&mut self, key: &K) -> Self::Output {
+        write_tag(self.hasher, 0x10);
+        write_value(self.hasher, &key.to_value());
+    }
+
+    fn by_keys(&mut self, keys: &[K]) -> Self::Output {
+        write_tag(self.hasher, 0x11);
+        write_u32(self.hasher, keys.len() as u32);
+        for key in keys {
+            write_value(self.hasher, &key.to_value());
+        }
+    }
+
+    fn key_range(&mut self, start: &K, end: &K) -> Self::Output {
+        write_tag(self.hasher, 0x12);
+        write_value(self.hasher, &start.to_value());
+        write_value(self.hasher, &end.to_value());
+    }
+
+    fn index_prefix(
+        &mut self,
+        name: &'static str,
+        fields: &[&'static str],
+        prefix_len: usize,
+        values: &[Value],
+    ) -> Self::Output {
+        write_tag(self.hasher, 0x13);
+        write_str(self.hasher, name);
+        write_u32(self.hasher, fields.len() as u32);
+        for field in fields {
+            write_str(self.hasher, field);
+        }
+        write_u32(self.hasher, prefix_len as u32);
+        write_u32(self.hasher, values.len() as u32);
+        for value in values {
+            write_value(self.hasher, value);
+        }
+    }
+
+    fn index_multi_lookup(
+        &mut self,
+        name: &'static str,
+        fields: &[&'static str],
+        values: &[Value],
+    ) -> Self::Output {
+        write_tag(self.hasher, 0x18);
+        write_str(self.hasher, name);
+        write_u32(self.hasher, fields.len() as u32);
+        for field in fields {
+            write_str(self.hasher, field);
+        }
+        write_u32(self.hasher, values.len() as u32);
+        for value in values {
+            write_value(self.hasher, value);
+        }
+    }
+
+    fn index_range(
+        &mut self,
+        name: &'static str,
+        fields: &[&'static str],
+        prefix_len: usize,
+        prefix: &[Value],
+        lower: &Bound<Value>,
+        upper: &Bound<Value>,
+    ) -> Self::Output {
+        write_tag(self.hasher, 0x17);
+        write_str(self.hasher, name);
+        write_u32(self.hasher, fields.len() as u32);
+        for field in fields {
+            write_str(self.hasher, field);
+        }
+        write_u32(self.hasher, prefix_len as u32);
+        write_u32(self.hasher, prefix.len() as u32);
+        for value in prefix {
+            write_value(self.hasher, value);
+        }
+        write_value_bound(self.hasher, lower);
+        write_value_bound(self.hasher, upper);
+    }
+
+    fn full_scan(&mut self) -> Self::Output {
+        write_tag(self.hasher, 0x14);
+    }
+
+    fn union(&mut self, children: Vec<Self::Output>) -> Self::Output {
+        write_tag(self.hasher, 0x15);
+        write_u32(self.hasher, children.len() as u32);
+    }
+
+    fn intersection(&mut self, children: Vec<Self::Output>) -> Self::Output {
+        write_tag(self.hasher, 0x16);
+        write_u32(self.hasher, children.len() as u32);
+    }
+}
+
+///
+/// Hash planner-owned access contracts into the plan hash stream.
+///
+
+pub(super) fn hash_access_plan<K>(hasher: &mut Sha256, access: &AccessPlan<K>)
+where
+    K: FieldValue,
+{
+    let mut visitor = PlanFingerprintVisitor { hasher };
+    project_access_plan(access, &mut visitor);
+}
+
+///
 /// Hash canonical predicate model structure into the plan hash stream.
 ///
 pub(super) fn hash_predicate(hasher: &mut Sha256, predicate: Option<&Predicate>) {
@@ -175,6 +304,24 @@ pub(super) fn hash_order(hasher: &mut Sha256, order: &ExplainOrderBy) {
                 write_tag(hasher, order_direction_tag(field.direction()));
             }
         }
+    }
+}
+
+fn hash_order_spec(hasher: &mut Sha256, order: Option<&OrderSpec>) {
+    let Some(order) = order else {
+        write_tag(hasher, 0x30);
+        return;
+    };
+    if order.fields.is_empty() {
+        write_tag(hasher, 0x30);
+        return;
+    }
+
+    write_tag(hasher, 0x31);
+    write_u32(hasher, order.fields.len() as u32);
+    for (field, direction) in &order.fields {
+        write_str(hasher, field);
+        write_tag(hasher, order_direction_tag(*direction));
     }
 }
 
@@ -407,6 +554,71 @@ fn hash_explain_field(
     }
 }
 
+fn hash_planned_query_field<K: FieldValue>(
+    hasher: &mut Sha256,
+    plan: &AccessPlannedQuery<K>,
+    field: ExplainHashField,
+    entity_path: Option<&str>,
+    projection: Option<&ProjectionSpec>,
+    include_group_strategy: bool,
+) {
+    let scalar = plan.scalar_plan();
+
+    match field {
+        ExplainHashField::EntityPath => {
+            let entity_path = entity_path.expect("entity path required by hash profile");
+            write_str(hasher, entity_path);
+        }
+        ExplainHashField::Mode => hash_mode(hasher, scalar.mode),
+        ExplainHashField::Access => hash_access_plan(hasher, &plan.access),
+        ExplainHashField::Predicate => hash_predicate(hasher, scalar.predicate.as_ref()),
+        ExplainHashField::Order => hash_order_spec(hasher, scalar.order.as_ref()),
+        ExplainHashField::Distinct => hash_distinct(hasher, scalar.distinct),
+        ExplainHashField::Page => hash_page_spec(hasher, scalar.page.as_ref()),
+        ExplainHashField::DeleteLimit => {
+            hash_delete_limit_spec(hasher, scalar.delete_limit.as_ref());
+        }
+        ExplainHashField::Consistency => hash_consistency(hasher, scalar.consistency),
+        ExplainHashField::GroupingShapeV1 => {
+            hash_grouping_shape_v1_from_plan(hasher, plan, include_group_strategy);
+        }
+        ExplainHashField::ProjectionSpecV1 => {
+            hash_projection_spec_v1_for_plan(hasher, projection, plan, include_group_strategy);
+        }
+    }
+}
+
+/// Hash a planner-owned query with an explicit semantic projection section.
+pub(in crate::db::query) fn hash_planned_query_profile_with_projection<K: FieldValue>(
+    hasher: &mut Sha256,
+    plan: &AccessPlannedQuery<K>,
+    profile: ExplainHashProfile<'_>,
+    projection: &ProjectionSpec,
+) {
+    hash_planned_query_profile_internal(hasher, plan, profile, Some(projection));
+}
+
+fn hash_planned_query_profile_internal<K: FieldValue>(
+    hasher: &mut Sha256,
+    plan: &AccessPlannedQuery<K>,
+    profile: ExplainHashProfile<'_>,
+    projection: Option<&ProjectionSpec>,
+) {
+    let spec = profile.spec();
+    let include_group_strategy = spec.entity_path.is_some();
+    for step in spec.steps {
+        write_tag(hasher, step.section_tag);
+        hash_planned_query_field(
+            hasher,
+            plan,
+            step.field,
+            spec.entity_path,
+            projection,
+            include_group_strategy,
+        );
+    }
+}
+
 /// Hash an `ExplainPlan` using a profile-specific canonical field set.
 pub(in crate::db::query) fn hash_explain_plan_profile(
     hasher: &mut Sha256,
@@ -417,6 +629,7 @@ pub(in crate::db::query) fn hash_explain_plan_profile(
 }
 
 /// Hash an `ExplainPlan` with one explicit semantic projection section.
+#[cfg(test)]
 pub(in crate::db::query) fn hash_explain_plan_profile_with_projection(
     hasher: &mut Sha256,
     plan: &ExplainPlan,
@@ -465,6 +678,23 @@ fn hash_page(hasher: &mut Sha256, page: &ExplainPagination) {
     }
 }
 
+fn hash_page_spec(hasher: &mut Sha256, page: Option<&PageSpec>) {
+    let Some(page) = page else {
+        write_tag(hasher, 0x40);
+        return;
+    };
+
+    write_tag(hasher, 0x41);
+    match page.limit {
+        Some(limit) => {
+            write_tag(hasher, 0x01);
+            write_u32(hasher, limit);
+        }
+        None => write_tag(hasher, 0x00),
+    }
+    write_u32(hasher, page.offset);
+}
+
 fn hash_distinct(hasher: &mut Sha256, distinct: bool) {
     if distinct {
         write_tag(hasher, 0x44);
@@ -481,6 +711,16 @@ fn hash_delete_limit(hasher: &mut Sha256, limit: &ExplainDeleteLimit) {
             write_u32(hasher, *max_rows);
         }
     }
+}
+
+fn hash_delete_limit_spec(hasher: &mut Sha256, limit: Option<&DeleteLimitSpec>) {
+    let Some(limit) = limit else {
+        write_tag(hasher, 0x42);
+        return;
+    };
+
+    write_tag(hasher, 0x43);
+    write_u32(hasher, limit.max_rows);
 }
 
 fn hash_consistency(hasher: &mut Sha256, consistency: MissingRowPolicy) {
@@ -540,6 +780,46 @@ fn hash_grouping_shape_v1(
     }
 }
 
+fn hash_grouping_shape_v1_from_plan<K: FieldValue>(
+    hasher: &mut Sha256,
+    plan: &AccessPlannedQuery<K>,
+    include_group_strategy: bool,
+) {
+    let Some(grouped) = plan.grouped_plan() else {
+        write_tag(hasher, 0x70);
+        return;
+    };
+
+    write_tag(hasher, 0x71);
+    if include_group_strategy {
+        hash_grouped_strategy_hint(
+            hasher,
+            grouped_plan_strategy_hint(plan).unwrap_or(GroupedPlanStrategyHint::HashGroup),
+        );
+    }
+    write_u32(hasher, grouped.group.group_fields.len() as u32);
+    for field in &grouped.group.group_fields {
+        write_u32(hasher, field.index as u32);
+        write_str(hasher, &field.field);
+    }
+
+    write_u32(hasher, grouped.group.aggregates.len() as u32);
+    for aggregate in &grouped.group.aggregates {
+        hash_group_aggregate_structural_fingerprint_v1(
+            hasher,
+            &AggregateHashShape::semantic(
+                aggregate.kind,
+                aggregate.target_field.as_deref(),
+                aggregate.distinct,
+            ),
+        );
+    }
+    hash_group_having_spec(hasher, grouped.having.as_ref());
+
+    write_hash_u64(hasher, grouped.group.execution.max_groups);
+    write_hash_u64(hasher, grouped.group.execution.max_group_bytes);
+}
+
 fn hash_projection_spec_v1(
     hasher: &mut Sha256,
     projection: Option<&ProjectionSpec>,
@@ -554,6 +834,20 @@ fn hash_projection_spec_v1(
     }
 
     hash_grouping_shape_v1(hasher, grouping, include_group_strategy);
+}
+
+fn hash_projection_spec_v1_for_plan<K: FieldValue>(
+    hasher: &mut Sha256,
+    projection: Option<&ProjectionSpec>,
+    plan: &AccessPlannedQuery<K>,
+    include_group_strategy: bool,
+) {
+    if let Some(projection) = projection {
+        hash_projection_structural_fingerprint_v1(hasher, projection);
+        return;
+    }
+
+    hash_grouping_shape_v1_from_plan(hasher, plan, include_group_strategy);
 }
 
 fn hash_grouped_strategy(hasher: &mut Sha256, strategy: ExplainGroupedStrategy) {
@@ -576,6 +870,19 @@ fn hash_group_having(hasher: &mut Sha256, having: Option<&ExplainGroupHaving>) {
     }
 }
 
+fn hash_group_having_spec(hasher: &mut Sha256, having: Option<&GroupHavingSpec>) {
+    let Some(having) = having else {
+        write_tag(hasher, 0x74);
+        return;
+    };
+
+    write_tag(hasher, 0x75);
+    write_u32(hasher, having.clauses.len() as u32);
+    for clause in &having.clauses {
+        hash_group_having_clause_spec(hasher, clause);
+    }
+}
+
 fn hash_group_having_clause(hasher: &mut Sha256, clause: &ExplainGroupHavingClause) {
     match clause.symbol() {
         ExplainGroupHavingSymbol::GroupField { slot_index, field } => {
@@ -590,6 +897,29 @@ fn hash_group_having_clause(hasher: &mut Sha256, clause: &ExplainGroupHavingClau
     }
     write_tag(hasher, clause.op().tag());
     write_value(hasher, clause.value());
+}
+
+fn hash_group_having_clause_spec(hasher: &mut Sha256, clause: &GroupHavingClause) {
+    match &clause.symbol {
+        GroupHavingSymbol::GroupField(field_slot) => {
+            write_tag(hasher, 0x76);
+            write_u32(hasher, field_slot.index as u32);
+            write_str(hasher, &field_slot.field);
+        }
+        GroupHavingSymbol::AggregateIndex(index) => {
+            write_tag(hasher, 0x77);
+            write_u32(hasher, *index as u32);
+        }
+    }
+    write_tag(hasher, clause.op.tag());
+    write_value(hasher, &clause.value);
+}
+
+fn hash_grouped_strategy_hint(hasher: &mut Sha256, strategy: GroupedPlanStrategyHint) {
+    match strategy {
+        GroupedPlanStrategyHint::HashGroup => write_tag(hasher, 0x72),
+        GroupedPlanStrategyHint::OrderedGroup => write_tag(hasher, 0x73),
+    }
 }
 
 ///

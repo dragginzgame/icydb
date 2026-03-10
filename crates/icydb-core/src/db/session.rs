@@ -309,7 +309,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let compiled = query.plan()?;
         let explain = compiled.explain();
-        let plan_hash = explain.fingerprint().to_string();
+        let plan_hash = compiled.plan_hash_hex();
 
         let executable = compiled.into_executable();
         let access_strategy = AccessStrategy::from_plan(executable.access()).debug_summary();
