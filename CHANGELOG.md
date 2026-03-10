@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `0.47.5` continues structural containment by reducing route/validation branch pressure (including another route-planner/cursor-policy trim pass), splitting load projection/ranking terminals and grouped validation modules into clearer runtime boundaries, tightening route fast-path guard contracts, and requiring explicit DRY follow-ups whenever high-risk divergence seams are detected.
 - `0.47.6` continues load-hub decomposition by splitting scalar/orchestrate/fast-path/fast-stream-route/candidate/projection operator modules, updates audit governance so same-day reruns always compare to the day baseline, and re-runs crosscutting audits with stable risk scores (`complexity 6/10`, `velocity 5/10`, `module 5/10`, `layer 4/10`, `DRY 5/10`).
 - `0.47.7` ⚠️ introduces breaking temporal API-boundary contract enforcement: `Date` now must be `"YYYY-MM-DD"`, `Timestamp` must be RFC3339 text, and `Duration` remains integer milliseconds in JSON payloads.
+- `0.47.8` removes internal shim/wrapper layers in planner and executor paths so grouped policy/projection validation and access-descriptor wiring now call their semantic owners directly, reducing indirection without changing query behavior.
 
 See detailed breakdown:
 [docs/changelog/0.47.md](docs/changelog/0.47.md)

@@ -56,6 +56,8 @@ use crate::{
 };
 
 type IdValueProjection<E> = Vec<(Id<E>, Value)>;
+type CoveringProjectionPairRows = Vec<(DataKey, Value)>;
+type CoveringProjectionPairs = (CoveringProjectionContext, CoveringProjectionPairRows);
 
 impl<E> LoadExecutor<E>
 where
@@ -414,7 +416,7 @@ where
         &self,
         plan: &ExecutablePlan<E>,
         target_field: &PlannedFieldSlot,
-    ) -> Result<Option<(CoveringProjectionContext, Vec<(DataKey, Value)>)>, InternalError> {
+    ) -> Result<Option<CoveringProjectionPairs>, InternalError> {
         if plan.has_predicate() {
             return Ok(None);
         }
