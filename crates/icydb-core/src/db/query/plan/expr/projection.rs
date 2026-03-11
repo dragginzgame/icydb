@@ -14,6 +14,8 @@ use crate::db::query::plan::expr::ast::{Alias, Expr, FieldId};
 /// `All` projects the full entity model field list.
 /// `Fields` projects one explicit field subset in declaration order.
 /// `Expression` projects one computed expression.
+/// Invariant: projection order is planner-authoritative and must remain stable
+/// through executor/materialization boundaries.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -40,6 +42,8 @@ pub(crate) enum ProjectionField {
 ///
 /// Canonical projection semantic contract emitted by planner.
 /// Construction remains planner-only; consumers borrow read-only views.
+/// Invariant: `fields` order is canonical output order and must not be
+/// reordered by executor/output layers.
 ///
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]

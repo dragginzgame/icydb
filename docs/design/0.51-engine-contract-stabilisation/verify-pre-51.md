@@ -43,7 +43,21 @@ Edge cases to verify:
 - `OFFSET + LIMIT`
 - Continuation + `ORDER`
 
+Contract note to lock before `0.51`:
+
+- Scalar `LIMIT`/`OFFSET` without explicit `ORDER BY` is rejected (unordered pagination is not allowed).
+- Grouped pagination without explicit `ORDER BY` uses canonical grouped-key order.
+- Cursor pagination requires both `ORDER BY` and `LIMIT`.
+
 This ties directly to continuation-envelope stabilization in `0.51`.
+
+## 2.1 Continuation Token Versioning
+
+Lock continuation token envelope versioning before `0.51`:
+
+- Scalar and grouped continuation token wire payloads include an explicit `version` field.
+- Decode must fail closed for unknown token versions.
+- Continuation compatibility checks remain signature-bound to canonical query shape and ordering.
 
 ## 3. Full Projection Shapes
 
@@ -53,6 +67,11 @@ Before freezing projection behavior, ensure support for:
 - `SELECT field1, field2`
 - `SELECT computed_expression`
 - `SELECT aggregate(...)`
+
+Projection ordering invariant to lock before `0.51`:
+
+- `ProjectionSelection::Fields(Vec<FieldId>)` preserves declaration order from the query shape.
+- Executor/output layers must preserve planner projection order and must not reorder projected columns.
 
 No need for full SQL surface, but these projection forms should be complete enough that projection rules stay stable.
 
@@ -74,7 +93,43 @@ Before projection stabilization, executor should detect:
 
 - Index fully covers projection
 
+Covering projection invariant to lock before `0.51`:
+
+- For index-backed execution shapes, when projected fields are covered by index key components and ordering contract is compatible, executor may skip row materialization.
+- Covering eligibility must remain planner-authoritative and deterministic for identical query shapes.
+
 This allows avoiding row materialization. If missing, land it before contract freeze.
+
+## 6. Explain Stability
+
+Freeze EXPLAIN determinism before `0.51`:
+
+- Identical executable plan -> identical explain descriptor tree.
+- Executor refactors must not change explain descriptor structure for unchanged executable plans.
+
+## 7. Canonical Query-Shape Fingerprint
+
+Lock canonical query identity before `0.51`:
+
+- Identical logical query -> identical canonical fingerprint.
+- Canonical fingerprint is the planner-owned query identity used for plan/continuation/explain stability surfaces.
+- Semantically equivalent commutative predicate ordering (for example `a AND b` vs `b AND a`) must not change fingerprint identity.
+- Presentation-only differences must not change fingerprint identity (for example alias-only naming differences, and whitespace-only differences where textual query surfaces exist).
+
+## 8. Plan Shape Determinism
+
+Lock planner determinism before `0.51`:
+
+- Identical query + identical schema -> identical executable plan.
+- Planner candidate selection must be deterministic (no map-iteration-order dependence); candidate access paths must be ordered deterministically before selection.
+
+## 9. Cursor Envelope Immutability
+
+Lock cursor compatibility boundaries before `0.51`:
+
+- Cursor tokens are opaque to clients and immutable once issued.
+- Clients do not interpret cursor internals.
+- Internal token representation may evolve only through explicit versioned envelopes.
 
 ## Features That Should Not Be Added Now
 
