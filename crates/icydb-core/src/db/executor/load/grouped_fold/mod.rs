@@ -150,7 +150,7 @@ where
     pub(super) fn map_group_error(err: GroupError) -> InternalError {
         match err {
             GroupError::MemoryLimitExceeded { .. } | GroupError::DistinctBudgetExceeded { .. } => {
-                InternalError::executor_internal(err.to_string())
+                crate::db::error::executor_internal(err.to_string())
             }
             GroupError::Internal(inner) => inner,
         }

@@ -69,7 +69,7 @@ where
                 // - ordering comparator enforces monotonic stream contract
                 // - exact key equality controls DISTINCT suppression
                 if self.comparator.compare_data_keys(last, &next).is_gt() {
-                    return Err(InternalError::query_executor_invariant(
+                    return Err(crate::db::error::query_executor_invariant(
                         "distinct ordered stream received non-monotonic key order",
                     ));
                 }

@@ -103,7 +103,7 @@ where
                     &Value::Decimal(sum),
                     &Value::Decimal(numeric_value),
                 ) else {
-                    return Err(InternalError::query_executor_invariant(
+                    return Err(crate::db::error::query_executor_invariant(
                         "global grouped SUM(DISTINCT field) addition failed numeric coercion",
                     ));
                 };

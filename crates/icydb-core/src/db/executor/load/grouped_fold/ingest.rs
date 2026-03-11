@@ -67,7 +67,7 @@ where
                 .iter()
                 .map(|field| {
                     entity.get_value_by_index(field.index()).ok_or_else(|| {
-                        InternalError::query_executor_invariant(format!(
+                        crate::db::error::query_executor_invariant(format!(
                             "grouped field slot missing on entity: index={}",
                             field.index()
                         ))

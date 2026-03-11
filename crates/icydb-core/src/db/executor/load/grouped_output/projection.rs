@@ -67,7 +67,7 @@ where
                 &grouped_row,
             )
             .map_err(|err| {
-                InternalError::query_invalid_logical_plan(format!(
+                crate::db::error::query_invalid_logical_plan(format!(
                     "grouped projection evaluation failed: {err}",
                 ))
             })?;
@@ -76,7 +76,7 @@ where
             Vec::with_capacity(projection_layout.group_field_positions().len());
         for position in projection_layout.group_field_positions() {
             let Some(value) = projected_values.get(*position) else {
-                return Err(InternalError::query_executor_invariant(format!(
+                return Err(crate::db::error::query_executor_invariant(format!(
                     "grouped projection layout group-field position out of bounds: position={position}, projected_len={}",
                     projected_values.len()
                 )));
@@ -88,7 +88,7 @@ where
             Vec::with_capacity(projection_layout.aggregate_positions().len());
         for position in projection_layout.aggregate_positions() {
             let Some(value) = projected_values.get(*position) else {
-                return Err(InternalError::query_executor_invariant(format!(
+                return Err(crate::db::error::query_executor_invariant(format!(
                     "grouped projection layout aggregate position out of bounds: position={position}, projected_len={}",
                     projected_values.len()
                 )));

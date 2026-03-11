@@ -116,14 +116,14 @@ where
         };
 
         if projected_rows.len() != rows.len() {
-            return Err(InternalError::query_executor_invariant(
+            return Err(crate::db::error::query_executor_invariant(
                 "projection materialization cardinality mismatch against post-access rows",
             ));
         }
 
         for ((row_id, _), projected_row) in rows.iter().zip(projected_rows.iter()) {
             if projected_row.id() != *row_id {
-                return Err(InternalError::query_executor_invariant(
+                return Err(crate::db::error::query_executor_invariant(
                     "projection materialization id alignment mismatch against post-access rows",
                 ));
             }

@@ -59,7 +59,7 @@ where
             None
         };
         if aggregate_count == 0 {
-            return Err(InternalError::query_executor_invariant(
+            return Err(crate::db::error::query_executor_invariant(
                 "grouped execution requires at least one aggregate terminal",
             ));
         }
@@ -70,7 +70,7 @@ where
             .map(|engine| engine.finalize_grouped().map(Vec::into_iter))
             .collect::<Result<Vec<_>, _>>()?;
         let mut primary_iter = finalized_iters.drain(..1).next().ok_or_else(|| {
-            InternalError::query_executor_invariant("missing grouped primary iterator")
+            crate::db::error::query_executor_invariant("missing grouped primary iterator")
         })?;
         let mut grouped_candidate_sink =
             GroupedCandidateSink::new(selection_bound, max_groups_bound);
@@ -83,7 +83,7 @@ where
                 aggregate_values.push(Self::aggregate_output_to_value(primary_output.output()));
                 for (sibling_index, sibling_iter) in finalized_iters.iter_mut().enumerate() {
                     let sibling_output = sibling_iter.next().ok_or_else(|| {
-                        InternalError::query_executor_invariant(format!(
+                        crate::db::error::query_executor_invariant(format!(
                             "grouped finalize alignment missing sibling aggregate row: sibling_index={sibling_index}"
                         ))
                     })?;
@@ -91,7 +91,7 @@ where
                     if canonical_value_compare(sibling_group_key, &group_key_value)
                         != Ordering::Equal
                     {
-                        return Err(InternalError::query_executor_invariant(format!(
+                        return Err(crate::db::error::query_executor_invariant(format!(
                             "grouped finalize alignment mismatch at sibling_index={sibling_index}: primary_key={group_key_value:?}, sibling_key={sibling_group_key:?}"
                         )));
                     }
@@ -122,7 +122,7 @@ where
             }
             for (sibling_index, sibling_iter) in finalized_iters.iter_mut().enumerate() {
                 if sibling_iter.next().is_some() {
-                    return Err(InternalError::query_executor_invariant(format!(
+                    return Err(crate::db::error::query_executor_invariant(format!(
                         "grouped finalize alignment has trailing sibling rows: sibling_index={sibling_index}"
                     )));
                 }

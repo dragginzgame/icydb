@@ -103,7 +103,7 @@ where
         match payload {
             LoadExecutionPayload::Scalar(page) => Ok(page),
             LoadExecutionPayload::Grouped(_) => {
-                Err(InternalError::query_executor_invariant(mismatch_message))
+                Err(crate::db::error::query_executor_invariant(mismatch_message))
             }
         }
     }
@@ -116,7 +116,7 @@ where
         match payload {
             LoadExecutionPayload::Grouped(page) => Ok(page),
             LoadExecutionPayload::Scalar(_) => {
-                Err(InternalError::query_executor_invariant(mismatch_message))
+                Err(crate::db::error::query_executor_invariant(mismatch_message))
             }
         }
     }

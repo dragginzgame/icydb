@@ -43,12 +43,12 @@ where
         && let Some(resume_boundary) = resume_boundary
     {
         let Some(order) = logical.order.as_ref() else {
-            return Err(InternalError::query_executor_invariant(
+            return Err(crate::db::error::query_executor_invariant(
                 "cursor boundary requires ordering",
             ));
         };
         if !ordered {
-            return Err(InternalError::query_executor_invariant(
+            return Err(crate::db::error::query_executor_invariant(
                 "cursor boundary must run after ordering",
             ));
         }

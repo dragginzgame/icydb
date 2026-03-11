@@ -64,7 +64,7 @@ where
             return Ok(None);
         };
         let Some(index_prefix_spec) = index_prefix_spec else {
-            return Err(InternalError::query_executor_invariant(
+            return Err(crate::db::error::query_executor_invariant(
                 "index-prefix executable spec must be materialized for index-prefix plans",
             ));
         };
@@ -114,7 +114,7 @@ where
             return Ok(None);
         };
         let Some(index_range_spec) = index_range_spec else {
-            return Err(InternalError::query_executor_invariant(
+            return Err(crate::db::error::query_executor_invariant(
                 "index-range executable spec must be materialized for index-range plans",
             ));
         };

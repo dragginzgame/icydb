@@ -27,11 +27,11 @@ impl KeyCanonicalError {
     /// Convert one key-canonicalization failure into the executor error surface.
     pub(in crate::db) fn into_internal_error(self) -> InternalError {
         match self {
-            Self::InvalidMapValue(err) => InternalError::executor_invariant(format!(
+            Self::InvalidMapValue(err) => crate::db::error::executor_invariant(format!(
                 "group key canonicalization rejected map value: {err}"
             )),
             Self::HashingFailed { reason } => {
-                InternalError::executor_internal(format!("group key hashing failed: {reason}"))
+                crate::db::error::executor_internal(format!("group key hashing failed: {reason}"))
             }
         }
     }

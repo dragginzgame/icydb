@@ -320,7 +320,7 @@ fn lower_index_prefix_values_for_specs<E: EntityKind>(
     specs: &mut Vec<LoweredIndexPrefixSpec>,
 ) -> Result<(), InternalError> {
     let prefix_components = EncodedValue::try_encode_all(values).map_err(|_| {
-        InternalError::query_executor_invariant(LOWERED_INDEX_PREFIX_VALUE_NOT_INDEXABLE)
+        crate::db::error::query_executor_invariant(LOWERED_INDEX_PREFIX_VALUE_NOT_INDEXABLE)
     })?;
     let (lower, upper) = raw_keys_for_encoded_prefix::<E>(&index, prefix_components.as_slice());
     specs.push(LoweredIndexPrefixSpec::new(
@@ -352,7 +352,7 @@ fn collect_index_range_specs<E: EntityKind>(
                     spec.upper(),
                     LoweredIndexNotIndexableReasonScope::ValidatedSpec,
                 )
-                .map_err(InternalError::query_executor_invariant)?;
+                .map_err(crate::db::error::query_executor_invariant)?;
                 specs.push(LoweredIndexRangeSpec::new(*spec.index(), lower, upper));
             }
 

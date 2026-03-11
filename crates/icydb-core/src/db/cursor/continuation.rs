@@ -111,8 +111,8 @@ where
     };
 
     let Some(order) = order else {
-        return Err(InternalError::cursor_invariant(
-            InternalError::executor_invariant_message(
+        return Err(crate::db::error::cursor_invariant(
+            crate::db::error::executor_invariant_message(
                 "cannot build continuation cursor without ordering",
             ),
         ));
@@ -145,7 +145,7 @@ where
     let boundary = cursor_boundary_from_entity(entity, order);
     let token = if let Some((index, _, _, _)) = access.as_index_range_path() {
         let index_key = IndexKey::new(entity, index)?.ok_or_else(|| {
-            InternalError::cursor_invariant(InternalError::executor_invariant_message(
+            crate::db::error::cursor_invariant(crate::db::error::executor_invariant_message(
                 "cursor row is not indexable for planned index-range access",
             ))
         })?;
@@ -154,8 +154,8 @@ where
             continuation_advanced(direction, &last_emitted_raw_key, previous_anchor_raw_key)
         });
         if !advanced {
-            return Err(InternalError::cursor_invariant(
-                InternalError::executor_invariant_message(
+            return Err(crate::db::error::cursor_invariant(
+                crate::db::error::executor_invariant_message(
                     "index-range continuation anchor must advance strictly against previous anchor",
                 ),
             ));

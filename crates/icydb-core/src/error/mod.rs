@@ -7,12 +7,7 @@
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
-use crate::db::query::plan::{PlanError, PlanPolicyError, PlanUserError, PolicyPlanError};
-use crate::{
-    db::{access::AccessPlanError, cursor::CursorPlanError},
-    patch::MergePatchError,
-};
+use crate::patch::MergePatchError;
 use std::fmt;
 use thiserror::Error as ThisError;
 
@@ -208,69 +203,11 @@ impl InternalError {
         Self::classified(self.class, origin, self.message)
     }
 
-    /// Construct a query-origin invariant violation.
-    pub(crate) fn query_invariant(message: impl Into<String>) -> Self {
-        Self::new(
-            ErrorClass::InvariantViolation,
-            ErrorOrigin::Query,
-            message.into(),
-        )
-    }
-
-    /// Construct a planner-origin invariant violation.
-    pub(crate) fn planner_invariant(message: impl Into<String>) -> Self {
-        Self::new(
-            ErrorClass::InvariantViolation,
-            ErrorOrigin::Planner,
-            message.into(),
-        )
-    }
-
-    /// Build the canonical executor-invariant message prefix.
-    #[must_use]
-    pub(crate) fn executor_invariant_message(reason: impl Into<String>) -> String {
-        format!("executor invariant violated: {}", reason.into())
-    }
-
-    /// Build the canonical invalid-logical-plan message prefix.
-    #[must_use]
-    pub(crate) fn invalid_logical_plan_message(reason: impl Into<String>) -> String {
-        format!("invalid logical plan: {}", reason.into())
-    }
-
-    /// Construct a query-origin invariant with the canonical executor prefix.
-    pub(crate) fn query_executor_invariant(reason: impl Into<String>) -> Self {
-        Self::query_invariant(Self::executor_invariant_message(reason))
-    }
-
-    /// Construct a query-origin invariant with the canonical invalid-plan prefix.
-    pub(crate) fn query_invalid_logical_plan(reason: impl Into<String>) -> Self {
-        Self::planner_invariant(Self::invalid_logical_plan_message(reason))
-    }
-
-    /// Construct a cursor-origin invariant violation.
-    pub(crate) fn cursor_invariant(message: impl Into<String>) -> Self {
-        Self::new(
-            ErrorClass::InvariantViolation,
-            ErrorOrigin::Cursor,
-            message.into(),
-        )
-    }
-
     /// Construct an index-origin invariant violation.
     pub(crate) fn index_invariant(message: impl Into<String>) -> Self {
         Self::new(
             ErrorClass::InvariantViolation,
             ErrorOrigin::Index,
-            message.into(),
-        )
-    }
-
-    /// Construct an executor-origin invariant violation.
-    pub(crate) fn executor_invariant(message: impl Into<String>) -> Self {
-        Self::new(
-            ErrorClass::InvariantViolation,
-            ErrorOrigin::Executor,
             message.into(),
         )
     }
@@ -287,11 +224,6 @@ impl InternalError {
     /// Construct a store-origin internal error.
     pub(crate) fn store_internal(message: impl Into<String>) -> Self {
         Self::new(ErrorClass::Internal, ErrorOrigin::Store, message.into())
-    }
-
-    /// Construct an executor-origin internal error.
-    pub(crate) fn executor_internal(message: impl Into<String>) -> Self {
-        Self::new(ErrorClass::Internal, ErrorOrigin::Executor, message.into())
     }
 
     /// Construct an index-origin internal error.
@@ -346,15 +278,6 @@ impl InternalError {
     /// Construct an index-origin unsupported error.
     pub(crate) fn index_unsupported(message: impl Into<String>) -> Self {
         Self::new(ErrorClass::Unsupported, ErrorOrigin::Index, message.into())
-    }
-
-    /// Construct an executor-origin unsupported error.
-    pub(crate) fn executor_unsupported(message: impl Into<String>) -> Self {
-        Self::new(
-            ErrorClass::Unsupported,
-            ErrorOrigin::Executor,
-            message.into(),
-        )
     }
 
     /// Construct a serialize-origin unsupported error.
@@ -456,83 +379,6 @@ impl InternalError {
                 index_fields.join(", ")
             ),
         )
-    }
-
-    /// Map cursor-plan failures into runtime taxonomy classes.
-    ///
-    /// Cursor token/version/signature/window/payload mismatches are external
-    /// input failures (`Unsupported` at cursor origin). Only explicit
-    /// continuation invariant violations remain invariant-class failures.
-    pub(crate) fn from_cursor_plan_error(err: CursorPlanError) -> Self {
-        match err {
-            CursorPlanError::ContinuationCursorInvariantViolation { reason } => {
-                Self::cursor_invariant(reason)
-            }
-            CursorPlanError::InvalidContinuationCursor { .. }
-            | CursorPlanError::InvalidContinuationCursorPayload { .. }
-            | CursorPlanError::ContinuationCursorVersionMismatch { .. }
-            | CursorPlanError::ContinuationCursorSignatureMismatch { .. }
-            | CursorPlanError::ContinuationCursorBoundaryArityMismatch { .. }
-            | CursorPlanError::ContinuationCursorWindowMismatch { .. }
-            | CursorPlanError::ContinuationCursorBoundaryTypeMismatch { .. }
-            | CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch { .. } => {
-                Self::cursor_unsupported(err.to_string())
-            }
-        }
-    }
-
-    /// Map grouped plan failures into query-boundary invariants.
-    #[cfg(test)]
-    pub(crate) fn from_group_plan_error(err: PlanError) -> Self {
-        let message = match err {
-            PlanError::User(inner) => match *inner {
-                PlanUserError::Group(inner) => {
-                    Self::invalid_logical_plan_message(inner.to_string())
-                }
-                other => {
-                    format!("group-plan error conversion received non-group user variant: {other}")
-                }
-            },
-            PlanError::Policy(inner) => match *inner {
-                PlanPolicyError::Group(inner) => {
-                    Self::invalid_logical_plan_message(inner.to_string())
-                }
-                PlanPolicyError::Policy(inner) => format!(
-                    "group-plan error conversion received non-group policy variant: {inner}"
-                ),
-            },
-            PlanError::Cursor(inner) => {
-                format!("group-plan error conversion received cursor variant: {inner}")
-            }
-        };
-
-        Self::planner_invariant(message)
-    }
-
-    /// Map shared access-validation failures into executor-boundary invariants.
-    pub(crate) fn from_executor_access_plan_error(err: AccessPlanError) -> Self {
-        Self::query_invariant(err.to_string())
-    }
-
-    /// Map plan-shape policy variants into executor-boundary invariants without
-    /// string-based conversion paths.
-    #[cfg(test)]
-    pub(crate) fn plan_invariant_violation(err: PolicyPlanError) -> Self {
-        let reason = match err {
-            PolicyPlanError::EmptyOrderSpec => {
-                "order specification must include at least one field"
-            }
-            PolicyPlanError::DeletePlanWithOffset => "delete plans must not include OFFSET",
-            PolicyPlanError::DeletePlanWithGrouping => {
-                "delete plans must not include GROUP BY or HAVING"
-            }
-            PolicyPlanError::DeletePlanWithPagination => "delete plans must not include pagination",
-            PolicyPlanError::LoadPlanWithDeleteLimit => "load plans must not carry delete limits",
-            PolicyPlanError::DeleteLimitRequiresOrder => "delete limit requires explicit ordering",
-            PolicyPlanError::UnorderedPagination => "pagination requires explicit ordering",
-        };
-
-        Self::planner_invariant(Self::executor_invariant_message(reason))
     }
 }
 

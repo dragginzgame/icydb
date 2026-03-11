@@ -32,7 +32,7 @@ where
         };
 
         let value = entity.get_value_by_index(field_index).ok_or_else(|| {
-            InternalError::executor_invariant(format!(
+            crate::db::error::executor_invariant(format!(
                 "entity field missing: {} field={}",
                 E::PATH,
                 field.name

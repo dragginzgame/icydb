@@ -16,8 +16,6 @@ mod nat;
 mod principal;
 mod repr;
 mod subaccount;
-#[cfg(test)]
-mod tests_temporal_boundary;
 mod timestamp;
 mod ulid;
 mod unit;

@@ -5,8 +5,12 @@
 
 use super::*;
 use crate::db::{
+    access::AccessPlanError,
     cursor::CursorPlanError,
-    query::plan::validate::{GroupPlanError, OrderPlanError, PlanPolicyError, PlanUserError},
+    query::plan::{
+        PlanError, PolicyPlanError,
+        validate::{GroupPlanError, OrderPlanError, PlanPolicyError, PlanUserError},
+    },
 };
 
 #[test]
@@ -52,21 +56,21 @@ fn index_plan_store_invariant_uses_store_origin() {
 
 #[test]
 fn query_executor_invariant_uses_invariant_violation_class() {
-    let err = InternalError::query_executor_invariant("route contract mismatch");
+    let err = crate::db::error::query_executor_invariant("route contract mismatch");
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Query);
 }
 
 #[test]
 fn executor_access_plan_error_mapping_stays_invariant_violation() {
-    let err = InternalError::from_executor_access_plan_error(AccessPlanError::IndexPrefixEmpty);
+    let err = crate::db::error::from_executor_access_plan_error(AccessPlanError::IndexPrefixEmpty);
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Query);
 }
 
 #[test]
 fn plan_policy_error_mapping_uses_executor_invariant_prefix() {
-    let err = InternalError::plan_invariant_violation(PolicyPlanError::DeleteLimitRequiresOrder);
+    let err = crate::db::error::plan_invariant_violation(PolicyPlanError::DeleteLimitRequiresOrder);
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Planner);
     assert_eq!(
@@ -77,10 +81,11 @@ fn plan_policy_error_mapping_uses_executor_invariant_prefix() {
 
 #[test]
 fn group_plan_error_mapping_uses_invalid_logical_plan_prefix() {
-    let err =
-        InternalError::from_group_plan_error(PlanError::from(GroupPlanError::UnknownGroupField {
+    let err = crate::db::error::from_group_plan_error(PlanError::from(
+        GroupPlanError::UnknownGroupField {
             field: "tenant".to_string(),
-        }));
+        },
+    ));
 
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Planner);
@@ -92,7 +97,7 @@ fn group_plan_error_mapping_uses_invalid_logical_plan_prefix() {
 
 #[test]
 fn group_plan_error_mapping_rejects_non_group_user_variant() {
-    let err = InternalError::from_group_plan_error(PlanError::from(PlanUserError::Order(
+    let err = crate::db::error::from_group_plan_error(PlanError::from(PlanUserError::Order(
         Box::new(OrderPlanError::UnknownField {
             field: "tenant".to_string(),
         }),
@@ -109,7 +114,7 @@ fn group_plan_error_mapping_rejects_non_group_user_variant() {
 
 #[test]
 fn group_plan_error_mapping_rejects_non_group_policy_variant() {
-    let err = InternalError::from_group_plan_error(PlanError::from(PlanPolicyError::Policy(
+    let err = crate::db::error::from_group_plan_error(PlanError::from(PlanPolicyError::Policy(
         Box::new(PolicyPlanError::UnorderedPagination),
     )));
 
@@ -124,7 +129,7 @@ fn group_plan_error_mapping_rejects_non_group_policy_variant() {
 
 #[test]
 fn group_plan_error_mapping_rejects_cursor_variant() {
-    let err = InternalError::from_group_plan_error(PlanError::from(
+    let err = crate::db::error::from_group_plan_error(PlanError::from(
         CursorPlanError::ContinuationCursorWindowMismatch {
             expected_offset: 8,
             actual_offset: 3,
@@ -142,10 +147,11 @@ fn group_plan_error_mapping_rejects_cursor_variant() {
 
 #[test]
 fn cursor_plan_error_mapping_classifies_invalid_payload_as_unsupported() {
-    let err =
-        InternalError::from_cursor_plan_error(CursorPlanError::InvalidContinuationCursorPayload {
+    let err = crate::db::error::from_cursor_plan_error(
+        CursorPlanError::InvalidContinuationCursorPayload {
             reason: "bad payload".to_string(),
-        });
+        },
+    );
 
     assert_eq!(err.class, ErrorClass::Unsupported);
     assert_eq!(err.origin, ErrorOrigin::Cursor);
@@ -154,7 +160,7 @@ fn cursor_plan_error_mapping_classifies_invalid_payload_as_unsupported() {
 
 #[test]
 fn cursor_plan_error_mapping_classifies_signature_mismatch_as_unsupported() {
-    let err = InternalError::from_cursor_plan_error(
+    let err = crate::db::error::from_cursor_plan_error(
         CursorPlanError::ContinuationCursorSignatureMismatch {
             entity_path: "tests::Entity",
             expected: "aa".to_string(),
@@ -168,7 +174,7 @@ fn cursor_plan_error_mapping_classifies_signature_mismatch_as_unsupported() {
 
 #[test]
 fn cursor_plan_error_mapping_keeps_invariant_violation_class() {
-    let err = InternalError::from_cursor_plan_error(
+    let err = crate::db::error::from_cursor_plan_error(
         CursorPlanError::ContinuationCursorInvariantViolation {
             reason: "runtime cursor contract violated".to_string(),
         },
@@ -256,7 +262,7 @@ fn classification_integrity_cursor_conversion_matrix_is_restricted() {
 
     for cursor_err in cases {
         let expected_class = expected_class_from_cursor_variant(&cursor_err);
-        let err = InternalError::from_cursor_plan_error(cursor_err);
+        let err = crate::db::error::from_cursor_plan_error(cursor_err);
         assert_eq!(err.origin, ErrorOrigin::Cursor);
         assert_eq!(
             err.class, expected_class,
@@ -267,7 +273,7 @@ fn classification_integrity_cursor_conversion_matrix_is_restricted() {
 
 #[test]
 fn classification_integrity_access_plan_conversion_stays_invariant() {
-    let err = InternalError::from_executor_access_plan_error(AccessPlanError::InvalidKeyRange);
+    let err = crate::db::error::from_executor_access_plan_error(AccessPlanError::InvalidKeyRange);
 
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Query);

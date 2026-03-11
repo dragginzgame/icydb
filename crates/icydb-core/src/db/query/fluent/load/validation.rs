@@ -9,7 +9,6 @@ use crate::{
         intent::{IntentError, QueryError},
         plan::{FieldSlot, validate_fluent_non_paged_mode, validate_fluent_paged_mode},
     },
-    error::InternalError,
     traits::EntityKind,
 };
 
@@ -22,7 +21,7 @@ where
     // planner slot resolution and drift back to runtime string lookups.
     pub(super) fn resolve_terminal_field_slot(field: &str) -> Result<FieldSlot, QueryError> {
         FieldSlot::resolve(E::MODEL, field).ok_or_else(|| {
-            QueryError::execute(InternalError::executor_unsupported(format!(
+            QueryError::execute(crate::db::error::executor_unsupported(format!(
                 "unknown aggregate target field: {field}",
             )))
         })

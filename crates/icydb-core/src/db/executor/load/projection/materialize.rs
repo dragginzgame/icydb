@@ -54,7 +54,7 @@ impl<'a> ScalarProjectionExecutionStrategy<'a> {
             Self::Identity => Ok(None),
             Self::Materialized(projection) => {
                 let projected = project_rows_from_projection::<E>(projection, rows)
-                    .map_err(|err| InternalError::query_invalid_logical_plan(err.to_string()))?;
+                    .map_err(|err| crate::db::error::query_invalid_logical_plan(err.to_string()))?;
                 Ok(Some(projected))
             }
         }

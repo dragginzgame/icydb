@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `0.48.2` adds clearer EXPLAIN execution diagnostics (covering-scan eligibility, cursor resume metadata, and fast-path reason codes) and fixes a DB codegen bug so generated `icydb_snapshot()` uses the active database handle correctly.
 - `0.48.3` removes the internal `db::error` wrapper module so DB runtime code now constructs invariant errors directly through `InternalError` constructors with unchanged formatting and behavior.
 - `0.48.4` splits EXPLAIN into smaller focused modules, consolidates runtime schema contracts under `db::schema`, replaces ad-hoc EXPLAIN JSON object assembly with one deterministic writer, and renames the advanced metrics namespace from `obs` to `metrics`.
+- `0.48.5` continues boundary cleanup by making `value` own `StorageKey` (removing the `value -> db` dependency), moving DB-only executor/query/planner/cursor error constructors out of `InternalError`, and organizing `db::error` into smaller subsystem modules.
 
 See detailed breakdown:
 [docs/changelog/0.48.md](docs/changelog/0.48.md)

@@ -8,7 +8,10 @@ pub(crate) mod context;
 pub(crate) mod sanitize;
 pub(crate) mod validate;
 
-use crate::{error::InternalError, traits::Visitable};
+use crate::{
+    error::{ErrorClass, ErrorOrigin, InternalError},
+    traits::Visitable,
+};
 use candid::CandidType;
 use derive_more::{Deref, DerefMut};
 use serde::{Deserialize, Serialize};
@@ -50,7 +53,11 @@ impl From<VisitorError> for VisitorIssues {
 
 impl From<VisitorError> for InternalError {
     fn from(err: VisitorError) -> Self {
-        Self::executor_unsupported(err.to_string())
+        Self::classified(
+            ErrorClass::Unsupported,
+            ErrorOrigin::Executor,
+            err.to_string(),
+        )
     }
 }
 

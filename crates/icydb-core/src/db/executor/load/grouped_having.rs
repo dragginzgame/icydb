@@ -31,7 +31,7 @@ where
                     let group_key_list = match group_key_value {
                         Value::List(values) => values,
                         value => {
-                            return Err(InternalError::query_executor_invariant(format!(
+                            return Err(crate::db::error::query_executor_invariant(format!(
                                 "grouped HAVING requires list-shaped grouped keys, found {value:?}"
                             )));
                         }
@@ -40,13 +40,13 @@ where
                         .iter()
                         .position(|group_field| group_field.index() == field_slot.index())
                     else {
-                        return Err(InternalError::query_executor_invariant(format!(
+                        return Err(crate::db::error::query_executor_invariant(format!(
                             "grouped HAVING field is not in grouped key projection: field='{}'",
                             field_slot.field()
                         )));
                     };
                     group_key_list.get(group_field_offset).ok_or_else(|| {
-                        InternalError::query_executor_invariant(format!(
+                        crate::db::error::query_executor_invariant(format!(
                             "grouped HAVING group key offset out of bounds: clause_index={index}, offset={group_field_offset}, key_len={}",
                             group_key_list.len()
                         ))
@@ -54,7 +54,7 @@ where
                 }
                 GroupHavingSymbol::AggregateIndex(aggregate_index) => {
                     aggregate_values.get(*aggregate_index).ok_or_else(|| {
-                        InternalError::query_executor_invariant(format!(
+                        crate::db::error::query_executor_invariant(format!(
                             "grouped HAVING aggregate index out of bounds: clause_index={index}, aggregate_index={aggregate_index}, aggregate_count={}",
                             aggregate_values.len()
                         ))
@@ -77,7 +77,7 @@ where
         expected: &Value,
     ) -> Result<bool, InternalError> {
         let Some(matches) = evaluate_grouped_having_compare_v1(actual, op, expected) else {
-            return Err(InternalError::query_executor_invariant(format!(
+            return Err(crate::db::error::query_executor_invariant(format!(
                 "unsupported grouped HAVING operator reached executor: {op:?}",
             )));
         };

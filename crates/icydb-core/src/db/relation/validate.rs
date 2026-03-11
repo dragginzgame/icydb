@@ -110,7 +110,7 @@ where
                         reverse_lookups: 0,
                         blocked_deletes: 1,
                     });
-                    return Err(InternalError::executor_unsupported(
+                    return Err(crate::db::error::executor_unsupported(
                         blocked_delete_diagnostic::<S>(relation, source_key, &target_value),
                     ));
                 }

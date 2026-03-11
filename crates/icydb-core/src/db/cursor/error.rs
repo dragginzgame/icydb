@@ -8,7 +8,6 @@ use crate::{
         codec::cursor::CursorDecodeError,
         cursor::{ContinuationSignature, TokenWireError},
     },
-    error::InternalError,
     value::Value,
 };
 use thiserror::Error as ThisError;
@@ -118,14 +117,14 @@ impl CursorPlanError {
 
     /// Construct one invariant error for missing explicit cursor ordering.
     pub(in crate::db) fn cursor_requires_order() -> Self {
-        Self::continuation_cursor_invariant(InternalError::executor_invariant_message(
+        Self::continuation_cursor_invariant(crate::db::error::executor_invariant_message(
             Self::cursor_requires_order_message(),
         ))
     }
 
     /// Construct one invariant error for empty cursor ORDER BY specifications.
     pub(in crate::db) fn cursor_requires_non_empty_order() -> Self {
-        Self::continuation_cursor_invariant(InternalError::executor_invariant_message(
+        Self::continuation_cursor_invariant(crate::db::error::executor_invariant_message(
             Self::cursor_requires_non_empty_order_message(),
         ))
     }

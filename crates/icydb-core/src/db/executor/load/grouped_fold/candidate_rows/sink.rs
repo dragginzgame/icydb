@@ -51,7 +51,7 @@ impl GroupedCandidateSink {
                     canonical_value_compare(existing_key, &group_key_value)
                 }) {
                     Ok(_) => {
-                        return Err(InternalError::query_executor_invariant(format!(
+                        return Err(crate::db::error::query_executor_invariant(format!(
                             "grouped finalize produced duplicate canonical group key: {group_key_value:?}"
                         )));
                     }

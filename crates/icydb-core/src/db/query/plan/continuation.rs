@@ -15,7 +15,6 @@ use crate::{
             GroupedCursorPolicyViolation, grouped_cursor_policy_violation,
         },
     },
-    error::InternalError,
     traits::{EntityKind, FieldValue},
     value::Value,
 };
@@ -401,7 +400,7 @@ impl<K: FieldValue + Clone> ContinuationContract<K> {
     fn validate_grouped_cursor_policy(&self) -> Result<(), CursorPlanError> {
         if let Some(violation) = self.grouped_cursor_policy_violation() {
             return Err(CursorPlanError::continuation_cursor_invariant(
-                InternalError::executor_invariant_message(violation.invariant_message()),
+                crate::db::error::executor_invariant_message(violation.invariant_message()),
             ));
         }
 
@@ -476,7 +475,7 @@ impl<K: FieldValue + Clone> AccessPlannedQuery<K> {
 }
 
 fn cursor_invariant_error(message: impl Into<String>) -> CursorPlanError {
-    CursorPlanError::continuation_cursor_invariant(InternalError::executor_invariant_message(
+    CursorPlanError::continuation_cursor_invariant(crate::db::error::executor_invariant_message(
         message,
     ))
 }

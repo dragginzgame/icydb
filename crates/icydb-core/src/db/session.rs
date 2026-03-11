@@ -363,7 +363,7 @@ impl<C: CanisterKind> DbSession<C> {
         match plan.execution_strategy().map_err(QueryError::execute)? {
             ExecutionStrategy::PrimaryKey => {
                 return Err(QueryError::execute(
-                    InternalError::query_executor_invariant(
+                    crate::db::error::query_executor_invariant(
                         "cursor pagination requires explicit or grouped ordering",
                     ),
                 ));
@@ -371,7 +371,7 @@ impl<C: CanisterKind> DbSession<C> {
             ExecutionStrategy::Ordered => {}
             ExecutionStrategy::Grouped => {
                 return Err(QueryError::execute(
-                    InternalError::query_executor_invariant(
+                    crate::db::error::query_executor_invariant(
                         "grouped plans require execute_grouped(...)",
                     ),
                 ));
@@ -396,7 +396,7 @@ impl<C: CanisterKind> DbSession<C> {
             .map(|token| {
                 let Some(token) = token.as_scalar() else {
                     return Err(QueryError::execute(
-                        InternalError::query_executor_invariant(
+                        crate::db::error::query_executor_invariant(
                             "scalar load pagination emitted grouped continuation token",
                         ),
                     ));
@@ -436,7 +436,7 @@ impl<C: CanisterKind> DbSession<C> {
             ExecutionStrategy::Grouped
         ) {
             return Err(QueryError::execute(
-                InternalError::query_executor_invariant(
+                crate::db::error::query_executor_invariant(
                     "execute_grouped requires grouped logical plans",
                 ),
             ));
@@ -460,7 +460,7 @@ impl<C: CanisterKind> DbSession<C> {
             .map(|token| {
                 let Some(token) = token.as_grouped() else {
                     return Err(QueryError::execute(
-                        InternalError::query_executor_invariant(
+                        crate::db::error::query_executor_invariant(
                             "grouped pagination emitted scalar continuation token",
                         ),
                     ));

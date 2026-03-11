@@ -98,7 +98,7 @@ where
         let page = plan.page_spec().cloned();
         let access_strategy = plan.access().resolve_strategy();
         let Some(path) = access_strategy.as_path() else {
-            return Err(InternalError::query_executor_invariant(
+            return Err(crate::db::error::query_executor_invariant(
                 "bytes PK fast path requires single-path access strategy",
             ));
         };
@@ -117,7 +117,7 @@ where
                     &start_key, &end_key, direction, offset, limit,
                 )
             }
-            _ => Err(InternalError::query_executor_invariant(
+            _ => Err(crate::db::error::query_executor_invariant(
                 "bytes PK fast path requires full-scan or key-range access",
             )),
         }

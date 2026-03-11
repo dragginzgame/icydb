@@ -92,7 +92,7 @@ impl LoadExecutionMode {
             (self.mode, self.tracing),
             (LoadMode::ScalarRows, LoadTracingMode::Enabled)
         ) {
-            Err(InternalError::query_executor_invariant(
+            Err(crate::db::error::query_executor_invariant(
                 "scalar rows load mode must not request tracing output",
             ))
         } else {

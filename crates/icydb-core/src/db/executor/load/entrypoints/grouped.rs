@@ -36,7 +36,7 @@ where
         )?;
         match surface {
             LoadExecutionSurface::GroupedPageWithTrace(page, trace) => Ok((page, trace)),
-            _ => Err(InternalError::query_executor_invariant(
+            _ => Err(crate::db::error::query_executor_invariant(
                 "grouped traced entrypoint must produce grouped traced page surface",
             )),
         }

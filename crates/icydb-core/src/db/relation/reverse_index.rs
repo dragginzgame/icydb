@@ -123,7 +123,7 @@ where
     let value = source
         .get_value_by_index(relation.field_index)
         .ok_or_else(|| {
-            InternalError::executor_internal(format!(
+            crate::db::error::executor_internal(format!(
                 "entity field missing during strong relation processing: source={} field={}",
                 S::PATH,
                 relation.field_name,
@@ -182,7 +182,7 @@ where
     db.with_store_registry(|reg| reg.try_get_store(relation.target_store_path))
         .map(|store| store.index_store())
         .map_err(|err| {
-            InternalError::executor_internal(format!(
+            crate::db::error::executor_internal(format!(
                 "relation target store missing: source={} field={} target={} store={} ({err})",
                 S::PATH,
                 relation.field_name,
@@ -255,7 +255,7 @@ where
                 RelationTargetMismatchPolicy::Reject,
             )?
             else {
-                return Err(InternalError::executor_internal(format!(
+                return Err(crate::db::error::executor_internal(format!(
                     "relation target decode invariant violated while preparing reverse index: source={} field={} target={}",
                     S::PATH,
                     relation.field_name,

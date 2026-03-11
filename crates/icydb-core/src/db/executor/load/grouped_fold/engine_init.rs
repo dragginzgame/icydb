@@ -48,12 +48,12 @@ where
                     .grouped_aggregate_exprs()
                     .get(aggregate_index)
                     .ok_or_else(|| {
-                        InternalError::query_executor_invariant(format!(
+                        crate::db::error::query_executor_invariant(format!(
                             "grouped aggregate index out of bounds for projection layout: projection_index={projection_index}, aggregate_index={aggregate_index}"
                         ))
                     })?;
                 if aggregate_expr.target_field().is_some() {
-                    return Err(InternalError::query_executor_invariant(format!(
+                    return Err(crate::db::error::query_executor_invariant(format!(
                         "grouped field-target aggregate reached executor after planning: {:?}",
                         aggregate_expr.kind()
                     )));

@@ -33,7 +33,7 @@ where
     ) -> Result<GroupedRouteStage<E>, InternalError> {
         let grouped_handoff = plan.grouped_handoff()?;
         if let Some(reason) = grouped_handoff.distinct_policy_violation_for_executor() {
-            return Err(InternalError::query_executor_invariant(
+            return Err(crate::db::error::query_executor_invariant(
                 reason.invariant_message(),
             ));
         }
@@ -52,7 +52,7 @@ where
             Self::build_execution_route_plan_for_grouped_handoff(grouped_handoff);
         let grouped_route_observability =
             grouped_route_plan.grouped_observability().ok_or_else(|| {
-                InternalError::query_executor_invariant(
+                crate::db::error::query_executor_invariant(
                     "grouped route planning must emit grouped observability payload",
                 )
             })?;

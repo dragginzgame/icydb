@@ -140,8 +140,8 @@ pub(in crate::db) fn grouped_executor_handoff<K>(
 ) -> Result<GroupedExecutorHandoff<'_, K>, InternalError> {
     // Grouped handoff is valid only for plans with grouped execution payload.
     let Some(grouped) = plan.grouped_plan() else {
-        return Err(InternalError::planner_invariant(
-            InternalError::executor_invariant_message(
+        return Err(crate::db::error::planner_invariant(
+            crate::db::error::executor_invariant_message(
                 "grouped executor handoff requires grouped logical plans",
             ),
         ));
@@ -156,7 +156,7 @@ pub(in crate::db) fn grouped_executor_handoff<K>(
     )
     .map(|()| true)?;
     let grouped_plan_strategy_hint = grouped_plan_strategy_hint(plan).ok_or_else(|| {
-        InternalError::planner_invariant(InternalError::executor_invariant_message(
+        crate::db::error::planner_invariant(crate::db::error::executor_invariant_message(
             "grouped executor handoff must carry grouped strategy hint for grouped plans",
         ))
     })?;
@@ -255,15 +255,15 @@ fn grouped_distinct_execution_strategy(
             | AggregateKind::Min
             | AggregateKind::Max
             | AggregateKind::First
-            | AggregateKind::Last => Err(InternalError::planner_invariant(
-                InternalError::executor_invariant_message(
+            | AggregateKind::Last => Err(crate::db::error::planner_invariant(
+                crate::db::error::executor_invariant_message(
                     "planner grouped DISTINCT strategy handoff must lower only COUNT/SUM field-target aggregates",
                 ),
             )),
         },
         Ok(None) => Ok(GroupedDistinctExecutionStrategy::None),
-        Err(reason) => Err(InternalError::planner_invariant(
-            InternalError::executor_invariant_message(format!(
+        Err(reason) => Err(crate::db::error::planner_invariant(
+            crate::db::error::executor_invariant_message(format!(
                 "planner grouped DISTINCT strategy handoff must be validated before executor handoff: {}",
                 reason.invariant_message()
             )),
@@ -310,15 +310,15 @@ fn planned_projection_layout_and_aggregate_exprs_from_spec(
                         aggregate_exprs.push(aggregate_expr.clone());
                     }
                     Expr::Literal(_) | Expr::Unary { .. } | Expr::Binary { .. } => {
-                        return Err(InternalError::planner_invariant(
-                            InternalError::executor_invariant_message(format!(
+                        return Err(crate::db::error::planner_invariant(
+                            crate::db::error::executor_invariant_message(format!(
                                 "grouped projection layout expects only field/aggregate expressions; found non-grouped projection expression at index={index}"
                             )),
                         ));
                     }
                     Expr::Alias { .. } => {
-                        return Err(InternalError::planner_invariant(
-                            InternalError::executor_invariant_message(
+                        return Err(crate::db::error::planner_invariant(
+                            crate::db::error::executor_invariant_message(
                                 "grouped projection layout alias normalization must remove alias wrappers",
                             ),
                         ));

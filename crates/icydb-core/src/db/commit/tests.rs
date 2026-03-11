@@ -565,7 +565,7 @@ fn finish_commit_error_keeps_marker_for_recovery() {
 
     let guard = begin_commit(marker).expect("begin_commit should persist marker");
     let err = finish_commit(guard, |_| {
-        Err(crate::error::InternalError::executor_invariant(
+        Err(crate::db::error::executor_invariant(
             "simulated apply failure",
         ))
     })
@@ -630,7 +630,7 @@ fn finish_commit_mixed_state_failure_rolls_back_index_prefix_without_row_visibil
         }
         rollback_prepared_row_ops_reverse(vec![rollback]);
 
-        Err(crate::error::InternalError::executor_invariant(
+        Err(crate::db::error::executor_invariant(
             "simulated mixed-state row-stage failure after index apply",
         ))
     })

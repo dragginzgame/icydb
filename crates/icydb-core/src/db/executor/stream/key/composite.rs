@@ -104,7 +104,7 @@ impl StreamSideState {
         let (current_entity, current_key) = data_key_witness(current);
 
         if *previous_entity != current_entity {
-            return Err(InternalError::query_invariant(format!(
+            return Err(crate::db::error::query_invariant(format!(
                 "executor invariant violated: {stream_kind} stream {} changed entity while enforcing {} {direction_context} monotonicity (previous entity: {:?}, current entity: {:?})",
                 self.name,
                 self.comparator.order_label(),
@@ -120,7 +120,7 @@ impl StreamSideState {
             return Ok(());
         }
 
-        Err(InternalError::query_invariant(format!(
+        Err(crate::db::error::query_invariant(format!(
             "executor invariant violated: {stream_kind} stream {} emitted out-of-order key for {} {direction_context} (entity: {:?}, previous key: {:?}, current key: {:?})",
             self.name,
             self.comparator.order_label(),

@@ -67,12 +67,12 @@ impl AggregateFieldValueError {
         let message = self.to_string();
         match self {
             Self::UnknownField { .. } | Self::UnsupportedFieldKind { .. } => {
-                InternalError::executor_unsupported(message)
+                crate::db::error::executor_unsupported(message)
             }
             Self::MissingFieldValue { .. }
             | Self::FieldValueTypeMismatch { .. }
             | Self::IncomparableFieldValues { .. } => {
-                InternalError::query_executor_invariant(message)
+                crate::db::error::query_executor_invariant(message)
             }
         }
     }

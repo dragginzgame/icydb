@@ -43,7 +43,7 @@ where
 
         // Phase 2: enforce exact row-scan count hint required by fast-path observability.
         let rows_scanned = key_stream.exact_key_count_hint().ok_or_else(|| {
-            InternalError::query_executor_invariant(
+            crate::db::error::query_executor_invariant(
                 "fast-path stream must expose an exact key-count hint",
             )
         })?;

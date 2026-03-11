@@ -8,6 +8,7 @@ mod coercion;
 mod compare;
 mod hash;
 mod rank;
+mod storage_key;
 mod tag;
 mod wire;
 
@@ -15,7 +16,6 @@ mod wire;
 mod tests;
 
 use crate::{
-    db::StorageKey,
     prelude::*,
     traits::{EnumValue, FieldValue, NumFromPrimitive},
     types::*,
@@ -29,6 +29,7 @@ pub use coercion::{CoercionFamily, CoercionFamilyExt};
 pub(crate) use hash::hash_value;
 #[cfg(test)]
 pub(crate) use hash::with_test_hash_override;
+pub use storage_key::{StorageKey, StorageKeyDecodeError, StorageKeyEncodeError};
 pub use tag::ValueTag;
 
 ///

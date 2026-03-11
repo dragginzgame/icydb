@@ -31,7 +31,7 @@ where
         let surface = self.execute_load(plan, cursor, LoadExecutionMode::scalar_unpaged_rows())?;
         match surface {
             LoadExecutionSurface::ScalarRows(rows) => Ok(rows),
-            _ => Err(InternalError::query_executor_invariant(
+            _ => Err(crate::db::error::query_executor_invariant(
                 "scalar rows entrypoint must produce scalar rows surface",
             )),
         }
@@ -50,7 +50,7 @@ where
         )?;
         match surface {
             LoadExecutionSurface::ScalarPage(page) => Ok(page),
-            _ => Err(InternalError::query_executor_invariant(
+            _ => Err(crate::db::error::query_executor_invariant(
                 "scalar page entrypoint must produce scalar page surface",
             )),
         }
@@ -69,7 +69,7 @@ where
         )?;
         match surface {
             LoadExecutionSurface::ScalarPageWithTrace(page, trace) => Ok((page, trace)),
-            _ => Err(InternalError::query_executor_invariant(
+            _ => Err(crate::db::error::query_executor_invariant(
                 "scalar traced entrypoint must produce scalar traced page surface",
             )),
         }

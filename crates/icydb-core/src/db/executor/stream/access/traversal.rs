@@ -199,7 +199,7 @@ impl AccessPlanStreamResolver {
         if let Some(index) = path_capabilities.index_prefix_model() {
             for spec in index_prefix_specs {
                 if spec.index() != &index {
-                    return Err(InternalError::query_executor_invariant(
+                    return Err(crate::db::error::query_executor_invariant(
                         "index-prefix spec does not match access path index",
                     ));
                 }
@@ -219,7 +219,7 @@ impl AccessPlanStreamResolver {
             && let Some(index) = path_capabilities.index_range_model()
             && spec.index() != &index
         {
-            return Err(InternalError::query_executor_invariant(
+            return Err(crate::db::error::query_executor_invariant(
                 "index-range spec does not match access path index",
             ));
         }
@@ -300,7 +300,7 @@ impl AccessPlanStreamResolver {
                     spec_cursor
                         .next_index_prefix_specs(path_capabilities.index_prefix_spec_count())
                         .ok_or_else(|| {
-                            InternalError::query_executor_invariant(
+                            crate::db::error::query_executor_invariant(
                                 "index-prefix execution requires pre-lowered specs",
                             )
                         })?

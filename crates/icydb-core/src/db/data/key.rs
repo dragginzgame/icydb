@@ -11,12 +11,10 @@
 //! Boundary: data::store persists `RawDataKey`; higher layers use `DataKey`.
 
 use crate::{
-    db::{
-        data::storage_key::{StorageKey, StorageKeyDecodeError, StorageKeyEncodeError},
-        identity::{EntityName, IdentityDecodeError},
-    },
+    db::identity::{EntityName, IdentityDecodeError},
     error::InternalError,
     traits::{EntityKind, FieldValue, Storable},
+    value::{StorageKey, StorageKeyDecodeError, StorageKeyEncodeError},
 };
 use canic_cdk::structures::storable::Bound;
 use std::{

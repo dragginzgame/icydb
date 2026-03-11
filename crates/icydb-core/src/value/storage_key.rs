@@ -1,17 +1,17 @@
-//! Module: data::storage_key
+//! Module: value::storage_key
 //! Responsibility: fixed-width scalar key encoding for persistent ordering.
 //! Does not own: typed primary-key semantics (`Id<E>`) or query coercion rules.
-//! Boundary: shared by data/index persistence layers only.
+//! Boundary: shared by value normalization and data/index persistence layers.
 //!
 //! `StorageKey` is a storage-normalized scalar and MUST NOT be used as a
 //! public primary-key abstraction.
 
 #![expect(clippy::cast_possible_truncation)]
 
+use super::Value;
 use crate::{
     error::InternalError,
     types::{Account, Principal, Repr, Subaccount, Timestamp, Ulid},
-    value::Value,
 };
 use candid::CandidType;
 use derive_more::Display;

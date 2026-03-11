@@ -189,7 +189,7 @@ impl ExecutionKernel {
         aggregate: &AggregateExpr,
     ) -> Result<(), InternalError> {
         if aggregate.target_field().is_some() && !aggregate.kind().supports_field_targets() {
-            return Err(InternalError::query_executor_invariant(format!(
+            return Err(crate::db::error::query_executor_invariant(format!(
                 "field-target aggregate requires MIN/MAX terminal after planning: found {:?}",
                 aggregate.kind()
             )));

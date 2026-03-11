@@ -157,53 +157,55 @@ where
 fn map_pk_cursor_decode_error(err: CursorPlanError) -> InternalError {
     match err {
         CursorPlanError::InvalidContinuationCursor { reason } => {
-            InternalError::cursor_invariant(InternalError::executor_invariant_message(format!(
-                "pk cursor decode rejected invalid continuation cursor: {reason}"
-            )))
+            crate::db::error::cursor_invariant(crate::db::error::executor_invariant_message(
+                format!("pk cursor decode rejected invalid continuation cursor: {reason}"),
+            ))
         }
         CursorPlanError::InvalidContinuationCursorPayload { reason } => {
-            InternalError::cursor_invariant(InternalError::executor_invariant_message(format!(
-                "pk cursor decode rejected invalid continuation payload: {reason}"
-            )))
+            crate::db::error::cursor_invariant(crate::db::error::executor_invariant_message(
+                format!("pk cursor decode rejected invalid continuation payload: {reason}"),
+            ))
         }
         CursorPlanError::ContinuationCursorVersionMismatch { version } => {
-            InternalError::cursor_invariant(InternalError::executor_invariant_message(format!(
-                "pk cursor decode rejected unsupported continuation version: {version}"
-            )))
+            crate::db::error::cursor_invariant(crate::db::error::executor_invariant_message(
+                format!("pk cursor decode rejected unsupported continuation version: {version}"),
+            ))
         }
         CursorPlanError::ContinuationCursorSignatureMismatch { .. } => {
-            InternalError::cursor_invariant(InternalError::executor_invariant_message(
+            crate::db::error::cursor_invariant(crate::db::error::executor_invariant_message(
                 "pk cursor decode encountered continuation signature mismatch",
             ))
         }
         CursorPlanError::ContinuationCursorBoundaryArityMismatch { expected, found } => {
-            InternalError::cursor_invariant(InternalError::executor_invariant_message(format!(
-                "pk cursor boundary arity mismatch: expected {expected}, found {found}"
-            )))
+            crate::db::error::cursor_invariant(crate::db::error::executor_invariant_message(
+                format!("pk cursor boundary arity mismatch: expected {expected}, found {found}"),
+            ))
         }
         CursorPlanError::ContinuationCursorWindowMismatch {
             expected_offset,
             actual_offset,
-        } => InternalError::cursor_invariant(InternalError::executor_invariant_message(format!(
-            "pk cursor window mismatch: expected_offset={expected_offset}, actual_offset={actual_offset}"
-        ))),
+        } => crate::db::error::cursor_invariant(crate::db::error::executor_invariant_message(
+            format!(
+                "pk cursor window mismatch: expected_offset={expected_offset}, actual_offset={actual_offset}"
+            ),
+        )),
         CursorPlanError::ContinuationCursorBoundaryTypeMismatch { field, .. } => {
-            InternalError::cursor_invariant(InternalError::executor_invariant_message(format!(
-                "pk cursor boundary type mismatch on field '{field}'"
-            )))
+            crate::db::error::cursor_invariant(crate::db::error::executor_invariant_message(
+                format!("pk cursor boundary type mismatch on field '{field}'"),
+            ))
         }
         CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch { value: None, .. } => {
-            InternalError::cursor_invariant(InternalError::executor_invariant_message(
+            crate::db::error::cursor_invariant(crate::db::error::executor_invariant_message(
                 "pk cursor slot must be present",
             ))
         }
         CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch { value: Some(_), .. } => {
-            InternalError::cursor_invariant(InternalError::executor_invariant_message(
+            crate::db::error::cursor_invariant(crate::db::error::executor_invariant_message(
                 "pk cursor slot type mismatch",
             ))
         }
         CursorPlanError::ContinuationCursorInvariantViolation { reason } => {
-            InternalError::cursor_invariant(InternalError::executor_invariant_message(reason))
+            crate::db::error::cursor_invariant(crate::db::error::executor_invariant_message(reason))
         }
     }
 }
@@ -255,7 +257,7 @@ fn validated_cursor_order_internal<'a>(
     validate_cursor_order_plan_shape(order, require_explicit_order).map_err(|err| match err {
         CursorOrderPlanShapeError::MissingExplicitOrder => {
             CursorPlanError::continuation_cursor_invariant(
-                InternalError::executor_invariant_message(missing_order_message),
+                crate::db::error::executor_invariant_message(missing_order_message),
             )
         }
         CursorOrderPlanShapeError::EmptyOrderSpec => {

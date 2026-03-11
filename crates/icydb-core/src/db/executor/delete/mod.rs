@@ -117,13 +117,13 @@ where
         plan: ExecutablePlan<E>,
     ) -> Result<EntityResponse<E>, InternalError> {
         if plan.is_grouped() {
-            return Err(InternalError::executor_unsupported(
+            return Err(crate::db::error::executor_unsupported(
                 "grouped query execution is not yet enabled in this release",
             ));
         }
 
         if !plan.mode().is_delete() {
-            return Err(InternalError::query_executor_invariant(
+            return Err(crate::db::error::query_executor_invariant(
                 "delete executor requires delete plans",
             ));
         }

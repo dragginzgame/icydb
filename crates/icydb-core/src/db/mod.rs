@@ -8,6 +8,7 @@ pub(crate) mod access;
 pub(crate) mod contracts;
 pub(crate) mod cursor;
 pub(crate) mod diagnostics;
+pub(crate) mod error;
 pub(crate) mod identity;
 pub(crate) mod predicate;
 pub(crate) mod query;
@@ -42,7 +43,6 @@ use std::{collections::BTreeSet, marker::PhantomData, thread::LocalKey};
 pub use codec::cursor::{decode_cursor, encode_cursor};
 pub use commit::EntityRuntimeHooks;
 pub use data::DataStore;
-pub(crate) use data::StorageKey;
 pub use diagnostics::{
     ExecutionAccessPathVariant, ExecutionMetrics, ExecutionOptimization, ExecutionTrace,
     StorageReport,

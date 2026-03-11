@@ -189,7 +189,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                 let (marker_row_op, data_key) =
                     Self::prepare_logical_row_op(&ctx, save_rule, &entity)?;
                 if !seen_row_keys.insert(marker_row_op.key.clone()) {
-                    return Err(InternalError::executor_unsupported(format!(
+                    return Err(crate::db::error::executor_unsupported(format!(
                         "atomic save batch rejected duplicate key: entity={} key={data_key}",
                         E::PATH,
                     )));
