@@ -35,8 +35,7 @@ pub(in crate::db::query) use constant_predicate::{
     fold_constant_predicate, predicate_is_constant_false,
 };
 pub(in crate::db) use continuation::{
-    ContinuationContract, GroupedContinuationWindow, ScalarAccessWindowPlan,
-    effective_offset_for_cursor_window,
+    ContinuationContract, ScalarAccessWindowPlan, effective_offset_for_cursor_window,
 };
 pub(in crate::db) use covering::{
     CoveringProjectionContext, CoveringProjectionOrder,

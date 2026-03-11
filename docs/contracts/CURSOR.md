@@ -5,8 +5,8 @@ Date: 2026-02-12
 This file captures a point-in-time audit checkpoint.
 Normative cursor guarantees are defined in `docs/contracts/QUERY_CONTRACT.md`.
 Release tracking for cursor-related work lives in
-`docs/design/archive/0.9-status.md` and
-`docs/design/archive/0.10-status.md`.
+`docs/design/archive/0.9-referential-integrity/0.9-status.md` and
+`docs/design/archive/0.10-index-ordering/0.10-status.md`.
 
 ## Done
 
@@ -42,3 +42,16 @@ Release tracking for cursor-related work lives in
 - Add explicit tests for public hex cursor decode failures at API boundary.
 - Add explicit tests/docs for mutation-between-pages behavior (insert/update/delete drift expectations).
 - If needed later, evaluate secure cursor envelopes as a separate scoped change.
+
+## Post-Checkpoint Observability Note (2026-03-11)
+
+Cursor semantics remain as described above. Runtime diagnostics now also expose
+additive execution row-flow counters through metrics reporting:
+
+- `rows_scanned`
+- `rows_filtered`
+- `rows_aggregated`
+- `rows_emitted`
+
+These counters are observability-only and do not change cursor validation,
+cursor continuation compatibility, or live-state pagination guarantees.

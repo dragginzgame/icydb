@@ -758,6 +758,58 @@ fn grouped_cursor_rejects_cross_shape_resume_token_when_distinct_aggregate_chang
 }
 
 #[test]
+fn grouped_cursor_rejects_cross_shape_resume_token_when_projection_width_changes() {
+    // Phase 1: build grouped source/target plans that differ only by aggregate projection width.
+    let grouped_count_only = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .group_by("group")
+        .expect("grouped count-only source query should build")
+        .aggregate(crate::db::count())
+        .limit(1)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("grouped count-only source plan should build");
+    let grouped_count_plus_max = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .group_by("group")
+        .expect("grouped count+max target query should build")
+        .aggregate(crate::db::count())
+        .aggregate(crate::db::max())
+        .limit(1)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("grouped count+max target plan should build");
+
+    assert_ne!(
+        grouped_count_only.continuation_signature(),
+        grouped_count_plus_max.continuation_signature(),
+        "grouped continuation signatures must change when grouped projection width changes"
+    );
+
+    // Phase 2: token replay must fail closed on grouped projection-width drift.
+    let cursor = GroupedContinuationToken::new_with_direction(
+        grouped_count_only.continuation_signature(),
+        vec![Value::Uint(7)],
+        Direction::Asc,
+        0,
+    )
+    .encode()
+    .expect("grouped count-only source cursor should encode");
+    let err = grouped_count_plus_max
+        .prepare_grouped_cursor(Some(cursor.as_slice()))
+        .expect_err("grouped cursor must fail when grouped projection width changes");
+    assert!(
+        matches!(
+            err,
+            crate::db::executor::ExecutorPlanError::Cursor(inner)
+                if matches!(
+                    inner.as_ref(),
+                    CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+                )
+        ),
+        "grouped resume must fail when grouped projection width differs"
+    );
+}
+
+#[test]
 #[expect(clippy::too_many_lines)]
 fn grouped_and_scalar_cursor_mismatch_matrix_preserves_contract_parity() {
     // Phase 1: build one scalar plan and one grouped plan with identical pagination windows.

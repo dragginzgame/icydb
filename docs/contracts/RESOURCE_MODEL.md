@@ -254,3 +254,17 @@ Any new operator must provide a proof sketch that its worst-case memory and
 instruction behavior is bounded by explicit, enforceable limits.
 
 If such bounds cannot be stated and enforced, the operator is disallowed.
+
+## 11. Execution Metrics Counters
+
+Runtime observability is additive and must not affect query behavior.
+
+Current row-flow counters emitted through the metrics sink/report surface:
+
+- `rows_scanned`: candidate rows read by execution paths
+- `rows_filtered`: rows dropped between scan and emitted output
+- `rows_aggregated`: rows folded by grouped aggregation paths
+- `rows_emitted`: rows emitted to response payloads
+
+These counters are diagnostics surfaces only. They must remain side-effect-free
+and must never alter planner, routing, or execution semantics.

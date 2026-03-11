@@ -161,6 +161,9 @@ fn entity_summary_serialization_shape_is_stable() {
                 delete_calls: 6,
                 rows_loaded: 8,
                 rows_scanned: 9,
+                rows_filtered: 20,
+                rows_aggregated: 21,
+                rows_emitted: 22,
                 rows_deleted: 10,
                 index_inserts: 11,
                 index_removes: 12,
@@ -189,6 +192,18 @@ fn entity_summary_serialization_shape_is_stable() {
     assert!(
         map_field(root, "avg_rows_per_load").is_some(),
         "EntitySummary must keep `avg_rows_per_load` as serialized field key",
+    );
+    assert!(
+        map_field(root, "rows_filtered").is_some(),
+        "EntitySummary must keep `rows_filtered` as serialized field key",
+    );
+    assert!(
+        map_field(root, "rows_aggregated").is_some(),
+        "EntitySummary must keep `rows_aggregated` as serialized field key",
+    );
+    assert!(
+        map_field(root, "rows_emitted").is_some(),
+        "EntitySummary must keep `rows_emitted` as serialized field key",
     );
     assert!(
         map_field(root, "relation_delete_blocks").is_some(),

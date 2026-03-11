@@ -140,7 +140,7 @@ For deeper rules and behavior:
 
 Reference docs:
 
-- `docs/design/archive/0.25-aggregate-expansion.md`
+- `docs/design/archive/0.25-aggregate-expansion/0.25-design.md`
 - `docs/status/archive/0.25-status.md`
 
 Field aggregate examples:

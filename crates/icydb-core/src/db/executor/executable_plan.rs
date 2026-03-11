@@ -16,13 +16,14 @@ use crate::{
                 assemble_load_execution_verbose_diagnostics,
             },
             lower_index_prefix_specs, lower_index_range_specs,
+            pipeline::grouped_runtime::GroupedPaginationWindow,
             traversal::row_read_consistency_for_plan,
             validate_executor_plan,
         },
         predicate::MissingRowPolicy,
         query::plan::{
-            AccessPlannedQuery, ContinuationContract, ExecutionOrdering, GroupedContinuationWindow,
-            GroupedExecutorHandoff, OrderSpec, PageSpec, QueryMode, grouped_executor_handoff,
+            AccessPlannedQuery, ContinuationContract, ExecutionOrdering, GroupedExecutorHandoff,
+            OrderSpec, PageSpec, QueryMode, grouped_executor_handoff,
             index_covering_existing_rows_terminal_eligible,
         },
         query::{
@@ -375,14 +376,29 @@ impl<E: EntityKind> ExecutablePlan<E> {
     }
 
     /// Derive grouped paging window from immutable continuation contract.
-    pub(in crate::db) fn grouped_continuation_window(
+    pub(in crate::db::executor) fn grouped_pagination_window(
         &self,
         cursor: &GroupedPlannedCursor,
-    ) -> Result<GroupedContinuationWindow, InternalError> {
+    ) -> Result<GroupedPaginationWindow, InternalError> {
         let contract = self.continuation_contract()?;
-        contract
+        let window = contract
             .grouped_paging_window(cursor)
-            .map_err(crate::db::error::from_cursor_plan_error)
+            .map_err(crate::db::error::from_cursor_plan_error)?;
+        let (
+            limit,
+            initial_offset_for_page,
+            selection_bound,
+            resume_initial_offset,
+            resume_boundary,
+        ) = window.into_parts();
+
+        Ok(GroupedPaginationWindow::new(
+            limit,
+            initial_offset_for_page,
+            selection_bound,
+            resume_initial_offset,
+            resume_boundary,
+        ))
     }
 
     // Borrow immutable continuation contract for load-mode plans.

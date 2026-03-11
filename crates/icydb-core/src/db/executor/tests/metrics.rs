@@ -112,6 +112,48 @@ fn relation_validation_totals(
     )
 }
 
+fn count_rows_filtered(events: &[MetricsEvent], entity_path: &'static str) -> usize {
+    events.iter().fold(0usize, |acc, event| {
+        let delta = match event {
+            MetricsEvent::RowsFiltered {
+                entity_path: path,
+                rows_filtered,
+            } if *path == entity_path => usize::try_from(*rows_filtered).unwrap_or(usize::MAX),
+            _ => 0,
+        };
+
+        acc.saturating_add(delta)
+    })
+}
+
+fn count_rows_aggregated(events: &[MetricsEvent], entity_path: &'static str) -> usize {
+    events.iter().fold(0usize, |acc, event| {
+        let delta = match event {
+            MetricsEvent::RowsAggregated {
+                entity_path: path,
+                rows_aggregated,
+            } if *path == entity_path => usize::try_from(*rows_aggregated).unwrap_or(usize::MAX),
+            _ => 0,
+        };
+
+        acc.saturating_add(delta)
+    })
+}
+
+fn count_rows_emitted(events: &[MetricsEvent], entity_path: &'static str) -> usize {
+    events.iter().fold(0usize, |acc, event| {
+        let delta = match event {
+            MetricsEvent::RowsEmitted {
+                entity_path: path,
+                rows_emitted,
+            } if *path == entity_path => usize::try_from(*rows_emitted).unwrap_or(usize::MAX),
+            _ => 0,
+        };
+
+        acc.saturating_add(delta)
+    })
+}
+
 ///
 /// TESTS
 ///
@@ -431,5 +473,97 @@ fn save_relation_retarget_update_emits_reverse_index_remove_and_insert() {
         count_reverse_index_inserts(&events, RelationSourceEntity::PATH),
         1,
         "retarget update should emit one reverse-index insert delta",
+    );
+}
+
+#[test]
+fn scalar_load_emits_rows_filtered_and_rows_emitted_metrics() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<SimpleEntity>::new(DB, false);
+    save.insert(SimpleEntity {
+        id: Ulid::generate(),
+    })
+    .expect("seed insert A should succeed");
+    save.insert(SimpleEntity {
+        id: Ulid::generate(),
+    })
+    .expect("seed insert B should succeed");
+    save.insert(SimpleEntity {
+        id: Ulid::generate(),
+    })
+    .expect("seed insert C should succeed");
+
+    let sink = CaptureSink::default();
+    with_metrics_sink(&sink, || {
+        DbSession::new(DB)
+            .load::<SimpleEntity>()
+            .order_by("id")
+            .offset(1)
+            .limit(1)
+            .execute()
+            .expect("scalar load should succeed");
+    });
+    let events = sink.into_events();
+
+    assert!(
+        count_rows_filtered(&events, SimpleEntity::PATH) >= 1,
+        "scalar load should emit at least one filtered row for offset window",
+    );
+    assert!(
+        count_rows_emitted(&events, SimpleEntity::PATH) >= 1,
+        "scalar load should emit at least one output row metric for paged output",
+    );
+}
+
+#[test]
+fn grouped_load_emits_rows_aggregated_metrics() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<PushdownParityEntity>::new(DB, false);
+    save.insert(PushdownParityEntity {
+        id: Ulid::generate(),
+        group: 1,
+        rank: 10,
+        label: "a".to_string(),
+    })
+    .expect("seed grouped row A should succeed");
+    save.insert(PushdownParityEntity {
+        id: Ulid::generate(),
+        group: 1,
+        rank: 11,
+        label: "b".to_string(),
+    })
+    .expect("seed grouped row B should succeed");
+    save.insert(PushdownParityEntity {
+        id: Ulid::generate(),
+        group: 2,
+        rank: 12,
+        label: "c".to_string(),
+    })
+    .expect("seed grouped row C should succeed");
+
+    let sink = CaptureSink::default();
+    with_metrics_sink(&sink, || {
+        DbSession::new(DB)
+            .load::<PushdownParityEntity>()
+            .group_by("group")
+            .expect("grouped query should build")
+            .aggregate(crate::db::count())
+            .limit(1)
+            .execute_grouped()
+            .expect("grouped execution should succeed");
+    });
+    let events = sink.into_events();
+
+    assert!(
+        count_rows_aggregated(&events, PushdownParityEntity::PATH) >= 1,
+        "grouped load should emit at least one aggregated-row metric",
+    );
+    assert!(
+        count_rows_emitted(&events, PushdownParityEntity::PATH) >= 1,
+        "grouped load should emit at least one output row metric",
     );
 }

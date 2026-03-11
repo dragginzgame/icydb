@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.49.x] - 2026-03-11 - Executor Architecture Stabilization
+
+- `0.49.0` stabilizes the post-`load` executor architecture by locking scan/pipeline/aggregate/terminal boundaries, expanding EXPLAIN execution metadata (including deterministic node IDs and layer/fast-path/pushdown visibility), hardening continuation fail-closed checks across grouped shape drift, and adding additive row-flow metrics (`rows_filtered`, `rows_aggregated`, `rows_emitted`) without introducing new query language features.
+
+See detailed breakdown:
+[docs/changelog/0.49.md](docs/changelog/0.49.md)
+
+---
+
 ## [0.48.x] - 2026-03-11 - EXPLAIN and Other Features
 
 - `0.48.0` makes plan hashes and continuation signatures independent from EXPLAIN formatting, keeps cursor continuation safety checks fail-closed under one cursor-owned contract, and preserves explain/runtime parity with expanded regression coverage.
@@ -13,7 +22,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `0.48.3` removes the internal `db::error` wrapper module so DB runtime code now constructs invariant errors directly through `InternalError` constructors with unchanged formatting and behavior.
 - `0.48.4` splits EXPLAIN into smaller focused modules, consolidates runtime schema contracts under `db::schema`, replaces ad-hoc EXPLAIN JSON object assembly with one deterministic writer, and renames the advanced metrics namespace from `obs` to `metrics`.
 - `0.48.5` continues boundary cleanup by making `value` own `StorageKey` (removing the `value -> db` dependency), moving DB-only executor/query/planner/cursor error constructors out of `InternalError`, and organizing `db::error` into smaller subsystem modules.
-- `0.48.6` finishes the executor-load refactor by removing the old `db::executor::load` module tree, moving internals to clearer modules (`stream/access`, `scan`, `pipeline`, `shared`, and `terminal`), and updating invariant checks and structural tests to the new layout.
+- `0.48.6` finishes the executor-load refactor by removing the old `db::executor::load` module tree, moving internals to clearer modules (`stream/access`, `scan`, `pipeline` plus owner-named contracts/projection modules, and `terminal`), and updating invariant checks and structural tests to the new layout.
+- `0.48.7` hardens the new executor architecture by adding stricter cross-layer guard checks, fail-closed grouped cursor compatibility tests for projection-shape drift, richer EXPLAIN execution metadata (including stable node IDs and fast-path/pushdown mode fields), and additive row-flow metrics (`rows_filtered`, `rows_aggregated`, `rows_emitted`).
 
 See detailed breakdown:
 [docs/changelog/0.48.md](docs/changelog/0.48.md)

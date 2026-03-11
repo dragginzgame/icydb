@@ -19,7 +19,8 @@ impl ExplainExecutionNodeDescriptor {
     #[must_use]
     pub fn render_text_tree(&self) -> String {
         let mut lines = Vec::new();
-        self.render_text_tree_into(0, &mut lines);
+        let mut node_id_counter = 0_u64;
+        self.render_text_tree_into(0, &mut node_id_counter, &mut lines);
         lines.join("\n")
     }
 
@@ -27,7 +28,8 @@ impl ExplainExecutionNodeDescriptor {
     #[must_use]
     pub fn render_json_canonical(&self) -> String {
         let mut out = String::new();
-        write_execution_node_json(self, &mut out);
+        let mut node_id_counter = 0_u64;
+        write_execution_node_json(self, &mut node_id_counter, &mut out);
         out
     }
 
@@ -35,17 +37,41 @@ impl ExplainExecutionNodeDescriptor {
     #[must_use]
     pub fn render_text_tree_verbose(&self) -> String {
         let mut lines = Vec::new();
-        self.render_text_tree_verbose_into(0, &mut lines);
+        let mut node_id_counter = 0_u64;
+        self.render_text_tree_verbose_into(0, &mut node_id_counter, &mut lines);
         lines.join("\n")
     }
 
-    fn render_text_tree_into(&self, depth: usize, lines: &mut Vec<String>) {
+    fn render_text_tree_into(
+        &self,
+        depth: usize,
+        node_id_counter: &mut u64,
+        lines: &mut Vec<String>,
+    ) {
+        let node_id = next_node_id(node_id_counter);
         let mut line = format!(
             "{}{} execution_mode={}",
             "  ".repeat(depth),
             self.node_type.as_str(),
             execution_mode_label(self.execution_mode)
         );
+        let _ = write!(line, " node_id={node_id}");
+        let _ = write!(
+            line,
+            " execution_mode_detail={}",
+            execution_mode_detail_label(self.execution_mode)
+        );
+        let _ = write!(
+            line,
+            " predicate_pushdown_mode={}",
+            predicate_pushdown_mode(self)
+        );
+        if let Some(fast_path_selected) = fast_path_selected(self) {
+            let _ = write!(line, " fast_path_selected={fast_path_selected}");
+        }
+        if let Some(fast_path_reason) = fast_path_reason(self) {
+            let _ = write!(line, " fast_path_reason={fast_path_reason}");
+        }
 
         if let Some(access_strategy) = self.access_strategy.as_ref() {
             let _ = write!(line, " access={}", access_strategy_label(access_strategy));
@@ -89,11 +115,17 @@ impl ExplainExecutionNodeDescriptor {
         lines.push(line);
 
         for child in &self.children {
-            child.render_text_tree_into(depth.saturating_add(1), lines);
+            child.render_text_tree_into(depth.saturating_add(1), node_id_counter, lines);
         }
     }
 
-    fn render_text_tree_verbose_into(&self, depth: usize, lines: &mut Vec<String>) {
+    fn render_text_tree_verbose_into(
+        &self,
+        depth: usize,
+        node_id_counter: &mut u64,
+        lines: &mut Vec<String>,
+    ) {
+        let node_id = next_node_id(node_id_counter);
         // Emit the node heading line first so child metadata stays visually scoped.
         let node_indent = "  ".repeat(depth);
         let field_indent = "  ".repeat(depth.saturating_add(1));
@@ -103,6 +135,25 @@ impl ExplainExecutionNodeDescriptor {
             self.node_type.as_str(),
             execution_mode_label(self.execution_mode)
         ));
+        lines.push(format!("{field_indent}node_id={node_id}"));
+        lines.push(format!(
+            "{}execution_mode_detail={}",
+            field_indent,
+            execution_mode_detail_label(self.execution_mode)
+        ));
+        lines.push(format!(
+            "{}predicate_pushdown_mode={}",
+            field_indent,
+            predicate_pushdown_mode(self)
+        ));
+        if let Some(fast_path_selected) = fast_path_selected(self) {
+            lines.push(format!(
+                "{field_indent}fast_path_selected={fast_path_selected}"
+            ));
+        }
+        if let Some(fast_path_reason) = fast_path_reason(self) {
+            lines.push(format!("{field_indent}fast_path_reason={fast_path_reason}"));
+        }
 
         // Emit all optional node-local fields in a deterministic order.
         if let Some(access_strategy) = self.access_strategy.as_ref() {
@@ -150,7 +201,7 @@ impl ExplainExecutionNodeDescriptor {
 
         // Recurse in execution order to preserve stable tree topology.
         for child in &self.children {
-            child.render_text_tree_verbose_into(depth.saturating_add(1), lines);
+            child.render_text_tree_verbose_into(depth.saturating_add(1), node_id_counter, lines);
         }
     }
 }
@@ -169,20 +220,39 @@ fn render_node_properties(node_properties: &BTreeMap<String, Value>) -> String {
     rendered
 }
 
-fn write_execution_node_json(node: &ExplainExecutionNodeDescriptor, out: &mut String) {
+fn write_execution_node_json(
+    node: &ExplainExecutionNodeDescriptor,
+    node_id_counter: &mut u64,
+    out: &mut String,
+) {
+    let node_id = next_node_id(node_id_counter);
     let mut object = JsonWriter::begin_object(out);
 
+    object.field_u64("node_id", node_id);
     object.field_str("node_type", node.node_type.as_str());
     object.field_str("execution_mode", execution_mode_label(node.execution_mode));
+    object.field_str(
+        "execution_mode_detail",
+        execution_mode_detail_label(node.execution_mode),
+    );
     object.field_with("access_strategy", |out| {
         match node.access_strategy.as_ref() {
             Some(access) => write_access_json(access, out),
             None => out.push_str("null"),
         }
     });
+    object.field_str("predicate_pushdown_mode", predicate_pushdown_mode(node));
     match node.predicate_pushdown.as_deref() {
         Some(predicate_pushdown) => object.field_str("predicate_pushdown", predicate_pushdown),
         None => object.field_null("predicate_pushdown"),
+    }
+    match fast_path_selected(node) {
+        Some(selected) => object.field_bool("fast_path_selected", selected),
+        None => object.field_null("fast_path_selected"),
+    }
+    match fast_path_reason(node) {
+        Some(reason) => object.field_str("fast_path_reason", reason),
+        None => object.field_null("fast_path_reason"),
     }
     match node.residual_predicate.as_ref() {
         Some(residual_predicate) => {
@@ -222,11 +292,56 @@ fn write_execution_node_json(node: &ExplainExecutionNodeDescriptor, out: &mut St
             if index > 0 {
                 out.push(',');
             }
-            write_execution_node_json(child, out);
+            write_execution_node_json(child, node_id_counter, out);
         }
         out.push(']');
     });
     object.field_debug_map("node_properties", &node.node_properties);
 
     object.finish();
+}
+
+const fn next_node_id(node_id_counter: &mut u64) -> u64 {
+    let node_id = *node_id_counter;
+    *node_id_counter = node_id_counter.saturating_add(1);
+    node_id
+}
+
+const fn execution_mode_detail_label(
+    mode: crate::db::query::explain::ExplainExecutionMode,
+) -> &'static str {
+    match mode {
+        crate::db::query::explain::ExplainExecutionMode::Streaming => "streaming",
+        crate::db::query::explain::ExplainExecutionMode::Materialized => "materialized",
+    }
+}
+
+fn predicate_pushdown_mode(node: &ExplainExecutionNodeDescriptor) -> &'static str {
+    match node.predicate_pushdown.as_deref() {
+        None => "none",
+        Some("strict_all_or_none") => "full",
+        Some(_) => {
+            if node.residual_predicate.is_some() {
+                "partial"
+            } else {
+                "full"
+            }
+        }
+    }
+}
+
+fn fast_path_selected(node: &ExplainExecutionNodeDescriptor) -> Option<bool> {
+    let selected = node.node_properties.get("fast_path_selected")?;
+    match selected {
+        Value::Text(path) => Some(path.as_str() != "none"),
+        _ => None,
+    }
+}
+
+fn fast_path_reason(node: &ExplainExecutionNodeDescriptor) -> Option<&str> {
+    let reason = node.node_properties.get("fast_path_selected_reason")?;
+    match reason {
+        Value::Text(reason) => Some(reason.as_str()),
+        _ => None,
+    }
 }

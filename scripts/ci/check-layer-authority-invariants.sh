@@ -152,6 +152,57 @@ if [[ -n "$continuation_rewrite_leaks" ]]; then
   status=1
 fi
 
+# 0.49 executor layer guardrails: prevent cross-layer import drift.
+aggregate_scan_import_leaks="$(
+  run_rg "db::executor::scan::" "crates/icydb-core/src/db/executor/aggregate" \
+    | strip_comment_only
+)"
+if [[ -n "$aggregate_scan_import_leaks" ]]; then
+  echo "[ERROR] Aggregate layer must not import scan layer internals." >&2
+  echo "$aggregate_scan_import_leaks" >&2
+  status=1
+fi
+
+terminal_scan_import_leaks="$(
+  run_rg "db::executor::scan::" "crates/icydb-core/src/db/executor/terminal" \
+    | strip_comment_only
+)"
+if [[ -n "$terminal_scan_import_leaks" ]]; then
+  echo "[ERROR] Terminal layer must not import scan layer internals." >&2
+  echo "$terminal_scan_import_leaks" >&2
+  status=1
+fi
+
+terminal_planner_import_leaks="$(
+  run_rg "db::query::plan::" "crates/icydb-core/src/db/executor/terminal" \
+    | strip_comment_only
+)"
+if [[ -n "$terminal_planner_import_leaks" ]]; then
+  echo "[ERROR] Terminal layer must not import planner contracts directly." >&2
+  echo "$terminal_planner_import_leaks" >&2
+  status=1
+fi
+
+pipeline_planner_import_leaks="$(
+  run_rg "db::query::plan::" "crates/icydb-core/src/db/executor/pipeline" \
+    | strip_comment_only
+)"
+if [[ -n "$pipeline_planner_import_leaks" ]]; then
+  echo "[ERROR] Pipeline layer must not import planner contracts directly." >&2
+  echo "$pipeline_planner_import_leaks" >&2
+  status=1
+fi
+
+scan_aggregate_import_leaks="$(
+  run_rg "db::executor::aggregate::" "crates/icydb-core/src/db/executor/scan" \
+    | strip_comment_only
+)"
+if [[ -n "$scan_aggregate_import_leaks" ]]; then
+  echo "[ERROR] Scan layer must not import aggregate layer internals." >&2
+  echo "$scan_aggregate_import_leaks" >&2
+  status=1
+fi
+
 # -----------------------------------------------------------------------------
 # Layer-health metrics (report for drift monitoring).
 # -----------------------------------------------------------------------------

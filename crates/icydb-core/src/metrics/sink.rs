@@ -72,6 +72,18 @@ pub enum MetricsEvent {
         entity_path: &'static str,
         rows_scanned: u64,
     },
+    RowsFiltered {
+        entity_path: &'static str,
+        rows_filtered: u64,
+    },
+    RowsAggregated {
+        entity_path: &'static str,
+        rows_aggregated: u64,
+    },
+    RowsEmitted {
+        entity_path: &'static str,
+        rows_emitted: u64,
+    },
     UniqueViolation {
         entity_path: &'static str,
     },
@@ -197,6 +209,39 @@ impl MetricsSink for GlobalMetricsSink {
                     m.ops.rows_scanned = m.ops.rows_scanned.saturating_add(rows_scanned);
                     let entry = m.entities.entry(entity_path.to_string()).or_default();
                     entry.rows_scanned = entry.rows_scanned.saturating_add(rows_scanned);
+                });
+            }
+
+            MetricsEvent::RowsFiltered {
+                entity_path,
+                rows_filtered,
+            } => {
+                metrics::with_state_mut(|m| {
+                    m.ops.rows_filtered = m.ops.rows_filtered.saturating_add(rows_filtered);
+                    let entry = m.entities.entry(entity_path.to_string()).or_default();
+                    entry.rows_filtered = entry.rows_filtered.saturating_add(rows_filtered);
+                });
+            }
+
+            MetricsEvent::RowsAggregated {
+                entity_path,
+                rows_aggregated,
+            } => {
+                metrics::with_state_mut(|m| {
+                    m.ops.rows_aggregated = m.ops.rows_aggregated.saturating_add(rows_aggregated);
+                    let entry = m.entities.entry(entity_path.to_string()).or_default();
+                    entry.rows_aggregated = entry.rows_aggregated.saturating_add(rows_aggregated);
+                });
+            }
+
+            MetricsEvent::RowsEmitted {
+                entity_path,
+                rows_emitted,
+            } => {
+                metrics::with_state_mut(|m| {
+                    m.ops.rows_emitted = m.ops.rows_emitted.saturating_add(rows_emitted);
+                    let entry = m.entities.entry(entity_path.to_string()).or_default();
+                    entry.rows_emitted = entry.rows_emitted.saturating_add(rows_emitted);
                 });
             }
 
@@ -669,5 +714,39 @@ mod tests {
         assert_eq!(entity.reverse_index_removes, 2);
         assert_eq!(entity.relation_reverse_lookups, 5);
         assert_eq!(entity.relation_delete_blocks, 1);
+    }
+
+    #[test]
+    fn row_flow_metrics_events_accumulate() {
+        metrics_reset_all();
+
+        record(MetricsEvent::RowsFiltered {
+            entity_path: "metrics::tests::Entity",
+            rows_filtered: 9,
+        });
+        record(MetricsEvent::RowsAggregated {
+            entity_path: "metrics::tests::Entity",
+            rows_aggregated: 4,
+        });
+        record(MetricsEvent::RowsEmitted {
+            entity_path: "metrics::tests::Entity",
+            rows_emitted: 3,
+        });
+
+        let report = metrics_report(None);
+        let counters = report
+            .counters()
+            .expect("metrics report should include counters");
+        assert_eq!(counters.ops.rows_filtered, 9);
+        assert_eq!(counters.ops.rows_aggregated, 4);
+        assert_eq!(counters.ops.rows_emitted, 3);
+
+        let entity = counters
+            .entities
+            .get("metrics::tests::Entity")
+            .expect("entity counters should be present");
+        assert_eq!(entity.rows_filtered, 9);
+        assert_eq!(entity.rows_aggregated, 4);
+        assert_eq!(entity.rows_emitted, 3);
     }
 }

@@ -6,7 +6,9 @@
 use crate::{
     db::executor::{
         ExecutionTrace,
-        plan_metrics::record_rows_scanned,
+        plan_metrics::{
+            record_rows_aggregated, record_rows_emitted, record_rows_filtered, record_rows_scanned,
+        },
         shared::{
             execution_contracts::ExecutionOutcomeMetrics,
             load_contracts::{
@@ -31,6 +33,9 @@ where
         R: GroupedRouteStageProjection<E>,
     {
         let rows_returned = folded.rows_returned();
+        let rows_aggregated = folded.filtered_rows();
+        record_rows_aggregated::<E>(rows_aggregated);
+
         let metrics = ExecutionOutcomeMetrics {
             optimization: folded.optimization(),
             rows_scanned: folded.rows_scanned(),
@@ -74,6 +79,10 @@ where
             distinct_keys_deduped,
         } = metrics;
         record_rows_scanned::<E>(rows_scanned);
+        let rows_filtered = rows_scanned.saturating_sub(post_access_rows);
+        record_rows_filtered::<E>(rows_filtered);
+        record_rows_emitted::<E>(post_access_rows);
+
         if let Some(execution_trace) = execution_trace.as_mut() {
             execution_trace.set_path_outcome(
                 optimization,

@@ -184,6 +184,76 @@ fn executor_internal_stream_and_window_types_do_not_widen_to_pub_crate() {
     );
 }
 
+#[test]
+fn executor_layer_modules_do_not_import_forbidden_cross_layer_dependencies() {
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let checks = [
+        (
+            "src/db/executor/aggregate",
+            "db::executor::scan::",
+            "aggregate layer must not import scan layer internals",
+        ),
+        (
+            "src/db/executor/terminal",
+            "db::executor::scan::",
+            "terminal layer must not import scan layer internals",
+        ),
+        (
+            "src/db/executor/terminal",
+            "db::query::plan::",
+            "terminal layer must not import planner contracts directly",
+        ),
+        (
+            "src/db/executor/pipeline",
+            "db::query::plan::",
+            "pipeline layer must not import planner contracts directly",
+        ),
+        (
+            "src/db/executor/scan",
+            "db::executor::aggregate::",
+            "scan layer must not import aggregate layer internals",
+        ),
+    ];
+
+    let mut offenders = Vec::new();
+    for (relative_root, pattern, error_message) in checks {
+        let source_root = crate_root.join(relative_root);
+        for path in collect_rs_files(&source_root) {
+            let source = fs::read_to_string(&path)
+                .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
+            if !source.contains(pattern) {
+                continue;
+            }
+            if source
+                .lines()
+                .filter(|line| !line.trim_start().starts_with("//"))
+                .any(|line| line.contains(pattern))
+            {
+                let relative = path
+                    .strip_prefix(crate_root)
+                    .unwrap_or(path.as_path())
+                    .display()
+                    .to_string();
+                offenders.push(format!("{error_message}: {relative}"));
+            }
+        }
+    }
+
+    assert!(
+        offenders.is_empty(),
+        "executor layer import guardrails violated: {offenders:?}"
+    );
+}
+
+#[test]
+fn executor_legacy_load_module_directory_is_removed() {
+    let load_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/load");
+    assert!(
+        !load_root.exists(),
+        "legacy executor/load directory must remain removed after 0.49 stabilization work",
+    );
+}
+
 fn collect_rs_files(root: &Path) -> Vec<PathBuf> {
     let mut stack = vec![root.to_path_buf()];
     let mut files = Vec::new();

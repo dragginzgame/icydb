@@ -10,7 +10,7 @@ use crate::{
             ExecutablePlan, ExecutionTrace,
             pipeline::grouped_runtime::{
                 GroupedContinuationCapabilities, GroupedContinuationContext,
-                GroupedExecutionContext, GroupedPaginationWindow, GroupedRuntimeProjection,
+                GroupedExecutionContext, GroupedRuntimeProjection,
             },
             route::{GroupedRouteDecisionOutcome, RouteExecutionMode},
             shared::load_contracts::{
@@ -84,9 +84,7 @@ where
         );
 
         let direction = grouped_route_plan.direction();
-        let grouped_continuation_window = plan.grouped_continuation_window(&cursor)?;
-        let grouped_pagination_window =
-            GroupedPaginationWindow::from_contract(grouped_continuation_window);
+        let grouped_pagination_window = plan.grouped_pagination_window(&cursor)?;
         let continuation_capabilities = GroupedContinuationCapabilities::from_window(
             !cursor.is_empty(),
             &grouped_pagination_window,

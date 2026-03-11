@@ -75,3 +75,27 @@ pub(super) fn record_rows_scanned<E: EntityKind>(rows_scanned: usize) {
         rows_scanned: u64::try_from(rows_scanned).unwrap_or(u64::MAX),
     });
 }
+
+/// Record per-request rows filtered metrics.
+pub(super) fn record_rows_filtered<E: EntityKind>(rows_filtered: usize) {
+    record(MetricsEvent::RowsFiltered {
+        entity_path: E::PATH,
+        rows_filtered: u64::try_from(rows_filtered).unwrap_or(u64::MAX),
+    });
+}
+
+/// Record per-request rows aggregated metrics.
+pub(super) fn record_rows_aggregated<E: EntityKind>(rows_aggregated: usize) {
+    record(MetricsEvent::RowsAggregated {
+        entity_path: E::PATH,
+        rows_aggregated: u64::try_from(rows_aggregated).unwrap_or(u64::MAX),
+    });
+}
+
+/// Record per-request rows emitted metrics.
+pub(super) fn record_rows_emitted<E: EntityKind>(rows_emitted: usize) {
+    record(MetricsEvent::RowsEmitted {
+        entity_path: E::PATH,
+        rows_emitted: u64::try_from(rows_emitted).unwrap_or(u64::MAX),
+    });
+}

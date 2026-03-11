@@ -225,6 +225,9 @@ Examples:
 - `fetch_limit`
 - `rows_materialized`
 - `rows_scanned`
+- `rows_filtered`
+- `rows_aggregated`
+- `rows_emitted`
 
 Avoid introducing new names for existing concepts.
 

@@ -95,6 +95,9 @@ pub struct EventOps {
     // Rows touched
     pub(crate) rows_loaded: u64,
     pub(crate) rows_scanned: u64,
+    pub(crate) rows_filtered: u64,
+    pub(crate) rows_aggregated: u64,
+    pub(crate) rows_emitted: u64,
     pub(crate) rows_deleted: u64,
 
     // Index maintenance
@@ -166,6 +169,21 @@ impl EventOps {
     }
 
     #[must_use]
+    pub const fn rows_filtered(&self) -> u64 {
+        self.rows_filtered
+    }
+
+    #[must_use]
+    pub const fn rows_aggregated(&self) -> u64 {
+        self.rows_aggregated
+    }
+
+    #[must_use]
+    pub const fn rows_emitted(&self) -> u64 {
+        self.rows_emitted
+    }
+
+    #[must_use]
     pub const fn rows_deleted(&self) -> u64 {
         self.rows_deleted
     }
@@ -227,6 +245,9 @@ pub struct EntityCounters {
     pub(crate) delete_calls: u64,
     pub(crate) rows_loaded: u64,
     pub(crate) rows_scanned: u64,
+    pub(crate) rows_filtered: u64,
+    pub(crate) rows_aggregated: u64,
+    pub(crate) rows_emitted: u64,
     pub(crate) rows_deleted: u64,
     pub(crate) index_inserts: u64,
     pub(crate) index_removes: u64,
@@ -263,6 +284,21 @@ impl EntityCounters {
     #[must_use]
     pub const fn rows_scanned(&self) -> u64 {
         self.rows_scanned
+    }
+
+    #[must_use]
+    pub const fn rows_filtered(&self) -> u64 {
+        self.rows_filtered
+    }
+
+    #[must_use]
+    pub const fn rows_aggregated(&self) -> u64 {
+        self.rows_aggregated
+    }
+
+    #[must_use]
+    pub const fn rows_emitted(&self) -> u64 {
+        self.rows_emitted
     }
 
     #[must_use]
@@ -473,6 +509,9 @@ pub struct EntitySummary {
     delete_calls: u64,
     rows_loaded: u64,
     rows_scanned: u64,
+    rows_filtered: u64,
+    rows_aggregated: u64,
+    rows_emitted: u64,
     rows_deleted: u64,
     avg_rows_per_load: f64,
     avg_rows_scanned_per_load: f64,
@@ -512,6 +551,21 @@ impl EntitySummary {
     #[must_use]
     pub const fn rows_scanned(&self) -> u64 {
         self.rows_scanned
+    }
+
+    #[must_use]
+    pub const fn rows_filtered(&self) -> u64 {
+        self.rows_filtered
+    }
+
+    #[must_use]
+    pub const fn rows_aggregated(&self) -> u64 {
+        self.rows_aggregated
+    }
+
+    #[must_use]
+    pub const fn rows_emitted(&self) -> u64 {
+        self.rows_emitted
     }
 
     #[must_use]
@@ -623,6 +677,9 @@ pub(super) fn report_window_start(window_start_ms: Option<u64>) -> EventReport {
             delete_calls: ops.delete_calls,
             rows_loaded: ops.rows_loaded,
             rows_scanned: ops.rows_scanned,
+            rows_filtered: ops.rows_filtered,
+            rows_aggregated: ops.rows_aggregated,
+            rows_emitted: ops.rows_emitted,
             rows_deleted: ops.rows_deleted,
             avg_rows_per_load: avg_load,
             avg_rows_scanned_per_load: avg_scanned,

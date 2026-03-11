@@ -3,7 +3,7 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::{db::query::plan::GroupedContinuationWindow, value::Value};
+use crate::value::Value;
 
 ///
 /// GroupedPaginationWindow
@@ -23,17 +23,15 @@ pub(in crate::db::executor) struct GroupedPaginationWindow {
 }
 
 impl GroupedPaginationWindow {
-    /// Build runtime grouped pagination projection from planner continuation window contract.
+    /// Build runtime grouped pagination projection from continuation contract primitives.
     #[must_use]
-    pub(in crate::db::executor) fn from_contract(window: GroupedContinuationWindow) -> Self {
-        let (
-            limit,
-            initial_offset_for_page,
-            selection_bound,
-            resume_initial_offset,
-            resume_boundary,
-        ) = window.into_parts();
-
+    pub(in crate::db::executor) const fn new(
+        limit: Option<usize>,
+        initial_offset_for_page: usize,
+        selection_bound: Option<usize>,
+        resume_initial_offset: u32,
+        resume_boundary: Option<Value>,
+    ) -> Self {
         Self {
             limit,
             initial_offset_for_page,
