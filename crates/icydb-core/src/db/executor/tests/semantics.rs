@@ -72,6 +72,83 @@ fn collect_execution_node_types(
     }
 }
 
+fn query_execution_pipeline_snapshot<E>(query: &Query<E>) -> String
+where
+    E: EntityKind + EntityValue,
+{
+    // Phase 1: compile query intent into one executor-owned executable plan contract.
+    let compiled = query
+        .plan()
+        .expect("execution pipeline snapshot should build compiled query");
+    let executable = crate::db::executor::ExecutablePlan::from(compiled);
+
+    // Phase 2: derive canonical execution descriptor JSON from executable-plan contracts.
+    let descriptor_json = executable
+        .explain_load_execution_node_descriptor()
+        .expect("execution pipeline snapshot should build execution descriptor")
+        .render_json_canonical();
+
+    // Phase 3: join executable-plan and explain-descriptor snapshots into one payload.
+    [
+        executable.render_snapshot_canonical(),
+        format!("execution_descriptor_json={descriptor_json}"),
+    ]
+    .join("\n")
+}
+
+fn query_grouped_execution_pipeline_snapshot<E>(query: &Query<E>) -> String
+where
+    E: EntityKind + EntityValue,
+{
+    // Phase 1: compile grouped query intent into one executor-owned executable plan contract.
+    let compiled = query
+        .plan()
+        .expect("grouped execution pipeline snapshot should build compiled query");
+    let executable = crate::db::executor::ExecutablePlan::from(compiled);
+    let grouped_handoff = executable
+        .grouped_handoff()
+        .expect("grouped execution pipeline snapshot should project grouped handoff");
+
+    // Phase 2: derive grouped route observability from grouped handoff contracts.
+    let route_plan =
+        LoadExecutor::<E>::build_execution_route_plan_for_grouped_handoff(grouped_handoff);
+    let grouped_observability = route_plan
+        .grouped_observability()
+        .expect("grouped execution pipeline snapshot should project grouped observability");
+
+    // Phase 3: join executable snapshot and grouped route observability into one payload.
+    [
+        executable.render_snapshot_canonical(),
+        format!(
+            "route_execution_mode_case={:?}",
+            route_plan.shape().execution_mode_case()
+        ),
+        format!(
+            "route_execution_mode={:?}",
+            route_plan.shape().execution_mode(),
+        ),
+        format!(
+            "route_continuation_mode={:?}",
+            route_plan.continuation().mode()
+        ),
+        format!("grouped_outcome={:?}", grouped_observability.outcome()),
+        format!(
+            "grouped_rejection={:?}",
+            grouped_observability.rejection_reason()
+        ),
+        format!("grouped_eligible={}", grouped_observability.eligible()),
+        format!(
+            "grouped_execution_mode={:?}",
+            grouped_observability.execution_mode()
+        ),
+        format!(
+            "grouped_execution_strategy={:?}",
+            grouped_observability.grouped_execution_strategy()
+        ),
+    ]
+    .join("\n")
+}
+
 const DIAG_ROUTE_SECONDARY_ORDER_PUSHDOWN: &str = "diagnostic.route.secondary_order_pushdown";
 const DIAG_ROUTE_TOP_N_SEEK: &str = "diagnostic.route.top_n_seek";
 const DIAG_ROUTE_INDEX_RANGE_LIMIT_PUSHDOWN: &str = "diagnostic.route.index_range_limit_pushdown";
@@ -1154,6 +1231,182 @@ fn query_explain_execution_text_and_json_surfaces_are_stable() {
         json,
         descriptor.render_json_canonical(),
         "execution json surface should be canonical descriptor json rendering",
+    );
+}
+
+#[test]
+fn query_execution_pipeline_snapshot_for_by_key_shape_is_stable() {
+    let query = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore).by_id(Ulid::from_u128(9_101));
+    let actual = query_execution_pipeline_snapshot(&query);
+    let expected_descriptor_json = r#"{"node_id":0,"node_type":"ByKeyLookup","layer":"scan","execution_mode":"Streaming","execution_mode_detail":"streaming","access_strategy":{"type":"ByKey","key":"Ulid(Ulid(Ulid(9101)))"},"predicate_pushdown_mode":"none","predicate_pushdown":null,"fast_path_selected":false,"fast_path_reason":"materialized_fallback","residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":false,"rows_expected":null,"children":[],"node_properties":{"access_choice_alternatives":"List([])","access_choice_chosen":"Text(\"by_key\")","access_choice_chosen_reason":"Text(\"non_index_access\")","access_choice_rejections":"List([])","continuation_mode":"Text(\"initial\")","covering_scan_reason":"Text(\"access_not_covering_index_shape\")","fast_path_rejections":"List([Text(\"primary_key=pk_order_fast_path_ineligible\"), Text(\"secondary_prefix=secondary_order_not_applicable\"), Text(\"index_range=index_range_limit_pushdown_disabled\")])","fast_path_selected":"Text(\"none\")","fast_path_selected_reason":"Text(\"materialized_fallback\")","projected_fields":"List([Text(\"id\")])","projection_pushdown":"Bool(false)","resume_from":"Text(\"none\")","scan_direction":"Text(\"asc\")"}}"#;
+    let expected = vec![
+        "snapshot_version=1".to_string(),
+        "plan_hash=aadeab9a078a08c89fc76826504ee8c027854392786d07f24b5ad22fb4a729b0"
+            .to_string(),
+        "mode=Load(LoadSpec { limit: None, offset: 0 })".to_string(),
+        "is_grouped=false".to_string(),
+        "execution_strategy=PrimaryKey".to_string(),
+        "ordering_direction=Asc".to_string(),
+        "distinct_execution_strategy=None".to_string(),
+        "projection_selection=All".to_string(),
+        "projection_spec=ProjectionSpec { fields: [Scalar { expr: Field(FieldId(\"id\")), alias: None }] }".to_string(),
+        "order_spec=None".to_string(),
+        "page_spec=None".to_string(),
+        "projection_coverage_flag=false".to_string(),
+        "continuation_signature=39b38cf7347a2f0cd6c26008951fed2b29b87d1feb463ce1878238276f1b5919"
+            .to_string(),
+        "index_prefix_specs=[]".to_string(),
+        "index_range_specs=[]".to_string(),
+        "explain_plan=ExplainPlan { mode: Load(LoadSpec { limit: None, offset: 0 }), access: ByKey { key: Ulid(Ulid(Ulid(9101))) }, predicate: None, predicate_model: None, order_by: None, distinct: false, grouping: None, order_pushdown: MissingModelContext, page: None, delete_limit: None, consistency: Ignore }".to_string(),
+        format!("execution_descriptor_json={expected_descriptor_json}"),
+    ]
+    .join("\n");
+
+    assert_eq!(
+        actual, expected,
+        "execution pipeline snapshot drifted; query->executable->explain serialization is a stabilized 0.51 surface",
+    );
+}
+
+#[test]
+fn query_execution_pipeline_snapshot_for_secondary_index_ordered_shape_is_stable() {
+    let query = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "group",
+            CompareOp::Eq,
+            Value::Uint(7),
+            CoercionId::Strict,
+        )))
+        .order_by("rank")
+        .limit(5);
+    let actual = query_execution_pipeline_snapshot(&query);
+    let expected_descriptor_json = r#"{"node_id":0,"node_type":"IndexPrefixScan","layer":"scan","execution_mode":"Materialized","execution_mode_detail":"materialized","access_strategy":{"type":"IndexPrefix","name":"group_rank","fields":["group","rank"],"prefix_len":1,"values":["Uint(7)"]},"predicate_pushdown_mode":"none","predicate_pushdown":null,"fast_path_selected":true,"fast_path_reason":"secondary_order_pushdown_eligible","residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":false,"rows_expected":null,"children":[{"node_id":1,"node_type":"IndexPredicatePrefilter","layer":"pipeline","execution_mode":"Materialized","execution_mode_detail":"materialized","access_strategy":null,"predicate_pushdown_mode":"full","predicate_pushdown":"strict_all_or_none","fast_path_selected":null,"fast_path_reason":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"pushdown":"Text(\"group=Uint(7)\")"}},{"node_id":2,"node_type":"SecondaryOrderPushdown","layer":"pipeline","execution_mode":"Materialized","execution_mode_detail":"materialized","access_strategy":null,"predicate_pushdown_mode":"none","predicate_pushdown":null,"fast_path_selected":null,"fast_path_reason":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"index":"Text(\"group_rank\")","prefix_len":"Uint(1)"}},{"node_id":3,"node_type":"OrderByMaterializedSort","layer":"pipeline","execution_mode":"Materialized","execution_mode_detail":"materialized","access_strategy":null,"predicate_pushdown_mode":"none","predicate_pushdown":null,"fast_path_selected":null,"fast_path_reason":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"order_satisfied_by_index":"Bool(false)"}},{"node_id":4,"node_type":"LimitOffset","layer":"terminal","execution_mode":"Materialized","execution_mode_detail":"materialized","access_strategy":null,"predicate_pushdown_mode":"none","predicate_pushdown":null,"fast_path_selected":null,"fast_path_reason":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":5,"cursor":false,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"offset":"Uint(0)"}}],"node_properties":{"access_choice_alternatives":"List([])","access_choice_chosen":"Text(\"index:group_rank\")","access_choice_chosen_reason":"Text(\"single_candidate\")","access_choice_rejections":"List([])","continuation_mode":"Text(\"initial\")","covering_scan_reason":"Text(\"order_requires_materialization\")","fast_path_rejections":"List([Text(\"primary_key=pk_order_fast_path_ineligible\"), Text(\"index_range=index_range_limit_pushdown_disabled\")])","fast_path_selected":"Text(\"secondary_prefix\")","fast_path_selected_reason":"Text(\"secondary_order_pushdown_eligible\")","prefix_len":"Uint(1)","projected_fields":"List([Text(\"id\"), Text(\"group\"), Text(\"rank\"), Text(\"label\")])","projection_pushdown":"Bool(false)","resume_from":"Text(\"none\")","scan_direction":"Text(\"asc\")"}}"#;
+    let expected = vec![
+        "snapshot_version=1".to_string(),
+        "plan_hash=108ea6b7dbe368e6e1ebad89ff465f497937a483ca6fd56e8b4f3c3ee151a0e7"
+            .to_string(),
+        "mode=Load(LoadSpec { limit: Some(5), offset: 0 })".to_string(),
+        "is_grouped=false".to_string(),
+        "execution_strategy=Ordered".to_string(),
+        "ordering_direction=Asc".to_string(),
+        "distinct_execution_strategy=None".to_string(),
+        "projection_selection=All".to_string(),
+        "projection_spec=ProjectionSpec { fields: [Scalar { expr: Field(FieldId(\"id\")), alias: None }, Scalar { expr: Field(FieldId(\"group\")), alias: None }, Scalar { expr: Field(FieldId(\"rank\")), alias: None }, Scalar { expr: Field(FieldId(\"label\")), alias: None }] }".to_string(),
+        "order_spec=Some(OrderSpec { fields: [(\"rank\", Asc), (\"id\", Asc)] })".to_string(),
+        "page_spec=Some(PageSpec { limit: Some(5), offset: 0 })".to_string(),
+        "projection_coverage_flag=false".to_string(),
+        "continuation_signature=6f28b609075e3776a6bf77842d95991827048fb0d2f1fa33da262a38bce3d340"
+            .to_string(),
+        "index_prefix_specs=[{index:group_rank,bound_type:equality,lower:included(len:345:head:00001f5075736864:tail:0007000100000100),upper:included(len:4503:head:00001f5075736864:tail:ffffffffffffffff)}]".to_string(),
+        "index_range_specs=[]".to_string(),
+        "explain_plan=ExplainPlan { mode: Load(LoadSpec { limit: Some(5), offset: 0 }), access: IndexPrefix { name: \"group_rank\", fields: [\"group\", \"rank\"], prefix_len: 1, values: [Uint(7)] }, predicate: Compare { field: \"group\", op: Eq, value: Uint(7), coercion: CoercionSpec { id: Strict, params: {} } }, predicate_model: Some(Compare(ComparePredicate { field: \"group\", op: Eq, value: Uint(7), coercion: CoercionSpec { id: Strict, params: {} } })), order_by: Fields([ExplainOrder { field: \"rank\", direction: Asc }, ExplainOrder { field: \"id\", direction: Asc }]), distinct: false, grouping: None, order_pushdown: MissingModelContext, page: Page { limit: Some(5), offset: 0 }, delete_limit: None, consistency: Ignore }".to_string(),
+        format!("execution_descriptor_json={expected_descriptor_json}"),
+    ]
+    .join("\n");
+
+    assert_eq!(
+        actual, expected,
+        "secondary-index ordered execution pipeline snapshot drifted; planner/executor boundary must remain stable",
+    );
+}
+
+#[test]
+fn query_execution_pipeline_snapshot_for_index_range_shape_is_stable() {
+    let query = Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "code",
+                CompareOp::Gte,
+                Value::Uint(100),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "code",
+                CompareOp::Lte,
+                Value::Uint(500),
+                CoercionId::Strict,
+            )),
+        ]))
+        .order_by("code")
+        .limit(3);
+    let actual = query_execution_pipeline_snapshot(&query);
+    let expected_descriptor_json = r#"{"node_id":0,"node_type":"IndexRangeScan","layer":"scan","execution_mode":"Streaming","execution_mode_detail":"streaming","access_strategy":{"type":"IndexRange","name":"code_unique","fields":["code"],"prefix_len":0,"prefix":[],"lower":"Included(Uint(100))","upper":"Included(Uint(500))"},"predicate_pushdown_mode":"none","predicate_pushdown":null,"fast_path_selected":true,"fast_path_reason":"secondary_order_pushdown_eligible","residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":false,"rows_expected":null,"children":[{"node_id":1,"node_type":"IndexPredicatePrefilter","layer":"pipeline","execution_mode":"Streaming","execution_mode_detail":"streaming","access_strategy":null,"predicate_pushdown_mode":"full","predicate_pushdown":"strict_all_or_none","fast_path_selected":null,"fast_path_reason":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"pushdown":"Text(\"code>=Uint(100) AND code<=Uint(500)\")"}},{"node_id":2,"node_type":"SecondaryOrderPushdown","layer":"pipeline","execution_mode":"Streaming","execution_mode_detail":"streaming","access_strategy":null,"predicate_pushdown_mode":"none","predicate_pushdown":null,"fast_path_selected":null,"fast_path_reason":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"index":"Text(\"code_unique\")","prefix_len":"Uint(0)"}},{"node_id":3,"node_type":"IndexRangeLimitPushdown","layer":"pipeline","execution_mode":"Streaming","execution_mode_detail":"streaming","access_strategy":null,"predicate_pushdown_mode":"none","predicate_pushdown":null,"fast_path_selected":null,"fast_path_reason":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"fetch":"Uint(4)"}},{"node_id":4,"node_type":"OrderByAccessSatisfied","layer":"pipeline","execution_mode":"Streaming","execution_mode_detail":"streaming","access_strategy":null,"predicate_pushdown_mode":"none","predicate_pushdown":null,"fast_path_selected":null,"fast_path_reason":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"order_satisfied_by_index":"Bool(true)"}},{"node_id":5,"node_type":"LimitOffset","layer":"terminal","execution_mode":"Streaming","execution_mode_detail":"streaming","access_strategy":null,"predicate_pushdown_mode":"none","predicate_pushdown":null,"fast_path_selected":null,"fast_path_reason":null,"residual_predicate":null,"projection":null,"ordering_source":null,"limit":3,"cursor":false,"covering_scan":null,"rows_expected":null,"children":[],"node_properties":{"offset":"Uint(0)"}}],"node_properties":{"access_choice_alternatives":"List([])","access_choice_chosen":"Text(\"index:code_unique\")","access_choice_chosen_reason":"Text(\"single_candidate\")","access_choice_rejections":"List([])","continuation_mode":"Text(\"initial\")","covering_scan_reason":"Text(\"order_requires_materialization\")","fast_path_rejections":"List([Text(\"primary_key=pk_order_fast_path_ineligible\")])","fast_path_selected":"Text(\"secondary_prefix\")","fast_path_selected_reason":"Text(\"secondary_order_pushdown_eligible\")","fetch":"Uint(4)","prefix_len":"Uint(0)","projected_fields":"List([Text(\"id\"), Text(\"code\"), Text(\"label\")])","projection_pushdown":"Bool(false)","resume_from":"Text(\"none\")","scan_direction":"Text(\"asc\")"}}"#;
+    let expected = vec![
+        "snapshot_version=1".to_string(),
+        "plan_hash=1584d2ec357518f61a1a0e0783233027a0979e891c4ed1775f3216a1608abf40"
+            .to_string(),
+        "mode=Load(LoadSpec { limit: Some(3), offset: 0 })".to_string(),
+        "is_grouped=false".to_string(),
+        "execution_strategy=Ordered".to_string(),
+        "ordering_direction=Asc".to_string(),
+        "distinct_execution_strategy=None".to_string(),
+        "projection_selection=All".to_string(),
+        "projection_spec=ProjectionSpec { fields: [Scalar { expr: Field(FieldId(\"id\")), alias: None }, Scalar { expr: Field(FieldId(\"code\")), alias: None }, Scalar { expr: Field(FieldId(\"label\")), alias: None }] }".to_string(),
+        "order_spec=Some(OrderSpec { fields: [(\"code\", Asc), (\"id\", Asc)] })".to_string(),
+        "page_spec=Some(PageSpec { limit: Some(3), offset: 0 })".to_string(),
+        "projection_coverage_flag=false".to_string(),
+        "continuation_signature=8e12a2f46097653cad9d9ca37ee324e5a633c288e2665e82a335b12c1661c26f"
+            .to_string(),
+        "index_prefix_specs=[]".to_string(),
+        "index_range_specs=[{index:code_unique,bound_type:range,lower:included(len:342:head:00001b556e697175:tail:0000000064000100),upper:included(len:405:head:00001b556e697175:tail:ffffffffffffffff)}]".to_string(),
+        "explain_plan=ExplainPlan { mode: Load(LoadSpec { limit: Some(3), offset: 0 }), access: IndexRange { name: \"code_unique\", fields: [\"code\"], prefix_len: 0, prefix: [], lower: Included(Uint(100)), upper: Included(Uint(500)) }, predicate: And([Compare { field: \"code\", op: Lte, value: Uint(500), coercion: CoercionSpec { id: Strict, params: {} } }, Compare { field: \"code\", op: Gte, value: Uint(100), coercion: CoercionSpec { id: Strict, params: {} } }]), predicate_model: Some(And([Compare(ComparePredicate { field: \"code\", op: Lte, value: Uint(500), coercion: CoercionSpec { id: Strict, params: {} } }), Compare(ComparePredicate { field: \"code\", op: Gte, value: Uint(100), coercion: CoercionSpec { id: Strict, params: {} } })])), order_by: Fields([ExplainOrder { field: \"code\", direction: Asc }, ExplainOrder { field: \"id\", direction: Asc }]), distinct: false, grouping: None, order_pushdown: MissingModelContext, page: Page { limit: Some(3), offset: 0 }, delete_limit: None, consistency: Ignore }".to_string(),
+        format!("execution_descriptor_json={expected_descriptor_json}"),
+    ]
+    .join("\n");
+
+    assert_eq!(
+        actual, expected,
+        "index-range execution pipeline snapshot drifted; planner/executor boundary must remain stable",
+    );
+}
+
+#[test]
+fn query_execution_pipeline_snapshot_for_grouped_aggregate_shape_is_stable() {
+    let query = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "group",
+            CompareOp::Eq,
+            Value::Uint(7),
+            CoercionId::Strict,
+        )))
+        .group_by("group")
+        .expect("group_by(group) should build")
+        .aggregate(crate::db::count())
+        .limit(2);
+    let actual = query_grouped_execution_pipeline_snapshot(&query);
+    let expected = vec![
+        "snapshot_version=1".to_string(),
+        "plan_hash=65a14b322e6c2839b6146b919ed2edc4321c260f8c20b3116faf9dc56838169f"
+            .to_string(),
+        "mode=Load(LoadSpec { limit: Some(2), offset: 0 })".to_string(),
+        "is_grouped=true".to_string(),
+        "execution_strategy=Grouped".to_string(),
+        "ordering_direction=Asc".to_string(),
+        "distinct_execution_strategy=None".to_string(),
+        "projection_selection=All".to_string(),
+        "projection_spec=ProjectionSpec { fields: [Scalar { expr: Field(FieldId(\"group\")), alias: None }, Scalar { expr: Aggregate(AggregateExpr { kind: Count, target_field: None, distinct: false }), alias: None }] }".to_string(),
+        "order_spec=None".to_string(),
+        "page_spec=Some(PageSpec { limit: Some(2), offset: 0 })".to_string(),
+        "projection_coverage_flag=true".to_string(),
+        "continuation_signature=1135fea1b0913c016c24038bd41769f2bc1eaa27ae9cba5511c638429caea2a1"
+            .to_string(),
+        "index_prefix_specs=[{index:group_rank,bound_type:equality,lower:included(len:345:head:00001f5075736864:tail:0007000100000100),upper:included(len:4503:head:00001f5075736864:tail:ffffffffffffffff)}]".to_string(),
+        "index_range_specs=[]".to_string(),
+        "explain_plan=ExplainPlan { mode: Load(LoadSpec { limit: Some(2), offset: 0 }), access: IndexPrefix { name: \"group_rank\", fields: [\"group\", \"rank\"], prefix_len: 1, values: [Uint(7)] }, predicate: Compare { field: \"group\", op: Eq, value: Uint(7), coercion: CoercionSpec { id: Strict, params: {} } }, predicate_model: Some(Compare(ComparePredicate { field: \"group\", op: Eq, value: Uint(7), coercion: CoercionSpec { id: Strict, params: {} } })), order_by: None, distinct: false, grouping: Grouped { strategy: HashGroup, group_fields: [ExplainGroupField { slot_index: 1, field: \"group\" }], aggregates: [ExplainGroupAggregate { kind: Count, target_field: None, distinct: false }], having: None, max_groups: 18446744073709551615, max_group_bytes: 18446744073709551615 }, order_pushdown: MissingModelContext, page: Page { limit: Some(2), offset: 0 }, delete_limit: None, consistency: Ignore }".to_string(),
+        "route_execution_mode_case=AggregateGrouped".to_string(),
+        "route_execution_mode=Materialized".to_string(),
+        "route_continuation_mode=Initial".to_string(),
+        "grouped_outcome=MaterializedFallback".to_string(),
+        "grouped_rejection=None".to_string(),
+        "grouped_eligible=true".to_string(),
+        "grouped_execution_mode=Materialized".to_string(),
+        "grouped_execution_strategy=HashMaterialized".to_string(),
+    ]
+    .join("\n");
+
+    assert_eq!(
+        actual, expected,
+        "grouped aggregate execution pipeline snapshot drifted; grouped planner/executor boundary must remain stable",
     );
 }
 

@@ -3,6 +3,8 @@
 //! Does not own: logical plan semantics or route policy decisions.
 //! Boundary: shared plan container for load/delete/aggregate runtime entrypoints.
 
+#[cfg(test)]
+use crate::db::codec::cursor::encode_cursor;
 use crate::{
     db::{
         access::AccessPlan,
@@ -34,6 +36,8 @@ use crate::{
     error::InternalError,
     traits::{EntityKind, EntityValue},
 };
+#[cfg(test)]
+use std::ops::Bound;
 
 ///
 /// ExecutionStrategy
@@ -146,6 +150,71 @@ impl<E: EntityKind> ExecutablePlan<E> {
         }
 
         assemble_load_execution_verbose_diagnostics::<E>(&self.plan)
+    }
+
+    /// Render one canonical executable-plan snapshot payload for regression tests.
+    ///
+    /// The format is line-oriented and deterministic by construction:
+    /// fixed key order, stable planner fingerprints, and canonical explain fields.
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) fn render_snapshot_canonical(&self) -> String
+    where
+        E: EntityValue,
+    {
+        // Phase 1: capture stable planner/executor contracts that define executable shape.
+        let execution_strategy = self.execution_strategy().map_or_else(
+            |err| format!("error:{err:?}"),
+            |strategy| format!("{strategy:?}"),
+        );
+        let ordering_direction = self.continuation_contract().map_or_else(
+            |err| format!("error:{err:?}"),
+            |contract| format!("{:?}", contract.order_contract().direction()),
+        );
+        let continuation_signature = self.continuation_signature_for_runtime().map_or_else(
+            |err| format!("error:{err:?}"),
+            |signature| signature.to_string(),
+        );
+        let projection_coverage_flag = self.index_covering_existing_rows_terminal_eligible();
+        let explain = self.plan.explain_with_model(E::MODEL);
+
+        // Phase 2: emit one deterministic, append-only snapshot payload.
+        let mut lines = Vec::new();
+        lines.push("snapshot_version=1".to_string());
+        lines.push(format!("plan_hash={}", self.plan.fingerprint()));
+        lines.push(format!("mode={:?}", self.mode()));
+        lines.push(format!("is_grouped={}", self.is_grouped()));
+        lines.push(format!("execution_strategy={execution_strategy}"));
+        lines.push(format!("ordering_direction={ordering_direction}"));
+        lines.push(format!(
+            "distinct_execution_strategy={:?}",
+            self.plan.distinct_execution_strategy()
+        ));
+        lines.push(format!(
+            "projection_selection={:?}",
+            self.plan.projection_selection
+        ));
+        lines.push(format!(
+            "projection_spec={:?}",
+            self.plan.projection_spec(E::MODEL)
+        ));
+        lines.push(format!("order_spec={:?}", self.order_spec()));
+        lines.push(format!("page_spec={:?}", self.page_spec()));
+        lines.push(format!(
+            "projection_coverage_flag={projection_coverage_flag}"
+        ));
+        lines.push(format!("continuation_signature={continuation_signature}"));
+        lines.push(format!(
+            "index_prefix_specs={}",
+            snapshot_index_prefix_specs(self.index_prefix_specs.as_slice())
+        ));
+        lines.push(format!(
+            "index_range_specs={}",
+            snapshot_index_range_specs(self.index_range_specs.as_slice())
+        ));
+        lines.push(format!("explain_plan={explain:?}"));
+
+        lines.join("\n")
     }
 
     /// Compute a stable continuation signature for cursor compatibility checks.
@@ -415,4 +484,74 @@ fn cursor_plan_error(message: impl Into<String>) -> ExecutorPlanError {
     ExecutorPlanError::from(CursorPlanError::continuation_cursor_invariant(
         crate::db::error::executor_invariant_message(message),
     ))
+}
+
+#[cfg(test)]
+fn snapshot_index_prefix_specs(specs: &[LoweredIndexPrefixSpec]) -> String {
+    if specs.is_empty() {
+        return "[]".to_string();
+    }
+
+    let rendered = specs
+        .iter()
+        .map(|spec| {
+            format!(
+                "{{index:{},bound_type:equality,lower:{},upper:{}}}",
+                spec.index().name(),
+                snapshot_lowered_bound(spec.lower()),
+                snapshot_lowered_bound(spec.upper()),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    format!("[{}]", rendered.join(","))
+}
+
+#[cfg(test)]
+fn snapshot_index_range_specs(specs: &[LoweredIndexRangeSpec]) -> String {
+    if specs.is_empty() {
+        return "[]".to_string();
+    }
+
+    let rendered = specs
+        .iter()
+        .map(|spec| {
+            let bound_type = snapshot_range_bound_type(spec);
+            format!(
+                "{{index:{},bound_type:{bound_type},lower:{},upper:{}}}",
+                spec.index().name(),
+                snapshot_lowered_bound(spec.lower()),
+                snapshot_lowered_bound(spec.upper()),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    format!("[{}]", rendered.join(","))
+}
+
+#[cfg(test)]
+fn snapshot_range_bound_type(spec: &LoweredIndexRangeSpec) -> &'static str {
+    match (spec.lower(), spec.upper()) {
+        (Bound::Included(lower), Bound::Included(upper)) if lower == upper => "equality",
+        _ => "range",
+    }
+}
+
+#[cfg(test)]
+fn snapshot_lowered_bound(bound: &Bound<crate::db::access::LoweredKey>) -> String {
+    match bound {
+        Bound::Unbounded => "unbounded".to_string(),
+        Bound::Included(key) => format!("included({})", snapshot_lowered_key(key)),
+        Bound::Excluded(key) => format!("excluded({})", snapshot_lowered_key(key)),
+    }
+}
+
+#[cfg(test)]
+fn snapshot_lowered_key(key: &crate::db::access::LoweredKey) -> String {
+    let bytes = key.as_bytes();
+    let preview_len = bytes.len().min(8);
+    let head = encode_cursor(&bytes[..preview_len]);
+    let tail = encode_cursor(&bytes[bytes.len().saturating_sub(preview_len)..]);
+
+    format!("len:{}:head:{}:tail:{}", bytes.len(), head, tail)
 }

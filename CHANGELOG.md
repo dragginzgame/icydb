@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.51.x] - 2026-03-12 - Engine Contract Stabilization Line Open
+
+- `0.51.0` starts the `0.51` stabilization line by freezing deterministic query-plan snapshot surfaces (`query -> executable plan -> explain`), adding baseline snapshots for core execution shapes, and locking ordering-contract guards for `ORDER`/`LIMIT`/cursor behavior.
+
+See detailed breakdown:
+[docs/changelog/0.51.md](docs/changelog/0.51.md)
+
+---
+
 ## [0.50.x] - 2026-03-11 - Executor Simplification Line Open
 
 - `0.50.0` opens the `0.50` line with design and preparation artifacts (slice plans, invariants, and baseline trackers) to guide executor simplification work; runtime behavior is unchanged.

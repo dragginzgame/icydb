@@ -12,18 +12,21 @@ use crate::{
         },
         query::{
             plan::validate::{
-                OrderPlanError, PlanError, PolicyPlanError, validate_query_semantics,
+                CursorPagingPolicyError, OrderPlanError, PlanError, PolicyPlanError,
+                validate_cursor_paging_requirements, validate_query_semantics,
             },
             plan::{
-                AccessPlannedQuery, DeleteLimitSpec, DeleteSpec, DistinctExecutionStrategy,
-                LoadSpec, LogicalPlan, OrderDirection, OrderSpec, PageSpec, PlanPolicyError,
-                PlanUserError, QueryMode,
+                AccessPlannedQuery, AggregateKind, DeleteLimitSpec, DeleteSpec,
+                DistinctExecutionStrategy, ExecutionOrdering, FieldSlot, GroupAggregateSpec,
+                GroupSpec, GroupedExecutionConfig, LoadSpec, LogicalPlan, LogicalPlanningInputs,
+                OrderDirection, OrderSpec, PageSpec, PlanPolicyError, PlanUserError, QueryMode,
+                build_logical_plan, logical_query_from_logical_inputs,
             },
         },
         schema::{SchemaInfo, ValidateError},
     },
     model::{entity::EntityModel, field::FieldKind, index::IndexModel},
-    traits::EntitySchema,
+    traits::{EntitySchema, Path},
     types::Ulid,
     value::Value,
 };
@@ -431,6 +434,65 @@ fn plan_rejects_unordered_pagination() {
 }
 
 #[test]
+fn plan_rejects_limit_without_order() {
+    let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::from_entity_model(model).expect("valid model");
+    let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            predicate: None,
+            order: None,
+            distinct: false,
+            delete_limit: None,
+            page: Some(PageSpec {
+                limit: Some(10),
+                offset: 0,
+            }),
+            consistency: MissingRowPolicy::Ignore,
+        }),
+        access: AccessPlan::path(AccessPath::FullScan),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+    };
+
+    let err = validate_query_semantics(&schema, model, &plan)
+        .expect_err("limit without ordering must be rejected");
+    assert!(matches!(err, PlanError::Policy(inner) if matches!(
+        inner.as_ref(),
+        PlanPolicyError::Policy(inner)
+            if matches!(inner.as_ref(), PolicyPlanError::UnorderedPagination)
+    )));
+}
+
+#[test]
+fn continuation_cursor_paging_requires_order_and_limit() {
+    let requires_order = validate_cursor_paging_requirements(
+        false,
+        LoadSpec {
+            limit: Some(10),
+            offset: 0,
+        },
+    );
+    assert_eq!(
+        requires_order,
+        Err(CursorPagingPolicyError::CursorRequiresOrder),
+        "cursor paging must require explicit ORDER BY in planner policy",
+    );
+
+    let requires_limit = validate_cursor_paging_requirements(
+        true,
+        LoadSpec {
+            limit: None,
+            offset: 0,
+        },
+    );
+    assert_eq!(
+        requires_limit,
+        Err(CursorPagingPolicyError::CursorRequiresLimit),
+        "cursor paging must require explicit LIMIT in planner policy",
+    );
+}
+
+#[test]
 fn plan_accepts_ordered_pagination() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
@@ -454,6 +516,62 @@ fn plan_accepts_ordered_pagination() {
     };
 
     validate_query_semantics(&schema, model, &plan).expect("ordered pagination is valid");
+}
+
+#[test]
+fn planner_build_logical_plan_appends_primary_key_tie_break_for_non_unique_order_keys() {
+    let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
+    let inputs = LogicalPlanningInputs::new(
+        QueryMode::Load(LoadSpec::new()),
+        Some(OrderSpec {
+            fields: vec![("tag".to_string(), OrderDirection::Asc)],
+        }),
+        false,
+        None,
+        None,
+    );
+    let logical_query = logical_query_from_logical_inputs(inputs, None, MissingRowPolicy::Ignore);
+    let logical_plan = build_logical_plan(model, logical_query);
+    let order = logical_plan
+        .scalar_semantics()
+        .order
+        .as_ref()
+        .expect("logical plan should carry canonicalized order");
+
+    assert_eq!(
+        order.fields,
+        vec![
+            ("tag".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+        "planner must append primary key as deterministic terminal tie-break",
+    );
+}
+
+#[test]
+fn grouped_plan_without_order_uses_grouped_canonical_ordering_contract() {
+    let group_field =
+        FieldSlot::resolve(<PlanValidateIndexedEntity as EntitySchema>::MODEL, "rank")
+            .expect("group field must resolve");
+    let grouped = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+        .into_grouped(GroupSpec {
+            group_fields: vec![group_field],
+            aggregates: vec![GroupAggregateSpec {
+                kind: AggregateKind::Count,
+                target_field: None,
+                distinct: false,
+            }],
+            execution: GroupedExecutionConfig::unbounded(),
+        });
+    let continuation = grouped
+        .continuation_contract(<PlanValidateIndexedEntity as Path>::PATH)
+        .expect("grouped plan should project continuation contract");
+
+    assert_eq!(
+        continuation.order_contract().ordering(),
+        &ExecutionOrdering::Grouped(None),
+        "grouped plans without explicit ORDER BY should use canonical grouped ordering contract",
+    );
 }
 
 #[test]
