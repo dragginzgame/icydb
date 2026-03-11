@@ -1060,6 +1060,396 @@ fn execution_descriptor_canonical_json_field_order_is_stable() {
     }
 }
 
+fn assert_execution_json_top_level_field_order(json: &str) {
+    let ordered_fields = [
+        "\"node_id\":",
+        "\"node_type\":",
+        "\"layer\":",
+        "\"execution_mode\":",
+        "\"execution_mode_detail\":",
+        "\"access_strategy\":",
+        "\"predicate_pushdown_mode\":",
+        "\"predicate_pushdown\":",
+        "\"fast_path_selected\":",
+        "\"fast_path_reason\":",
+        "\"residual_predicate\":",
+        "\"projection\":",
+        "\"ordering_source\":",
+        "\"limit\":",
+        "\"cursor\":",
+        "\"covering_scan\":",
+        "\"rows_expected\":",
+        "\"children\":",
+        "\"node_properties\":",
+    ];
+
+    let mut last_position = 0usize;
+    for (index, field) in ordered_fields.iter().enumerate() {
+        let position = json.find(field).unwrap_or_else(|| {
+            panic!("canonical execution JSON missing expected field at index {index}: {field}")
+        });
+        if index > 0 {
+            assert!(
+                position > last_position,
+                "canonical execution JSON field ordering drifted at field `{field}`",
+            );
+        }
+        last_position = position;
+    }
+}
+
+fn assert_execution_json_top_level_field_names_are_unique(json: &str) {
+    let field_tokens = [
+        "\"node_id\":",
+        "\"node_type\":",
+        "\"layer\":",
+        "\"execution_mode\":",
+        "\"execution_mode_detail\":",
+        "\"access_strategy\":",
+        "\"predicate_pushdown_mode\":",
+        "\"predicate_pushdown\":",
+        "\"fast_path_selected\":",
+        "\"fast_path_reason\":",
+        "\"residual_predicate\":",
+        "\"projection\":",
+        "\"ordering_source\":",
+        "\"limit\":",
+        "\"cursor\":",
+        "\"covering_scan\":",
+        "\"rows_expected\":",
+        "\"children\":",
+        "\"node_properties\":",
+    ];
+
+    for field_token in field_tokens {
+        let occurrences = json.match_indices(field_token).count();
+        assert_eq!(
+            occurrences, 1,
+            "canonical execution JSON field naming drifted: expected exactly one top-level `{field_token}` token"
+        );
+    }
+}
+
+#[test]
+fn execution_descriptor_canonical_json_schema_is_consistent_across_node_families() {
+    let cases = [
+        (
+            "scan",
+            ExplainExecutionNodeDescriptor {
+                node_type: ExplainExecutionNodeType::IndexRangeScan,
+                execution_mode: ExplainExecutionMode::Materialized,
+                access_strategy: Some(ExplainAccessPath::FullScan),
+                predicate_pushdown: None,
+                residual_predicate: None,
+                projection: None,
+                ordering_source: None,
+                limit: None,
+                cursor: None,
+                covering_scan: None,
+                rows_expected: None,
+                children: Vec::new(),
+                node_properties: BTreeMap::new(),
+            },
+        ),
+        (
+            "pipeline",
+            ExplainExecutionNodeDescriptor {
+                node_type: ExplainExecutionNodeType::TopNSeek,
+                execution_mode: ExplainExecutionMode::Streaming,
+                access_strategy: None,
+                predicate_pushdown: None,
+                residual_predicate: None,
+                projection: None,
+                ordering_source: None,
+                limit: None,
+                cursor: None,
+                covering_scan: None,
+                rows_expected: None,
+                children: Vec::new(),
+                node_properties: BTreeMap::new(),
+            },
+        ),
+        (
+            "aggregate",
+            ExplainExecutionNodeDescriptor {
+                node_type: ExplainExecutionNodeType::AggregateCount,
+                execution_mode: ExplainExecutionMode::Materialized,
+                access_strategy: Some(ExplainAccessPath::FullScan),
+                predicate_pushdown: None,
+                residual_predicate: None,
+                projection: None,
+                ordering_source: None,
+                limit: None,
+                cursor: None,
+                covering_scan: None,
+                rows_expected: None,
+                children: Vec::new(),
+                node_properties: BTreeMap::new(),
+            },
+        ),
+        (
+            "terminal",
+            ExplainExecutionNodeDescriptor {
+                node_type: ExplainExecutionNodeType::LimitOffset,
+                execution_mode: ExplainExecutionMode::Materialized,
+                access_strategy: None,
+                predicate_pushdown: None,
+                residual_predicate: None,
+                projection: None,
+                ordering_source: None,
+                limit: None,
+                cursor: None,
+                covering_scan: None,
+                rows_expected: None,
+                children: Vec::new(),
+                node_properties: BTreeMap::new(),
+            },
+        ),
+    ];
+
+    for (expected_layer, descriptor) in cases {
+        let json = descriptor.render_json_canonical();
+        assert_execution_json_top_level_field_order(&json);
+        assert_execution_json_top_level_field_names_are_unique(&json);
+        assert!(
+            json.contains(&format!("\"layer\":\"{expected_layer}\"")),
+            "canonical execution JSON must expose stable layer ownership for each node family",
+        );
+    }
+}
+
+#[test]
+fn execution_descriptor_canonical_json_missing_optional_fields_render_explicit_nulls() {
+    let descriptor = ExplainExecutionNodeDescriptor {
+        node_type: ExplainExecutionNodeType::LimitOffset,
+        execution_mode: ExplainExecutionMode::Materialized,
+        access_strategy: None,
+        predicate_pushdown: None,
+        residual_predicate: None,
+        projection: None,
+        ordering_source: None,
+        limit: None,
+        cursor: None,
+        covering_scan: None,
+        rows_expected: None,
+        children: Vec::new(),
+        node_properties: BTreeMap::new(),
+    };
+
+    let json = descriptor.render_json_canonical();
+    let expected_null_fields = [
+        "\"access_strategy\":null",
+        "\"predicate_pushdown\":null",
+        "\"fast_path_selected\":null",
+        "\"fast_path_reason\":null",
+        "\"residual_predicate\":null",
+        "\"projection\":null",
+        "\"ordering_source\":null",
+        "\"limit\":null",
+        "\"cursor\":null",
+        "\"covering_scan\":null",
+        "\"rows_expected\":null",
+    ];
+    for expected_null in expected_null_fields {
+        assert!(
+            json.contains(expected_null),
+            "canonical execution JSON optional/null projection drifted: missing `{expected_null}`",
+        );
+    }
+}
+
+fn assert_execution_additive_metadata_parity(
+    descriptor: &ExplainExecutionNodeDescriptor,
+    expected_layer: &str,
+    expected_execution_mode_detail: &str,
+    expected_pushdown_mode: &str,
+    expected_fast_path_selected: Option<bool>,
+    expected_fast_path_reason: Option<&str>,
+) {
+    let text = descriptor.render_text_tree();
+    let json = descriptor.render_json_canonical();
+
+    assert!(
+        text.contains("node_id=0"),
+        "text execution explain must expose deterministic node_id",
+    );
+    assert!(
+        json.contains("\"node_id\":0"),
+        "JSON execution explain must expose deterministic node_id",
+    );
+    assert!(
+        text.contains(&format!("layer={expected_layer}")),
+        "text execution explain must expose stable layer ownership",
+    );
+    assert!(
+        json.contains(&format!("\"layer\":\"{expected_layer}\"")),
+        "JSON execution explain must expose stable layer ownership",
+    );
+    assert!(
+        text.contains(&format!(
+            "execution_mode_detail={expected_execution_mode_detail}"
+        )),
+        "text execution explain must expose execution_mode_detail",
+    );
+    assert!(
+        json.contains(&format!(
+            "\"execution_mode_detail\":\"{expected_execution_mode_detail}\""
+        )),
+        "JSON execution explain must expose execution_mode_detail",
+    );
+    assert!(
+        text.contains(&format!("predicate_pushdown_mode={expected_pushdown_mode}")),
+        "text execution explain must expose predicate pushdown mode",
+    );
+    assert!(
+        json.contains(&format!(
+            "\"predicate_pushdown_mode\":\"{expected_pushdown_mode}\""
+        )),
+        "JSON execution explain must expose predicate pushdown mode",
+    );
+
+    if let Some(selected) = expected_fast_path_selected {
+        assert!(
+            text.contains(&format!("fast_path_selected={selected}")),
+            "text execution explain must expose fast-path selection when present",
+        );
+        assert!(
+            json.contains(&format!("\"fast_path_selected\":{selected}")),
+            "JSON execution explain must expose fast-path selection when present",
+        );
+    } else {
+        assert!(
+            !text.contains("fast_path_selected="),
+            "text execution explain must omit fast-path selection when absent",
+        );
+        assert!(
+            json.contains("\"fast_path_selected\":null"),
+            "JSON execution explain must project null fast-path selection when absent",
+        );
+    }
+
+    if let Some(reason) = expected_fast_path_reason {
+        assert!(
+            text.contains(&format!("fast_path_reason={reason}")),
+            "text execution explain must expose fast-path reason when present",
+        );
+        assert!(
+            json.contains(&format!("\"fast_path_reason\":\"{reason}\"")),
+            "JSON execution explain must expose fast-path reason when present",
+        );
+    } else {
+        assert!(
+            !text.contains("fast_path_reason="),
+            "text execution explain must omit fast-path reason when absent",
+        );
+        assert!(
+            json.contains("\"fast_path_reason\":null"),
+            "JSON execution explain must project null fast-path reason when absent",
+        );
+    }
+}
+
+#[test]
+fn execution_descriptor_text_json_additive_metadata_parity_is_stable_for_route_shapes() {
+    let mut fast_path_properties = BTreeMap::new();
+    fast_path_properties.insert(
+        "fast_path_selected".to_string(),
+        Value::Text("secondary_index".to_string()),
+    );
+    fast_path_properties.insert(
+        "fast_path_selected_reason".to_string(),
+        Value::Text("topn_eligible".to_string()),
+    );
+
+    let cases = [
+        (
+            ExplainExecutionNodeDescriptor {
+                node_type: ExplainExecutionNodeType::AggregateSeekFirst,
+                execution_mode: ExplainExecutionMode::Materialized,
+                access_strategy: Some(ExplainAccessPath::FullScan),
+                predicate_pushdown: None,
+                residual_predicate: None,
+                projection: None,
+                ordering_source: Some(ExplainExecutionOrderingSource::IndexSeekFirst { fetch: 1 }),
+                limit: None,
+                cursor: Some(false),
+                covering_scan: Some(false),
+                rows_expected: None,
+                children: Vec::new(),
+                node_properties: BTreeMap::new(),
+            },
+            "aggregate",
+            "materialized",
+            "none",
+            None,
+            None,
+        ),
+        (
+            ExplainExecutionNodeDescriptor {
+                node_type: ExplainExecutionNodeType::AggregateExists,
+                execution_mode: ExplainExecutionMode::Streaming,
+                access_strategy: Some(ExplainAccessPath::FullScan),
+                predicate_pushdown: None,
+                residual_predicate: None,
+                projection: None,
+                ordering_source: Some(ExplainExecutionOrderingSource::AccessOrder),
+                limit: Some(3),
+                cursor: Some(true),
+                covering_scan: Some(false),
+                rows_expected: None,
+                children: Vec::new(),
+                node_properties: BTreeMap::new(),
+            },
+            "aggregate",
+            "streaming",
+            "none",
+            None,
+            None,
+        ),
+        (
+            ExplainExecutionNodeDescriptor {
+                node_type: ExplainExecutionNodeType::TopNSeek,
+                execution_mode: ExplainExecutionMode::Streaming,
+                access_strategy: Some(ExplainAccessPath::FullScan),
+                predicate_pushdown: Some("strict_all_or_none".to_string()),
+                residual_predicate: None,
+                projection: None,
+                ordering_source: Some(ExplainExecutionOrderingSource::AccessOrder),
+                limit: Some(5),
+                cursor: Some(false),
+                covering_scan: Some(false),
+                rows_expected: Some(5),
+                children: Vec::new(),
+                node_properties: fast_path_properties.clone(),
+            },
+            "pipeline",
+            "streaming",
+            "full",
+            Some(true),
+            Some("topn_eligible"),
+        ),
+    ];
+
+    for (
+        descriptor,
+        expected_layer,
+        expected_execution_mode_detail,
+        expected_pushdown_mode,
+        expected_fast_path_selected,
+        expected_fast_path_reason,
+    ) in cases
+    {
+        assert_execution_additive_metadata_parity(
+            &descriptor,
+            expected_layer,
+            expected_execution_mode_detail,
+            expected_pushdown_mode,
+            expected_fast_path_selected,
+            expected_fast_path_reason,
+        );
+    }
+}
+
 #[test]
 fn execution_descriptor_pushdown_mode_projection_is_stable() {
     let mut descriptor = ExplainExecutionNodeDescriptor {
