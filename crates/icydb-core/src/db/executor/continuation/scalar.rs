@@ -13,9 +13,8 @@ use crate::{
         },
         direction::Direction,
         executor::{
-            AccessScanContinuationInput,
+            AccessScanContinuationInput, ContinuationMode,
             continuation::capabilities::ContinuationCapabilities,
-            route::ContinuationMode,
             traversal::{effective_keep_count_for_limit, effective_page_offset_for_window},
         },
         query::plan::{AccessPlannedQuery, ContinuationPolicy},

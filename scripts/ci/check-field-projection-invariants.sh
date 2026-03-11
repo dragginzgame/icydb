@@ -12,7 +12,7 @@ RUNTIME_FILES=(
   "crates/icydb-core/src/db/executor/mutation/save_validation.rs"
   "crates/icydb-core/src/db/index/key/build.rs"
   "crates/icydb-core/src/db/index/plan/unique.rs"
-  "crates/icydb-core/src/db/executor/kernel/post_access/order_cursor.rs"
+  "crates/icydb-core/src/db/executor/pipeline/operators/post_access/order_cursor.rs"
   "crates/icydb-core/src/db/predicate/runtime.rs"
   "crates/icydb-core/src/db/relation/reverse_index.rs"
   "crates/icydb-core/src/model/entity.rs"

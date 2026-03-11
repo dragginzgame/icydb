@@ -3,7 +3,7 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::db::{executor::route::ContinuationMode, query::plan::ContinuationPolicy};
+use crate::db::{executor::ContinuationMode, query::plan::ContinuationPolicy};
 
 ///
 /// ContinuationCapabilities
@@ -82,7 +82,7 @@ impl ContinuationCapabilities {
 #[cfg(test)]
 mod tests {
     use crate::db::{
-        executor::{ContinuationCapabilities, route::ContinuationMode},
+        executor::{ContinuationCapabilities, ContinuationMode},
         query::plan::ContinuationPolicy,
     };
 

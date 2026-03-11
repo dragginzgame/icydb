@@ -1000,6 +1000,106 @@ fn execution_descriptor_canonical_json_shape_is_stable() {
     );
 }
 
+#[test]
+fn execution_descriptor_canonical_json_field_order_is_stable() {
+    let descriptor = ExplainExecutionNodeDescriptor {
+        node_type: ExplainExecutionNodeType::IndexPrefixScan,
+        execution_mode: ExplainExecutionMode::Materialized,
+        access_strategy: Some(ExplainAccessPath::IndexPrefix {
+            name: "users_by_email",
+            fields: vec!["email"],
+            prefix_len: 1,
+            values: vec![Value::Text("alpha@example.com".to_string())],
+        }),
+        predicate_pushdown: Some("strict_all_or_none".to_string()),
+        residual_predicate: None,
+        projection: None,
+        ordering_source: Some(ExplainExecutionOrderingSource::AccessOrder),
+        limit: Some(5),
+        cursor: Some(true),
+        covering_scan: Some(false),
+        rows_expected: Some(5),
+        children: Vec::new(),
+        node_properties: BTreeMap::new(),
+    };
+    let json = descriptor.render_json_canonical();
+    let ordered_fields = [
+        "\"node_id\":",
+        "\"node_type\":",
+        "\"layer\":",
+        "\"execution_mode\":",
+        "\"execution_mode_detail\":",
+        "\"access_strategy\":",
+        "\"predicate_pushdown_mode\":",
+        "\"predicate_pushdown\":",
+        "\"fast_path_selected\":",
+        "\"fast_path_reason\":",
+        "\"residual_predicate\":",
+        "\"projection\":",
+        "\"ordering_source\":",
+        "\"limit\":",
+        "\"cursor\":",
+        "\"covering_scan\":",
+        "\"rows_expected\":",
+        "\"children\":",
+        "\"node_properties\":",
+    ];
+
+    let mut last_position = 0usize;
+    for (index, field) in ordered_fields.iter().enumerate() {
+        let position = json.find(field).unwrap_or_else(|| {
+            panic!("canonical execution JSON missing expected field at index {index}: {field}")
+        });
+        if index > 0 {
+            assert!(
+                position > last_position,
+                "canonical execution JSON field ordering drifted at field `{field}`",
+            );
+        }
+        last_position = position;
+    }
+}
+
+#[test]
+fn execution_descriptor_pushdown_mode_projection_is_stable() {
+    let mut descriptor = ExplainExecutionNodeDescriptor {
+        node_type: ExplainExecutionNodeType::IndexPredicatePrefilter,
+        execution_mode: ExplainExecutionMode::Materialized,
+        access_strategy: None,
+        predicate_pushdown: None,
+        residual_predicate: None,
+        projection: None,
+        ordering_source: None,
+        limit: None,
+        cursor: None,
+        covering_scan: None,
+        rows_expected: None,
+        children: Vec::new(),
+        node_properties: BTreeMap::new(),
+    };
+
+    let none_mode = descriptor.render_json_canonical();
+    assert!(
+        none_mode.contains("\"predicate_pushdown_mode\":\"none\""),
+        "missing pushdown mode `none` projection",
+    );
+
+    descriptor.predicate_pushdown = Some("strict_all_or_none".to_string());
+    let full_mode = descriptor.render_json_canonical();
+    assert!(
+        full_mode.contains("\"predicate_pushdown_mode\":\"full\""),
+        "missing pushdown mode `full` projection",
+    );
+
+    descriptor.predicate_pushdown = Some("index_predicate".to_string());
+    descriptor.residual_predicate = Some(ExplainPredicate::True);
+    let partial_mode = descriptor.render_json_canonical();
+    assert!(
+        partial_mode.contains("\"predicate_pushdown_mode\":\"partial\""),
+        "missing pushdown mode `partial` projection",
+    );
+}
+
 fn aggregate_terminal_plan_snapshot(plan: &ExplainAggregateTerminalPlan) -> String {
     let execution = plan.execution();
     let node = plan.execution_node_descriptor();

@@ -5,6 +5,8 @@
 
 mod capabilities;
 mod engine;
+mod grouped;
+mod route;
 mod scalar;
 
 pub(in crate::db::executor) use capabilities::ContinuationCapabilities;
@@ -12,6 +14,10 @@ pub(in crate::db::executor) use engine::{
     ContinuationEngine, LoadCursorInput, PreparedLoadCursor, RequestedLoadExecutionShape,
     ResolvedLoadCursorContext,
 };
+pub(in crate::db::executor) use grouped::{
+    GroupedContinuationCapabilities, GroupedContinuationContext, GroupedPaginationWindow,
+};
+pub(in crate::db::executor) use route::{AccessWindow, ContinuationMode, RouteContinuationPlan};
 pub(in crate::db::executor) use scalar::{
     ResolvedScalarContinuationContext, ScalarContinuationBindings, ScalarContinuationContext,
     ScalarRouteContinuationInvariantProjection,

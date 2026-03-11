@@ -6,7 +6,7 @@
 use crate::{
     db::{
         cursor::{CursorBoundary, apply_resume_bound_phase},
-        executor::{ExecutionKernel, kernel::PlanRow, traversal::effective_page_offset_for_window},
+        executor::{ExecutionKernel, PlanRow, traversal::effective_page_offset_for_window},
         query::plan::AccessPlannedQuery,
     },
     error::InternalError,

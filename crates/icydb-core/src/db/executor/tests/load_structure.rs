@@ -159,7 +159,7 @@ fn executor_internal_stream_and_window_types_do_not_widen_to_pub_crate() {
         ),
         ("src/db/executor/mod.rs", "pub(crate) enum ExecutorError"),
         (
-            "src/db/executor/kernel/post_access/mod.rs",
+            "src/db/executor/pipeline/operators/post_access/mod.rs",
             "pub(crate) struct BudgetSafetyMetadata",
         ),
         (

@@ -6,6 +6,7 @@
 mod capability;
 mod contracts;
 mod fast_path;
+mod grouped_runtime;
 mod guard;
 mod hints;
 mod mode;

@@ -249,7 +249,7 @@ impl ExecutionRoutePlan {
     }
 
     // Route-owned fast-path dispatch order. Executors must dispatch using this
-    // order instead of introducing ad-hoc aggregate/load micro fast paths.
+    // order instead of introducing ad-hoc aggregate/runtime micro fast paths.
     pub(in crate::db::executor) const fn fast_path_order(&self) -> &'static [FastPathOrder] {
         self.fast_path_order
     }

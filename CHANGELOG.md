@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.49.x] - 2026-03-11 - Executor Architecture Stabilization
 
+- `0.49.2` stabilizes executor observability and orchestration internals by splitting EXPLAIN JSON/node ownership, adding executor diagnostics node/counter contracts, and moving load orchestration to a deterministic stage-descriptor loop while keeping query behavior unchanged.
 - `0.49.1` removes the remaining internal `db::executor::shared` bucket by moving contracts and helpers to owner modules (`pipeline::contracts`, `projection`, and `context`) and adds guardrails so the old namespace cannot return.
 - `0.49.0` stabilizes the post-`load` executor architecture by locking scan/pipeline/aggregate/terminal boundaries, expanding EXPLAIN execution metadata (including deterministic node IDs and layer/fast-path/pushdown visibility), hardening continuation fail-closed checks across grouped shape drift, and adding additive row-flow metrics (`rows_filtered`, `rows_aggregated`, `rows_emitted`) without introducing new query language features.
 

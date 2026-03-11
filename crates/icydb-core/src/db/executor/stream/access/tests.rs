@@ -307,7 +307,7 @@ fn runtime_route_capability_shims_are_not_reintroduced() {
 #[test]
 fn grouped_fold_runtime_uses_grouped_projection_consistency_contract() {
     let source_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("src/db/executor/aggregate/load/grouped_fold/ingest.rs");
+        .join("src/db/executor/aggregate/runtime/grouped_fold/ingest.rs");
     let source = fs::read_to_string(&source_path)
         .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
     let runtime_source = strip_cfg_test_items(source.as_str());
@@ -321,7 +321,7 @@ fn grouped_fold_runtime_uses_grouped_projection_consistency_contract() {
 #[test]
 fn grouped_distinct_runtime_uses_grouped_projection_consistency_contract() {
     let source_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("src/db/executor/aggregate/load/grouped_distinct/aggregate.rs");
+        .join("src/db/executor/aggregate/runtime/grouped_distinct/aggregate.rs");
     let source = fs::read_to_string(&source_path)
         .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
     let runtime_source = strip_cfg_test_items(source.as_str());
@@ -431,36 +431,36 @@ fn delete_runtime_uses_executor_row_read_consistency_helper() {
 #[test]
 fn kernel_reducer_uses_executor_row_read_consistency_helper() {
     let source_path =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/kernel/reducer.rs");
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/pipeline/operators/reducer.rs");
     let source = fs::read_to_string(&source_path)
         .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
     let runtime_source = strip_cfg_test_items(source.as_str());
 
     assert!(
         !runtime_source.contains("plan.scalar_plan().consistency"),
-        "kernel reducer runners must consume executor row-read consistency helper instead of direct scalar-plan consistency reads",
+        "pipeline reducer runners must consume executor row-read consistency helper instead of direct scalar-plan consistency reads",
     );
 }
 
 #[test]
 fn kernel_post_access_runtime_uses_projection_phase_gate_accessors() {
-    let source_path =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/kernel/post_access/mod.rs");
+    let source_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src/db/executor/pipeline/operators/post_access/mod.rs");
     let source = fs::read_to_string(&source_path)
         .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
     let runtime_source = strip_cfg_test_items(source.as_str());
 
     assert!(
         !runtime_source.contains("if cursor.is_some() && !self.plan.scalar_plan().mode.is_load()"),
-        "kernel post-access cursor validation must consume post-access mode projection accessor",
+        "pipeline post-access cursor validation must consume post-access mode projection accessor",
     );
     assert!(
         !runtime_source.contains("let filtered = if self.plan.scalar_plan().predicate.is_some()"),
-        "kernel post-access filter phase must consume post-access predicate projection accessor",
+        "pipeline post-access filter phase must consume post-access predicate projection accessor",
     );
     assert!(
         !runtime_source.contains("let logical = self.plan.scalar_plan();"),
-        "kernel post-access phase gates must avoid repeated direct scalar-plan projection bindings",
+        "pipeline post-access phase gates must avoid repeated direct scalar-plan projection bindings",
     );
 }
 

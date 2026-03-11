@@ -3,10 +3,6 @@
 //! Does not own: logical planning or physical access path lowering policies.
 //! Boundary: key-stream decoration, materialization, and residual retry behavior.
 
-mod distinct;
-mod post_access;
-mod reducer;
-
 use crate::{
     db::{
         direction::Direction,
@@ -16,6 +12,9 @@ use crate::{
                 CursorPage, ExecutionInputsProjection, LoadExecutor, MaterializedExecutionAttempt,
                 ResolvedExecutionKeyStream,
             },
+            pipeline::operators::{
+                decorate_key_stream_for_plan, decorate_resolved_execution_key_stream,
+            },
             terminal::page::PageMaterializationRequest,
         },
         index::IndexCompilePolicy,
@@ -24,10 +23,6 @@ use crate::{
     error::InternalError,
     traits::{EntityKind, EntityValue},
 };
-
-// Keep post-access contract ownership explicit at the kernel boundary.
-// use post_access::{PlanRow, PostAccessStats};
-pub(in crate::db::executor) use post_access::PlanRow;
 
 ///
 /// ExecutionKernel
@@ -54,7 +49,7 @@ impl ExecutionKernel {
             predicate_compile_mode,
         )?;
 
-        Ok(distinct::decorate_resolved_execution_key_stream(
+        Ok(decorate_resolved_execution_key_stream(
             resolved,
             inputs.plan(),
             inputs.stream_bindings().direction(),
@@ -67,7 +62,7 @@ impl ExecutionKernel {
         plan: &AccessPlannedQuery<K>,
         direction: Direction,
     ) -> OrderedKeyStreamBox {
-        distinct::decorate_key_stream_for_plan(ordered_key_stream, plan, direction)
+        decorate_key_stream_for_plan(ordered_key_stream, plan, direction)
     }
 
     /// Materialize one load execution attempt with optional residual retry.

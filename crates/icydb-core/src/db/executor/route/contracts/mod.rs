@@ -4,18 +4,17 @@
 //! Boundary: shared immutable route types consumed by route submodules and executor runtime.
 
 mod capabilities;
-mod continuation;
 mod execution;
 mod shape;
 
+pub(in crate::db::executor) use crate::db::executor::{
+    AccessWindow, ContinuationMode, RouteContinuationPlan,
+};
 #[cfg(test)]
 pub(in crate::db::executor) use capabilities::FieldExtremaIneligibilityReason;
 pub(in crate::db::executor) use capabilities::RouteCapabilities;
 #[cfg(test)]
 pub(in crate::db::executor) use capabilities::route_capability_flag_count_guard;
-pub(in crate::db::executor) use continuation::{
-    AccessWindow, ContinuationMode, RouteContinuationPlan,
-};
 #[cfg(test)]
 pub(in crate::db::executor) use execution::route_execution_mode_case_count_guard;
 pub(in crate::db::executor) use execution::{

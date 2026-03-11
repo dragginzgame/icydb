@@ -14,9 +14,9 @@ INDEX_EXECUTOR_FILES=(
   "crates/icydb-core/src/db/executor/scan/index_range_limit.rs"
   "crates/icydb-core/src/db/executor/scan/secondary_index.rs"
   "crates/icydb-core/src/db/executor/scan/fast_stream_route/handlers.rs"
-  "crates/icydb-core/src/db/executor/pipeline/execute/mod.rs"
-  "crates/icydb-core/src/db/executor/pipeline/execute/fast_path/mod.rs"
-  "crates/icydb-core/src/db/executor/pipeline/execute/fast_path/strategy.rs"
+  "crates/icydb-core/src/db/executor/pipeline/runtime/mod.rs"
+  "crates/icydb-core/src/db/executor/pipeline/runtime/fast_path/mod.rs"
+  "crates/icydb-core/src/db/executor/pipeline/runtime/fast_path/strategy.rs"
   "crates/icydb-core/src/db/executor/delete/mod.rs"
 )
 

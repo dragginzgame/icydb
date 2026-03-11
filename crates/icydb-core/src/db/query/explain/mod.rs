@@ -5,6 +5,8 @@
 
 mod access_projection;
 mod execution;
+mod json;
+mod nodes;
 mod plan;
 mod render;
 mod writer;

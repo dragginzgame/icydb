@@ -4,7 +4,6 @@
 //! Boundary: validates entrypoint contracts, builds route context, and delegates execution.
 
 mod grouped;
-mod pipeline;
 mod scalar;
 
 use crate::{
@@ -21,11 +20,11 @@ use crate::{
     traits::{EntityKind, EntityValue},
 };
 
-pub(in crate::db::executor) use pipeline::{
+pub(in crate::db::executor) use crate::db::executor::pipeline::orchestrator::{
     LoadExecutionMode, LoadExecutionSurface, LoadTracingMode,
 };
 #[cfg(test)]
-pub(in crate::db::executor) use pipeline::{
+pub(in crate::db::executor) use crate::db::executor::pipeline::orchestrator::{
     load_execute_stage_order_guard, load_pipeline_state_optional_slot_count_guard,
 };
 
@@ -35,7 +34,7 @@ where
 {
     // Keep continuation-resolution authority in the entrypoint root module.
     // Leaf modules consume prepared cursor contracts only.
-    fn resolve_entrypoint_cursor(
+    pub(in crate::db::executor::pipeline) fn resolve_entrypoint_cursor(
         plan: &ExecutablePlan<E>,
         cursor: LoadCursorInput,
         execution_mode: LoadExecutionMode,

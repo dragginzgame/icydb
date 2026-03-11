@@ -353,41 +353,7 @@ impl ExplainExecutionNodeType {
     /// Return the owning execution layer label for this node type.
     #[must_use]
     pub const fn layer_label(self) -> &'static str {
-        match self {
-            Self::ByKeyLookup
-            | Self::ByKeysLookup
-            | Self::PrimaryKeyRangeScan
-            | Self::IndexPrefixScan
-            | Self::IndexRangeScan
-            | Self::IndexMultiLookup
-            | Self::FullScan
-            | Self::Union
-            | Self::Intersection => "scan",
-            Self::IndexPredicatePrefilter
-            | Self::ResidualPredicateFilter
-            | Self::OrderByAccessSatisfied
-            | Self::OrderByMaterializedSort
-            | Self::CursorResume
-            | Self::IndexRangeLimitPushdown
-            | Self::TopNSeek
-            | Self::SecondaryOrderPushdown => "pipeline",
-            Self::DistinctPreOrdered
-            | Self::DistinctMaterialized
-            | Self::AggregateCount
-            | Self::AggregateExists
-            | Self::AggregateMin
-            | Self::AggregateMax
-            | Self::AggregateFirst
-            | Self::AggregateLast
-            | Self::AggregateSum
-            | Self::AggregateSeekFirst
-            | Self::AggregateSeekLast
-            | Self::GroupedAggregateHashMaterialized
-            | Self::GroupedAggregateOrderedMaterialized => "aggregate",
-            Self::ProjectionMaterialized | Self::ProjectionIndexOnly | Self::LimitOffset => {
-                "terminal"
-            }
-        }
+        crate::db::query::explain::nodes::layer_label(self)
     }
 }
 

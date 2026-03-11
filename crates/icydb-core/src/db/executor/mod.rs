@@ -4,9 +4,9 @@
 //! Boundary: consumes query/access/cursor contracts and drives load/delete/aggregate runtime.
 
 mod aggregate;
-mod context;
 mod continuation;
 mod delete;
+pub(in crate::db::executor) mod diagnostics;
 mod executable_plan;
 mod explain;
 pub(in crate::db) mod group;
@@ -18,6 +18,7 @@ mod plan_validate;
 mod preparation;
 mod projection;
 pub(super) mod route;
+mod runtime_context;
 mod scan;
 mod stream;
 mod terminal;
@@ -35,21 +36,25 @@ use crate::db::access::{
 pub(in crate::db) use crate::db::access::{
     ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan,
 };
-pub(in crate::db::executor) use crate::db::diagnostics::ExecutionOptimizationCounter;
-pub(in crate::db::executor) use crate::db::diagnostics::{ExecutionOptimization, ExecutionTrace};
-pub(super) use context::*;
 pub(in crate::db::executor) use continuation::{
-    ContinuationCapabilities, ContinuationEngine, LoadCursorInput, PreparedLoadCursor,
-    RequestedLoadExecutionShape, ResolvedLoadCursorContext, ResolvedScalarContinuationContext,
-    ScalarContinuationBindings, ScalarRouteContinuationInvariantProjection,
+    AccessWindow, ContinuationCapabilities, ContinuationEngine, ContinuationMode,
+    GroupedContinuationCapabilities, GroupedContinuationContext, GroupedPaginationWindow,
+    LoadCursorInput, PreparedLoadCursor, RequestedLoadExecutionShape, ResolvedLoadCursorContext,
+    ResolvedScalarContinuationContext, RouteContinuationPlan, ScalarContinuationBindings,
+    ScalarRouteContinuationInvariantProjection,
 };
 pub(super) use delete::DeleteExecutor;
+pub(in crate::db::executor) use diagnostics::{
+    ExecutionOptimization, ExecutionOptimizationCounter, ExecutionTrace,
+};
 pub(in crate::db) use executable_plan::{ExecutablePlan, ExecutionStrategy};
-pub(in crate::db::executor) use kernel::{ExecutionKernel, PlanRow};
+pub(in crate::db::executor) use kernel::ExecutionKernel;
 pub(super) use mutation::save::SaveExecutor;
 pub(super) use pipeline::contracts::LoadExecutor;
+pub(in crate::db::executor) use pipeline::operators::PlanRow;
 pub(in crate::db::executor) use plan_validate::validate_executor_plan;
 pub(in crate::db::executor) use preparation::ExecutionPreparation;
+pub(super) use runtime_context::*;
 pub(super) use stream::access::*;
 pub(in crate::db::executor) use stream::key::{
     BudgetedOrderedKeyStream, KeyOrderComparator, OrderedKeyStream, OrderedKeyStreamBox,
@@ -91,7 +96,7 @@ where
     pub(crate) fn take_execution_optimization_hits_for_tests(
         optimization: ExecutionOptimizationCounter,
     ) -> u64 {
-        crate::db::diagnostics::take_execution_optimization_hits_for_tests(optimization)
+        diagnostics::take_execution_optimization_hits_for_tests(optimization)
     }
 }
 
@@ -104,7 +109,7 @@ where
     pub(in crate::db::executor) fn record_execution_optimization_hit_for_tests(
         optimization: ExecutionOptimizationCounter,
     ) {
-        crate::db::diagnostics::record_execution_optimization_hit_for_tests(optimization);
+        diagnostics::record_execution_optimization_hit_for_tests(optimization);
     }
 
     /// Record one test-only optimization hit marker by canonical taxonomy key.
@@ -112,7 +117,7 @@ where
     pub(in crate::db::executor) const fn record_execution_optimization_hit_for_tests(
         optimization: ExecutionOptimizationCounter,
     ) {
-        crate::db::diagnostics::record_execution_optimization_hit_for_tests(optimization);
+        diagnostics::record_execution_optimization_hit_for_tests(optimization);
     }
 }
 
