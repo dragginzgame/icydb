@@ -53,8 +53,7 @@ impl<E: EntityKind> AggregateReducerState<E> {
     pub(in crate::db::executor) const fn for_kind(kind: AggregateKind) -> Self {
         match kind {
             AggregateKind::Count => Self::Count(0),
-            AggregateKind::Sum => Self::Sum(None),
-            AggregateKind::Avg => Self::Sum(None),
+            AggregateKind::Sum | AggregateKind::Avg => Self::Sum(None),
             AggregateKind::Exists => Self::Exists(false),
             AggregateKind::Min => Self::Min(None),
             AggregateKind::Max => Self::Max(None),

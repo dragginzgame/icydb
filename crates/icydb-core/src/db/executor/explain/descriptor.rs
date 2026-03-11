@@ -85,10 +85,11 @@ where
         secondary_order_pushdown_descriptor(&route_plan, execution_mode),
         index_range_limit_pushdown_descriptor(&route_plan, execution_mode),
         top_n_seek_descriptor(&route_plan, execution_mode),
-    ] {
-        if let Some(node) = node {
-            root.children.push(node);
-        }
+    ]
+    .into_iter()
+    .flatten()
+    {
+        root.children.push(node);
     }
 
     if plan.scalar_plan().order.is_some() {

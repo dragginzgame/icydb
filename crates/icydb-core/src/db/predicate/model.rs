@@ -101,7 +101,7 @@ impl Predicate {
 
     /// Compare `field IS NOT NULL`.
     #[must_use]
-    pub fn is_not_null(field: String) -> Self {
+    pub const fn is_not_null(field: String) -> Self {
         Self::IsNotNull { field }
     }
 

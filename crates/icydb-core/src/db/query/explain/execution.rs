@@ -304,8 +304,7 @@ const fn aggregate_execution_node_type(
             AggregateKind::Max => ExplainExecutionNodeType::AggregateMax,
             AggregateKind::First => ExplainExecutionNodeType::AggregateFirst,
             AggregateKind::Last => ExplainExecutionNodeType::AggregateLast,
-            AggregateKind::Sum => ExplainExecutionNodeType::AggregateSum,
-            AggregateKind::Avg => ExplainExecutionNodeType::AggregateSum,
+            AggregateKind::Sum | AggregateKind::Avg => ExplainExecutionNodeType::AggregateSum,
         },
     }
 }

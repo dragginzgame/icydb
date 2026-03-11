@@ -39,6 +39,7 @@ where
 {
     // Execute one global DISTINCT field-target grouped aggregate with grouped
     // distinct budget accounting and deterministic reducer behavior.
+    #[expect(clippy::too_many_lines)]
     pub(in crate::db::executor) fn execute_global_distinct_field_aggregate(
         consistency: MissingRowPolicy,
         ctx: &Context<'_, E>,

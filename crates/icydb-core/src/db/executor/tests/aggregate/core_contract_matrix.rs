@@ -1942,7 +1942,7 @@ fn grouped_global_distinct_unsupported_kind_is_executor_invariant_only_when_plan
     );
     assert!(
         err.message
-            .contains("global DISTINCT grouped aggregate shape supports COUNT/SUM only"),
+            .contains("global DISTINCT grouped aggregate shape supports COUNT/SUM/AVG only"),
         "bypassed global DISTINCT unsupported aggregate kind should fail with planner-policy invariant text: {err:?}",
     );
 }

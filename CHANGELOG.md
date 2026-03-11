@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.50.x] - 2026-03-11 - Executor Simplification Line Open
 
+- `0.50.2` records the pre-`0.51` contract lock by explicitly freezing `is_not_null()` and `between(...)`, planner projection selection shapes (`All`/`Fields`/`Expression`), and grouped `AVG` planner support (including global DISTINCT policy/invariant alignment).
 - `0.50.1` expands Slice E mechanical cleanup across aggregate terminals/projection helpers, runtime payload-window helpers, post-access operator plumbing, commit-window metrics wiring, and EXPLAIN descriptor helper paths, reducing executor maintenance surface without changing query behavior.
 - `0.50.0` opens the `0.50` line with design and preparation artifacts (slice plans, invariants, and baseline trackers) to guide executor simplification work; runtime behavior is unchanged.
 

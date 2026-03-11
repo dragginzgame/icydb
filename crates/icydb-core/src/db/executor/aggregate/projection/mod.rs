@@ -221,6 +221,7 @@ where
     }
 
     // Record one covering index projection fast-path hit in tests.
+    #[allow(clippy::missing_const_for_fn)]
     fn record_covering_index_projection_fast_path_hit_for_tests() {
         Self::record_execution_optimization_hit_for_tests(
             ExecutionOptimizationCounter::CoveringIndexProjectionFastPath,
@@ -228,6 +229,7 @@ where
     }
 
     // Record one constant covering projection fast-path hit in tests.
+    #[allow(clippy::missing_const_for_fn)]
     fn record_covering_constant_projection_fast_path_hit_for_tests() {
         Self::record_execution_optimization_hit_for_tests(
             ExecutionOptimizationCounter::CoveringConstantProjectionFastPath,

@@ -38,8 +38,7 @@ impl AggregateKind {
     pub(in crate::db::executor) const fn zero_output<E: EntityKind>(self) -> AggregateOutput<E> {
         match self {
             Self::Count => AggregateOutput::Count(0),
-            Self::Sum => AggregateOutput::Sum(None),
-            Self::Avg => AggregateOutput::Sum(None),
+            Self::Sum | Self::Avg => AggregateOutput::Sum(None),
             Self::Exists => AggregateOutput::Exists(false),
             Self::Min => AggregateOutput::Min(None),
             Self::Max => AggregateOutput::Max(None),
