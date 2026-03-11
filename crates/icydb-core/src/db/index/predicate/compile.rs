@@ -116,6 +116,7 @@ fn compile_index_program_from_resolved_full(
         ))),
         ResolvedPredicate::Compare(cmp) => compile_compare_index_node(cmp, index_slots),
         ResolvedPredicate::IsNull { .. }
+        | ResolvedPredicate::IsNotNull { .. }
         | ResolvedPredicate::IsMissing { .. }
         | ResolvedPredicate::IsEmpty { .. }
         | ResolvedPredicate::IsNotEmpty { .. }

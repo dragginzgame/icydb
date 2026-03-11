@@ -47,6 +47,9 @@ pub(in crate::db) fn normalize(predicate: &Predicate) -> Predicate {
         Predicate::IsNull { field } => Predicate::IsNull {
             field: field.clone(),
         },
+        Predicate::IsNotNull { field } => Predicate::IsNotNull {
+            field: field.clone(),
+        },
         Predicate::IsMissing { field } => Predicate::IsMissing {
             field: field.clone(),
         },
@@ -106,6 +109,9 @@ pub(in crate::db) fn normalize_enum_literals(
             schema, cmp,
         )?)),
         Predicate::IsNull { field } => Ok(Predicate::IsNull {
+            field: field.clone(),
+        }),
+        Predicate::IsNotNull { field } => Ok(Predicate::IsNotNull {
             field: field.clone(),
         }),
         Predicate::IsMissing { field } => Ok(Predicate::IsMissing {
@@ -403,6 +409,7 @@ const fn predicate_eval_cost_rank(predicate: &Predicate) -> u8 {
         Predicate::True | Predicate::False => 0,
         Predicate::Compare(_)
         | Predicate::IsNull { .. }
+        | Predicate::IsNotNull { .. }
         | Predicate::IsMissing { .. }
         | Predicate::IsEmpty { .. }
         | Predicate::IsNotEmpty { .. } => 1,

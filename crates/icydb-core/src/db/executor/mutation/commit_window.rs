@@ -234,18 +234,6 @@ pub(in crate::db::executor) fn summarize_prepared_row_ops(
     summary
 }
 
-/// Emit index and reverse-index metrics from one prepared-row delta aggregate.
-pub(in crate::db::executor) fn emit_prepared_row_op_delta_metrics<E: EntityKind>(
-    delta: &PreparedRowOpDelta,
-) {
-    emit_index_delta_metrics::<E>(
-        delta.index_inserts,
-        delta.index_removes,
-        delta.reverse_index_inserts,
-        delta.reverse_index_removes,
-    );
-}
-
 /// Emit index and reverse-index delta metrics with saturated diagnostics counts.
 pub(in crate::db::executor) fn emit_index_delta_metrics<E: EntityKind>(
     index_inserts: usize,
@@ -385,7 +373,14 @@ pub(in crate::db::executor) fn commit_save_row_ops_with_window<E: EntityKind + E
         db,
         row_ops,
         apply_phase,
-        |delta| emit_prepared_row_op_delta_metrics::<E>(delta),
+        |delta| {
+            emit_index_delta_metrics::<E>(
+                delta.index_inserts,
+                delta.index_removes,
+                delta.reverse_index_inserts,
+                delta.reverse_index_removes,
+            );
+        },
         on_data_applied,
     )
 }

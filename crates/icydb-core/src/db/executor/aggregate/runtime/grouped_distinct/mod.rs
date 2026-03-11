@@ -5,3 +5,5 @@
 
 mod aggregate;
 mod paging;
+
+pub(in crate::db::executor) use aggregate::GlobalDistinctFieldAggregateKind;

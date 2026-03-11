@@ -215,6 +215,9 @@ fn aggregate_terminal_expr(kind: AggregateKind) -> AggregateExpr {
         AggregateKind::Sum => {
             unreachable!("aggregate route-terminal helper must not construct SUM(fieldless) intent")
         }
+        AggregateKind::Avg => {
+            unreachable!("aggregate route-terminal helper must not construct AVG(fieldless) intent")
+        }
         AggregateKind::Exists => crate::db::query::builder::aggregate::exists(),
         AggregateKind::Min => crate::db::query::builder::aggregate::min(),
         AggregateKind::Max => crate::db::query::builder::aggregate::max(),

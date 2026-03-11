@@ -42,12 +42,10 @@ where
         if let Some(aggregate_output) =
             aggregate_zero_output_if_window_empty(&plan, AggregateKind::Count)
         {
-            return match aggregate_output {
-                AggregateOutput::Count(value) => Ok(value),
-                _ => Err(crate::db::error::query_executor_invariant(
-                    "aggregate COUNT zero-window result kind mismatch",
-                )),
-            };
+            return Self::expect_count_output(
+                aggregate_output,
+                "aggregate COUNT zero-window result kind mismatch",
+            );
         }
 
         if let Some(contract) = Self::derive_count_terminal_fast_path_contract(&plan) {
@@ -73,12 +71,10 @@ where
             };
         }
 
-        match ExecutionKernel::execute_aggregate_spec(self, plan, count())? {
-            AggregateOutput::Count(value) => Ok(value),
-            _ => Err(crate::db::error::query_executor_invariant(
-                "aggregate COUNT result kind mismatch",
-            )),
-        }
+        Self::expect_count_output(
+            ExecutionKernel::execute_aggregate_spec(self, plan, count())?,
+            "aggregate COUNT result kind mismatch",
+        )
     }
 
     /// Execute `exists()` over the effective aggregate window.
@@ -89,12 +85,10 @@ where
         if let Some(aggregate_output) =
             aggregate_zero_output_if_window_empty(&plan, AggregateKind::Exists)
         {
-            return match aggregate_output {
-                AggregateOutput::Exists(value) => Ok(value),
-                _ => Err(crate::db::error::query_executor_invariant(
-                    "aggregate EXISTS zero-window result kind mismatch",
-                )),
-            };
+            return Self::expect_exists_output(
+                aggregate_output,
+                "aggregate EXISTS zero-window result kind mismatch",
+            );
         }
 
         if let Some(contract) = Self::derive_exists_terminal_fast_path_contract(&plan) {
@@ -108,12 +102,10 @@ where
             };
         }
 
-        match ExecutionKernel::execute_aggregate_spec(self, plan, exists())? {
-            AggregateOutput::Exists(value) => Ok(value),
-            _ => Err(crate::db::error::query_executor_invariant(
-                "aggregate EXISTS result kind mismatch",
-            )),
-        }
+        Self::expect_exists_output(
+            ExecutionKernel::execute_aggregate_spec(self, plan, exists())?,
+            "aggregate EXISTS result kind mismatch",
+        )
     }
 
     /// Execute `min()` over the effective aggregate window.
@@ -124,20 +116,18 @@ where
         if let Some(aggregate_output) =
             aggregate_zero_output_if_window_empty(&plan, AggregateKind::Min)
         {
-            return match aggregate_output {
-                AggregateOutput::Min(value) => Ok(value),
-                _ => Err(crate::db::error::query_executor_invariant(
-                    "aggregate MIN zero-window result kind mismatch",
-                )),
-            };
+            return Self::expect_optional_id_terminal_output(
+                aggregate_output,
+                AggregateKind::Min,
+                "aggregate MIN zero-window result kind mismatch",
+            );
         }
 
-        match ExecutionKernel::execute_aggregate_spec(self, plan, min())? {
-            AggregateOutput::Min(value) => Ok(value),
-            _ => Err(crate::db::error::query_executor_invariant(
-                "aggregate MIN result kind mismatch",
-            )),
-        }
+        Self::expect_optional_id_terminal_output(
+            ExecutionKernel::execute_aggregate_spec(self, plan, min())?,
+            AggregateKind::Min,
+            "aggregate MIN result kind mismatch",
+        )
     }
 
     /// Execute `max()` over the effective aggregate window.
@@ -148,20 +138,18 @@ where
         if let Some(aggregate_output) =
             aggregate_zero_output_if_window_empty(&plan, AggregateKind::Max)
         {
-            return match aggregate_output {
-                AggregateOutput::Max(value) => Ok(value),
-                _ => Err(crate::db::error::query_executor_invariant(
-                    "aggregate MAX zero-window result kind mismatch",
-                )),
-            };
+            return Self::expect_optional_id_terminal_output(
+                aggregate_output,
+                AggregateKind::Max,
+                "aggregate MAX zero-window result kind mismatch",
+            );
         }
 
-        match ExecutionKernel::execute_aggregate_spec(self, plan, max())? {
-            AggregateOutput::Max(value) => Ok(value),
-            _ => Err(crate::db::error::query_executor_invariant(
-                "aggregate MAX result kind mismatch",
-            )),
-        }
+        Self::expect_optional_id_terminal_output(
+            ExecutionKernel::execute_aggregate_spec(self, plan, max())?,
+            AggregateKind::Max,
+            "aggregate MAX result kind mismatch",
+        )
     }
 
     /// Execute `min(field)` over the effective aggregate window using one
@@ -176,20 +164,18 @@ where
         if let Some(aggregate_output) =
             aggregate_zero_output_if_window_empty(&plan, AggregateKind::Min)
         {
-            return match aggregate_output {
-                AggregateOutput::Min(value) => Ok(value),
-                _ => Err(crate::db::error::query_executor_invariant(
-                    "aggregate MIN(field) zero-window result kind mismatch",
-                )),
-            };
+            return Self::expect_optional_id_terminal_output(
+                aggregate_output,
+                AggregateKind::Min,
+                "aggregate MIN(field) zero-window result kind mismatch",
+            );
         }
 
-        match ExecutionKernel::execute_aggregate_spec(self, plan, min_by(target_field.field()))? {
-            AggregateOutput::Min(value) => Ok(value),
-            _ => Err(crate::db::error::query_executor_invariant(
-                "aggregate MIN(field) result kind mismatch",
-            )),
-        }
+        Self::expect_optional_id_terminal_output(
+            ExecutionKernel::execute_aggregate_spec(self, plan, min_by(target_field.field()))?,
+            AggregateKind::Min,
+            "aggregate MIN(field) result kind mismatch",
+        )
     }
 
     /// Execute `max(field)` over the effective aggregate window using one
@@ -204,20 +190,18 @@ where
         if let Some(aggregate_output) =
             aggregate_zero_output_if_window_empty(&plan, AggregateKind::Max)
         {
-            return match aggregate_output {
-                AggregateOutput::Max(value) => Ok(value),
-                _ => Err(crate::db::error::query_executor_invariant(
-                    "aggregate MAX(field) zero-window result kind mismatch",
-                )),
-            };
+            return Self::expect_optional_id_terminal_output(
+                aggregate_output,
+                AggregateKind::Max,
+                "aggregate MAX(field) zero-window result kind mismatch",
+            );
         }
 
-        match ExecutionKernel::execute_aggregate_spec(self, plan, max_by(target_field.field()))? {
-            AggregateOutput::Max(value) => Ok(value),
-            _ => Err(crate::db::error::query_executor_invariant(
-                "aggregate MAX(field) result kind mismatch",
-            )),
-        }
+        Self::expect_optional_id_terminal_output(
+            ExecutionKernel::execute_aggregate_spec(self, plan, max_by(target_field.field()))?,
+            AggregateKind::Max,
+            "aggregate MAX(field) result kind mismatch",
+        )
     }
 
     /// Execute `nth(field, n)` over the effective aggregate window using one
@@ -272,20 +256,18 @@ where
         if let Some(aggregate_output) =
             aggregate_zero_output_if_window_empty(&plan, AggregateKind::First)
         {
-            return match aggregate_output {
-                AggregateOutput::First(value) => Ok(value),
-                _ => Err(crate::db::error::query_executor_invariant(
-                    "aggregate FIRST zero-window result kind mismatch",
-                )),
-            };
+            return Self::expect_optional_id_terminal_output(
+                aggregate_output,
+                AggregateKind::First,
+                "aggregate FIRST zero-window result kind mismatch",
+            );
         }
 
-        match ExecutionKernel::execute_aggregate_spec(self, plan, first())? {
-            AggregateOutput::First(value) => Ok(value),
-            _ => Err(crate::db::error::query_executor_invariant(
-                "aggregate FIRST result kind mismatch",
-            )),
-        }
+        Self::expect_optional_id_terminal_output(
+            ExecutionKernel::execute_aggregate_spec(self, plan, first())?,
+            AggregateKind::First,
+            "aggregate FIRST result kind mismatch",
+        )
     }
 
     /// Execute `last()` over the effective aggregate window.
@@ -296,20 +278,104 @@ where
         if let Some(aggregate_output) =
             aggregate_zero_output_if_window_empty(&plan, AggregateKind::Last)
         {
-            return match aggregate_output {
-                AggregateOutput::Last(value) => Ok(value),
-                _ => Err(crate::db::error::query_executor_invariant(
-                    "aggregate LAST zero-window result kind mismatch",
-                )),
-            };
+            return Self::expect_optional_id_terminal_output(
+                aggregate_output,
+                AggregateKind::Last,
+                "aggregate LAST zero-window result kind mismatch",
+            );
         }
 
-        match ExecutionKernel::execute_aggregate_spec(self, plan, last())? {
-            AggregateOutput::Last(value) => Ok(value),
-            _ => Err(crate::db::error::query_executor_invariant(
-                "aggregate LAST result kind mismatch",
-            )),
+        Self::expect_optional_id_terminal_output(
+            ExecutionKernel::execute_aggregate_spec(self, plan, last())?,
+            AggregateKind::Last,
+            "aggregate LAST result kind mismatch",
+        )
+    }
+
+    // Decode COUNT outputs while preserving call-site mismatch context.
+    fn expect_count_output(
+        aggregate_output: AggregateOutput<E>,
+        mismatch_context: &'static str,
+    ) -> Result<u32, InternalError> {
+        match aggregate_output {
+            AggregateOutput::Count(value) => Ok(value),
+            _ => Err(crate::db::error::query_executor_invariant(mismatch_context)),
         }
+    }
+
+    // Decode EXISTS outputs while preserving call-site mismatch context.
+    fn expect_exists_output(
+        aggregate_output: AggregateOutput<E>,
+        mismatch_context: &'static str,
+    ) -> Result<bool, InternalError> {
+        match aggregate_output {
+            AggregateOutput::Exists(value) => Ok(value),
+            _ => Err(crate::db::error::query_executor_invariant(mismatch_context)),
+        }
+    }
+
+    // Decode id-returning aggregate outputs for MIN/MAX/FIRST/LAST terminals.
+    fn expect_optional_id_terminal_output(
+        aggregate_output: AggregateOutput<E>,
+        kind: AggregateKind,
+        mismatch_context: &'static str,
+    ) -> Result<Option<Id<E>>, InternalError> {
+        match (kind, aggregate_output) {
+            (AggregateKind::Min, AggregateOutput::Min(value))
+            | (AggregateKind::Max, AggregateOutput::Max(value))
+            | (AggregateKind::First, AggregateOutput::First(value))
+            | (AggregateKind::Last, AggregateOutput::Last(value)) => Ok(value),
+            _ => Err(crate::db::error::query_executor_invariant(mismatch_context)),
+        }
+    }
+
+    // Resolve an index-backed existing-row key stream and execute one reducer kind.
+    fn aggregate_existing_rows_terminal_output(
+        &self,
+        plan: ExecutablePlan<E>,
+        kind: AggregateKind,
+        direction: Direction,
+    ) -> Result<AggregateOutput<E>, InternalError> {
+        // Phase 1: collect lowered index specs before consuming the executable plan.
+        let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
+        let index_range_specs = plan.index_range_specs()?.to_vec();
+        let logical_plan = plan.into_inner();
+        validate_executor_plan::<E>(&logical_plan)?;
+        let execution_preparation = ExecutionPreparation::for_plan::<E>(&logical_plan);
+        let index_predicate_execution =
+            execution_preparation
+                .strict_mode()
+                .map(|program| IndexPredicateExecution {
+                    program,
+                    rejected_keys_counter: None,
+                });
+
+        // Phase 2: resolve the access key stream directly from index-backed bindings.
+        let ctx = self.recovered_context()?;
+        let descriptor = AccessExecutionDescriptor::from_bindings(
+            &logical_plan.access,
+            AccessStreamBindings::new(
+                index_prefix_specs.as_slice(),
+                index_range_specs.as_slice(),
+                AccessScanContinuationInput::new(None, direction),
+            ),
+            None,
+            index_predicate_execution,
+        );
+        let mut key_stream = ctx.ordered_key_stream_from_access_descriptor(descriptor)?;
+
+        // Phase 3: fold through existing-row semantics and record scan metrics.
+        let (aggregate_output, rows_scanned) = ExecutionKernel::run_streaming_aggregate_reducer(
+            &ctx,
+            &logical_plan,
+            kind,
+            direction,
+            AggregateFoldMode::ExistingRows,
+            key_stream.as_mut(),
+        )?;
+        record_rows_scanned::<E>(rows_scanned);
+
+        Ok(aggregate_output)
     }
 
     // Resolve COUNT for PK full-scan/key-range shapes from store cardinality
@@ -369,51 +435,13 @@ where
         plan: ExecutablePlan<E>,
         direction: Direction,
     ) -> Result<u32, InternalError> {
-        // Phase 1: collect lowered index specs before consuming the executable plan.
-        let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
-        let index_range_specs = plan.index_range_specs()?.to_vec();
-        let logical_plan = plan.into_inner();
-        validate_executor_plan::<E>(&logical_plan)?;
-        let execution_preparation = ExecutionPreparation::for_plan::<E>(&logical_plan);
-        let index_predicate_execution =
-            execution_preparation
-                .strict_mode()
-                .map(|program| IndexPredicateExecution {
-                    program,
-                    rejected_keys_counter: None,
-                });
+        let aggregate_output =
+            self.aggregate_existing_rows_terminal_output(plan, AggregateKind::Count, direction)?;
 
-        // Phase 2: resolve the access key stream directly from index-backed bindings.
-        let ctx = self.recovered_context()?;
-        let descriptor = AccessExecutionDescriptor::from_bindings(
-            &logical_plan.access,
-            AccessStreamBindings::new(
-                index_prefix_specs.as_slice(),
-                index_range_specs.as_slice(),
-                AccessScanContinuationInput::new(None, direction),
-            ),
-            None,
-            index_predicate_execution,
-        );
-        let mut key_stream = ctx.ordered_key_stream_from_access_descriptor(descriptor)?;
-
-        // Phase 3: fold COUNT through existing-row semantics and record scan metrics.
-        let (aggregate_output, rows_scanned) = ExecutionKernel::run_streaming_aggregate_reducer(
-            &ctx,
-            &logical_plan,
-            AggregateKind::Count,
-            direction,
-            AggregateFoldMode::ExistingRows,
-            key_stream.as_mut(),
-        )?;
-        record_rows_scanned::<E>(rows_scanned);
-
-        match aggregate_output {
-            AggregateOutput::Count(value) => Ok(value),
-            _ => Err(crate::db::error::query_executor_invariant(
-                "existing-row COUNT reducer result kind mismatch",
-            )),
-        }
+        Self::expect_count_output(
+            aggregate_output,
+            "existing-row COUNT reducer result kind mismatch",
+        )
     }
 
     // Fold EXISTS over an index-backed key stream using `ExistingRows` mode.
@@ -424,51 +452,13 @@ where
         plan: ExecutablePlan<E>,
         direction: Direction,
     ) -> Result<bool, InternalError> {
-        // Phase 1: collect lowered index specs before consuming the executable plan.
-        let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
-        let index_range_specs = plan.index_range_specs()?.to_vec();
-        let logical_plan = plan.into_inner();
-        validate_executor_plan::<E>(&logical_plan)?;
-        let execution_preparation = ExecutionPreparation::for_plan::<E>(&logical_plan);
-        let index_predicate_execution =
-            execution_preparation
-                .strict_mode()
-                .map(|program| IndexPredicateExecution {
-                    program,
-                    rejected_keys_counter: None,
-                });
+        let aggregate_output =
+            self.aggregate_existing_rows_terminal_output(plan, AggregateKind::Exists, direction)?;
 
-        // Phase 2: resolve the access key stream directly from index-backed bindings.
-        let ctx = self.recovered_context()?;
-        let descriptor = AccessExecutionDescriptor::from_bindings(
-            &logical_plan.access,
-            AccessStreamBindings::new(
-                index_prefix_specs.as_slice(),
-                index_range_specs.as_slice(),
-                AccessScanContinuationInput::new(None, direction),
-            ),
-            None,
-            index_predicate_execution,
-        );
-        let mut key_stream = ctx.ordered_key_stream_from_access_descriptor(descriptor)?;
-
-        // Phase 3: fold EXISTS through existing-row semantics and record scan metrics.
-        let (aggregate_output, rows_scanned) = ExecutionKernel::run_streaming_aggregate_reducer(
-            &ctx,
-            &logical_plan,
-            AggregateKind::Exists,
-            direction,
-            AggregateFoldMode::ExistingRows,
-            key_stream.as_mut(),
-        )?;
-        record_rows_scanned::<E>(rows_scanned);
-
-        match aggregate_output {
-            AggregateOutput::Exists(value) => Ok(value),
-            _ => Err(crate::db::error::query_executor_invariant(
-                "covering EXISTS reducer result kind mismatch",
-            )),
-        }
+        Self::expect_exists_output(
+            aggregate_output,
+            "covering EXISTS reducer result kind mismatch",
+        )
     }
 }
 

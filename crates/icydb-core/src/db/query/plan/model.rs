@@ -266,6 +266,7 @@ pub(crate) struct PageSpec {
 pub enum AggregateKind {
     Count,
     Sum,
+    Avg,
     Exists,
     Min,
     Max,

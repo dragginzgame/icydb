@@ -6,7 +6,9 @@
 use crate::{
     db::{
         executor::{
-            aggregate::ExecutionContext,
+            aggregate::{
+                ExecutionContext, runtime::grouped_distinct::GlobalDistinctFieldAggregateKind,
+            },
             pipeline::contracts::{
                 GroupedCursorPage, GroupedFoldStage, GroupedRouteStageProjection,
                 GroupedStreamStage, LoadExecutor,
@@ -34,13 +36,17 @@ where
     where
         R: GroupedRouteStageProjection<E>,
     {
-        let (aggregate_is_sum, target_field) = match route.grouped_distinct_execution_strategy() {
+        let (aggregate_kind, target_field) = match route.grouped_distinct_execution_strategy() {
             GroupedDistinctExecutionStrategy::None => return Ok(None),
-            GroupedDistinctExecutionStrategy::GlobalDistinctFieldCount { target_field } => {
-                (false, target_field.as_str())
-            }
+            GroupedDistinctExecutionStrategy::GlobalDistinctFieldCount { target_field } => (
+                GlobalDistinctFieldAggregateKind::Count,
+                target_field.as_str(),
+            ),
             GroupedDistinctExecutionStrategy::GlobalDistinctFieldSum { target_field } => {
-                (true, target_field.as_str())
+                (GlobalDistinctFieldAggregateKind::Sum, target_field.as_str())
+            }
+            GroupedDistinctExecutionStrategy::GlobalDistinctFieldAvg { target_field } => {
+                (GlobalDistinctFieldAggregateKind::Avg, target_field.as_str())
             }
         };
         let (ctx, execution_preparation, resolved) = stream.parts_mut();
@@ -52,7 +58,7 @@ where
             resolved,
             compiled_predicate,
             grouped_execution_context,
-            (target_field, aggregate_is_sum),
+            (target_field, aggregate_kind),
             (scanned_rows, filtered_rows),
         )?;
         let grouped_window = route.grouped_pagination_window();

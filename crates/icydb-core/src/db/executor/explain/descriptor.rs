@@ -81,16 +81,14 @@ where
         root.children.push(predicate_stage);
     }
 
-    if let Some(node) = secondary_order_pushdown_descriptor(&route_plan, execution_mode) {
-        root.children.push(node);
-    }
-
-    if let Some(node) = index_range_limit_pushdown_descriptor(&route_plan, execution_mode) {
-        root.children.push(node);
-    }
-
-    if let Some(node) = top_n_seek_descriptor(&route_plan, execution_mode) {
-        root.children.push(node);
+    for node in [
+        secondary_order_pushdown_descriptor(&route_plan, execution_mode),
+        index_range_limit_pushdown_descriptor(&route_plan, execution_mode),
+        top_n_seek_descriptor(&route_plan, execution_mode),
+    ] {
+        if let Some(node) = node {
+            root.children.push(node);
+        }
     }
 
     if plan.scalar_plan().order.is_some() {
@@ -192,23 +190,14 @@ where
         secondary_order_pushdown_verbose_line(&route_plan),
     ];
 
-    if let Some(spec) = route_plan.top_n_seek_spec() {
-        lines.push(format!(
-            "diagnostic.route.top_n_seek=fetch({})",
-            u64_from_usize(spec.fetch())
-        ));
-    } else {
-        lines.push("diagnostic.route.top_n_seek=disabled".to_string());
-    }
-
-    if let Some(spec) = route_plan.index_range_limit_spec {
-        lines.push(format!(
-            "diagnostic.route.index_range_limit_pushdown=fetch({})",
-            u64_from_usize(spec.fetch)
-        ));
-    } else {
-        lines.push("diagnostic.route.index_range_limit_pushdown=disabled".to_string());
-    }
+    lines.push(route_fetch_diagnostic_line(
+        "top_n_seek",
+        route_plan.top_n_seek_spec().map(TopNSeekSpec::fetch),
+    ));
+    lines.push(route_fetch_diagnostic_line(
+        "index_range_limit_pushdown",
+        route_plan.index_range_limit_spec.map(|spec| spec.fetch),
+    ));
 
     let predicate_stage = if plan.scalar_plan().predicate.is_none() {
         "none".to_string()
@@ -337,20 +326,13 @@ fn access_execution_node_descriptor(
         empty_execution_node_descriptor(access_node_type(&access_strategy), execution_mode);
     node.access_strategy = Some(access_strategy.clone());
 
-    match access_strategy {
-        ExplainAccessRoute::Union(children) | ExplainAccessRoute::Intersection(children) => {
-            for child in children {
-                node.children
-                    .push(access_execution_node_descriptor(child, execution_mode));
-            }
+    if let ExplainAccessRoute::Union(children) | ExplainAccessRoute::Intersection(children) =
+        access_strategy
+    {
+        for child in children {
+            node.children
+                .push(access_execution_node_descriptor(child, execution_mode));
         }
-        ExplainAccessRoute::ByKey { .. }
-        | ExplainAccessRoute::ByKeys { .. }
-        | ExplainAccessRoute::KeyRange { .. }
-        | ExplainAccessRoute::IndexPrefix { .. }
-        | ExplainAccessRoute::IndexMultiLookup { .. }
-        | ExplainAccessRoute::IndexRange { .. }
-        | ExplainAccessRoute::FullScan => {}
     }
 
     node
@@ -372,20 +354,12 @@ fn annotate_access_root_node_properties(
             .insert("prefix_values".to_string(), Value::List(prefix_values));
     }
     if let Some(fetch) = scan_fetch_pushdown(route_plan) {
-        node.node_properties
-            .insert("fetch".to_string(), Value::from(u64_from_usize(fetch)));
+        insert_fetch_node_property(node, fetch);
     }
-    node.node_properties.insert(
-        "scan_direction".to_string(),
-        Value::from(direction_code(route_plan.direction())),
-    );
-    node.node_properties.insert(
-        "continuation_mode".to_string(),
-        Value::from(continuation_mode_code(continuation_capabilities.mode())),
-    );
-    node.node_properties.insert(
-        "resume_from".to_string(),
-        Value::from(resume_from_label(continuation_capabilities.mode())),
+    annotate_continuation_node_properties(
+        node,
+        route_plan.direction(),
+        continuation_capabilities.mode(),
     );
 }
 
@@ -500,38 +474,22 @@ fn annotate_access_choice_node_properties<K>(
 }
 
 const fn access_prefix_len(access_strategy: Option<&ExplainAccessRoute>) -> Option<usize> {
-    match access_strategy {
-        Some(
-            ExplainAccessRoute::IndexPrefix { prefix_len, .. }
-            | ExplainAccessRoute::IndexRange { prefix_len, .. },
-        ) => Some(*prefix_len),
-        Some(
-            ExplainAccessRoute::ByKey { .. }
-            | ExplainAccessRoute::ByKeys { .. }
-            | ExplainAccessRoute::KeyRange { .. }
-            | ExplainAccessRoute::IndexMultiLookup { .. }
-            | ExplainAccessRoute::FullScan
-            | ExplainAccessRoute::Union(_)
-            | ExplainAccessRoute::Intersection(_),
-        )
-        | None => None,
+    if let Some(
+        ExplainAccessRoute::IndexPrefix { prefix_len, .. }
+        | ExplainAccessRoute::IndexRange { prefix_len, .. },
+    ) = access_strategy
+    {
+        Some(*prefix_len)
+    } else {
+        None
     }
 }
 
 fn access_prefix_values(access_strategy: Option<&ExplainAccessRoute>) -> Option<Vec<Value>> {
-    match access_strategy {
-        Some(ExplainAccessRoute::IndexMultiLookup { values, .. }) => Some(values.clone()),
-        Some(
-            ExplainAccessRoute::ByKey { .. }
-            | ExplainAccessRoute::ByKeys { .. }
-            | ExplainAccessRoute::KeyRange { .. }
-            | ExplainAccessRoute::IndexPrefix { .. }
-            | ExplainAccessRoute::IndexRange { .. }
-            | ExplainAccessRoute::FullScan
-            | ExplainAccessRoute::Union(_)
-            | ExplainAccessRoute::Intersection(_),
-        )
-        | None => None,
+    if let Some(ExplainAccessRoute::IndexMultiLookup { values, .. }) = access_strategy {
+        Some(values.clone())
+    } else {
+        None
     }
 }
 
@@ -546,18 +504,10 @@ fn annotate_cursor_resume_node_properties(
     node: &mut ExplainExecutionNodeDescriptor,
     route_plan: &ExecutionRoutePlan,
 ) {
-    let continuation_mode = route_plan.continuation().capabilities().mode();
-    node.node_properties.insert(
-        "scan_direction".to_string(),
-        Value::from(direction_code(route_plan.direction())),
-    );
-    node.node_properties.insert(
-        "continuation_mode".to_string(),
-        Value::from(continuation_mode_code(continuation_mode)),
-    );
-    node.node_properties.insert(
-        "resume_from".to_string(),
-        Value::from(resume_from_label(continuation_mode)),
+    annotate_continuation_node_properties(
+        node,
+        route_plan.direction(),
+        route_plan.continuation().capabilities().mode(),
     );
 }
 
@@ -797,15 +747,11 @@ fn index_range_limit_pushdown_descriptor(
     execution_mode: ExplainExecutionMode,
 ) -> Option<ExplainExecutionNodeDescriptor> {
     let spec = route_plan.index_range_limit_spec?;
-
-    let mut node = empty_execution_node_descriptor(
+    Some(fetch_execution_node_descriptor(
         ExplainExecutionNodeType::IndexRangeLimitPushdown,
         execution_mode,
-    );
-    node.node_properties
-        .insert("fetch".to_string(), Value::from(u64_from_usize(spec.fetch)));
-
-    Some(node)
+        spec.fetch,
+    ))
 }
 
 fn top_n_seek_descriptor(
@@ -813,15 +759,11 @@ fn top_n_seek_descriptor(
     execution_mode: ExplainExecutionMode,
 ) -> Option<ExplainExecutionNodeDescriptor> {
     let spec = route_plan.top_n_seek_spec()?;
-
-    let mut node =
-        empty_execution_node_descriptor(ExplainExecutionNodeType::TopNSeek, execution_mode);
-    node.node_properties.insert(
-        "fetch".to_string(),
-        Value::from(u64_from_usize(spec.fetch())),
-    );
-
-    Some(node)
+    Some(fetch_execution_node_descriptor(
+        ExplainExecutionNodeType::TopNSeek,
+        execution_mode,
+        spec.fetch(),
+    ))
 }
 
 fn predicate_stage_descriptors(
@@ -882,12 +824,7 @@ fn pushdown_predicate_from_access_strategy(access: &ExplainAccessRoute) -> Optio
                 Some(format!("{field} IN {values:?}"))
             }
         }
-        ExplainAccessRoute::ByKey { .. }
-        | ExplainAccessRoute::ByKeys { .. }
-        | ExplainAccessRoute::KeyRange { .. }
-        | ExplainAccessRoute::FullScan
-        | ExplainAccessRoute::Union(_)
-        | ExplainAccessRoute::Intersection(_) => None,
+        _ => None,
     }
 }
 
@@ -1004,7 +941,10 @@ const fn aggregate_projection_mode_label(
         }
     } else {
         match aggregation {
-            AggregateKind::Count | AggregateKind::Exists | AggregateKind::Sum => "scalar_aggregate",
+            AggregateKind::Count
+            | AggregateKind::Exists
+            | AggregateKind::Sum
+            | AggregateKind::Avg => "scalar_aggregate",
             AggregateKind::Min
             | AggregateKind::Max
             | AggregateKind::First
@@ -1037,8 +977,51 @@ fn aggregate_covering_projection_for_terminal<K>(
         | AggregateKind::Max
         | AggregateKind::First
         | AggregateKind::Last
-        | AggregateKind::Sum => false,
+        | AggregateKind::Sum
+        | AggregateKind::Avg => false,
     }
+}
+
+fn route_fetch_diagnostic_line(label: &str, fetch: Option<usize>) -> String {
+    if let Some(fetch) = fetch {
+        format!("diagnostic.route.{label}=fetch({})", u64_from_usize(fetch))
+    } else {
+        format!("diagnostic.route.{label}=disabled")
+    }
+}
+
+fn annotate_continuation_node_properties(
+    node: &mut ExplainExecutionNodeDescriptor,
+    direction: Direction,
+    continuation_mode: ContinuationMode,
+) {
+    node.node_properties.insert(
+        "scan_direction".to_string(),
+        Value::from(direction_code(direction)),
+    );
+    node.node_properties.insert(
+        "continuation_mode".to_string(),
+        Value::from(continuation_mode_code(continuation_mode)),
+    );
+    node.node_properties.insert(
+        "resume_from".to_string(),
+        Value::from(resume_from_label(continuation_mode)),
+    );
+}
+
+fn insert_fetch_node_property(node: &mut ExplainExecutionNodeDescriptor, fetch: usize) {
+    node.node_properties
+        .insert("fetch".to_string(), Value::from(u64_from_usize(fetch)));
+}
+
+fn fetch_execution_node_descriptor(
+    node_type: ExplainExecutionNodeType,
+    execution_mode: ExplainExecutionMode,
+    fetch: usize,
+) -> ExplainExecutionNodeDescriptor {
+    let mut node = empty_execution_node_descriptor(node_type, execution_mode);
+    insert_fetch_node_property(&mut node, fetch);
+    node
 }
 
 const fn u64_from_usize(value: usize) -> u64 {

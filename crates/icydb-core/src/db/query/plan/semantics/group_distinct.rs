@@ -4,7 +4,7 @@
 //! Boundary: provides planner-shared grouped DISTINCT policy reasoning contracts.
 
 use crate::db::query::{
-    builder::aggregate::{count_by, sum},
+    builder::aggregate::{avg, count_by, sum},
     plan::{
         AggregateKind, FieldSlot, GroupAggregateSpec, GroupHavingSpec, GroupPlan, GroupSpec,
         GroupedExecutionConfig, validate::GroupPlanError,
@@ -93,7 +93,7 @@ impl GroupDistinctPolicyReason {
                 "global DISTINCT grouped aggregate shape requires DISTINCT aggregate terminal"
             }
             Self::GlobalDistinctUnsupportedAggregateKind => {
-                "global DISTINCT grouped aggregate shape supports COUNT/SUM only"
+                "global DISTINCT grouped aggregate shape supports COUNT/SUM/AVG only"
             }
         }
     }
@@ -235,6 +235,7 @@ pub(in crate::db) fn global_distinct_group_spec_for_semantic_aggregate(
     let aggregate = match kind {
         AggregateKind::Count => count_by(target_field).distinct(),
         AggregateKind::Sum => sum(target_field).distinct(),
+        AggregateKind::Avg => avg(target_field).distinct(),
         AggregateKind::Exists
         | AggregateKind::Min
         | AggregateKind::Max

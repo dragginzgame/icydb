@@ -103,36 +103,18 @@ where
         limit: Option<usize>,
     ) -> Result<u64, InternalError> {
         self.with_store(|store| -> Result<u64, InternalError> {
-            let mut total = 0u64;
-            let mut offset_remaining = offset;
-            let mut limit_remaining = limit;
-
-            match direction {
-                Direction::Asc => {
-                    for entry in store.iter() {
-                        if payload_window_limit_exhausted(limit_remaining) {
-                            break;
-                        }
-                        if !payload_window_accept_row(&mut offset_remaining, &mut limit_remaining) {
-                            continue;
-                        }
-
-                        total = total.saturating_add(saturating_row_len(entry.value().len()));
-                    }
-                }
-                Direction::Desc => {
-                    for entry in store.iter().rev() {
-                        if payload_window_limit_exhausted(limit_remaining) {
-                            break;
-                        }
-                        if !payload_window_accept_row(&mut offset_remaining, &mut limit_remaining) {
-                            continue;
-                        }
-
-                        total = total.saturating_add(saturating_row_len(entry.value().len()));
-                    }
-                }
-            }
+            let total = match direction {
+                Direction::Asc => sum_payload_bytes_from_row_lengths(
+                    store.iter().map(|entry| entry.value().len()),
+                    offset,
+                    limit,
+                ),
+                Direction::Desc => sum_payload_bytes_from_row_lengths(
+                    store.iter().rev().map(|entry| entry.value().len()),
+                    offset,
+                    limit,
+                ),
+            };
 
             Ok(total)
         })?
@@ -151,40 +133,23 @@ where
         let end_raw = end.to_raw()?;
 
         self.with_store(|store| -> Result<u64, InternalError> {
-            let mut total = 0u64;
-            let mut offset_remaining = offset;
-            let mut limit_remaining = limit;
-
-            match direction {
-                Direction::Asc => {
-                    for entry in store.range((Bound::Included(start_raw), Bound::Included(end_raw)))
-                    {
-                        if payload_window_limit_exhausted(limit_remaining) {
-                            break;
-                        }
-                        if !payload_window_accept_row(&mut offset_remaining, &mut limit_remaining) {
-                            continue;
-                        }
-
-                        total = total.saturating_add(saturating_row_len(entry.value().len()));
-                    }
-                }
-                Direction::Desc => {
-                    for entry in store
+            let total = match direction {
+                Direction::Asc => sum_payload_bytes_from_row_lengths(
+                    store
+                        .range((Bound::Included(start_raw), Bound::Included(end_raw)))
+                        .map(|entry| entry.value().len()),
+                    offset,
+                    limit,
+                ),
+                Direction::Desc => sum_payload_bytes_from_row_lengths(
+                    store
                         .range((Bound::Included(start_raw), Bound::Included(end_raw)))
                         .rev()
-                    {
-                        if payload_window_limit_exhausted(limit_remaining) {
-                            break;
-                        }
-                        if !payload_window_accept_row(&mut offset_remaining, &mut limit_remaining) {
-                            continue;
-                        }
-
-                        total = total.saturating_add(saturating_row_len(entry.value().len()));
-                    }
-                }
-            }
+                        .map(|entry| entry.value().len()),
+                    offset,
+                    limit,
+                ),
+            };
 
             Ok(total)
         })?
@@ -208,14 +173,9 @@ where
 
             // Index-backed and composite stream rows remain row-authoritative:
             // missing-row ignore skips stale keys, strict mode fails closed.
-            let row = match consistency {
-                MissingRowPolicy::Error => self.read_strict(&key),
-                MissingRowPolicy::Ignore => self.read(&key),
-            };
-            let row = match row {
-                Ok(row) => row,
-                Err(err) if err.is_not_found() => continue,
-                Err(err) => return Err(err),
+            let Some(row) = self.read_row_with_consistency_skip_not_found(&key, consistency)?
+            else {
+                continue;
             };
             if !payload_window_accept_row(&mut offset_remaining, &mut limit_remaining) {
                 continue;
@@ -278,19 +238,30 @@ where
         for key in keys {
             // Row storage is authoritative. Index-backed access paths only supply
             // candidate keys and must always be validated by a data-store read.
-            let row = match consistency {
-                MissingRowPolicy::Error => self.read_strict(&key),
-                MissingRowPolicy::Ignore => self.read(&key),
-            };
-
-            match row {
-                Ok(row) => out.push((key, row)),
-                Err(err) if err.is_not_found() => {}
-                Err(err) => return Err(err),
+            if let Some(row) = self.read_row_with_consistency_skip_not_found(&key, consistency)? {
+                out.push((key, row));
             }
         }
 
         Ok(out)
+    }
+
+    // Read one row under one consistency contract, treating not-found as skip.
+    fn read_row_with_consistency_skip_not_found(
+        &self,
+        key: &DataKey,
+        consistency: MissingRowPolicy,
+    ) -> Result<Option<RawRow>, InternalError> {
+        let row = match consistency {
+            MissingRowPolicy::Error => self.read_strict(key),
+            MissingRowPolicy::Ignore => self.read(key),
+        };
+
+        match row {
+            Ok(row) => Ok(Some(row)),
+            Err(err) if err.is_not_found() => Ok(None),
+            Err(err) => Err(err),
+        }
     }
 
     /// Decode one raw data key and map decode failures to executor corruption errors.
@@ -363,6 +334,29 @@ const fn payload_window_accept_row(
     }
 
     true
+}
+
+fn sum_payload_bytes_from_row_lengths(
+    row_lengths: impl Iterator<Item = usize>,
+    offset: usize,
+    limit: Option<usize>,
+) -> u64 {
+    let mut total = 0u64;
+    let mut offset_remaining = offset;
+    let mut limit_remaining = limit;
+
+    for row_len in row_lengths {
+        if payload_window_limit_exhausted(limit_remaining) {
+            break;
+        }
+        if !payload_window_accept_row(&mut offset_remaining, &mut limit_remaining) {
+            continue;
+        }
+
+        total = total.saturating_add(saturating_row_len(row_len));
+    }
+
+    total
 }
 
 impl<E> PrimaryRowReader<E> for Context<'_, E>

@@ -376,6 +376,9 @@ pub enum ExplainPredicate {
     IsNull {
         field: String,
     },
+    IsNotNull {
+        field: String,
+    },
     IsMissing {
         field: String,
     },
@@ -626,6 +629,9 @@ impl ExplainPredicate {
             Predicate::Not(inner) => Self::Not(Box::new(Self::from_predicate(inner))),
             Predicate::Compare(compare) => Self::from_compare(compare),
             Predicate::IsNull { field } => Self::IsNull {
+                field: field.clone(),
+            },
+            Predicate::IsNotNull { field } => Self::IsNotNull {
                 field: field.clone(),
             },
             Predicate::IsMissing { field } => Self::IsMissing {

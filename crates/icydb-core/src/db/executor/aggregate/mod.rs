@@ -98,19 +98,12 @@ pub(in crate::db::executor) fn aggregate_window_is_provably_empty<E>(
 where
     E: EntityKind,
 {
-    if plan.page_spec().is_some_and(|page| page.limit == Some(0)) {
-        return true;
-    }
-
-    let access_strategy = plan.access().resolve_strategy();
-    let Some(path) = access_strategy.as_path() else {
-        return false;
-    };
-    if path.capabilities().is_by_keys_empty() {
-        return true;
-    }
-
-    false
+    plan.page_spec().is_some_and(|page| page.limit == Some(0))
+        || plan
+            .access()
+            .resolve_strategy()
+            .as_path()
+            .is_some_and(|path| path.capabilities().is_by_keys_empty())
 }
 
 // Return one canonical terminal aggregate output when executor-visible plan
@@ -122,11 +115,7 @@ pub(in crate::db::executor) fn aggregate_zero_output_if_window_empty<E>(
 where
     E: EntityKind,
 {
-    if aggregate_window_is_provably_empty(plan) {
-        Some(kind.zero_output())
-    } else {
-        None
-    }
+    aggregate_window_is_provably_empty(plan).then(|| kind.zero_output())
 }
 
 impl<'a> AggregateReducerDispatch<'a> {

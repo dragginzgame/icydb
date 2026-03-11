@@ -5,16 +5,13 @@
 
 use crate::{
     db::{
-        direction::Direction,
         executor::{
-            ExecutionPlan, OrderedKeyStreamBox, ScalarContinuationBindings,
+            ExecutionPlan, ScalarContinuationBindings,
             pipeline::contracts::{
                 CursorPage, ExecutionInputsProjection, LoadExecutor, MaterializedExecutionAttempt,
                 ResolvedExecutionKeyStream,
             },
-            pipeline::operators::{
-                decorate_key_stream_for_plan, decorate_resolved_execution_key_stream,
-            },
+            pipeline::operators::decorate_resolved_execution_key_stream,
             terminal::page::PageMaterializationRequest,
         },
         index::IndexCompilePolicy,
@@ -54,15 +51,6 @@ impl ExecutionKernel {
             inputs.plan(),
             inputs.stream_bindings().direction(),
         ))
-    }
-
-    /// Apply canonical kernel DISTINCT decoration to one ordered key stream.
-    pub(in crate::db::executor) fn decorate_key_stream_for_plan<K>(
-        ordered_key_stream: OrderedKeyStreamBox,
-        plan: &AccessPlannedQuery<K>,
-        direction: Direction,
-    ) -> OrderedKeyStreamBox {
-        decorate_key_stream_for_plan(ordered_key_stream, plan, direction)
     }
 
     /// Materialize one load execution attempt with optional residual retry.

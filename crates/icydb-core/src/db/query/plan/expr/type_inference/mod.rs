@@ -97,7 +97,8 @@ fn infer_aggregate_expr_type(
     match kind {
         AggregateKind::Count => Ok(ExprType::Numeric(NumericSubtype::Integer)),
         AggregateKind::Exists => Ok(ExprType::Bool),
-        AggregateKind::Sum => infer_sum_aggregate_type(target_field, schema),
+        AggregateKind::Sum => infer_sum_aggregate_type(target_field, schema, "sum"),
+        AggregateKind::Avg => infer_sum_aggregate_type(target_field, schema, "avg"),
         AggregateKind::Min | AggregateKind::Max | AggregateKind::First | AggregateKind::Last => {
             infer_target_field_aggregate_type(kind, target_field, schema)
         }
@@ -107,10 +108,11 @@ fn infer_aggregate_expr_type(
 fn infer_sum_aggregate_type(
     target_field: Option<&str>,
     schema: &SchemaInfo,
+    aggregate_name: &str,
 ) -> Result<ExprType, PlanError> {
     let Some(field_name) = target_field else {
         return Err(PlanError::from(ExprPlanError::AggregateTargetRequired {
-            kind: "sum".to_string(),
+            kind: aggregate_name.to_string(),
         }));
     };
 
@@ -122,7 +124,7 @@ fn infer_sum_aggregate_type(
 
     if !field_kind_supports_expr_numeric(field_kind) {
         return Err(PlanError::from(ExprPlanError::NonNumericAggregateTarget {
-            kind: "sum".to_string(),
+            kind: aggregate_name.to_string(),
             field: field_name.to_string(),
         }));
     }

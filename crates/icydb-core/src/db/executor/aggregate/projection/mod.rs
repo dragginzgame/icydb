@@ -77,17 +77,13 @@ where
         if let Some(projected_values) =
             self.covering_index_projection_values_if_eligible(&plan, &target_field)?
         {
-            Self::record_execution_optimization_hit_for_tests(
-                ExecutionOptimizationCounter::CoveringIndexProjectionFastPath,
-            );
+            Self::record_covering_index_projection_fast_path_hit_for_tests();
             return Ok(projected_values);
         }
         if let Some(constant_value) =
             Self::constant_covering_projection_value_if_eligible(&plan, target_field.field())
         {
-            Self::record_execution_optimization_hit_for_tests(
-                ExecutionOptimizationCounter::CoveringConstantProjectionFastPath,
-            );
+            Self::record_covering_constant_projection_fast_path_hit_for_tests();
             let row_count = self.aggregate_count(plan)?;
             let output_len = usize::try_from(row_count).unwrap_or(usize::MAX);
             return Ok(vec![constant_value; output_len]);
@@ -110,9 +106,7 @@ where
         if let Some(covering_projection) =
             self.covering_index_projection_values_with_context_if_eligible(&plan, &target_field)?
         {
-            Self::record_execution_optimization_hit_for_tests(
-                ExecutionOptimizationCounter::CoveringIndexProjectionFastPath,
-            );
+            Self::record_covering_index_projection_fast_path_hit_for_tests();
             if covering_index_adjacent_distinct_eligible(covering_projection.context) {
                 return Ok(dedup_adjacent_values(covering_projection.values));
             }
@@ -122,9 +116,7 @@ where
         if let Some(constant_value) =
             Self::constant_covering_projection_value_if_eligible(&plan, target_field.field())
         {
-            Self::record_execution_optimization_hit_for_tests(
-                ExecutionOptimizationCounter::CoveringConstantProjectionFastPath,
-            );
+            Self::record_covering_constant_projection_fast_path_hit_for_tests();
             let has_rows = self.aggregate_exists(plan)?;
             return Ok(if has_rows {
                 vec![constant_value]
@@ -154,9 +146,7 @@ where
         if let Some(projected_values) =
             self.covering_index_projection_values_with_ids_if_eligible(&plan, &target_field)?
         {
-            Self::record_execution_optimization_hit_for_tests(
-                ExecutionOptimizationCounter::CoveringIndexProjectionFastPath,
-            );
+            Self::record_covering_index_projection_fast_path_hit_for_tests();
             return Ok(projected_values);
         }
         let response = self.execute(plan)?;
@@ -174,32 +164,7 @@ where
         plan: ExecutablePlan<E>,
         target_field: PlannedFieldSlot,
     ) -> Result<Option<Value>, InternalError> {
-        let field_slot = resolve_any_aggregate_target_slot_from_planner_slot::<E>(&target_field)
-            .map_err(Self::map_aggregate_field_value_error)?;
-        if let Some(projected_values) =
-            self.covering_index_projection_values_if_eligible(&plan, &target_field)?
-        {
-            Self::record_execution_optimization_hit_for_tests(
-                ExecutionOptimizationCounter::CoveringIndexProjectionFastPath,
-            );
-            return Ok(projected_values.first().cloned());
-        }
-        if let Some(constant_value) =
-            Self::constant_covering_projection_value_if_eligible(&plan, target_field.field())
-        {
-            Self::record_execution_optimization_hit_for_tests(
-                ExecutionOptimizationCounter::CoveringConstantProjectionFastPath,
-            );
-            let has_rows = self.aggregate_exists(plan)?;
-            return Ok(has_rows.then_some(constant_value));
-        }
-
-        self.execute_terminal_value_field_projection_with_slot(
-            plan,
-            target_field.field(),
-            field_slot,
-            AggregateKind::First,
-        )
+        self.terminal_value_by_slot(plan, target_field, AggregateKind::First)
     }
 
     /// Execute `last_value_by(field)` using one planner-resolved field slot.
@@ -208,22 +173,41 @@ where
         plan: ExecutablePlan<E>,
         target_field: PlannedFieldSlot,
     ) -> Result<Option<Value>, InternalError> {
+        self.terminal_value_by_slot(plan, target_field, AggregateKind::Last)
+    }
+
+    // Execute FIRST/LAST field-value projection terminals through one shared
+    // wrapper that preserves covering and constant fast-path behavior.
+    fn terminal_value_by_slot(
+        &self,
+        plan: ExecutablePlan<E>,
+        target_field: PlannedFieldSlot,
+        terminal_kind: AggregateKind,
+    ) -> Result<Option<Value>, InternalError> {
+        if !terminal_kind.supports_terminal_value_projection() {
+            return Err(crate::db::error::query_executor_invariant(
+                "terminal value projection requires FIRST/LAST aggregate kind",
+            ));
+        }
+
         let field_slot = resolve_any_aggregate_target_slot_from_planner_slot::<E>(&target_field)
             .map_err(Self::map_aggregate_field_value_error)?;
         if let Some(projected_values) =
             self.covering_index_projection_values_if_eligible(&plan, &target_field)?
         {
-            Self::record_execution_optimization_hit_for_tests(
-                ExecutionOptimizationCounter::CoveringIndexProjectionFastPath,
-            );
-            return Ok(projected_values.last().cloned());
+            Self::record_covering_index_projection_fast_path_hit_for_tests();
+            return Ok(match terminal_kind {
+                AggregateKind::First => projected_values.first().cloned(),
+                AggregateKind::Last => projected_values.last().cloned(),
+                _ => unreachable!(
+                    "terminal value projection helper must only be used for FIRST/LAST terminals"
+                ),
+            });
         }
         if let Some(constant_value) =
             Self::constant_covering_projection_value_if_eligible(&plan, target_field.field())
         {
-            Self::record_execution_optimization_hit_for_tests(
-                ExecutionOptimizationCounter::CoveringConstantProjectionFastPath,
-            );
+            Self::record_covering_constant_projection_fast_path_hit_for_tests();
             let has_rows = self.aggregate_exists(plan)?;
             return Ok(has_rows.then_some(constant_value));
         }
@@ -232,8 +216,22 @@ where
             plan,
             target_field.field(),
             field_slot,
-            AggregateKind::Last,
+            terminal_kind,
         )
+    }
+
+    // Record one covering index projection fast-path hit in tests.
+    fn record_covering_index_projection_fast_path_hit_for_tests() {
+        Self::record_execution_optimization_hit_for_tests(
+            ExecutionOptimizationCounter::CoveringIndexProjectionFastPath,
+        );
+    }
+
+    // Record one constant covering projection fast-path hit in tests.
+    fn record_covering_constant_projection_fast_path_hit_for_tests() {
+        Self::record_execution_optimization_hit_for_tests(
+            ExecutionOptimizationCounter::CoveringConstantProjectionFastPath,
+        );
     }
 
     // Execute one field-target scalar terminal projection (`first_value_by` /
@@ -246,12 +244,6 @@ where
         field_slot: FieldSlot,
         terminal_kind: AggregateKind,
     ) -> Result<Option<Value>, InternalError> {
-        if !terminal_kind.supports_terminal_value_projection() {
-            return Err(crate::db::error::query_executor_invariant(
-                "terminal value projection requires FIRST/LAST aggregate kind",
-            ));
-        }
-
         let consistency = plan.consistency();
         let (AggregateOutput::First(selected_id) | AggregateOutput::Last(selected_id)) =
             ExecutionKernel::execute_aggregate_spec(
@@ -285,14 +277,13 @@ where
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<Vec<Value>, InternalError> {
-        let mut projected_values = Vec::new();
-        for row in response {
-            let value = extract_orderable_field_value(row.entity_ref(), target_field, field_slot)
-                .map_err(Self::map_aggregate_field_value_error)?;
-            projected_values.push(value);
-        }
-
-        Ok(projected_values)
+        response
+            .into_iter()
+            .map(|row| {
+                extract_orderable_field_value(row.entity_ref(), target_field, field_slot)
+                    .map_err(Self::map_aggregate_field_value_error)
+            })
+            .collect()
     }
 
     // Project one materialized response into distinct field values while
@@ -324,15 +315,15 @@ where
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<IdValueProjection<E>, InternalError> {
-        let mut projected_values = Vec::new();
-        for row in response {
-            let (id, entity) = row.into_parts();
-            let value = extract_orderable_field_value(&entity, target_field, field_slot)
-                .map_err(Self::map_aggregate_field_value_error)?;
-            projected_values.push((id, value));
-        }
-
-        Ok(projected_values)
+        response
+            .into_iter()
+            .map(|row| {
+                let (id, entity) = row.into_parts();
+                extract_orderable_field_value(&entity, target_field, field_slot)
+                    .map(|value| (id, value))
+                    .map_err(Self::map_aggregate_field_value_error)
+            })
+            .collect()
     }
 
     // Resolve one constant field projection value when access shape guarantees
@@ -403,11 +394,15 @@ where
             return Ok(None);
         };
 
-        let mut projected_values = Vec::with_capacity(projected_pairs.len());
-        for (data_key, value) in projected_pairs {
-            let id = Id::from_key(data_key.try_key::<E>()?);
-            projected_values.push((id, value));
-        }
+        let projected_values = projected_pairs
+            .into_iter()
+            .map(|(data_key, value)| {
+                data_key
+                    .try_key::<E>()
+                    .map(Id::from_key)
+                    .map(|id| (id, value))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Some(projected_values))
     }
@@ -473,15 +468,14 @@ where
         }
 
         let (offset, limit) = scalar_window_for_covering_projection(plan.page_spec());
-        let mut windowed_pairs = Vec::new();
-        for (data_key, value) in projected_pairs.into_iter().skip(offset) {
-            if let Some(limit) = limit
-                && windowed_pairs.len() == limit
-            {
-                break;
-            }
-            windowed_pairs.push((data_key, value));
-        }
+        let windowed_pairs = match limit {
+            Some(limit) => projected_pairs
+                .into_iter()
+                .skip(offset)
+                .take(limit)
+                .collect(),
+            None => projected_pairs.into_iter().skip(offset).collect(),
+        };
 
         Ok(Some((context, windowed_pairs)))
     }
@@ -499,19 +493,13 @@ where
 
         let prefix_specs = plan.index_prefix_specs()?;
         if let [spec] = prefix_specs {
-            let store = ctx
-                .db
-                .with_store_registry(|registry| registry.try_get_store(spec.index().store()))?;
-            return store.with_index(|index_store| {
-                index_store.resolve_data_values_with_component_in_raw_range_limited::<E>(
-                    spec.index(),
-                    (spec.lower(), spec.upper()),
-                    continuation,
-                    usize::MAX,
-                    component_index,
-                    None,
-                )
-            });
+            return Self::read_covering_projection_component_pairs_for_index_bounds(
+                &ctx,
+                spec.index(),
+                (spec.lower(), spec.upper()),
+                continuation,
+                component_index,
+            );
         }
         if !prefix_specs.is_empty() {
             return Err(crate::db::error::query_executor_invariant(
@@ -521,19 +509,13 @@ where
 
         let range_specs = plan.index_range_specs()?;
         if let [spec] = range_specs {
-            let store = ctx
-                .db
-                .with_store_registry(|registry| registry.try_get_store(spec.index().store()))?;
-            return store.with_index(|index_store| {
-                index_store.resolve_data_values_with_component_in_raw_range_limited::<E>(
-                    spec.index(),
-                    (spec.lower(), spec.upper()),
-                    continuation,
-                    usize::MAX,
-                    component_index,
-                    None,
-                )
-            });
+            return Self::read_covering_projection_component_pairs_for_index_bounds(
+                &ctx,
+                spec.index(),
+                (spec.lower(), spec.upper()),
+                continuation,
+                component_index,
+            );
         }
         if !range_specs.is_empty() {
             return Err(crate::db::error::query_executor_invariant(
@@ -545,6 +527,33 @@ where
             "covering projection component scans require index-backed access paths",
         ))
     }
+
+    // Resolve one covering projection component stream for one lowered
+    // index-prefix/index-range bounds contract.
+    fn read_covering_projection_component_pairs_for_index_bounds(
+        ctx: &crate::db::executor::Context<'_, E>,
+        index: &crate::model::index::IndexModel,
+        bounds: (
+            &std::ops::Bound<crate::db::index::RawIndexKey>,
+            &std::ops::Bound<crate::db::index::RawIndexKey>,
+        ),
+        continuation: IndexScanContinuationInput,
+        component_index: usize,
+    ) -> Result<CoveringProjectionComponentRows, InternalError> {
+        let store = ctx
+            .db
+            .with_store_registry(|registry| registry.try_get_store(index.store()))?;
+        store.with_index(|index_store| {
+            index_store.resolve_data_values_with_component_in_raw_range_limited::<E>(
+                index,
+                bounds,
+                continuation,
+                usize::MAX,
+                component_index,
+                None,
+            )
+        })
+    }
 }
 
 fn terminal_aggregate_expr(kind: AggregateKind) -> AggregateExpr {
@@ -552,6 +561,9 @@ fn terminal_aggregate_expr(kind: AggregateKind) -> AggregateExpr {
         AggregateKind::Count => count(),
         AggregateKind::Sum => {
             unreachable!("terminal aggregate expression helper must not be used for SUM(field)")
+        }
+        AggregateKind::Avg => {
+            unreachable!("terminal aggregate expression helper must not be used for AVG(field)")
         }
         AggregateKind::Exists => exists(),
         AggregateKind::Min => min(),

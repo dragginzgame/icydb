@@ -27,6 +27,7 @@ pub(super) fn plan_predicate(
         Predicate::True
         | Predicate::False
         | Predicate::Not(_)
+        | Predicate::IsNotNull { .. }
         | Predicate::IsMissing { .. }
         | Predicate::IsEmpty { .. }
         | Predicate::IsNotEmpty { .. }

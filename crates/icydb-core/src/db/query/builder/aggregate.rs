@@ -77,13 +77,16 @@ impl AggregateExpr {
     /// Return whether this expression kind is `SUM`.
     #[must_use]
     pub(crate) const fn is_sum_kind(kind: AggregateKind) -> bool {
-        matches!(kind, AggregateKind::Sum)
+        matches!(kind, AggregateKind::Sum | AggregateKind::Avg)
     }
 
     /// Return whether this expression kind supports explicit field targets.
     #[must_use]
     pub(crate) const fn supports_field_targets_kind(kind: AggregateKind) -> bool {
-        matches!(kind, AggregateKind::Min | AggregateKind::Max)
+        matches!(
+            kind,
+            AggregateKind::Min | AggregateKind::Max | AggregateKind::Sum | AggregateKind::Avg
+        )
     }
 
     /// Return whether this expression kind belongs to the extrema family.
@@ -103,7 +106,7 @@ impl AggregateExpr {
     pub(crate) const fn requires_decoded_id_kind(kind: AggregateKind) -> bool {
         !matches!(
             kind,
-            AggregateKind::Count | AggregateKind::Sum | AggregateKind::Exists
+            AggregateKind::Count | AggregateKind::Sum | AggregateKind::Avg | AggregateKind::Exists
         )
     }
 
@@ -112,7 +115,11 @@ impl AggregateExpr {
     pub(crate) const fn supports_grouped_distinct_kind_v1(kind: AggregateKind) -> bool {
         matches!(
             kind,
-            AggregateKind::Count | AggregateKind::Min | AggregateKind::Max | AggregateKind::Sum
+            AggregateKind::Count
+                | AggregateKind::Min
+                | AggregateKind::Max
+                | AggregateKind::Sum
+                | AggregateKind::Avg
         )
     }
 
@@ -121,7 +128,10 @@ impl AggregateExpr {
     pub(crate) const fn supports_global_distinct_without_group_keys_kind(
         kind: AggregateKind,
     ) -> bool {
-        matches!(kind, AggregateKind::Count | AggregateKind::Sum)
+        matches!(
+            kind,
+            AggregateKind::Count | AggregateKind::Sum | AggregateKind::Avg
+        )
     }
 
     /// Return the canonical extrema traversal direction for this kind.
@@ -132,6 +142,7 @@ impl AggregateExpr {
             AggregateKind::Max => Some(Direction::Desc),
             AggregateKind::Count
             | AggregateKind::Sum
+            | AggregateKind::Avg
             | AggregateKind::Exists
             | AggregateKind::First
             | AggregateKind::Last => None,
@@ -145,6 +156,7 @@ impl AggregateExpr {
             AggregateKind::Min => Direction::Desc,
             AggregateKind::Count
             | AggregateKind::Sum
+            | AggregateKind::Avg
             | AggregateKind::Exists
             | AggregateKind::Max
             | AggregateKind::First
@@ -171,9 +183,11 @@ impl AggregateExpr {
             AggregateKind::Min if direction == Direction::Asc => Some(offset.saturating_add(1)),
             AggregateKind::Max if direction == Direction::Desc => Some(offset.saturating_add(1)),
             AggregateKind::Last => page_limit.map(|limit| offset.saturating_add(limit)),
-            AggregateKind::Count | AggregateKind::Sum | AggregateKind::Min | AggregateKind::Max => {
-                None
-            }
+            AggregateKind::Count
+            | AggregateKind::Sum
+            | AggregateKind::Avg
+            | AggregateKind::Min
+            | AggregateKind::Max => None,
         }
     }
 }
@@ -194,6 +208,12 @@ pub fn count_by(field: impl AsRef<str>) -> AggregateExpr {
 #[must_use]
 pub fn sum(field: impl AsRef<str>) -> AggregateExpr {
     AggregateExpr::new(AggregateKind::Sum, Some(field.as_ref().to_string()))
+}
+
+/// Build `avg(field)`.
+#[must_use]
+pub fn avg(field: impl AsRef<str>) -> AggregateExpr {
+    AggregateExpr::new(AggregateKind::Avg, Some(field.as_ref().to_string()))
 }
 
 /// Build `exists`.

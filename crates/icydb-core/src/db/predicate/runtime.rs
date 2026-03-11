@@ -102,6 +102,9 @@ fn compile_predicate_program<E: EntityKind>(
         Predicate::IsNull { field } => ResolvedPredicate::IsNull {
             field_slot: resolve_field::<E>(field),
         },
+        Predicate::IsNotNull { field } => ResolvedPredicate::IsNotNull {
+            field_slot: resolve_field::<E>(field),
+        },
         Predicate::IsMissing { field } => ResolvedPredicate::IsMissing {
             field_slot: resolve_field::<E>(field),
         },
@@ -163,6 +166,9 @@ fn eval_with_resolved_slots<E: EntityValue>(entity: &E, predicate: &ResolvedPred
                 field_from_slot(entity, *field_slot),
                 FieldPresence::Present(Value::Null)
             )
+        }
+        ResolvedPredicate::IsNotNull { field_slot } => {
+            matches!(field_from_slot(entity, *field_slot), FieldPresence::Present(value) if !matches!(value, Value::Null))
         }
         ResolvedPredicate::IsMissing { field_slot } => {
             matches!(field_from_slot(entity, *field_slot), FieldPresence::Missing)

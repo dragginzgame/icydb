@@ -26,7 +26,7 @@ const GROUPED_AGGREGATE_POLICY_RULES: &[GroupedAggregatePolicyRule] = &[
 ];
 const GLOBAL_DISTINCT_AGGREGATE_POLICY_RULES: &[GlobalDistinctAggregatePolicyRule] = &[
     global_distinct_target_field_known_rule,
-    global_distinct_sum_target_numeric_rule,
+    global_distinct_numeric_target_rule,
 ];
 
 ///
@@ -183,7 +183,7 @@ fn global_distinct_target_field_known_rule(
     })
 }
 
-fn global_distinct_sum_target_numeric_rule(
+fn global_distinct_numeric_target_rule(
     ctx: GlobalDistinctAggregatePolicyContext<'_>,
 ) -> Option<GroupPlanError> {
     ctx.aggregate_kind

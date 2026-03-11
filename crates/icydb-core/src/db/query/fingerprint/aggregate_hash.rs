@@ -71,6 +71,7 @@ const fn aggregate_kind_tag_v1(kind: AggregateKind) -> u8 {
         AggregateKind::Max => 0x05,
         AggregateKind::First => 0x06,
         AggregateKind::Last => 0x07,
+        AggregateKind::Avg => 0x08,
     }
 }
 

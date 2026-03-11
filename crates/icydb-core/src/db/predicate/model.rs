@@ -23,6 +23,7 @@ pub enum Predicate {
     Not(Box<Self>),
     Compare(ComparePredicate),
     IsNull { field: String },
+    IsNotNull { field: String },
     IsMissing { field: String },
     IsEmpty { field: String },
     IsNotEmpty { field: String },
@@ -96,6 +97,21 @@ impl Predicate {
     #[must_use]
     pub fn not_in(field: String, values: Vec<Value>) -> Self {
         Self::Compare(ComparePredicate::not_in(field, values))
+    }
+
+    /// Compare `field IS NOT NULL`.
+    #[must_use]
+    pub fn is_not_null(field: String) -> Self {
+        Self::IsNotNull { field }
+    }
+
+    /// Compare `field BETWEEN lower AND upper`.
+    #[must_use]
+    pub fn between(field: String, lower: Value, upper: Value) -> Self {
+        Self::And(vec![
+            Self::gte(field.clone(), lower),
+            Self::lte(field, upper),
+        ])
     }
 }
 

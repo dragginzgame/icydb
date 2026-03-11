@@ -424,6 +424,7 @@ fn explain_predicate_contains_non_strict_compare(predicate: &ExplainPredicate) -
         | ExplainPredicate::True
         | ExplainPredicate::False
         | ExplainPredicate::IsNull { .. }
+        | ExplainPredicate::IsNotNull { .. }
         | ExplainPredicate::IsMissing { .. }
         | ExplainPredicate::IsEmpty { .. }
         | ExplainPredicate::IsNotEmpty { .. }
@@ -443,6 +444,7 @@ fn explain_predicate_contains_is_null(predicate: &ExplainPredicate) -> bool {
         | ExplainPredicate::True
         | ExplainPredicate::False
         | ExplainPredicate::Compare { .. }
+        | ExplainPredicate::IsNotNull { .. }
         | ExplainPredicate::IsMissing { .. }
         | ExplainPredicate::IsEmpty { .. }
         | ExplainPredicate::IsNotEmpty { .. }
@@ -467,6 +469,7 @@ fn explain_predicate_contains_empty_prefix_starts_with(predicate: &ExplainPredic
         | ExplainPredicate::False
         | ExplainPredicate::Compare { .. }
         | ExplainPredicate::IsNull { .. }
+        | ExplainPredicate::IsNotNull { .. }
         | ExplainPredicate::IsMissing { .. }
         | ExplainPredicate::IsEmpty { .. }
         | ExplainPredicate::IsNotEmpty { .. }
@@ -492,6 +495,7 @@ fn explain_predicate_contains_text_scan_operator(predicate: &ExplainPredicate) -
         | ExplainPredicate::True
         | ExplainPredicate::False
         | ExplainPredicate::IsNull { .. }
+        | ExplainPredicate::IsNotNull { .. }
         | ExplainPredicate::IsMissing { .. }
         | ExplainPredicate::IsEmpty { .. }
         | ExplainPredicate::IsNotEmpty { .. } => false,

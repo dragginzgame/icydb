@@ -54,6 +54,7 @@ impl<E: EntityKind> AggregateReducerState<E> {
         match kind {
             AggregateKind::Count => Self::Count(0),
             AggregateKind::Sum => Self::Sum(None),
+            AggregateKind::Avg => Self::Sum(None),
             AggregateKind::Exists => Self::Exists(false),
             AggregateKind::Min => Self::Min(None),
             AggregateKind::Max => Self::Max(None),

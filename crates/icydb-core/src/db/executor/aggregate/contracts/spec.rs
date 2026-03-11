@@ -39,6 +39,7 @@ impl AggregateKind {
         match self {
             Self::Count => AggregateOutput::Count(0),
             Self::Sum => AggregateOutput::Sum(None),
+            Self::Avg => AggregateOutput::Sum(None),
             Self::Exists => AggregateOutput::Exists(false),
             Self::Min => AggregateOutput::Min(None),
             Self::Max => AggregateOutput::Max(None),
@@ -56,7 +57,7 @@ impl AggregateKind {
         match self {
             Self::Min => Some(AggregateOutput::Min(id)),
             Self::Max => Some(AggregateOutput::Max(id)),
-            Self::Count | Self::Sum | Self::Exists | Self::First | Self::Last => None,
+            Self::Count | Self::Sum | Self::Avg | Self::Exists | Self::First | Self::Last => None,
         }
     }
 

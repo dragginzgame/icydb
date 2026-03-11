@@ -5,6 +5,16 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.50.x] - 2026-03-11 - Executor Simplification Line Open
+
+- `0.50.1` expands Slice E mechanical cleanup across aggregate terminals/projection helpers, runtime payload-window helpers, post-access operator plumbing, commit-window metrics wiring, and EXPLAIN descriptor helper paths, reducing executor maintenance surface without changing query behavior.
+- `0.50.0` opens the `0.50` line with design and preparation artifacts (slice plans, invariants, and baseline trackers) to guide executor simplification work; runtime behavior is unchanged.
+
+See detailed breakdown:
+[docs/changelog/0.50.md](docs/changelog/0.50.md)
+
+---
+
 ## [0.49.x] - 2026-03-11 - Executor Architecture Stabilization
 
 - `0.49.3` hardens EXPLAIN execution consistency by adding cross-node-family JSON schema guards, locking text/JSON parity for additive execution metadata, and tightening explain-to-diagnostics node correlation checks without changing query behavior.

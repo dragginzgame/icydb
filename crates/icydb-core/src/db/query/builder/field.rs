@@ -121,6 +121,14 @@ impl FieldRef {
         }
     }
 
+    /// Field is present and not null.
+    #[must_use]
+    pub fn is_not_null(self) -> Predicate {
+        Predicate::IsNotNull {
+            field: self.0.to_string(),
+        }
+    }
+
     /// Field is not present at all.
     #[must_use]
     pub fn is_missing(self) -> Predicate {
@@ -161,6 +169,12 @@ impl FieldRef {
             field: self.0.to_string(),
             value: value.to_value(),
         }
+    }
+
+    /// Inclusive range predicate lowered as `field >= lower AND field <= upper`.
+    #[must_use]
+    pub fn between(self, lower: impl FieldValue, upper: impl FieldValue) -> Predicate {
+        Predicate::and(vec![self.gte(lower), self.lte(upper)])
     }
 }
 

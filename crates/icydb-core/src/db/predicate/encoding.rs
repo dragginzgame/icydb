@@ -27,6 +27,7 @@ const SORT_PRED_IS_NULL: u8 = 0x06;
 const SORT_PRED_IS_MISSING: u8 = 0x07;
 const SORT_PRED_IS_EMPTY: u8 = 0x08;
 const SORT_PRED_IS_NOT_EMPTY: u8 = 0x09;
+const SORT_PRED_IS_NOT_NULL: u8 = 0x0A;
 const SORT_PRED_TEXT_CONTAINS: u8 = 0x0D;
 const SORT_PRED_TEXT_CONTAINS_CI: u8 = 0x0E;
 
@@ -74,6 +75,10 @@ fn encode_predicate_sort_key_into(out: &mut Vec<u8>, predicate: &Predicate) {
         }
         Predicate::IsNull { field } => {
             out.push(SORT_PRED_IS_NULL);
+            push_str_u64(out, field);
+        }
+        Predicate::IsNotNull { field } => {
+            out.push(SORT_PRED_IS_NOT_NULL);
             push_str_u64(out, field);
         }
         Predicate::IsMissing { field } => {
@@ -293,6 +298,10 @@ pub(in crate::db::predicate) fn hash_predicate_fingerprint(
         }
         Predicate::IsNull { field } => {
             write_tag_u8(hasher, 0x27);
+            write_str_u32(hasher, field);
+        }
+        Predicate::IsNotNull { field } => {
+            write_tag_u8(hasher, 0x2b);
             write_str_u32(hasher, field);
         }
         Predicate::IsMissing { field } => {

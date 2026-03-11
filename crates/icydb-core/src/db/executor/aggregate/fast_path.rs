@@ -13,7 +13,10 @@ use crate::{
             aggregate::{
                 AggregateFastPathInputs, AggregateFoldMode, AggregateKind, AggregateOutput,
             },
-            pipeline::contracts::{FastPathKeyResult, LoadExecutor},
+            pipeline::{
+                contracts::{FastPathKeyResult, LoadExecutor},
+                operators::decorate_key_stream_for_plan,
+            },
             route::{
                 FastPathOrder, RoutedKeyStreamRequest, derive_budget_safety_flags,
                 ensure_index_range_aggregate_fast_path_specs,
@@ -232,7 +235,7 @@ impl ExecutionKernel {
         E: EntityKind + EntityValue,
     {
         fast.ordered_key_stream =
-            Self::decorate_key_stream_for_plan(fast.ordered_key_stream, plan, direction);
+            decorate_key_stream_for_plan(fast.ordered_key_stream, plan, direction);
         let rows_scanned = fast.rows_scanned;
         let (aggregate_output, _keys_scanned) = Self::run_streaming_aggregate_reducer(
             ctx,

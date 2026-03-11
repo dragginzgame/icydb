@@ -55,8 +55,8 @@ pub use predicate::{
 pub use query::{
     api::ResponseCardinalityExt,
     builder::{
-        AggregateExpr, FieldRef, count, count_by, exists, first, last, max, max_by, min, min_by,
-        sum,
+        AggregateExpr, FieldRef, avg, count, count_by, exists, first, last, max, max_by, min,
+        min_by, sum,
     },
     explain::{
         ExplainAggregateTerminalPlan, ExplainAggregateTerminalRoute, ExplainExecutionDescriptor,

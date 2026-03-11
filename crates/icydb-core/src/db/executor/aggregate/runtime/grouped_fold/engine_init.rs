@@ -34,6 +34,7 @@ where
             route.grouped_distinct_execution_strategy(),
             GroupedDistinctExecutionStrategy::GlobalDistinctFieldCount { .. }
                 | GroupedDistinctExecutionStrategy::GlobalDistinctFieldSum { .. }
+                | GroupedDistinctExecutionStrategy::GlobalDistinctFieldAvg { .. }
         ) {
             return Ok((Vec::new(), Vec::new()));
         }

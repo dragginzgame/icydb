@@ -7,6 +7,6 @@ pub(crate) mod aggregate;
 pub(crate) mod field;
 
 pub use aggregate::{
-    AggregateExpr, count, count_by, exists, first, last, max, max_by, min, min_by, sum,
+    AggregateExpr, avg, count, count_by, exists, first, last, max, max_by, min, min_by, sum,
 };
 pub use field::FieldRef;

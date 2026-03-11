@@ -5,7 +5,23 @@
 
 use std::collections::HashSet;
 
-use crate::db::query::plan::expr::ast::{Alias, Expr};
+use crate::db::query::plan::expr::ast::{Alias, Expr, FieldId};
+
+///
+/// ProjectionSelection
+///
+/// Planner-owned projection selection contract for scalar query shapes.
+/// `All` projects the full entity model field list.
+/// `Fields` projects one explicit field subset in declaration order.
+/// `Expression` projects one computed expression.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum ProjectionSelection {
+    All,
+    Fields(Vec<FieldId>),
+    Expression(Expr),
+}
 
 ///
 /// ProjectionField

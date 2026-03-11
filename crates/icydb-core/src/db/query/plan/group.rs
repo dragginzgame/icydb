@@ -233,6 +233,7 @@ pub(in crate::db) enum GroupedDistinctExecutionStrategy {
     None,
     GlobalDistinctFieldCount { target_field: String },
     GlobalDistinctFieldSum { target_field: String },
+    GlobalDistinctFieldAvg { target_field: String },
 }
 
 // Lower grouped DISTINCT execution strategy from validated grouped planner semantics.
@@ -251,13 +252,16 @@ fn grouped_distinct_execution_strategy(
             AggregateKind::Sum => Ok(GroupedDistinctExecutionStrategy::GlobalDistinctFieldSum {
                 target_field: aggregate.target_field().to_string(),
             }),
+            AggregateKind::Avg => Ok(GroupedDistinctExecutionStrategy::GlobalDistinctFieldAvg {
+                target_field: aggregate.target_field().to_string(),
+            }),
             AggregateKind::Exists
             | AggregateKind::Min
             | AggregateKind::Max
             | AggregateKind::First
             | AggregateKind::Last => Err(crate::db::error::planner_invariant(
                 crate::db::error::executor_invariant_message(
-                    "planner grouped DISTINCT strategy handoff must lower only COUNT/SUM field-target aggregates",
+                    "planner grouped DISTINCT strategy handoff must lower only COUNT/SUM/AVG field-target aggregates",
                 ),
             )),
         },

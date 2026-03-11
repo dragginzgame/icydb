@@ -305,6 +305,7 @@ const fn aggregate_execution_node_type(
             AggregateKind::First => ExplainExecutionNodeType::AggregateFirst,
             AggregateKind::Last => ExplainExecutionNodeType::AggregateLast,
             AggregateKind::Sum => ExplainExecutionNodeType::AggregateSum,
+            AggregateKind::Avg => ExplainExecutionNodeType::AggregateSum,
         },
     }
 }

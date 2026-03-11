@@ -34,7 +34,6 @@ use crate::{
     traits::{EntityKind, EntityValue},
     types::Id,
 };
-use std::ops::Deref;
 
 ///
 /// PlanRow
@@ -136,14 +135,6 @@ impl<'a, K> PostAccessPlan<'a, K> {
     // Project residual predicate presence through one post-access boundary accessor.
     const fn has_predicate(&self) -> bool {
         self.plan.scalar_plan().predicate.is_some()
-    }
-}
-
-impl<K> Deref for PostAccessPlan<'_, K> {
-    type Target = AccessPlannedQuery<K>;
-
-    fn deref(&self) -> &Self::Target {
-        self.plan
     }
 }
 
@@ -264,13 +255,14 @@ impl<K> PostAccessPlan<'_, K> {
         let (ordered, rows_after_order) = self.apply_order_phase::<E, R>(rows, cursor, filtered)?;
 
         // Phase 3: continuation boundary.
-        let (_cursor_skipped, rows_after_cursor) = ExecutionKernel::apply_cursor_boundary_phase::<
-            K,
-            E,
-            R,
-        >(
-            self, rows, cursor, ordered, rows_after_order
-        )?;
+        let (_cursor_skipped, rows_after_cursor) =
+            ExecutionKernel::apply_cursor_boundary_phase::<K, E, R>(
+                self.plan,
+                rows,
+                cursor,
+                ordered,
+                rows_after_order,
+            )?;
 
         // Phase 4: load pagination.
         let (paged, rows_after_page) = self.apply_page_phase(rows, ordered, cursor)?;
@@ -280,13 +272,12 @@ impl<K> PostAccessPlan<'_, K> {
             self.apply_delete_limit_phase(rows, ordered)?;
 
         #[cfg(not(test))]
-        let _ = rows_after_filter;
-        #[cfg(not(test))]
-        let _ = paged;
-        #[cfg(not(test))]
-        let _ = rows_after_page;
-        #[cfg(not(test))]
-        let _ = rows_after_delete_limit;
+        let _ = (
+            rows_after_filter,
+            paged,
+            rows_after_page,
+            rows_after_delete_limit,
+        );
 
         Ok(PostAccessStats {
             delete_was_limited,
@@ -356,7 +347,7 @@ impl<K> PostAccessPlan<'_, K> {
         E: EntityKind<Key = K> + EntityValue,
         R: PlanRow<E>,
     {
-        let bounded_order_keep = ExecutionKernel::bounded_order_keep_count(self, cursor);
+        let bounded_order_keep = ExecutionKernel::bounded_order_keep_count(self.plan, cursor);
         if let Some(order) = self.order_spec()
             && !order.fields.is_empty()
         {
@@ -415,7 +406,7 @@ impl<K> PostAccessPlan<'_, K> {
             }
             window::apply_pagination(
                 rows,
-                ExecutionKernel::effective_page_offset(self, cursor),
+                ExecutionKernel::effective_page_offset(self.plan, cursor),
                 page.limit,
             );
             true

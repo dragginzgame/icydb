@@ -23,6 +23,7 @@ pub(crate) fn reject_unsupported_query_features(
         | Predicate::False
         | Predicate::Compare(_)
         | Predicate::IsNull { .. }
+        | Predicate::IsNotNull { .. }
         | Predicate::IsMissing { .. }
         | Predicate::IsEmpty { .. }
         | Predicate::IsNotEmpty { .. }
@@ -53,7 +54,9 @@ pub(crate) fn validate(schema: &SchemaInfo, predicate: &Predicate) -> Result<(),
         }
         Predicate::Not(inner) => validate(schema, inner),
         Predicate::Compare(cmp) => validate_compare(schema, cmp),
-        Predicate::IsNull { field } | Predicate::IsMissing { field } => {
+        Predicate::IsNull { field }
+        | Predicate::IsNotNull { field }
+        | Predicate::IsMissing { field } => {
             let _field_type = ensure_field(schema, field)?;
             Ok(())
         }

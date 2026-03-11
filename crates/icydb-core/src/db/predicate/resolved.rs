@@ -39,6 +39,9 @@ pub(in crate::db) enum ResolvedPredicate {
     IsNull {
         field_slot: Option<usize>,
     },
+    IsNotNull {
+        field_slot: Option<usize>,
+    },
     IsMissing {
         field_slot: Option<usize>,
     },
