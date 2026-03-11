@@ -6,16 +6,14 @@
 use crate::{
     db::{
         direction::Direction,
-        executor::{continuation::ScalarContinuationContext, pipeline::contracts::LoadExecutor},
+        executor::pipeline::contracts::LoadExecutor,
         query::builder::AggregateExpr,
-        query::plan::{AccessPlannedQuery, ContinuationPolicy, ExecutionOrderContract},
+        query::plan::{AccessPlannedQuery, ExecutionOrderContract},
     },
     traits::{EntityKind, EntityValue},
 };
 
-use crate::db::executor::route::{
-    RouteCapabilities, RouteContinuationPlan, aggregate_extrema_direction,
-};
+use crate::db::executor::route::{RouteCapabilities, aggregate_extrema_direction};
 
 impl<E> LoadExecutor<E>
 where
@@ -42,18 +40,6 @@ where
         }
 
         Self::derive_load_route_direction(plan)
-    }
-
-    pub(super) fn derive_route_continuation(
-        plan: &AccessPlannedQuery<E::Key>,
-        continuation: &ScalarContinuationContext,
-        continuation_policy: ContinuationPolicy,
-    ) -> RouteContinuationPlan {
-        let continuation_capabilities = continuation.continuation_capabilities(continuation_policy);
-        RouteContinuationPlan::from_scalar_access_window_plan(
-            continuation_capabilities,
-            plan.scalar_access_window_plan(continuation.has_cursor_boundary()),
-        )
     }
 
     // Route-owned aggregate non-count streaming gate.

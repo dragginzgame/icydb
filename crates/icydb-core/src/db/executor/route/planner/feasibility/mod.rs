@@ -46,8 +46,7 @@ where
         intent_stage: &RouteIntentStage,
     ) -> RouteFeasibilityStage {
         let continuation_policy = *planner_route_profile.continuation_policy();
-        let route_continuation =
-            Self::derive_route_continuation(plan, continuation, continuation_policy);
+        let route_continuation = continuation.route_continuation_plan(plan, continuation_policy);
         let continuation_capabilities = route_continuation.capabilities();
         let derivation = Self::derive_route_derivation_context(
             plan,

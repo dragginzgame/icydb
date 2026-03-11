@@ -13,14 +13,14 @@ use crate::{
         },
         direction::Direction,
         executor::{
-            AccessScanContinuationInput, ContinuationMode,
+            AccessScanContinuationInput, ContinuationMode, RouteContinuationPlan,
             continuation::capabilities::ContinuationCapabilities,
             traversal::{effective_keep_count_for_limit, effective_page_offset_for_window},
         },
         query::plan::{AccessPlannedQuery, ContinuationPolicy},
     },
     error::InternalError,
-    traits::EntityKind,
+    traits::{EntityKind, FieldValue},
 };
 
 ///
@@ -127,6 +127,26 @@ impl ScalarContinuationContext {
         continuation_policy: ContinuationPolicy,
     ) -> ContinuationCapabilities {
         ContinuationCapabilities::new(self.route_continuation_mode(), continuation_policy)
+    }
+
+    /// Derive one route continuation plan from scalar runtime state and planner policy.
+    ///
+    /// This keeps continuation/window derivation in continuation authority so
+    /// route planning consumes one pre-derived continuation contract.
+    #[must_use]
+    pub(in crate::db::executor) fn route_continuation_plan<K>(
+        &self,
+        plan: &AccessPlannedQuery<K>,
+        continuation_policy: ContinuationPolicy,
+    ) -> RouteContinuationPlan
+    where
+        K: FieldValue + Clone,
+    {
+        let continuation_capabilities = self.continuation_capabilities(continuation_policy);
+        RouteContinuationPlan::from_scalar_access_window_plan(
+            continuation_capabilities,
+            plan.scalar_access_window_plan(self.has_cursor_boundary()),
+        )
     }
 }
 
