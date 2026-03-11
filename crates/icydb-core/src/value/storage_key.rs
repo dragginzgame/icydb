@@ -11,7 +11,8 @@
 use super::Value;
 use crate::{
     error::InternalError,
-    types::{Account, Principal, Repr, Subaccount, Timestamp, Ulid},
+    traits::Repr,
+    types::{Account, Principal, Subaccount, Timestamp, Ulid},
 };
 use candid::CandidType;
 use derive_more::Display;

@@ -6,9 +6,10 @@
 use crate::{
     traits::{
         AsView, Atomic, EntityKeyBytes, FieldValue, FieldValueKind, NumCast, NumFromPrimitive,
-        NumToPrimitive, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
+        NumToPrimitive, Repr, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
+        Visitable,
     },
-    types::{Duration, Repr},
+    types::Duration,
     value::Value,
 };
 use candid::CandidType;

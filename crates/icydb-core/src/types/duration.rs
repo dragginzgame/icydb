@@ -6,9 +6,8 @@
 use crate::{
     traits::{
         AsView, Atomic, FieldValue, FieldValueKind, NumCast, NumFromPrimitive, NumToPrimitive,
-        SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
+        Repr, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
-    types::Repr,
     value::Value,
 };
 use candid::CandidType;

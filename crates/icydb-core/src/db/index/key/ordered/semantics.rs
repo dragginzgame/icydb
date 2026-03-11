@@ -5,7 +5,8 @@
 
 use crate::{
     db::index::key::ordered::OrderedValueEncodeError,
-    types::{Date, Duration, Int128, Nat128, Repr, Timestamp},
+    traits::Repr,
+    types::{Date, Duration, Int128, Nat128, Timestamp},
 };
 
 ///

@@ -17,7 +17,7 @@ mod tests;
 
 use crate::{
     prelude::*,
-    traits::{EnumValue, FieldValue, NumFromPrimitive},
+    traits::{EnumValue, FieldValue, NumFromPrimitive, Repr},
     types::*,
 };
 use candid::CandidType;

@@ -535,6 +535,19 @@ where
     }
 }
 
+///
+/// Repr
+///
+/// Internal representation boundary for scalar wrapper types.
+///
+
+pub trait Repr {
+    type Inner;
+
+    fn repr(&self) -> Self::Inner;
+    fn from_repr(inner: Self::Inner) -> Self;
+}
+
 /// ============================================================================
 /// SANITIZATION / VALIDATION
 /// ============================================================================
