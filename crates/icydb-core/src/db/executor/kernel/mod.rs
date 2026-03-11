@@ -12,12 +12,9 @@ use crate::{
         direction::Direction,
         executor::{
             ExecutionPlan, OrderedKeyStreamBox, ScalarContinuationBindings,
-            shared::{
-                execution_contracts::{
-                    ExecutionInputsProjection, MaterializedExecutionAttempt,
-                    ResolvedExecutionKeyStream,
-                },
-                load_contracts::{CursorPage, LoadExecutor},
+            pipeline::contracts::{
+                CursorPage, ExecutionInputsProjection, LoadExecutor, MaterializedExecutionAttempt,
+                ResolvedExecutionKeyStream,
             },
             terminal::page::PageMaterializationRequest,
         },

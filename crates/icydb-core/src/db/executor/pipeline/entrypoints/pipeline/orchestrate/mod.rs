@@ -11,8 +11,8 @@ mod state;
 use crate::{
     db::executor::{
         ExecutablePlan, LoadCursorInput, PreparedLoadCursor,
+        pipeline::contracts::LoadExecutor,
         pipeline::entrypoints::pipeline::{LoadExecutionMode, LoadExecutionSurface, LoadMode},
-        shared::load_contracts::LoadExecutor,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},

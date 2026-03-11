@@ -1,5 +1,5 @@
-//! Module: db::executor::shared::execution_contracts::inputs
-//! Responsibility: module-local ownership and contracts for db::executor::shared::execution_contracts::inputs.
+//! Module: db::executor::pipeline::contracts::inputs
+//! Responsibility: module-local ownership and contracts for db::executor::pipeline::contracts::inputs.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 

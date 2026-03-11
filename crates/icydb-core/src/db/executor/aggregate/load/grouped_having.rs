@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        executor::shared::load_contracts::LoadExecutor,
+        executor::pipeline::contracts::LoadExecutor,
         predicate::{CompareOp, evaluate_grouped_having_compare_v1},
         query::plan::{FieldSlot, GroupHavingSpec, GroupHavingSymbol},
     },

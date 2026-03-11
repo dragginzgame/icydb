@@ -8,8 +8,8 @@ use crate::{
         Context,
         direction::Direction,
         executor::{
+            pipeline::contracts::{FastPathKeyResult, LoadExecutor},
             scan::{FastStreamRouteKind, FastStreamRouteRequest},
-            shared::load_contracts::{FastPathKeyResult, LoadExecutor},
         },
         query::plan::AccessPlannedQuery,
     },

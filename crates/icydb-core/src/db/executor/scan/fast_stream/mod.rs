@@ -15,8 +15,8 @@ use crate::{
         Context,
         executor::{
             AccessExecutionDescriptor, ExecutionOptimization,
+            pipeline::contracts::{FastPathKeyResult, LoadExecutor},
             route::RoutedKeyStreamRequest,
-            shared::load_contracts::{FastPathKeyResult, LoadExecutor},
         },
     },
     error::InternalError,

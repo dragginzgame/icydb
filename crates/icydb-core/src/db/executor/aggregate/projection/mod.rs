@@ -34,7 +34,7 @@ use crate::{
                 },
             },
             group::GroupKeySet,
-            shared::load_contracts::LoadExecutor,
+            pipeline::contracts::LoadExecutor,
         },
         predicate::MissingRowPolicy,
         query::{

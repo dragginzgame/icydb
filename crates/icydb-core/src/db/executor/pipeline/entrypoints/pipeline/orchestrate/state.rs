@@ -6,8 +6,8 @@
 use crate::{
     db::executor::{
         ExecutablePlan, ExecutionTrace, PreparedLoadCursor,
+        pipeline::contracts::{CursorPage, GroupedCursorPage},
         pipeline::entrypoints::pipeline::LoadExecutionMode,
-        shared::load_contracts::{CursorPage, GroupedCursorPage},
     },
     traits::EntityKind,
 };

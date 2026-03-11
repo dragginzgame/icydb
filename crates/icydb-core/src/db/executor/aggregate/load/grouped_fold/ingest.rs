@@ -13,9 +13,7 @@ use crate::{
         executor::{
             aggregate::{AggregateEngine, ExecutionContext, FoldControl},
             group::{CanonicalKey, KeyCanonicalError},
-            shared::load_contracts::{
-                GroupedRouteStageProjection, GroupedStreamStage, LoadExecutor,
-            },
+            pipeline::contracts::{GroupedRouteStageProjection, GroupedStreamStage, LoadExecutor},
         },
         predicate::MissingRowPolicy,
     },

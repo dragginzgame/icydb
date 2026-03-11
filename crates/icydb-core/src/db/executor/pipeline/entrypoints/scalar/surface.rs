@@ -7,8 +7,8 @@ use crate::{
     db::{
         executor::{
             ExecutablePlan, ExecutionTrace, LoadCursorInput,
+            pipeline::contracts::{CursorPage, LoadExecutor},
             pipeline::entrypoints::{LoadExecutionMode, LoadExecutionSurface, LoadTracingMode},
-            shared::load_contracts::{CursorPage, LoadExecutor},
         },
         response::EntityResponse,
     },

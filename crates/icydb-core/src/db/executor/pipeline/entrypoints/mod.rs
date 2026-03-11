@@ -13,7 +13,7 @@ use crate::{
         executor::{
             ContinuationEngine, ExecutablePlan, ExecutionTrace, LoadCursorInput,
             ResolvedLoadCursorContext,
-            shared::load_contracts::{CursorPage, GroupedCursorPage, LoadExecutor},
+            pipeline::contracts::{CursorPage, GroupedCursorPage, LoadExecutor},
         },
         response::EntityResponse,
     },

@@ -1,5 +1,5 @@
-//! Module: db::executor::shared::load_contracts::grouped::stages
-//! Responsibility: module-local ownership and contracts for db::executor::shared::load_contracts::grouped::stages.
+//! Module: db::executor::pipeline::contracts::grouped::stages
+//! Responsibility: module-local ownership and contracts for db::executor::pipeline::contracts::grouped::stages.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
@@ -8,9 +8,7 @@ use crate::{
         Context,
         executor::{
             ExecutionOptimization, ExecutionPreparation,
-            shared::{
-                execution_contracts::ResolvedExecutionKeyStream, load_contracts::GroupedCursorPage,
-            },
+            pipeline::contracts::{GroupedCursorPage, ResolvedExecutionKeyStream},
         },
     },
     traits::{EntityKind, EntityValue},

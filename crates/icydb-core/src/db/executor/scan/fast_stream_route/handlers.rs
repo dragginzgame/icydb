@@ -10,7 +10,7 @@ use crate::{
         executor::{
             AccessExecutionDescriptor, AccessScanContinuationInput, AccessStreamBindings,
             ExecutionOptimization, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
-            shared::load_contracts::{FastPathKeyResult, LoadExecutor},
+            pipeline::contracts::{FastPathKeyResult, LoadExecutor},
         },
         index::predicate::IndexPredicateExecution,
         query::plan::AccessPlannedQuery,

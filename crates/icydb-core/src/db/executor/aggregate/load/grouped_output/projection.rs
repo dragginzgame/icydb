@@ -6,10 +6,7 @@
 use crate::{
     db::{
         GroupedRow,
-        executor::{
-            aggregate::AggregateOutput,
-            shared::{load_contracts::LoadExecutor, projection::*},
-        },
+        executor::{aggregate::AggregateOutput, pipeline::contracts::LoadExecutor, projection::*},
         query::{
             builder::AggregateExpr,
             plan::{FieldSlot, PlannedProjectionLayout, expr::ProjectionSpec},

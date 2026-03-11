@@ -16,9 +16,9 @@ mod pipeline;
 mod plan_metrics;
 mod plan_validate;
 mod preparation;
+mod projection;
 pub(super) mod route;
 mod scan;
-mod shared;
 mod stream;
 mod terminal;
 #[cfg(test)]
@@ -47,9 +47,9 @@ pub(super) use delete::DeleteExecutor;
 pub(in crate::db) use executable_plan::{ExecutablePlan, ExecutionStrategy};
 pub(in crate::db::executor) use kernel::{ExecutionKernel, PlanRow};
 pub(super) use mutation::save::SaveExecutor;
+pub(super) use pipeline::contracts::LoadExecutor;
 pub(in crate::db::executor) use plan_validate::validate_executor_plan;
 pub(in crate::db::executor) use preparation::ExecutionPreparation;
-pub(super) use shared::load_contracts::LoadExecutor;
 pub(super) use stream::access::*;
 pub(in crate::db::executor) use stream::key::{
     BudgetedOrderedKeyStream, KeyOrderComparator, OrderedKeyStream, OrderedKeyStreamBox,

@@ -1,11 +1,11 @@
-//! Module: db::executor::shared::projection::materialize
-//! Responsibility: module-local ownership and contracts for db::executor::shared::projection::materialize.
+//! Module: db::executor::projection::materialize
+//! Responsibility: module-local ownership and contracts for db::executor::projection::materialize.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::{
     db::{
-        executor::shared::load_contracts::LoadExecutor,
+        executor::pipeline::contracts::LoadExecutor,
         query::plan::{
             AccessPlannedQuery,
             expr::{Expr, ProjectionField, ProjectionSpec},
@@ -18,7 +18,7 @@ use crate::{
     value::Value,
 };
 
-use crate::db::executor::shared::projection::{
+use crate::db::executor::projection::{
     eval::{ProjectionEvalError, eval_expr, eval_expr_grouped},
     grouped::GroupedRowView,
 };
@@ -68,7 +68,7 @@ impl<'a> ScalarProjectionExecutionStrategy<'a> {
 /// row identity and ordering relative to post-access materialized rows.
 ///
 
-pub(in crate::db::executor::shared::projection) trait ShapePreservingProjection {
+pub(in crate::db::executor::projection) trait ShapePreservingProjection {
     /// Borrow canonical planner projection semantics.
     fn as_projection_spec(&self) -> &ProjectionSpec;
 }
@@ -113,7 +113,7 @@ pub(in crate::db::executor) fn evaluate_grouped_projection_values(
     Ok(projected_values)
 }
 
-pub(in crate::db::executor::shared::projection) fn project_rows_from_projection<E>(
+pub(in crate::db::executor::projection) fn project_rows_from_projection<E>(
     projection: &impl ShapePreservingProjection,
     rows: &[(Id<E>, E)],
 ) -> Result<Vec<ProjectedRow<E>>, ProjectionEvalError>

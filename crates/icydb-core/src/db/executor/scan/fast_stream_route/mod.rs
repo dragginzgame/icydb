@@ -11,7 +11,7 @@ use crate::{
         direction::Direction,
         executor::{
             AccessScanContinuationInput, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
-            shared::load_contracts::{FastPathKeyResult, LoadExecutor},
+            pipeline::contracts::{FastPathKeyResult, LoadExecutor},
         },
         index::predicate::IndexPredicateExecution,
         query::plan::AccessPlannedQuery,

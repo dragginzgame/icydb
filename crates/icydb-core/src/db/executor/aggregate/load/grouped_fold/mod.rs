@@ -15,14 +15,11 @@ use crate::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutionPreparation,
             aggregate::GroupError,
             group::{grouped_budget_observability, grouped_execution_context_from_planner_config},
-            plan_metrics::record_grouped_plan_metrics,
-            shared::{
-                execution_contracts::ExecutionInputs,
-                load_contracts::{
-                    GroupedCursorPage, GroupedFoldStage, GroupedRouteStageProjection,
-                    GroupedStreamStage, LoadExecutor,
-                },
+            pipeline::contracts::{
+                ExecutionInputs, GroupedCursorPage, GroupedFoldStage, GroupedRouteStageProjection,
+                GroupedStreamStage, LoadExecutor,
             },
+            plan_metrics::record_grouped_plan_metrics,
         },
         index::IndexCompilePolicy,
     },

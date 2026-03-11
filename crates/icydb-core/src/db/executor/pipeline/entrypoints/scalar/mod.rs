@@ -13,11 +13,8 @@ use crate::{
             AccessStreamBindings, ExecutablePlan, ExecutionKernel, ExecutionPreparation,
             ExecutionTrace, ResolvedScalarContinuationContext,
             ScalarRouteContinuationInvariantProjection,
+            pipeline::contracts::{CursorPage, ExecutionInputs, LoadExecutor},
             plan_metrics::record_plan_metrics,
-            shared::{
-                execution_contracts::ExecutionInputs,
-                load_contracts::{CursorPage, LoadExecutor},
-            },
             validate_executor_plan,
         },
         index::IndexCompilePolicy,

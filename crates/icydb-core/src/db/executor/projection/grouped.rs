@@ -1,5 +1,5 @@
-//! Module: db::executor::shared::projection::grouped
-//! Responsibility: module-local ownership and contracts for db::executor::shared::projection::grouped.
+//! Module: db::executor::projection::grouped
+//! Responsibility: module-local ownership and contracts for db::executor::projection::grouped.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
@@ -16,10 +16,10 @@ use crate::{
 ///
 
 pub(in crate::db::executor) struct GroupedRowView<'a> {
-    pub(in crate::db::executor::shared::projection) key_values: &'a [Value],
-    pub(in crate::db::executor::shared::projection) aggregate_values: &'a [Value],
-    pub(in crate::db::executor::shared::projection) group_fields: &'a [FieldSlot],
-    pub(in crate::db::executor::shared::projection) aggregate_exprs: &'a [AggregateExpr],
+    pub(in crate::db::executor::projection) key_values: &'a [Value],
+    pub(in crate::db::executor::projection) aggregate_values: &'a [Value],
+    pub(in crate::db::executor::projection) group_fields: &'a [FieldSlot],
+    pub(in crate::db::executor::projection) aggregate_exprs: &'a [AggregateExpr],
 }
 
 impl<'a> GroupedRowView<'a> {
@@ -40,7 +40,7 @@ impl<'a> GroupedRowView<'a> {
     }
 }
 
-pub(in crate::db::executor::shared::projection) fn resolve_group_field_offset(
+pub(in crate::db::executor::projection) fn resolve_group_field_offset(
     grouped_row: &GroupedRowView<'_>,
     field_name: &str,
 ) -> Option<usize> {
@@ -53,7 +53,7 @@ pub(in crate::db::executor::shared::projection) fn resolve_group_field_offset(
     None
 }
 
-pub(in crate::db::executor::shared::projection) fn resolve_grouped_aggregate_index(
+pub(in crate::db::executor::projection) fn resolve_grouped_aggregate_index(
     grouped_row: &GroupedRowView<'_>,
     aggregate_expr: &AggregateExpr,
 ) -> Option<usize> {

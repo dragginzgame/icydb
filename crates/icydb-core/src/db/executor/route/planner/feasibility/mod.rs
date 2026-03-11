@@ -11,11 +11,11 @@ use crate::{
         executor::{
             aggregate::AggregateKind,
             continuation::ScalarContinuationContext,
+            pipeline::contracts::LoadExecutor,
             route::{
                 RouteContinuationPlan, ScanHintPlan,
                 planner::{RouteDerivationContext, RouteFeasibilityStage, RouteIntentStage},
             },
-            shared::load_contracts::LoadExecutor,
         },
         query::builder::AggregateExpr,
         query::plan::{

@@ -9,8 +9,8 @@ use crate::{
         direction::Direction,
         executor::{
             LoweredIndexPrefixSpec,
+            pipeline::contracts::{FastPathKeyResult, LoadExecutor},
             scan::{FastStreamRouteKind, FastStreamRouteRequest},
-            shared::load_contracts::{FastPathKeyResult, LoadExecutor},
         },
         index::predicate::IndexPredicateExecution,
         query::plan::AccessPlannedQuery,

@@ -1,5 +1,5 @@
-//! Module: db::executor::shared::projection::eval::operators::binary
-//! Responsibility: module-local ownership and contracts for db::executor::shared::projection::eval::operators::binary.
+//! Module: db::executor::projection::eval::operators::binary
+//! Responsibility: module-local ownership and contracts for db::executor::projection::eval::operators::binary.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
@@ -7,7 +7,7 @@ mod comparison;
 
 use crate::{
     db::{
-        executor::shared::projection::eval::ProjectionEvalError,
+        executor::projection::eval::ProjectionEvalError,
         numeric::{NumericArithmeticOp, apply_numeric_arithmetic},
         query::plan::expr::BinaryOp,
     },

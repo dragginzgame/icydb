@@ -5,8 +5,8 @@
 
 use crate::{
     db::executor::{
-        plan_metrics::GroupedPlanMetricsStrategy, route::GroupedExecutionStrategy,
-        shared::load_contracts::LoadExecutor,
+        pipeline::contracts::LoadExecutor, plan_metrics::GroupedPlanMetricsStrategy,
+        route::GroupedExecutionStrategy,
     },
     traits::{EntityKind, EntityValue},
 };

@@ -6,14 +6,12 @@
 use crate::{
     db::executor::{
         ExecutionTrace,
+        pipeline::contracts::{
+            ExecutionOutcomeMetrics, GroupedCursorPage, GroupedFoldStage,
+            GroupedRouteStageProjection, LoadExecutor,
+        },
         plan_metrics::{
             record_rows_aggregated, record_rows_emitted, record_rows_filtered, record_rows_scanned,
-        },
-        shared::{
-            execution_contracts::ExecutionOutcomeMetrics,
-            load_contracts::{
-                GroupedCursorPage, GroupedFoldStage, GroupedRouteStageProjection, LoadExecutor,
-            },
         },
     },
     traits::{EntityKind, EntityValue},

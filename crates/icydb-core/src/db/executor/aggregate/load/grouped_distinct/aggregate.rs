@@ -15,9 +15,7 @@ use crate::{
                 },
             },
             group::{CanonicalKey, GroupKeySet, KeyCanonicalError},
-            shared::{
-                execution_contracts::ResolvedExecutionKeyStream, load_contracts::LoadExecutor,
-            },
+            pipeline::contracts::{LoadExecutor, ResolvedExecutionKeyStream},
         },
         numeric::{NumericArithmeticOp, apply_numeric_arithmetic},
         predicate::MissingRowPolicy,

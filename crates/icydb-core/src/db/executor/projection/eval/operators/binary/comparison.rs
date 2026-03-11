@@ -1,5 +1,5 @@
-//! Module: db::executor::shared::projection::eval::operators::binary::comparison
-//! Responsibility: module-local ownership and contracts for db::executor::shared::projection::eval::operators::binary::comparison.
+//! Module: db::executor::projection::eval::operators::binary::comparison
+//! Responsibility: module-local ownership and contracts for db::executor::projection::eval::operators::binary::comparison.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
@@ -7,7 +7,7 @@ use std::cmp::Ordering;
 
 use crate::{
     db::{
-        executor::shared::projection::eval::{
+        executor::projection::eval::{
             ProjectionEvalError,
             operators::binary::{binary_op_name, invalid_binary_operands},
         },

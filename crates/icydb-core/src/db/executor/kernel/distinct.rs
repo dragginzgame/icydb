@@ -7,10 +7,7 @@ use crate::db::{
     direction::Direction,
     executor::{
         KeyOrderComparator, OrderedKeyStreamBox,
-        shared::{
-            execution_contracts::ResolvedExecutionKeyStream,
-            load_contracts::key_stream_comparator_from_direction,
-        },
+        pipeline::contracts::{ResolvedExecutionKeyStream, key_stream_comparator_from_direction},
         stream::key::DistinctOrderedKeyStream,
     },
     query::plan::{AccessPlannedQuery, DistinctExecutionStrategy},

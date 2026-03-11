@@ -10,9 +10,9 @@ use crate::db::executor::route::ensure_load_fast_path_spec_arity;
 use crate::{
     db::executor::{
         ExecutionTrace,
+        pipeline::contracts::ExecutionOutcomeMetrics,
+        pipeline::contracts::{CursorPage, LoadExecutor},
         plan_metrics::set_rows_from_len,
-        shared::execution_contracts::ExecutionOutcomeMetrics,
-        shared::load_contracts::{CursorPage, LoadExecutor},
     },
     metrics::sink::Span,
     traits::{EntityKind, EntityValue},

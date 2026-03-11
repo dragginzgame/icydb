@@ -7,8 +7,8 @@ use crate::{
     db::{
         executor::{
             aggregate::{AggregateEngine, ExecutionContext},
+            pipeline::contracts::{GroupedRouteStageProjection, LoadExecutor},
             route::aggregate_materialized_fold_direction,
-            shared::load_contracts::{GroupedRouteStageProjection, LoadExecutor},
         },
         query::plan::GroupedDistinctExecutionStrategy,
     },

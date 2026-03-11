@@ -8,8 +8,8 @@ use crate::{
         cursor::GroupedPlannedCursor,
         executor::{
             ExecutablePlan, ExecutionTrace, LoadCursorInput,
+            pipeline::contracts::{GroupedCursorPage, LoadExecutor},
             pipeline::entrypoints::{LoadExecutionMode, LoadExecutionSurface, LoadTracingMode},
-            shared::load_contracts::{GroupedCursorPage, LoadExecutor},
         },
     },
     error::InternalError,

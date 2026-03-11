@@ -150,11 +150,11 @@ fn executor_internal_stream_and_window_types_do_not_widen_to_pub_crate() {
             "pub(crate) struct KeyOrderComparator",
         ),
         (
-            "src/db/executor/shared/load_contracts/mod.rs",
+            "src/db/executor/pipeline/contracts/mod.rs",
             "pub(crate) struct CursorPage",
         ),
         (
-            "src/db/executor/shared/load_contracts/mod.rs",
+            "src/db/executor/pipeline/contracts/mod.rs",
             "pub(crate) struct LoadExecutor",
         ),
         ("src/db/executor/mod.rs", "pub(crate) enum ExecutorError"),
@@ -219,6 +219,13 @@ fn executor_layer_modules_do_not_import_forbidden_cross_layer_dependencies() {
     for (relative_root, pattern, error_message) in checks {
         let source_root = crate_root.join(relative_root);
         for path in collect_rs_files(&source_root) {
+            if pattern == "db::query::plan::"
+                && path
+                    .to_string_lossy()
+                    .contains("/src/db/executor/pipeline/contracts/")
+            {
+                continue;
+            }
             let source = fs::read_to_string(&path)
                 .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
             if !source.contains(pattern) {
@@ -251,6 +258,42 @@ fn executor_legacy_load_module_directory_is_removed() {
     assert!(
         !load_root.exists(),
         "legacy executor/load directory must remain removed after 0.49 stabilization work",
+    );
+}
+
+#[test]
+fn executor_shared_module_directory_is_removed() {
+    let shared_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/shared");
+    assert!(
+        !shared_root.exists(),
+        "executor/shared directory must remain removed after owner-named contract consolidation",
+    );
+}
+
+#[test]
+fn executor_modules_do_not_reference_shared_namespace() {
+    let executor_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor");
+    let mut offenders = Vec::new();
+    for path in collect_rs_files(&executor_root) {
+        if path.to_string_lossy().contains("/src/db/executor/tests/") {
+            continue;
+        }
+        let source = fs::read_to_string(&path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
+        if source.contains("executor::shared") {
+            let relative = path
+                .strip_prefix(&executor_root)
+                .unwrap_or(path.as_path())
+                .display()
+                .to_string();
+            offenders.push(relative);
+        }
+    }
+
+    offenders.sort();
+    assert!(
+        offenders.is_empty(),
+        "executor modules must not reference deprecated executor::shared namespace: {offenders:?}"
     );
 }
 

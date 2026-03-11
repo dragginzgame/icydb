@@ -1,4 +1,4 @@
-//! Module: executor::shared::projection::eval::operators
+//! Module: executor::projection::eval::operators
 //! Responsibility: unary/binary expression operator evaluation for projection eval.
 //! Does not own: row field resolution or grouped aggregate index resolution.
 //! Boundary: pure operator semantics for scalar and grouped projection evaluation.

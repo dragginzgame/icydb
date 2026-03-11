@@ -1,4 +1,4 @@
-//! Module: executor::shared::load_contracts::grouped
+//! Module: executor::pipeline::contracts::grouped
 //! Responsibility: grouped load-stage contracts and projection traits.
 //! Does not own: planner semantic derivation or scalar load contracts.
 //! Boundary: grouped planner/route/stream/fold payloads consumed by grouped runtime.

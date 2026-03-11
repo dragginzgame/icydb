@@ -1,10 +1,10 @@
-//! Module: db::executor::shared::execution_contracts::outcomes
-//! Responsibility: module-local ownership and contracts for db::executor::shared::execution_contracts::outcomes.
+//! Module: db::executor::pipeline::contracts::outcomes
+//! Responsibility: module-local ownership and contracts for db::executor::pipeline::contracts::outcomes.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::{
-    db::executor::{ExecutionOptimization, shared::load_contracts::CursorPage},
+    db::executor::{ExecutionOptimization, pipeline::contracts::CursorPage},
     traits::EntityKind,
 };
 

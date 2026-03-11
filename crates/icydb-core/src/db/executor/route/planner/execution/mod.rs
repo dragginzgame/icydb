@@ -10,11 +10,11 @@ mod shape_load;
 
 use crate::{
     db::executor::{
+        pipeline::contracts::LoadExecutor,
         route::{
             IndexRangeLimitSpec, RouteExecutionMode, RouteShapeKind,
             planner::{RouteExecutionStage, RouteFeasibilityStage, RouteIntentStage},
         },
-        shared::load_contracts::LoadExecutor,
     },
     traits::{EntityKind, EntityValue},
 };

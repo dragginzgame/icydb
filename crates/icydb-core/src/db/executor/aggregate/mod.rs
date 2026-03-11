@@ -29,9 +29,9 @@ use crate::{
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutablePlan, ExecutionKernel,
             ExecutionPreparation,
+            pipeline::contracts::{ExecutionInputs, LoadExecutor},
             plan_metrics::{record_plan_metrics, record_rows_scanned},
             route::aggregate_materialized_fold_direction,
-            shared::{execution_contracts::ExecutionInputs, load_contracts::LoadExecutor},
             validate_executor_plan,
         },
         index::IndexCompilePolicy,

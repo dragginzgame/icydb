@@ -7,9 +7,9 @@ use super::*;
 use crate::db::{
     executor::{
         ExecutionPreparation,
+        pipeline::contracts::LoadExecutor,
         plan_metrics::GroupedPlanMetricsStrategy,
         route::{AggregateSeekSpec, GroupedExecutionStrategy},
-        shared::load_contracts::LoadExecutor,
     },
     index::{IndexCompilePolicy, compile_index_program},
     query::explain::{

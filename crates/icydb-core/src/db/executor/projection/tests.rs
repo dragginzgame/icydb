@@ -1,5 +1,5 @@
-//! Module: db::executor::shared::projection::tests
-//! Responsibility: module-local ownership and contracts for db::executor::shared::projection::tests.
+//! Module: db::executor::projection::tests
+//! Responsibility: module-local ownership and contracts for db::executor::projection::tests.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
@@ -148,7 +148,7 @@ fn eval_expr_rejects_numeric_and_non_numeric_equality_mix() {
         .expect_err("mixed numeric/non-numeric equality should fail invariant checks");
     assert!(matches!(
         err,
-        crate::db::executor::shared::projection::ProjectionEvalError::InvalidBinaryOperands { op, .. }
+        crate::db::executor::projection::ProjectionEvalError::InvalidBinaryOperands { op, .. }
             if op == "eq"
     ));
 }
@@ -355,7 +355,7 @@ fn grouped_projection_rejects_numeric_and_non_numeric_equality_mix() {
         .expect_err("grouped mixed numeric/non-numeric equality should fail");
     assert!(matches!(
         err,
-        crate::db::executor::shared::projection::ProjectionEvalError::InvalidBinaryOperands { op, .. }
+        crate::db::executor::projection::ProjectionEvalError::InvalidBinaryOperands { op, .. }
             if op == "eq"
     ));
 }

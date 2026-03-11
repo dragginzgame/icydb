@@ -1,4 +1,4 @@
-//! Module: executor::shared::load_context
+//! Module: executor::context::load
 //! Responsibility: load-executor construction and recovered-context helper boundaries.
 //! Does not own: scalar/grouped execution orchestration or route policy.
 //! Boundary: shared executor setup helpers used by load runtime callsites.
@@ -11,7 +11,7 @@ use crate::{
                 AggregateFieldValueError, FieldSlot, resolve_any_aggregate_target_slot,
                 resolve_numeric_aggregate_target_slot,
             },
-            shared::load_contracts::LoadExecutor,
+            pipeline::contracts::LoadExecutor,
         },
     },
     error::InternalError,

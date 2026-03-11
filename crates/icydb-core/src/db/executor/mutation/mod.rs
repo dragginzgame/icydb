@@ -11,7 +11,7 @@ use crate::{
     db::{
         Db,
         commit::ensure_recovered,
-        executor::{Context, shared::load_contracts::LoadExecutor, validate_executor_plan},
+        executor::{Context, pipeline::contracts::LoadExecutor, validate_executor_plan},
         query::plan::AccessPlannedQuery,
     },
     error::InternalError,

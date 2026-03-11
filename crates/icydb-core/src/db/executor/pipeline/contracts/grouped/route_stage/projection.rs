@@ -1,5 +1,5 @@
-//! Module: db::executor::shared::load_contracts::grouped::route_stage::projection
-//! Responsibility: module-local ownership and contracts for db::executor::shared::load_contracts::grouped::route_stage::projection.
+//! Module: db::executor::pipeline::contracts::grouped::route_stage::projection
+//! Responsibility: module-local ownership and contracts for db::executor::pipeline::contracts::grouped::route_stage::projection.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
@@ -8,9 +8,9 @@ use crate::{
         direction::Direction,
         executor::{
             ExecutionTrace,
+            pipeline::contracts::{PageCursor, grouped::GroupedRouteStage},
             pipeline::grouped_runtime::{GroupedContinuationCapabilities, GroupedPaginationWindow},
             plan_metrics::GroupedPlanMetricsStrategy,
-            shared::load_contracts::{PageCursor, grouped::GroupedRouteStage},
             traversal::row_read_consistency_for_plan,
         },
         predicate::MissingRowPolicy,

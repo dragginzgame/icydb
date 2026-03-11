@@ -9,7 +9,7 @@ use crate::{
     db::{
         executor::{
             ExecutionTrace, RequestedLoadExecutionShape,
-            shared::load_contracts::{CursorPage, GroupedCursorPage},
+            pipeline::contracts::{CursorPage, GroupedCursorPage},
         },
         response::EntityResponse,
     },

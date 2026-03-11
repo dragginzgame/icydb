@@ -6,7 +6,7 @@
 use crate::{
     db::{
         executor::{
-            ExecutionPreparation, aggregate::AggregateKind, shared::load_contracts::LoadExecutor,
+            ExecutionPreparation, aggregate::AggregateKind, pipeline::contracts::LoadExecutor,
         },
         query::plan::AccessPlannedQuery,
     },

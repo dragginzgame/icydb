@@ -8,8 +8,8 @@ use crate::{
         cursor::ContinuationSignature,
         executor::{
             ContinuationEngine,
+            pipeline::contracts::PageCursor,
             pipeline::grouped_runtime::{GroupedContinuationCapabilities, GroupedPaginationWindow},
-            shared::load_contracts::PageCursor,
         },
     },
     error::InternalError,

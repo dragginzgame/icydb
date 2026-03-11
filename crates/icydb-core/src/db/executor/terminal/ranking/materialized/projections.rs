@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        executor::{aggregate::field::FieldSlot, shared::load_contracts::LoadExecutor},
+        executor::{aggregate::field::FieldSlot, pipeline::contracts::LoadExecutor},
         response::EntityResponse,
     },
     error::InternalError,

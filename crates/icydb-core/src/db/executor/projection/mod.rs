@@ -1,4 +1,4 @@
-//! Module: executor::shared::projection
+//! Module: executor::projection
 //! Responsibility: scalar projection expression evaluation over materialized rows.
 //! Does not own: planner expression typing/validation or grouped aggregate folds.
 //! Boundary: pure evaluator + projected-row materialization for scalar load paths.

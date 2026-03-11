@@ -7,12 +7,9 @@ use crate::{
     db::{
         executor::{
             ExecutionPlan,
+            pipeline::contracts::{ExecutionInputsProjection, FastPathKeyResult, LoadExecutor},
             route::{
                 FastPathOrder, ensure_load_fast_path_spec_arity, try_first_verified_fast_path_hit,
-            },
-            shared::{
-                execution_contracts::ExecutionInputsProjection,
-                load_contracts::{FastPathKeyResult, LoadExecutor},
             },
         },
         index::predicate::IndexPredicateExecution,

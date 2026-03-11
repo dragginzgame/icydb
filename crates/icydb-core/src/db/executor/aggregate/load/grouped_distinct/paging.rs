@@ -4,7 +4,7 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::{
-    db::{GroupedRow, executor::shared::load_contracts::LoadExecutor},
+    db::{GroupedRow, executor::pipeline::contracts::LoadExecutor},
     traits::{EntityKind, EntityValue},
 };
 

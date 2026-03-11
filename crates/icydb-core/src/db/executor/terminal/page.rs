@@ -9,7 +9,7 @@ use crate::{
         executor::{
             BudgetedOrderedKeyStream, ExecutionKernel, OrderedKeyStream,
             ScalarContinuationBindings,
-            shared::load_contracts::{CursorPage, LoadExecutor, PageCursor},
+            pipeline::contracts::{CursorPage, LoadExecutor, PageCursor},
         },
         predicate::{MissingRowPolicy, PredicateProgram},
         query::plan::AccessPlannedQuery,

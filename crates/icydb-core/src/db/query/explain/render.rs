@@ -56,6 +56,7 @@ impl ExplainExecutionNodeDescriptor {
             execution_mode_label(self.execution_mode)
         );
         let _ = write!(line, " node_id={node_id}");
+        let _ = write!(line, " layer={}", self.node_type.layer_label());
         let _ = write!(
             line,
             " execution_mode_detail={}",
@@ -136,6 +137,11 @@ impl ExplainExecutionNodeDescriptor {
             execution_mode_label(self.execution_mode)
         ));
         lines.push(format!("{field_indent}node_id={node_id}"));
+        lines.push(format!(
+            "{}layer={}",
+            field_indent,
+            self.node_type.layer_label()
+        ));
         lines.push(format!(
             "{}execution_mode_detail={}",
             field_indent,
@@ -230,6 +236,7 @@ fn write_execution_node_json(
 
     object.field_u64("node_id", node_id);
     object.field_str("node_type", node.node_type.as_str());
+    object.field_str("layer", node.node_type.layer_label());
     object.field_str("execution_mode", execution_mode_label(node.execution_mode));
     object.field_str(
         "execution_mode_detail",

@@ -1,8 +1,9 @@
-//! Module: executor::shared::load_contracts
+//! Module: executor::pipeline::contracts
 //! Responsibility: executor-owned scalar/grouped load contract helpers and pagination contracts.
 //! Does not own: planner semantics, intent validation, or access-path selection policy.
 //! Boundary: consumes planned query contracts and drives load execution helpers.
 
+mod execution;
 pub(in crate::db::executor) mod grouped;
 
 use crate::{
@@ -16,6 +17,10 @@ use crate::{
     traits::EntityKind,
 };
 
+pub(in crate::db::executor) use execution::{
+    ExecutionInputs, ExecutionInputsProjection, ExecutionOutcomeMetrics,
+    MaterializedExecutionAttempt, ResolvedExecutionKeyStream,
+};
 pub(in crate::db::executor) use grouped::{
     GroupedFoldStage, GroupedPlannerPayload, GroupedRoutePayload, GroupedRouteStage,
     GroupedRouteStageProjection, GroupedStreamStage, IndexSpecBundle,

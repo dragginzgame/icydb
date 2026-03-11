@@ -8,15 +8,15 @@ use crate::{
         cursor::GroupedPlannedCursor,
         executor::{
             ExecutablePlan, ExecutionTrace,
+            pipeline::contracts::{
+                GroupedPlannerPayload, GroupedRoutePayload, GroupedRouteStage, IndexSpecBundle,
+                LoadExecutor,
+            },
             pipeline::grouped_runtime::{
                 GroupedContinuationCapabilities, GroupedContinuationContext,
                 GroupedExecutionContext, GroupedRuntimeProjection,
             },
             route::{GroupedRouteDecisionOutcome, RouteExecutionMode},
-            shared::load_contracts::{
-                GroupedPlannerPayload, GroupedRoutePayload, GroupedRouteStage, IndexSpecBundle,
-                LoadExecutor,
-            },
         },
     },
     error::InternalError,

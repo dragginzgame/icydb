@@ -9,11 +9,10 @@ use crate::{
     db::{
         executor::{
             AccessExecutionDescriptor, ExecutionOptimization, ExecutionPlan,
-            route::RoutedKeyStreamRequest,
-            shared::{
-                execution_contracts::{ExecutionInputsProjection, ResolvedExecutionKeyStream},
-                load_contracts::LoadExecutor,
+            pipeline::contracts::{
+                ExecutionInputsProjection, LoadExecutor, ResolvedExecutionKeyStream,
             },
+            route::RoutedKeyStreamRequest,
         },
         index::{IndexCompilePolicy, compile_index_program, predicate::IndexPredicateExecution},
     },

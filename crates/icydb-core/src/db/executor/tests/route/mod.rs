@@ -11,6 +11,7 @@ use crate::{
         executor::{
             aggregate::AggregateFoldMode,
             continuation::ScalarContinuationContext,
+            pipeline::contracts::LoadExecutor,
             route::{
                 AGGREGATE_FAST_PATH_ORDER, ContinuationMode, ExecutionModeRouteCase, FastPathOrder,
                 FieldExtremaIneligibilityReason, GroupedRouteDecisionOutcome, LOAD_FAST_PATH_ORDER,
@@ -19,7 +20,6 @@ use crate::{
                 route_capability_flag_count_guard, route_execution_mode_case_count_guard,
                 route_shape_kind_count_guard,
             },
-            shared::load_contracts::LoadExecutor,
         },
         predicate::{CompareOp, MissingRowPolicy, Predicate},
         query::plan::{

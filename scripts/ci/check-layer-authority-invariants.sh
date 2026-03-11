@@ -185,6 +185,7 @@ fi
 
 pipeline_planner_import_leaks="$(
   run_rg "db::query::plan::" "crates/icydb-core/src/db/executor/pipeline" \
+    --glob '!crates/icydb-core/src/db/executor/pipeline/contracts/**' \
     | strip_comment_only
 )"
 if [[ -n "$pipeline_planner_import_leaks" ]]; then
@@ -200,6 +201,20 @@ scan_aggregate_import_leaks="$(
 if [[ -n "$scan_aggregate_import_leaks" ]]; then
   echo "[ERROR] Scan layer must not import aggregate layer internals." >&2
   echo "$scan_aggregate_import_leaks" >&2
+  status=1
+fi
+
+executor_shared_import_leaks="$(
+  run_rg "executor::shared" "crates/icydb-core/src/db/executor" | strip_comment_only
+)"
+if [[ -n "$executor_shared_import_leaks" ]]; then
+  echo "[ERROR] executor::shared namespace is deprecated; contracts must be owner-named." >&2
+  echo "$executor_shared_import_leaks" >&2
+  status=1
+fi
+
+if [[ -d "crates/icydb-core/src/db/executor/shared" ]]; then
+  echo "[ERROR] executor/shared directory must not exist; re-home contracts to owner modules." >&2
   status=1
 fi
 

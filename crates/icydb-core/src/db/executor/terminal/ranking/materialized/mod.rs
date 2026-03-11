@@ -12,7 +12,7 @@ use crate::{
                 AggregateFieldValueError, FieldSlot, compare_orderable_field_values,
                 extract_orderable_field_value,
             },
-            shared::load_contracts::LoadExecutor,
+            pipeline::contracts::LoadExecutor,
         },
         response::EntityResponse,
     },

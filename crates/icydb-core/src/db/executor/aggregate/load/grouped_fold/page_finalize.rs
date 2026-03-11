@@ -7,8 +7,8 @@ use crate::{
     db::{
         GroupedRow,
         executor::{
+            pipeline::contracts::{GroupedRouteStageProjection, LoadExecutor, PageCursor},
             pipeline::grouped_runtime::GroupedPaginationWindow,
-            shared::load_contracts::{GroupedRouteStageProjection, LoadExecutor, PageCursor},
         },
         query::plan::expr::ProjectionSpec,
     },

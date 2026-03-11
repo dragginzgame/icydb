@@ -992,7 +992,7 @@ fn execution_descriptor_canonical_json_shape_is_stable() {
     };
 
     let json = descriptor.render_json_canonical();
-    let expected = "{\"node_id\":0,\"node_type\":\"TopNSeek\",\"execution_mode\":\"Streaming\",\"execution_mode_detail\":\"streaming\",\"access_strategy\":{\"type\":\"FullScan\"},\"predicate_pushdown_mode\":\"none\",\"predicate_pushdown\":null,\"fast_path_selected\":null,\"fast_path_reason\":null,\"residual_predicate\":null,\"projection\":\"index_only\",\"ordering_source\":\"AccessOrder\",\"limit\":3,\"cursor\":false,\"covering_scan\":true,\"rows_expected\":3,\"children\":[{\"node_id\":1,\"node_type\":\"LimitOffset\",\"execution_mode\":\"Materialized\",\"execution_mode_detail\":\"materialized\",\"access_strategy\":null,\"predicate_pushdown_mode\":\"none\",\"predicate_pushdown\":null,\"fast_path_selected\":null,\"fast_path_reason\":null,\"residual_predicate\":null,\"projection\":null,\"ordering_source\":null,\"limit\":1,\"cursor\":null,\"covering_scan\":null,\"rows_expected\":null,\"children\":[],\"node_properties\":{}}],\"node_properties\":{}}";
+    let expected = "{\"node_id\":0,\"node_type\":\"TopNSeek\",\"layer\":\"pipeline\",\"execution_mode\":\"Streaming\",\"execution_mode_detail\":\"streaming\",\"access_strategy\":{\"type\":\"FullScan\"},\"predicate_pushdown_mode\":\"none\",\"predicate_pushdown\":null,\"fast_path_selected\":null,\"fast_path_reason\":null,\"residual_predicate\":null,\"projection\":\"index_only\",\"ordering_source\":\"AccessOrder\",\"limit\":3,\"cursor\":false,\"covering_scan\":true,\"rows_expected\":3,\"children\":[{\"node_id\":1,\"node_type\":\"LimitOffset\",\"layer\":\"terminal\",\"execution_mode\":\"Materialized\",\"execution_mode_detail\":\"materialized\",\"access_strategy\":null,\"predicate_pushdown_mode\":\"none\",\"predicate_pushdown\":null,\"fast_path_selected\":null,\"fast_path_reason\":null,\"residual_predicate\":null,\"projection\":null,\"ordering_source\":null,\"limit\":1,\"cursor\":null,\"covering_scan\":null,\"rows_expected\":null,\"children\":[],\"node_properties\":{}}],\"node_properties\":{}}";
 
     assert_eq!(
         json, expected,
@@ -1100,7 +1100,7 @@ execution_limit=None
 execution_cursor=false
 execution_covering_projection=false
 execution_node_properties={\"fetch\": Uint(1)}
-execution_node_json={\"node_id\":0,\"node_type\":\"AggregateSeekFirst\",\"execution_mode\":\"Materialized\",\"execution_mode_detail\":\"materialized\",\"access_strategy\":{\"type\":\"IndexPrefix\",\"name\":\"explain::pushdown_tag\",\"fields\":[\"tag\"],\"prefix_len\":1,\"values\":[\"Text(\\\"alpha\\\")\"]},\"predicate_pushdown_mode\":\"none\",\"predicate_pushdown\":null,\"fast_path_selected\":null,\"fast_path_reason\":null,\"residual_predicate\":null,\"projection\":null,\"ordering_source\":\"IndexSeekFirst\",\"limit\":null,\"cursor\":false,\"covering_scan\":false,\"rows_expected\":null,\"children\":[],\"node_properties\":{\"fetch\":\"Uint(1)\"}}";
+execution_node_json={\"node_id\":0,\"node_type\":\"AggregateSeekFirst\",\"layer\":\"aggregate\",\"execution_mode\":\"Materialized\",\"execution_mode_detail\":\"materialized\",\"access_strategy\":{\"type\":\"IndexPrefix\",\"name\":\"explain::pushdown_tag\",\"fields\":[\"tag\"],\"prefix_len\":1,\"values\":[\"Text(\\\"alpha\\\")\"]},\"predicate_pushdown_mode\":\"none\",\"predicate_pushdown\":null,\"fast_path_selected\":null,\"fast_path_reason\":null,\"residual_predicate\":null,\"projection\":null,\"ordering_source\":\"IndexSeekFirst\",\"limit\":null,\"cursor\":false,\"covering_scan\":false,\"rows_expected\":null,\"children\":[],\"node_properties\":{\"fetch\":\"Uint(1)\"}}";
 
     assert_eq!(
         actual, expected,
@@ -1154,7 +1154,7 @@ execution_limit=Some(3)
 execution_cursor=true
 execution_covering_projection=false
 execution_node_properties={}
-execution_node_json={\"node_id\":0,\"node_type\":\"AggregateExists\",\"execution_mode\":\"Streaming\",\"execution_mode_detail\":\"streaming\",\"access_strategy\":{\"type\":\"FullScan\"},\"predicate_pushdown_mode\":\"none\",\"predicate_pushdown\":null,\"fast_path_selected\":null,\"fast_path_reason\":null,\"residual_predicate\":null,\"projection\":null,\"ordering_source\":\"AccessOrder\",\"limit\":3,\"cursor\":true,\"covering_scan\":false,\"rows_expected\":null,\"children\":[],\"node_properties\":{}}";
+execution_node_json={\"node_id\":0,\"node_type\":\"AggregateExists\",\"layer\":\"aggregate\",\"execution_mode\":\"Streaming\",\"execution_mode_detail\":\"streaming\",\"access_strategy\":{\"type\":\"FullScan\"},\"predicate_pushdown_mode\":\"none\",\"predicate_pushdown\":null,\"fast_path_selected\":null,\"fast_path_reason\":null,\"residual_predicate\":null,\"projection\":null,\"ordering_source\":\"AccessOrder\",\"limit\":3,\"cursor\":true,\"covering_scan\":false,\"rows_expected\":null,\"children\":[],\"node_properties\":{}}";
 
     assert_eq!(
         actual, expected,

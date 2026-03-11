@@ -7,7 +7,7 @@ use crate::{
     db::{
         executor::{
             aggregate::ExecutionContext,
-            shared::load_contracts::{
+            pipeline::contracts::{
                 GroupedCursorPage, GroupedFoldStage, GroupedRouteStageProjection,
                 GroupedStreamStage, LoadExecutor,
             },

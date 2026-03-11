@@ -10,7 +10,7 @@ use crate::{
             aggregate::field::{
                 AggregateFieldValueError, resolve_orderable_aggregate_target_slot_from_planner_slot,
             },
-            shared::load_contracts::LoadExecutor,
+            pipeline::contracts::LoadExecutor,
         },
         query::plan::FieldSlot as PlannedFieldSlot,
         response::EntityResponse,

@@ -1,4 +1,4 @@
-//! Module: executor::shared::projection::eval
+//! Module: executor::projection::eval
 //! Responsibility: evaluate planned projection expressions against runtime row contexts.
 //! Does not own: expression type inference or planner semantic validation policy.
 //! Boundary: provides executor-side projection evaluation and typed evaluation errors.
@@ -6,7 +6,7 @@
 mod operators;
 
 use crate::{
-    db::executor::shared::projection::grouped::GroupedRowView,
+    db::executor::projection::grouped::GroupedRowView,
     db::query::plan::expr::Expr,
     model::entity::resolve_field_slot,
     traits::{EntityKind, EntityValue},

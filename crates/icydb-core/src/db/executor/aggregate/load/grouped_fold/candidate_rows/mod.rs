@@ -12,8 +12,8 @@ use crate::{
         contracts::canonical_value_compare,
         executor::{
             aggregate::AggregateEngine,
+            pipeline::contracts::{GroupedRouteStageProjection, LoadExecutor},
             pipeline::grouped_runtime::GroupedPaginationWindow,
-            shared::load_contracts::{GroupedRouteStageProjection, LoadExecutor},
         },
     },
     error::InternalError,

@@ -10,7 +10,7 @@ use crate::{
         direction::Direction,
         executor::{
             AccessExecutionDescriptor, AccessScanContinuationInput, AccessStreamBindings, Context,
-            ExecutionOptimization, shared::load_contracts::LoadExecutor,
+            ExecutionOptimization, pipeline::contracts::LoadExecutor,
         },
         registry::StoreRegistry,
     },

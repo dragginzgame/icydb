@@ -5,11 +5,11 @@
 
 use crate::{
     db::executor::{
+        pipeline::contracts::{CursorPage, GroupedCursorPage, LoadExecutor},
         pipeline::entrypoints::pipeline::{
             LoadExecutionSurface, LoadMode, LoadTracingMode,
             orchestrate::state::{LoadExecutionPayload, LoadPayloadState},
         },
-        shared::load_contracts::{CursorPage, GroupedCursorPage, LoadExecutor},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
