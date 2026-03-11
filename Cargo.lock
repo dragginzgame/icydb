@@ -640,7 +640,7 @@ dependencies = [
 
 [[package]]
 name = "icydb"
-version = "0.48.4"
+version = "0.48.5"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -662,7 +662,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-build"
-version = "0.48.4"
+version = "0.48.5"
 dependencies = [
  "icydb-schema",
  "proc-macro2",
@@ -672,7 +672,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-core"
-version = "0.48.4"
+version = "0.48.5"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -697,7 +697,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-derive"
-version = "0.48.4"
+version = "0.48.5"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -706,11 +706,11 @@ dependencies = [
 
 [[package]]
 name = "icydb-primitives"
-version = "0.48.4"
+version = "0.48.5"
 
 [[package]]
 name = "icydb-schema"
-version = "0.48.4"
+version = "0.48.5"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -726,7 +726,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-derive"
-version = "0.48.4"
+version = "0.48.5"
 dependencies = [
  "candid",
  "canic-utils",
@@ -743,7 +743,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-tests"
-version = "0.48.4"
+version = "0.48.5"
 dependencies = [
  "candid",
  "icydb",
@@ -1324,9 +1324,9 @@ checksum = "591ef38edfb78ca4771ee32cf494cb8771944bee237a9b91fc9c1424ac4b777b"
 
 [[package]]
 name = "tempfile"
-version = "3.26.0"
+version = "3.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82a72c767771b47409d2345987fda8628641887d5466101319899796367354a0"
+checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
  "getrandom 0.4.2",
