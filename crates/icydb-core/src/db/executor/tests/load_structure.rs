@@ -4,7 +4,7 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use super::*;
-use crate::db::executor::load::{
+use crate::db::executor::pipeline::entrypoints::{
     load_execute_stage_order_guard, load_pipeline_state_optional_slot_count_guard,
 };
 use std::{
@@ -82,7 +82,7 @@ fn route_layer_does_not_compute_page_window_directly() {
 #[test]
 fn load_entrypoint_leaf_modules_do_not_resolve_continuation_directly() {
     let entrypoints_root =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/load/entrypoints");
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/pipeline/entrypoints");
     let files = collect_rs_files(&entrypoints_root);
     let mut offenders = Vec::new();
 
@@ -96,7 +96,7 @@ fn load_entrypoint_leaf_modules_do_not_resolve_continuation_directly() {
 
         let source = fs::read_to_string(&path).unwrap_or_else(|err| {
             panic!(
-                "failed to read load entrypoint source {}: {err}",
+                "failed to read pipeline entrypoint source {}: {err}",
                 path.display()
             );
         });
@@ -113,7 +113,7 @@ fn load_entrypoint_leaf_modules_do_not_resolve_continuation_directly() {
     offenders.sort();
     assert!(
         offenders.is_empty(),
-        "leaf load entrypoint modules must consume resolved continuation context; found direct continuation resolution in: {offenders:?}"
+        "leaf pipeline entrypoint modules must consume resolved continuation context; found direct continuation resolution in: {offenders:?}"
     );
 }
 
@@ -150,11 +150,11 @@ fn executor_internal_stream_and_window_types_do_not_widen_to_pub_crate() {
             "pub(crate) struct KeyOrderComparator",
         ),
         (
-            "src/db/executor/load/contracts/mod.rs",
+            "src/db/executor/shared/load_contracts/mod.rs",
             "pub(crate) struct CursorPage",
         ),
         (
-            "src/db/executor/load/contracts/mod.rs",
+            "src/db/executor/shared/load_contracts/mod.rs",
             "pub(crate) struct LoadExecutor",
         ),
         ("src/db/executor/mod.rs", "pub(crate) enum ExecutorError"),

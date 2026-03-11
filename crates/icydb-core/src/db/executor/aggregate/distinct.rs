@@ -15,7 +15,7 @@ use crate::{
             aggregate::{
                 AggregateKind, field::resolve_any_aggregate_target_slot_from_planner_slot,
             },
-            load::LoadExecutor,
+            shared::load_contracts::LoadExecutor,
         },
         query::plan::{
             FieldSlot as PlannedFieldSlot, GroupedExecutionConfig,

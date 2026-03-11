@@ -5,11 +5,11 @@
 
 use crate::{
     db::executor::{
-        load::LoadExecutor,
         route::{
             AGGREGATE_FAST_PATH_ORDER, GROUPED_AGGREGATE_FAST_PATH_ORDER, LOAD_FAST_PATH_ORDER,
             RouteIntent, RouteShapeKind, planner::RouteIntentStage,
         },
+        shared::load_contracts::LoadExecutor,
     },
     db::query::plan::AggregateKind,
     traits::{EntityKind, EntityValue},

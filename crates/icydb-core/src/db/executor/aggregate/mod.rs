@@ -11,6 +11,7 @@ mod fast_path;
 pub(in crate::db::executor) mod field;
 mod field_extrema;
 mod helpers;
+pub(in crate::db::executor) mod load;
 mod materialized_distinct;
 mod numeric;
 mod projection;
@@ -28,9 +29,9 @@ use crate::{
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutablePlan, ExecutionKernel,
             ExecutionPreparation,
-            load::{ExecutionInputs, LoadExecutor},
             plan_metrics::{record_plan_metrics, record_rows_scanned},
             route::aggregate_materialized_fold_direction,
+            shared::{execution_contracts::ExecutionInputs, load_contracts::LoadExecutor},
             validate_executor_plan,
         },
         index::IndexCompilePolicy,

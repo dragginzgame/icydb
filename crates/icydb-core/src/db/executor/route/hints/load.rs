@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        executor::{ExecutionKernel, load::LoadExecutor},
+        executor::{ExecutionKernel, shared::load_contracts::LoadExecutor},
         query::plan::{AccessPlannedQuery, secondary_order_contract_is_deterministic},
     },
     traits::{EntityKind, EntityValue},

@@ -7,13 +7,16 @@ cd "$ROOT"
 # Index-path executor files must stay mechanical (raw key bytes only).
 INDEX_EXECUTOR_FILES=(
   "crates/icydb-core/src/db/executor/stream/access/mod.rs"
+  "crates/icydb-core/src/db/executor/stream/access/bindings.rs"
+  "crates/icydb-core/src/db/executor/stream/access/traversal.rs"
   "crates/icydb-core/src/db/executor/stream/access/physical.rs"
   "crates/icydb-core/src/db/executor/stream/access/scan.rs"
-  "crates/icydb-core/src/db/executor/load/index_range_limit.rs"
-  "crates/icydb-core/src/db/executor/load/secondary_index.rs"
-  "crates/icydb-core/src/db/executor/load/execute/mod.rs"
-  "crates/icydb-core/src/db/executor/load/execute/fast_path/mod.rs"
-  "crates/icydb-core/src/db/executor/load/execute/fast_path/strategy.rs"
+  "crates/icydb-core/src/db/executor/scan/index_range_limit.rs"
+  "crates/icydb-core/src/db/executor/scan/secondary_index.rs"
+  "crates/icydb-core/src/db/executor/scan/fast_stream_route/handlers.rs"
+  "crates/icydb-core/src/db/executor/pipeline/execute/mod.rs"
+  "crates/icydb-core/src/db/executor/pipeline/execute/fast_path/mod.rs"
+  "crates/icydb-core/src/db/executor/pipeline/execute/fast_path/strategy.rs"
   "crates/icydb-core/src/db/executor/delete/mod.rs"
 )
 
@@ -35,23 +38,19 @@ EXECUTOR_RUNTIME_FORBIDDEN_PATTERNS=(
 
 # Required guardrails that enforce the planner->executor lowering contract.
 REQUIRED_MATCHES=(
-  "crates/icydb-core/src/db/executor/stream/access/mod.rs:::unused index-prefix executable specs after access-plan traversal:::missing invariant check for unused IndexPrefixSpec entries"
+  "crates/icydb-core/src/db/executor/stream/access/bindings.rs:::unused index-prefix executable specs after access-plan traversal:::missing invariant check for unused IndexPrefixSpec entries"
   "crates/icydb-core/src/db/executor/stream/access/physical.rs:::index-prefix execution requires pre-lowered index-prefix spec:::missing invariant error for unresolved index-prefix specs in physical path resolution"
-  "crates/icydb-core/src/db/executor/stream/access/mod.rs:::index-prefix spec does not match access path index:::missing invariant error for misaligned index-prefix specs in physical path resolution"
-  "crates/icydb-core/src/db/executor/load/secondary_index.rs:::index-prefix executable spec must be materialized for index-prefix plans:::missing invariant error for unresolved secondary index prefix specs"
-  "crates/icydb-core/src/db/executor/load/secondary_index.rs:::index-prefix spec does not match access path index:::missing invariant error for misaligned secondary index prefix specs"
+  "crates/icydb-core/src/db/executor/stream/access/traversal.rs:::index-prefix spec does not match access path index:::missing invariant error for misaligned index-prefix specs in physical path resolution"
+  "crates/icydb-core/src/db/executor/scan/fast_stream_route/handlers.rs:::index-prefix executable spec must be materialized for index-prefix plans:::missing invariant error for unresolved secondary index prefix specs"
   "crates/icydb-core/src/db/executor/stream/access/scan.rs:::resolve_data_values_in_raw_range_limited:::index-prefix physical execution must use raw-range traversal"
-  "crates/icydb-core/src/db/executor/load/secondary_index.rs:::resolve_data_values_in_raw_range_limited:::secondary index pushdown must use raw-range traversal"
-  "crates/icydb-core/src/db/executor/stream/access/mod.rs:::index-prefix spec does not match access path index:::missing invariant error for misaligned IndexPrefixSpec consumption"
+  "crates/icydb-core/src/db/executor/stream/access/traversal.rs:::index-prefix spec does not match access path index:::missing invariant error for misaligned IndexPrefixSpec consumption"
   "crates/icydb-core/src/db/executor/route/guard.rs:::secondary fast-path resolution expects at most one index-prefix spec:::missing invariant error for multi-spec secondary fast-path drift"
-  "crates/icydb-core/src/db/executor/stream/access/mod.rs:::unused index-range executable specs after access-plan traversal:::missing invariant check for unused IndexRangeSpec entries"
+  "crates/icydb-core/src/db/executor/stream/access/bindings.rs:::unused index-range executable specs after access-plan traversal:::missing invariant check for unused IndexRangeSpec entries"
   "crates/icydb-core/src/db/executor/stream/access/physical.rs:::index-range execution requires pre-lowered index-range spec:::missing invariant error for unresolved index-range specs in physical path resolution"
-  "crates/icydb-core/src/db/executor/stream/access/mod.rs:::index-range spec does not match access path index:::missing invariant error for misaligned index-range specs in physical path resolution"
-  "crates/icydb-core/src/db/executor/load/index_range_limit.rs:::index-range executable spec must be materialized for index-range plans:::missing invariant error for unresolved index-range pushdown specs"
-  "crates/icydb-core/src/db/executor/load/index_range_limit.rs:::index-range spec does not match access path index:::missing invariant error for misaligned index-range pushdown specs"
+  "crates/icydb-core/src/db/executor/stream/access/traversal.rs:::index-range spec does not match access path index:::missing invariant error for misaligned index-range specs in physical path resolution"
+  "crates/icydb-core/src/db/executor/scan/fast_stream_route/handlers.rs:::index-range executable spec must be materialized for index-range plans:::missing invariant error for unresolved index-range pushdown specs"
   "crates/icydb-core/src/db/executor/stream/access/scan.rs:::resolve_data_values_in_raw_range_limited:::index-range physical execution must use raw-range traversal"
-  "crates/icydb-core/src/db/executor/load/index_range_limit.rs:::resolve_data_values_in_raw_range_limited:::index-range pushdown must use raw-range traversal"
-  "crates/icydb-core/src/db/executor/stream/access/mod.rs:::index-range spec does not match access path index:::missing invariant error for misaligned IndexRangeSpec consumption"
+  "crates/icydb-core/src/db/executor/stream/access/traversal.rs:::index-range spec does not match access path index:::missing invariant error for misaligned IndexRangeSpec consumption"
   "crates/icydb-core/src/db/executor/route/guard.rs:::index-range fast-path resolution expects at most one index-range spec:::missing invariant error for multi-spec index-range fast-path drift"
 )
 

@@ -12,10 +12,14 @@ use crate::{
         direction::Direction,
         executor::{
             ExecutionPlan, OrderedKeyStreamBox, ScalarContinuationBindings,
-            load::{
-                CursorPage, ExecutionInputsProjection, LoadExecutor, MaterializedExecutionAttempt,
-                PageMaterializationRequest, ResolvedExecutionKeyStream,
+            shared::{
+                execution_contracts::{
+                    ExecutionInputsProjection, MaterializedExecutionAttempt,
+                    ResolvedExecutionKeyStream,
+                },
+                load_contracts::{CursorPage, LoadExecutor},
             },
+            terminal::page::PageMaterializationRequest,
         },
         index::IndexCompilePolicy,
         query::plan::AccessPlannedQuery,

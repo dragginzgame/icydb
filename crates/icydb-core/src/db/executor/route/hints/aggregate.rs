@@ -7,12 +7,12 @@ use crate::{
     db::{
         direction::Direction,
         executor::{
-            load::LoadExecutor,
             route::{
                 AccessWindow, AggregateSeekSpec, RouteCapabilities,
                 aggregate_bounded_probe_fetch_hint, aggregate_supports_bounded_probe_hint,
                 direction_allows_physical_fetch_hint,
             },
+            shared::load_contracts::LoadExecutor,
         },
         query::builder::AggregateExpr,
         query::plan::{AccessPlannedQuery, AggregateKind},

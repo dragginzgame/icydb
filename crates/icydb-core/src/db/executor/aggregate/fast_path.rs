@@ -13,12 +13,12 @@ use crate::{
             aggregate::{
                 AggregateFastPathInputs, AggregateFoldMode, AggregateKind, AggregateOutput,
             },
-            load::{FastPathKeyResult, LoadExecutor},
             route::{
                 FastPathOrder, RoutedKeyStreamRequest, derive_budget_safety_flags,
                 ensure_index_range_aggregate_fast_path_specs,
                 ensure_secondary_aggregate_fast_path_arity, try_first_verified_fast_path_hit,
             },
+            shared::load_contracts::{FastPathKeyResult, LoadExecutor},
         },
         index::predicate::IndexPredicateExecution,
         predicate::MissingRowPolicy,

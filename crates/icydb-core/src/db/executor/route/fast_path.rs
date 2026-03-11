@@ -5,7 +5,9 @@
 
 use crate::{
     db::{
-        executor::{ExecutionPreparation, aggregate::AggregateKind, load::LoadExecutor},
+        executor::{
+            ExecutionPreparation, aggregate::AggregateKind, shared::load_contracts::LoadExecutor,
+        },
         query::plan::AccessPlannedQuery,
     },
     error::InternalError,

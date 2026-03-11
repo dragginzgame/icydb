@@ -545,7 +545,7 @@ fn decode_boundary(cursor: &[u8], decode_message: &'static str) -> CursorBoundar
 }
 
 fn encode_token(
-    token: &crate::db::executor::load::PageCursor,
+    token: &crate::db::executor::shared::load_contracts::PageCursor,
     encode_message: &'static str,
 ) -> Vec<u8> {
     let Some(token) = token.as_scalar() else {

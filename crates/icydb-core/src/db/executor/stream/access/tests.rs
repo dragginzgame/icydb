@@ -76,18 +76,36 @@ fn strip_cfg_test_items(source: &str) -> String {
 }
 
 #[test]
-fn load_module_has_no_direct_store_traversal() {
-    let load_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/load");
+fn stream_access_module_limits_direct_store_traversal_to_scan_boundary() {
+    let access_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/stream/access");
     let mut sources = Vec::new();
-    collect_rust_sources(load_root.as_path(), &mut sources);
+    collect_rust_sources(access_root.as_path(), &mut sources);
     sources.sort();
 
+    let allowed = ["scan.rs"];
     for source_path in sources {
+        if source_path
+            .components()
+            .any(|part| part.as_os_str() == "tests")
+            || source_path
+                .file_name()
+                .is_some_and(|name| name == "tests.rs")
+        {
+            continue;
+        }
+
+        if source_path
+            .file_name()
+            .is_some_and(|name| allowed.contains(&name.to_string_lossy().as_ref()))
+        {
+            continue;
+        }
+
         let source = fs::read_to_string(&source_path)
             .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
         assert!(
             !source_uses_direct_store_or_registry_access(source.as_str()),
-            "load module file {} must not directly traverse store/registry; route through resolver",
+            "stream access file {} must not directly traverse store/registry; only scan boundary adapters may do so",
             source_path.display(),
         );
     }
@@ -288,8 +306,8 @@ fn runtime_route_capability_shims_are_not_reintroduced() {
 
 #[test]
 fn grouped_fold_runtime_uses_grouped_projection_consistency_contract() {
-    let source_path =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/load/grouped_fold/ingest.rs");
+    let source_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src/db/executor/aggregate/load/grouped_fold/ingest.rs");
     let source = fs::read_to_string(&source_path)
         .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
     let runtime_source = strip_cfg_test_items(source.as_str());
@@ -303,7 +321,7 @@ fn grouped_fold_runtime_uses_grouped_projection_consistency_contract() {
 #[test]
 fn grouped_distinct_runtime_uses_grouped_projection_consistency_contract() {
     let source_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("src/db/executor/load/grouped_distinct/aggregate.rs");
+        .join("src/db/executor/aggregate/load/grouped_distinct/aggregate.rs");
     let source = fs::read_to_string(&source_path)
         .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
     let runtime_source = strip_cfg_test_items(source.as_str());
@@ -316,7 +334,8 @@ fn grouped_distinct_runtime_uses_grouped_projection_consistency_contract() {
 
 #[test]
 fn load_page_materialization_uses_execution_input_consistency_projection() {
-    let source_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/load/page.rs");
+    let source_path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/terminal/page.rs");
     let source = fs::read_to_string(&source_path)
         .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
     let runtime_source = strip_cfg_test_items(source.as_str());

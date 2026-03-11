@@ -15,7 +15,7 @@ use crate::{
                 AggregateFoldMode, AggregateKind, AggregateOutput, AggregateState,
                 AggregateStateFactory, FoldControl, TerminalAggregateState,
             },
-            load::CursorPage,
+            shared::load_contracts::CursorPage,
             traversal::row_read_consistency_for_plan,
         },
         predicate::MissingRowPolicy,

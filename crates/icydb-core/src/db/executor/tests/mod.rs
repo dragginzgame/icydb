@@ -28,7 +28,7 @@ use crate::{
         data::DataStore,
         executor::{
             DeleteExecutor, ExecutionOptimization, ExecutionOptimizationCounter, LoadExecutor,
-            SaveExecutor, load::PageCursor,
+            SaveExecutor, shared::load_contracts::PageCursor,
         },
         index::IndexStore,
         predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},

@@ -7,7 +7,7 @@ use crate::{
     db::{
         access::single_path_capabilities,
         direction::Direction,
-        executor::{ExecutablePlan, load::LoadExecutor},
+        executor::{ExecutablePlan, shared::load_contracts::LoadExecutor},
         query::plan::OrderDirection,
     },
     traits::{EntityKind, EntityValue},

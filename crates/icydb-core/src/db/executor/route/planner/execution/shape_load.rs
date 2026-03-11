@@ -6,11 +6,11 @@
 use crate::{
     db::executor::{
         aggregate::AggregateFoldMode,
-        load::LoadExecutor,
         route::{
             ExecutionModeRouteCase, RouteExecutionMode, RouteShapeKind,
             planner::{RouteExecutionStage, RouteFeasibilityStage},
         },
+        shared::load_contracts::LoadExecutor,
     },
     traits::{EntityKind, EntityValue},
 };

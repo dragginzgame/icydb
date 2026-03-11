@@ -1,10 +1,14 @@
+error[E0432]: unresolved import `icydb_core::db::executor::load`
+ --> tests/ui/db/executor/load_module_private.rs:1:31
+  |
+1 | use icydb_core::db::executor::load::LoadExecutor;
+  |                               ^^^^ could not find `load` in `executor`
+
 error[E0603]: module `executor` is private
  --> tests/ui/db/executor/load_module_private.rs:1:21
   |
 1 | use icydb_core::db::executor::load::LoadExecutor;
-  |                     ^^^^^^^^  ---- module `load` is not publicly re-exported
-  |                     |
-  |                     private module
+  |                     ^^^^^^^^ private module
   |
 note: the module `executor` is defined here
  --> src/db/mod.rs

@@ -9,8 +9,8 @@ use crate::{
         executor::{
             Context, ExecutionPlan, ExecutionPreparation, OrderedKeyStreamBox,
             continuation::ScalarContinuationContext,
-            load::LoadExecutor,
             route::{ExecutionRoutePlan, RouteIntent},
+            shared::load_contracts::LoadExecutor,
         },
         query::{
             builder::AggregateExpr,

@@ -6,7 +6,7 @@
 use crate::{
     db::{
         direction::Direction,
-        executor::{continuation::ScalarContinuationContext, load::LoadExecutor},
+        executor::{continuation::ScalarContinuationContext, shared::load_contracts::LoadExecutor},
         query::builder::AggregateExpr,
         query::plan::{AccessPlannedQuery, ContinuationPolicy, ExecutionOrderContract},
     },

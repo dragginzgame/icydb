@@ -11,8 +11,8 @@ use crate::{
             aggregate::capability::{
                 AggregateExecutionPolicyInputs, derive_aggregate_execution_policy,
             },
-            load::LoadExecutor,
             route::{access_order_satisfied_by_route_contract, secondary_order_contract_active},
+            shared::load_contracts::LoadExecutor,
         },
         query::{
             builder::AggregateExpr,
