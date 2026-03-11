@@ -7,9 +7,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.50.x] - 2026-03-11 - Executor Simplification Line Open
 
-- `0.50.2` records the pre-`0.51` contract lock by explicitly freezing `is_not_null()` and `between(...)`, planner projection selection shapes (`All`/`Fields`/`Expression`), and grouped `AVG` planner support (including global DISTINCT policy/invariant alignment).
-- `0.50.1` expands Slice E mechanical cleanup across aggregate terminals/projection helpers, runtime payload-window helpers, post-access operator plumbing, commit-window metrics wiring, and EXPLAIN descriptor helper paths, reducing executor maintenance surface without changing query behavior.
 - `0.50.0` opens the `0.50` line with design and preparation artifacts (slice plans, invariants, and baseline trackers) to guide executor simplification work; runtime behavior is unchanged.
+- `0.50.1` expands Slice E mechanical cleanup across aggregate terminals/projection helpers, runtime payload-window helpers, post-access operator plumbing, commit-window metrics wiring, and EXPLAIN descriptor helper paths, reducing executor maintenance surface without changing query behavior.
+- `0.50.2` records the pre-`0.51` contract lock by explicitly freezing `is_not_null()` and `between(...)`, planner projection selection shapes (`All`/`Fields`/`Expression`), and grouped `AVG` planner support (including global DISTINCT policy/invariant alignment).
 
 See detailed breakdown:
 [docs/changelog/0.50.md](docs/changelog/0.50.md)
@@ -18,10 +18,10 @@ See detailed breakdown:
 
 ## [0.49.x] - 2026-03-11 - Executor Architecture Stabilization
 
-- `0.49.3` hardens EXPLAIN execution consistency by adding cross-node-family JSON schema guards, locking text/JSON parity for additive execution metadata, and tightening explain-to-diagnostics node correlation checks without changing query behavior.
-- `0.49.2` stabilizes executor observability and orchestration internals by splitting EXPLAIN JSON/node ownership, adding executor diagnostics node/counter contracts, and moving load orchestration to a deterministic stage-descriptor loop while keeping query behavior unchanged.
-- `0.49.1` removes the remaining internal `db::executor::shared` bucket by moving contracts and helpers to owner modules (`pipeline::contracts`, `projection`, and `context`) and adds guardrails so the old namespace cannot return.
 - `0.49.0` stabilizes the post-`load` executor architecture by locking scan/pipeline/aggregate/terminal boundaries, expanding EXPLAIN execution metadata (including deterministic node IDs and layer/fast-path/pushdown visibility), hardening continuation fail-closed checks across grouped shape drift, and adding additive row-flow metrics (`rows_filtered`, `rows_aggregated`, `rows_emitted`) without introducing new query language features.
+- `0.49.1` removes the remaining internal `db::executor::shared` bucket by moving contracts and helpers to owner modules (`pipeline::contracts`, `projection`, and `context`) and adds guardrails so the old namespace cannot return.
+- `0.49.2` stabilizes executor observability and orchestration internals by splitting EXPLAIN JSON/node ownership, adding executor diagnostics node/counter contracts, and moving load orchestration to a deterministic stage-descriptor loop while keeping query behavior unchanged.
+- `0.49.3` hardens EXPLAIN execution consistency by adding cross-node-family JSON schema guards, locking text/JSON parity for additive execution metadata, and tightening explain-to-diagnostics node correlation checks without changing query behavior.
 
 See detailed breakdown:
 [docs/changelog/0.49.md](docs/changelog/0.49.md)
@@ -212,10 +212,10 @@ See detailed breakdown:
 
 ## [0.39.x] - 2026-03-02 - Numeric Consolidation
 
-- `0.39.3` adds numeric identity drift guards for continuation signatures and plan fingerprints, including literal/promotion stability checks (`1 + 2` vs mixed numeric literal forms), aggregate/DISTINCT no-op promotion-path checks, and alias-only continuation decode/resume stability coverage.
-- `0.39.2` consolidates numeric runtime semantics by formalizing the shared arithmetic contract (promotion/coercion/overflow/division), converging predicate/HAVING/range-bound numeric comparison paths on shared numeric compare authority, and aligning aggregate `sum/avg` plus grouped global `SUM(DISTINCT field)` arithmetic with that same contract while keeping strict index pushdown boundaries explicit.
-- `0.39.1` starts runtime numeric convergence by routing projection and aggregate decimal coercion through one shared helper, so mixed numeric comparisons/arithmetic behave consistently and mixed numeric-vs-non-numeric equality now fails as an invariant error instead of silently returning false.
 - `0.39.0` consolidates numeric capability checks under shared helpers and tightens planner expression typing so numeric operators/aggregates fail early on known non-numeric fields while mixed numeric expressions still work when subtype cannot be resolved yet.
+- `0.39.1` starts runtime numeric convergence by routing projection and aggregate decimal coercion through one shared helper, so mixed numeric comparisons/arithmetic behave consistently and mixed numeric-vs-non-numeric equality now fails as an invariant error instead of silently returning false.
+- `0.39.2` consolidates numeric runtime semantics by formalizing the shared arithmetic contract (promotion/coercion/overflow/division), converging predicate/HAVING/range-bound numeric comparison paths on shared numeric compare authority, and aligning aggregate `sum/avg` plus grouped global `SUM(DISTINCT field)` arithmetic with that same contract while keeping strict index pushdown boundaries explicit.
+- `0.39.3` adds numeric identity drift guards for continuation signatures and plan fingerprints, including literal/promotion stability checks (`1 + 2` vs mixed numeric literal forms), aggregate/DISTINCT no-op promotion-path checks, and alias-only continuation decode/resume stability coverage.
 
 See detailed breakdown:
 [docs/changelog/0.39.md](docs/changelog/0.39.md)
@@ -224,10 +224,10 @@ See detailed breakdown:
 
 ## [0.38.x] - 2026-03-02 - Projection Expression Spine
 
-- `0.38.3` removes the remaining route-layer `include_str!` architectural-policing tests and replaces continuation-profile `ProjectionDefault` sectioning with explicit grouped-shape hashing.
-- `0.38.2` makes `ProjectionSpec` the grouped output authority, evaluates grouped rows through expression projections, and ties continuation/fingerprint identity to projection semantics (alias-only changes stay stable while semantic changes invalidate).
-- `0.38.1` hardens fluent field-target terminal dispatch by requiring planner slot routing, removing runtime fallback from production query paths, and adding guard coverage so slot-first behavior cannot silently drift back.
 - `0.38.0` cleans up query and error internals before unified expressions: projection building now follows one path, planner/executor duplicate rule checks are reduced, aggregate fingerprints ignore alias/explain-only metadata, runtime error class/origin are preserved at the public boundary, and architecture guards now use structural tests instead of source-text scans.
+- `0.38.1` hardens fluent field-target terminal dispatch by requiring planner slot routing, removing runtime fallback from production query paths, and adding guard coverage so slot-first behavior cannot silently drift back.
+- `0.38.2` makes `ProjectionSpec` the grouped output authority, evaluates grouped rows through expression projections, and ties continuation/fingerprint identity to projection semantics (alias-only changes stay stable while semantic changes invalidate).
+- `0.38.3` removes the remaining route-layer `include_str!` architectural-policing tests and replaces continuation-profile `ProjectionDefault` sectioning with explicit grouped-shape hashing.
 
 See detailed breakdown:
 [docs/changelog/0.38.md](docs/changelog/0.38.md)
@@ -426,8 +426,8 @@ See detailed breakdown:
 ## [0.25.x] - 2026-02-23 - Field Aggregate Expansion
 
 - `0.25.0` introduced field aggregate terminals (`min_by`, `max_by`, `nth_by`, `sum_by`, `avg_by`) with deterministic ordering and fail-fast target validation.
-- `0.25.2` expanded the surface with `median_by`, `count_distinct_by`, and `min_max_by`, while preserving canonical effective-window semantics.
 - `0.25.1` and `0.25.2` focused on parity and eligibility hardening so fallback/fast-path behavior and error classification stay stable.
+- `0.25.2` expanded the surface with `median_by`, `count_distinct_by`, and `min_max_by`, while preserving canonical effective-window semantics.
 
 See detailed breakdown:
 [docs/changelog/0.25.md](docs/changelog/0.25.md)
@@ -2610,21 +2610,21 @@ it's a dynamic trait.
 
 ## [0.1.x] - 2025-12-24 - Query Ergonomics and Safety Foundations
 
-- `0.1.20` hardens metrics counters and numeric/date/time edge-case handling, with focused regression coverage.
-- `0.1.19` stabilizes unique-index upsert/delete behavior, primary-key `IN` planning, deterministic index-load ordering, and exists-window semantics.
-- `0.1.18` adds `Row`/`Page` response helpers, fixes index-planned `exists` filter handling, and introduces unique-index upsert execution.
-- `0.1.17` adds explicit `many_by_field` helpers for load/delete while keeping primary-key many helpers as convenience wrappers.
-- `0.1.16` removes unused save-operation generics and adds batch save helpers (`insert_many`, `create_many`, `replace_many`).
-- `0.1.15` adds response cardinality guards plus delete-side `ensure_deleted_*` helpers for stricter invariants.
-- `0.1.14` begins grouped aggregation groundwork with `group_count_by` in `LoadExecutor`.
-- `0.1.13` expands `ResponseExt` with additional existence checks.
-- `0.1.12` makes `Ulid::generate` and `Subaccount::random` fall back to zeroed randomness when RNG is unseeded.
-- `0.1.11` improves query ergonomics by allowing direct reuse of pre-built filters and direct response interpretation helpers.
-- `0.1.10` introduces `ResponseExt` convenience methods for common first/view/count/pk extraction paths.
-- `0.1.7` simplifies and hardens single-result versus multi-result query response handling.
-- `0.1.5` expands `FilterExpr` method coverage, tightens CI/clippy workflow stability, and fixes `UpdateView<T>` clearing for `Some(None)`.
-- `0.1.1` removes `msg_caller` from `Principal` and adds `WrappedPrincipal::from_text` passthrough support.
 - `0.1.0` updates the workspace baseline to Rust `1.92.0`, adapts to canic crate layout changes, and restores clean lint/tooling checks.
+- `0.1.1` removes `msg_caller` from `Principal` and adds `WrappedPrincipal::from_text` passthrough support.
+- `0.1.5` expands `FilterExpr` method coverage, tightens CI/clippy workflow stability, and fixes `UpdateView<T>` clearing for `Some(None)`.
+- `0.1.7` simplifies and hardens single-result versus multi-result query response handling.
+- `0.1.10` introduces `ResponseExt` convenience methods for common first/view/count/pk extraction paths.
+- `0.1.11` improves query ergonomics by allowing direct reuse of pre-built filters and direct response interpretation helpers.
+- `0.1.12` makes `Ulid::generate` and `Subaccount::random` fall back to zeroed randomness when RNG is unseeded.
+- `0.1.13` expands `ResponseExt` with additional existence checks.
+- `0.1.14` begins grouped aggregation groundwork with `group_count_by` in `LoadExecutor`.
+- `0.1.15` adds response cardinality guards plus delete-side `ensure_deleted_*` helpers for stricter invariants.
+- `0.1.16` removes unused save-operation generics and adds batch save helpers (`insert_many`, `create_many`, `replace_many`).
+- `0.1.17` adds explicit `many_by_field` helpers for load/delete while keeping primary-key many helpers as convenience wrappers.
+- `0.1.18` adds `Row`/`Page` response helpers, fixes index-planned `exists` filter handling, and introduces unique-index upsert execution.
+- `0.1.19` stabilizes unique-index upsert/delete behavior, primary-key `IN` planning, deterministic index-load ordering, and exists-window semantics.
+- `0.1.20` hardens metrics counters and numeric/date/time edge-case handling, with focused regression coverage.
 
 See detailed breakdown:
 [docs/changelog/0.1.md](docs/changelog/0.1.md)
@@ -2646,16 +2646,16 @@ keep data cool
 
 - New name, same mission: IcyDB takes over from Mimic with the public meta-crate exposed at `icydb`.
 
-- `0.0.20` fixes delete-window correctness (`offset`/`limit`) and shares scan/deserialization helpers between load/delete planning paths.
-- `0.0.15` adds payload-aware enum storage, broadens boxed/vector field-value support, adds regression coverage, and moves `build!` into `icydb-build`.
-- `0.0.14` removes the direct canic dependency after `canic-core` and `canic-memory` split into separate crates.
-- `0.0.13` adds tests for identifier/path/metrics/hash behavior, documents public codegen macros, and clarifies confusing payment/amount type naming.
-- `0.0.11` expands `Timestamp` support and tests across seconds/millis/micros/nanos plus RFC3339 parsing.
-- `0.0.10` removes unauthenticated `icydb_query_*` endpoints and switches codegen to internal dispatch helpers so auth stays caller-owned.
-- `0.0.9` updates to canic `0.4.8` and audits public endpoint visibility (`pub` vs `pub(crate)`).
-- `0.0.8` updates to canic `0.4`, resolves the `darling` yank follow-up, and improves public API rustdoc coverage.
-- `0.0.6` adds early finance/sanitizer support, cleans dependencies, fixes boxed-view type alignment, and hardens enum matching behavior.
 - `0.0.1` launches the IcyDB reboot line with the `icydb` crate surface, refreshed docs, path resolution updates, and aligned `icydb_*` endpoint/codegen naming.
+- `0.0.6` adds early finance/sanitizer support, cleans dependencies, fixes boxed-view type alignment, and hardens enum matching behavior.
+- `0.0.8` updates to canic `0.4`, resolves the `darling` yank follow-up, and improves public API rustdoc coverage.
+- `0.0.9` updates to canic `0.4.8` and audits public endpoint visibility (`pub` vs `pub(crate)`).
+- `0.0.10` removes unauthenticated `icydb_query_*` endpoints and switches codegen to internal dispatch helpers so auth stays caller-owned.
+- `0.0.11` expands `Timestamp` support and tests across seconds/millis/micros/nanos plus RFC3339 parsing.
+- `0.0.13` adds tests for identifier/path/metrics/hash behavior, documents public codegen macros, and clarifies confusing payment/amount type naming.
+- `0.0.14` removes the direct canic dependency after `canic-core` and `canic-memory` split into separate crates.
+- `0.0.15` adds payload-aware enum storage, broadens boxed/vector field-value support, adds regression coverage, and moves `build!` into `icydb-build`.
+- `0.0.20` fixes delete-window correctness (`offset`/`limit`) and shares scan/deserialization helpers between load/delete planning paths.
 
 See detailed breakdown:
 [docs/changelog/0.0.md](docs/changelog/0.0.md)
