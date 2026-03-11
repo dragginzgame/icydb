@@ -345,9 +345,10 @@ impl<E: EntityKind> Query<E> {
     // Build a logical plan for the current intent.
     fn build_plan(&self) -> Result<AccessPlannedQuery<E::Key>, QueryError> {
         let plan_value = self.intent.build_plan_model()?;
-        let (logical, access) = plan_value.into_parts();
+        let (logical, access, projection_selection) = plan_value.into_parts();
         let access = access_plan_to_entity_keys::<E>(E::MODEL, access)?;
-        let plan = AccessPlannedQuery::from_parts(logical, access);
+        let plan =
+            AccessPlannedQuery::from_parts_with_projection(logical, access, projection_selection);
 
         Ok(plan)
     }

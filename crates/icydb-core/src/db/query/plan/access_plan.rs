@@ -7,7 +7,7 @@
 use crate::db::access::AccessPath;
 use crate::db::{
     access::{AccessPlan, AccessStrategy},
-    query::plan::{GroupHavingSpec, GroupPlan, GroupSpec, LogicalPlan},
+    query::plan::{GroupHavingSpec, GroupPlan, GroupSpec, LogicalPlan, expr::ProjectionSelection},
 };
 #[cfg(test)]
 use crate::db::{
@@ -26,19 +26,37 @@ use crate::db::{
 pub(crate) struct AccessPlannedQuery<K> {
     pub(crate) logical: LogicalPlan,
     pub(crate) access: AccessPlan<K>,
+    pub(crate) projection_selection: ProjectionSelection,
 }
 
 impl<K> AccessPlannedQuery<K> {
     /// Construct an access-planned query from logical + access stages.
     #[must_use]
     pub(crate) const fn from_parts(logical: LogicalPlan, access: AccessPlan<K>) -> Self {
-        Self { logical, access }
+        Self {
+            logical,
+            access,
+            projection_selection: ProjectionSelection::All,
+        }
+    }
+
+    /// Construct an access-planned query from logical + access + projection stages.
+    #[must_use]
+    pub(crate) fn from_parts_with_projection(
+        logical: LogicalPlan,
+        access: AccessPlan<K>,
+        projection_selection: ProjectionSelection,
+    ) -> Self {
+        let mut plan = Self::from_parts(logical, access);
+        plan.projection_selection = projection_selection;
+
+        plan
     }
 
     /// Decompose into logical + access stages.
     #[must_use]
-    pub(crate) fn into_parts(self) -> (LogicalPlan, AccessPlan<K>) {
-        (self.logical, self.access)
+    pub(crate) fn into_parts(self) -> (LogicalPlan, AccessPlan<K>, ProjectionSelection) {
+        (self.logical, self.access, self.projection_selection)
     }
 
     /// Convert this plan into grouped logical form with one explicit group spec.
@@ -54,7 +72,11 @@ impl<K> AccessPlannedQuery<K> {
         group: GroupSpec,
         having: Option<GroupHavingSpec>,
     ) -> Self {
-        let Self { logical, access } = self;
+        let Self {
+            logical,
+            access,
+            projection_selection,
+        } = self;
         let scalar = match logical {
             LogicalPlan::Scalar(plan) => plan,
             LogicalPlan::Grouped(plan) => plan.scalar,
@@ -67,6 +89,7 @@ impl<K> AccessPlannedQuery<K> {
                 having,
             }),
             access,
+            projection_selection,
         }
     }
 
@@ -92,6 +115,7 @@ impl<K> AccessPlannedQuery<K> {
                 consistency,
             }),
             access: AccessPlan::path(access),
+            projection_selection: ProjectionSelection::All,
         }
     }
 }

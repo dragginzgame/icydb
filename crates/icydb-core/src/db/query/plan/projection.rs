@@ -8,7 +8,7 @@ use crate::{
         builder::aggregate::AggregateExpr,
         plan::{
             FieldSlot, GroupAggregateSpec, GroupPlan, LogicalPlan,
-            expr::{Expr, FieldId, ProjectionField, ProjectionSpec},
+            expr::{Expr, FieldId, ProjectionField, ProjectionSelection, ProjectionSpec},
         },
     },
     model::entity::EntityModel,
@@ -19,23 +19,37 @@ use crate::{
 pub(crate) fn lower_projection_intent(
     model: &EntityModel,
     logical: &LogicalPlan,
+    selection: &ProjectionSelection,
 ) -> ProjectionSpec {
     match logical {
-        LogicalPlan::Scalar(_) => lower_scalar_projection(model),
+        LogicalPlan::Scalar(_) => lower_scalar_projection(model, selection),
         LogicalPlan::Grouped(grouped) => lower_grouped_projection_from_plan(grouped),
     }
 }
 
 /// Lower scalar plans to one explicit field projection per declared entity field.
-fn lower_scalar_projection(model: &EntityModel) -> ProjectionSpec {
-    let fields = model
-        .fields
-        .iter()
-        .map(|field| ProjectionField::Scalar {
-            expr: Expr::Field(FieldId::new(field.name)),
+fn lower_scalar_projection(model: &EntityModel, selection: &ProjectionSelection) -> ProjectionSpec {
+    let fields = match selection {
+        ProjectionSelection::All => model
+            .fields
+            .iter()
+            .map(|field| ProjectionField::Scalar {
+                expr: Expr::Field(FieldId::new(field.name)),
+                alias: None,
+            })
+            .collect(),
+        ProjectionSelection::Fields(field_ids) => field_ids
+            .iter()
+            .map(|field_id| ProjectionField::Scalar {
+                expr: Expr::Field(field_id.clone()),
+                alias: None,
+            })
+            .collect(),
+        ProjectionSelection::Expression(expr) => vec![ProjectionField::Scalar {
+            expr: expr.clone(),
             alias: None,
-        })
-        .collect();
+        }],
+    };
 
     ProjectionSpec::new(fields)
 }

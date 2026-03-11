@@ -47,6 +47,7 @@ fn load_distinct_flag_preserves_union_pagination_rows_and_boundaries() {
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id4])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id5])),
             ]),
+            projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
         })
     };
 
@@ -175,6 +176,7 @@ fn load_distinct_union_resume_matrix_is_boundary_complete() {
                         AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7])),
                         AccessPlan::path(AccessPath::ByKeys(vec![id5, id6, id7, id8, id9])),
                     ]),
+                    projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
                 })
             };
 
@@ -431,6 +433,7 @@ fn load_distinct_desc_index_range_limit_pushdown_resume_matrix_and_fallback_pari
                         Bound::Included(Value::Uint(10)),
                         Bound::Excluded(Value::Uint(30)),
                     )),
+                    projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
                 }),
                 None,
             )
@@ -468,6 +471,7 @@ fn load_distinct_desc_index_range_limit_pushdown_resume_matrix_and_fallback_pari
                     Bound::Included(Value::Uint(10)),
                     Bound::Excluded(Value::Uint(30)),
                 )),
+                projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
             })
         };
         let (fast_ids, fast_boundaries) =
@@ -757,6 +761,7 @@ fn load_distinct_offset_fast_path_and_fallback_match_ids_and_boundaries() {
                     Bound::Included(Value::Uint(10)),
                     Bound::Excluded(Value::Uint(30)),
                 )),
+                projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
             })
         };
 

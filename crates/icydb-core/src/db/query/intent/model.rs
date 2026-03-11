@@ -286,7 +286,11 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
             self.consistency,
         );
         let logical = build_logical_plan(self.model, logical_query);
-        let mut plan = AccessPlannedQuery::from_parts(logical, access_plan_value);
+        let mut plan = AccessPlannedQuery::from_parts_with_projection(
+            logical,
+            access_plan_value,
+            self.intent.scalar().projection_selection.clone(),
+        );
         simplify_limit_one_page_for_by_key_access(&mut plan);
 
         if plan.grouped_plan().is_some() {

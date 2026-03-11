@@ -445,6 +445,7 @@ fn load_cursor_with_offset_index_range_pushdown_resume_matrix_is_boundary_comple
                     Bound::Included(Value::Uint(10)),
                     Bound::Excluded(Value::Uint(30)),
                 )),
+                projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
             })
         };
 

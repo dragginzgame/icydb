@@ -83,6 +83,7 @@ fn load_plan_with_order_distinct_and_limit(
             consistency: MissingRowPolicy::Ignore,
         }),
         access,
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     }
 }
 

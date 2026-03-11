@@ -9,7 +9,7 @@ use crate::db::{
         intent::KeyAccessState,
         plan::{
             DeleteSpec, GroupHavingSpec, GroupSpec, GroupedExecutionConfig, LoadSpec, OrderSpec,
-            QueryMode, has_explicit_order,
+            QueryMode, expr::ProjectionSelection, has_explicit_order,
         },
     },
 };
@@ -28,6 +28,7 @@ pub(in crate::db::query::intent) struct ScalarIntent<K> {
     pub(in crate::db::query::intent) key_access_conflict: bool,
     pub(in crate::db::query::intent) order: Option<OrderSpec>,
     pub(in crate::db::query::intent) distinct: bool,
+    pub(in crate::db::query::intent) projection_selection: ProjectionSelection,
 }
 
 impl<K> ScalarIntent<K> {
@@ -39,6 +40,7 @@ impl<K> ScalarIntent<K> {
             key_access_conflict: false,
             order: None,
             distinct: false,
+            projection_selection: ProjectionSelection::All,
         }
     }
 }

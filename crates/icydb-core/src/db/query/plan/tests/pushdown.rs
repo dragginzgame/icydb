@@ -57,6 +57,7 @@ fn load_plan(access: AccessPlan<Value>, order: Option<OrderSpec>) -> AccessPlann
             consistency: MissingRowPolicy::Ignore,
         }),
         access,
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     }
 }
 

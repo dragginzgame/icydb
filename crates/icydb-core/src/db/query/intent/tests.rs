@@ -1165,7 +1165,7 @@ fn by_key_access_strips_redundant_primary_key_equality_predicate() {
         .filter(FieldRef::new("id").eq(key))
         .build_plan_model()
         .expect("model by_id + id == literal plan should build");
-    let (logical, access) = model_plan.into_parts();
+    let (logical, access, _projection_selection) = model_plan.into_parts();
     let typed_access = access_plan_to_entity_keys::<PlanEntity>(PlanEntity::MODEL, access)
         .expect("typed access conversion should succeed");
     let typed_plan = AccessPlannedQuery::from_parts(logical, typed_access);
@@ -1277,7 +1277,7 @@ fn typed_plan_matches_model_plan_for_same_intent() {
         .offset(2);
 
     let model_plan = model_intent.build_plan_model().expect("model plan");
-    let (model_logical, model_access) = model_plan.into_parts();
+    let (model_logical, model_access, _projection_selection) = model_plan.into_parts();
     let LogicalPlan::Scalar(ScalarPlan {
         mode,
         predicate: plan_predicate,

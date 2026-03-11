@@ -80,6 +80,7 @@ fn build_scalar_limit_plan(
             consistency: MissingRowPolicy::Ignore,
         }),
         access,
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     })
 }
 

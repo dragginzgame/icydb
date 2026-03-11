@@ -120,6 +120,7 @@ fn signature_is_deterministic_for_by_keys() {
             consistency: MissingRowPolicy::Ignore,
         }),
         access: access_a,
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     };
     let plan_b: AccessPlannedQuery<Value> = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
@@ -132,6 +133,7 @@ fn signature_is_deterministic_for_by_keys() {
             consistency: MissingRowPolicy::Ignore,
         }),
         access: access_b,
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     };
 
     assert_eq!(

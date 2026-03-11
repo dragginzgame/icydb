@@ -1519,6 +1519,7 @@ fn load_trace_marks_composite_index_range_pushdown_rejection_outcome() {
             )),
             AccessPlan::path(AccessPath::FullScan),
         ]),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     };
     let plan = ExecutablePlan::<PushdownParityEntity>::new(logical);
 

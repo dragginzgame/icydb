@@ -43,6 +43,7 @@ fn load_composite_pk_budget_trace_limits_access_rows_for_safe_shape() {
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
             AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
         ]),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     };
     let plan = ExecutablePlan::<SimpleEntity>::new(logical);
 
@@ -101,6 +102,7 @@ fn load_composite_pk_budget_disabled_when_cursor_boundary_present() {
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
             AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
         ]),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     };
     let plan = ExecutablePlan::<SimpleEntity>::new(logical);
     let cursor = CursorBoundary {
@@ -162,6 +164,7 @@ fn load_composite_budget_disabled_when_post_access_sort_is_required() {
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
             AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
         ]),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     };
     let plan = ExecutablePlan::<PushdownParityEntity>::new(logical);
 
@@ -219,6 +222,7 @@ fn load_composite_budget_disabled_for_offset_with_residual_filter() {
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
             AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
         ]),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     };
     let plan = ExecutablePlan::<SimpleEntity>::new(logical);
 
@@ -281,6 +285,7 @@ fn load_composite_pk_budget_trace_limits_access_rows_for_safe_desc_shape() {
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
             AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
         ]),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     };
     let plan = ExecutablePlan::<SimpleEntity>::new(logical);
 
@@ -356,6 +361,7 @@ fn load_nested_composite_pk_budget_trace_limits_access_rows_for_safe_shape() {
                 AccessPlan::path(AccessPath::ByKeys(vec![id7, id8])),
             ]),
         ]),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     };
     let plan = ExecutablePlan::<SimpleEntity>::new(logical);
 
@@ -414,6 +420,7 @@ fn load_composite_budgeted_and_fallback_paths_emit_equivalent_continuation_bound
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
             AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
         ]),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     });
     let fallback_plan = ExecutablePlan::<SimpleEntity>::new(AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
@@ -437,6 +444,7 @@ fn load_composite_budgeted_and_fallback_paths_emit_equivalent_continuation_bound
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
             AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
         ]),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     });
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, true);
@@ -520,6 +528,7 @@ fn load_composite_union_mixed_direction_fallback_preserves_order_and_pagination(
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id4])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id5])),
             ]),
+            projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
         })
     };
 

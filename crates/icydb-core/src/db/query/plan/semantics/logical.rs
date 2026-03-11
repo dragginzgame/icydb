@@ -91,7 +91,7 @@ impl<K> AccessPlannedQuery<K> {
     /// Lower this plan into one canonical planner-owned projection semantic spec.
     #[must_use]
     pub(in crate::db) fn projection_spec(&self, model: &EntityModel) -> ProjectionSpec {
-        lower_projection_intent(model, &self.logical)
+        lower_projection_intent(model, &self.logical, &self.projection_selection)
     }
 
     /// Lower this plan into one projection semantic shape for identity hashing.

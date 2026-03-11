@@ -97,6 +97,7 @@ fn plan_rejects_unorderable_field() {
             consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::path(AccessPath::FullScan),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     };
 
     let err = validate_query_semantics(&schema, model, &plan).expect_err("unorderable field");
@@ -128,6 +129,7 @@ fn plan_rejects_duplicate_non_primary_order_field() {
             consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::path(AccessPath::FullScan),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     };
 
     let err = validate_query_semantics(&schema, model, &plan)
@@ -160,6 +162,7 @@ fn plan_rejects_index_prefix_too_long() {
             index: INDEX_MODEL,
             values: vec![Value::Text("a".to_string()), Value::Text("b".to_string())],
         }),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     };
 
     let err = validate_query_semantics(&schema, model, &plan).expect_err("index prefix too long");
@@ -188,6 +191,7 @@ fn plan_rejects_empty_index_prefix() {
             index: INDEX_MODEL,
             values: vec![],
         }),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     };
 
     let err = validate_query_semantics(&schema, model, &plan).expect_err("index prefix empty");
@@ -213,6 +217,7 @@ fn plan_accepts_model_based_validation() {
             consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::path(AccessPath::ByKey(Value::Ulid(Ulid::nil()))),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     };
 
     validate_query_semantics(&schema, model, &plan).expect("valid plan");
@@ -233,6 +238,7 @@ fn plan_rejects_empty_order_spec() {
             consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::path(AccessPath::FullScan),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     };
 
     let err = validate_query_semantics(&schema, model, &plan).expect_err("empty order must fail");
@@ -258,6 +264,7 @@ fn delete_limit_requires_order() {
             consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::path(AccessPath::FullScan),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     };
 
     let err = validate_query_semantics(&schema, model, &plan)
@@ -352,6 +359,7 @@ fn delete_plan_rejects_pagination() {
             consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::path(AccessPath::FullScan),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     };
 
     let err = validate_query_semantics(&schema, model, &plan)
@@ -380,6 +388,7 @@ fn load_plan_rejects_delete_limit() {
             consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::path(AccessPath::FullScan),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     };
 
     let err = validate_query_semantics(&schema, model, &plan)
@@ -409,6 +418,7 @@ fn plan_rejects_unordered_pagination() {
             consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::path(AccessPath::FullScan),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     };
 
     let err = validate_query_semantics(&schema, model, &plan)
@@ -440,6 +450,7 @@ fn plan_accepts_ordered_pagination() {
             consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::path(AccessPath::FullScan),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     };
 
     validate_query_semantics(&schema, model, &plan).expect("ordered pagination is valid");
@@ -462,6 +473,7 @@ fn plan_rejects_order_without_terminal_primary_key_tie_break() {
             consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::path(AccessPath::FullScan),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     };
 
     let err = validate_query_semantics(&schema, model, &plan).expect_err("missing PK tie-break");
@@ -494,6 +506,7 @@ fn plan_rejects_map_field_predicates_during_planning_validation() {
             consistency: MissingRowPolicy::Ignore,
         }),
         access: AccessPlan::path(AccessPath::FullScan),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
     };
 
     let err = validate_query_semantics(&schema, model, &plan)
