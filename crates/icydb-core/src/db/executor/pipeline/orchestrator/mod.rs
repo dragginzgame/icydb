@@ -117,6 +117,26 @@ impl LoadExecutionMode {
             LoadMode::GroupedPage => RequestedLoadExecutionShape::Grouped,
         }
     }
+
+    // True when load mode materializes unpaged scalar rows.
+    const fn scalar_rows_mode(self) -> bool {
+        matches!(self.mode, LoadMode::ScalarRows)
+    }
+
+    // True when load mode materializes one paged scalar surface.
+    const fn scalar_page_mode(self) -> bool {
+        matches!(self.mode, LoadMode::ScalarPage)
+    }
+
+    // True when load mode materializes one grouped paged surface.
+    const fn grouped_page_mode(self) -> bool {
+        matches!(self.mode, LoadMode::GroupedPage)
+    }
+
+    // True when load mode should preserve execution trace output.
+    const fn tracing_enabled(self) -> bool {
+        matches!(self.tracing, LoadTracingMode::Enabled)
+    }
 }
 
 ///
@@ -156,6 +176,21 @@ impl<E> LoadPipelineState<E>
 where
     E: EntityKind,
 {
+    // Build one access-stage envelope from one access-state payload.
+    const fn from_access(state: LoadAccessState<E>) -> Self {
+        Self::Access(state)
+    }
+
+    // Build one payload-stage envelope from one payload-state payload.
+    const fn from_payload(state: LoadPayloadState<E>) -> Self {
+        Self::Payload(state)
+    }
+
+    // Build one surface-stage envelope from one finalized load surface.
+    const fn from_surface(surface: LoadExecutionSurface<E>) -> Self {
+        Self::Surface(surface)
+    }
+
     // Extract pre-context inputs and reject stage-order drift with one invariant error.
     fn expect_inputs(
         self,
@@ -247,14 +282,14 @@ where
                 )?;
                 let next = Self::build_execution_context(plan, cursor, execution_mode)?;
 
-                Ok(LoadPipelineState::Access(next))
+                Ok(LoadPipelineState::from_access(next))
             }
             LoadPipelineStage::ExecuteAccessPath => {
                 let access_state = stage_state
                     .expect_access("execute_access_path stage requires access-state artifacts")?;
                 let next = Self::execute_access_path(access_state);
 
-                Ok(LoadPipelineState::Access(next))
+                Ok(LoadPipelineState::from_access(next))
             }
             LoadPipelineStage::ApplyGroupingProjection => {
                 let access_state = stage_state.expect_access(
@@ -262,28 +297,28 @@ where
                 )?;
                 let next = self.apply_grouping_projection(access_state)?;
 
-                Ok(LoadPipelineState::Payload(next))
+                Ok(LoadPipelineState::from_payload(next))
             }
             LoadPipelineStage::ApplyPaging => {
                 let payload_state = stage_state
                     .expect_payload("apply_paging stage requires payload-state artifacts")?;
                 let next = Self::apply_paging(payload_state)?;
 
-                Ok(LoadPipelineState::Payload(next))
+                Ok(LoadPipelineState::from_payload(next))
             }
             LoadPipelineStage::ApplyTracing => {
                 let payload_state = stage_state
                     .expect_payload("apply_tracing stage requires payload-state artifacts")?;
                 let next = Self::apply_tracing(payload_state);
 
-                Ok(LoadPipelineState::Payload(next))
+                Ok(LoadPipelineState::from_payload(next))
             }
             LoadPipelineStage::MaterializeSurface => {
                 let payload_state = stage_state
                     .expect_payload("materialize_surface stage requires payload-state artifacts")?;
                 let next = Self::materialize_surface(payload_state)?;
 
-                Ok(LoadPipelineState::Surface(next))
+                Ok(LoadPipelineState::from_surface(next))
             }
         }
     }
@@ -326,15 +361,12 @@ where
             context,
             access_inputs,
         } = state;
-        let load_mode = context.mode.mode;
+        let scalar_rows_mode = context.mode.scalar_rows_mode();
         let LoadAccessInputs { plan, cursor } = access_inputs;
         let (payload, trace) = match cursor {
             PreparedLoadCursor::Scalar(resolved_continuation) => {
-                let (page, trace) = self.execute_scalar_path(
-                    plan,
-                    *resolved_continuation,
-                    matches!(load_mode, LoadMode::ScalarRows),
-                )?;
+                let (page, trace) =
+                    self.execute_scalar_path(plan, *resolved_continuation, scalar_rows_mode)?;
                 (LoadExecutionPayload::Scalar(page), trace)
             }
             PreparedLoadCursor::Grouped(cursor) => {

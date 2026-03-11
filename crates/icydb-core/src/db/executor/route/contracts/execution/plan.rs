@@ -9,10 +9,9 @@ use crate::db::{
     access::PushdownApplicability,
     direction::Direction,
     executor::{
-        ContinuationCapabilities,
         aggregate::AggregateFoldMode,
         route::contracts::{
-            AccessWindow, ContinuationMode, RouteCapabilities, RouteContinuationPlan,
+            RouteCapabilities, RouteContinuationPlan,
             execution::{
                 AggregateSeekSpec, ExecutionModeRouteCase, ExecutionRouteShape,
                 GroupedExecutionStrategy, GroupedRouteDecisionOutcome, GroupedRouteObservability,
@@ -22,7 +21,6 @@ use crate::db::{
             shape::{FastPathOrder, MUTATION_FAST_PATH_ORDER, RouteShapeKind},
         },
     },
-    query::plan::ContinuationPolicy,
 };
 
 ///
@@ -60,15 +58,7 @@ impl ExecutionRoutePlan {
         Self {
             direction: Direction::Asc,
             route_shape_kind: RouteShapeKind::MutationDelete,
-            continuation: RouteContinuationPlan::new(
-                ContinuationCapabilities::new(
-                    ContinuationMode::Initial,
-                    ContinuationPolicy::new(true, true, true),
-                ),
-                0,
-                AccessWindow::new(0, None, None, None),
-                AccessWindow::new(0, None, None, None),
-            ),
+            continuation: RouteContinuationPlan::initial_for_mutation(),
             execution_mode: RouteExecutionMode::Materialized,
             execution_mode_case: ExecutionModeRouteCase::Load,
             secondary_pushdown_applicability: PushdownApplicability::NotApplicable,

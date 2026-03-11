@@ -3,7 +3,10 @@
 //! Does not own: route feasibility derivation or planner continuation-policy semantics.
 //! Boundary: continuation authority exports immutable route continuation primitives.
 
-use crate::db::{executor::ContinuationCapabilities, query::plan::ScalarAccessWindowPlan};
+use crate::db::{
+    executor::ContinuationCapabilities,
+    query::plan::{ContinuationPolicy, ScalarAccessWindowPlan},
+};
 
 ///
 /// ContinuationMode
@@ -37,7 +40,7 @@ pub(in crate::db::executor) struct RouteContinuationPlan {
 
 impl RouteContinuationPlan {
     #[must_use]
-    pub(in crate::db::executor) const fn new(
+    const fn new(
         capabilities: ContinuationCapabilities,
         effective_offset: u32,
         access_window_keep: AccessWindow,
@@ -52,7 +55,7 @@ impl RouteContinuationPlan {
     }
 
     #[must_use]
-    pub(in crate::db::executor) fn from_scalar_access_window_plan(
+    pub(in crate::db::executor::continuation) fn from_scalar_access_window_plan(
         capabilities: ContinuationCapabilities,
         window_plan: ScalarAccessWindowPlan,
     ) -> Self {
@@ -71,6 +74,23 @@ impl RouteContinuationPlan {
             access_window_keep,
             access_window_fetch,
         )
+    }
+
+    /// Construct one canonical initial continuation plan for mutation-style routes.
+    #[must_use]
+    const fn initial_with_policy(continuation_policy: ContinuationPolicy) -> Self {
+        Self::new(
+            ContinuationCapabilities::new(ContinuationMode::Initial, continuation_policy),
+            0,
+            AccessWindow::new(0, None, None, None),
+            AccessWindow::new(0, None, None, None),
+        )
+    }
+
+    /// Construct one canonical initial continuation plan for mutation routes.
+    #[must_use]
+    pub(in crate::db::executor) const fn initial_for_mutation() -> Self {
+        Self::initial_with_policy(ContinuationPolicy::new(true, true, true))
     }
 
     #[must_use]

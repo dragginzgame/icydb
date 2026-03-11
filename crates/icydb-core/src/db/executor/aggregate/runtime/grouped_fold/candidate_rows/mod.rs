@@ -11,9 +11,9 @@ use crate::{
     db::{
         contracts::canonical_value_compare,
         executor::{
+            GroupedPaginationWindow,
             aggregate::AggregateEngine,
             pipeline::contracts::{GroupedRouteStageProjection, LoadExecutor},
-            pipeline::grouped_runtime::GroupedPaginationWindow,
         },
     },
     error::InternalError,

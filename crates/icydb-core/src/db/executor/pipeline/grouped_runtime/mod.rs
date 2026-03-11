@@ -6,7 +6,4 @@
 mod route_stage;
 mod runtime;
 
-pub(in crate::db::executor) use crate::db::executor::{
-    GroupedContinuationCapabilities, GroupedContinuationContext, GroupedPaginationWindow,
-};
-pub(in crate::db::executor) use runtime::{GroupedExecutionContext, GroupedRuntimeProjection};
+pub(in crate::db::executor) use runtime::GroupedExecutionContext;

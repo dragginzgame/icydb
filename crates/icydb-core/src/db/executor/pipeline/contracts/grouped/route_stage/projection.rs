@@ -7,9 +7,8 @@ use crate::{
     db::{
         direction::Direction,
         executor::{
-            ExecutionTrace,
+            ExecutionTrace, GroupedContinuationCapabilities, GroupedPaginationWindow,
             pipeline::contracts::{PageCursor, grouped::GroupedRouteStage},
-            pipeline::grouped_runtime::{GroupedContinuationCapabilities, GroupedPaginationWindow},
             plan_metrics::GroupedPlanMetricsStrategy,
             traversal::row_read_consistency_for_plan,
         },

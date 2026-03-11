@@ -8,15 +8,15 @@ use crate::{
         access::AccessPlan,
         cursor::{ContinuationSignature, CursorPlanError, GroupedPlannedCursor, PlannedCursor},
         executor::{
-            ExecutionPreparation, ExecutorPlanError, LOWERED_INDEX_PREFIX_SPEC_INVALID,
-            LOWERED_INDEX_RANGE_SPEC_INVALID, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
+            ExecutionPreparation, ExecutorPlanError, GroupedPaginationWindow,
+            LOWERED_INDEX_PREFIX_SPEC_INVALID, LOWERED_INDEX_RANGE_SPEC_INVALID,
+            LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             explain::{
                 assemble_aggregate_terminal_execution_descriptor,
                 assemble_load_execution_node_descriptor,
                 assemble_load_execution_verbose_diagnostics,
             },
             lower_index_prefix_specs, lower_index_range_specs,
-            pipeline::grouped_runtime::GroupedPaginationWindow,
             traversal::row_read_consistency_for_plan,
             validate_executor_plan,
         },

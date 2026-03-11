@@ -7,7 +7,7 @@ use crate::{
     db::executor::{
         pipeline::contracts::{CursorPage, GroupedCursorPage, LoadExecutor},
         pipeline::orchestrator::{
-            LoadExecutionSurface, LoadMode, LoadTracingMode,
+            LoadExecutionSurface,
             state::{LoadExecutionPayload, LoadPayloadState},
         },
     },
@@ -23,24 +23,29 @@ where
     pub(super) fn apply_paging(
         mut state: LoadPayloadState<E>,
     ) -> Result<LoadPayloadState<E>, InternalError> {
-        let payload = match state.context.mode.mode {
-            LoadMode::ScalarRows => {
-                let mut page = Self::expect_scalar_payload(
-                    state.payload,
-                    "unpaged load execution mode must carry scalar payload",
-                )?;
-                // Unpaged scalar execution intentionally suppresses continuation payload.
-                page.next_cursor = None;
-                LoadExecutionPayload::Scalar(page)
-            }
-            LoadMode::ScalarPage => LoadExecutionPayload::Scalar(Self::expect_scalar_payload(
+        let execution_mode = state.context.mode;
+        let payload = if execution_mode.scalar_rows_mode() {
+            let mut page = Self::expect_scalar_payload(
+                state.payload,
+                "unpaged load execution mode must carry scalar payload",
+            )?;
+            // Unpaged scalar execution intentionally suppresses continuation payload.
+            page.next_cursor = None;
+            LoadExecutionPayload::Scalar(page)
+        } else if execution_mode.scalar_page_mode() {
+            LoadExecutionPayload::Scalar(Self::expect_scalar_payload(
                 state.payload,
                 "scalar page load mode must carry scalar payload",
-            )?),
-            LoadMode::GroupedPage => LoadExecutionPayload::Grouped(Self::expect_grouped_payload(
+            )?)
+        } else {
+            debug_assert!(
+                execution_mode.grouped_page_mode(),
+                "payload paging expects grouped mode for non-scalar load surfaces",
+            );
+            LoadExecutionPayload::Grouped(Self::expect_grouped_payload(
                 state.payload,
                 "grouped page load mode must carry grouped payload",
-            )?),
+            )?)
         };
         state.payload = payload;
 
@@ -49,7 +54,7 @@ where
 
     // Apply tracing contracts as a post-processing layer over staged artifacts.
     pub(super) const fn apply_tracing(mut state: LoadPayloadState<E>) -> LoadPayloadState<E> {
-        if matches!(state.context.mode.tracing, LoadTracingMode::Disabled) {
+        if !state.context.mode.tracing_enabled() {
             state.trace = None;
         }
 
@@ -60,38 +65,39 @@ where
     pub(super) fn materialize_surface(
         state: LoadPayloadState<E>,
     ) -> Result<LoadExecutionSurface<E>, InternalError> {
-        match state.context.mode.mode {
-            LoadMode::ScalarRows => {
-                let page = Self::expect_scalar_payload(
-                    state.payload,
-                    "rows load surface mode must carry scalar payload",
-                )?;
+        let execution_mode = state.context.mode;
+        if execution_mode.scalar_rows_mode() {
+            let page = Self::expect_scalar_payload(
+                state.payload,
+                "rows load surface mode must carry scalar payload",
+            )?;
 
-                Ok(LoadExecutionSurface::ScalarRows(page.items))
-            }
-            LoadMode::ScalarPage => {
-                let page = Self::expect_scalar_payload(
-                    state.payload,
-                    "scalar page load mode must carry scalar payload",
-                )?;
+            Ok(LoadExecutionSurface::ScalarRows(page.items))
+        } else if execution_mode.scalar_page_mode() {
+            let page = Self::expect_scalar_payload(
+                state.payload,
+                "scalar page load mode must carry scalar payload",
+            )?;
 
-                if matches!(state.context.mode.tracing, LoadTracingMode::Enabled) {
-                    Ok(LoadExecutionSurface::ScalarPageWithTrace(page, state.trace))
-                } else {
-                    Ok(LoadExecutionSurface::ScalarPage(page))
-                }
+            if execution_mode.tracing_enabled() {
+                Ok(LoadExecutionSurface::ScalarPageWithTrace(page, state.trace))
+            } else {
+                Ok(LoadExecutionSurface::ScalarPage(page))
             }
-            LoadMode::GroupedPage => {
-                let page = Self::expect_grouped_payload(
-                    state.payload,
-                    "grouped page load mode must carry grouped payload",
-                )?;
+        } else {
+            debug_assert!(
+                execution_mode.grouped_page_mode(),
+                "surface materialization expects grouped mode for non-scalar load surfaces",
+            );
+            let page = Self::expect_grouped_payload(
+                state.payload,
+                "grouped page load mode must carry grouped payload",
+            )?;
 
-                Ok(LoadExecutionSurface::GroupedPageWithTrace(
-                    page,
-                    state.trace,
-                ))
-            }
+            Ok(LoadExecutionSurface::GroupedPageWithTrace(
+                page,
+                state.trace,
+            ))
         }
     }
 

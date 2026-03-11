@@ -7,15 +7,13 @@ use crate::{
     db::{
         cursor::GroupedPlannedCursor,
         executor::{
-            ExecutablePlan, ExecutionTrace,
+            ExecutablePlan, ExecutionTrace, GroupedContinuationCapabilities,
+            GroupedContinuationContext,
             pipeline::contracts::{
                 GroupedPlannerPayload, GroupedRoutePayload, GroupedRouteStage, IndexSpecBundle,
                 LoadExecutor,
             },
-            pipeline::grouped_runtime::{
-                GroupedContinuationCapabilities, GroupedContinuationContext,
-                GroupedExecutionContext, GroupedRuntimeProjection,
-            },
+            pipeline::grouped_runtime::GroupedExecutionContext,
             route::RouteExecutionMode,
         },
     },
@@ -105,11 +103,9 @@ where
             },
             execution_context: GroupedExecutionContext::new(
                 continuation,
-                GroupedRuntimeProjection::new(
-                    direction,
-                    grouped_plan_metrics_strategy,
-                    execution_trace,
-                ),
+                direction,
+                grouped_plan_metrics_strategy,
+                execution_trace,
             ),
         })
     }

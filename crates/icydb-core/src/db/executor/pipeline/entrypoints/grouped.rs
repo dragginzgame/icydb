@@ -32,12 +32,8 @@ where
             cursor,
             LoadExecutionMode::grouped_paged(LoadTracingMode::Enabled),
         )?;
-        match surface {
-            LoadExecutionSurface::GroupedPageWithTrace(page, trace) => Ok((page, trace)),
-            _ => Err(crate::db::error::query_executor_invariant(
-                "grouped traced entrypoint must produce grouped traced page surface",
-            )),
-        }
+
+        Self::expect_grouped_traced_surface(surface)
     }
 
     // Grouped execution spine:
@@ -62,5 +58,17 @@ where
             folded,
             execution_time_micros,
         ))
+    }
+
+    // Project one traced grouped load surface and classify shape mismatches.
+    fn expect_grouped_traced_surface(
+        surface: LoadExecutionSurface<E>,
+    ) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), InternalError> {
+        match surface {
+            LoadExecutionSurface::GroupedPageWithTrace(page, trace) => Ok((page, trace)),
+            _ => Err(crate::db::error::query_executor_invariant(
+                "grouped traced entrypoint must produce grouped traced page surface",
+            )),
+        }
     }
 }
