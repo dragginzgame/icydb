@@ -1037,6 +1037,87 @@ mod tests {
     }
 
     #[test]
+    fn compile_sql_command_select_grouped_aggregate_parity_matches_query_and_executable_identity() {
+        // Phase 1: lower equivalent grouped SQL and fluent grouped intents.
+        let sql_command = compile_sql_command::<SqlLowerEntity>(
+            "SELECT age, COUNT(*) \
+             FROM SqlLowerEntity \
+             WHERE age >= 21 \
+             GROUP BY age \
+             ORDER BY age DESC LIMIT 3 OFFSET 1",
+            MissingRowPolicy::Ignore,
+        )
+        .expect("grouped aggregate SQL query should lower");
+        let SqlCommand::Query(sql_query) = sql_command else {
+            panic!("expected lowered grouped SQL query command");
+        };
+        let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+            .filter(Predicate::Compare(ComparePredicate::with_coercion(
+                "age",
+                CompareOp::Gte,
+                Value::Int(21),
+                CoercionId::NumericWiden,
+            )))
+            .group_by("age")
+            .expect("fluent grouped query should accept grouped field")
+            .aggregate(crate::db::count())
+            .order_by_desc("age")
+            .limit(3)
+            .offset(1);
+
+        // Phase 2: assert canonical planned identity + fingerprint parity.
+        let sql_compiled = sql_query.plan().expect("grouped SQL plan should build");
+        let fluent_compiled = fluent_query
+            .plan()
+            .expect("fluent grouped plan should build");
+        assert_eq!(
+            sql_compiled.into_inner(),
+            fluent_compiled.into_inner(),
+            "grouped SQL lowering and fluent grouped query must produce identical normalized planned intent",
+        );
+        assert_eq!(
+            sql_query
+                .plan_hash_hex()
+                .expect("grouped SQL plan hash should build"),
+            fluent_query
+                .plan_hash_hex()
+                .expect("fluent grouped plan hash should build"),
+            "equivalent grouped SQL and fluent grouped queries must produce identical fingerprints",
+        );
+
+        // Phase 3: assert executable-contract parity at route/runtime planning boundary.
+        let sql_executable =
+            ExecutablePlan::from(sql_query.plan().expect("grouped SQL executable plan"));
+        let fluent_executable =
+            ExecutablePlan::from(fluent_query.plan().expect("fluent grouped executable plan"));
+        assert_eq!(sql_executable.mode(), fluent_executable.mode());
+        assert_eq!(sql_executable.is_grouped(), fluent_executable.is_grouped());
+        assert_eq!(sql_executable.access(), fluent_executable.access());
+        assert_eq!(
+            sql_executable.consistency(),
+            fluent_executable.consistency()
+        );
+        assert_eq!(
+            sql_executable
+                .execution_strategy()
+                .expect("grouped SQL execution strategy"),
+            fluent_executable
+                .execution_strategy()
+                .expect("fluent grouped execution strategy"),
+            "equivalent grouped SQL and fluent grouped queries must produce identical executable strategy",
+        );
+        assert_eq!(
+            sql_executable
+                .execution_ordering()
+                .expect("grouped SQL execution ordering"),
+            fluent_executable
+                .execution_ordering()
+                .expect("fluent grouped execution ordering"),
+            "equivalent grouped SQL and fluent grouped queries must produce identical executable ordering",
+        );
+    }
+
+    #[test]
     fn compile_sql_command_select_field_projection_parity_matches_query_and_executable_identity() {
         // Phase 1: lower equivalent SQL and fluent field-list intents.
         let sql_command = compile_sql_command::<SqlLowerEntity>(
@@ -1258,6 +1339,95 @@ mod tests {
                 .plan_hash_hex()
                 .expect("fluent base query plan hash should build"),
             "global aggregate SQL lowering should preserve deterministic base query fingerprint semantics",
+        );
+    }
+
+    #[test]
+    fn compile_sql_global_aggregate_command_parity_matches_fluent_query_and_executable_identity() {
+        // Phase 1: lower equivalent global aggregate SQL and fluent scalar base query intent.
+        let sql_command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+            "SELECT SUM(age) \
+             FROM SqlLowerEntity \
+             WHERE age >= 21 \
+             ORDER BY age DESC LIMIT 3 OFFSET 1",
+            MissingRowPolicy::Ignore,
+        )
+        .expect("global aggregate SQL should lower");
+        let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+            .filter(Predicate::Compare(ComparePredicate::with_coercion(
+                "age",
+                CompareOp::Gte,
+                Value::Int(21),
+                CoercionId::NumericWiden,
+            )))
+            .order_by_desc("age")
+            .limit(3)
+            .offset(1);
+
+        // Phase 2: assert aggregate-terminal contract and canonical planned identity + fingerprint parity.
+        assert!(
+            matches!(
+                sql_command.terminal(),
+                SqlGlobalAggregateTerminal::SumField(field) if field == "age"
+            ),
+            "global aggregate SQL SUM terminal should preserve canonical target field",
+        );
+        let sql_compiled = sql_command
+            .query()
+            .plan()
+            .expect("global aggregate SQL base query plan should build");
+        let fluent_compiled = fluent_query
+            .plan()
+            .expect("fluent scalar base query plan should build");
+        assert_eq!(
+            sql_compiled.into_inner(),
+            fluent_compiled.into_inner(),
+            "global aggregate SQL base query lowering and fluent scalar query must produce identical normalized planned intent",
+        );
+        assert_eq!(
+            sql_command
+                .query()
+                .plan_hash_hex()
+                .expect("global aggregate SQL base query plan hash should build"),
+            fluent_query
+                .plan_hash_hex()
+                .expect("fluent scalar base query plan hash should build"),
+            "equivalent global aggregate SQL base query and fluent scalar query must produce identical fingerprints",
+        );
+
+        // Phase 3: assert executable-contract parity at route/runtime planning boundary.
+        let sql_executable = ExecutablePlan::from(
+            sql_command
+                .query()
+                .plan()
+                .expect("global aggregate SQL base executable plan"),
+        );
+        let fluent_executable =
+            ExecutablePlan::from(fluent_query.plan().expect("fluent scalar executable plan"));
+        assert_eq!(sql_executable.mode(), fluent_executable.mode());
+        assert_eq!(sql_executable.is_grouped(), fluent_executable.is_grouped());
+        assert_eq!(sql_executable.access(), fluent_executable.access());
+        assert_eq!(
+            sql_executable.consistency(),
+            fluent_executable.consistency()
+        );
+        assert_eq!(
+            sql_executable
+                .execution_strategy()
+                .expect("global aggregate SQL base execution strategy"),
+            fluent_executable
+                .execution_strategy()
+                .expect("fluent scalar execution strategy"),
+            "equivalent global aggregate SQL base query and fluent scalar query must produce identical executable strategy",
+        );
+        assert_eq!(
+            sql_executable
+                .execution_ordering()
+                .expect("global aggregate SQL base execution ordering"),
+            fluent_executable
+                .execution_ordering()
+                .expect("fluent scalar execution ordering"),
+            "equivalent global aggregate SQL base query and fluent scalar query must produce identical executable ordering",
         );
     }
 

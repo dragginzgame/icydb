@@ -1029,6 +1029,45 @@ mod tests {
         DbSession::new(SESSION_SQL_DB)
     }
 
+    // Seed one deterministic SQL fixture dataset used by matrix tests.
+    fn seed_session_sql_entities(
+        session: &DbSession<SessionSqlCanister>,
+        rows: &[(&'static str, u64)],
+    ) {
+        for (name, age) in rows {
+            session
+                .insert(SessionSqlEntity {
+                    id: Ulid::generate(),
+                    name: (*name).to_string(),
+                    age: *age,
+                })
+                .expect("seed insert should succeed");
+        }
+    }
+
+    // Execute one scalar SQL query and return `(name, age)` tuples in response order.
+    fn execute_sql_name_age_rows(
+        session: &DbSession<SessionSqlCanister>,
+        sql: &str,
+    ) -> Vec<(String, u64)> {
+        session
+            .execute_sql::<SessionSqlEntity>(sql)
+            .expect("scalar SQL execution should succeed")
+            .iter()
+            .map(|row| (row.entity_ref().name.clone(), row.entity_ref().age))
+            .collect()
+    }
+
+    // Assert one explain payload contains every required token for one case.
+    fn assert_explain_contains_tokens(explain: &str, tokens: &[&str], context: &str) {
+        for token in tokens {
+            assert!(
+                explain.contains(token),
+                "explain matrix case missing token `{token}`: {context}",
+            );
+        }
+    }
+
     // Assert query-surface cursor errors remain wrapped under QueryError::Plan(PlanError::Cursor).
     fn assert_query_error_is_cursor_plan(
         err: QueryError,
@@ -1222,6 +1261,72 @@ mod tests {
     }
 
     #[test]
+    fn execute_sql_scalar_matrix_queries_match_expected_rows() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        // Phase 1: seed deterministic rows for scalar matrix cases.
+        seed_session_sql_entities(
+            &session,
+            &[
+                ("scalar-matrix-a", 10),
+                ("scalar-matrix-b", 20),
+                ("scalar-matrix-c", 30),
+                ("scalar-matrix-d", 40),
+            ],
+        );
+
+        // Phase 2: execute table-driven scalar SQL cases.
+        let cases = vec![
+            (
+                "SELECT * \
+                 FROM SessionSqlEntity \
+                 ORDER BY age DESC LIMIT 2 OFFSET 1",
+                vec![
+                    ("scalar-matrix-c".to_string(), 30_u64),
+                    ("scalar-matrix-b".to_string(), 20_u64),
+                ],
+            ),
+            (
+                "SELECT * \
+                 FROM SessionSqlEntity \
+                 WHERE age >= 20 \
+                 ORDER BY age ASC LIMIT 2",
+                vec![
+                    ("scalar-matrix-b".to_string(), 20_u64),
+                    ("scalar-matrix-c".to_string(), 30_u64),
+                ],
+            ),
+            (
+                "SELECT DISTINCT * \
+                 FROM SessionSqlEntity \
+                 WHERE age >= 30 \
+                 ORDER BY age DESC",
+                vec![
+                    ("scalar-matrix-d".to_string(), 40_u64),
+                    ("scalar-matrix-c".to_string(), 30_u64),
+                ],
+            ),
+            (
+                "SELECT * \
+                 FROM public.SessionSqlEntity \
+                 WHERE age < 25 \
+                 ORDER BY age ASC",
+                vec![
+                    ("scalar-matrix-a".to_string(), 10_u64),
+                    ("scalar-matrix-b".to_string(), 20_u64),
+                ],
+            ),
+        ];
+
+        // Phase 3: assert scalar row payload order and values for each query.
+        for (sql, expected_rows) in cases {
+            let actual_rows = execute_sql_name_age_rows(&session, sql);
+            assert_eq!(actual_rows, expected_rows, "scalar matrix case: {sql}");
+        }
+    }
+
+    #[test]
     fn execute_sql_delete_honors_predicate_order_and_limit() {
         reset_session_sql_store();
         let session = sql_session();
@@ -1281,6 +1386,83 @@ mod tests {
             vec![17, 42],
             "delete window semantics should preserve non-deleted rows",
         );
+    }
+
+    #[test]
+    fn execute_sql_delete_matrix_queries_match_deleted_and_remaining_rows() {
+        // Phase 1: define one shared seed dataset and table-driven DELETE cases.
+        let seed_rows = [
+            ("delete-matrix-a", 10_u64),
+            ("delete-matrix-b", 20_u64),
+            ("delete-matrix-c", 30_u64),
+            ("delete-matrix-d", 40_u64),
+        ];
+        let cases = vec![
+            (
+                "DELETE FROM SessionSqlEntity \
+                 WHERE age >= 20 \
+                 ORDER BY age ASC LIMIT 1",
+                vec![("delete-matrix-b".to_string(), 20_u64)],
+                vec![
+                    ("delete-matrix-a".to_string(), 10_u64),
+                    ("delete-matrix-c".to_string(), 30_u64),
+                    ("delete-matrix-d".to_string(), 40_u64),
+                ],
+            ),
+            (
+                "DELETE FROM SessionSqlEntity \
+                 WHERE age >= 20 \
+                 ORDER BY age DESC LIMIT 2",
+                vec![
+                    ("delete-matrix-d".to_string(), 40_u64),
+                    ("delete-matrix-c".to_string(), 30_u64),
+                ],
+                vec![
+                    ("delete-matrix-a".to_string(), 10_u64),
+                    ("delete-matrix-b".to_string(), 20_u64),
+                ],
+            ),
+            (
+                "DELETE FROM SessionSqlEntity \
+                 WHERE age >= 100 \
+                 ORDER BY age ASC LIMIT 1",
+                vec![],
+                vec![
+                    ("delete-matrix-a".to_string(), 10_u64),
+                    ("delete-matrix-b".to_string(), 20_u64),
+                    ("delete-matrix-c".to_string(), 30_u64),
+                    ("delete-matrix-d".to_string(), 40_u64),
+                ],
+            ),
+        ];
+
+        // Phase 2: execute each DELETE case from a fresh seeded store.
+        for (sql, expected_deleted, expected_remaining) in cases {
+            reset_session_sql_store();
+            let session = sql_session();
+            seed_session_sql_entities(&session, &seed_rows);
+
+            let deleted = session
+                .execute_sql::<SessionSqlEntity>(sql)
+                .expect("delete matrix SQL execution should succeed");
+            let deleted_rows = deleted
+                .iter()
+                .map(|row| (row.entity_ref().name.clone(), row.entity_ref().age))
+                .collect::<Vec<_>>();
+            let remaining_rows = execute_sql_name_age_rows(
+                &session,
+                "SELECT * FROM SessionSqlEntity ORDER BY age ASC",
+            );
+
+            assert_eq!(
+                deleted_rows, expected_deleted,
+                "delete matrix deleted rows: {sql}"
+            );
+            assert_eq!(
+                remaining_rows, expected_remaining,
+                "delete matrix remaining rows: {sql}",
+            );
+        }
     }
 
     #[test]
@@ -1578,6 +1760,69 @@ mod tests {
         assert_eq!(
             row.values(),
             [Value::Text("qualified-projection".to_string())]
+        );
+    }
+
+    #[test]
+    fn execute_sql_projection_select_field_list_honors_order_limit_offset_window() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        // Phase 1: seed deterministic age-ordered rows.
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "projection-window-a".to_string(),
+                age: 10,
+            })
+            .expect("seed insert should succeed");
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "projection-window-b".to_string(),
+                age: 20,
+            })
+            .expect("seed insert should succeed");
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "projection-window-c".to_string(),
+                age: 30,
+            })
+            .expect("seed insert should succeed");
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "projection-window-d".to_string(),
+                age: 40,
+            })
+            .expect("seed insert should succeed");
+
+        // Phase 2: execute one projection query with explicit window controls.
+        let response = session
+            .execute_sql_projection::<SessionSqlEntity>(
+                "SELECT name, age \
+                 FROM SessionSqlEntity \
+                 ORDER BY age DESC LIMIT 2 OFFSET 1",
+            )
+            .expect("projection SQL window execution should succeed");
+        let rows = response.iter().collect::<Vec<_>>();
+
+        // Phase 3: assert projected row payloads follow ordered window semantics.
+        assert_eq!(response.count(), 2);
+        assert_eq!(
+            rows[0].values(),
+            [
+                Value::Text("projection-window-c".to_string()),
+                Value::Uint(30)
+            ],
+        );
+        assert_eq!(
+            rows[1].values(),
+            [
+                Value::Text("projection-window-b".to_string()),
+                Value::Uint(20)
+            ],
         );
     }
 
@@ -1944,6 +2189,252 @@ mod tests {
     }
 
     #[test]
+    fn execute_sql_aggregate_offset_beyond_window_returns_empty_aggregate_semantics() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        // Phase 1: seed a small scalar window.
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "beyond-window-a".to_string(),
+                age: 10,
+            })
+            .expect("seed insert should succeed");
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "beyond-window-b".to_string(),
+                age: 20,
+            })
+            .expect("seed insert should succeed");
+
+        // Phase 2: execute aggregates where OFFSET removes all visible rows.
+        let count = session
+            .execute_sql_aggregate::<SessionSqlEntity>(
+                "SELECT COUNT(*) FROM SessionSqlEntity ORDER BY age ASC LIMIT 1 OFFSET 10",
+            )
+            .expect("COUNT(*) aggregate with offset beyond window should execute");
+        let sum = session
+            .execute_sql_aggregate::<SessionSqlEntity>(
+                "SELECT SUM(age) FROM SessionSqlEntity ORDER BY age ASC LIMIT 1 OFFSET 10",
+            )
+            .expect("SUM aggregate with offset beyond window should execute");
+        let avg = session
+            .execute_sql_aggregate::<SessionSqlEntity>(
+                "SELECT AVG(age) FROM SessionSqlEntity ORDER BY age ASC LIMIT 1 OFFSET 10",
+            )
+            .expect("AVG aggregate with offset beyond window should execute");
+        let min = session
+            .execute_sql_aggregate::<SessionSqlEntity>(
+                "SELECT MIN(age) FROM SessionSqlEntity ORDER BY age ASC LIMIT 1 OFFSET 10",
+            )
+            .expect("MIN aggregate with offset beyond window should execute");
+        let max = session
+            .execute_sql_aggregate::<SessionSqlEntity>(
+                "SELECT MAX(age) FROM SessionSqlEntity ORDER BY age ASC LIMIT 1 OFFSET 10",
+            )
+            .expect("MAX aggregate with offset beyond window should execute");
+
+        // Phase 3: assert empty-window aggregate semantics.
+        assert_eq!(count, Value::Uint(0));
+        assert_eq!(sum, Value::Null);
+        assert_eq!(avg, Value::Null);
+        assert_eq!(min, Value::Null);
+        assert_eq!(max, Value::Null);
+    }
+
+    #[test]
+    fn execute_sql_projection_matrix_queries_match_expected_projected_rows() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        // Phase 1: seed deterministic rows used by matrix projections.
+        seed_session_sql_entities(
+            &session,
+            &[
+                ("matrix-a", 10),
+                ("matrix-b", 20),
+                ("matrix-c", 30),
+                ("matrix-d", 40),
+            ],
+        );
+
+        // Phase 2: execute table-driven projection SQL cases.
+        let cases = vec![
+            (
+                "SELECT name, age \
+                 FROM SessionSqlEntity \
+                 ORDER BY age DESC LIMIT 2 OFFSET 1",
+                vec![
+                    vec![Value::Text("matrix-c".to_string()), Value::Uint(30)],
+                    vec![Value::Text("matrix-b".to_string()), Value::Uint(20)],
+                ],
+            ),
+            (
+                "SELECT age \
+                 FROM SessionSqlEntity \
+                 WHERE age >= 20 \
+                 ORDER BY age ASC LIMIT 2",
+                vec![vec![Value::Uint(20)], vec![Value::Uint(30)]],
+            ),
+            (
+                "SELECT name \
+                 FROM SessionSqlEntity \
+                 WHERE age < 25 \
+                 ORDER BY age ASC",
+                vec![
+                    vec![Value::Text("matrix-a".to_string())],
+                    vec![Value::Text("matrix-b".to_string())],
+                ],
+            ),
+        ];
+
+        // Phase 3: assert projected row payloads for each SQL input.
+        for (sql, expected_rows) in cases {
+            let response = session
+                .execute_sql_projection::<SessionSqlEntity>(sql)
+                .expect("projection matrix SQL execution should succeed");
+            let actual_rows = response
+                .iter()
+                .map(|row| row.values().to_vec())
+                .collect::<Vec<_>>();
+
+            assert_eq!(actual_rows, expected_rows, "projection matrix case: {sql}");
+        }
+    }
+
+    #[test]
+    fn execute_sql_grouped_matrix_queries_match_expected_grouped_rows() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        // Phase 1: seed deterministic rows used by grouped matrix queries.
+        seed_session_sql_entities(
+            &session,
+            &[
+                ("group-matrix-a", 10),
+                ("group-matrix-b", 10),
+                ("group-matrix-c", 20),
+                ("group-matrix-d", 30),
+                ("group-matrix-e", 30),
+                ("group-matrix-f", 30),
+            ],
+        );
+
+        // Phase 2: execute table-driven grouped SQL cases.
+        let cases = vec![
+            (
+                "SELECT age, COUNT(*) \
+                 FROM SessionSqlEntity \
+                 GROUP BY age \
+                 ORDER BY age ASC LIMIT 10",
+                vec![(10_u64, 2_u64), (20_u64, 1_u64), (30_u64, 3_u64)],
+            ),
+            (
+                "SELECT age, COUNT(*) \
+                 FROM SessionSqlEntity \
+                 WHERE age >= 20 \
+                 GROUP BY age \
+                 ORDER BY age ASC LIMIT 10",
+                vec![(20_u64, 1_u64), (30_u64, 3_u64)],
+            ),
+            (
+                "SELECT SessionSqlEntity.age, COUNT(*) \
+                 FROM public.SessionSqlEntity \
+                 WHERE SessionSqlEntity.age >= 20 \
+                 GROUP BY SessionSqlEntity.age \
+                 ORDER BY SessionSqlEntity.age ASC LIMIT 10",
+                vec![(20_u64, 1_u64), (30_u64, 3_u64)],
+            ),
+        ];
+
+        // Phase 3: assert grouped row payloads for each SQL input.
+        for (sql, expected_rows) in cases {
+            let execution = session
+                .execute_sql_grouped::<SessionSqlEntity>(sql, None)
+                .expect("grouped matrix SQL execution should succeed");
+            let actual_rows = execution
+                .rows()
+                .iter()
+                .map(|row| {
+                    (
+                        row.group_key()[0].clone(),
+                        row.aggregate_values()[0].clone(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            let expected_values = expected_rows
+                .iter()
+                .map(|(group_key, count)| (Value::Uint(*group_key), Value::Uint(*count)))
+                .collect::<Vec<_>>();
+
+            assert!(
+                execution.continuation_cursor().is_none(),
+                "grouped matrix cases should fully materialize under LIMIT 10: {sql}",
+            );
+            assert_eq!(actual_rows, expected_values, "grouped matrix case: {sql}");
+        }
+    }
+
+    #[test]
+    fn execute_sql_aggregate_matrix_queries_match_expected_values() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        // Phase 1: seed deterministic rows used by aggregate matrix queries.
+        seed_session_sql_entities(
+            &session,
+            &[
+                ("agg-matrix-a", 10),
+                ("agg-matrix-b", 10),
+                ("agg-matrix-c", 20),
+                ("agg-matrix-d", 30),
+                ("agg-matrix-e", 30),
+                ("agg-matrix-f", 30),
+            ],
+        );
+
+        // Phase 2: execute table-driven aggregate SQL cases.
+        let cases = vec![
+            ("SELECT COUNT(*) FROM SessionSqlEntity", Value::Uint(6)),
+            (
+                "SELECT SUM(age) FROM SessionSqlEntity",
+                Value::Decimal(crate::types::Decimal::from(130_u64)),
+            ),
+            (
+                "SELECT AVG(age) FROM SessionSqlEntity ORDER BY age DESC LIMIT 2",
+                Value::Decimal(crate::types::Decimal::from(30_u64)),
+            ),
+            (
+                "SELECT MIN(age) FROM SessionSqlEntity WHERE age >= 20",
+                Value::Uint(20),
+            ),
+            (
+                "SELECT MAX(age) FROM SessionSqlEntity WHERE age <= 20",
+                Value::Uint(20),
+            ),
+            (
+                "SELECT COUNT(*) FROM SessionSqlEntity WHERE age < 0",
+                Value::Uint(0),
+            ),
+            (
+                "SELECT SUM(age) FROM SessionSqlEntity WHERE age < 0",
+                Value::Null,
+            ),
+        ];
+
+        // Phase 3: assert aggregate outputs for each SQL input.
+        for (sql, expected_value) in cases {
+            let actual_value = session
+                .execute_sql_aggregate::<SessionSqlEntity>(sql)
+                .expect("aggregate matrix SQL execution should succeed");
+
+            assert_eq!(actual_value, expected_value, "aggregate matrix case: {sql}");
+        }
+    }
+
+    #[test]
     fn execute_sql_aggregate_rejects_unsupported_aggregate_shapes() {
         reset_session_sql_store();
         let session = sql_session();
@@ -2103,6 +2594,171 @@ mod tests {
     }
 
     #[test]
+    fn execute_sql_grouped_limit_window_emits_cursor_and_resumes_next_group_page() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        // Phase 1: seed three grouped-key buckets with deterministic counts.
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "group-page-a".to_string(),
+                age: 10,
+            })
+            .expect("seed insert should succeed");
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "group-page-b".to_string(),
+                age: 10,
+            })
+            .expect("seed insert should succeed");
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "group-page-c".to_string(),
+                age: 20,
+            })
+            .expect("seed insert should succeed");
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "group-page-d".to_string(),
+                age: 30,
+            })
+            .expect("seed insert should succeed");
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "group-page-e".to_string(),
+                age: 30,
+            })
+            .expect("seed insert should succeed");
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "group-page-f".to_string(),
+                age: 30,
+            })
+            .expect("seed insert should succeed");
+
+        // Phase 2: execute the first grouped page and capture continuation cursor.
+        let sql = "SELECT age, COUNT(*) \
+                   FROM SessionSqlEntity \
+                   GROUP BY age \
+                   ORDER BY age ASC LIMIT 1";
+        let first_page = session
+            .execute_sql_grouped::<SessionSqlEntity>(sql, None)
+            .expect("first grouped SQL page should execute");
+        assert_eq!(first_page.rows().len(), 1);
+        assert_eq!(first_page.rows()[0].group_key(), [Value::Uint(10)]);
+        assert_eq!(first_page.rows()[0].aggregate_values(), [Value::Uint(2)]);
+        let cursor_one = crate::db::encode_cursor(
+            first_page
+                .continuation_cursor()
+                .expect("first grouped SQL page should emit continuation cursor"),
+        );
+
+        // Phase 3: resume to second grouped page and capture next cursor.
+        let second_page = session
+            .execute_sql_grouped::<SessionSqlEntity>(sql, Some(cursor_one.as_str()))
+            .expect("second grouped SQL page should execute");
+        assert_eq!(second_page.rows().len(), 1);
+        assert_eq!(second_page.rows()[0].group_key(), [Value::Uint(20)]);
+        assert_eq!(second_page.rows()[0].aggregate_values(), [Value::Uint(1)]);
+        let cursor_two = crate::db::encode_cursor(
+            second_page
+                .continuation_cursor()
+                .expect("second grouped SQL page should emit continuation cursor"),
+        );
+
+        // Phase 4: resume final grouped page and assert no further continuation.
+        let third_page = session
+            .execute_sql_grouped::<SessionSqlEntity>(sql, Some(cursor_two.as_str()))
+            .expect("third grouped SQL page should execute");
+        assert_eq!(third_page.rows().len(), 1);
+        assert_eq!(third_page.rows()[0].group_key(), [Value::Uint(30)]);
+        assert_eq!(third_page.rows()[0].aggregate_values(), [Value::Uint(3)]);
+        assert!(
+            third_page.continuation_cursor().is_none(),
+            "last grouped SQL page should not emit continuation cursor",
+        );
+    }
+
+    #[test]
+    fn execute_sql_grouped_rejects_invalid_cursor_token_payload() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        // Phase 1: execute one grouped query with an invalid cursor token payload.
+        let err = session
+            .execute_sql_grouped::<SessionSqlEntity>(
+                "SELECT age, COUNT(*) \
+                 FROM SessionSqlEntity \
+                 GROUP BY age \
+                 ORDER BY age ASC LIMIT 1",
+                Some("zz"),
+            )
+            .expect_err("grouped SQL should fail closed on invalid cursor token payload");
+
+        // Phase 2: assert decode failures stay in cursor-plan error taxonomy.
+        assert_query_error_is_cursor_plan(err, |inner| {
+            matches!(inner, CursorPlanError::InvalidContinuationCursor { .. })
+        });
+    }
+
+    #[test]
+    fn execute_sql_grouped_rejects_cursor_token_from_different_query_signature() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        // Phase 1: seed grouped buckets and capture one valid continuation cursor.
+        seed_session_sql_entities(
+            &session,
+            &[
+                ("cursor-signature-a", 10),
+                ("cursor-signature-b", 20),
+                ("cursor-signature-c", 30),
+            ],
+        );
+        let first_page = session
+            .execute_sql_grouped::<SessionSqlEntity>(
+                "SELECT age, COUNT(*) \
+                 FROM SessionSqlEntity \
+                 GROUP BY age \
+                 ORDER BY age ASC LIMIT 1",
+                None,
+            )
+            .expect("first grouped SQL page should execute");
+        let cursor = crate::db::encode_cursor(
+            first_page
+                .continuation_cursor()
+                .expect("first grouped SQL page should emit continuation cursor"),
+        );
+
+        // Phase 2: replay cursor against a signature-incompatible grouped SQL shape.
+        let err = session
+            .execute_sql_grouped::<SessionSqlEntity>(
+                "SELECT age, COUNT(*) \
+                 FROM SessionSqlEntity \
+                 GROUP BY age \
+                 ORDER BY age DESC LIMIT 1",
+                Some(cursor.as_str()),
+            )
+            .expect_err(
+                "grouped SQL should reject cursor tokens from incompatible query signatures",
+            );
+
+        // Phase 3: assert mismatch stays in cursor-plan signature error taxonomy.
+        assert_query_error_is_cursor_plan(err, |inner| {
+            matches!(
+                inner,
+                CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+            )
+        });
+    }
+
+    #[test]
     fn execute_sql_grouped_rejects_scalar_sql_intent() {
         reset_session_sql_store();
         let session = sql_session();
@@ -2162,6 +2818,125 @@ mod tests {
             ),
             "unsupported grouped SQL projection shapes should fail at reduced lowering boundary",
         );
+    }
+
+    #[test]
+    fn explain_sql_plan_matrix_queries_include_expected_tokens() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        // Phase 1: define table-driven EXPLAIN plan SQL cases.
+        let cases = vec![
+            (
+                "EXPLAIN SELECT * FROM SessionSqlEntity ORDER BY age LIMIT 1",
+                vec!["mode=Load", "access="],
+            ),
+            (
+                "EXPLAIN SELECT DISTINCT * FROM SessionSqlEntity ORDER BY id ASC",
+                vec!["mode=Load", "distinct=true"],
+            ),
+            (
+                "EXPLAIN SELECT age, COUNT(*) \
+                 FROM SessionSqlEntity \
+                 GROUP BY age \
+                 ORDER BY age ASC LIMIT 10",
+                vec!["mode=Load", "grouping=Grouped"],
+            ),
+            (
+                "EXPLAIN DELETE FROM SessionSqlEntity ORDER BY age LIMIT 1",
+                vec!["mode=Delete", "access="],
+            ),
+            (
+                "EXPLAIN SELECT COUNT(*) FROM SessionSqlEntity",
+                vec!["mode=Load", "access="],
+            ),
+        ];
+
+        // Phase 2: execute each EXPLAIN plan query and assert stable output tokens.
+        for (sql, tokens) in cases {
+            let explain = session
+                .explain_sql::<SessionSqlEntity>(sql)
+                .expect("EXPLAIN plan matrix query should succeed");
+            assert_explain_contains_tokens(explain.as_str(), tokens.as_slice(), sql);
+        }
+    }
+
+    #[test]
+    fn explain_sql_execution_matrix_queries_include_expected_tokens() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        // Phase 1: define table-driven EXPLAIN EXECUTION SQL cases.
+        let cases = vec![
+            (
+                "EXPLAIN EXECUTION SELECT * FROM SessionSqlEntity ORDER BY age LIMIT 1",
+                vec!["node_id=0", "layer="],
+            ),
+            (
+                "EXPLAIN EXECUTION SELECT age, COUNT(*) \
+                 FROM SessionSqlEntity \
+                 GROUP BY age \
+                 ORDER BY age ASC LIMIT 10",
+                vec!["node_id=0", "execution_mode="],
+            ),
+            (
+                "EXPLAIN EXECUTION SELECT COUNT(*) FROM SessionSqlEntity",
+                vec!["AggregateCount execution_mode=", "node_id=0"],
+            ),
+        ];
+
+        // Phase 2: execute each EXPLAIN EXECUTION query and assert stable output tokens.
+        for (sql, tokens) in cases {
+            let explain = session
+                .explain_sql::<SessionSqlEntity>(sql)
+                .expect("EXPLAIN EXECUTION matrix query should succeed");
+            assert_explain_contains_tokens(explain.as_str(), tokens.as_slice(), sql);
+        }
+    }
+
+    #[test]
+    fn explain_sql_json_matrix_queries_include_expected_tokens() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        // Phase 1: define table-driven EXPLAIN JSON SQL cases.
+        let cases = vec![
+            (
+                "EXPLAIN JSON SELECT * FROM SessionSqlEntity ORDER BY age LIMIT 1",
+                vec!["\"mode\":{\"type\":\"Load\"", "\"access\":"],
+            ),
+            (
+                "EXPLAIN JSON SELECT DISTINCT * FROM SessionSqlEntity ORDER BY id ASC",
+                vec!["\"mode\":{\"type\":\"Load\"", "\"distinct\":true"],
+            ),
+            (
+                "EXPLAIN JSON SELECT age, COUNT(*) \
+                 FROM SessionSqlEntity \
+                 GROUP BY age \
+                 ORDER BY age ASC LIMIT 10",
+                vec!["\"mode\":{\"type\":\"Load\"", "\"grouping\""],
+            ),
+            (
+                "EXPLAIN JSON DELETE FROM SessionSqlEntity ORDER BY age LIMIT 1",
+                vec!["\"mode\":{\"type\":\"Delete\"", "\"access\":"],
+            ),
+            (
+                "EXPLAIN JSON SELECT COUNT(*) FROM SessionSqlEntity",
+                vec!["\"mode\":{\"type\":\"Load\"", "\"access\":"],
+            ),
+        ];
+
+        // Phase 2: execute each EXPLAIN JSON query and assert stable output tokens.
+        for (sql, tokens) in cases {
+            let explain = session
+                .explain_sql::<SessionSqlEntity>(sql)
+                .expect("EXPLAIN JSON matrix query should succeed");
+            assert!(
+                explain.starts_with('{') && explain.ends_with('}'),
+                "explain JSON matrix output should be one JSON object payload: {sql}",
+            );
+            assert_explain_contains_tokens(explain.as_str(), tokens.as_slice(), sql);
+        }
     }
 
     #[test]

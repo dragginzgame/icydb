@@ -472,6 +472,16 @@ mod tests {
         DbSession::new(core_session)
     }
 
+    fn reset_facade_sql_store() {
+        FACADE_SQL_DATA_STORE.with(|store| store.borrow_mut().clear());
+        FACADE_SQL_INDEX_STORE.with(|store| store.borrow_mut().clear());
+    }
+
+    fn fresh_facade_session() -> DbSession<FacadeSqlCanister> {
+        reset_facade_sql_store();
+        facade_session()
+    }
+
     fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 3] {
         [
             (
@@ -498,9 +508,175 @@ mod tests {
         }
     }
 
+    fn assert_explain_contains_tokens(explain: &str, tokens: &[&str], context: &str) {
+        for token in tokens {
+            assert!(
+                explain.contains(token),
+                "facade explain matrix case missing token `{token}`: {context}",
+            );
+        }
+    }
+
+    #[test]
+    fn facade_query_from_sql_matrix_lowers_expected_modes_and_grouping() {
+        let session = fresh_facade_session();
+
+        // Phase 1: define SQL matrix inputs and expected shape contracts.
+        let cases = vec![
+            (
+                "SELECT * FROM FacadeSqlEntity ORDER BY age ASC LIMIT 1",
+                true,
+                false,
+            ),
+            (
+                "DELETE FROM FacadeSqlEntity ORDER BY age ASC LIMIT 1",
+                false,
+                false,
+            ),
+            (
+                "SELECT age, COUNT(*) \
+                 FROM FacadeSqlEntity \
+                 GROUP BY age \
+                 ORDER BY age ASC LIMIT 10",
+                true,
+                true,
+            ),
+        ];
+
+        // Phase 2: compile SQL to query intent and assert mode/grouping contracts.
+        for (sql, expect_load_mode, expect_grouped) in cases {
+            let query = session
+                .query_from_sql::<FacadeSqlEntity>(sql)
+                .expect("facade query_from_sql matrix case should lower");
+            let is_load_mode = matches!(query.mode(), core::db::QueryMode::Load(_));
+            let explain = query
+                .explain()
+                .expect("facade query_from_sql matrix explain should build")
+                .render_text_canonical();
+            let is_grouped = explain.contains("grouping=Grouped");
+
+            assert_eq!(
+                is_load_mode, expect_load_mode,
+                "facade query mode case: {sql}"
+            );
+            assert_eq!(
+                is_grouped, expect_grouped,
+                "facade query grouping case: {sql}"
+            );
+        }
+    }
+
+    #[test]
+    fn facade_explain_sql_plan_matrix_queries_include_expected_tokens() {
+        let session = fresh_facade_session();
+
+        // Phase 1: define EXPLAIN plan SQL matrix cases.
+        let cases = vec![
+            (
+                "EXPLAIN SELECT * FROM FacadeSqlEntity ORDER BY age LIMIT 1",
+                vec!["mode=Load", "access="],
+            ),
+            (
+                "EXPLAIN DELETE FROM FacadeSqlEntity ORDER BY age LIMIT 1",
+                vec!["mode=Delete", "access="],
+            ),
+            (
+                "EXPLAIN SELECT age, COUNT(*) \
+                 FROM FacadeSqlEntity \
+                 GROUP BY age \
+                 ORDER BY age ASC LIMIT 10",
+                vec!["mode=Load", "grouping=Grouped"],
+            ),
+            (
+                "EXPLAIN SELECT COUNT(*) FROM FacadeSqlEntity",
+                vec!["mode=Load", "access="],
+            ),
+        ];
+
+        // Phase 2: execute each EXPLAIN plan case and assert stable tokens.
+        for (sql, tokens) in cases {
+            let explain = session
+                .explain_sql::<FacadeSqlEntity>(sql)
+                .expect("facade EXPLAIN plan matrix case should succeed");
+            assert_explain_contains_tokens(explain.as_str(), tokens.as_slice(), sql);
+        }
+    }
+
+    #[test]
+    fn facade_explain_sql_execution_matrix_queries_include_expected_tokens() {
+        let session = fresh_facade_session();
+
+        // Phase 1: define EXPLAIN EXECUTION SQL matrix cases.
+        let cases = vec![
+            (
+                "EXPLAIN EXECUTION SELECT * FROM FacadeSqlEntity ORDER BY age LIMIT 1",
+                vec!["node_id=0", "layer="],
+            ),
+            (
+                "EXPLAIN EXECUTION SELECT age, COUNT(*) \
+                 FROM FacadeSqlEntity \
+                 GROUP BY age \
+                 ORDER BY age ASC LIMIT 10",
+                vec!["node_id=0", "execution_mode="],
+            ),
+            (
+                "EXPLAIN EXECUTION SELECT COUNT(*) FROM FacadeSqlEntity",
+                vec!["AggregateCount execution_mode=", "node_id=0"],
+            ),
+        ];
+
+        // Phase 2: execute each EXPLAIN EXECUTION case and assert stable tokens.
+        for (sql, tokens) in cases {
+            let explain = session
+                .explain_sql::<FacadeSqlEntity>(sql)
+                .expect("facade EXPLAIN EXECUTION matrix case should succeed");
+            assert_explain_contains_tokens(explain.as_str(), tokens.as_slice(), sql);
+        }
+    }
+
+    #[test]
+    fn facade_explain_sql_json_matrix_queries_include_expected_tokens() {
+        let session = fresh_facade_session();
+
+        // Phase 1: define EXPLAIN JSON SQL matrix cases.
+        let cases = vec![
+            (
+                "EXPLAIN JSON SELECT * FROM FacadeSqlEntity ORDER BY age LIMIT 1",
+                vec!["\"mode\":{\"type\":\"Load\"", "\"access\":"],
+            ),
+            (
+                "EXPLAIN JSON DELETE FROM FacadeSqlEntity ORDER BY age LIMIT 1",
+                vec!["\"mode\":{\"type\":\"Delete\"", "\"access\":"],
+            ),
+            (
+                "EXPLAIN JSON SELECT age, COUNT(*) \
+                 FROM FacadeSqlEntity \
+                 GROUP BY age \
+                 ORDER BY age ASC LIMIT 10",
+                vec!["\"mode\":{\"type\":\"Load\"", "\"grouping\""],
+            ),
+            (
+                "EXPLAIN JSON SELECT COUNT(*) FROM FacadeSqlEntity",
+                vec!["\"mode\":{\"type\":\"Load\"", "\"access\":"],
+            ),
+        ];
+
+        // Phase 2: execute each EXPLAIN JSON case and assert stable tokens.
+        for (sql, tokens) in cases {
+            let explain = session
+                .explain_sql::<FacadeSqlEntity>(sql)
+                .expect("facade EXPLAIN JSON matrix case should succeed");
+            assert!(
+                explain.starts_with('{') && explain.ends_with('}'),
+                "facade EXPLAIN JSON matrix output should be one JSON object payload: {sql}",
+            );
+            assert_explain_contains_tokens(explain.as_str(), tokens.as_slice(), sql);
+        }
+    }
+
     #[test]
     fn facade_query_from_sql_preserves_unsupported_runtime_contract() {
-        let session = facade_session();
+        let session = fresh_facade_session();
 
         for (sql, _feature) in unsupported_sql_feature_cases() {
             assert_unsupported_sql_runtime_result(
@@ -512,7 +688,7 @@ mod tests {
 
     #[test]
     fn facade_execute_sql_preserves_unsupported_runtime_contract() {
-        let session = facade_session();
+        let session = fresh_facade_session();
 
         for (sql, _feature) in unsupported_sql_feature_cases() {
             assert_unsupported_sql_runtime_result(
@@ -524,7 +700,7 @@ mod tests {
 
     #[test]
     fn facade_execute_sql_projection_preserves_unsupported_runtime_contract() {
-        let session = facade_session();
+        let session = fresh_facade_session();
 
         for (sql, _feature) in unsupported_sql_feature_cases() {
             assert_unsupported_sql_runtime_result(
@@ -536,7 +712,7 @@ mod tests {
 
     #[test]
     fn facade_execute_sql_grouped_preserves_unsupported_runtime_contract() {
-        let session = facade_session();
+        let session = fresh_facade_session();
 
         for (sql, _feature) in unsupported_sql_feature_cases() {
             assert_unsupported_sql_runtime_result(
@@ -548,7 +724,7 @@ mod tests {
 
     #[test]
     fn facade_execute_sql_aggregate_preserves_unsupported_runtime_contract() {
-        let session = facade_session();
+        let session = fresh_facade_session();
 
         for (sql, _feature) in unsupported_sql_feature_cases() {
             assert_unsupported_sql_runtime_result(
@@ -560,7 +736,7 @@ mod tests {
 
     #[test]
     fn facade_explain_sql_preserves_unsupported_runtime_contract() {
-        let session = facade_session();
+        let session = fresh_facade_session();
 
         for (sql, _feature) in unsupported_sql_feature_cases() {
             let explain_sql = format!("EXPLAIN {sql}");
