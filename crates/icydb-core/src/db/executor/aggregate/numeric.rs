@@ -19,14 +19,13 @@ use crate::{
             plan_metrics::record_rows_scanned,
             validate_executor_plan,
         },
-        numeric::{NumericArithmeticOp, apply_numeric_arithmetic},
+        numeric::{add_decimal_terms, average_decimal_terms},
         query::plan::{ExecutionOrderContract, FieldSlot as PlannedFieldSlot, OrderSpec},
         response::EntityResponse,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
     types::Decimal,
-    value::Value,
 };
 
 ///
@@ -302,13 +301,13 @@ fn finalize_numeric_field_output(
     let output = match kind {
         NumericFieldAggregateKind::Sum => sum,
         NumericFieldAggregateKind::Avg => {
-            let Some(divisor) = Decimal::from_num(row_count) else {
+            let Some(avg) = average_decimal_terms(sum, row_count) else {
                 return Err(crate::db::error::query_executor_invariant(
                     "numeric field AVG divisor conversion overflowed decimal bounds",
                 ));
             };
 
-            divide_numeric_decimal(sum, divisor)?
+            avg
         }
     };
 
@@ -318,33 +317,7 @@ fn finalize_numeric_field_output(
 // Add one decimal term to one aggregate numeric accumulator through the shared
 // numeric arithmetic contract so projection/aggregate arithmetic semantics stay aligned.
 fn add_numeric_decimal(sum: Decimal, value: Decimal) -> Result<Decimal, InternalError> {
-    let Some(next) = apply_numeric_arithmetic(
-        NumericArithmeticOp::Add,
-        &Value::Decimal(sum),
-        &Value::Decimal(value),
-    ) else {
-        return Err(crate::db::error::query_executor_invariant(
-            "numeric aggregate addition produced non-coercible decimal operands",
-        ));
-    };
-
-    Ok(next)
-}
-
-// Divide one decimal accumulator by one decimal divisor through the shared
-// numeric arithmetic contract so aggregate AVG inherits canonical rounding behavior.
-fn divide_numeric_decimal(sum: Decimal, divisor: Decimal) -> Result<Decimal, InternalError> {
-    let Some(result) = apply_numeric_arithmetic(
-        NumericArithmeticOp::Div,
-        &Value::Decimal(sum),
-        &Value::Decimal(divisor),
-    ) else {
-        return Err(crate::db::error::query_executor_invariant(
-            "numeric aggregate division produced non-coercible decimal operands",
-        ));
-    };
-
-    Ok(result)
+    Ok(add_decimal_terms(sum, value))
 }
 
 ///
@@ -354,7 +327,7 @@ fn divide_numeric_decimal(sum: Decimal, divisor: Decimal) -> Result<Decimal, Int
 #[cfg(test)]
 mod tests {
     use crate::{
-        db::executor::aggregate::numeric::{add_numeric_decimal, divide_numeric_decimal},
+        db::{executor::aggregate::numeric::add_numeric_decimal, numeric::average_decimal_terms},
         types::Decimal,
     };
 
@@ -371,9 +344,9 @@ mod tests {
     #[test]
     fn aggregate_numeric_avg_division_uses_shared_rounding_semantics() {
         let sum = Decimal::from_num(-1_i64).expect("sum decimal");
-        let divisor = Decimal::from_num(6_u64).expect("divisor decimal");
 
-        let result = divide_numeric_decimal(sum, divisor).expect("decimal div should succeed");
+        let result =
+            average_decimal_terms(sum, 6_u64).expect("decimal avg should produce one value");
 
         assert_eq!(
             result,

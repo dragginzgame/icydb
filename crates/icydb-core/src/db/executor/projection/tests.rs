@@ -225,6 +225,47 @@ fn projection_hash_alias_identity_matches_evaluated_projection_output() {
 }
 
 #[test]
+fn projection_field_order_preserved_for_multi_field_selection() {
+    let rows = [row(51, 7, true), row(52, 9, false)];
+    let projection = ProjectionSpec::from_fields_for_test(vec![
+        ProjectionField::Scalar {
+            expr: Expr::Field(FieldId::new("label")),
+            alias: None,
+        },
+        ProjectionField::Scalar {
+            expr: Expr::Field(FieldId::new("rank")),
+            alias: None,
+        },
+        ProjectionField::Scalar {
+            expr: Expr::Field(FieldId::new("flag")),
+            alias: None,
+        },
+    ]);
+
+    let projected = project_rows_from_projection(&projection, rows.as_slice())
+        .expect("multi-field projection should evaluate");
+
+    assert_eq!(
+        projected[0].values(),
+        &[
+            Value::Text("label-51".to_string()),
+            Value::Int(7),
+            Value::Bool(true),
+        ],
+        "projection values must preserve declaration order for the first row",
+    );
+    assert_eq!(
+        projected[1].values(),
+        &[
+            Value::Text("label-52".to_string()),
+            Value::Int(9),
+            Value::Bool(false),
+        ],
+        "projection values must preserve declaration order for the second row",
+    );
+}
+
+#[test]
 fn scalar_arithmetic_projection_returns_computed_values() {
     let rows = [row(7, 41, true)];
     let projection = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
@@ -420,7 +461,7 @@ fn grouped_projection_alias_wrapping_is_semantic_no_op() {
 }
 
 #[test]
-fn grouped_projection_multiple_aggregate_expression_order_is_preserved() {
+fn grouped_projection_column_order_is_stable() {
     let group_fields = [FieldSlot::from_parts_for_test(1, "rank")];
     let aggregate_exprs = [count(), sum("rank")];
     let grouped_row = GroupedRowView::new(
@@ -470,6 +511,88 @@ fn grouped_projection_multiple_aggregate_expression_order_is_preserved() {
         values[2].cmp_numeric(&Value::Int(4)),
         Some(Ordering::Equal),
         "third grouped projection output must evaluate computed aggregate expression in order",
+    );
+}
+
+#[test]
+fn expression_projection_column_identity_is_deterministic() {
+    let rows = [row(53, 7, true)];
+    let base_projection = ProjectionSpec::from_fields_for_test(vec![
+        ProjectionField::Scalar {
+            expr: Expr::Alias {
+                expr: Box::new(Expr::Binary {
+                    op: BinaryOp::Add,
+                    left: Box::new(Expr::Field(FieldId::new("rank"))),
+                    right: Box::new(Expr::Literal(Value::Int(1))),
+                }),
+                name: Alias::new("rank_plus_one_internal_a"),
+            },
+            alias: Some(Alias::new("rank_plus_one_a")),
+        },
+        ProjectionField::Scalar {
+            expr: Expr::Alias {
+                expr: Box::new(Expr::Binary {
+                    op: BinaryOp::Mul,
+                    left: Box::new(Expr::Field(FieldId::new("rank"))),
+                    right: Box::new(Expr::Literal(Value::Int(2))),
+                }),
+                name: Alias::new("rank_times_two_internal_a"),
+            },
+            alias: Some(Alias::new("rank_times_two_a")),
+        },
+    ]);
+    let alias_variant_projection = ProjectionSpec::from_fields_for_test(vec![
+        ProjectionField::Scalar {
+            expr: Expr::Alias {
+                expr: Box::new(Expr::Binary {
+                    op: BinaryOp::Add,
+                    left: Box::new(Expr::Field(FieldId::new("rank"))),
+                    right: Box::new(Expr::Literal(Value::Int(1))),
+                }),
+                name: Alias::new("rank_plus_one_internal_b"),
+            },
+            alias: Some(Alias::new("rank_plus_one_b")),
+        },
+        ProjectionField::Scalar {
+            expr: Expr::Alias {
+                expr: Box::new(Expr::Binary {
+                    op: BinaryOp::Mul,
+                    left: Box::new(Expr::Field(FieldId::new("rank"))),
+                    right: Box::new(Expr::Literal(Value::Int(2))),
+                }),
+                name: Alias::new("rank_times_two_internal_b"),
+            },
+            alias: Some(Alias::new("rank_times_two_b")),
+        },
+    ]);
+
+    let base_rows: Vec<ProjectedRow<ProjectionEvalEntity>> =
+        project_rows_from_projection(&base_projection, rows.as_slice())
+            .expect("base expression projection should evaluate");
+    let alias_rows: Vec<ProjectedRow<ProjectionEvalEntity>> =
+        project_rows_from_projection(&alias_variant_projection, rows.as_slice())
+            .expect("alias-variant expression projection should evaluate");
+
+    assert_eq!(
+        projection_hash_for_test(&base_projection),
+        projection_hash_for_test(&alias_variant_projection),
+        "expression projection identity must remain deterministic across alias-only renames",
+    );
+    assert_eq!(
+        base_rows[0].values(),
+        alias_rows[0].values(),
+        "expression projection output values must remain deterministic across alias-only renames",
+    );
+    assert_eq!(base_rows[0].values().len(), 2);
+    assert_eq!(
+        base_rows[0].values()[0].cmp_numeric(&Value::Int(8)),
+        Some(Ordering::Equal),
+        "first expression projection output should preserve deterministic declared order",
+    );
+    assert_eq!(
+        base_rows[0].values()[1].cmp_numeric(&Value::Int(14)),
+        Some(Ordering::Equal),
+        "second expression projection output should preserve deterministic declared order",
     );
 }
 

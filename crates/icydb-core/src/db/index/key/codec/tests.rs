@@ -588,7 +588,8 @@ fn index_key_ordering_cartesian_semantic_vs_bytes() {
     let mut semantic_sorted = fixtures.clone();
     semantic_sorted.sort_by(|left, right| {
         for (left_value, right_value) in left.values.iter().zip(&right.values) {
-            let cmp = Value::canonical_cmp_key(left_value, right_value);
+            let cmp =
+                super::super::ordered::compare_index_component_values(left_value, right_value);
             if cmp != Ordering::Equal {
                 return cmp;
             }
@@ -664,7 +665,8 @@ fn index_key_ordering_randomized_mixed_composite_semantic_vs_bytes() {
     let mut semantic_sorted = fixtures.clone();
     semantic_sorted.sort_by(|left, right| {
         for (left_value, right_value) in left.values.iter().zip(&right.values) {
-            let cmp = Value::canonical_cmp_key(left_value, right_value);
+            let cmp =
+                super::super::ordered::compare_index_component_values(left_value, right_value);
             if cmp != Ordering::Equal {
                 return cmp;
             }

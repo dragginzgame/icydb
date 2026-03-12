@@ -7,7 +7,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.51.x] - 2026-03-12 - Engine Contract Stabilization Line Open
 
-- `0.51.0` starts the `0.51` stabilization line by freezing deterministic query-plan snapshot surfaces (`query -> executable plan -> explain`), adding baseline snapshots for core execution shapes, and locking ordering-contract guards for `ORDER`/`LIMIT`/cursor behavior.
+- `0.51.0` starts the `0.51` stabilization line by freezing deterministic query-plan snapshot surfaces (`query -> executable plan -> explain`), adding baseline snapshots for core execution shapes, locking ordering-contract guards for `ORDER`/`LIMIT`/cursor behavior, and adding continuation-envelope replay/version fail-closed regression coverage on fluent pagination paths.
+- `0.51.1` completes stabilization work through Slice F by locking projection and aggregate strategy surfaces, continuation and ordering determinism, and numeric comparison/arithmetic authority alignment across planner, executor, grouped ordering, and index-ordering contracts.
 
 See detailed breakdown:
 [docs/changelog/0.51.md](docs/changelog/0.51.md)

@@ -9,8 +9,7 @@ use crate::{
         executor::aggregate::capability::{
             field_kind_supports_aggregate_ordering, field_kind_supports_numeric_aggregation,
         },
-        numeric::coerce_numeric_decimal,
-        predicate::strict_value_order,
+        numeric::{coerce_numeric_decimal, compare_numeric_or_strict_order},
         query::plan::FieldSlot as PlannedFieldSlot,
     },
     error::InternalError,
@@ -324,13 +323,14 @@ pub(in crate::db::executor) fn extract_numeric_field_decimal<E: EntityKind + Ent
     Ok(decimal)
 }
 
-/// Compare two extracted field values under strict same-variant ordering semantics.
+/// Compare two extracted field values using shared numeric ordering semantics
+/// first, then strict same-variant ordering fallback.
 pub(in crate::db::executor) fn compare_orderable_field_values(
     target_field: &str,
     left: &Value,
     right: &Value,
 ) -> Result<Ordering, AggregateFieldValueError> {
-    let Some(ordering) = strict_value_order(left, right) else {
+    let Some(ordering) = compare_numeric_or_strict_order(left, right) else {
         return Err(AggregateFieldValueError::IncomparableFieldValues {
             field: target_field.to_string(),
             left: Box::new(left.clone()),

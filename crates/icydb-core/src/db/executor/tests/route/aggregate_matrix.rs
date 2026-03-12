@@ -46,6 +46,71 @@ fn grouped_policy_snapshot(
     )
 }
 
+fn scalar_aggregate_route_snapshot(
+    plan: &AccessPlannedQuery<Ulid>,
+    aggregate: crate::db::query::builder::AggregateExpr,
+) -> String {
+    let route_plan =
+        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
+            plan,
+            aggregate.clone(),
+        );
+
+    [
+        format!("aggregate_kind={:?}", aggregate.kind()),
+        "grouped=false".to_string(),
+        format!("distinct_mode={}", aggregate.is_distinct()),
+        format!("target_field={:?}", aggregate.target_field()),
+        format!(
+            "route_strategy={:?}",
+            route_plan.shape().execution_mode_case()
+        ),
+        format!("execution_mode={:?}", route_plan.shape().execution_mode()),
+        format!("fold_mode={:?}", route_plan.aggregate_fold_mode),
+    ]
+    .join("\n")
+}
+
+fn grouped_aggregate_route_snapshot(plan: &AccessPlannedQuery<Ulid>) -> String {
+    let planner_hint =
+        grouped_plan_strategy_hint(plan).expect("grouped route snapshot requires grouped hint");
+    let handoff = grouped_executor_handoff(plan).expect("grouped route snapshot requires handoff");
+    let aggregate_contracts = handoff
+        .aggregate_exprs()
+        .iter()
+        .map(|aggregate| {
+            format!(
+                "{:?}:{:?}:{}",
+                aggregate.kind(),
+                aggregate.target_field(),
+                aggregate.is_distinct()
+            )
+        })
+        .collect::<Vec<_>>();
+    let route_plan =
+        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_grouped_handoff(handoff);
+    let grouped_observability = route_plan
+        .grouped_observability()
+        .expect("grouped route snapshot requires grouped observability payload");
+
+    [
+        "grouped=true".to_string(),
+        format!("planner_hint={planner_hint:?}"),
+        format!("aggregate_contracts={aggregate_contracts:?}"),
+        format!(
+            "route_strategy={:?}",
+            route_plan.shape().execution_mode_case()
+        ),
+        format!("execution_mode={:?}", route_plan.shape().execution_mode()),
+        format!(
+            "grouped_execution_strategy={:?}",
+            grouped_observability.grouped_execution_strategy()
+        ),
+        format!("fold_mode={:?}", route_plan.aggregate_fold_mode),
+    ]
+    .join("\n")
+}
+
 #[test]
 fn route_plan_aggregate_uses_route_owned_fast_path_order() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
@@ -372,6 +437,8 @@ fn route_plan_grouped_wrapper_preserves_supported_target_field_matrix_in_query_h
         (AggregateKind::Exists, None),
         (AggregateKind::Min, None),
         (AggregateKind::Min, Some("rank")),
+        (AggregateKind::Sum, Some("rank")),
+        (AggregateKind::Avg, Some("rank")),
         (AggregateKind::Max, None),
         (AggregateKind::Max, Some("label")),
         (AggregateKind::First, None),
@@ -534,6 +601,34 @@ fn grouped_policy_snapshot_matrix_remains_consistent_across_planner_handoff_and_
 }
 
 #[test]
+fn grouped_policy_snapshot_global_distinct_field_target_kind_matrix_includes_avg() {
+    for kind in [AggregateKind::Count, AggregateKind::Sum, AggregateKind::Avg] {
+        let grouped =
+            AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore)
+                .into_grouped(GroupSpec {
+                    group_fields: Vec::new(),
+                    aggregates: vec![GroupAggregateSpec {
+                        kind,
+                        target_field: Some("rank".to_string()),
+                        distinct: true,
+                    }],
+                    execution: GroupedExecutionConfig::unbounded(),
+                });
+
+        assert_eq!(
+            grouped_policy_snapshot(&grouped),
+            (
+                GroupedPlanStrategyHint::HashGroup,
+                None,
+                GroupedExecutionStrategy::HashMaterialized,
+                true,
+            ),
+            "global DISTINCT grouped strategy snapshot should stay stable for {kind:?}",
+        );
+    }
+}
+
+#[test]
 fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
     let group_field = grouped_field_slot("rank");
     let grouped = AccessPlannedQuery::new(
@@ -642,6 +737,141 @@ fn grouped_route_strategy_to_metrics_strategy_mapping_is_stable() {
 }
 
 #[test]
+fn aggregate_route_snapshot_for_scalar_count_is_stable() {
+    let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
+    });
+
+    let actual = scalar_aggregate_route_snapshot(&plan, crate::db::count());
+    let expected = vec![
+        "aggregate_kind=Count".to_string(),
+        "grouped=false".to_string(),
+        "distinct_mode=false".to_string(),
+        "target_field=None".to_string(),
+        "route_strategy=AggregateCount".to_string(),
+        "execution_mode=Streaming".to_string(),
+        "fold_mode=KeysOnly".to_string(),
+    ]
+    .join("\n");
+
+    assert_eq!(
+        actual, expected,
+        "scalar COUNT aggregate route snapshot drifted; route strategy/fold mode are stabilized",
+    );
+}
+
+#[test]
+fn aggregate_route_snapshot_for_scalar_sum_field_is_stable() {
+    let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
+    });
+
+    let actual = scalar_aggregate_route_snapshot(&plan, crate::db::sum("rank"));
+    let expected = vec![
+        "aggregate_kind=Sum".to_string(),
+        "grouped=false".to_string(),
+        "distinct_mode=false".to_string(),
+        "target_field=Some(\"rank\")".to_string(),
+        "route_strategy=AggregateNonCount".to_string(),
+        "execution_mode=Materialized".to_string(),
+        "fold_mode=ExistingRows".to_string(),
+    ]
+    .join("\n");
+
+    assert_eq!(
+        actual, expected,
+        "scalar SUM(field) aggregate route snapshot drifted; route strategy/fold mode are stabilized",
+    );
+}
+
+#[test]
+fn aggregate_route_snapshot_for_scalar_avg_field_is_stable() {
+    let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
+    });
+
+    let actual = scalar_aggregate_route_snapshot(&plan, crate::db::avg("rank"));
+    let expected = vec![
+        "aggregate_kind=Avg".to_string(),
+        "grouped=false".to_string(),
+        "distinct_mode=false".to_string(),
+        "target_field=Some(\"rank\")".to_string(),
+        "route_strategy=AggregateNonCount".to_string(),
+        "execution_mode=Materialized".to_string(),
+        "fold_mode=ExistingRows".to_string(),
+    ]
+    .join("\n");
+
+    assert_eq!(
+        actual, expected,
+        "scalar AVG(field) aggregate route snapshot drifted; route strategy/fold mode are stabilized",
+    );
+}
+
+#[test]
+fn aggregate_route_snapshot_for_grouped_field_aggregates_is_stable() {
+    let grouped = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore)
+        .into_grouped(GroupSpec {
+            group_fields: grouped_field_slots(&["rank"]),
+            aggregates: vec![GroupAggregateSpec {
+                kind: AggregateKind::Avg,
+                target_field: Some("rank".to_string()),
+                distinct: false,
+            }],
+            execution: GroupedExecutionConfig::unbounded(),
+        });
+
+    let actual = grouped_aggregate_route_snapshot(&grouped);
+    let expected = vec![
+        "grouped=true".to_string(),
+        "planner_hint=HashGroup".to_string(),
+        "aggregate_contracts=[\"Avg:Some(\\\"rank\\\"):false\"]".to_string(),
+        "route_strategy=AggregateGrouped".to_string(),
+        "execution_mode=Materialized".to_string(),
+        "grouped_execution_strategy=HashMaterialized".to_string(),
+        "fold_mode=ExistingRows".to_string(),
+    ]
+    .join("\n");
+
+    assert_eq!(
+        actual, expected,
+        "grouped field-aggregate route snapshot drifted; grouped planner/route/executor strategy is stabilized",
+    );
+}
+
+#[test]
+fn aggregate_route_strategy_parity_for_scalar_avg_matches_sum_field() {
+    let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
+    });
+
+    let sum_route =
+        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
+            &plan,
+            crate::db::sum("rank"),
+        );
+    let avg_route =
+        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
+            &plan,
+            crate::db::avg("rank"),
+        );
+
+    assert_eq!(
+        avg_route.shape().execution_mode_case(),
+        sum_route.shape().execution_mode_case()
+    );
+    assert_eq!(
+        avg_route.shape().execution_mode(),
+        sum_route.shape().execution_mode()
+    );
+    assert_eq!(avg_route.aggregate_fold_mode, sum_route.aggregate_fold_mode);
+}
+
+#[test]
 fn route_matrix_aggregate_count_pk_order_is_streaming_keys_only() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
@@ -683,6 +913,26 @@ fn route_matrix_aggregate_fold_mode_contract_maps_non_count_to_existing_rows() {
         let route_plan =
             LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
                 &plan, kind,
+            );
+
+        assert!(matches!(
+            route_plan.aggregate_fold_mode,
+            AggregateFoldMode::ExistingRows
+        ));
+    }
+}
+
+#[test]
+fn route_matrix_numeric_field_aggregate_fold_mode_contract_maps_sum_avg_to_existing_rows() {
+    let mut plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, MissingRowPolicy::Ignore);
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
+    });
+
+    for aggregate in [crate::db::sum("rank"), crate::db::avg("rank")] {
+        let route_plan =
+            LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
+                &plan, aggregate,
             );
 
         assert!(matches!(

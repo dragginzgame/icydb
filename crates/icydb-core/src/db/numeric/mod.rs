@@ -27,6 +27,45 @@ pub(in crate::db) enum NumericArithmeticOp {
     Div,
 }
 
+/// Apply one arithmetic operation on already-coerced decimal operands.
+///
+/// This is the canonical arithmetic primitive for all runtime numeric
+/// arithmetic surfaces (projection expressions and aggregate reducers).
+#[must_use]
+pub(in crate::db) fn apply_decimal_arithmetic(
+    op: NumericArithmeticOp,
+    left: Decimal,
+    right: Decimal,
+) -> Decimal {
+    match op {
+        NumericArithmeticOp::Add => left + right,
+        NumericArithmeticOp::Sub => left - right,
+        NumericArithmeticOp::Mul => left * right,
+        NumericArithmeticOp::Div => left / right,
+    }
+}
+
+/// Add two decimal numeric terms under canonical runtime arithmetic semantics.
+#[must_use]
+pub(in crate::db) fn add_decimal_terms(left: Decimal, right: Decimal) -> Decimal {
+    apply_decimal_arithmetic(NumericArithmeticOp::Add, left, right)
+}
+
+/// Divide one decimal term by another under canonical runtime arithmetic semantics.
+#[must_use]
+pub(in crate::db) fn divide_decimal_terms(left: Decimal, right: Decimal) -> Decimal {
+    apply_decimal_arithmetic(NumericArithmeticOp::Div, left, right)
+}
+
+/// Compute decimal AVG from one `(sum, count)` pair under canonical arithmetic semantics.
+///
+/// Returns `None` when `count` cannot be represented in decimal.
+#[must_use]
+pub(in crate::db) fn average_decimal_terms(sum: Decimal, count: u64) -> Option<Decimal> {
+    let divisor = Decimal::from_num(count)?;
+    Some(divide_decimal_terms(sum, divisor))
+}
+
 /// Return true when one field kind is accepted by planner expression arithmetic.
 ///
 /// This intentionally mirrors the current expression-spine bootstrap domain.
@@ -119,12 +158,7 @@ pub(in crate::db) fn apply_numeric_arithmetic(
     let left = coerce_numeric_decimal(left)?;
     let right = coerce_numeric_decimal(right)?;
 
-    let result = match op {
-        NumericArithmeticOp::Add => left + right,
-        NumericArithmeticOp::Sub => left - right,
-        NumericArithmeticOp::Mul => left * right,
-        NumericArithmeticOp::Div => left / right,
-    };
+    let result = apply_decimal_arithmetic(op, left, right);
 
     Some(result)
 }
@@ -138,6 +172,18 @@ pub(in crate::db) fn compare_numeric_order(left: &Value, right: &Value) -> Optio
     let left = coerce_numeric_decimal(left)?;
     let right = coerce_numeric_decimal(right)?;
     left.partial_cmp(&right)
+}
+
+/// Compare values with numeric widening first, then strict same-variant ordering.
+///
+/// This helper centralizes common "numeric if possible, strict otherwise"
+/// comparator behavior used across planner/executor boundaries.
+#[must_use]
+pub(in crate::db) fn compare_numeric_or_strict_order(
+    left: &Value,
+    right: &Value,
+) -> Option<Ordering> {
+    compare_numeric_order(left, right).or_else(|| Value::strict_order_cmp(left, right))
 }
 
 /// Compare two values for numeric equality under numeric-widen semantics.

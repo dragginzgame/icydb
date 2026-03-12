@@ -17,7 +17,7 @@ use crate::{
             group::{CanonicalKey, GroupKeySet, KeyCanonicalError},
             pipeline::contracts::{LoadExecutor, ResolvedExecutionKeyStream},
         },
-        numeric::{NumericArithmeticOp, apply_numeric_arithmetic},
+        numeric::{add_decimal_terms, average_decimal_terms},
         predicate::MissingRowPolicy,
     },
     error::InternalError,
@@ -60,7 +60,7 @@ where
             Self::resolve_any_field_slot(target_field)?
         };
         let mut distinct_values = GroupKeySet::new();
-        let mut count = 0u32;
+        let mut distinct_count = 0u64;
         let mut sum = Decimal::ZERO;
         let mut saw_sum_value = false;
 
@@ -109,27 +109,19 @@ where
                 aggregate_kind,
                 GlobalDistinctFieldAggregateKind::Sum | GlobalDistinctFieldAggregateKind::Avg
             ) {
+                distinct_count = distinct_count.saturating_add(1);
                 let numeric_value =
                     extract_numeric_field_decimal(&entity, target_field, field_slot)
                         .map_err(AggregateFieldValueError::into_internal_error)?;
-                let Some(next_sum) = apply_numeric_arithmetic(
-                    NumericArithmeticOp::Add,
-                    &Value::Decimal(sum),
-                    &Value::Decimal(numeric_value),
-                ) else {
-                    return Err(crate::db::error::query_executor_invariant(
-                        "global grouped SUM(DISTINCT field) addition failed numeric coercion",
-                    ));
-                };
-                sum = next_sum;
+                sum = add_decimal_terms(sum, numeric_value);
                 saw_sum_value = true;
             } else {
-                count = count.saturating_add(1);
+                distinct_count = distinct_count.saturating_add(1);
             }
         }
 
         let aggregate_value = match aggregate_kind {
-            GlobalDistinctFieldAggregateKind::Count => Value::Uint(u64::from(count)),
+            GlobalDistinctFieldAggregateKind::Count => Value::Uint(distinct_count),
             GlobalDistinctFieldAggregateKind::Sum => {
                 if saw_sum_value {
                     Value::Decimal(sum)
@@ -138,21 +130,12 @@ where
                 }
             }
             GlobalDistinctFieldAggregateKind::Avg => {
-                if !saw_sum_value || count == 0 {
+                if !saw_sum_value || distinct_count == 0 {
                     Value::Null
                 } else {
-                    let Some(divisor) = Decimal::from_num(u64::from(count)) else {
+                    let Some(avg) = average_decimal_terms(sum, distinct_count) else {
                         return Err(crate::db::error::query_executor_invariant(
                             "global grouped AVG(DISTINCT field) divisor conversion overflowed decimal bounds",
-                        ));
-                    };
-                    let Some(avg) = apply_numeric_arithmetic(
-                        NumericArithmeticOp::Div,
-                        &Value::Decimal(sum),
-                        &Value::Decimal(divisor),
-                    ) else {
-                        return Err(crate::db::error::query_executor_invariant(
-                            "global grouped AVG(DISTINCT field) division failed numeric coercion",
                         ));
                     };
 

@@ -4,7 +4,10 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::{
-    db::index::key::{OrderedValueEncodeError, ordered::encode_canonical_index_component},
+    db::index::key::{
+        OrderedValueEncodeError,
+        ordered::{compare_index_component_values, encode_canonical_index_component},
+    },
     types::{
         Account, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128, Principal,
         Subaccount, Timestamp, Ulid,
@@ -599,7 +602,7 @@ fn canonical_encoder_total_order_matches_value_canonical_cmp_for_supported_sampl
     ];
 
     let mut by_value = samples.clone();
-    by_value.sort_by(Value::canonical_cmp_key);
+    by_value.sort_by(compare_index_component_values);
 
     let mut by_bytes = samples;
     by_bytes.sort_by(|left, right| {
@@ -609,6 +612,18 @@ fn canonical_encoder_total_order_matches_value_canonical_cmp_for_supported_sampl
     });
 
     assert_eq!(by_value, by_bytes);
+}
+
+#[test]
+fn index_component_compare_requires_strict_variant_match_for_numeric_widening() {
+    let left = Value::Int(7);
+    let right = Value::Uint(7);
+
+    assert_eq!(
+        compare_index_component_values(&left, &right),
+        Value::canonical_cmp_key(&left, &right),
+        "cross-variant numeric values should not use numeric widening in index component comparison",
+    );
 }
 
 #[test]
@@ -718,6 +733,7 @@ fn canonical_encoder_pairwise_cmp_matches_bytes_for_primitive_families() {
         for left in &values {
             for right in &values {
                 let value_cmp = Value::canonical_cmp_key(left, right);
+                let component_cmp = compare_index_component_values(left, right);
                 let left_bytes =
                     encode_canonical_index_component(left).expect("left should encode");
                 let right_bytes =
@@ -727,6 +743,10 @@ fn canonical_encoder_pairwise_cmp_matches_bytes_for_primitive_families() {
                 assert_eq!(
                     value_cmp, byte_cmp,
                     "encoded-byte ordering mismatch for family {family_name}: left={left:?} right={right:?}",
+                );
+                assert_eq!(
+                    component_cmp, byte_cmp,
+                    "index-component comparator drift for family {family_name}: left={left:?} right={right:?}",
                 );
             }
         }

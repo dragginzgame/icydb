@@ -5,8 +5,9 @@
 
 use crate::{
     db::numeric::{
-        NumericArithmeticOp, apply_numeric_arithmetic, coerce_numeric_decimal, compare_numeric_eq,
-        compare_numeric_order, field_kind_supports_aggregate_numeric,
+        NumericArithmeticOp, add_decimal_terms, apply_numeric_arithmetic, average_decimal_terms,
+        coerce_numeric_decimal, compare_numeric_eq, compare_numeric_or_strict_order,
+        compare_numeric_order, divide_decimal_terms, field_kind_supports_aggregate_numeric,
         field_kind_supports_expr_numeric,
     },
     model::field::FieldKind,
@@ -53,6 +54,37 @@ fn numeric_compare_helpers_follow_numeric_widen_domain() {
 }
 
 #[test]
+fn numeric_compare_order_requires_both_operands_numeric_coercible() {
+    assert_eq!(
+        compare_numeric_order(&Value::Int(2), &Value::Text("2".to_string())),
+        None
+    );
+    assert_eq!(
+        compare_numeric_order(&Value::Bool(true), &Value::Bool(false)),
+        None
+    );
+}
+
+#[test]
+fn numeric_or_strict_compare_prefers_numeric_widen_when_available() {
+    assert_eq!(
+        compare_numeric_or_strict_order(&Value::Int(2), &Value::Uint(2)),
+        Some(Ordering::Equal)
+    );
+}
+
+#[test]
+fn numeric_or_strict_compare_falls_back_to_strict_for_non_numeric_values() {
+    assert_eq!(
+        compare_numeric_or_strict_order(
+            &Value::Text("a".to_string()),
+            &Value::Text("b".to_string())
+        ),
+        Some(Ordering::Less)
+    );
+}
+
+#[test]
 fn numeric_decimal_coercion_rejects_non_coercible_variants() {
     assert!(coerce_numeric_decimal(&Value::Int(4)).is_some());
     assert!(coerce_numeric_decimal(&Value::Text("x".to_string())).is_none());
@@ -93,4 +125,33 @@ fn numeric_arithmetic_addition_saturates_on_overflow() {
         .expect("saturating decimal arithmetic should return a value");
 
     assert_eq!(result, Decimal::from_i128_with_scale(i128::MAX, 0));
+}
+
+#[test]
+fn decimal_term_helpers_share_canonical_add_and_divide_semantics() {
+    let saturated = add_decimal_terms(
+        Decimal::from_i128_with_scale(i128::MAX, 0),
+        Decimal::from_i128_with_scale(1, 0),
+    );
+    let divided = divide_decimal_terms(
+        Decimal::from_num(-1_i64).expect("sum decimal"),
+        Decimal::from_num(6_u64).expect("divisor decimal"),
+    );
+
+    assert_eq!(saturated, Decimal::from_i128_with_scale(i128::MAX, 0));
+    assert_eq!(
+        divided,
+        Decimal::from_i128_with_scale(-166_666_666_666_666_667, 18)
+    );
+}
+
+#[test]
+fn average_decimal_terms_uses_canonical_division_and_count_coercion() {
+    let avg = average_decimal_terms(Decimal::from_num(65_u64).expect("sum decimal"), 3_u64)
+        .expect("count should coerce into decimal divisor");
+
+    assert_eq!(
+        avg,
+        Decimal::from_i128_with_scale(21_666_666_666_666_666_667, 18)
+    );
 }

@@ -66,12 +66,6 @@ pub(in crate::db) fn compare_order(
     }
 }
 
-/// Perform strict same-variant ordering using predicate comparison semantics.
-#[must_use]
-pub(in crate::db) fn strict_value_order(left: &Value, right: &Value) -> Option<Ordering> {
-    compare_order(left, right, &CoercionSpec::new(CoercionId::Strict))
-}
-
 /// Canonical total ordering for database predicate semantics.
 #[must_use]
 pub(in crate::db) fn canonical_cmp(left: &Value, right: &Value) -> Ordering {

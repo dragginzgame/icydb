@@ -11,7 +11,7 @@ use super::{
     resolve_orderable_aggregate_target_slot,
 };
 use crate::{
-    db::direction::Direction,
+    db::{direction::Direction, numeric::compare_numeric_order},
     model::field::FieldKind,
     types::{Decimal, Ulid},
     value::Value,
@@ -112,6 +112,33 @@ fn compare_orderable_field_values_rejects_mismatched_variants() {
         err,
         AggregateFieldValueError::IncomparableFieldValues { .. }
     ));
+}
+
+#[test]
+fn compare_orderable_field_values_uses_shared_numeric_widen_authority() {
+    let left = Value::Int(7);
+    let right = Value::Uint(7);
+
+    let ordering =
+        compare_orderable_field_values("rank", &left, &right).expect("numeric compare should work");
+
+    assert_eq!(
+        Some(ordering),
+        compare_numeric_order(&left, &right),
+        "aggregate field comparator should align with shared numeric comparator",
+    );
+}
+
+#[test]
+fn compare_orderable_field_values_falls_back_to_strict_for_non_numeric_values() {
+    let ordering = compare_orderable_field_values(
+        "label",
+        &Value::Text("a".to_string()),
+        &Value::Text("b".to_string()),
+    )
+    .expect("text compare should fall back to strict ordering");
+
+    assert_eq!(ordering, Ordering::Less);
 }
 
 #[test]

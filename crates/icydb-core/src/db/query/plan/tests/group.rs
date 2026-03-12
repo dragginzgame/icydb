@@ -231,7 +231,25 @@ fn grouped_plan_accepts_global_distinct_sum_field_without_group_keys() {
 }
 
 #[test]
-fn global_distinct_shape_helper_matches_aggregate_expr_path_for_count_and_sum() {
+fn grouped_plan_accepts_global_distinct_avg_field_without_group_keys() {
+    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::from_entity_model(model).expect("valid model");
+    let grouped = grouped_plan(
+        load_plan(AccessPlan::path(AccessPath::FullScan)),
+        Vec::new(),
+        vec![GroupAggregateSpec {
+            kind: AggregateKind::Avg,
+            target_field: Some("rank".to_string()),
+            distinct: true,
+        }],
+    );
+
+    validate_group_query_semantics(&schema, model, &grouped)
+        .expect("global grouped avg(distinct field) should be accepted");
+}
+
+#[test]
+fn global_distinct_shape_helper_matches_aggregate_expr_path_for_count_sum_and_avg() {
     let execution = GroupedExecutionConfig::with_hard_limits(64, 4096);
 
     let helper_count =
@@ -256,6 +274,18 @@ fn global_distinct_shape_helper_matches_aggregate_expr_path_for_count_and_sum() 
     assert_eq!(
         helper_sum, builder_sum,
         "sum distinct shape helper must match aggregate-expression semantic path",
+    );
+
+    let helper_avg =
+        global_distinct_group_spec_for_semantic_aggregate(AggregateKind::Avg, "rank", execution)
+            .expect("avg distinct helper shape should build");
+    let builder_avg = GroupSpec::global_distinct_shape_from_aggregate_expr(
+        &crate::db::avg("rank").distinct(),
+        execution,
+    );
+    assert_eq!(
+        helper_avg, builder_avg,
+        "avg distinct shape helper must match aggregate-expression semantic path",
     );
 }
 
@@ -1096,6 +1126,35 @@ fn grouped_executor_handoff_lowers_global_distinct_sum_execution_strategy() {
         handoff.distinct_policy_violation_for_executor(),
         None,
         "global grouped DISTINCT SUM strategy lowering should not project scalar DISTINCT policy violations",
+    );
+}
+
+#[test]
+fn grouped_executor_handoff_lowers_global_distinct_avg_execution_strategy() {
+    let base = load_plan(AccessPlan::path(AccessPath::FullScan));
+    let grouped = grouped_plan(
+        base,
+        vec![],
+        vec![GroupAggregateSpec {
+            kind: AggregateKind::Avg,
+            target_field: Some("rank".to_string()),
+            distinct: true,
+        }],
+    );
+
+    let handoff =
+        grouped_executor_handoff(&grouped).expect("grouped logical plans should build handoff");
+    assert_eq!(handoff.group_fields().len(), 0);
+    assert_eq!(handoff.aggregate_exprs().len(), 1);
+    assert!(matches!(
+        handoff.distinct_execution_strategy(),
+        GroupedDistinctExecutionStrategy::GlobalDistinctFieldAvg { target_field }
+            if target_field == "rank"
+    ));
+    assert_eq!(
+        handoff.distinct_policy_violation_for_executor(),
+        None,
+        "global grouped DISTINCT AVG strategy lowering should not project scalar DISTINCT policy violations",
     );
 }
 

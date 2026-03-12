@@ -6,7 +6,7 @@
 use crate::{
     db::{
         access::SemanticIndexRangeSpec,
-        numeric::compare_numeric_order,
+        numeric::compare_numeric_or_strict_order,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, canonical_cmp},
         query::plan::planner::{index_literal_matches_schema, sorted_indexes},
         schema::SchemaInfo,
@@ -321,11 +321,7 @@ const fn bound_value(bound: &Bound<Value>) -> Option<&Value> {
 }
 
 fn compare_range_bound_values(left: &Value, right: &Value) -> Option<Ordering> {
-    if left.supports_numeric_coercion() || right.supports_numeric_coercion() {
-        return compare_numeric_order(left, right);
-    }
-
-    if let Some(ordering) = Value::strict_order_cmp(left, right) {
+    if let Some(ordering) = compare_numeric_or_strict_order(left, right) {
         return Some(ordering);
     }
 
@@ -334,4 +330,53 @@ fn compare_range_bound_values(left: &Value, right: &Value) -> Option<Ordering> {
     }
 
     None
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        db::{
+            numeric::compare_numeric_or_strict_order,
+            query::plan::planner::range::compare_range_bound_values,
+        },
+        value::Value,
+    };
+    use std::cmp::Ordering;
+
+    #[test]
+    fn range_bound_numeric_compare_reuses_shared_numeric_authority() {
+        let left = Value::Int(10);
+        let right = Value::Uint(10);
+
+        assert_eq!(
+            compare_range_bound_values(&left, &right),
+            compare_numeric_or_strict_order(&left, &right),
+            "planner range numeric bounds should delegate to shared numeric comparator",
+        );
+    }
+
+    #[test]
+    fn range_bound_mixed_non_numeric_values_are_incomparable() {
+        assert_eq!(
+            compare_range_bound_values(&Value::Text("x".to_string()), &Value::Uint(1)),
+            None,
+            "mixed non-numeric variants should remain incomparable in range planning",
+        );
+    }
+
+    #[test]
+    fn range_bound_same_variant_non_numeric_uses_strict_ordering() {
+        assert_eq!(
+            compare_range_bound_values(
+                &Value::Text("a".to_string()),
+                &Value::Text("b".to_string())
+            ),
+            Some(Ordering::Less),
+            "same-variant non-numeric bounds should use strict value ordering",
+        );
+    }
 }

@@ -8,7 +8,10 @@ use super::*;
 use crate::db::{
     IndexStore,
     data::DataKey,
-    query::explain::{ExplainAccessPath, ExplainExecutionNodeType},
+    query::{
+        explain::{ExplainAccessPath, ExplainExecutionNodeType},
+        plan::expr::{ProjectionField, ProjectionSpec},
+    },
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -91,6 +94,45 @@ where
     // Phase 3: join executable-plan and explain-descriptor snapshots into one payload.
     [
         executable.render_snapshot_canonical(),
+        format!("execution_descriptor_json={descriptor_json}"),
+    ]
+    .join("\n")
+}
+
+fn projection_columns_snapshot(projection: &ProjectionSpec) -> Vec<String> {
+    projection
+        .fields()
+        .enumerate()
+        .map(|(index, field)| match field {
+            ProjectionField::Scalar { expr, alias } => {
+                let alias_label = alias.as_ref().map_or("none", |value| value.as_str());
+                format!("column[{index}]::expr={expr:?}::alias={alias_label}")
+            }
+        })
+        .collect()
+}
+
+fn query_execution_pipeline_projection_snapshot<E>(query: &Query<E>) -> String
+where
+    E: EntityKind + EntityValue,
+{
+    // Phase 1: compile query intent into one executable plan + canonical projection columns.
+    let compiled = query
+        .plan()
+        .expect("execution pipeline projection snapshot should build compiled query");
+    let projection_columns = projection_columns_snapshot(&compiled.projection_spec());
+    let executable = crate::db::executor::ExecutablePlan::from(compiled);
+
+    // Phase 2: derive canonical execution descriptor JSON from executable-plan contracts.
+    let descriptor_json = executable
+        .explain_load_execution_node_descriptor()
+        .expect("execution pipeline projection snapshot should build execution descriptor")
+        .render_json_canonical();
+
+    // Phase 3: join executable-plan, explain-descriptor, and projection-column snapshots.
+    [
+        executable.render_snapshot_canonical(),
+        format!("projection_columns={projection_columns:?}"),
         format!("execution_descriptor_json={descriptor_json}"),
     ]
     .join("\n")
@@ -1265,6 +1307,42 @@ fn query_execution_pipeline_snapshot_for_by_key_shape_is_stable() {
     assert_eq!(
         actual, expected,
         "execution pipeline snapshot drifted; query->executable->explain serialization is a stabilized 0.51 surface",
+    );
+}
+
+#[test]
+fn query_execution_pipeline_snapshot_for_by_key_shape_with_projection_columns_is_stable() {
+    let query =
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore).by_id(Ulid::from_u128(9_101));
+    let actual = query_execution_pipeline_projection_snapshot(&query);
+    let expected_descriptor_json = r#"{"node_id":0,"node_type":"ByKeyLookup","layer":"scan","execution_mode":"Streaming","execution_mode_detail":"streaming","access_strategy":{"type":"ByKey","key":"Ulid(Ulid(Ulid(9101)))"},"predicate_pushdown_mode":"none","predicate_pushdown":null,"fast_path_selected":false,"fast_path_reason":"materialized_fallback","residual_predicate":null,"projection":null,"ordering_source":null,"limit":null,"cursor":null,"covering_scan":false,"rows_expected":null,"children":[],"node_properties":{"access_choice_alternatives":"List([])","access_choice_chosen":"Text(\"by_key\")","access_choice_chosen_reason":"Text(\"non_index_access\")","access_choice_rejections":"List([])","continuation_mode":"Text(\"initial\")","covering_scan_reason":"Text(\"access_not_covering_index_shape\")","fast_path_rejections":"List([Text(\"primary_key=pk_order_fast_path_ineligible\"), Text(\"secondary_prefix=secondary_order_not_applicable\"), Text(\"index_range=index_range_limit_pushdown_disabled\")])","fast_path_selected":"Text(\"none\")","fast_path_selected_reason":"Text(\"materialized_fallback\")","projected_fields":"List([Text(\"id\"), Text(\"group\"), Text(\"rank\"), Text(\"label\")])","projection_pushdown":"Bool(false)","resume_from":"Text(\"none\")","scan_direction":"Text(\"asc\")"}}"#;
+    let expected = vec![
+        "snapshot_version=1".to_string(),
+        "plan_hash=aadeab9a078a08c89fc76826504ee8c027854392786d07f24b5ad22fb4a729b0"
+            .to_string(),
+        "mode=Load(LoadSpec { limit: None, offset: 0 })".to_string(),
+        "is_grouped=false".to_string(),
+        "execution_strategy=PrimaryKey".to_string(),
+        "ordering_direction=Asc".to_string(),
+        "distinct_execution_strategy=None".to_string(),
+        "projection_selection=All".to_string(),
+        "projection_spec=ProjectionSpec { fields: [Scalar { expr: Field(FieldId(\"id\")), alias: None }, Scalar { expr: Field(FieldId(\"group\")), alias: None }, Scalar { expr: Field(FieldId(\"rank\")), alias: None }, Scalar { expr: Field(FieldId(\"label\")), alias: None }] }".to_string(),
+        "order_spec=None".to_string(),
+        "page_spec=None".to_string(),
+        "projection_coverage_flag=false".to_string(),
+        "continuation_signature=355c1739abb9dd4cd89e22d9ac3902c76e6054c27f51684814f299061274e637"
+            .to_string(),
+        "index_prefix_specs=[]".to_string(),
+        "index_range_specs=[]".to_string(),
+        "explain_plan=ExplainPlan { mode: Load(LoadSpec { limit: None, offset: 0 }), access: ByKey { key: Ulid(Ulid(Ulid(9101))) }, predicate: None, predicate_model: None, order_by: None, distinct: false, grouping: None, order_pushdown: MissingModelContext, page: None, delete_limit: None, consistency: Ignore }".to_string(),
+        "projection_columns=[\"column[0]::expr=Field(FieldId(\\\"id\\\"))::alias=none\", \"column[1]::expr=Field(FieldId(\\\"group\\\"))::alias=none\", \"column[2]::expr=Field(FieldId(\\\"rank\\\"))::alias=none\", \"column[3]::expr=Field(FieldId(\\\"label\\\"))::alias=none\"]".to_string(),
+        format!("execution_descriptor_json={expected_descriptor_json}"),
+    ]
+    .join("\n");
+
+    assert_eq!(
+        actual, expected,
+        "execution pipeline + projection-column snapshot drifted; query->executable->explain->projection-columns is a stabilized 0.51 surface",
     );
 }
 

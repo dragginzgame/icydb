@@ -1699,6 +1699,34 @@ fn aggregate_numeric_field_sum_distinct_uses_grouped_global_distinct_path() {
 }
 
 #[test]
+fn aggregate_numeric_field_avg_distinct_uses_grouped_global_distinct_path() {
+    seed_pushdown_entities(&[
+        (8_1091, 7, 10),
+        (8_1092, 7, 20),
+        (8_1093, 7, 20),
+        (8_1094, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(u32_eq_predicate("group", 7))
+        .order_by("rank")
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("avg_distinct_by(rank) plan should build");
+
+    let avg_distinct = load
+        .execute_global_distinct_field_grouped_aggregate(plan, AggregateKind::Avg, "rank")
+        .expect("avg_distinct_by(rank) should succeed")
+        .expect("avg_distinct_by(rank) should return one aggregate value");
+
+    assert_eq!(
+        avg_distinct,
+        Value::Decimal(Decimal::from_num(15_u64).expect("expected avg decimal")),
+        "avg_distinct_by(rank) should average unique rank values only",
+    );
+}
+
+#[test]
 fn aggregate_numeric_field_sum_distinct_is_insertion_order_invariant() {
     seed_pushdown_entities(&[
         (809_911, 7, 10),

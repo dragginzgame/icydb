@@ -8,7 +8,11 @@ mod normalize;
 mod parts;
 mod semantics;
 
+#[cfg(test)]
+use crate::db::numeric::compare_numeric_or_strict_order;
 use crate::{db::index::key::ordered::semantics::OrderedEncode, value::Value};
+#[cfg(test)]
+use std::cmp::Ordering;
 
 pub(crate) use error::OrderedValueEncodeError;
 
@@ -58,6 +62,25 @@ impl AsRef<[u8]> for EncodedValue {
     fn as_ref(&self) -> &[u8] {
         self.encoded()
     }
+}
+
+/// Compare two semantic index-component values under the index ordering contract.
+///
+/// Contract:
+/// - same-variant component values delegate to shared numeric-or-strict
+///   comparator authority
+/// - mixed-variant values fall back to canonical key ordering for deterministic
+///   cross-kind ordering in test/support surfaces
+#[must_use]
+#[cfg(test)]
+pub(crate) fn compare_index_component_values(left: &Value, right: &Value) -> Ordering {
+    if std::mem::discriminant(left) == std::mem::discriminant(right)
+        && let Some(ordering) = compare_numeric_or_strict_order(left, right)
+    {
+        return ordering;
+    }
+
+    Value::canonical_cmp_key(left, right)
 }
 
 /// Encode one scalar index component so lexicographic byte order matches

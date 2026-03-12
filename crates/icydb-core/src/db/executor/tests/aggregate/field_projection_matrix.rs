@@ -1033,7 +1033,7 @@ fn aggregate_field_target_covering_constant_projection_strict_missing_row_preser
 }
 
 #[test]
-fn aggregate_field_target_covering_index_projection_terminals_match_effective_window() {
+fn covering_projection_matches_row_materialized_projection() {
     seed_pushdown_entities(&[
         (8_4031, 7, 10),
         (8_4032, 7, 20),

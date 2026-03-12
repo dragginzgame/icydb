@@ -5,7 +5,7 @@
 
 use super::*;
 use proptest::prelude::*;
-use std::cmp::Ordering;
+use std::{cmp::Ordering, collections::BTreeSet};
 
 fn seed_grouped_phase_entities() {
     reset_store();
@@ -84,6 +84,55 @@ fn seed_grouped_phase_entities_with_filtered_middle_group() {
         })
         .expect("grouped seed insert should succeed");
     }
+}
+
+fn seed_scalar_phase_entities_for_cursor_replay() {
+    reset_store();
+
+    let save = SaveExecutor::<PhaseEntity>::new(DB, false);
+    for (id, rank, label) in [
+        (90_001_u128, 1_u32, "scalar-a"),
+        (90_002_u128, 2_u32, "scalar-b"),
+        (90_003_u128, 3_u32, "scalar-c"),
+        (90_004_u128, 4_u32, "scalar-d"),
+        (90_005_u128, 5_u32, "scalar-e"),
+        (90_006_u128, 6_u32, "scalar-f"),
+    ] {
+        save.insert(PhaseEntity {
+            id: Ulid::from_u128(id),
+            opt_rank: Some(rank),
+            rank,
+            tags: vec![rank],
+            label: label.to_string(),
+        })
+        .expect("scalar replay seed insert should succeed");
+    }
+}
+
+fn scalar_rank_gte_predicate(min_rank: u32) -> Predicate {
+    Predicate::Compare(ComparePredicate::with_coercion(
+        "rank",
+        CompareOp::Gte,
+        Value::Uint(u64::from(min_rank)),
+        CoercionId::Strict,
+    ))
+}
+
+fn scalar_boundary_last_ulid(cursor_bytes: &[u8]) -> Ulid {
+    let token = ContinuationToken::decode(cursor_bytes)
+        .expect("scalar continuation cursor should decode for boundary checks");
+
+    match token.boundary().slots.last() {
+        Some(CursorBoundarySlot::Present(Value::Ulid(id))) => *id,
+        slots => panic!("expected trailing Ulid boundary slot, found {slots:?}"),
+    }
+}
+
+fn scalar_cursor_boundary(cursor_bytes: &[u8]) -> CursorBoundary {
+    ContinuationToken::decode(cursor_bytes)
+        .expect("scalar continuation cursor should decode for boundary checks")
+        .boundary()
+        .clone()
 }
 
 // Compare grouped keys using the same canonical grouped-key comparator used by grouped execution.
@@ -438,6 +487,57 @@ fn paged_query_rejects_non_token_cursor_payload_as_payload_error() {
 }
 
 #[test]
+fn paged_query_rejects_unsupported_cursor_version_at_api_boundary() {
+    seed_scalar_phase_entities_for_cursor_replay();
+    let session = DbSession::new(DB);
+
+    let page_1 = session
+        .load::<PhaseEntity>()
+        .order_by("rank")
+        .limit(2)
+        .page()
+        .expect("paged builder should accept order+limit")
+        .execute()
+        .expect("seed scalar page should execute");
+    let base_cursor = page_1
+        .continuation_cursor()
+        .expect("seed scalar page should emit continuation cursor");
+    let token = ContinuationToken::decode(base_cursor)
+        .expect("seed scalar continuation cursor should decode");
+    let version_mismatch_cursor = token
+        .encode_with_version_for_test(9)
+        .expect("version-mismatch scalar continuation cursor should encode");
+
+    let err = session
+        .load::<PhaseEntity>()
+        .order_by("rank")
+        .limit(2)
+        .page()
+        .expect("paged builder should accept order+limit")
+        .cursor(crate::db::encode_cursor(version_mismatch_cursor.as_slice()))
+        .execute()
+        .expect_err("unsupported scalar continuation token version must fail closed");
+
+    assert!(
+        matches!(
+            err,
+            QueryError::Plan(plan_err)
+                if matches!(
+                    plan_err.as_ref(),
+                    crate::db::query::plan::PlanError::Cursor(inner)
+                        if matches!(
+                            inner.as_ref(),
+                            crate::db::cursor::CursorPlanError::ContinuationCursorVersionMismatch {
+                                version: 9
+                            }
+                        )
+                )
+        ),
+        "unsupported scalar continuation token versions must surface as cursor version mismatch",
+    );
+}
+
+#[test]
 fn paged_query_execute_with_trace_is_none_without_debug_mode() {
     let session = DbSession::new(DB);
 
@@ -476,6 +576,316 @@ fn paged_query_execute_with_trace_is_present_in_debug_mode() {
 }
 
 #[test]
+fn paged_query_scalar_continuation_replay_with_identical_cursor_is_deterministic() {
+    // Phase 1: seed deterministic scalar rows with stable ordering windows.
+    seed_scalar_phase_entities_for_cursor_replay();
+    let session = DbSession::new(DB);
+
+    // Phase 2: execute the first page and capture one opaque continuation token.
+    let page_1 = session
+        .load::<PhaseEntity>()
+        .order_by("rank")
+        .limit(2)
+        .page()
+        .expect("scalar paged query should build")
+        .execute()
+        .expect("scalar first page should execute");
+    let continuation = page_1
+        .continuation_cursor()
+        .map(crate::db::encode_cursor)
+        .expect("scalar first page should emit continuation cursor");
+
+    // Phase 3: replay the same query with the same opaque cursor token twice.
+    let replay_a = session
+        .load::<PhaseEntity>()
+        .order_by("rank")
+        .limit(2)
+        .page()
+        .expect("scalar replay query should build")
+        .cursor(continuation.clone())
+        .execute()
+        .expect("scalar replay A should execute");
+    let replay_b = session
+        .load::<PhaseEntity>()
+        .order_by("rank")
+        .limit(2)
+        .page()
+        .expect("scalar replay query should build")
+        .cursor(continuation)
+        .execute()
+        .expect("scalar replay B should execute");
+
+    let replay_ids_a = replay_a.response().ids().collect::<Vec<_>>();
+    let replay_ids_b = replay_b.response().ids().collect::<Vec<_>>();
+    assert_eq!(
+        replay_ids_a, replay_ids_b,
+        "identical scalar query + identical cursor must produce identical next-page rows",
+    );
+    assert_eq!(
+        replay_a.continuation_cursor().map(crate::db::encode_cursor),
+        replay_b.continuation_cursor().map(crate::db::encode_cursor),
+        "identical scalar query + identical cursor must produce identical next-page cursor payloads",
+    );
+}
+
+#[test]
+fn grouped_query_continuation_replay_with_identical_cursor_is_deterministic() {
+    // Phase 1: seed deterministic grouped rows with multiple continuation windows.
+    seed_grouped_phase_entities_with_filtered_middle_group();
+    let session = DbSession::new(DB);
+
+    // Phase 2: execute the first grouped page and capture one opaque token.
+    let page_1 = session
+        .load::<PhaseEntity>()
+        .group_by("rank")
+        .expect("group field should resolve")
+        .aggregate(crate::db::count())
+        .limit(1)
+        .execute_grouped()
+        .expect("grouped first page should execute");
+    let continuation = page_1
+        .continuation_cursor()
+        .map(crate::db::encode_cursor)
+        .expect("grouped first page should emit continuation cursor");
+
+    // Phase 3: replay the same grouped query with the same cursor twice.
+    let replay_a = session
+        .load::<PhaseEntity>()
+        .group_by("rank")
+        .expect("group field should resolve")
+        .aggregate(crate::db::count())
+        .limit(1)
+        .cursor(continuation.clone())
+        .execute_grouped()
+        .expect("grouped replay A should execute");
+    let replay_b = session
+        .load::<PhaseEntity>()
+        .group_by("rank")
+        .expect("group field should resolve")
+        .aggregate(crate::db::count())
+        .limit(1)
+        .cursor(continuation)
+        .execute_grouped()
+        .expect("grouped replay B should execute");
+
+    let replay_rows_a = replay_a
+        .rows()
+        .iter()
+        .map(|row| (row.group_key().to_vec(), row.aggregate_values().to_vec()))
+        .collect::<Vec<_>>();
+    let replay_rows_b = replay_b
+        .rows()
+        .iter()
+        .map(|row| (row.group_key().to_vec(), row.aggregate_values().to_vec()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        replay_rows_a, replay_rows_b,
+        "identical grouped query + identical cursor must produce identical next-page grouped rows",
+    );
+    assert_eq!(
+        replay_a.continuation_cursor().map(crate::db::encode_cursor),
+        replay_b.continuation_cursor().map(crate::db::encode_cursor),
+        "identical grouped query + identical cursor must produce identical next-page grouped cursors",
+    );
+}
+
+#[test]
+fn paged_query_scalar_continuation_progression_preserves_strict_suffix_and_cursor_advancement() {
+    // Phase 1: seed deterministic scalar rows and record the full canonical order.
+    seed_scalar_phase_entities_for_cursor_replay();
+    let session = DbSession::new(DB);
+    let baseline = session
+        .load::<PhaseEntity>()
+        .order_by("rank")
+        .execute()
+        .expect("scalar baseline query should execute");
+    let expected_ids = baseline.ids().collect::<Vec<_>>();
+
+    // Phase 2: page through continuation tokens while tracking strict cursor advancement.
+    let mut emitted_ids = Vec::new();
+    let mut seen_ids = BTreeSet::new();
+    let mut previous_boundary_id: Option<Ulid> = None;
+    let mut continuation: Option<String> = None;
+    let mut pages = 0usize;
+
+    loop {
+        pages = pages.saturating_add(1);
+        assert!(pages <= 8, "scalar cursor pagination must terminate");
+
+        let page_query = session
+            .load::<PhaseEntity>()
+            .order_by("rank")
+            .limit(2)
+            .page();
+        let page = if let Some(cursor) = continuation.as_ref() {
+            page_query
+                .expect("scalar paged query should build")
+                .cursor(cursor.clone())
+                .execute()
+                .expect("scalar continuation page should execute")
+        } else {
+            page_query
+                .expect("scalar paged query should build")
+                .execute()
+                .expect("scalar initial page should execute")
+        };
+
+        for id in page.response().ids() {
+            assert!(
+                seen_ids.insert(id),
+                "scalar continuation pages must not emit duplicate ids",
+            );
+            emitted_ids.push(id);
+        }
+
+        let Some(next_cursor) = page.continuation_cursor() else {
+            break;
+        };
+        let boundary_id = scalar_boundary_last_ulid(next_cursor);
+        if let Some(previous) = previous_boundary_id {
+            assert!(
+                previous < boundary_id,
+                "scalar continuation anchors must advance strictly monotonically",
+            );
+        }
+        previous_boundary_id = Some(boundary_id);
+        continuation = Some(crate::db::encode_cursor(next_cursor));
+    }
+
+    // Phase 3: strict-suffix union from pages must equal canonical baseline order.
+    assert_eq!(
+        emitted_ids, expected_ids,
+        "scalar continuation pages must preserve strict suffix progression over baseline order",
+    );
+}
+
+#[test]
+#[expect(clippy::too_many_lines)]
+fn paged_query_scalar_semantically_equivalent_shapes_require_shape_local_cursors() {
+    // Phase 1: execute one baseline scalar shape and capture first-page cursor.
+    seed_scalar_phase_entities_for_cursor_replay();
+    let session = DbSession::new(DB);
+    let base_page_1 = session
+        .load::<PhaseEntity>()
+        .order_by("rank")
+        .limit(2)
+        .page()
+        .expect("baseline scalar paged query should build")
+        .execute()
+        .expect("baseline scalar first page should execute");
+    let base_cursor = base_page_1
+        .continuation_cursor()
+        .map(crate::db::encode_cursor)
+        .expect("baseline scalar first page should emit continuation cursor");
+
+    // Phase 2: execute one semantically equivalent scalar shape and capture cursor.
+    let equivalent_page_1 = session
+        .load::<PhaseEntity>()
+        .filter(scalar_rank_gte_predicate(1))
+        .order_by("rank")
+        .limit(2)
+        .page()
+        .expect("equivalent scalar paged query should build")
+        .execute()
+        .expect("equivalent scalar first page should execute");
+    let equivalent_cursor = equivalent_page_1
+        .continuation_cursor()
+        .map(crate::db::encode_cursor)
+        .expect("equivalent scalar first page should emit continuation cursor");
+
+    assert_eq!(
+        base_page_1.response().ids().collect::<Vec<_>>(),
+        equivalent_page_1.response().ids().collect::<Vec<_>>(),
+        "semantically equivalent scalar shapes should emit identical first-page rows",
+    );
+    assert_ne!(
+        base_cursor, equivalent_cursor,
+        "semantically equivalent scalar shapes must still carry shape-local continuation signatures",
+    );
+
+    // Phase 3: each scalar shape resumes correctly with its own token.
+    let base_page_2 = session
+        .load::<PhaseEntity>()
+        .order_by("rank")
+        .limit(2)
+        .page()
+        .expect("baseline scalar paged query should build")
+        .cursor(base_cursor.clone())
+        .execute()
+        .expect("baseline scalar continuation should execute");
+    let equivalent_page_2 = session
+        .load::<PhaseEntity>()
+        .filter(scalar_rank_gte_predicate(1))
+        .order_by("rank")
+        .limit(2)
+        .page()
+        .expect("equivalent scalar paged query should build")
+        .cursor(equivalent_cursor.clone())
+        .execute()
+        .expect("equivalent scalar continuation should execute");
+
+    assert_eq!(
+        base_page_2.response().ids().collect::<Vec<_>>(),
+        equivalent_page_2.response().ids().collect::<Vec<_>>(),
+        "shape-local scalar continuations should preserve the same suffix rows",
+    );
+    let base_boundary = base_page_2
+        .continuation_cursor()
+        .map(scalar_cursor_boundary);
+    let equivalent_boundary = equivalent_page_2
+        .continuation_cursor()
+        .map(scalar_cursor_boundary);
+    assert_eq!(
+        base_boundary, equivalent_boundary,
+        "shape-local scalar continuations should preserve equivalent next-cursor boundaries even when token signatures are shape-local",
+    );
+
+    // Phase 4: cross-shape scalar cursor replay must fail closed.
+    let base_replay_err = session
+        .load::<PhaseEntity>()
+        .order_by("rank")
+        .limit(2)
+        .page()
+        .expect("baseline scalar paged query should build")
+        .cursor(equivalent_cursor)
+        .execute()
+        .expect_err("baseline scalar shape must reject equivalent-shape continuation token");
+    let equivalent_replay_err = session
+        .load::<PhaseEntity>()
+        .filter(scalar_rank_gte_predicate(1))
+        .order_by("rank")
+        .limit(2)
+        .page()
+        .expect("equivalent scalar paged query should build")
+        .cursor(base_cursor)
+        .execute()
+        .expect_err("equivalent scalar shape must reject baseline continuation token");
+
+    let QueryError::Plan(base_plan_err) = base_replay_err else {
+        panic!(
+            "baseline cross-shape scalar cursor rejection should surface as plan-layer cursor error"
+        );
+    };
+    assert!(
+        base_plan_err
+            .to_string()
+            .contains("does not match query plan signature"),
+        "baseline cross-shape scalar cursor rejection should mention signature mismatch",
+    );
+    let QueryError::Plan(equivalent_plan_err) = equivalent_replay_err else {
+        panic!(
+            "equivalent cross-shape scalar cursor rejection should surface as plan-layer cursor error"
+        );
+    };
+    assert!(
+        equivalent_plan_err
+            .to_string()
+            .contains("does not match query plan signature"),
+        "equivalent cross-shape scalar cursor rejection should mention signature mismatch",
+    );
+}
+
+#[test]
 fn grouped_fluent_execute_rejects_scalar_query_shape() {
     let session = DbSession::new(DB);
 
@@ -496,6 +906,57 @@ fn grouped_fluent_execute_rejects_scalar_query_shape() {
             ))
         ),
         "non-grouped execute_grouped should preserve query invariant classification"
+    );
+}
+
+#[test]
+fn grouped_fluent_execute_rejects_unsupported_cursor_version_at_api_boundary() {
+    seed_grouped_phase_entities();
+    let session = DbSession::new(DB);
+
+    let page_1 = session
+        .load::<PhaseEntity>()
+        .group_by("rank")
+        .expect("group field should resolve")
+        .aggregate(crate::db::count())
+        .limit(1)
+        .execute_grouped()
+        .expect("seed grouped page should execute");
+    let base_cursor = page_1
+        .continuation_cursor()
+        .expect("seed grouped page should emit continuation cursor");
+    let token = crate::db::cursor::GroupedContinuationToken::decode(base_cursor)
+        .expect("seed grouped continuation cursor should decode");
+    let version_mismatch_cursor = token
+        .encode_with_version_for_test(9)
+        .expect("version-mismatch grouped continuation cursor should encode");
+
+    let err = session
+        .load::<PhaseEntity>()
+        .group_by("rank")
+        .expect("group field should resolve")
+        .aggregate(crate::db::count())
+        .limit(1)
+        .cursor(crate::db::encode_cursor(version_mismatch_cursor.as_slice()))
+        .execute_grouped()
+        .expect_err("unsupported grouped continuation token version must fail closed");
+
+    assert!(
+        matches!(
+            err,
+            QueryError::Plan(plan_err)
+                if matches!(
+                    plan_err.as_ref(),
+                    crate::db::query::plan::PlanError::Cursor(inner)
+                        if matches!(
+                            inner.as_ref(),
+                            crate::db::cursor::CursorPlanError::ContinuationCursorVersionMismatch {
+                                version: 9
+                            }
+                        )
+                )
+        ),
+        "unsupported grouped continuation token versions must surface as cursor version mismatch",
     );
 }
 

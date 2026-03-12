@@ -3,7 +3,7 @@
 //! Does not own: predicate truth semantics or query planning policy.
 //! Boundary: provides ordering-only helpers for sort/range/cursor surfaces.
 
-use crate::value::Value;
+use crate::{db::numeric::compare_numeric_or_strict_order, value::Value};
 use std::cmp::Ordering;
 
 ///
@@ -22,12 +22,17 @@ pub(in crate::db) trait OrderingSemantics<T: ?Sized> {
 /// CanonicalValueOrderingSemantics
 ///
 /// Canonical total ordering for `Value` sort/range/cursor boundaries.
+/// Numeric-capable pairs delegate to shared numeric-or-strict comparison first.
 ///
 
 pub(in crate::db) struct CanonicalValueOrderingSemantics;
 
 impl OrderingSemantics<Value> for CanonicalValueOrderingSemantics {
     fn compare(left: &Value, right: &Value) -> Ordering {
+        if let Some(ordering) = compare_numeric_or_strict_order(left, right) {
+            return ordering;
+        }
+
         Value::canonical_cmp(left, right)
     }
 }
@@ -55,6 +60,14 @@ mod tests {
         );
         assert_eq!(
             canonical_value_compare(&Value::Text("x".to_string()), &Value::Text("x".to_string())),
+            Ordering::Equal
+        );
+    }
+
+    #[test]
+    fn canonical_value_ordering_prefers_shared_numeric_or_strict_authority() {
+        assert_eq!(
+            canonical_value_compare(&Value::Int(7), &Value::Uint(7)),
             Ordering::Equal
         );
     }
