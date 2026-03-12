@@ -744,7 +744,7 @@ fn aggregate_route_snapshot_for_scalar_count_is_stable() {
     });
 
     let actual = scalar_aggregate_route_snapshot(&plan, crate::db::count());
-    let expected = vec![
+    let expected = [
         "aggregate_kind=Count".to_string(),
         "grouped=false".to_string(),
         "distinct_mode=false".to_string(),
@@ -769,7 +769,7 @@ fn aggregate_route_snapshot_for_scalar_sum_field_is_stable() {
     });
 
     let actual = scalar_aggregate_route_snapshot(&plan, crate::db::sum("rank"));
-    let expected = vec![
+    let expected = [
         "aggregate_kind=Sum".to_string(),
         "grouped=false".to_string(),
         "distinct_mode=false".to_string(),
@@ -794,7 +794,7 @@ fn aggregate_route_snapshot_for_scalar_avg_field_is_stable() {
     });
 
     let actual = scalar_aggregate_route_snapshot(&plan, crate::db::avg("rank"));
-    let expected = vec![
+    let expected = [
         "aggregate_kind=Avg".to_string(),
         "grouped=false".to_string(),
         "distinct_mode=false".to_string(),
@@ -825,7 +825,7 @@ fn aggregate_route_snapshot_for_grouped_field_aggregates_is_stable() {
         });
 
     let actual = grouped_aggregate_route_snapshot(&grouped);
-    let expected = vec![
+    let expected = [
         "grouped=true".to_string(),
         "planner_hint=HashGroup".to_string(),
         "aggregate_contracts=[\"Avg:Some(\\\"rank\\\"):false\"]".to_string(),

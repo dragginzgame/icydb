@@ -39,7 +39,6 @@ where
 {
     // Execute one global DISTINCT field-target grouped aggregate with grouped
     // distinct budget accounting and deterministic reducer behavior.
-    #[expect(clippy::too_many_lines)]
     pub(in crate::db::executor) fn execute_global_distinct_field_aggregate(
         consistency: MissingRowPolicy,
         ctx: &Context<'_, E>,
@@ -105,18 +104,16 @@ where
                 continue;
             }
 
+            distinct_count = distinct_count.saturating_add(1);
             if matches!(
                 aggregate_kind,
                 GlobalDistinctFieldAggregateKind::Sum | GlobalDistinctFieldAggregateKind::Avg
             ) {
-                distinct_count = distinct_count.saturating_add(1);
                 let numeric_value =
                     extract_numeric_field_decimal(&entity, target_field, field_slot)
                         .map_err(AggregateFieldValueError::into_internal_error)?;
                 sum = add_decimal_terms(sum, numeric_value);
                 saw_sum_value = true;
-            } else {
-                distinct_count = distinct_count.saturating_add(1);
             }
         }
 

@@ -143,7 +143,7 @@ where
         for row in response {
             let value = extract_numeric_field_decimal(row.entity_ref(), target_field, field_slot)
                 .map_err(Self::map_aggregate_field_value_error)?;
-            sum = add_numeric_decimal(sum, value)?;
+            sum = add_numeric_decimal(sum, value);
             row_count = row_count.saturating_add(1);
         }
 
@@ -273,7 +273,7 @@ where
             }
             let value = extract_numeric_field_decimal(&entity, target_field, field_slot)
                 .map_err(Self::map_aggregate_field_value_error)?;
-            sum = add_numeric_decimal(sum, value)?;
+            sum = add_numeric_decimal(sum, value);
             row_count = row_count.saturating_add(1);
         }
         record_rows_scanned::<E>(rows_scanned);
@@ -316,8 +316,8 @@ fn finalize_numeric_field_output(
 
 // Add one decimal term to one aggregate numeric accumulator through the shared
 // numeric arithmetic contract so projection/aggregate arithmetic semantics stay aligned.
-fn add_numeric_decimal(sum: Decimal, value: Decimal) -> Result<Decimal, InternalError> {
-    Ok(add_decimal_terms(sum, value))
+fn add_numeric_decimal(sum: Decimal, value: Decimal) -> Decimal {
+    add_decimal_terms(sum, value)
 }
 
 ///
@@ -336,7 +336,7 @@ mod tests {
         let left = Decimal::from_i128_with_scale(i128::MAX, 0);
         let right = Decimal::from_i128_with_scale(1, 0);
 
-        let result = add_numeric_decimal(left, right).expect("decimal add should succeed");
+        let result = add_numeric_decimal(left, right);
 
         assert_eq!(result, Decimal::from_i128_with_scale(i128::MAX, 0));
     }
