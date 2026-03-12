@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.52.x] - 2026-03-12 - Reduced SQL Parser Line Open
+
+- `0.52.0` opens the reduced SQL parser line with deterministic reduced-SQL parsing plus initial SQL-to-query lowering and session entrypoints (`query_from_sql`, `execute_sql`, `explain_sql`) for the minimum executable subset (`SELECT *` and constrained `DELETE`) while broader SQL projection/grouping semantics remain gated for follow-up patches.
+
+See detailed breakdown:
+[docs/changelog/0.52.md](docs/changelog/0.52.md)
+
+---
+
 ## [0.51.x] - 2026-03-12 - Engine Contract Stabilization Line Open
 
 - `0.51.0` starts the `0.51` stabilization line by freezing deterministic query-plan snapshot surfaces (`query -> executable plan -> explain`), adding baseline snapshots for core execution shapes, locking ordering-contract guards for `ORDER`/`LIMIT`/cursor behavior, and adding continuation-envelope replay/version fail-closed regression coverage on fluent pagination paths.

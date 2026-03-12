@@ -79,6 +79,30 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
+    /// Build one typed query intent from one reduced SQL statement.
+    pub fn query_from_sql<E>(&self, sql: &str) -> Result<Query<E>, Error>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        Ok(self.inner.query_from_sql::<E>(sql)?)
+    }
+
+    /// Execute one reduced SQL `SELECT *`/`DELETE` statement.
+    pub fn execute_sql<E>(&self, sql: &str) -> Result<Response<E>, Error>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        Ok(Response::from_core(self.inner.execute_sql::<E>(sql)?))
+    }
+
+    /// Explain one reduced SQL statement.
+    pub fn explain_sql<E>(&self, sql: &str) -> Result<String, Error>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        Ok(self.inner.explain_sql::<E>(sql)?)
+    }
+
     #[must_use]
     pub fn delete<E>(&self) -> SessionDeleteQuery<'_, E>
     where

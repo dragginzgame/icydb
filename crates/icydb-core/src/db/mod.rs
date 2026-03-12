@@ -16,6 +16,7 @@ pub(crate) mod registry;
 pub(crate) mod response;
 pub(crate) mod schema;
 pub(crate) mod session;
+pub(crate) mod sql;
 
 pub(in crate::db) mod codec;
 pub(in crate::db) mod commit;

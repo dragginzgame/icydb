@@ -23,8 +23,9 @@ use crate::{
             plan::QueryMode,
         },
         schema::{describe_entity_model, show_indexes_for_model},
+        sql::lowering::{SqlCommand, SqlLoweringError, compile_sql_command},
     },
-    error::InternalError,
+    error::{ErrorClass, ErrorOrigin, InternalError},
     metrics::sink::{MetricsSink, with_metrics_sink},
     traits::{CanisterKind, EntityKind, EntityValue},
     value::Value,
@@ -42,6 +43,15 @@ fn map_executor_plan_error(err: ExecutorPlanError) -> QueryError {
 // query-plan cursor error boundary.
 fn decode_optional_cursor_bytes(cursor_token: Option<&str>) -> Result<Option<Vec<u8>>, QueryError> {
     decode_optional_cursor_token(cursor_token).map_err(|err| QueryError::from(PlanError::from(err)))
+}
+
+// Map SQL frontend parse/lowering failures into query-facing execution errors.
+fn map_sql_lowering_error(err: SqlLoweringError) -> QueryError {
+    QueryError::execute(InternalError::classified(
+        ErrorClass::Unsupported,
+        ErrorOrigin::Query,
+        format!("SQL query is not executable in this release: {err}"),
+    ))
 }
 
 ///
@@ -166,6 +176,65 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         FluentLoadQuery::new(self, Query::new(consistency))
+    }
+
+    /// Build one typed query intent from one reduced SQL statement.
+    ///
+    /// This parser/lowering entrypoint is intentionally constrained to the
+    /// executable subset wired in the current release.
+    pub fn query_from_sql<E>(&self, sql: &str) -> Result<Query<E>, QueryError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let command = compile_sql_command::<E>(sql, MissingRowPolicy::Ignore)
+            .map_err(map_sql_lowering_error)?;
+
+        match command {
+            SqlCommand::Query(query) => Ok(query),
+            SqlCommand::Explain { .. } => Err(QueryError::execute(InternalError::classified(
+                ErrorClass::Unsupported,
+                ErrorOrigin::Query,
+                "query_from_sql does not accept EXPLAIN statements; use explain_sql(...)",
+            ))),
+        }
+    }
+
+    /// Execute one reduced SQL `SELECT *`/`DELETE` statement for entity `E`.
+    pub fn execute_sql<E>(&self, sql: &str) -> Result<EntityResponse<E>, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let query = self.query_from_sql::<E>(sql)?;
+        self.execute_query(&query)
+    }
+
+    /// Explain one reduced SQL statement for entity `E`.
+    ///
+    /// Supported modes:
+    /// - `EXPLAIN ...` -> logical plan text
+    /// - `EXPLAIN EXECUTION ...` -> execution descriptor text
+    /// - `EXPLAIN JSON ...` -> execution descriptor canonical JSON
+    pub fn explain_sql<E>(&self, sql: &str) -> Result<String, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let command = compile_sql_command::<E>(sql, MissingRowPolicy::Ignore)
+            .map_err(map_sql_lowering_error)?;
+
+        match command {
+            SqlCommand::Query(_) => Err(QueryError::execute(InternalError::classified(
+                ErrorClass::Unsupported,
+                ErrorOrigin::Query,
+                "explain_sql requires an EXPLAIN statement",
+            ))),
+            SqlCommand::Explain { mode, query } => match mode {
+                crate::db::sql::parser::SqlExplainMode::Plan => {
+                    Ok(format!("{:?}", query.explain()?))
+                }
+                crate::db::sql::parser::SqlExplainMode::Execution => query.explain_execution_text(),
+                crate::db::sql::parser::SqlExplainMode::Json => query.explain_execution_json(),
+            },
+        }
     }
 
     /// Start a fluent delete query with default missing-row policy (`Ignore`).
@@ -647,7 +716,94 @@ const fn trace_execution_strategy(strategy: ExecutionStrategy) -> TraceExecution
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::cursor::CursorPlanError;
+    use crate::{
+        db::{
+            Db,
+            commit::{ensure_recovered, init_commit_store_for_tests},
+            cursor::CursorPlanError,
+            data::DataStore,
+            index::IndexStore,
+            registry::StoreRegistry,
+        },
+        model::field::FieldKind,
+        testing::test_memory,
+        traits::Path,
+        types::Ulid,
+    };
+    use icydb_derive::FieldProjection;
+    use serde::{Deserialize, Serialize};
+    use std::cell::RefCell;
+
+    crate::test_canister! {
+        ident = SessionSqlCanister,
+        commit_memory_id = crate::testing::test_commit_memory_id(),
+    }
+
+    crate::test_store! {
+        ident = SessionSqlStore,
+        canister = SessionSqlCanister,
+    }
+
+    thread_local! {
+        static SESSION_SQL_DATA_STORE: RefCell<DataStore> =
+            RefCell::new(DataStore::init(test_memory(160)));
+        static SESSION_SQL_INDEX_STORE: RefCell<IndexStore> =
+            RefCell::new(IndexStore::init(test_memory(161)));
+        static SESSION_SQL_STORE_REGISTRY: StoreRegistry = {
+            let mut reg = StoreRegistry::new();
+            reg.register_store(
+                SessionSqlStore::PATH,
+                &SESSION_SQL_DATA_STORE,
+                &SESSION_SQL_INDEX_STORE,
+            )
+            .expect("SQL session test store registration should succeed");
+            reg
+        };
+    }
+
+    static SESSION_SQL_DB: Db<SessionSqlCanister> = Db::new(&SESSION_SQL_STORE_REGISTRY);
+
+    ///
+    /// SessionSqlEntity
+    ///
+    /// Test entity used to lock end-to-end reduced SQL session behavior.
+    ///
+
+    #[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+    struct SessionSqlEntity {
+        id: Ulid,
+        name: String,
+        age: u64,
+    }
+
+    crate::test_entity_schema! {
+        ident = SessionSqlEntity,
+        id = Ulid,
+        id_field = id,
+        entity_name = "SessionSqlEntity",
+        primary_key = "id",
+        pk_index = 0,
+        fields = [
+            ("id", FieldKind::Ulid),
+            ("name", FieldKind::Text),
+            ("age", FieldKind::Uint),
+        ],
+        indexes = [],
+        store = SessionSqlStore,
+        canister = SessionSqlCanister,
+    }
+
+    // Reset all session SQL fixture state between tests to preserve deterministic assertions.
+    fn reset_session_sql_store() {
+        init_commit_store_for_tests().expect("commit store init should succeed");
+        ensure_recovered(&SESSION_SQL_DB).expect("write-side recovery should succeed");
+        SESSION_SQL_DATA_STORE.with(|store| store.borrow_mut().clear());
+        SESSION_SQL_INDEX_STORE.with(|store| store.borrow_mut().clear());
+    }
+
+    fn sql_session() -> DbSession<SessionSqlCanister> {
+        DbSession::new(SESSION_SQL_DB)
+    }
 
     // Assert query-surface cursor errors remain wrapped under QueryError::Plan(PlanError::Cursor).
     fn assert_query_error_is_cursor_plan(
@@ -764,6 +920,209 @@ mod tests {
                     }
                 )
             },
+        );
+    }
+
+    #[test]
+    fn execute_sql_select_star_honors_order_limit_offset() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "older".to_string(),
+                age: 37,
+            })
+            .expect("seed insert should succeed");
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "younger".to_string(),
+                age: 19,
+            })
+            .expect("seed insert should succeed");
+
+        let response = session
+            .execute_sql::<SessionSqlEntity>(
+                "SELECT * FROM SessionSqlEntity ORDER BY age ASC LIMIT 1 OFFSET 1",
+            )
+            .expect("SELECT * should execute");
+
+        assert_eq!(response.count(), 1, "window should return one row");
+        let row = response
+            .iter()
+            .next()
+            .expect("windowed result should include one row");
+        assert_eq!(
+            row.entity_ref().name,
+            "older",
+            "ordered window should return the second age-ordered row",
+        );
+    }
+
+    #[test]
+    fn execute_sql_delete_honors_predicate_order_and_limit() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "first-minor".to_string(),
+                age: 16,
+            })
+            .expect("seed insert should succeed");
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "second-minor".to_string(),
+                age: 17,
+            })
+            .expect("seed insert should succeed");
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "adult".to_string(),
+                age: 42,
+            })
+            .expect("seed insert should succeed");
+
+        let deleted = session
+            .execute_sql::<SessionSqlEntity>(
+                "DELETE FROM SessionSqlEntity WHERE age < 20 ORDER BY age ASC LIMIT 1",
+            )
+            .expect("DELETE should execute");
+
+        assert_eq!(deleted.count(), 1, "delete limit should remove one row");
+        assert_eq!(
+            deleted
+                .iter()
+                .next()
+                .expect("deleted row should exist")
+                .entity_ref()
+                .age,
+            16,
+            "ordered delete should remove the youngest matching row first",
+        );
+
+        let remaining = session
+            .load::<SessionSqlEntity>()
+            .order_by("age")
+            .execute()
+            .expect("post-delete load should succeed");
+        let remaining_ages = remaining
+            .iter()
+            .map(|row| row.entity_ref().age)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            remaining_ages,
+            vec![17, 42],
+            "delete window semantics should preserve non-deleted rows",
+        );
+    }
+
+    #[test]
+    fn query_from_sql_rejects_explain_statements() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let err = session
+            .query_from_sql::<SessionSqlEntity>("EXPLAIN SELECT * FROM SessionSqlEntity")
+            .expect_err("query_from_sql must reject EXPLAIN statements");
+
+        assert!(
+            matches!(
+                err,
+                QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                    _
+                ))
+            ),
+            "query_from_sql EXPLAIN rejection must map to unsupported execution class",
+        );
+    }
+
+    #[test]
+    fn explain_sql_execution_returns_descriptor_text() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let explain = session
+            .explain_sql::<SessionSqlEntity>(
+                "EXPLAIN EXECUTION SELECT * FROM SessionSqlEntity ORDER BY age LIMIT 1",
+            )
+            .expect("EXPLAIN EXECUTION should succeed");
+
+        assert!(
+            explain.contains("node_id=0"),
+            "execution explain output should include the root descriptor node id",
+        );
+        assert!(
+            explain.contains("layer="),
+            "execution explain output should include execution layer annotations",
+        );
+    }
+
+    #[test]
+    fn explain_sql_plan_returns_logical_plan_text() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let explain = session
+            .explain_sql::<SessionSqlEntity>(
+                "EXPLAIN SELECT * FROM SessionSqlEntity ORDER BY age LIMIT 1",
+            )
+            .expect("EXPLAIN should succeed");
+
+        assert!(
+            explain.contains("mode: Load"),
+            "logical explain text should include query mode projection",
+        );
+        assert!(
+            explain.contains("access:"),
+            "logical explain text should include projected access shape",
+        );
+    }
+
+    #[test]
+    fn explain_sql_json_returns_execution_descriptor_json() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let explain = session
+            .explain_sql::<SessionSqlEntity>(
+                "EXPLAIN JSON SELECT * FROM SessionSqlEntity ORDER BY age LIMIT 1",
+            )
+            .expect("EXPLAIN JSON should succeed");
+
+        assert!(
+            explain.starts_with('{') && explain.ends_with('}'),
+            "execution explain JSON should render one JSON object payload",
+        );
+        assert!(
+            explain.contains("\"node_id\":0"),
+            "execution explain JSON should include the root descriptor node id",
+        );
+    }
+
+    #[test]
+    fn explain_sql_rejects_non_explain_statements() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let err = session
+            .explain_sql::<SessionSqlEntity>("SELECT * FROM SessionSqlEntity")
+            .expect_err("explain_sql must reject non-EXPLAIN statements");
+
+        assert!(
+            matches!(
+                err,
+                QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                    _
+                ))
+            ),
+            "non-EXPLAIN input must fail as unsupported explain usage",
         );
     }
 }
