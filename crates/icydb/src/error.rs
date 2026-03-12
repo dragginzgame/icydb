@@ -383,6 +383,13 @@ mod tests {
                 ErrorOrigin::Planner,
                 "planner internal",
             ),
+            (
+                CoreErrorClass::Unsupported,
+                CoreErrorOrigin::Query,
+                RuntimeErrorKind::Unsupported,
+                ErrorOrigin::Query,
+                "unsupported SQL feature",
+            ),
         ];
 
         for (class, origin, expected_kind, expected_origin, message) in cases {

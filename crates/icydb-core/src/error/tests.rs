@@ -62,6 +62,22 @@ fn query_executor_invariant_uses_invariant_violation_class() {
 }
 
 #[test]
+fn query_unsupported_sql_feature_preserves_query_detail_label() {
+    let err = InternalError::query_unsupported_sql_feature("JOIN");
+
+    assert_eq!(err.class, ErrorClass::Unsupported);
+    assert_eq!(err.origin, ErrorOrigin::Query);
+    assert!(
+        matches!(
+            err.detail(),
+            Some(ErrorDetail::Query(QueryErrorDetail::UnsupportedSqlFeature { feature }))
+                if *feature == "JOIN"
+        ),
+        "query unsupported SQL feature helper should preserve structured feature label detail",
+    );
+}
+
+#[test]
 fn executor_access_plan_error_mapping_stays_invariant_violation() {
     let err = crate::db::error::from_executor_access_plan_error(AccessPlanError::IndexPrefixEmpty);
     assert_eq!(err.class, ErrorClass::InvariantViolation);

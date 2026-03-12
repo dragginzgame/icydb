@@ -294,6 +294,23 @@ impl InternalError {
         Self::new(ErrorClass::Unsupported, ErrorOrigin::Cursor, message.into())
     }
 
+    /// Construct a query-origin unsupported error preserving one SQL parser
+    /// unsupported-feature label in structured error detail.
+    pub(crate) fn query_unsupported_sql_feature(feature: &'static str) -> Self {
+        let message = format!(
+            "SQL query is not executable in this release: unsupported SQL feature: {feature}"
+        );
+
+        Self {
+            class: ErrorClass::Unsupported,
+            origin: ErrorOrigin::Query,
+            message,
+            detail: Some(ErrorDetail::Query(
+                QueryErrorDetail::UnsupportedSqlFeature { feature },
+            )),
+        }
+    }
+
     pub fn store_not_found(key: impl Into<String>) -> Self {
         let key = key.into();
 
@@ -395,12 +412,11 @@ pub enum ErrorDetail {
     Store(StoreError),
     #[error("{0}")]
     ViewPatch(crate::patch::MergePatchError),
+    #[error("{0}")]
+    Query(QueryErrorDetail),
     // Future-proofing:
     // #[error("{0}")]
     // Index(IndexError),
-    //
-    // #[error("{0}")]
-    // Query(QueryErrorDetail),
     //
     // #[error("{0}")]
     // Executor(ExecutorErrorDetail),
@@ -434,6 +450,18 @@ pub enum StoreError {
 
     #[error("store invariant violation: {message}")]
     InvariantViolation { message: String },
+}
+
+///
+/// QueryErrorDetail
+///
+/// Query-origin structured error detail payload.
+///
+
+#[derive(Debug, ThisError)]
+pub enum QueryErrorDetail {
+    #[error("unsupported SQL feature: {feature}")]
+    UnsupportedSqlFeature { feature: &'static str },
 }
 
 ///

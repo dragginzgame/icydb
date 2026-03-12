@@ -708,6 +708,7 @@ impl Parser {
         let projection = self.parse_projection()?;
         self.expect_keyword(Keyword::From)?;
         let entity = self.expect_identifier()?;
+        self.reject_table_alias_if_present()?;
 
         // Phase 1: parse predicate and grouping clauses in canonical sequence.
         let predicate = if self.eat_keyword(Keyword::Where) {
@@ -762,6 +763,7 @@ impl Parser {
     fn parse_delete_statement(&mut self) -> Result<SqlDeleteStatement, SqlParseError> {
         self.expect_keyword(Keyword::From)?;
         let entity = self.expect_identifier()?;
+        self.reject_table_alias_if_present()?;
 
         let predicate = if self.eat_keyword(Keyword::Where) {
             Some(self.parse_predicate()?)
@@ -864,6 +866,12 @@ impl Parser {
         self.bump();
         self.expect_lparen()?;
 
+        if self.eat_keyword(Keyword::Distinct) {
+            return Err(SqlParseError::unsupported_feature(
+                "DISTINCT aggregate qualifiers",
+            ));
+        }
+
         let field = if kind == SqlAggregateKind::Count && self.eat_star() {
             None
         } else {
@@ -902,6 +910,18 @@ impl Parser {
         }
 
         Ok(fields)
+    }
+
+    // Keep reduced-parser table ownership explicit: aliases are intentionally
+    // unsupported in this baseline and must fail closed.
+    fn reject_table_alias_if_present(&self) -> Result<(), SqlParseError> {
+        if self.peek_keyword(Keyword::As)
+            || matches!(self.peek_kind(), Some(TokenKind::Identifier(_)))
+        {
+            return Err(SqlParseError::unsupported_feature("table aliases"));
+        }
+
+        Ok(())
     }
 
     fn parse_predicate(&mut self) -> Result<Predicate, SqlParseError> {
@@ -1366,6 +1386,118 @@ mod tests {
     }
 
     #[test]
+    fn parse_select_statement_with_qualified_identifiers() {
+        let statement = parse_sql(
+            "SELECT users.name, users.age \
+             FROM public.users \
+             WHERE users.age >= 21 \
+             ORDER BY users.age DESC LIMIT 10 OFFSET 1",
+        )
+        .expect("qualified-identifier select statement should parse");
+
+        assert_eq!(
+            statement,
+            SqlStatement::Select(SqlSelectStatement {
+                entity: "public.users".to_string(),
+                projection: SqlProjection::Items(vec![
+                    SqlSelectItem::Field("users.name".to_string()),
+                    SqlSelectItem::Field("users.age".to_string()),
+                ]),
+                predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+                    "users.age",
+                    CompareOp::Gte,
+                    Value::Int(21),
+                    CoercionId::NumericWiden,
+                ))),
+                distinct: false,
+                group_by: vec![],
+                order_by: vec![SqlOrderTerm {
+                    field: "users.age".to_string(),
+                    direction: SqlOrderDirection::Desc,
+                }],
+                limit: Some(10),
+                offset: Some(1),
+            }),
+        );
+    }
+
+    #[test]
+    fn parse_explain_execution_with_qualified_identifiers() {
+        let statement = parse_sql(
+            "EXPLAIN EXECUTION SELECT users.name FROM public.users \
+             WHERE users.age >= 21 ORDER BY users.age DESC LIMIT 1",
+        )
+        .expect("qualified-identifier explain statement should parse");
+
+        assert_eq!(
+            statement,
+            SqlStatement::Explain(SqlExplainStatement {
+                mode: SqlExplainMode::Execution,
+                statement: SqlExplainTarget::Select(SqlSelectStatement {
+                    entity: "public.users".to_string(),
+                    projection: SqlProjection::Items(vec![SqlSelectItem::Field(
+                        "users.name".to_string(),
+                    )]),
+                    predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+                        "users.age",
+                        CompareOp::Gte,
+                        Value::Int(21),
+                        CoercionId::NumericWiden,
+                    ))),
+                    distinct: false,
+                    group_by: vec![],
+                    order_by: vec![SqlOrderTerm {
+                        field: "users.age".to_string(),
+                        direction: SqlOrderDirection::Desc,
+                    }],
+                    limit: Some(1),
+                    offset: None,
+                }),
+            }),
+        );
+    }
+
+    #[test]
+    fn parse_select_grouped_statement_with_qualified_identifiers() {
+        let statement = parse_sql(
+            "SELECT users.age, COUNT(*) \
+             FROM public.users \
+             WHERE users.age >= 21 \
+             GROUP BY users.age \
+             ORDER BY users.age DESC LIMIT 5 OFFSET 1",
+        )
+        .expect("qualified-identifier grouped select statement should parse");
+
+        assert_eq!(
+            statement,
+            SqlStatement::Select(SqlSelectStatement {
+                entity: "public.users".to_string(),
+                projection: SqlProjection::Items(vec![
+                    SqlSelectItem::Field("users.age".to_string()),
+                    SqlSelectItem::Aggregate(SqlAggregateCall {
+                        kind: SqlAggregateKind::Count,
+                        field: None,
+                    }),
+                ]),
+                predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+                    "users.age",
+                    CompareOp::Gte,
+                    Value::Int(21),
+                    CoercionId::NumericWiden,
+                ))),
+                distinct: false,
+                group_by: vec!["users.age".to_string()],
+                order_by: vec![SqlOrderTerm {
+                    field: "users.age".to_string(),
+                    direction: SqlOrderDirection::Desc,
+                }],
+                limit: Some(5),
+                offset: Some(1),
+            }),
+        );
+    }
+
+    #[test]
     fn parse_sql_rejects_insert_statement() {
         let err = parse_sql("INSERT INTO users VALUES (1)")
             .expect_err("insert should be rejected by reduced parser");
@@ -1374,6 +1506,66 @@ mod tests {
             err,
             super::SqlParseError::UnsupportedFeature { feature: "INSERT" }
         );
+    }
+
+    #[test]
+    fn parse_sql_unsupported_feature_labels_are_stable() {
+        let cases = [
+            (
+                "SELECT * FROM users JOIN other ON users.id = other.id",
+                "JOIN",
+            ),
+            (
+                "WITH cte AS (SELECT * FROM users) SELECT * FROM cte",
+                "WITH",
+            ),
+            (
+                "SELECT * FROM users UNION SELECT * FROM users",
+                "UNION/INTERSECT/EXCEPT",
+            ),
+            (
+                "SELECT * FROM users INTERSECT SELECT * FROM users",
+                "UNION/INTERSECT/EXCEPT",
+            ),
+            (
+                "SELECT * FROM users EXCEPT SELECT * FROM users",
+                "UNION/INTERSECT/EXCEPT",
+            ),
+            ("UPDATE users SET age = 1", "UPDATE"),
+            ("SELECT * FROM users HAVING age >= 21", "HAVING"),
+            ("EXPLAIN INSERT INTO users VALUES (1)", "INSERT"),
+            (
+                "SELECT name AS alias FROM users",
+                "column/expression aliases",
+            ),
+            ("SELECT name alias FROM users", "column/expression aliases"),
+            ("DELETE FROM users OFFSET 1", "DELETE ... OFFSET"),
+            (
+                "SELECT * FROM users; SELECT * FROM users",
+                "multi-statement SQL input",
+            ),
+            ("SELECT \"name\" FROM users", "quoted identifiers"),
+            (
+                "SELECT len(name) FROM users",
+                "SQL function namespace beyond supported aggregate forms",
+            ),
+            (
+                "SELECT COUNT(DISTINCT age) FROM users",
+                "DISTINCT aggregate qualifiers",
+            ),
+            ("SELECT * FROM public.users AS u", "table aliases"),
+        ];
+
+        for (sql, expected_feature) in cases {
+            let err = parse_sql(sql).expect_err("unsupported SQL feature should fail closed");
+            assert_eq!(
+                err,
+                super::SqlParseError::UnsupportedFeature {
+                    feature: expected_feature
+                },
+                "unsupported feature label should stay stable for SQL: {sql}",
+            );
+        }
     }
 
     #[test]
@@ -1398,6 +1590,71 @@ mod tests {
             err,
             super::SqlParseError::UnsupportedFeature {
                 feature: "SQL function namespace beyond supported aggregate forms"
+            }
+        );
+    }
+
+    #[test]
+    fn parse_sql_rejects_distinct_aggregate_qualifier() {
+        let err = parse_sql("SELECT COUNT(DISTINCT age) FROM users")
+            .expect_err("aggregate DISTINCT qualifier should be rejected");
+
+        assert_eq!(
+            err,
+            super::SqlParseError::UnsupportedFeature {
+                feature: "DISTINCT aggregate qualifiers"
+            }
+        );
+    }
+
+    #[test]
+    fn parse_sql_rejects_table_alias_identifier_form() {
+        let err = parse_sql("SELECT * FROM users u")
+            .expect_err("table alias should be rejected in reduced parser");
+
+        assert_eq!(
+            err,
+            super::SqlParseError::UnsupportedFeature {
+                feature: "table aliases"
+            }
+        );
+    }
+
+    #[test]
+    fn parse_sql_rejects_table_alias_as_form() {
+        let err = parse_sql("SELECT * FROM users AS u")
+            .expect_err("table alias should be rejected in reduced parser");
+
+        assert_eq!(
+            err,
+            super::SqlParseError::UnsupportedFeature {
+                feature: "table aliases"
+            }
+        );
+    }
+
+    #[test]
+    fn parse_sql_rejects_table_alias_for_schema_qualified_entity() {
+        let err = parse_sql("SELECT * FROM public.users AS u")
+            .expect_err("table alias should be rejected for schema-qualified entity names");
+
+        assert_eq!(
+            err,
+            super::SqlParseError::UnsupportedFeature {
+                feature: "table aliases"
+            }
+        );
+    }
+
+    #[test]
+    fn parse_sql_rejects_quoted_identifier_syntax() {
+        let err = parse_sql("SELECT \"name\" FROM users")
+            .expect_err("quoted identifiers should be rejected in reduced parser");
+
+        assert_eq!(
+            err,
+            super::SqlParseError::UnsupportedFeature {
+                feature: "quoted identifiers"
             }
         );
     }

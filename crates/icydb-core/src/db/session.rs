@@ -19,11 +19,17 @@ use crate::{
             SaveExecutor,
         },
         query::{
-            builder::aggregate::AggregateExpr, explain::ExplainAggregateTerminalPlan,
-            plan::QueryMode,
+            builder::aggregate::{AggregateExpr, avg, count, count_by, max_by, min_by, sum},
+            explain::ExplainAggregateTerminalPlan,
+            intent::IntentError,
+            plan::{FieldSlot, QueryMode},
         },
         schema::{describe_entity_model, show_indexes_for_model},
-        sql::lowering::{SqlCommand, SqlLoweringError, compile_sql_command},
+        sql::lowering::{
+            SqlCommand, SqlGlobalAggregateCommand, SqlGlobalAggregateTerminal, SqlLoweringError,
+            compile_sql_command, compile_sql_global_aggregate_command,
+        },
+        sql::parser::SqlExplainMode,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     metrics::sink::{MetricsSink, with_metrics_sink},
@@ -47,11 +53,62 @@ fn decode_optional_cursor_bytes(cursor_token: Option<&str>) -> Result<Option<Vec
 
 // Map SQL frontend parse/lowering failures into query-facing execution errors.
 fn map_sql_lowering_error(err: SqlLoweringError) -> QueryError {
-    QueryError::execute(InternalError::classified(
-        ErrorClass::Unsupported,
-        ErrorOrigin::Query,
-        format!("SQL query is not executable in this release: {err}"),
-    ))
+    match err {
+        SqlLoweringError::Query(err) => err,
+        SqlLoweringError::Parse(crate::db::sql::parser::SqlParseError::UnsupportedFeature {
+            feature,
+        }) => QueryError::execute(InternalError::query_unsupported_sql_feature(feature)),
+        other => QueryError::execute(InternalError::classified(
+            ErrorClass::Unsupported,
+            ErrorOrigin::Query,
+            format!("SQL query is not executable in this release: {other}"),
+        )),
+    }
+}
+
+// Resolve one aggregate target field through planner slot contracts before
+// aggregate terminal execution.
+fn resolve_sql_aggregate_target_slot<E: EntityKind>(field: &str) -> Result<FieldSlot, QueryError> {
+    FieldSlot::resolve(E::MODEL, field).ok_or_else(|| {
+        QueryError::execute(crate::db::error::executor_unsupported(format!(
+            "unknown aggregate target field: {field}",
+        )))
+    })
+}
+
+// Convert one lowered global SQL aggregate terminal into aggregate expression
+// contracts used by aggregate explain execution descriptors.
+fn sql_global_aggregate_terminal_to_expr<E: EntityKind>(
+    terminal: &SqlGlobalAggregateTerminal,
+) -> Result<AggregateExpr, QueryError> {
+    match terminal {
+        SqlGlobalAggregateTerminal::CountRows => Ok(count()),
+        SqlGlobalAggregateTerminal::CountField(field) => {
+            let _ = resolve_sql_aggregate_target_slot::<E>(field)?;
+
+            Ok(count_by(field.as_str()))
+        }
+        SqlGlobalAggregateTerminal::SumField(field) => {
+            let _ = resolve_sql_aggregate_target_slot::<E>(field)?;
+
+            Ok(sum(field.as_str()))
+        }
+        SqlGlobalAggregateTerminal::AvgField(field) => {
+            let _ = resolve_sql_aggregate_target_slot::<E>(field)?;
+
+            Ok(avg(field.as_str()))
+        }
+        SqlGlobalAggregateTerminal::MinField(field) => {
+            let _ = resolve_sql_aggregate_target_slot::<E>(field)?;
+
+            Ok(min_by(field.as_str()))
+        }
+        SqlGlobalAggregateTerminal::MaxField(field) => {
+            let _ = resolve_sql_aggregate_target_slot::<E>(field)?;
+
+            Ok(max_by(field.as_str()))
+        }
+    }
 }
 
 ///
@@ -191,11 +248,13 @@ impl<C: CanisterKind> DbSession<C> {
 
         match command {
             SqlCommand::Query(query) => Ok(query),
-            SqlCommand::Explain { .. } => Err(QueryError::execute(InternalError::classified(
-                ErrorClass::Unsupported,
-                ErrorOrigin::Query,
-                "query_from_sql does not accept EXPLAIN statements; use explain_sql(...)",
-            ))),
+            SqlCommand::Explain { .. } | SqlCommand::ExplainGlobalAggregate { .. } => {
+                Err(QueryError::execute(InternalError::classified(
+                    ErrorClass::Unsupported,
+                    ErrorOrigin::Query,
+                    "query_from_sql does not accept EXPLAIN statements; use explain_sql(...)",
+                )))
+            }
         }
     }
 
@@ -205,6 +264,12 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C> + EntityValue,
     {
         let query = self.query_from_sql::<E>(sql)?;
+        if query.has_grouping() {
+            return Err(QueryError::Intent(
+                IntentError::GroupedRequiresExecuteGrouped,
+            ));
+        }
+
         self.execute_query(&query)
     }
 
@@ -217,6 +282,12 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C> + EntityValue,
     {
         let query = self.query_from_sql::<E>(sql)?;
+        if query.has_grouping() {
+            return Err(QueryError::Intent(
+                IntentError::GroupedRequiresExecuteGrouped,
+            ));
+        }
+
         match query.mode() {
             QueryMode::Load(_) => {
                 self.execute_load_query_with(&query, |load, plan| load.execute_projection(plan))
@@ -227,6 +298,102 @@ impl<C: CanisterKind> DbSession<C> {
                 "execute_sql_projection only supports SELECT statements",
             ))),
         }
+    }
+
+    /// Execute one reduced SQL global aggregate `SELECT` statement.
+    ///
+    /// This entrypoint is intentionally constrained to one aggregate terminal
+    /// shape per statement and preserves existing terminal semantics.
+    pub fn execute_sql_aggregate<E>(&self, sql: &str) -> Result<Value, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let command = compile_sql_global_aggregate_command::<E>(sql, MissingRowPolicy::Ignore)
+            .map_err(map_sql_lowering_error)?;
+
+        match command.terminal() {
+            SqlGlobalAggregateTerminal::CountRows => self
+                .execute_load_query_with(command.query(), |load, plan| load.aggregate_count(plan))
+                .map(|count| Value::Uint(u64::from(count))),
+            SqlGlobalAggregateTerminal::CountField(field) => {
+                let target_slot = resolve_sql_aggregate_target_slot::<E>(field)?;
+                self.execute_load_query_with(command.query(), |load, plan| {
+                    load.values_by_slot(plan, target_slot)
+                })
+                .map(|values| {
+                    let count = values
+                        .into_iter()
+                        .filter(|value| !matches!(value, Value::Null))
+                        .count();
+                    Value::Uint(u64::try_from(count).unwrap_or(u64::MAX))
+                })
+            }
+            SqlGlobalAggregateTerminal::SumField(field) => {
+                let target_slot = resolve_sql_aggregate_target_slot::<E>(field)?;
+                self.execute_load_query_with(command.query(), |load, plan| {
+                    load.aggregate_sum_by_slot(plan, target_slot)
+                })
+                .map(|value| value.map_or(Value::Null, Value::Decimal))
+            }
+            SqlGlobalAggregateTerminal::AvgField(field) => {
+                let target_slot = resolve_sql_aggregate_target_slot::<E>(field)?;
+                self.execute_load_query_with(command.query(), |load, plan| {
+                    load.aggregate_avg_by_slot(plan, target_slot)
+                })
+                .map(|value| value.map_or(Value::Null, Value::Decimal))
+            }
+            SqlGlobalAggregateTerminal::MinField(field) => {
+                let target_slot = resolve_sql_aggregate_target_slot::<E>(field)?;
+                let min_id = self.execute_load_query_with(command.query(), |load, plan| {
+                    load.aggregate_min_by_slot(plan, target_slot)
+                })?;
+
+                match min_id {
+                    Some(id) => self
+                        .load::<E>()
+                        .by_id(id)
+                        .first_value_by(field)
+                        .map(|value| value.unwrap_or(Value::Null)),
+                    None => Ok(Value::Null),
+                }
+            }
+            SqlGlobalAggregateTerminal::MaxField(field) => {
+                let target_slot = resolve_sql_aggregate_target_slot::<E>(field)?;
+                let max_id = self.execute_load_query_with(command.query(), |load, plan| {
+                    load.aggregate_max_by_slot(plan, target_slot)
+                })?;
+
+                match max_id {
+                    Some(id) => self
+                        .load::<E>()
+                        .by_id(id)
+                        .first_value_by(field)
+                        .map(|value| value.unwrap_or(Value::Null)),
+                    None => Ok(Value::Null),
+                }
+            }
+        }
+    }
+
+    /// Execute one reduced SQL grouped `SELECT` statement and return grouped rows.
+    pub fn execute_sql_grouped<E>(
+        &self,
+        sql: &str,
+        cursor_token: Option<&str>,
+    ) -> Result<PagedGroupedExecutionWithTrace, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let query = self.query_from_sql::<E>(sql)?;
+        if !query.has_grouping() {
+            return Err(QueryError::execute(InternalError::classified(
+                ErrorClass::Unsupported,
+                ErrorOrigin::Query,
+                "execute_sql_grouped requires grouped SQL query intent",
+            )));
+        }
+
+        self.execute_grouped(&query, cursor_token)
     }
 
     /// Explain one reduced SQL statement for entity `E`.
@@ -249,14 +416,45 @@ impl<C: CanisterKind> DbSession<C> {
                 "explain_sql requires an EXPLAIN statement",
             ))),
             SqlCommand::Explain { mode, query } => match mode {
-                crate::db::sql::parser::SqlExplainMode::Plan => {
-                    Ok(query.explain()?.render_text_canonical())
-                }
-                crate::db::sql::parser::SqlExplainMode::Execution => query.explain_execution_text(),
-                crate::db::sql::parser::SqlExplainMode::Json => {
-                    Ok(query.explain()?.render_json_canonical())
-                }
+                SqlExplainMode::Plan => Ok(query.explain()?.render_text_canonical()),
+                SqlExplainMode::Execution => query.explain_execution_text(),
+                SqlExplainMode::Json => Ok(query.explain()?.render_json_canonical()),
             },
+            SqlCommand::ExplainGlobalAggregate { mode, command } => {
+                Self::explain_sql_global_aggregate::<E>(mode, command)
+            }
+        }
+    }
+
+    // Render one EXPLAIN payload for constrained global aggregate SQL command.
+    fn explain_sql_global_aggregate<E>(
+        mode: SqlExplainMode,
+        command: SqlGlobalAggregateCommand<E>,
+    ) -> Result<String, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        match mode {
+            SqlExplainMode::Plan => {
+                // Keep explain validation parity with execution by requiring the
+                // target field to resolve before returning explain output.
+                let _ = sql_global_aggregate_terminal_to_expr::<E>(command.terminal())?;
+
+                Ok(command.query().explain()?.render_text_canonical())
+            }
+            SqlExplainMode::Execution => {
+                let aggregate = sql_global_aggregate_terminal_to_expr::<E>(command.terminal())?;
+                let plan = Self::explain_load_query_terminal_with(command.query(), aggregate)?;
+
+                Ok(plan.execution_node_descriptor().render_text_tree())
+            }
+            SqlExplainMode::Json => {
+                // Keep explain validation parity with execution by requiring the
+                // target field to resolve before returning explain output.
+                let _ = sql_global_aggregate_terminal_to_expr::<E>(command.terminal())?;
+
+                Ok(command.query().explain()?.render_json_canonical())
+            }
         }
     }
 
@@ -749,6 +947,7 @@ mod tests {
             query::plan::expr::{Expr, ProjectionField},
             registry::StoreRegistry,
         },
+        error::{ErrorClass, ErrorDetail, ErrorOrigin, QueryErrorDetail},
         model::field::FieldKind,
         testing::test_memory,
         traits::Path,
@@ -855,6 +1054,42 @@ mod tests {
 
         let mapped_via_plan = QueryError::from(PlanError::from(build()));
         assert_query_error_is_cursor_plan(mapped_via_plan, predicate);
+    }
+
+    // Assert SQL parser unsupported-feature labels remain preserved through
+    // query-facing execution error detail payloads.
+    fn assert_sql_unsupported_feature_detail(err: QueryError, expected_feature: &'static str) {
+        let QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+            internal,
+        )) = err
+        else {
+            panic!("expected query execution unsupported error variant");
+        };
+
+        assert_eq!(internal.class(), ErrorClass::Unsupported);
+        assert_eq!(internal.origin(), ErrorOrigin::Query);
+        assert!(
+            matches!(
+                internal.detail(),
+                Some(ErrorDetail::Query(QueryErrorDetail::UnsupportedSqlFeature { feature }))
+                    if *feature == expected_feature
+            ),
+            "unsupported SQL feature detail label should be preserved",
+        );
+    }
+
+    fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 3] {
+        [
+            (
+                "SELECT * FROM SessionSqlEntity JOIN other ON SessionSqlEntity.id = other.id",
+                "JOIN",
+            ),
+            (
+                "SELECT \"name\" FROM SessionSqlEntity",
+                "quoted identifiers",
+            ),
+            ("SELECT * FROM SessionSqlEntity alias", "table aliases"),
+        ]
     }
 
     #[test]
@@ -1069,6 +1304,85 @@ mod tests {
     }
 
     #[test]
+    fn query_from_sql_preserves_parser_unsupported_feature_detail_labels() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        for (sql, feature) in unsupported_sql_feature_cases() {
+            let err = session
+                .query_from_sql::<SessionSqlEntity>(sql)
+                .expect_err("unsupported SQL feature should fail through query_from_sql");
+            assert_sql_unsupported_feature_detail(err, feature);
+        }
+    }
+
+    #[test]
+    fn execute_sql_preserves_parser_unsupported_feature_detail_labels() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        for (sql, feature) in unsupported_sql_feature_cases() {
+            let err = session
+                .execute_sql::<SessionSqlEntity>(sql)
+                .expect_err("unsupported SQL feature should fail through execute_sql");
+            assert_sql_unsupported_feature_detail(err, feature);
+        }
+    }
+
+    #[test]
+    fn execute_sql_projection_preserves_parser_unsupported_feature_detail_labels() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        for (sql, feature) in unsupported_sql_feature_cases() {
+            let err = session
+                .execute_sql_projection::<SessionSqlEntity>(sql)
+                .expect_err("unsupported SQL feature should fail through execute_sql_projection");
+            assert_sql_unsupported_feature_detail(err, feature);
+        }
+    }
+
+    #[test]
+    fn execute_sql_grouped_preserves_parser_unsupported_feature_detail_labels() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        for (sql, feature) in unsupported_sql_feature_cases() {
+            let err = session
+                .execute_sql_grouped::<SessionSqlEntity>(sql, None)
+                .expect_err("unsupported SQL feature should fail through execute_sql_grouped");
+            assert_sql_unsupported_feature_detail(err, feature);
+        }
+    }
+
+    #[test]
+    fn execute_sql_aggregate_preserves_parser_unsupported_feature_detail_labels() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        for (sql, feature) in unsupported_sql_feature_cases() {
+            let err = session
+                .execute_sql_aggregate::<SessionSqlEntity>(sql)
+                .expect_err("unsupported SQL feature should fail through execute_sql_aggregate");
+            assert_sql_unsupported_feature_detail(err, feature);
+        }
+    }
+
+    #[test]
+    fn explain_sql_preserves_parser_unsupported_feature_detail_labels() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        for (sql, feature) in unsupported_sql_feature_cases() {
+            let explain_sql = format!("EXPLAIN {sql}");
+            let err = session
+                .explain_sql::<SessionSqlEntity>(explain_sql.as_str())
+                .expect_err("unsupported SQL feature should fail through explain_sql");
+            assert_sql_unsupported_feature_detail(err, feature);
+        }
+    }
+
+    #[test]
     fn query_from_sql_select_field_projection_lowers_to_scalar_field_selection() {
         reset_session_sql_store();
         let session = sql_session();
@@ -1094,6 +1408,22 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(field_names, vec!["name".to_string(), "age".to_string()]);
+    }
+
+    #[test]
+    fn query_from_sql_select_grouped_aggregate_projection_lowers_to_grouped_intent() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let query = session
+            .query_from_sql::<SessionSqlEntity>(
+                "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
+            )
+            .expect("grouped aggregate projection SQL query should lower");
+        assert!(
+            query.has_grouping(),
+            "grouped aggregate SQL projection lowering should produce grouped query intent",
+        );
     }
 
     #[test]
@@ -1197,6 +1527,61 @@ mod tests {
     }
 
     #[test]
+    fn execute_sql_select_schema_qualified_entity_executes() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "schema-qualified".to_string(),
+                age: 41,
+            })
+            .expect("seed insert should succeed");
+
+        let response = session
+            .execute_sql::<SessionSqlEntity>(
+                "SELECT * FROM public.SessionSqlEntity ORDER BY age ASC LIMIT 1",
+            )
+            .expect("schema-qualified entity SQL should execute");
+
+        assert_eq!(response.len(), 1);
+    }
+
+    #[test]
+    fn execute_sql_projection_select_table_qualified_fields_executes() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "qualified-projection".to_string(),
+                age: 42,
+            })
+            .expect("seed insert should succeed");
+
+        let response = session
+            .execute_sql_projection::<SessionSqlEntity>(
+                "SELECT SessionSqlEntity.name \
+                 FROM SessionSqlEntity \
+                 WHERE SessionSqlEntity.age >= 40 \
+                 ORDER BY SessionSqlEntity.age DESC LIMIT 1",
+            )
+            .expect("table-qualified projection SQL should execute");
+        let row = response
+            .iter()
+            .next()
+            .expect("table-qualified projection SQL response should contain one row");
+
+        assert_eq!(response.count(), 1);
+        assert_eq!(
+            row.values(),
+            [Value::Text("qualified-projection".to_string())]
+        );
+    }
+
+    #[test]
     fn execute_sql_projection_rejects_delete_statements() {
         reset_session_sql_store();
         let session = sql_session();
@@ -1240,7 +1625,7 @@ mod tests {
 
         let err = session
             .execute_sql::<SessionSqlEntity>("SELECT COUNT(*) FROM SessionSqlEntity")
-            .expect_err("aggregate SQL projection should remain lowering-gated in this slice");
+            .expect_err("global aggregate SQL projection should remain lowering-gated");
 
         assert!(
             matches!(
@@ -1249,18 +1634,18 @@ mod tests {
                     _
                 ))
             ),
-            "aggregate projection gate should remain an unsupported execution error boundary",
+            "global aggregate SQL projection should fail at reduced lowering boundary",
         );
     }
 
     #[test]
-    fn execute_sql_rejects_group_by_in_current_slice() {
+    fn execute_sql_rejects_table_alias_forms_in_reduced_parser() {
         reset_session_sql_store();
         let session = sql_session();
 
         let err = session
-            .execute_sql::<SessionSqlEntity>("SELECT * FROM SessionSqlEntity GROUP BY age")
-            .expect_err("GROUP BY should be rejected in this slice");
+            .execute_sql::<SessionSqlEntity>("SELECT * FROM SessionSqlEntity alias")
+            .expect_err("table aliases should be rejected by reduced SQL parser");
 
         assert!(
             matches!(
@@ -1269,7 +1654,513 @@ mod tests {
                     _
                 ))
             ),
-            "group-by gate should remain an unsupported execution error boundary",
+            "table alias usage should fail closed through unsupported SQL boundary",
+        );
+    }
+
+    #[test]
+    fn execute_sql_rejects_quoted_identifiers_in_reduced_parser() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let err = session
+            .execute_sql::<SessionSqlEntity>("SELECT \"name\" FROM SessionSqlEntity")
+            .expect_err("quoted identifiers should be rejected by reduced SQL parser");
+
+        assert!(
+            matches!(
+                err,
+                QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                    _
+                ))
+            ),
+            "quoted identifiers should fail closed through unsupported SQL boundary",
+        );
+    }
+
+    #[test]
+    fn execute_sql_select_distinct_star_executes() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let id_a = Ulid::generate();
+        let id_b = Ulid::generate();
+        session
+            .insert(SessionSqlEntity {
+                id: id_a,
+                name: "distinct-a".to_string(),
+                age: 20,
+            })
+            .expect("seed insert should succeed");
+        session
+            .insert(SessionSqlEntity {
+                id: id_b,
+                name: "distinct-b".to_string(),
+                age: 20,
+            })
+            .expect("seed insert should succeed");
+
+        let response = session
+            .execute_sql::<SessionSqlEntity>(
+                "SELECT DISTINCT * FROM SessionSqlEntity ORDER BY id ASC",
+            )
+            .expect("SELECT DISTINCT * should execute");
+        assert_eq!(response.len(), 2);
+    }
+
+    #[test]
+    fn execute_sql_projection_select_distinct_with_pk_field_list_executes() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "distinct-pk-a".to_string(),
+                age: 25,
+            })
+            .expect("seed insert should succeed");
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "distinct-pk-b".to_string(),
+                age: 25,
+            })
+            .expect("seed insert should succeed");
+
+        let response = session
+            .execute_sql_projection::<SessionSqlEntity>(
+                "SELECT DISTINCT id, age FROM SessionSqlEntity ORDER BY id ASC",
+            )
+            .expect("SELECT DISTINCT field-list with PK should execute");
+        assert_eq!(response.len(), 2);
+        assert_eq!(response[0].values().len(), 2);
+    }
+
+    #[test]
+    fn execute_sql_rejects_distinct_without_pk_projection_in_current_slice() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let err = session
+            .execute_sql::<SessionSqlEntity>("SELECT DISTINCT age FROM SessionSqlEntity")
+            .expect_err("SELECT DISTINCT without PK in projection should remain lowering-gated");
+
+        assert!(
+            matches!(
+                err,
+                QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                    _
+                ))
+            ),
+            "distinct SQL gating should map to unsupported execution error boundary",
+        );
+    }
+
+    #[test]
+    fn execute_sql_aggregate_count_star_and_count_field_return_uint() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "aggregate-a".to_string(),
+                age: 20,
+            })
+            .expect("seed insert should succeed");
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "aggregate-b".to_string(),
+                age: 32,
+            })
+            .expect("seed insert should succeed");
+
+        let count_rows = session
+            .execute_sql_aggregate::<SessionSqlEntity>("SELECT COUNT(*) FROM SessionSqlEntity")
+            .expect("COUNT(*) SQL aggregate should execute");
+        let count_field = session
+            .execute_sql_aggregate::<SessionSqlEntity>("SELECT COUNT(age) FROM SessionSqlEntity")
+            .expect("COUNT(field) SQL aggregate should execute");
+        assert_eq!(count_rows, Value::Uint(2));
+        assert_eq!(count_field, Value::Uint(2));
+    }
+
+    #[test]
+    fn execute_sql_aggregate_sum_with_table_qualified_field_executes() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "qualified-aggregate-a".to_string(),
+                age: 20,
+            })
+            .expect("seed insert should succeed");
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "qualified-aggregate-b".to_string(),
+                age: 32,
+            })
+            .expect("seed insert should succeed");
+
+        let sum = session
+            .execute_sql_aggregate::<SessionSqlEntity>(
+                "SELECT SUM(SessionSqlEntity.age) FROM SessionSqlEntity",
+            )
+            .expect("table-qualified aggregate SQL should execute");
+
+        assert_eq!(sum, Value::Decimal(crate::types::Decimal::from(52u64)));
+    }
+
+    #[test]
+    fn execute_sql_aggregate_rejects_distinct_aggregate_qualifier() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let err = session
+            .execute_sql_aggregate::<SessionSqlEntity>(
+                "SELECT COUNT(DISTINCT age) FROM SessionSqlEntity",
+            )
+            .expect_err("aggregate DISTINCT qualifier should remain unsupported");
+
+        assert!(
+            matches!(
+                err,
+                QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                    _
+                ))
+            ),
+            "aggregate DISTINCT qualifier should fail closed through unsupported SQL boundary",
+        );
+    }
+
+    #[test]
+    fn execute_sql_aggregate_sum_avg_min_max_return_expected_values() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "sumavg-a".to_string(),
+                age: 20,
+            })
+            .expect("seed insert should succeed");
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "sumavg-b".to_string(),
+                age: 32,
+            })
+            .expect("seed insert should succeed");
+
+        let sum = session
+            .execute_sql_aggregate::<SessionSqlEntity>("SELECT SUM(age) FROM SessionSqlEntity")
+            .expect("SUM(field) SQL aggregate should execute");
+        let avg = session
+            .execute_sql_aggregate::<SessionSqlEntity>("SELECT AVG(age) FROM SessionSqlEntity")
+            .expect("AVG(field) SQL aggregate should execute");
+        let min = session
+            .execute_sql_aggregate::<SessionSqlEntity>("SELECT MIN(age) FROM SessionSqlEntity")
+            .expect("MIN(field) SQL aggregate should execute");
+        let max = session
+            .execute_sql_aggregate::<SessionSqlEntity>("SELECT MAX(age) FROM SessionSqlEntity")
+            .expect("MAX(field) SQL aggregate should execute");
+        let empty_sum = session
+            .execute_sql_aggregate::<SessionSqlEntity>(
+                "SELECT SUM(age) FROM SessionSqlEntity WHERE age < 0",
+            )
+            .expect("SUM(field) SQL aggregate empty-window execution should succeed");
+        let empty_min = session
+            .execute_sql_aggregate::<SessionSqlEntity>(
+                "SELECT MIN(age) FROM SessionSqlEntity WHERE age < 0",
+            )
+            .expect("MIN(field) SQL aggregate empty-window execution should succeed");
+        let empty_max = session
+            .execute_sql_aggregate::<SessionSqlEntity>(
+                "SELECT MAX(age) FROM SessionSqlEntity WHERE age < 0",
+            )
+            .expect("MAX(field) SQL aggregate empty-window execution should succeed");
+
+        assert_eq!(sum, Value::Decimal(crate::types::Decimal::from(52u64)));
+        assert_eq!(avg, Value::Decimal(crate::types::Decimal::from(26u64)));
+        assert_eq!(min, Value::Uint(20));
+        assert_eq!(max, Value::Uint(32));
+        assert_eq!(empty_sum, Value::Null);
+        assert_eq!(empty_min, Value::Null);
+        assert_eq!(empty_max, Value::Null);
+    }
+
+    #[test]
+    fn execute_sql_aggregate_honors_order_limit_offset_window() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "window-a".to_string(),
+                age: 10,
+            })
+            .expect("seed insert should succeed");
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "window-b".to_string(),
+                age: 20,
+            })
+            .expect("seed insert should succeed");
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "window-c".to_string(),
+                age: 30,
+            })
+            .expect("seed insert should succeed");
+
+        let count = session
+            .execute_sql_aggregate::<SessionSqlEntity>(
+                "SELECT COUNT(*) FROM SessionSqlEntity ORDER BY age DESC LIMIT 2 OFFSET 1",
+            )
+            .expect("COUNT(*) SQL aggregate window execution should succeed");
+        let sum = session
+            .execute_sql_aggregate::<SessionSqlEntity>(
+                "SELECT SUM(age) FROM SessionSqlEntity ORDER BY age DESC LIMIT 1 OFFSET 1",
+            )
+            .expect("SUM(field) SQL aggregate window execution should succeed");
+        let avg = session
+            .execute_sql_aggregate::<SessionSqlEntity>(
+                "SELECT AVG(age) FROM SessionSqlEntity ORDER BY age ASC LIMIT 2 OFFSET 1",
+            )
+            .expect("AVG(field) SQL aggregate window execution should succeed");
+
+        assert_eq!(count, Value::Uint(2));
+        assert_eq!(sum, Value::Decimal(crate::types::Decimal::from(20u64)));
+        assert_eq!(avg, Value::Decimal(crate::types::Decimal::from(25u64)));
+    }
+
+    #[test]
+    fn execute_sql_aggregate_rejects_unsupported_aggregate_shapes() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        for sql in [
+            "SELECT age FROM SessionSqlEntity",
+            "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
+        ] {
+            let err = session
+                .execute_sql_aggregate::<SessionSqlEntity>(sql)
+                .expect_err("unsupported SQL aggregate shape should fail closed");
+            assert!(
+                matches!(
+                    err,
+                    QueryError::Execute(
+                        crate::db::query::intent::QueryExecutionError::Unsupported(_)
+                    )
+                ),
+                "unsupported SQL aggregate shape should map to unsupported execution error boundary: {sql}",
+            );
+        }
+    }
+
+    #[test]
+    fn execute_sql_aggregate_rejects_unknown_target_field() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let err = session
+            .execute_sql_aggregate::<SessionSqlEntity>(
+                "SELECT SUM(missing_field) FROM SessionSqlEntity",
+            )
+            .expect_err("unknown aggregate target field should fail");
+
+        assert!(
+            matches!(
+                err,
+                QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                    _
+                ))
+            ),
+            "unknown aggregate target field should map to unsupported execution error boundary",
+        );
+    }
+
+    #[test]
+    fn execute_sql_projection_rejects_grouped_aggregate_sql() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let err = session
+            .execute_sql_projection::<SessionSqlEntity>(
+                "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
+            )
+            .expect_err("projection SQL API should reject grouped aggregate SQL intent");
+
+        assert!(
+            matches!(
+                err,
+                QueryError::Intent(
+                    crate::db::query::intent::IntentError::GroupedRequiresExecuteGrouped
+                )
+            ),
+            "projection SQL API must reject grouped aggregate SQL with grouped-intent routing error",
+        );
+    }
+
+    #[test]
+    fn execute_sql_grouped_select_count_returns_grouped_aggregate_row() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "aggregate-a".to_string(),
+                age: 20,
+            })
+            .expect("seed insert should succeed");
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "aggregate-b".to_string(),
+                age: 20,
+            })
+            .expect("seed insert should succeed");
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "aggregate-c".to_string(),
+                age: 32,
+            })
+            .expect("seed insert should succeed");
+
+        let execution = session
+            .execute_sql_grouped::<SessionSqlEntity>(
+                "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age ORDER BY age ASC LIMIT 10",
+                None,
+            )
+            .expect("grouped SQL aggregate execution should succeed");
+
+        assert!(
+            execution.continuation_cursor().is_none(),
+            "single-page grouped aggregate execution should not emit continuation cursor",
+        );
+        assert_eq!(execution.rows().len(), 2);
+        assert_eq!(execution.rows()[0].group_key(), [Value::Uint(20)]);
+        assert_eq!(execution.rows()[0].aggregate_values(), [Value::Uint(2)]);
+        assert_eq!(execution.rows()[1].group_key(), [Value::Uint(32)]);
+        assert_eq!(execution.rows()[1].aggregate_values(), [Value::Uint(1)]);
+    }
+
+    #[test]
+    fn execute_sql_grouped_select_count_with_qualified_identifiers_executes() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "qualified-group-a".to_string(),
+                age: 20,
+            })
+            .expect("seed insert should succeed");
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "qualified-group-b".to_string(),
+                age: 20,
+            })
+            .expect("seed insert should succeed");
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "qualified-group-c".to_string(),
+                age: 32,
+            })
+            .expect("seed insert should succeed");
+
+        let execution = session
+            .execute_sql_grouped::<SessionSqlEntity>(
+                "SELECT SessionSqlEntity.age, COUNT(*) \
+                 FROM public.SessionSqlEntity \
+                 WHERE SessionSqlEntity.age >= 20 \
+                 GROUP BY SessionSqlEntity.age \
+                 ORDER BY SessionSqlEntity.age ASC LIMIT 10",
+                None,
+            )
+            .expect("qualified grouped SQL aggregate execution should succeed");
+
+        assert!(execution.continuation_cursor().is_none());
+        assert_eq!(execution.rows().len(), 2);
+        assert_eq!(execution.rows()[0].group_key(), [Value::Uint(20)]);
+        assert_eq!(execution.rows()[0].aggregate_values(), [Value::Uint(2)]);
+        assert_eq!(execution.rows()[1].group_key(), [Value::Uint(32)]);
+        assert_eq!(execution.rows()[1].aggregate_values(), [Value::Uint(1)]);
+    }
+
+    #[test]
+    fn execute_sql_grouped_rejects_scalar_sql_intent() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let err = session
+            .execute_sql_grouped::<SessionSqlEntity>("SELECT name FROM SessionSqlEntity", None)
+            .expect_err("grouped SQL API should reject non-grouped SQL queries");
+
+        assert!(
+            matches!(
+                err,
+                QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                    _
+                ))
+            ),
+            "grouped SQL API should fail closed for non-grouped SQL shapes",
+        );
+    }
+
+    #[test]
+    fn execute_sql_rejects_grouped_sql_intent_without_grouped_api() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let err = session
+            .execute_sql::<SessionSqlEntity>(
+                "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
+            )
+            .expect_err("scalar SQL API should reject grouped SQL intent");
+
+        assert!(
+            matches!(
+                err,
+                QueryError::Intent(
+                    crate::db::query::intent::IntentError::GroupedRequiresExecuteGrouped
+                )
+            ),
+            "scalar SQL API must preserve grouped explicit-entrypoint contract",
+        );
+    }
+
+    #[test]
+    fn execute_sql_rejects_unsupported_group_by_projection_shape() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let err = session
+            .execute_sql::<SessionSqlEntity>("SELECT COUNT(*) FROM SessionSqlEntity GROUP BY age")
+            .expect_err("group-by projection mismatch should fail closed");
+
+        assert!(
+            matches!(
+                err,
+                QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                    _
+                ))
+            ),
+            "unsupported grouped SQL projection shapes should fail at reduced lowering boundary",
         );
     }
 
@@ -1316,6 +2207,210 @@ mod tests {
     }
 
     #[test]
+    fn explain_sql_plan_grouped_qualified_identifiers_match_unqualified_output() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let qualified = session
+            .explain_sql::<SessionSqlEntity>(
+                "EXPLAIN SELECT SessionSqlEntity.age, COUNT(*) \
+                 FROM public.SessionSqlEntity \
+                 WHERE SessionSqlEntity.age >= 21 \
+                 GROUP BY SessionSqlEntity.age \
+                 ORDER BY SessionSqlEntity.age DESC LIMIT 2 OFFSET 1",
+            )
+            .expect("qualified grouped EXPLAIN plan SQL should succeed");
+        let unqualified = session
+            .explain_sql::<SessionSqlEntity>(
+                "EXPLAIN SELECT age, COUNT(*) \
+                 FROM SessionSqlEntity \
+                 WHERE age >= 21 \
+                 GROUP BY age \
+                 ORDER BY age DESC LIMIT 2 OFFSET 1",
+            )
+            .expect("unqualified grouped EXPLAIN plan SQL should succeed");
+
+        assert_eq!(
+            qualified, unqualified,
+            "qualified grouped identifiers should normalize to the same logical EXPLAIN plan output",
+        );
+    }
+
+    #[test]
+    fn explain_sql_execution_grouped_qualified_identifiers_match_unqualified_output() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let qualified = session
+            .explain_sql::<SessionSqlEntity>(
+                "EXPLAIN EXECUTION SELECT SessionSqlEntity.age, COUNT(*) \
+                 FROM public.SessionSqlEntity \
+                 WHERE SessionSqlEntity.age >= 21 \
+                 GROUP BY SessionSqlEntity.age \
+                 ORDER BY SessionSqlEntity.age DESC LIMIT 2 OFFSET 1",
+            )
+            .expect("qualified grouped EXPLAIN execution SQL should succeed");
+        let unqualified = session
+            .explain_sql::<SessionSqlEntity>(
+                "EXPLAIN EXECUTION SELECT age, COUNT(*) \
+                 FROM SessionSqlEntity \
+                 WHERE age >= 21 \
+                 GROUP BY age \
+                 ORDER BY age DESC LIMIT 2 OFFSET 1",
+            )
+            .expect("unqualified grouped EXPLAIN execution SQL should succeed");
+
+        assert_eq!(
+            qualified, unqualified,
+            "qualified grouped identifiers should normalize to the same execution EXPLAIN descriptor output",
+        );
+    }
+
+    #[test]
+    fn explain_sql_json_grouped_qualified_identifiers_match_unqualified_output() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let qualified = session
+            .explain_sql::<SessionSqlEntity>(
+                "EXPLAIN JSON SELECT SessionSqlEntity.age, COUNT(*) \
+                 FROM public.SessionSqlEntity \
+                 WHERE SessionSqlEntity.age >= 21 \
+                 GROUP BY SessionSqlEntity.age \
+                 ORDER BY SessionSqlEntity.age DESC LIMIT 2 OFFSET 1",
+            )
+            .expect("qualified grouped EXPLAIN JSON SQL should succeed");
+        let unqualified = session
+            .explain_sql::<SessionSqlEntity>(
+                "EXPLAIN JSON SELECT age, COUNT(*) \
+                 FROM SessionSqlEntity \
+                 WHERE age >= 21 \
+                 GROUP BY age \
+                 ORDER BY age DESC LIMIT 2 OFFSET 1",
+            )
+            .expect("unqualified grouped EXPLAIN JSON SQL should succeed");
+
+        assert_eq!(
+            qualified, unqualified,
+            "qualified grouped identifiers should normalize to the same EXPLAIN JSON output",
+        );
+    }
+
+    #[test]
+    fn explain_sql_plan_qualified_identifiers_match_unqualified_output() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let qualified = session
+            .explain_sql::<SessionSqlEntity>(
+                "EXPLAIN SELECT * \
+                 FROM public.SessionSqlEntity \
+                 WHERE SessionSqlEntity.age >= 21 \
+                 ORDER BY SessionSqlEntity.age DESC LIMIT 1",
+            )
+            .expect("qualified EXPLAIN plan SQL should succeed");
+        let unqualified = session
+            .explain_sql::<SessionSqlEntity>(
+                "EXPLAIN SELECT * \
+                 FROM SessionSqlEntity \
+                 WHERE age >= 21 \
+                 ORDER BY age DESC LIMIT 1",
+            )
+            .expect("unqualified EXPLAIN plan SQL should succeed");
+
+        assert_eq!(
+            qualified, unqualified,
+            "qualified identifiers should normalize to the same logical EXPLAIN plan output",
+        );
+    }
+
+    #[test]
+    fn explain_sql_execution_qualified_identifiers_match_unqualified_output() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let qualified = session
+            .explain_sql::<SessionSqlEntity>(
+                "EXPLAIN EXECUTION SELECT SessionSqlEntity.name \
+                 FROM SessionSqlEntity \
+                 WHERE SessionSqlEntity.age >= 21 \
+                 ORDER BY SessionSqlEntity.age DESC LIMIT 1",
+            )
+            .expect("qualified EXPLAIN execution SQL should succeed");
+        let unqualified = session
+            .explain_sql::<SessionSqlEntity>(
+                "EXPLAIN EXECUTION SELECT name \
+                 FROM SessionSqlEntity \
+                 WHERE age >= 21 \
+                 ORDER BY age DESC LIMIT 1",
+            )
+            .expect("unqualified EXPLAIN execution SQL should succeed");
+
+        assert_eq!(
+            qualified, unqualified,
+            "qualified identifiers should normalize to the same execution EXPLAIN descriptor output",
+        );
+    }
+
+    #[test]
+    fn explain_sql_json_qualified_aggregate_matches_unqualified_output() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let qualified = session
+            .explain_sql::<SessionSqlEntity>(
+                "EXPLAIN JSON SELECT SUM(SessionSqlEntity.age) \
+                 FROM public.SessionSqlEntity \
+                 WHERE SessionSqlEntity.age >= 21",
+            )
+            .expect("qualified global aggregate EXPLAIN JSON should succeed");
+        let unqualified = session
+            .explain_sql::<SessionSqlEntity>(
+                "EXPLAIN JSON SELECT SUM(age) FROM SessionSqlEntity WHERE age >= 21",
+            )
+            .expect("unqualified global aggregate EXPLAIN JSON should succeed");
+
+        assert_eq!(
+            qualified, unqualified,
+            "qualified identifiers should normalize to the same global aggregate EXPLAIN JSON output",
+        );
+    }
+
+    #[test]
+    fn explain_sql_plan_select_distinct_star_marks_distinct_true() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let explain = session
+            .explain_sql::<SessionSqlEntity>(
+                "EXPLAIN SELECT DISTINCT * FROM SessionSqlEntity ORDER BY id ASC",
+            )
+            .expect("EXPLAIN SELECT DISTINCT * should succeed");
+
+        assert!(
+            explain.contains("distinct=true"),
+            "logical explain text should preserve scalar distinct intent",
+        );
+    }
+
+    #[test]
+    fn explain_sql_execution_select_distinct_star_returns_execution_descriptor_text() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let explain = session
+            .explain_sql::<SessionSqlEntity>(
+                "EXPLAIN EXECUTION SELECT DISTINCT * FROM SessionSqlEntity ORDER BY id ASC LIMIT 1",
+            )
+            .expect("EXPLAIN EXECUTION SELECT DISTINCT * should succeed");
+
+        assert!(
+            explain.contains("node_id=0"),
+            "execution explain output should include the root descriptor node id",
+        );
+    }
+
+    #[test]
     fn explain_sql_json_returns_logical_plan_json() {
         reset_session_sql_store();
         let session = sql_session();
@@ -1341,6 +2436,23 @@ mod tests {
     }
 
     #[test]
+    fn explain_sql_json_select_distinct_star_marks_distinct_true() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let explain = session
+            .explain_sql::<SessionSqlEntity>(
+                "EXPLAIN JSON SELECT DISTINCT * FROM SessionSqlEntity ORDER BY id ASC",
+            )
+            .expect("EXPLAIN JSON SELECT DISTINCT * should succeed");
+
+        assert!(
+            explain.contains("\"distinct\":true"),
+            "logical explain JSON should preserve scalar distinct intent",
+        );
+    }
+
+    #[test]
     fn explain_sql_json_delete_returns_logical_delete_mode() {
         reset_session_sql_store();
         let session = sql_session();
@@ -1354,6 +2466,107 @@ mod tests {
         assert!(
             explain.contains("\"mode\":{\"type\":\"Delete\""),
             "logical explain JSON should expose delete query mode metadata",
+        );
+    }
+
+    #[test]
+    fn explain_sql_plan_global_aggregate_returns_logical_plan_text() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let explain = session
+            .explain_sql::<SessionSqlEntity>("EXPLAIN SELECT COUNT(*) FROM SessionSqlEntity")
+            .expect("global aggregate SQL explain plan should succeed");
+
+        assert!(
+            explain.contains("mode=Load"),
+            "global aggregate SQL explain plan should project logical load mode",
+        );
+        assert!(
+            explain.contains("access="),
+            "global aggregate SQL explain plan should include logical access projection",
+        );
+    }
+
+    #[test]
+    fn explain_sql_execution_global_aggregate_returns_execution_descriptor_text() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let explain = session
+            .explain_sql::<SessionSqlEntity>(
+                "EXPLAIN EXECUTION SELECT COUNT(*) FROM SessionSqlEntity",
+            )
+            .expect("global aggregate SQL explain execution should succeed");
+
+        assert!(
+            explain.contains("AggregateCount execution_mode="),
+            "global aggregate SQL explain execution should include aggregate terminal node heading",
+        );
+        assert!(
+            explain.contains("node_id=0"),
+            "global aggregate SQL explain execution should include root node id",
+        );
+    }
+
+    #[test]
+    fn explain_sql_json_global_aggregate_returns_logical_plan_json() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let explain = session
+            .explain_sql::<SessionSqlEntity>("EXPLAIN JSON SELECT COUNT(*) FROM SessionSqlEntity")
+            .expect("global aggregate SQL explain json should succeed");
+
+        assert!(
+            explain.starts_with('{') && explain.ends_with('}'),
+            "global aggregate SQL explain json should render one JSON object payload",
+        );
+        assert!(
+            explain.contains("\"mode\":{\"type\":\"Load\""),
+            "global aggregate SQL explain json should expose logical query mode metadata",
+        );
+    }
+
+    #[test]
+    fn explain_sql_global_aggregate_rejects_unknown_target_field() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let err = session
+            .explain_sql::<SessionSqlEntity>(
+                "EXPLAIN EXECUTION SELECT SUM(missing_field) FROM SessionSqlEntity",
+            )
+            .expect_err("global aggregate SQL explain should reject unknown target fields");
+
+        assert!(
+            matches!(
+                err,
+                QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                    _
+                ))
+            ),
+            "global aggregate SQL explain should map unknown target field to unsupported execution error boundary",
+        );
+    }
+
+    #[test]
+    fn explain_sql_rejects_distinct_without_pk_projection_in_current_slice() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let err = session
+            .explain_sql::<SessionSqlEntity>("EXPLAIN SELECT DISTINCT age FROM SessionSqlEntity")
+            .expect_err("EXPLAIN SELECT DISTINCT without PK projection should remain fail-closed");
+
+        assert!(
+            matches!(
+                err,
+                QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                    _
+                ))
+            ),
+            "unsupported DISTINCT explain shape should map to unsupported execution error boundary",
         );
     }
 

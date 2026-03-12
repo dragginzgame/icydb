@@ -107,6 +107,33 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
+    /// Execute one reduced SQL global aggregate `SELECT` statement.
+    pub fn execute_sql_aggregate<E>(&self, sql: &str) -> Result<crate::value::Value, Error>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        Ok(self.inner.execute_sql_aggregate::<E>(sql)?)
+    }
+
+    /// Execute one reduced SQL grouped `SELECT` statement with optional continuation cursor.
+    pub fn execute_sql_grouped<E>(
+        &self,
+        sql: &str,
+        cursor_token: Option<&str>,
+    ) -> Result<PagedGroupedResponse, Error>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let execution = self.inner.execute_sql_grouped::<E>(sql, cursor_token)?;
+        let next_cursor = execution.continuation_cursor().map(core::db::encode_cursor);
+
+        Ok(PagedGroupedResponse::new(
+            execution.rows().to_vec(),
+            next_cursor,
+            execution.execution_trace().copied(),
+        ))
+    }
+
     /// Explain one reduced SQL statement.
     pub fn explain_sql<E>(&self, sql: &str) -> Result<String, Error>
     where
@@ -357,5 +384,190 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C> + EntityValue,
     {
         Ok(self.inner.update_view::<E>(view)?)
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        error::{ErrorKind, ErrorOrigin, RuntimeErrorKind},
+        macros::{canister, entity, store},
+        traits::{Path as _, Sanitizer as _},
+    };
+    use canic_cdk::structures::{
+        DefaultMemoryImpl,
+        memory::{MemoryId, MemoryManager, VirtualMemory},
+    };
+    use icydb_core as core;
+    use std::cell::RefCell;
+
+    fn test_memory(id: u8) -> VirtualMemory<DefaultMemoryImpl> {
+        let manager = MemoryManager::init(DefaultMemoryImpl::default());
+        manager.get(MemoryId::new(id))
+    }
+
+    ///
+    /// FacadeSqlCanister
+    ///
+    #[canister(memory_min = 240, memory_max = 250, commit_memory_id = 240)]
+    pub struct FacadeSqlCanister {}
+
+    ///
+    /// FacadeSqlStore
+    ///
+    #[store(
+        ident = "FACADE_SQL_STORE",
+        canister = "FacadeSqlCanister",
+        data_memory_id = 241,
+        index_memory_id = 242
+    )]
+    pub struct FacadeSqlStore {}
+
+    ///
+    /// FacadeSqlEntity
+    ///
+    #[entity(
+        store = "FacadeSqlStore",
+        pk(field = "id"),
+        fields(
+            field(
+                ident = "id",
+                value(item(prim = "Ulid")),
+                default = "crate::types::Ulid::generate"
+            ),
+            field(ident = "name", value(item(prim = "Text"))),
+            field(ident = "age", value(item(prim = "Nat64")))
+        )
+    )]
+    pub struct FacadeSqlEntity {}
+
+    thread_local! {
+        static FACADE_SQL_DATA_STORE: RefCell<core::db::DataStore> =
+            RefCell::new(core::db::DataStore::init(test_memory(241)));
+        static FACADE_SQL_INDEX_STORE: RefCell<core::db::IndexStore> =
+            RefCell::new(core::db::IndexStore::init(test_memory(242)));
+        static FACADE_SQL_STORE_REGISTRY: core::db::StoreRegistry = {
+            let mut registry = core::db::StoreRegistry::new();
+            registry
+                .register_store(
+                    FacadeSqlStore::PATH,
+                    &FACADE_SQL_DATA_STORE,
+                    &FACADE_SQL_INDEX_STORE,
+                )
+                .expect("facade SQL test store registration should succeed");
+            registry
+        };
+    }
+
+    fn facade_session() -> DbSession<FacadeSqlCanister> {
+        let core_session = core::db::DbSession::<FacadeSqlCanister>::new_with_hooks(
+            &FACADE_SQL_STORE_REGISTRY,
+            &[],
+        );
+        DbSession::new(core_session)
+    }
+
+    fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 3] {
+        [
+            (
+                "SELECT * FROM FacadeSqlEntity JOIN other ON FacadeSqlEntity.id = other.id",
+                "JOIN",
+            ),
+            ("SELECT \"name\" FROM FacadeSqlEntity", "quoted identifiers"),
+            ("SELECT * FROM FacadeSqlEntity alias", "table aliases"),
+        ]
+    }
+
+    fn assert_facade_query_unsupported_runtime(err: Error) {
+        assert_eq!(
+            err.kind(),
+            &ErrorKind::Runtime(RuntimeErrorKind::Unsupported)
+        );
+        assert_eq!(err.origin(), ErrorOrigin::Query);
+    }
+
+    fn assert_unsupported_sql_runtime_result<T>(result: Result<T, Error>, surface: &str) {
+        match result {
+            Ok(_) => panic!("unsupported SQL should fail through {surface}"),
+            Err(err) => assert_facade_query_unsupported_runtime(err),
+        }
+    }
+
+    #[test]
+    fn facade_query_from_sql_preserves_unsupported_runtime_contract() {
+        let session = facade_session();
+
+        for (sql, _feature) in unsupported_sql_feature_cases() {
+            assert_unsupported_sql_runtime_result(
+                session.query_from_sql::<FacadeSqlEntity>(sql),
+                "facade query_from_sql",
+            );
+        }
+    }
+
+    #[test]
+    fn facade_execute_sql_preserves_unsupported_runtime_contract() {
+        let session = facade_session();
+
+        for (sql, _feature) in unsupported_sql_feature_cases() {
+            assert_unsupported_sql_runtime_result(
+                session.execute_sql::<FacadeSqlEntity>(sql),
+                "facade execute_sql",
+            );
+        }
+    }
+
+    #[test]
+    fn facade_execute_sql_projection_preserves_unsupported_runtime_contract() {
+        let session = facade_session();
+
+        for (sql, _feature) in unsupported_sql_feature_cases() {
+            assert_unsupported_sql_runtime_result(
+                session.execute_sql_projection::<FacadeSqlEntity>(sql),
+                "facade execute_sql_projection",
+            );
+        }
+    }
+
+    #[test]
+    fn facade_execute_sql_grouped_preserves_unsupported_runtime_contract() {
+        let session = facade_session();
+
+        for (sql, _feature) in unsupported_sql_feature_cases() {
+            assert_unsupported_sql_runtime_result(
+                session.execute_sql_grouped::<FacadeSqlEntity>(sql, None),
+                "facade execute_sql_grouped",
+            );
+        }
+    }
+
+    #[test]
+    fn facade_execute_sql_aggregate_preserves_unsupported_runtime_contract() {
+        let session = facade_session();
+
+        for (sql, _feature) in unsupported_sql_feature_cases() {
+            assert_unsupported_sql_runtime_result(
+                session.execute_sql_aggregate::<FacadeSqlEntity>(sql),
+                "facade execute_sql_aggregate",
+            );
+        }
+    }
+
+    #[test]
+    fn facade_explain_sql_preserves_unsupported_runtime_contract() {
+        let session = facade_session();
+
+        for (sql, _feature) in unsupported_sql_feature_cases() {
+            let explain_sql = format!("EXPLAIN {sql}");
+            assert_unsupported_sql_runtime_result(
+                session.explain_sql::<FacadeSqlEntity>(explain_sql.as_str()),
+                "facade explain_sql",
+            );
+        }
     }
 }
