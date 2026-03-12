@@ -183,3 +183,21 @@ impl<E: EntityKind> ProjectionResponse<E> {
         self.inner.iter()
     }
 }
+
+impl<'a, E: EntityKind> IntoIterator for &'a ProjectionResponse<E> {
+    type Item = &'a CoreProjectedRow<E>;
+    type IntoIter = std::slice::Iter<'a, CoreProjectedRow<E>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<E: EntityKind> IntoIterator for ProjectionResponse<E> {
+    type Item = CoreProjectedRow<E>;
+    type IntoIter = std::vec::IntoIter<CoreProjectedRow<E>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.rows().into_iter()
+    }
+}

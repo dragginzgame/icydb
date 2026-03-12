@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ## [0.52.x] - 2026-03-12 - Reduced SQL Parser Line Open
 
 - `0.52.0` opens the reduced SQL parser line with deterministic reduced-SQL parsing plus initial SQL-to-query lowering and session entrypoints (`query_from_sql`, `execute_sql`, `explain_sql`) for the minimum executable subset (`SELECT *` and constrained `DELETE`) while broader SQL projection/grouping semantics remain gated for follow-up patches.
-- `0.52.1` adds executable SQL field-list projection lowering, a new projection-shaped SQL session API (`execute_sql_projection`), parity tests that lock SQL/fluent projection identity and fingerprints, and clearer SQL subset docs for what remains gated.
+- `0.52.1` adds executable SQL field-list projection lowering, a new projection-shaped SQL session API (`execute_sql_projection`), facade projection-response iteration support (`IntoIterator`), parity tests that lock SQL/fluent projection identity and fingerprints, and clearer SQL subset docs for what remains gated.
 
 See detailed breakdown:
 [docs/changelog/0.52.md](docs/changelog/0.52.md)
