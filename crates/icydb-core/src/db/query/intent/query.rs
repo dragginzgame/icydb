@@ -116,6 +116,17 @@ impl<E: EntityKind> Query<E> {
         self
     }
 
+    /// Override scalar projection selection with one explicit field list.
+    #[must_use]
+    pub(in crate::db) fn select_fields<I, S>(mut self, fields: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.intent = self.intent.select_fields(fields);
+        self
+    }
+
     /// Add one GROUP BY field.
     pub fn group_by(self, field: impl AsRef<str>) -> Result<Self, QueryError> {
         let Self { intent } = self;

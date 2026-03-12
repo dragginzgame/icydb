@@ -6,7 +6,9 @@ use crate::{
     db::{
         EntitySchemaDescription, StorageReport,
         query::{MissingRowPolicy, Query, QueryTracePlan},
-        response::{PagedGroupedResponse, Response, WriteBatchResponse, WriteResponse},
+        response::{
+            PagedGroupedResponse, ProjectionResponse, Response, WriteBatchResponse, WriteResponse,
+        },
     },
     error::Error,
     metrics::MetricsSink,
@@ -87,12 +89,22 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(self.inner.query_from_sql::<E>(sql)?)
     }
 
-    /// Execute one reduced SQL `SELECT *`/`DELETE` statement.
+    /// Execute one reduced SQL `SELECT`/`DELETE` statement.
     pub fn execute_sql<E>(&self, sql: &str) -> Result<Response<E>, Error>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
         Ok(Response::from_core(self.inner.execute_sql::<E>(sql)?))
+    }
+
+    /// Execute one reduced SQL `SELECT` statement and return projection-shaped rows.
+    pub fn execute_sql_projection<E>(&self, sql: &str) -> Result<ProjectionResponse<E>, Error>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        Ok(ProjectionResponse::from_core(
+            self.inner.execute_sql_projection::<E>(sql)?,
+        ))
     }
 
     /// Explain one reduced SQL statement.

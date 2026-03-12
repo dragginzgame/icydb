@@ -9,8 +9,8 @@ use crate::{
     db::{
         Db, EntityResponse, EntitySchemaDescription, FluentDeleteQuery, FluentLoadQuery,
         MissingRowPolicy, PagedGroupedExecutionWithTrace, PagedLoadExecutionWithTrace, PlanError,
-        Query, QueryError, QueryTracePlan, StorageReport, StoreRegistry, TraceExecutionStrategy,
-        WriteBatchResponse,
+        ProjectionResponse, Query, QueryError, QueryTracePlan, StorageReport, StoreRegistry,
+        TraceExecutionStrategy, WriteBatchResponse,
         access::AccessStrategy,
         commit::EntityRuntimeHooks,
         cursor::decode_optional_cursor_token,
@@ -199,7 +199,7 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    /// Execute one reduced SQL `SELECT *`/`DELETE` statement for entity `E`.
+    /// Execute one reduced SQL `SELECT`/`DELETE` statement for entity `E`.
     pub fn execute_sql<E>(&self, sql: &str) -> Result<EntityResponse<E>, QueryError>
     where
         E: EntityKind<Canister = C> + EntityValue,
@@ -208,12 +208,33 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_query(&query)
     }
 
+    /// Execute one reduced SQL `SELECT` statement and return projection-shaped rows.
+    ///
+    /// This surface keeps `execute_sql(...)` backwards-compatible for callers
+    /// that currently consume full entity rows.
+    pub fn execute_sql_projection<E>(&self, sql: &str) -> Result<ProjectionResponse<E>, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let query = self.query_from_sql::<E>(sql)?;
+        match query.mode() {
+            QueryMode::Load(_) => {
+                self.execute_load_query_with(&query, |load, plan| load.execute_projection(plan))
+            }
+            QueryMode::Delete(_) => Err(QueryError::execute(InternalError::classified(
+                ErrorClass::Unsupported,
+                ErrorOrigin::Query,
+                "execute_sql_projection only supports SELECT statements",
+            ))),
+        }
+    }
+
     /// Explain one reduced SQL statement for entity `E`.
     ///
     /// Supported modes:
     /// - `EXPLAIN ...` -> logical plan text
     /// - `EXPLAIN EXECUTION ...` -> execution descriptor text
-    /// - `EXPLAIN JSON ...` -> execution descriptor canonical JSON
+    /// - `EXPLAIN JSON ...` -> logical plan canonical JSON
     pub fn explain_sql<E>(&self, sql: &str) -> Result<String, QueryError>
     where
         E: EntityKind<Canister = C> + EntityValue,
@@ -229,10 +250,12 @@ impl<C: CanisterKind> DbSession<C> {
             ))),
             SqlCommand::Explain { mode, query } => match mode {
                 crate::db::sql::parser::SqlExplainMode::Plan => {
-                    Ok(format!("{:?}", query.explain()?))
+                    Ok(query.explain()?.render_text_canonical())
                 }
                 crate::db::sql::parser::SqlExplainMode::Execution => query.explain_execution_text(),
-                crate::db::sql::parser::SqlExplainMode::Json => query.explain_execution_json(),
+                crate::db::sql::parser::SqlExplainMode::Json => {
+                    Ok(query.explain()?.render_json_canonical())
+                }
             },
         }
     }
@@ -723,12 +746,14 @@ mod tests {
             cursor::CursorPlanError,
             data::DataStore,
             index::IndexStore,
+            query::plan::expr::{Expr, ProjectionField},
             registry::StoreRegistry,
         },
         model::field::FieldKind,
         testing::test_memory,
         traits::Path,
         types::Ulid,
+        value::Value,
     };
     use icydb_derive::FieldProjection;
     use serde::{Deserialize, Serialize};
@@ -1044,6 +1069,211 @@ mod tests {
     }
 
     #[test]
+    fn query_from_sql_select_field_projection_lowers_to_scalar_field_selection() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let query = session
+            .query_from_sql::<SessionSqlEntity>("SELECT name, age FROM SessionSqlEntity")
+            .expect("field-list SQL query should lower");
+        let projection = query
+            .plan()
+            .expect("field-list SQL plan should build")
+            .projection_spec();
+        let field_names = projection
+            .fields()
+            .map(|field| match field {
+                ProjectionField::Scalar {
+                    expr: Expr::Field(field),
+                    alias: None,
+                } => field.as_str().to_string(),
+                other @ ProjectionField::Scalar { .. } => {
+                    panic!("field-list SQL projection should lower to plain field exprs: {other:?}")
+                }
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(field_names, vec!["name".to_string(), "age".to_string()]);
+    }
+
+    #[test]
+    fn execute_sql_select_field_projection_currently_returns_entity_shaped_rows() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "projected-row".to_string(),
+                age: 29,
+            })
+            .expect("seed insert should succeed");
+
+        let response = session
+            .execute_sql::<SessionSqlEntity>(
+                "SELECT name FROM SessionSqlEntity ORDER BY age ASC LIMIT 1",
+            )
+            .expect("field-list SQL projection should execute");
+        let row = response
+            .iter()
+            .next()
+            .expect("field-list SQL projection response should contain one row");
+
+        assert_eq!(
+            row.entity_ref().name,
+            "projected-row",
+            "field-list SQL projection should still return entity rows in this baseline",
+        );
+        assert_eq!(
+            row.entity_ref().age,
+            29,
+            "field-list SQL projection should preserve full entity payload until projection response shaping is introduced",
+        );
+    }
+
+    #[test]
+    fn execute_sql_projection_select_field_list_returns_projection_shaped_rows() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "projection-surface".to_string(),
+                age: 33,
+            })
+            .expect("seed insert should succeed");
+
+        let response = session
+            .execute_sql_projection::<SessionSqlEntity>(
+                "SELECT name FROM SessionSqlEntity ORDER BY age ASC LIMIT 1",
+            )
+            .expect("projection SQL execution should succeed");
+        let row = response
+            .iter()
+            .next()
+            .expect("projection SQL response should contain one row");
+
+        assert_eq!(response.count(), 1);
+        assert_eq!(
+            row.values(),
+            [Value::Text("projection-surface".to_string())],
+            "projection SQL response should carry only projected field values in declaration order",
+        );
+    }
+
+    #[test]
+    fn execute_sql_projection_select_star_returns_all_fields_in_model_order() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        session
+            .insert(SessionSqlEntity {
+                id: Ulid::generate(),
+                name: "projection-star".to_string(),
+                age: 41,
+            })
+            .expect("seed insert should succeed");
+
+        let response = session
+            .execute_sql_projection::<SessionSqlEntity>(
+                "SELECT * FROM SessionSqlEntity ORDER BY age ASC LIMIT 1",
+            )
+            .expect("projection SQL star execution should succeed");
+        let row = response
+            .iter()
+            .next()
+            .expect("projection SQL star response should contain one row");
+
+        assert_eq!(response.count(), 1);
+        assert_eq!(
+            row.values().len(),
+            3,
+            "SELECT * projection response should include all model fields",
+        );
+        assert_eq!(row.values()[0], Value::Ulid(row.id().key()));
+        assert_eq!(row.values()[1], Value::Text("projection-star".to_string()));
+        assert_eq!(row.values()[2], Value::Uint(41));
+    }
+
+    #[test]
+    fn execute_sql_projection_rejects_delete_statements() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let err = session
+            .execute_sql_projection::<SessionSqlEntity>(
+                "DELETE FROM SessionSqlEntity ORDER BY age LIMIT 1",
+            )
+            .expect_err("projection SQL execution should reject delete statements");
+
+        assert!(
+            matches!(
+                err,
+                QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                    _
+                ))
+            ),
+            "projection SQL delete usage should fail as unsupported",
+        );
+    }
+
+    #[test]
+    fn execute_sql_select_field_projection_unknown_field_fails_with_plan_error() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let err = session
+            .execute_sql::<SessionSqlEntity>("SELECT missing_field FROM SessionSqlEntity")
+            .expect_err("unknown projected fields should fail planner validation");
+
+        assert!(
+            matches!(err, QueryError::Plan(_)),
+            "unknown projected fields should surface planner-domain query errors: {err:?}",
+        );
+    }
+
+    #[test]
+    fn execute_sql_rejects_aggregate_projection_in_current_slice() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let err = session
+            .execute_sql::<SessionSqlEntity>("SELECT COUNT(*) FROM SessionSqlEntity")
+            .expect_err("aggregate SQL projection should remain lowering-gated in this slice");
+
+        assert!(
+            matches!(
+                err,
+                QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                    _
+                ))
+            ),
+            "aggregate projection gate should remain an unsupported execution error boundary",
+        );
+    }
+
+    #[test]
+    fn execute_sql_rejects_group_by_in_current_slice() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let err = session
+            .execute_sql::<SessionSqlEntity>("SELECT * FROM SessionSqlEntity GROUP BY age")
+            .expect_err("GROUP BY should be rejected in this slice");
+
+        assert!(
+            matches!(
+                err,
+                QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                    _
+                ))
+            ),
+            "group-by gate should remain an unsupported execution error boundary",
+        );
+    }
+
+    #[test]
     fn explain_sql_execution_returns_descriptor_text() {
         reset_session_sql_store();
         let session = sql_session();
@@ -1076,17 +1306,17 @@ mod tests {
             .expect("EXPLAIN should succeed");
 
         assert!(
-            explain.contains("mode: Load"),
+            explain.contains("mode=Load"),
             "logical explain text should include query mode projection",
         );
         assert!(
-            explain.contains("access:"),
+            explain.contains("access="),
             "logical explain text should include projected access shape",
         );
     }
 
     #[test]
-    fn explain_sql_json_returns_execution_descriptor_json() {
+    fn explain_sql_json_returns_logical_plan_json() {
         reset_session_sql_store();
         let session = sql_session();
 
@@ -1098,11 +1328,32 @@ mod tests {
 
         assert!(
             explain.starts_with('{') && explain.ends_with('}'),
-            "execution explain JSON should render one JSON object payload",
+            "logical explain JSON should render one JSON object payload",
         );
         assert!(
-            explain.contains("\"node_id\":0"),
-            "execution explain JSON should include the root descriptor node id",
+            explain.contains("\"mode\":{\"type\":\"Load\""),
+            "logical explain JSON should expose structured query mode metadata",
+        );
+        assert!(
+            explain.contains("\"access\":"),
+            "logical explain JSON should include projected access metadata",
+        );
+    }
+
+    #[test]
+    fn explain_sql_json_delete_returns_logical_delete_mode() {
+        reset_session_sql_store();
+        let session = sql_session();
+
+        let explain = session
+            .explain_sql::<SessionSqlEntity>(
+                "EXPLAIN JSON DELETE FROM SessionSqlEntity ORDER BY age LIMIT 1",
+            )
+            .expect("EXPLAIN JSON DELETE should succeed");
+
+        assert!(
+            explain.contains("\"mode\":{\"type\":\"Delete\""),
+            "logical explain JSON should expose delete query mode metadata",
         );
     }
 

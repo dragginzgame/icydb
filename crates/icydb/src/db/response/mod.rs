@@ -7,7 +7,9 @@ use crate::{
     types::Id,
 };
 use icydb_core::db::{
-    EntityResponse as CoreEntityResponse, ResponseCardinalityExt as CoreResponseCardinalityExt,
+    EntityResponse as CoreEntityResponse, ProjectedRow as CoreProjectedRow,
+    ProjectionResponse as CoreProjectionResponse,
+    ResponseCardinalityExt as CoreResponseCardinalityExt,
 };
 
 // re-exports
@@ -136,5 +138,48 @@ impl<E: EntityKind> Response<E> {
     /// Check whether the response contains the given primary key.
     pub fn contains_id(&self, id: &Id<E>) -> bool {
         self.inner.contains_id(id)
+    }
+}
+
+///
+/// ProjectionResponse
+///
+/// Public facade over projection-shaped SQL query results.
+/// Wraps the core projection response and exposes projection-row iteration.
+///
+
+#[derive(Debug)]
+pub struct ProjectionResponse<E: EntityKind> {
+    inner: CoreProjectionResponse<E>,
+}
+
+impl<E: EntityKind> ProjectionResponse<E> {
+    /// Construct a facade projection response from a core projection response.
+    #[must_use]
+    pub const fn from_core(inner: CoreProjectionResponse<E>) -> Self {
+        Self { inner }
+    }
+
+    /// Return the number of projected rows.
+    #[must_use]
+    pub const fn count(&self) -> u32 {
+        self.inner.count()
+    }
+
+    /// Return whether at least one projected row exists.
+    #[must_use]
+    pub const fn exists(&self) -> bool {
+        !self.inner.is_empty()
+    }
+
+    /// Consume and return projected rows in response order.
+    #[must_use]
+    pub fn rows(self) -> Vec<CoreProjectedRow<E>> {
+        self.inner.rows()
+    }
+
+    /// Borrow an iterator over projected rows in response order.
+    pub fn iter(&self) -> std::slice::Iter<'_, CoreProjectedRow<E>> {
+        self.inner.iter()
     }
 }

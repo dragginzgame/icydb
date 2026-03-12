@@ -15,10 +15,10 @@ Anything not listed here is out of scope and must fail closed.
 The reduced SQL frontend must lower into existing `Query`/planner/session paths
 without semantic emulation layers.
 
-## Executable Baseline (0.52.0)
+## Executable Baseline (0.52.1)
 
-`0.52.0` ships a minimum executable SQL subset while broader reduced grammar
-support is staged behind lowering gates.
+`0.52.1` ships a projection-aware executable SQL subset while broader reduced
+grammar support remains staged behind lowering gates.
 
 ### SELECT
 
@@ -33,9 +33,24 @@ FROM <entity>
 [OFFSET <n>]
 ```
 
+```sql
+SELECT <field_list>
+FROM <entity>
+[WHERE <predicate>]
+[ORDER BY <order_list>]
+[LIMIT <n>]
+[OFFSET <n>]
+```
+
 Notes:
 
-- `SELECT *` is executable in `0.52.0`.
+- `SELECT *` is executable in `0.52.1`.
+- Direct field-list projection lowering is executable in `0.52.1`.
+- Field-list projection currently affects normalized intent/planning/fingerprints.
+- `execute_sql(...)` returns entity-shaped `EntityResponse<E>` rows for
+  compatibility.
+- `execute_sql_projection(...)` returns projection-shaped
+  `ProjectionResponse<E>` rows.
 - Scalar pagination still follows existing planner validation
   (for example deterministic ordering requirements).
 
@@ -71,7 +86,7 @@ EXPLAIN JSON <select_or_delete>
 ## Parsed but Lowering-Gated (Follow-Up Slices)
 
 The reduced parser can parse additional reduced SQL constructs that remain
-intentionally non-executable in `0.52.0`.
+intentionally non-executable in `0.52.1`.
 
 ### SELECT
 
@@ -99,6 +114,11 @@ Parsed projection forms:
   - `AVG(<field>)`
   - `MIN(<field>)`
   - `MAX(<field>)`
+
+Lowering status in this baseline:
+
+- `*` and direct field lists are executable.
+- Aggregate projection forms remain lowering-gated and fail closed.
 
 Predicate operators are limited to planner-supported predicate operators.
 

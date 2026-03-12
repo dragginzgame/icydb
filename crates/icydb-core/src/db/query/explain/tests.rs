@@ -483,30 +483,11 @@ fn explain_grouped_hash_distinct_projection_shape_is_frozen() {
 }
 
 fn grouped_explain_plan_snapshot(explain: &ExplainPlan) -> String {
-    format!(
-        concat!(
-            "mode={:?}\n",
-            "access={:?}\n",
-            "predicate={:?}\n",
-            "order_by={:?}\n",
-            "distinct={}\n",
-            "grouping={:?}\n",
-            "order_pushdown={:?}\n",
-            "page={:?}\n",
-            "delete_limit={:?}\n",
-            "consistency={:?}",
-        ),
-        explain.mode(),
-        explain.access(),
-        explain.predicate(),
-        explain.order_by(),
-        explain.distinct(),
-        explain.grouping(),
-        explain.order_pushdown(),
-        explain.page(),
-        explain.delete_limit(),
-        explain.consistency(),
-    )
+    explain.render_text_canonical()
+}
+
+fn grouped_explain_plan_json_snapshot(explain: &ExplainPlan) -> String {
+    explain.render_json_canonical()
 }
 
 #[test]
@@ -554,6 +535,20 @@ consistency=Ignore";
     assert_eq!(
         actual, expected,
         "ordered-grouped explain-plan snapshot drifted",
+    );
+}
+
+#[test]
+fn explain_plan_canonical_json_snapshot_for_simple_shape_is_stable() {
+    let plan: AccessPlannedQuery<Value> =
+        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+
+    let actual = grouped_explain_plan_json_snapshot(&plan.explain());
+    let expected = "{\"mode\":{\"type\":\"Load\",\"limit\":null,\"offset\":0},\"access\":{\"type\":\"FullScan\"},\"predicate\":\"None\",\"order_by\":\"None\",\"distinct\":false,\"grouping\":\"None\",\"order_pushdown\":\"MissingModelContext\",\"page\":{\"type\":\"None\"},\"delete_limit\":{\"type\":\"None\"},\"consistency\":\"Ignore\"}";
+
+    assert_eq!(
+        actual, expected,
+        "canonical logical explain JSON snapshot drifted",
     );
 }
 

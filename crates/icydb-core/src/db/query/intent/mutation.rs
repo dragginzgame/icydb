@@ -12,7 +12,7 @@ use crate::db::{
         },
         plan::{
             FieldSlot, GroupAggregateSpec, GroupHavingClause, GroupHavingSpec,
-            GroupedExecutionConfig, OrderDirection, OrderSpec,
+            GroupedExecutionConfig, OrderDirection, OrderSpec, expr::ProjectionSelection,
         },
     },
 };
@@ -45,6 +45,14 @@ impl<K> QueryIntent<K> {
     /// Enable DISTINCT semantics in scalar intent state.
     pub(in crate::db::query::intent) const fn set_distinct(&mut self) {
         self.scalar_mut().distinct = true;
+    }
+
+    /// Override scalar projection selection with one explicit planner contract.
+    pub(in crate::db::query::intent) fn set_projection_selection(
+        &mut self,
+        projection_selection: ProjectionSelection,
+    ) {
+        self.scalar_mut().projection_selection = projection_selection;
     }
 
     /// Set key access to one single-key lookup.

@@ -12,10 +12,14 @@ use crate::{
         predicate::{
             CoercionSpec, CompareOp, ComparePredicate, MissingRowPolicy, Predicate, normalize,
         },
-        query::plan::{
-            AccessPlannedQuery, AggregateKind, DeleteLimitSpec, GroupHavingClause, GroupHavingSpec,
-            GroupHavingSymbol, GroupedPlanStrategyHint, LogicalPlan, OrderDirection, OrderSpec,
-            PageSpec, QueryMode, ScalarPlan, grouped_plan_strategy_hint,
+        query::{
+            explain::{access_projection::write_access_json, writer::JsonWriter},
+            plan::{
+                AccessPlannedQuery, AggregateKind, DeleteLimitSpec, GroupHavingClause,
+                GroupHavingSpec, GroupHavingSymbol, GroupedPlanStrategyHint, LogicalPlan,
+                OrderDirection, OrderSpec, PageSpec, QueryMode, ScalarPlan,
+                grouped_plan_strategy_hint,
+            },
         },
     },
     model::entity::EntityModel,
@@ -127,6 +131,47 @@ impl ExplainPlan {
             );
             None
         }
+    }
+
+    /// Render this logical explain plan as deterministic canonical text.
+    ///
+    /// This surface is frontend-facing and intentionally stable for SQL/CLI
+    /// explain output and snapshot-style diagnostics.
+    #[must_use]
+    pub fn render_text_canonical(&self) -> String {
+        format!(
+            concat!(
+                "mode={:?}\n",
+                "access={:?}\n",
+                "predicate={:?}\n",
+                "order_by={:?}\n",
+                "distinct={}\n",
+                "grouping={:?}\n",
+                "order_pushdown={:?}\n",
+                "page={:?}\n",
+                "delete_limit={:?}\n",
+                "consistency={:?}",
+            ),
+            self.mode(),
+            self.access(),
+            self.predicate(),
+            self.order_by(),
+            self.distinct(),
+            self.grouping(),
+            self.order_pushdown(),
+            self.page(),
+            self.delete_limit(),
+            self.consistency(),
+        )
+    }
+
+    /// Render this logical explain plan as canonical JSON.
+    #[must_use]
+    pub fn render_json_canonical(&self) -> String {
+        let mut out = String::new();
+        write_logical_explain_json(self, &mut out);
+
+        out
     }
 }
 
@@ -702,4 +747,75 @@ const fn explain_delete_limit(limit: Option<&DeleteLimitSpec>) -> ExplainDeleteL
         },
         None => ExplainDeleteLimit::None,
     }
+}
+
+fn write_logical_explain_json(explain: &ExplainPlan, out: &mut String) {
+    let mut object = JsonWriter::begin_object(out);
+    object.field_with("mode", |out| write_query_mode_json(explain.mode(), out));
+    object.field_with("access", |out| write_access_json(explain.access(), out));
+    object.field_value_debug("predicate", explain.predicate());
+    object.field_value_debug("order_by", explain.order_by());
+    object.field_bool("distinct", explain.distinct());
+    object.field_value_debug("grouping", explain.grouping());
+    object.field_value_debug("order_pushdown", explain.order_pushdown());
+    object.field_with("page", |out| write_pagination_json(explain.page(), out));
+    object.field_with("delete_limit", |out| {
+        write_delete_limit_json(explain.delete_limit(), out);
+    });
+    object.field_value_debug("consistency", &explain.consistency());
+    object.finish();
+}
+
+fn write_query_mode_json(mode: QueryMode, out: &mut String) {
+    let mut object = JsonWriter::begin_object(out);
+    match mode {
+        QueryMode::Load(spec) => {
+            object.field_str("type", "Load");
+            match spec.limit() {
+                Some(limit) => object.field_u64("limit", u64::from(limit)),
+                None => object.field_null("limit"),
+            }
+            object.field_u64("offset", u64::from(spec.offset()));
+        }
+        QueryMode::Delete(spec) => {
+            object.field_str("type", "Delete");
+            match spec.limit() {
+                Some(limit) => object.field_u64("limit", u64::from(limit)),
+                None => object.field_null("limit"),
+            }
+        }
+    }
+    object.finish();
+}
+
+fn write_pagination_json(page: &ExplainPagination, out: &mut String) {
+    let mut object = JsonWriter::begin_object(out);
+    match page {
+        ExplainPagination::None => {
+            object.field_str("type", "None");
+        }
+        ExplainPagination::Page { limit, offset } => {
+            object.field_str("type", "Page");
+            match limit {
+                Some(limit) => object.field_u64("limit", u64::from(*limit)),
+                None => object.field_null("limit"),
+            }
+            object.field_u64("offset", u64::from(*offset));
+        }
+    }
+    object.finish();
+}
+
+fn write_delete_limit_json(limit: &ExplainDeleteLimit, out: &mut String) {
+    let mut object = JsonWriter::begin_object(out);
+    match limit {
+        ExplainDeleteLimit::None => {
+            object.field_str("type", "None");
+        }
+        ExplainDeleteLimit::Limit { max_rows } => {
+            object.field_str("type", "Limit");
+            object.field_u64("max_rows", u64::from(*max_rows));
+        }
+    }
+    object.finish();
 }

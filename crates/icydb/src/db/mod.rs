@@ -9,5 +9,7 @@ pub use icydb_core::db::{
     EntityRelationDescription, EntityRelationStrength, EntitySchemaDescription, QueryTracePlan,
     StorageReport, TraceExecutionStrategy,
 };
-pub use response::{PagedResponse, Response, WriteBatchResponse, WriteResponse};
+pub use response::{
+    PagedResponse, ProjectionResponse, Response, WriteBatchResponse, WriteResponse,
+};
 pub use session::{DbSession, FluentLoadQuery, PagedLoadQuery, SessionDeleteQuery};

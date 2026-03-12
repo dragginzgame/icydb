@@ -5,12 +5,12 @@
 
 use crate::{
     db::{
-        executor::pipeline::contracts::LoadExecutor,
+        executor::{ExecutablePlan, pipeline::contracts::LoadExecutor},
         query::plan::{
             AccessPlannedQuery,
             expr::{Expr, ProjectionField, ProjectionSpec},
         },
-        response::ProjectedRow,
+        response::{ProjectedRow, ProjectionResponse},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -83,6 +83,30 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
+    /// Execute one scalar load plan and return projection-shaped response rows.
+    pub(in crate::db) fn execute_projection(
+        &self,
+        plan: ExecutablePlan<E>,
+    ) -> Result<ProjectionResponse<E>, InternalError> {
+        // Phase 1: derive projection semantics from the planned query contract.
+        let planned = plan.into_inner();
+        let projection = planned.projection_spec(E::MODEL);
+
+        // Phase 2: execute canonical scalar load to preserve existing route/runtime semantics.
+        let rows = self.execute(ExecutablePlan::new(planned))?;
+        let rows = rows
+            .rows()
+            .into_iter()
+            .map(crate::db::response::Row::into_parts)
+            .collect::<Vec<_>>();
+
+        // Phase 3: materialize projection payloads in declaration order.
+        let projected = project_rows_from_projection::<E>(&projection, rows.as_slice())
+            .map_err(|err| crate::db::error::query_invalid_logical_plan(err.to_string()))?;
+
+        Ok(ProjectionResponse::new(projected))
+    }
+
     /// Evaluate scalar projection semantics over materialized rows when the
     /// projection is no longer identity (`SELECT *`).
     pub(in crate::db::executor) fn project_materialized_rows_if_needed(

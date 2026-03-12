@@ -9,7 +9,8 @@ use crate::{
         query::intent::Query,
         sql::parser::{
             SqlDeleteStatement, SqlExplainMode, SqlExplainStatement, SqlExplainTarget,
-            SqlOrderDirection, SqlProjection, SqlSelectStatement, SqlStatement, parse_sql,
+            SqlOrderDirection, SqlProjection, SqlSelectItem, SqlSelectStatement, SqlStatement,
+            parse_sql,
         },
     },
     traits::EntityKind,
@@ -51,7 +52,9 @@ pub(crate) enum SqlLoweringError {
         expected_entity: &'static str,
     },
 
-    #[error("unsupported SQL SELECT projection in this release; only SELECT * is executable")]
+    #[error(
+        "unsupported SQL SELECT projection in this release; only SELECT * and direct field lists are executable"
+    )]
     UnsupportedSelectProjection,
 
     #[error("unsupported SQL SELECT DISTINCT in this release")]
@@ -108,10 +111,6 @@ fn lower_select<E: EntityKind>(
 ) -> Result<Query<E>, SqlLoweringError> {
     ensure_entity_matches::<E>(statement.entity.as_str())?;
 
-    // Keep executable SQL lowering intentionally narrow in this slice.
-    if !matches!(statement.projection, SqlProjection::All) {
-        return Err(SqlLoweringError::UnsupportedSelectProjection);
-    }
     if statement.distinct {
         return Err(SqlLoweringError::UnsupportedSelectDistinct);
     }
@@ -119,8 +118,9 @@ fn lower_select<E: EntityKind>(
         return Err(SqlLoweringError::UnsupportedSelectGroupBy);
     }
 
-    // Phase 1: predicate and deterministic ordering.
+    // Phase 1: projection and predicate/order shaping.
     let mut query = Query::new(consistency);
+    query = apply_projection(query, statement.projection)?;
     if let Some(predicate) = statement.predicate {
         query = query.filter(predicate);
     }
@@ -135,6 +135,28 @@ fn lower_select<E: EntityKind>(
     }
 
     Ok(query)
+}
+
+fn apply_projection<E: EntityKind>(
+    query: Query<E>,
+    projection: SqlProjection,
+) -> Result<Query<E>, SqlLoweringError> {
+    match projection {
+        SqlProjection::All => Ok(query),
+        SqlProjection::Items(items) => {
+            let mut fields = Vec::with_capacity(items.len());
+            for item in items {
+                match item {
+                    SqlSelectItem::Field(field) => fields.push(field),
+                    SqlSelectItem::Aggregate(_) => {
+                        return Err(SqlLoweringError::UnsupportedSelectProjection);
+                    }
+                }
+            }
+
+            Ok(query.select_fields(fields))
+        }
+    }
 }
 
 fn lower_delete<E: EntityKind>(
@@ -189,8 +211,13 @@ fn ensure_entity_matches<E: EntityKind>(sql_entity: &str) -> Result<(), SqlLower
 mod tests {
     use crate::{
         db::{
-            predicate::MissingRowPolicy,
-            query::plan::QueryMode,
+            executor::ExecutablePlan,
+            predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
+            query::intent::Query,
+            query::plan::{
+                QueryMode,
+                expr::{Expr, ProjectionField},
+            },
             sql::{
                 lowering::{SqlCommand, SqlLoweringError, compile_sql_command},
                 parser::SqlExplainMode,
@@ -198,6 +225,7 @@ mod tests {
         },
         model::field::FieldKind,
         types::Ulid,
+        value::Value,
     };
     use serde::{Deserialize, Serialize};
 
@@ -281,14 +309,120 @@ mod tests {
     }
 
     #[test]
-    fn compile_sql_command_rejects_non_star_projection() {
-        let err = compile_sql_command::<SqlLowerEntity>(
-            "SELECT name FROM SqlLowerEntity",
+    fn compile_sql_command_select_field_projection_lowers_to_scalar_field_selection() {
+        let command = compile_sql_command::<SqlLowerEntity>(
+            "SELECT name, age FROM SqlLowerEntity",
             MissingRowPolicy::Ignore,
         )
-        .expect_err("non-star projection should be rejected in this slice");
+        .expect("field-list projection should lower");
+
+        let SqlCommand::Query(query) = command else {
+            panic!("expected lowered query command");
+        };
+
+        let projection = query
+            .plan()
+            .expect("field-list plan should build")
+            .projection_spec();
+        let field_names = projection
+            .fields()
+            .map(|field| match field {
+                ProjectionField::Scalar {
+                    expr: Expr::Field(field),
+                    alias: None,
+                } => field.as_str().to_string(),
+                other @ ProjectionField::Scalar { .. } => {
+                    panic!(
+                        "scalar field-list projection should lower to plain field exprs: {other:?}"
+                    )
+                }
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(field_names, vec!["name".to_string(), "age".to_string()]);
+    }
+
+    #[test]
+    fn compile_sql_command_rejects_aggregate_select_projection_in_current_slice() {
+        let err = compile_sql_command::<SqlLowerEntity>(
+            "SELECT COUNT(*) FROM SqlLowerEntity",
+            MissingRowPolicy::Ignore,
+        )
+        .expect_err("aggregate projection should remain gated in this slice");
 
         assert!(matches!(err, SqlLoweringError::UnsupportedSelectProjection));
+    }
+
+    #[test]
+    fn compile_sql_command_select_field_projection_parity_matches_query_and_executable_identity() {
+        // Phase 1: lower equivalent SQL and fluent field-list intents.
+        let sql_command = compile_sql_command::<SqlLowerEntity>(
+            "SELECT name, age FROM SqlLowerEntity WHERE age >= 21 ORDER BY age DESC LIMIT 5 OFFSET 1",
+            MissingRowPolicy::Ignore,
+        )
+        .expect("field-list SQL query should lower");
+        let SqlCommand::Query(sql_query) = sql_command else {
+            panic!("expected lowered SQL query command");
+        };
+        let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+            .select_fields(["name", "age"])
+            .filter(Predicate::Compare(ComparePredicate::with_coercion(
+                "age",
+                CompareOp::Gte,
+                Value::Int(21),
+                CoercionId::NumericWiden,
+            )))
+            .order_by_desc("age")
+            .limit(5)
+            .offset(1);
+
+        // Phase 2: assert canonical planned identity + fingerprint parity.
+        let sql_compiled = sql_query.plan().expect("SQL plan should build");
+        let fluent_compiled = fluent_query.plan().expect("fluent plan should build");
+        assert_eq!(
+            sql_compiled.into_inner(),
+            fluent_compiled.into_inner(),
+            "SQL field-list lowering and fluent field-list query must produce identical normalized planned intent",
+        );
+        assert_eq!(
+            sql_query
+                .plan_hash_hex()
+                .expect("SQL field-list plan hash should build"),
+            fluent_query
+                .plan_hash_hex()
+                .expect("fluent field-list plan hash should build"),
+            "equivalent SQL and fluent field-list projections must produce identical fingerprints",
+        );
+
+        // Phase 3: assert executable-contract parity at route/runtime planning boundary.
+        let sql_executable = ExecutablePlan::from(sql_query.plan().expect("SQL executable plan"));
+        let fluent_executable =
+            ExecutablePlan::from(fluent_query.plan().expect("fluent executable plan"));
+        assert_eq!(sql_executable.mode(), fluent_executable.mode());
+        assert_eq!(sql_executable.is_grouped(), fluent_executable.is_grouped());
+        assert_eq!(sql_executable.access(), fluent_executable.access());
+        assert_eq!(
+            sql_executable.consistency(),
+            fluent_executable.consistency()
+        );
+        assert_eq!(
+            sql_executable
+                .execution_strategy()
+                .expect("SQL execution strategy"),
+            fluent_executable
+                .execution_strategy()
+                .expect("fluent execution strategy"),
+            "equivalent SQL and fluent field-list projections must produce identical executable strategy",
+        );
+        assert_eq!(
+            sql_executable
+                .execution_ordering()
+                .expect("SQL execution ordering"),
+            fluent_executable
+                .execution_ordering()
+                .expect("fluent execution ordering"),
+            "equivalent SQL and fluent field-list projections must produce identical executable ordering",
+        );
     }
 
     #[test]

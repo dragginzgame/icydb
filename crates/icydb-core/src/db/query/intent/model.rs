@@ -13,11 +13,12 @@ use crate::{
             intent::{IntentError, QueryError, QueryIntent},
             plan::{
                 AccessPlannedQuery, GroupAggregateSpec, GroupHavingClause, GroupHavingSymbol,
-                LogicalPlan, OrderSpec, QueryMode, build_logical_plan, fold_constant_predicate,
-                is_limit_zero_load_window, logical_query_from_logical_inputs,
-                normalize_query_predicate, plan_query_access, predicate_is_constant_false,
-                resolve_group_field_slot, validate_group_query_semantics, validate_order_shape,
-                validate_query_semantics,
+                LogicalPlan, OrderSpec, QueryMode, build_logical_plan,
+                expr::{FieldId, ProjectionSelection},
+                fold_constant_predicate, is_limit_zero_load_window,
+                logical_query_from_logical_inputs, normalize_query_predicate, plan_query_access,
+                predicate_is_constant_false, resolve_group_field_slot,
+                validate_group_query_semantics, validate_order_shape, validate_query_semantics,
             },
         },
         schema::SchemaInfo,
@@ -121,6 +122,23 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
     #[must_use]
     pub(crate) const fn distinct(mut self) -> Self {
         self.intent.set_distinct();
+        self
+    }
+
+    /// Select one explicit scalar field projection list.
+    #[must_use]
+    pub(crate) fn select_fields<I, S>(mut self, fields: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        let fields = fields
+            .into_iter()
+            .map(|field| FieldId::new(field.into()))
+            .collect::<Vec<_>>();
+        self.intent
+            .set_projection_selection(ProjectionSelection::Fields(fields));
+
         self
     }
 
