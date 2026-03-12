@@ -5,7 +5,10 @@
 
 use crate::{
     db::{
-        cursor::{CursorBoundary, apply_resume_bound_phase},
+        cursor::{
+            CursorBoundary, WindowCursorContract, apply_resume_bound_phase,
+            window_cursor_contract_for_plan,
+        },
         executor::{ExecutionKernel, PlanRow, traversal::effective_page_offset_for_window},
         query::plan::AccessPlannedQuery,
     },
@@ -58,73 +61,13 @@ pub(in crate::db) fn compute_page_keep_and_fetch_counts(offset: u32, limit: u32)
     (window.keep_count, window.fetch_count)
 }
 
-///
-/// WindowCursorContract
-///
-/// WindowCursorContract tracks effective offset/limit progression under the
-/// canonical cursor-aware window policy owned by the execution kernel.
-///
-
-pub(in crate::db::executor) struct WindowCursorContract {
-    offset_remaining: usize,
-    limit_remaining: Option<usize>,
-}
-
-impl WindowCursorContract {
-    // Build one kernel-owned window contract from canonical effective offset.
-    fn from_plan<K>(
-        plan: &AccessPlannedQuery<K>,
-        cursor_boundary: Option<&CursorBoundary>,
-    ) -> Self {
-        let offset = usize::try_from(effective_page_offset_for_window(
-            plan,
-            cursor_boundary.is_some(),
-        ))
-        .unwrap_or(usize::MAX);
-        let limit = plan
-            .scalar_plan()
-            .page
-            .as_ref()
-            .and_then(|page| page.limit)
-            .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
-
-        Self {
-            offset_remaining: offset,
-            limit_remaining: limit,
-        }
-    }
-
-    /// Return whether the effective limit window is exhausted.
-    pub(in crate::db::executor) const fn exhausted(&self) -> bool {
-        matches!(self.limit_remaining, Some(0))
-    }
-
-    /// Advance window state by one row and return whether the row is in-window.
-    pub(in crate::db::executor) const fn accept_existing_row(&mut self) -> bool {
-        if self.offset_remaining > 0 {
-            self.offset_remaining = self.offset_remaining.saturating_sub(1);
-            return false;
-        }
-
-        if let Some(remaining) = self.limit_remaining.as_mut() {
-            if *remaining == 0 {
-                return false;
-            }
-
-            *remaining = remaining.saturating_sub(1);
-        }
-
-        true
-    }
-}
-
 impl ExecutionKernel {
     /// Build one kernel-owned window/cursor progression contract for stream reducers.
     pub(in crate::db::executor) fn window_cursor_contract<K>(
         plan: &AccessPlannedQuery<K>,
         cursor_boundary: Option<&CursorBoundary>,
     ) -> WindowCursorContract {
-        WindowCursorContract::from_plan(plan, cursor_boundary)
+        window_cursor_contract_for_plan(plan, cursor_boundary)
     }
 
     /// Return the effective page offset for this request.

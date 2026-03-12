@@ -208,6 +208,24 @@ fn secondary_order_pushdown_core_cases() {
             ),
         },
         Case {
+            name: "accept_index_range_when_order_matches_range_field_plus_pk_desc",
+            plan: load_index_range_plan(
+                vec![],
+                Bound::Included(Value::Text("a".to_string())),
+                Bound::Excluded(Value::Text("z".to_string())),
+                Some(order_spec(&[
+                    ("tag", OrderDirection::Desc),
+                    ("id", OrderDirection::Desc),
+                ])),
+            ),
+            expected: PushdownApplicability::Applicable(
+                SecondaryOrderPushdownEligibility::Eligible {
+                    index: INDEX_MODEL.name(),
+                    prefix_len: 0,
+                },
+            ),
+        },
+        Case {
             name: "reject_composite_access_when_child_is_index_range",
             plan: load_union_plan(
                 vec![
@@ -327,6 +345,26 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
                     fields: vec![
                         ("tag".to_string(), OrderDirection::Asc),
                         ("id".to_string(), OrderDirection::Asc),
+                    ],
+                }),
+            ),
+            expected: PushdownApplicability::Applicable(
+                SecondaryOrderPushdownEligibility::Eligible {
+                    index: INDEX_MODEL.name(),
+                    prefix_len: 0,
+                },
+            ),
+        },
+        Case {
+            name: "access_path_index_range_supported_when_order_matches_suffix_plus_pk_desc",
+            plan: load_index_range_plan(
+                vec![],
+                Bound::Included(Value::Text("a".to_string())),
+                Bound::Excluded(Value::Text("z".to_string())),
+                Some(OrderSpec {
+                    fields: vec![
+                        ("tag".to_string(), OrderDirection::Desc),
+                        ("id".to_string(), OrderDirection::Desc),
                     ],
                 }),
             ),

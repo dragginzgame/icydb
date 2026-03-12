@@ -190,30 +190,30 @@ impl<'a> AccessStreamBindings<'a> {
 }
 
 ///
-/// AccessExecutionDescriptor
+/// ExecutableAccess
 ///
-/// Canonical runtime access descriptor for key-stream production.
-/// Route/executor layers consume this descriptor instead of raw structural
-/// `AccessPlan` variants.
+/// Canonical runtime executable-access request for key-stream production.
+/// This owns one executable access plan plus stream bindings/hints, so route
+/// and executor layers pass one concrete runtime contract.
 ///
 
-pub(in crate::db::executor) struct AccessExecutionDescriptor<'a, K> {
-    pub(in crate::db::executor) executable_access: ExecutableAccessPlan<'a, K>,
+pub(in crate::db::executor) struct ExecutableAccess<'a, K> {
+    pub(in crate::db::executor) plan: ExecutableAccessPlan<'a, K>,
     pub(in crate::db::executor) bindings: AccessStreamBindings<'a>,
     pub(in crate::db::executor) physical_fetch_hint: Option<usize>,
     pub(in crate::db::executor) index_predicate_execution: Option<IndexPredicateExecution<'a>>,
 }
 
-impl<'a, K> AccessExecutionDescriptor<'a, K> {
-    /// Build one canonical runtime descriptor from one structural access plan.
+impl<'a, K> ExecutableAccess<'a, K> {
+    /// Build one canonical runtime request from one structural access plan.
     #[must_use]
-    pub(in crate::db::executor) fn from_bindings(
+    pub(in crate::db::executor) fn new(
         access: &'a AccessPlan<K>,
         bindings: AccessStreamBindings<'a>,
         physical_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'a>>,
     ) -> Self {
-        Self::from_executable_bindings(
+        Self::from_executable_plan(
             access.resolve_strategy().into_executable(),
             bindings,
             physical_fetch_hint,
@@ -221,16 +221,16 @@ impl<'a, K> AccessExecutionDescriptor<'a, K> {
         )
     }
 
-    /// Build one canonical runtime descriptor from one executable access plan.
+    /// Build one canonical runtime request from one executable access plan.
     #[must_use]
-    pub(in crate::db::executor) const fn from_executable_bindings(
-        executable_access: ExecutableAccessPlan<'a, K>,
+    pub(in crate::db::executor) const fn from_executable_plan(
+        plan: ExecutableAccessPlan<'a, K>,
         bindings: AccessStreamBindings<'a>,
         physical_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'a>>,
     ) -> Self {
         Self {
-            executable_access,
+            plan,
             bindings,
             physical_fetch_hint,
             index_predicate_execution,

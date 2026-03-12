@@ -15,6 +15,7 @@ mod order;
 mod planned;
 mod range_token;
 mod resume;
+mod runtime;
 mod signature;
 pub(in crate::db) mod spine;
 mod validation;
@@ -53,6 +54,10 @@ pub(in crate::db) use range_token::{
     range_token_from_validated_cursor_anchor,
 };
 pub(in crate::db) use resume::apply_resume_bound_phase;
+pub(in crate::db) use runtime::window_cursor_contract_for_plan;
+pub(in crate::db) use runtime::{
+    ContinuationKeyRef, ContinuationRuntime, LoopAction, WindowCursorContract,
+};
 #[expect(unreachable_pub)]
 pub use signature::ContinuationSignature;
 pub(crate) use token::{ContinuationToken, TokenWireError};

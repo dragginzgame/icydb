@@ -9,8 +9,8 @@ use crate::{
         data::DataKey,
         direction::Direction,
         executor::{
-            AccessExecutionDescriptor, AccessScanContinuationInput, AccessStreamBindings,
-            ExecutablePlan, ExecutionOptimizationCounter,
+            AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess, ExecutablePlan,
+            ExecutionOptimizationCounter,
             aggregate::field::{
                 AggregateFieldValueError, extract_orderable_field_value,
                 resolve_any_aggregate_target_slot_from_planner_slot,
@@ -135,7 +135,7 @@ where
         let consistency = plan.consistency();
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
-        let descriptor = AccessExecutionDescriptor::from_bindings(
+        let access = ExecutableAccess::new(
             plan.access(),
             AccessStreamBindings::new(
                 index_prefix_specs.as_slice(),
@@ -149,7 +149,7 @@ where
 
         // Phase 2: stream keys and sum persisted payload lengths over the page window.
         let ctx = self.recovered_context()?;
-        let mut key_stream = ctx.ordered_key_stream_from_access_descriptor(descriptor)?;
+        let mut key_stream = ctx.ordered_key_stream_from_runtime_access(access)?;
 
         ctx.sum_row_payload_bytes_from_ordered_key_stream(
             key_stream.as_mut(),

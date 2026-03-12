@@ -26,6 +26,10 @@ use crate::{
     value::Value,
 };
 
+///
+/// GlobalDistinctFieldAggregateKind
+///
+
 #[derive(Clone, Copy)]
 pub(in crate::db::executor) enum GlobalDistinctFieldAggregateKind {
     Count,

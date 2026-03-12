@@ -14,7 +14,7 @@ use crate::{
                 SecondaryOrderPushdownRejection,
             },
         },
-        direction::Direction,
+        query::plan::OrderSpec,
     },
     model::{entity::EntityModel, index::IndexModel},
 };
@@ -104,12 +104,12 @@ impl AccessRouteClass {
     }
 
     /// Derive secondary ORDER BY pushdown applicability from one access class
-    /// and normalized ORDER BY fields.
+    /// and one validated ORDER BY spec.
     #[must_use]
     pub(in crate::db) fn secondary_order_pushdown_applicability(
         self,
         model: &EntityModel,
-        order_fields: &[(&str, Direction)],
+        order: &OrderSpec,
     ) -> PushdownApplicability {
         if !self.single_path() {
             if let Some((index, prefix_len)) = self.first_index_range_details() {
@@ -147,7 +147,7 @@ impl AccessRouteClass {
 
             return PushdownApplicability::Applicable(match_secondary_order_pushdown_core(
                 model,
-                order_fields,
+                order,
                 index.name(),
                 index.fields(),
                 prefix_len,
@@ -175,7 +175,7 @@ impl AccessRouteClass {
 
             let eligibility = match_secondary_order_pushdown_core(
                 model,
-                order_fields,
+                order,
                 index.name(),
                 index.fields(),
                 prefix_len,

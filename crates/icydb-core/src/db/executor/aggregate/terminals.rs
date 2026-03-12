@@ -8,7 +8,7 @@ use crate::{
         access::ExecutionPathPayload,
         direction::Direction,
         executor::{
-            AccessExecutionDescriptor, AccessScanContinuationInput, AccessStreamBindings, Context,
+            AccessScanContinuationInput, AccessStreamBindings, Context, ExecutableAccess,
             ExecutablePlan, ExecutionKernel, ExecutionOptimizationCounter, ExecutionPreparation,
             aggregate::{
                 AggregateFoldMode, AggregateKind, AggregateOutput,
@@ -352,7 +352,7 @@ where
 
         // Phase 2: resolve the access key stream directly from index-backed bindings.
         let ctx = self.recovered_context()?;
-        let descriptor = AccessExecutionDescriptor::from_bindings(
+        let access = ExecutableAccess::new(
             &logical_plan.access,
             AccessStreamBindings::new(
                 index_prefix_specs.as_slice(),
@@ -362,7 +362,7 @@ where
             None,
             index_predicate_execution,
         );
-        let mut key_stream = ctx.ordered_key_stream_from_access_descriptor(descriptor)?;
+        let mut key_stream = ctx.ordered_key_stream_from_runtime_access(access)?;
 
         // Phase 3: fold through existing-row semantics and record scan metrics.
         let (aggregate_output, rows_scanned) = ExecutionKernel::run_streaming_aggregate_reducer(

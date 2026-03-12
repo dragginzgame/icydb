@@ -38,8 +38,8 @@ where
         request: crate::db::executor::route::RoutedKeyStreamRequest<'_, E::Key>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
         match request {
-            crate::db::executor::route::RoutedKeyStreamRequest::AccessDescriptor(descriptor) => {
-                ctx.ordered_key_stream_from_access_descriptor(descriptor)
+            crate::db::executor::route::RoutedKeyStreamRequest::ExecutableAccess(access) => {
+                ctx.ordered_key_stream_from_runtime_access(access)
             }
         }
     }

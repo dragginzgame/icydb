@@ -8,8 +8,7 @@ use crate::{
         Context,
         direction::Direction,
         executor::{
-            AccessExecutionDescriptor, AccessScanContinuationInput, AccessStreamBindings,
-            ExecutionKernel,
+            AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess, ExecutionKernel,
             aggregate::{
                 AggregateFastPathInputs, AggregateFoldMode, AggregateKind, AggregateOutput,
             },
@@ -278,7 +277,7 @@ impl ExecutionKernel {
             return Ok(None);
         }
 
-        let descriptor = AccessExecutionDescriptor::from_executable_bindings(
+        let access = ExecutableAccess::from_executable_plan(
             access_strategy.into_executable(),
             AccessStreamBindings::no_index(direction),
             None,
@@ -290,7 +289,7 @@ impl ExecutionKernel {
             direction,
             kind,
             fold_mode,
-            RoutedKeyStreamRequest::AccessDescriptor(descriptor),
+            RoutedKeyStreamRequest::ExecutableAccess(access),
         )?;
 
         Ok(Some((aggregate_output, keys_scanned)))
@@ -371,14 +370,12 @@ impl ExecutionKernel {
             direction,
             kind,
             fold_mode,
-            RoutedKeyStreamRequest::AccessDescriptor(
-                AccessExecutionDescriptor::from_executable_bindings(
-                    access_strategy.into_executable(),
-                    AccessStreamBindings::no_index(direction),
-                    physical_fetch_hint,
-                    None,
-                ),
-            ),
+            RoutedKeyStreamRequest::ExecutableAccess(ExecutableAccess::from_executable_plan(
+                access_strategy.into_executable(),
+                AccessStreamBindings::no_index(direction),
+                physical_fetch_hint,
+                None,
+            )),
         )?;
 
         Ok(Some((aggregate_output, keys_scanned)))
@@ -426,7 +423,7 @@ impl ExecutionKernel {
     where
         E: EntityKind + EntityValue,
     {
-        let descriptor = AccessExecutionDescriptor::from_bindings(
+        let access = ExecutableAccess::new(
             &inputs.logical_plan.access,
             AccessStreamBindings::new(
                 inputs.index_prefix_specs,
@@ -442,7 +439,7 @@ impl ExecutionKernel {
             inputs.direction,
             inputs.kind,
             inputs.fold_mode,
-            RoutedKeyStreamRequest::AccessDescriptor(descriptor),
+            RoutedKeyStreamRequest::ExecutableAccess(access),
         )?;
 
         Ok(Some((aggregate_output, keys_scanned)))

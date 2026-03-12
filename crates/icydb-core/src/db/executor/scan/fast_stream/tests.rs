@@ -9,7 +9,7 @@ use crate::{
         access::AccessPlan,
         direction::Direction,
         executor::{
-            AccessExecutionDescriptor, AccessScanContinuationInput, AccessStreamBindings, Context,
+            AccessScanContinuationInput, AccessStreamBindings, Context, ExecutableAccess,
             ExecutionOptimization, pipeline::contracts::LoadExecutor,
         },
         registry::StoreRegistry,
@@ -62,7 +62,7 @@ fn fast_stream_requires_exact_key_count_hint() {
     let id1 = Ulid::from_u128(1);
     let id2 = Ulid::from_u128(2);
     let access = AccessPlan::Union(vec![AccessPlan::by_key(id1), AccessPlan::by_key(id2)]);
-    let descriptor = AccessExecutionDescriptor::from_executable_bindings(
+    let access = ExecutableAccess::from_executable_plan(
         access.resolve_strategy().into_executable(),
         AccessStreamBindings {
             index_prefix_specs: &[],
@@ -75,7 +75,7 @@ fn fast_stream_requires_exact_key_count_hint() {
 
     let Err(err) = LoadExecutor::<FastStreamInvariantEntity>::execute_fast_stream_request(
         &ctx,
-        descriptor,
+        access,
         ExecutionOptimization::PrimaryKey,
     ) else {
         panic!("fast-path execution must reject streams without exact count hints")

@@ -6,10 +6,8 @@
 use crate::{
     db::{
         access::PushdownApplicability,
-        direction::Direction,
-        executor::route::direction_from_order,
         query::plan::{
-            AccessPlannedQuery, LogicalPushdownEligibility, OrderDirection, ScalarPlan,
+            AccessPlannedQuery, LogicalPushdownEligibility, OrderSpec, ScalarPlan,
             secondary_order_contract_is_deterministic,
         },
     },
@@ -17,30 +15,16 @@ use crate::{
     traits::EntitySchema,
 };
 
-fn order_fields_as_direction_refs(
-    order_fields: &[(String, OrderDirection)],
-) -> Vec<(&str, Direction)> {
-    order_fields
-        .iter()
-        .map(|(field, direction)| (field.as_str(), direction_from_order(*direction)))
-        .collect()
-}
-
-fn validated_secondary_order_fields_for_contract<'a>(
+fn validated_secondary_order_for_contract<'a>(
     model: &EntityModel,
     logical: &'a ScalarPlan,
     logical_pushdown_eligibility: LogicalPushdownEligibility,
-) -> Option<Vec<(&'a str, Direction)>> {
+) -> Option<&'a OrderSpec> {
     (secondary_order_contract_active(logical_pushdown_eligibility)
         && secondary_order_contract_is_deterministic(model, logical))
     .then_some(())?;
 
-    let order_fields = logical
-        .order
-        .as_ref()
-        .map(|order| order_fields_as_direction_refs(&order.fields))?;
-
-    Some(order_fields)
+    logical.order.as_ref()
 }
 
 /// Derive route pushdown applicability from planner-owned logical eligibility and
@@ -50,7 +34,7 @@ pub(in crate::db) fn derive_secondary_pushdown_applicability_from_contract<K>(
     plan: &AccessPlannedQuery<K>,
     logical_pushdown_eligibility: LogicalPushdownEligibility,
 ) -> PushdownApplicability {
-    let Some(order_fields) = validated_secondary_order_fields_for_contract(
+    let Some(order) = validated_secondary_order_for_contract(
         model,
         plan.scalar_plan(),
         logical_pushdown_eligibility,
@@ -60,7 +44,7 @@ pub(in crate::db) fn derive_secondary_pushdown_applicability_from_contract<K>(
 
     let access_class = plan.access_strategy().class();
 
-    access_class.secondary_order_pushdown_applicability(model, &order_fields)
+    access_class.secondary_order_pushdown_applicability(model, order)
 }
 
 /// Return whether planner logical pushdown eligibility allows route-level
@@ -91,9 +75,8 @@ where
     let index_prefix_details = access_class.single_path_index_prefix_details();
     let index_range_details = access_class.single_path_index_range_details();
     let has_order_fields = !order.fields.is_empty();
-    let primary_key_order_satisfied = order.fields.len() == 1
-        && order.fields[0].0 == E::MODEL.primary_key.name
-        && access_class.ordered();
+    let primary_key_order_satisfied =
+        order.is_primary_key_only(E::MODEL.primary_key.name) && access_class.ordered();
     let secondary_contract_active = secondary_order_contract_active(logical_pushdown_eligibility);
     let has_index_path = index_prefix_details.is_some() || index_range_details.is_some();
     let unique_prefix_ok = index_prefix_details.is_none_or(|(index, _)| index.is_unique());

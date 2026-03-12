@@ -6,10 +6,11 @@
 use crate::{
     db::{
         access::AccessPathKind,
+        cursor::{ContinuationRuntime, LoopAction},
         direction::Direction,
         executor::{
-            AccessExecutionDescriptor, AccessScanContinuationInput, AccessStreamBindings,
-            ExecutablePlan, ExecutionKernel, ExecutionOptimizationCounter, ExecutionPreparation,
+            AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess, ExecutablePlan,
+            ExecutionKernel, ExecutionOptimizationCounter, ExecutionPreparation,
             aggregate::aggregate_window_is_provably_empty,
             aggregate::field::{
                 FieldSlot, extract_numeric_field_decimal,
@@ -20,7 +21,7 @@ use crate::{
             validate_executor_plan,
         },
         numeric::{add_decimal_terms, average_decimal_terms},
-        query::plan::{ExecutionOrderContract, FieldSlot as PlannedFieldSlot, OrderSpec},
+        query::plan::{ExecutionOrderContract, FieldSlot as PlannedFieldSlot},
         response::EntityResponse,
     },
     error::InternalError,
@@ -44,12 +45,13 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
-    /// Execute `sum(field)` over the effective response window using one
-    /// planner-resolved numeric field slot.
-    pub(in crate::db) fn aggregate_sum_by_slot(
+    // Execute one field-target numeric aggregate terminal (`sum`/`avg`) through
+    // one shared slot-resolution and execution-path contract.
+    fn aggregate_numeric_by_slot(
         &self,
         plan: ExecutablePlan<E>,
         target_field: PlannedFieldSlot,
+        kind: NumericFieldAggregateKind,
     ) -> Result<Option<Decimal>, InternalError> {
         let field_slot =
             resolve_numeric_aggregate_target_slot_from_planner_slot::<E>(&target_field)
@@ -62,7 +64,7 @@ where
                 plan,
                 target_field.field(),
                 field_slot,
-                NumericFieldAggregateKind::Sum,
+                kind,
             );
         }
 
@@ -72,8 +74,18 @@ where
             response,
             target_field.field(),
             field_slot,
-            NumericFieldAggregateKind::Sum,
+            kind,
         )
+    }
+
+    /// Execute `sum(field)` over the effective response window using one
+    /// planner-resolved numeric field slot.
+    pub(in crate::db) fn aggregate_sum_by_slot(
+        &self,
+        plan: ExecutablePlan<E>,
+        target_field: PlannedFieldSlot,
+    ) -> Result<Option<Decimal>, InternalError> {
+        self.aggregate_numeric_by_slot(plan, target_field, NumericFieldAggregateKind::Sum)
     }
 
     /// Execute global `sum(distinct field)` through grouped zero-key execution
@@ -105,29 +117,7 @@ where
         plan: ExecutablePlan<E>,
         target_field: PlannedFieldSlot,
     ) -> Result<Option<Decimal>, InternalError> {
-        let field_slot =
-            resolve_numeric_aggregate_target_slot_from_planner_slot::<E>(&target_field)
-                .map_err(Self::map_aggregate_field_value_error)?;
-        if aggregate_window_is_provably_empty(&plan) {
-            return Ok(None);
-        }
-        if Self::streaming_numeric_field_aggregate_eligible(&plan) {
-            return self.aggregate_numeric_field_from_streaming(
-                plan,
-                target_field.field(),
-                field_slot,
-                NumericFieldAggregateKind::Avg,
-            );
-        }
-
-        let response = self.execute(plan)?;
-
-        Self::aggregate_numeric_field_from_materialized(
-            response,
-            target_field.field(),
-            field_slot,
-            NumericFieldAggregateKind::Avg,
-        )
+        self.aggregate_numeric_by_slot(plan, target_field, NumericFieldAggregateKind::Avg)
     }
 
     // Reduce one materialized response into `sum(field)` / `avg(field)` over
@@ -138,27 +128,19 @@ where
         field_slot: FieldSlot,
         kind: NumericFieldAggregateKind,
     ) -> Result<Option<Decimal>, InternalError> {
-        let mut sum = Decimal::ZERO;
-        let mut row_count = 0u64;
+        let mut accumulator = NumericAggregateAccumulator::new();
         for row in response {
             let value = extract_numeric_field_decimal(row.entity_ref(), target_field, field_slot)
                 .map_err(Self::map_aggregate_field_value_error)?;
-            sum = add_numeric_decimal(sum, value);
-            row_count = row_count.saturating_add(1);
+            accumulator.add(value);
         }
 
-        finalize_numeric_field_output(sum, row_count, kind)
+        finalize_numeric_field_output(accumulator, kind)
     }
 
     // Return whether numeric field aggregates can use one direct key-stream fold.
-    //
-    // This gate intentionally stays conservative:
-    // - single-path access only (no union/intersection fan-out)
-    // - no residual predicate
-    // - paged windows only when ORDER BY is exactly primary key
-    // - no multi-lookup index fan-out shapes with duplicate-key risk
     fn streaming_numeric_field_aggregate_eligible(plan: &ExecutablePlan<E>) -> bool {
-        if plan.has_predicate() || plan.is_distinct() {
+        if !Self::aggregate_predicate_safe(plan) {
             return false;
         }
 
@@ -167,49 +149,40 @@ where
             return false;
         };
         let path_kind = path.capabilities().kind();
-        let path_kind_streaming_safe = matches!(
-            path_kind,
-            AccessPathKind::ByKey
-                | AccessPathKind::ByKeys
-                | AccessPathKind::FullScan
-                | AccessPathKind::KeyRange
-                | AccessPathKind::IndexPrefix
-                | AccessPathKind::IndexRange
-        );
-        if !path_kind_streaming_safe {
+        if !Self::aggregate_access_path_safe(path_kind) {
             return false;
         }
 
-        Self::ordered_page_window_streaming_eligible(plan, path_kind)
+        Self::aggregate_page_window_safe(plan, path_kind)
     }
 
-    fn ordered_page_window_streaming_eligible(
-        plan: &ExecutablePlan<E>,
-        path_kind: AccessPathKind,
-    ) -> bool {
-        let Some(_page) = plan.page_spec() else {
+    // Return whether predicate and distinct planner flags preserve one
+    // canonical direct stream-fold contract.
+    const fn aggregate_predicate_safe(plan: &ExecutablePlan<E>) -> bool {
+        plan.has_no_predicate_or_distinct()
+    }
+
+    // Return whether the resolved access path kind can support one direct
+    // numeric stream fold without fan-out duplication risks.
+    const fn aggregate_access_path_safe(path_kind: AccessPathKind) -> bool {
+        path_kind.supports_streaming_numeric_fold()
+    }
+
+    // Return whether one paged ORDER BY window preserves one direct numeric
+    // stream-fold contract under primary-key order constraints.
+    fn aggregate_page_window_safe(plan: &ExecutablePlan<E>, path_kind: AccessPathKind) -> bool {
+        if plan.page_spec().is_none() {
             return true;
-        };
-        let Some(order) = plan.order_spec() else {
+        }
+        let Some(_order) = plan.order_spec() else {
             // Planner rejects unordered pagination, but fail closed if bypassed.
             return false;
         };
-
-        if !Self::order_spec_is_primary_key_only(order) {
+        if plan.explicit_primary_key_order_direction().is_none() {
             return false;
         }
 
-        matches!(
-            path_kind,
-            AccessPathKind::ByKey
-                | AccessPathKind::ByKeys
-                | AccessPathKind::FullScan
-                | AccessPathKind::KeyRange
-        )
-    }
-
-    fn order_spec_is_primary_key_only(order: &OrderSpec) -> bool {
-        matches!(order.fields.as_slice(), [(field, _direction)] if field == E::MODEL.primary_key.name)
+        path_kind.supports_streaming_numeric_fold_for_paged_primary_key_window()
     }
 
     // Fold numeric field aggregates directly from one ordered key stream without
@@ -221,10 +194,6 @@ where
         field_slot: FieldSlot,
         kind: NumericFieldAggregateKind,
     ) -> Result<Option<Decimal>, InternalError> {
-        Self::record_execution_optimization_hit_for_tests(
-            ExecutionOptimizationCounter::NumericFieldStreamingFoldFastPath,
-        );
-
         // Phase 1: capture lowered index specs and consume executable plan into logical form.
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
@@ -233,7 +202,9 @@ where
         let logical_plan = plan.into_inner();
         validate_executor_plan::<E>(&logical_plan)?;
         let execution_preparation = ExecutionPreparation::for_plan::<E>(&logical_plan);
-        let mut window = ExecutionKernel::window_cursor_contract(&logical_plan, None);
+        let mut continuation = ContinuationRuntime::from_window(
+            ExecutionKernel::window_cursor_contract(&logical_plan, None),
+        );
 
         // Phase 2: resolve the canonical ordered key stream from access descriptors.
         let index_predicate_execution = execution_preparation.strict_mode().map(|program| {
@@ -243,7 +214,7 @@ where
             }
         });
         let ctx = self.recovered_context()?;
-        let descriptor = AccessExecutionDescriptor::from_bindings(
+        let access = ExecutableAccess::new(
             &logical_plan.access,
             AccessStreamBindings::new(
                 index_prefix_specs.as_slice(),
@@ -253,13 +224,21 @@ where
             None,
             index_predicate_execution,
         );
-        let mut key_stream = ctx.ordered_key_stream_from_access_descriptor(descriptor)?;
+        let mut key_stream = ctx.ordered_key_stream_from_runtime_access(access)?;
+        Self::record_execution_optimization_hit_for_tests(
+            ExecutionOptimizationCounter::NumericFieldStreamingFoldFastPath,
+        );
 
         // Phase 3: stream-fold numeric values directly from row reads.
         let mut rows_scanned = 0usize;
-        let mut sum = Decimal::ZERO;
-        let mut row_count = 0u64;
-        while !window.exhausted() {
+        let mut accumulator = NumericAggregateAccumulator::new();
+        loop {
+            match continuation.pre_fetch() {
+                LoopAction::Skip => continue,
+                LoopAction::Emit => {}
+                LoopAction::Stop => break,
+            }
+
             let Some(data_key) = key_stream.next_key()? else {
                 break;
             };
@@ -268,18 +247,19 @@ where
                 continue;
             };
             rows_scanned = rows_scanned.saturating_add(1);
-            if !window.accept_existing_row() {
-                continue;
+            match continuation.accept_row() {
+                LoopAction::Skip => continue,
+                LoopAction::Emit => {}
+                LoopAction::Stop => break,
             }
             let value = extract_numeric_field_decimal(&entity, target_field, field_slot)
                 .map_err(Self::map_aggregate_field_value_error)?;
-            sum = add_numeric_decimal(sum, value);
-            row_count = row_count.saturating_add(1);
+            accumulator.add(value);
         }
         record_rows_scanned::<E>(rows_scanned);
 
         // Phase 4: finish SUM/AVG output with shared numeric arithmetic semantics.
-        finalize_numeric_field_output(sum, row_count, kind)
+        finalize_numeric_field_output(accumulator, kind)
     }
 
     fn aggregate_numeric_stream_direction(plan: &ExecutablePlan<E>) -> Direction {
@@ -287,21 +267,46 @@ where
     }
 }
 
+///
+/// NumericAggregateAccumulator
+///
+/// Shared `(sum, rows)` accumulator for numeric field aggregate terminals.
+///
+
+#[derive(Clone, Copy)]
+struct NumericAggregateAccumulator {
+    sum: Decimal,
+    row_count: u64,
+}
+
+impl NumericAggregateAccumulator {
+    const fn new() -> Self {
+        Self {
+            sum: Decimal::ZERO,
+            row_count: 0,
+        }
+    }
+
+    fn add(&mut self, value: Decimal) {
+        self.sum = add_numeric_decimal(self.sum, value);
+        self.row_count = self.row_count.saturating_add(1);
+    }
+}
+
 // Finalize SUM/AVG numeric field output from one shared `(sum, row_count)`
 // accumulator pair so streaming and materialized paths stay behavior-identical.
 fn finalize_numeric_field_output(
-    sum: Decimal,
-    row_count: u64,
+    accumulator: NumericAggregateAccumulator,
     kind: NumericFieldAggregateKind,
 ) -> Result<Option<Decimal>, InternalError> {
-    if row_count == 0 {
+    if accumulator.row_count == 0 {
         return Ok(None);
     }
 
     let output = match kind {
-        NumericFieldAggregateKind::Sum => sum,
+        NumericFieldAggregateKind::Sum => accumulator.sum,
         NumericFieldAggregateKind::Avg => {
-            let Some(avg) = average_decimal_terms(sum, row_count) else {
+            let Some(avg) = average_decimal_terms(accumulator.sum, accumulator.row_count) else {
                 return Err(crate::db::error::query_executor_invariant(
                     "numeric field AVG divisor conversion overflowed decimal bounds",
                 ));

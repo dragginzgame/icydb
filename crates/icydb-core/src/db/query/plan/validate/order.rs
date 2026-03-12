@@ -68,21 +68,14 @@ pub(crate) fn validate_primary_key_tie_break(
     order.fields.is_empty().then_some(()).map_or_else(
         || {
             let pk_field = model.primary_key.name;
-            let pk_count = order
-                .fields
-                .iter()
-                .filter(|(field, _)| field == pk_field)
-                .count();
-            let trailing_pk = order
-                .fields
-                .last()
-                .is_some_and(|(field, _)| field == pk_field);
-
-            (pk_count == 1 && trailing_pk).then_some(()).ok_or_else(|| {
-                PlanError::from(OrderPlanError::MissingPrimaryKeyTieBreak {
-                    field: pk_field.to_string(),
+            order
+                .has_exact_primary_key_tie_break(pk_field)
+                .then_some(())
+                .ok_or_else(|| {
+                    PlanError::from(OrderPlanError::MissingPrimaryKeyTieBreak {
+                        field: pk_field.to_string(),
+                    })
                 })
-            })
         },
         |()| Ok(()),
     )

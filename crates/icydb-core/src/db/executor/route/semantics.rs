@@ -5,20 +5,8 @@
 
 use crate::db::{
     direction::Direction,
-    query::{
-        builder::AggregateExpr,
-        plan::{AggregateKind, OrderDirection},
-    },
+    query::{builder::AggregateExpr, plan::AggregateKind},
 };
-
-/// Convert canonical order direction into execution scan direction.
-#[must_use]
-pub(in crate::db::executor) const fn direction_from_order(direction: OrderDirection) -> Direction {
-    match direction {
-        OrderDirection::Asc => Direction::Asc,
-        OrderDirection::Desc => Direction::Desc,
-    }
-}
 
 /// Return the canonical extrema traversal direction for this aggregate kind.
 #[must_use]

@@ -10,7 +10,7 @@ use crate::{
         numeric::field_kind_supports_aggregate_numeric,
         query::{builder::AggregateExpr, plan::AccessPlannedQuery},
     },
-    model::{entity::resolve_field_slot, field::FieldKind},
+    model::{entity::resolve_field_slot, field::FieldKind, index::IndexModel},
     traits::EntityKind,
 };
 
@@ -344,7 +344,7 @@ where
     if !access_class.single_path() {
         return false;
     }
-    if target_field == E::MODEL.primary_key.name {
+    if field_target_is_primary_key::<E>(target_field) {
         return access_class.single_path_supports_pk_stream_access();
     }
     access_class
@@ -356,4 +356,43 @@ where
                 .first()
                 .is_some_and(|field| field == &target_field)
         })
+}
+
+/// Return whether one aggregate field target is the entity primary key.
+#[must_use]
+pub(in crate::db::executor) fn field_target_is_primary_key<E>(target_field: &str) -> bool
+where
+    E: EntityKind,
+{
+    target_field == E::MODEL.primary_key.name
+}
+
+/// Return whether one field-target MAX probe can be treated as tie-free.
+/// Tie-free means:
+/// - target is the primary key, or
+/// - target is backed by one unique single-field index.
+#[must_use]
+pub(in crate::db::executor) fn field_target_is_tie_free_probe_target<E>(
+    target_field: &str,
+    index_model: Option<IndexModel>,
+) -> bool
+where
+    E: EntityKind,
+{
+    field_target_is_primary_key::<E>(target_field)
+        || field_target_is_unique_single_field_index_head(target_field, index_model)
+}
+
+fn field_target_is_unique_single_field_index_head(
+    target_field: &str,
+    index_model: Option<IndexModel>,
+) -> bool {
+    index_model.is_some_and(|index_model| {
+        index_model.is_unique()
+            && index_model.fields().len() == 1
+            && index_model
+                .fields()
+                .first()
+                .is_some_and(|field| *field == target_field)
+    })
 }

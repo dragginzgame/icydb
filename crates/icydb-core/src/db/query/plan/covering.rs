@@ -149,32 +149,20 @@ fn covering_projection_order_contract(
     let Some(order) = order else {
         return Some(CoveringProjectionOrder::PrimaryKeyOrder(Direction::Asc));
     };
-    let (first_order_field, first_order_direction) = order.fields.first()?;
-    let direction = match first_order_direction {
-        OrderDirection::Asc => Direction::Asc,
-        OrderDirection::Desc => Direction::Desc,
-    };
-    if order
-        .fields
-        .iter()
-        .any(|(_, order_direction)| order_direction != first_order_direction)
-    {
-        return None;
-    }
+    if let Some(direction) = order.primary_key_only_direction(primary_key_name) {
+        let direction = match direction {
+            OrderDirection::Asc => Direction::Asc,
+            OrderDirection::Desc => Direction::Desc,
+        };
 
-    if order.fields.len() == 1 && first_order_field == primary_key_name {
         return Some(CoveringProjectionOrder::PrimaryKeyOrder(direction));
     }
 
-    let mut expected_suffix = Vec::with_capacity(index_fields.len().saturating_sub(prefix_len) + 1);
-    expected_suffix.extend(index_fields.iter().skip(prefix_len).copied());
-    expected_suffix.push(primary_key_name);
-    let actual_fields = order
-        .fields
-        .iter()
-        .map(|(field, _)| field.as_str())
-        .collect::<Vec<_>>();
-    if actual_fields == expected_suffix {
+    let direction = match order.deterministic_secondary_order_direction(primary_key_name)? {
+        OrderDirection::Asc => Direction::Asc,
+        OrderDirection::Desc => Direction::Desc,
+    };
+    if order.matches_index_suffix_plus_primary_key(index_fields, prefix_len, primary_key_name) {
         return Some(CoveringProjectionOrder::IndexOrder(direction));
     }
 
@@ -182,10 +170,9 @@ fn covering_projection_order_contract(
         return None;
     }
 
-    let mut expected_full = Vec::with_capacity(index_fields.len() + 1);
-    expected_full.extend(index_fields.iter().copied());
-    expected_full.push(primary_key_name);
-    (actual_fields == expected_full).then_some(CoveringProjectionOrder::IndexOrder(direction))
+    order
+        .matches_index_full_plus_primary_key(index_fields, primary_key_name)
+        .then_some(CoveringProjectionOrder::IndexOrder(direction))
 }
 
 // Resolve one constant projection value from index-prefix component bindings.

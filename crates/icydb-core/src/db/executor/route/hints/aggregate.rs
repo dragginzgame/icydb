@@ -7,6 +7,7 @@ use crate::{
     db::{
         direction::Direction,
         executor::{
+            aggregate::capability::field_target_is_tie_free_probe_target,
             pipeline::contracts::LoadExecutor,
             route::{
                 AccessWindow, AggregateSeekSpec, RouteCapabilities,
@@ -116,26 +117,7 @@ where
                 .or_else(|| access_class.single_path_index_range_details())
                 .map(|(index, _)| index);
 
-            Self::is_tie_free_probe_target(target_field, index_model)
+            field_target_is_tie_free_probe_target::<E>(target_field, index_model)
         })
-    }
-
-    // One canonical tie-free target guard for bounded MAX(field) probe hints.
-    // Tie-free means:
-    // - target is primary key, or
-    // - target is backed by a unique single-field leading index.
-    fn is_tie_free_probe_target(
-        target_field: &str,
-        index_model: Option<crate::model::index::IndexModel>,
-    ) -> bool {
-        (target_field == E::MODEL.primary_key.name)
-            || index_model.is_some_and(|index_model| {
-                index_model.is_unique()
-                    && index_model.fields().len() == 1
-                    && index_model
-                        .fields()
-                        .first()
-                        .is_some_and(|field| *field == target_field)
-            })
     }
 }

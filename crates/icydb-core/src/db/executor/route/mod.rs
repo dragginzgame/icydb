@@ -30,7 +30,6 @@ pub(in crate::db::executor) use pushdown::secondary_order_contract_active;
 pub(in crate::db::executor) use semantics::{
     aggregate_bounded_probe_fetch_hint, aggregate_extrema_direction,
     aggregate_materialized_fold_direction, aggregate_supports_bounded_probe_hint,
-    direction_from_order,
 };
 pub(in crate::db::executor) use terminal::{
     BytesTerminalFastPathContract, CountTerminalFastPathContract, ExistsTerminalFastPathContract,

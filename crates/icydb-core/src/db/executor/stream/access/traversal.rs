@@ -15,8 +15,8 @@ use crate::{
             stream::{
                 access::{
                     bindings::{
-                        AccessExecutionDescriptor, AccessScanContinuationInput, AccessSpecCursor,
-                        AccessStreamBindings, AccessStreamInputs, IndexStreamConstraints,
+                        AccessScanContinuationInput, AccessSpecCursor, AccessStreamBindings,
+                        AccessStreamInputs, ExecutableAccess, IndexStreamConstraints,
                         StreamExecutionHints,
                     },
                     physical,
@@ -102,9 +102,9 @@ where
 
     /// Resolve an access plan to an ordered key stream while consuming lowered specs
     /// in traversal order, including optional index-range pagination anchor.
-    pub(in crate::db::executor) fn ordered_key_stream_from_access_descriptor(
+    pub(in crate::db::executor) fn ordered_key_stream_from_runtime_access(
         &self,
-        request: AccessExecutionDescriptor<'_, E::Key>,
+        request: ExecutableAccess<'_, E::Key>,
     ) -> Result<OrderedKeyStreamBox, InternalError>
     where
         E: EntityKind,
@@ -118,11 +118,8 @@ where
             index_predicate_execution: request.index_predicate_execution,
         };
         let mut spec_cursor = inputs.spec_cursor();
-        let key_stream = AccessPlanStreamResolver::produce_key_stream(
-            &request.executable_access,
-            &inputs,
-            &mut spec_cursor,
-        )?;
+        let key_stream =
+            AccessPlanStreamResolver::produce_key_stream(&request.plan, &inputs, &mut spec_cursor)?;
         spec_cursor.validate_consumed()?;
 
         Ok(key_stream)
@@ -145,8 +142,8 @@ where
             index_range_specs,
             continuation,
         };
-        let descriptor = AccessExecutionDescriptor::from_bindings(access, bindings, None, None);
-        let mut key_stream = self.ordered_key_stream_from_access_descriptor(descriptor)?;
+        let executable_access = ExecutableAccess::new(access, bindings, None, None);
+        let mut key_stream = self.ordered_key_stream_from_runtime_access(executable_access)?;
 
         self.rows_from_ordered_key_stream(key_stream.as_mut(), consistency)
     }

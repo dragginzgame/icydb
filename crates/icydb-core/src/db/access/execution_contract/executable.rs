@@ -4,9 +4,12 @@
 //! Boundary: carries compact executable access metadata consumed by runtime traversal layers.
 
 use crate::{
-    db::access::execution_contract::{
-        AccessExecutionMode, ExecutionBounds, ExecutionDistinctMode, ExecutionOrdering,
-        ExecutionPathKind, ExecutionPathPayload,
+    db::access::{
+        dispatch::AccessPathKind,
+        execution_contract::{
+            AccessExecutionMode, ExecutionBounds, ExecutionDistinctMode, ExecutionOrdering,
+            ExecutionPathPayload,
+        },
     },
     model::index::IndexModel,
     value::Value,
@@ -59,15 +62,15 @@ impl<'a, K> ExecutableAccessPath<'a, K> {
 
     /// Return the canonical execution path kind.
     #[must_use]
-    pub(in crate::db) const fn kind(&self) -> ExecutionPathKind {
+    pub(in crate::db) const fn kind(&self) -> AccessPathKind {
         match self.payload {
-            ExecutionPathPayload::ByKey(_) => ExecutionPathKind::ByKey,
-            ExecutionPathPayload::ByKeys(_) => ExecutionPathKind::ByKeys,
-            ExecutionPathPayload::KeyRange { .. } => ExecutionPathKind::KeyRange,
-            ExecutionPathPayload::IndexPrefix => ExecutionPathKind::IndexPrefix,
-            ExecutionPathPayload::IndexMultiLookup { .. } => ExecutionPathKind::IndexMultiLookup,
-            ExecutionPathPayload::IndexRange { .. } => ExecutionPathKind::IndexRange,
-            ExecutionPathPayload::FullScan => ExecutionPathKind::FullScan,
+            ExecutionPathPayload::ByKey(_) => AccessPathKind::ByKey,
+            ExecutionPathPayload::ByKeys(_) => AccessPathKind::ByKeys,
+            ExecutionPathPayload::KeyRange { .. } => AccessPathKind::KeyRange,
+            ExecutionPathPayload::IndexPrefix => AccessPathKind::IndexPrefix,
+            ExecutionPathPayload::IndexMultiLookup { .. } => AccessPathKind::IndexMultiLookup,
+            ExecutionPathPayload::IndexRange { .. } => AccessPathKind::IndexRange,
+            ExecutionPathPayload::FullScan => AccessPathKind::FullScan,
         }
     }
 

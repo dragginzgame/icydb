@@ -8,7 +8,7 @@ use crate::{
         Context,
         direction::Direction,
         executor::{
-            AccessExecutionDescriptor, AccessScanContinuationInput, AccessStreamBindings,
+            AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess,
             ExecutionOptimization, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             pipeline::contracts::{FastPathKeyResult, LoadExecutor},
         },
@@ -33,7 +33,7 @@ where
         Self::verify_pk_stream_fast_path_access(plan)?;
 
         // Phase 2: lower through the canonical access-stream resolver boundary.
-        let descriptor = AccessExecutionDescriptor::from_bindings(
+        let access = ExecutableAccess::new(
             &plan.access,
             AccessStreamBindings::no_index(stream_direction),
             probe_fetch_hint,
@@ -41,7 +41,7 @@ where
         );
         Ok(Some(Self::execute_fast_stream_request(
             ctx,
-            descriptor,
+            access,
             ExecutionOptimization::PrimaryKey,
         )?))
     }
@@ -75,7 +75,7 @@ where
         );
 
         // Phase 2: bind execution inputs and run the shared fast-stream boundary.
-        let descriptor = AccessExecutionDescriptor::from_executable_bindings(
+        let access = ExecutableAccess::from_executable_plan(
             access_strategy.into_executable(),
             AccessStreamBindings::with_index_prefix(index_prefix_spec, stream_direction),
             probe_fetch_hint,
@@ -83,7 +83,7 @@ where
         );
         let fast = Self::execute_fast_stream_request(
             ctx,
-            descriptor,
+            access,
             ExecutionOptimization::SecondaryOrderPushdown,
         )?;
         if let Some(fetch) = probe_fetch_hint {
@@ -125,7 +125,7 @@ where
         );
 
         // Phase 2: bind range/anchor inputs and execute through shared fast-stream helper.
-        let descriptor = AccessExecutionDescriptor::from_executable_bindings(
+        let access = ExecutableAccess::from_executable_plan(
             access_strategy.into_executable(),
             AccessStreamBindings::with_index_range_continuation(index_range_spec, continuation),
             Some(effective_fetch),
@@ -134,7 +134,7 @@ where
 
         Ok(Some(Self::execute_fast_stream_request(
             ctx,
-            descriptor,
+            access,
             ExecutionOptimization::IndexRangeLimitPushdown,
         )?))
     }

@@ -331,6 +331,32 @@ mod tests {
     }
 
     #[test]
+    fn data_key_golden_snapshot_entity_and_storage_key_layout_is_stable() {
+        let key = DataKey {
+            entity: EntityName::try_from_str("alpha").expect("entity name should parse"),
+            key: StorageKey::Int(-1),
+        };
+        let raw = key.to_raw().expect("data key should encode");
+
+        // Freeze the on-disk wire contract:
+        // [EntityName(1+64)] + [StorageKey(64)].
+        let mut expected = [0u8; DataKey::STORED_SIZE_USIZE];
+        expected[0] = 5;
+        expected[1..6].copy_from_slice(b"alpha");
+
+        let storage_offset = EntityName::STORED_SIZE_USIZE;
+        expected[storage_offset] = 1; // StorageKey::TAG_INT
+        expected[storage_offset + 1..storage_offset + 9]
+            .copy_from_slice(&0x7FFF_FFFF_FFFF_FFFFu64.to_be_bytes());
+
+        assert_eq!(
+            raw.as_bytes(),
+            &expected,
+            "data-key storage layout changed; this is a persistence compatibility boundary",
+        );
+    }
+
+    #[test]
     fn data_key_ordering_matches_bytes() {
         let keys = vec![
             DataKey {

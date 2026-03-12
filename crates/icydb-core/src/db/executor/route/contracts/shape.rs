@@ -4,7 +4,7 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::db::{
-    executor::AccessExecutionDescriptor,
+    executor::ExecutableAccess,
     query::{builder::AggregateExpr, plan::GroupedPlanStrategyHint},
 };
 
@@ -58,7 +58,7 @@ pub(in crate::db::executor) const MUTATION_FAST_PATH_ORDER: [FastPathOrder; 0] =
 ///
 
 pub(in crate::db::executor) enum RoutedKeyStreamRequest<'a, K> {
-    AccessDescriptor(AccessExecutionDescriptor<'a, K>),
+    ExecutableAccess(ExecutableAccess<'a, K>),
 }
 
 ///

@@ -80,22 +80,8 @@ pub(in crate::db) fn secondary_order_contract_is_deterministic(
     let Some(order) = scalar.order.as_ref() else {
         return false;
     };
-    if order.fields.is_empty() {
-        return false;
-    }
-    let Some((last_field, expected_direction)) = order.fields.last() else {
-        return false;
-    };
-    if last_field != model.primary_key.name {
-        return false;
-    }
-    if order
-        .fields
-        .iter()
-        .any(|(_, direction)| *direction != *expected_direction)
-    {
-        return false;
-    }
 
-    true
+    order
+        .deterministic_secondary_order_direction(model.primary_key.name)
+        .is_some()
 }

@@ -6,7 +6,7 @@
 use crate::{
     db::{
         Context,
-        cursor::CursorBoundary,
+        cursor::{ContinuationRuntime, CursorBoundary, LoopAction},
         data::DataKey,
         direction::Direction,
         executor::{
@@ -247,12 +247,19 @@ impl ExecutionKernel {
             ));
         }
 
-        let mut window = Self::window_cursor_contract(plan, None);
+        let mut continuation =
+            ContinuationRuntime::from_window(Self::window_cursor_contract(plan, None));
         let mut keys_scanned = 0usize;
         let consistency = row_read_consistency_for_plan(plan);
 
         // Phase 2: scan keys, apply fold eligibility/window gates, and feed reducer.
-        while !window.exhausted() {
+        loop {
+            match continuation.pre_fetch() {
+                LoopAction::Skip => continue,
+                LoopAction::Emit => {}
+                LoopAction::Stop => break,
+            }
+
             let Some(key) = key_stream.next_key()? else {
                 break;
             };
@@ -261,8 +268,10 @@ impl ExecutionKernel {
             if !Self::key_qualifies_for_fold(ctx, consistency, mode, &key)? {
                 continue;
             }
-            if !window.accept_existing_row() {
-                continue;
+            match continuation.accept_row() {
+                LoopAction::Skip => continue,
+                LoopAction::Emit => {}
+                LoopAction::Stop => break,
             }
 
             match reducer.on_item(StreamItem::Key(&key))? {

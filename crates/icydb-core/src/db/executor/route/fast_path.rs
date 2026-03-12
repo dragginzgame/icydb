@@ -69,8 +69,7 @@ where
 
         logical.mode.is_load()
             && supports_pk_stream_access
-            && order.fields.len() == 1
-            && order.fields[0].0 == E::MODEL.primary_key.name
+            && order.is_primary_key_only(E::MODEL.primary_key.name)
     }
 
     /// Validate routed access-path shape for PK stream fast-path execution.

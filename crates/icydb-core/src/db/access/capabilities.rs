@@ -6,7 +6,7 @@
 use crate::{
     db::access::{
         AccessPathKind, ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan,
-        ExecutionPathKind, ExecutionPathPayload,
+        ExecutionPathPayload,
     },
     metrics::sink::PlanKind,
     model::index::IndexModel,
@@ -51,6 +51,33 @@ impl AccessPathKind {
             Self::IndexPrefix | Self::IndexMultiLookup | Self::IndexRange => AccessScanKind::Index,
             Self::FullScan => AccessScanKind::FullScan,
         }
+    }
+
+    /// Return whether this path kind can safely drive one direct numeric
+    /// aggregate stream fold in unpaged mode.
+    #[must_use]
+    pub(in crate::db) const fn supports_streaming_numeric_fold(self) -> bool {
+        matches!(
+            self,
+            Self::ByKey
+                | Self::ByKeys
+                | Self::FullScan
+                | Self::KeyRange
+                | Self::IndexPrefix
+                | Self::IndexRange
+        )
+    }
+
+    /// Return whether this path kind can safely drive one direct numeric
+    /// aggregate stream fold for paged primary-key-ordered windows.
+    #[must_use]
+    pub(in crate::db) const fn supports_streaming_numeric_fold_for_paged_primary_key_window(
+        self,
+    ) -> bool {
+        matches!(
+            self,
+            Self::ByKey | Self::ByKeys | Self::FullScan | Self::KeyRange
+        )
     }
 }
 
@@ -319,18 +346,6 @@ impl AccessCapabilities {
     }
 }
 
-const fn derive_access_path_kind_from_execution_kind(kind: ExecutionPathKind) -> AccessPathKind {
-    match kind {
-        ExecutionPathKind::ByKey => AccessPathKind::ByKey,
-        ExecutionPathKind::ByKeys => AccessPathKind::ByKeys,
-        ExecutionPathKind::KeyRange => AccessPathKind::KeyRange,
-        ExecutionPathKind::IndexPrefix => AccessPathKind::IndexPrefix,
-        ExecutionPathKind::IndexMultiLookup => AccessPathKind::IndexMultiLookup,
-        ExecutionPathKind::IndexRange => AccessPathKind::IndexRange,
-        ExecutionPathKind::FullScan => AccessPathKind::FullScan,
-    }
-}
-
 const fn is_by_keys_empty_from_payload<K>(payload: &ExecutionPathPayload<'_, K>) -> bool {
     matches!(payload, ExecutionPathPayload::ByKeys(keys) if keys.is_empty())
 }
@@ -353,7 +368,7 @@ const fn derive_access_path_capabilities<K>(
     path: &ExecutableAccessPath<'_, K>,
 ) -> SinglePathAccessCapabilities {
     // Phase 1: derive static capability projection from execution-path shape.
-    let kind = derive_access_path_kind_from_execution_kind(path.kind());
+    let kind = path.kind();
     let (stream, pushdown, supports_primary_scan_fetch_hint, is_key_direct_access) = match kind {
         AccessPathKind::ByKey => (
             SinglePathStreamCapabilities {

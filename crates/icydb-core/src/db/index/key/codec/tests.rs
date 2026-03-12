@@ -8,11 +8,14 @@ use crate::{
     MAX_INDEX_FIELDS,
     db::{
         identity::{EntityName, IndexName},
-        index::{IndexId, IndexKey, IndexKeyKind, RawIndexKey},
+        index::{
+            IndexId, IndexKey, IndexKeyKind, PrimaryKeyEquivalenceError, RawIndexKey,
+            primary_key_matches_value,
+        },
     },
     traits::Storable,
     types::{Decimal, Float32, Float64, Int, Principal},
-    value::{Value, ValueEnum},
+    value::{StorageKey, StorageKeyDecodeError, StorageKeyEncodeError, Value, ValueEnum},
 };
 use std::{borrow::Cow, cmp::Ordering, ops::Bound as RangeBound};
 
@@ -801,6 +804,217 @@ fn index_key_pk_terminal_tie_break_and_prefix_visibility() {
     hits.sort();
 
     assert_eq!(hits.len(), 2);
+}
+
+#[test]
+fn index_prefix_scan_bounds_are_consistent_with_key_encoding() {
+    // Phase 1: build one canonical prefix envelope and freeze bound shape.
+    let prefix_component = encode_component(&Value::Text("alpha".to_string()));
+    let (start, end) =
+        IndexKey::bounds_for_prefix(&index_id(), 2, std::slice::from_ref(&prefix_component));
+    let Some(start_second_component) = start.component(1) else {
+        panic!("prefix envelope start key should contain wildcard suffix component");
+    };
+    let Some(end_second_component) = end.component(1) else {
+        panic!("prefix envelope end key should contain wildcard suffix component");
+    };
+    assert_eq!(
+        start_second_component,
+        &[0],
+        "prefix envelope lower wildcard component must stay low sentinel",
+    );
+    assert_eq!(
+        end_second_component.len(),
+        IndexKey::MAX_COMPONENT_SIZE,
+        "prefix envelope upper wildcard component must stay max-width sentinel",
+    );
+    assert!(
+        end_second_component.iter().all(|byte| *byte == 0xFF),
+        "prefix envelope upper wildcard component must stay 0xFF-filled sentinel",
+    );
+
+    let start_raw = start.to_raw();
+    let end_raw = end.to_raw();
+    assert!(start_raw < end_raw, "prefix envelope must remain non-empty");
+
+    // Phase 2: every key sharing the prefix must stay inside `[start, end)` under raw ordering.
+    let matching_keys = [
+        key_with(
+            IndexKeyKind::User,
+            index_id(),
+            vec![prefix_component.clone(), encode_component(&Value::Uint(1))],
+            StorageKey::Uint(1)
+                .to_bytes()
+                .expect("storage key encoding should succeed")
+                .to_vec(),
+        ),
+        key_with(
+            IndexKeyKind::User,
+            index_id(),
+            vec![prefix_component, encode_component(&Value::Uint(2))],
+            StorageKey::Uint(2)
+                .to_bytes()
+                .expect("storage key encoding should succeed")
+                .to_vec(),
+        ),
+    ];
+    for matching in matching_keys {
+        let raw = matching.to_raw();
+        assert!(
+            raw >= start_raw,
+            "matching prefix key must be >= prefix start"
+        );
+        assert!(
+            raw < end_raw,
+            "matching prefix key must be < prefix end sentinel"
+        );
+    }
+
+    // Phase 3: keys outside the prefix must stay outside the lowered envelope.
+    let before_prefix = key_with(
+        IndexKeyKind::User,
+        index_id(),
+        vec![
+            encode_component(&Value::Text("aalph".to_string())),
+            encode_component(&Value::Uint(1)),
+        ],
+        StorageKey::Uint(3)
+            .to_bytes()
+            .expect("storage key encoding should succeed")
+            .to_vec(),
+    )
+    .to_raw();
+    let after_prefix = key_with(
+        IndexKeyKind::User,
+        index_id(),
+        vec![
+            encode_component(&Value::Text("zebra".to_string())),
+            encode_component(&Value::Uint(1)),
+        ],
+        StorageKey::Uint(4)
+            .to_bytes()
+            .expect("storage key encoding should succeed")
+            .to_vec(),
+    )
+    .to_raw();
+    assert!(
+        before_prefix < start_raw,
+        "non-matching lower prefix key must sort before prefix start",
+    );
+    assert!(
+        after_prefix >= end_raw,
+        "non-matching higher prefix key must sort at-or-after prefix end sentinel",
+    );
+}
+
+#[test]
+fn index_key_primary_key_equivalence_accepts_matching_and_rejects_mismatched_boundaries() {
+    let encoded_pk = StorageKey::Int(-7)
+        .to_bytes()
+        .expect("storage key encoding should succeed")
+        .to_vec();
+    let key = key_with(
+        IndexKeyKind::User,
+        index_id(),
+        vec![encode_component(&Value::Int(9))],
+        encoded_pk,
+    );
+
+    let matches = primary_key_matches_value(&key, &Value::Int(-7))
+        .expect("row-identity equivalence check should decode valid primary key");
+    let mismatches = primary_key_matches_value(&key, &Value::Int(-8))
+        .expect("row-identity equivalence check should decode valid primary key");
+
+    assert!(matches);
+    assert!(!mismatches);
+}
+
+#[test]
+fn index_key_primary_key_equivalence_fails_closed_on_corrupted_anchor_payload() {
+    let mut corrupted_pk = vec![0u8; StorageKey::STORED_SIZE_USIZE];
+    corrupted_pk[0] = 0xFF;
+    let key = key_with(
+        IndexKeyKind::User,
+        index_id(),
+        vec![encode_component(&Value::Int(9))],
+        corrupted_pk,
+    );
+
+    let err = primary_key_matches_value(&key, &Value::Int(9))
+        .expect_err("corrupted index-key primary-key payload should fail closed");
+    assert!(matches!(
+        err,
+        PrimaryKeyEquivalenceError::AnchorDecode {
+            source: StorageKeyDecodeError::InvalidTag
+        }
+    ));
+}
+
+#[test]
+fn index_key_primary_key_equivalence_rejects_non_storage_key_boundary_values() {
+    let encoded_pk = StorageKey::Uint(11)
+        .to_bytes()
+        .expect("storage key encoding should succeed")
+        .to_vec();
+    let key = key_with(
+        IndexKeyKind::User,
+        index_id(),
+        vec![encode_component(&Value::Int(9))],
+        encoded_pk,
+    );
+
+    let err = primary_key_matches_value(&key, &Value::Text("not-keyable".to_string()))
+        .expect_err("non-storage-key boundary values must fail closed");
+    assert!(matches!(
+        err,
+        PrimaryKeyEquivalenceError::BoundaryEncode {
+            source: StorageKeyEncodeError::UnsupportedValueKind { kind: "Text" }
+        }
+    ));
+}
+
+#[test]
+fn index_key_partial_truncation_cases_fail_closed() {
+    // Phase 1: freeze row-identity equivalence behavior for missing PK bytes.
+    let key_with_truncated_pk = key_with(
+        IndexKeyKind::User,
+        index_id(),
+        vec![encode_component(&Value::Int(9))],
+        vec![0x01, 0x02, 0x03],
+    );
+    let missing_pk_err = primary_key_matches_value(&key_with_truncated_pk, &Value::Int(9))
+        .expect_err("missing PK bytes must fail closed in primary-key equivalence");
+    assert!(matches!(
+        missing_pk_err,
+        PrimaryKeyEquivalenceError::AnchorDecode {
+            source: StorageKeyDecodeError::InvalidSize
+        }
+    ));
+
+    // Phase 2: freeze decode behavior when one namespace-prefix byte is missing.
+    let baseline = key_with(
+        IndexKeyKind::User,
+        index_id(),
+        vec![encode_component(&Value::Int(9))],
+        StorageKey::Uint(1)
+            .to_bytes()
+            .expect("storage key encoding should succeed")
+            .to_vec(),
+    )
+    .to_raw()
+    .as_bytes()
+    .to_vec();
+    let mut missing_namespace_prefix = baseline.clone();
+    missing_namespace_prefix.remove(KEY_KIND_TAG_SIZE);
+    decode_must_fail_corrupted(
+        missing_namespace_prefix,
+        "missing namespace-prefix byte must fail closed",
+    );
+
+    // Phase 3: freeze decode behavior for generic truncated index-key frames.
+    let mut truncated_key = baseline;
+    truncated_key.pop();
+    decode_must_fail_corrupted(truncated_key, "truncated index key must fail closed");
 }
 
 #[test]

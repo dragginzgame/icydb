@@ -8,7 +8,7 @@ mod strategy;
 use crate::{
     db::{
         executor::{
-            AccessExecutionDescriptor, ExecutionOptimization, ExecutionPlan,
+            ExecutableAccess, ExecutionOptimization, ExecutionPlan,
             pipeline::contracts::{
                 ExecutionInputsProjection, LoadExecutor, ResolvedExecutionKeyStream,
             },
@@ -129,7 +129,7 @@ where
     {
         let fallback_fetch_hint =
             route_plan.fallback_physical_fetch_hint(inputs.stream_bindings().direction());
-        let descriptor = AccessExecutionDescriptor::from_bindings(
+        let access = ExecutableAccess::new(
             &inputs.plan().access,
             *inputs.stream_bindings(),
             fallback_fetch_hint,
@@ -137,7 +137,7 @@ where
         );
         let key_stream = Self::resolve_routed_key_stream(
             inputs.ctx(),
-            RoutedKeyStreamRequest::AccessDescriptor(descriptor),
+            RoutedKeyStreamRequest::ExecutableAccess(access),
         )?;
 
         Ok(ResolvedExecutionKeyStream::new(

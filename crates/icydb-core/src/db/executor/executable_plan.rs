@@ -9,6 +9,7 @@ use crate::{
     db::{
         access::AccessPlan,
         cursor::{ContinuationSignature, CursorPlanError, GroupedPlannedCursor, PlannedCursor},
+        direction::Direction,
         executor::{
             ExecutionPreparation, ExecutorPlanError, GroupedPaginationWindow,
             LOWERED_INDEX_PREFIX_SPEC_INVALID, LOWERED_INDEX_RANGE_SPEC_INVALID,
@@ -25,7 +26,7 @@ use crate::{
         predicate::MissingRowPolicy,
         query::plan::{
             AccessPlannedQuery, ContinuationContract, ExecutionOrdering, GroupedExecutorHandoff,
-            OrderSpec, PageSpec, QueryMode, grouped_executor_handoff,
+            OrderDirection, OrderSpec, PageSpec, QueryMode, grouped_executor_handoff,
             index_covering_existing_rows_terminal_eligible,
         },
         query::{
@@ -311,6 +312,46 @@ impl<E: EntityKind> ExecutablePlan<E> {
     #[must_use]
     pub(in crate::db::executor) const fn is_distinct(&self) -> bool {
         self.plan.scalar_plan().distinct
+    }
+
+    /// Return whether this plan clears both residual-predicate and DISTINCT
+    /// gates required by route-owned scalar fast-path contracts.
+    #[must_use]
+    pub(in crate::db::executor) const fn has_no_predicate_or_distinct(&self) -> bool {
+        !self.has_predicate() && !self.is_distinct()
+    }
+
+    /// Return primary-key order direction when ORDER BY is explicitly
+    /// primary-key-only; otherwise return `None`.
+    #[must_use]
+    pub(in crate::db::executor) fn explicit_primary_key_order_direction(
+        &self,
+    ) -> Option<Direction> {
+        let order = self.order_spec()?;
+        order
+            .primary_key_only_direction(E::MODEL.primary_key.name)
+            .map(|direction| match direction {
+                OrderDirection::Asc => Direction::Asc,
+                OrderDirection::Desc => Direction::Desc,
+            })
+    }
+
+    /// Return one canonical scan direction for unordered plans (`Asc`) or
+    /// explicit primary-key-only ordering; return `None` for non-PK ordering.
+    #[must_use]
+    pub(in crate::db::executor) fn unordered_or_primary_key_order_direction(
+        &self,
+    ) -> Option<Direction> {
+        let Some(order) = self.order_spec() else {
+            return Some(Direction::Asc);
+        };
+
+        order
+            .primary_key_only_direction(E::MODEL.primary_key.name)
+            .map(|direction| match direction {
+                OrderDirection::Asc => Direction::Asc,
+                OrderDirection::Desc => Direction::Desc,
+            })
     }
 
     /// Build canonical execution preparation for this executable plan.

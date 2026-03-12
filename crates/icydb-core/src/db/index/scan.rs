@@ -5,7 +5,10 @@
 
 use crate::{
     db::{
-        cursor::IndexScanContinuationInput,
+        cursor::{
+            ContinuationKeyRef, ContinuationRuntime, IndexScanContinuationInput, LoopAction,
+            WindowCursorContract,
+        },
         data::DataKey,
         direction::Direction,
         index::{
@@ -82,7 +85,9 @@ impl IndexStore {
             return Ok(Vec::new());
         }
 
-        let (start_raw, end_raw) = continuation.resume_bounds(bounds)?;
+        let continuation =
+            ContinuationRuntime::new(continuation, WindowCursorContract::unbounded());
+        let (start_raw, end_raw) = continuation.scan_bounds(bounds)?;
 
         if envelope_is_empty(&start_raw, &end_raw) {
             return Ok(Vec::new());
@@ -98,7 +103,7 @@ impl IndexStore {
                     let value = entry.value();
 
                     if Self::scan_range_entry(
-                        continuation,
+                        &continuation,
                         raw_key,
                         &value,
                         &mut out,
@@ -114,7 +119,7 @@ impl IndexStore {
                     let value = entry.value();
 
                     if Self::scan_range_entry(
-                        continuation,
+                        &continuation,
                         raw_key,
                         &value,
                         &mut out,
@@ -131,7 +136,7 @@ impl IndexStore {
 
     // Apply continuation advancement guard and one decode/push attempt for an entry.
     fn scan_range_entry<T, F>(
-        continuation: IndexScanContinuationInput<'_>,
+        continuation: &ContinuationRuntime<'_>,
         raw_key: &RawIndexKey,
         value: &StoredIndexValue,
         out: &mut Vec<T>,
@@ -140,7 +145,12 @@ impl IndexStore {
     where
         F: FnMut(&RawIndexKey, &StoredIndexValue, &mut Vec<T>) -> Result<bool, InternalError>,
     {
-        continuation.validate_candidate_advancement(raw_key)?;
+        match continuation.accept_key(ContinuationKeyRef::scan(raw_key))? {
+            LoopAction::Skip => return Ok(false),
+            LoopAction::Emit => {}
+            LoopAction::Stop => return Ok(true),
+        }
+
         decode_and_push(raw_key, value, out)
     }
 

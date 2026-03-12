@@ -92,6 +92,125 @@ pub(crate) struct OrderSpec {
     pub(crate) fields: Vec<(String, OrderDirection)>,
 }
 
+impl OrderSpec {
+    /// Return the single ordered field when `ORDER BY` has exactly one element.
+    #[must_use]
+    pub(in crate::db) fn single_field(&self) -> Option<(&str, OrderDirection)> {
+        let [(field, direction)] = self.fields.as_slice() else {
+            return None;
+        };
+
+        Some((field.as_str(), *direction))
+    }
+
+    /// Return ordering direction when `ORDER BY` is primary-key-only.
+    #[must_use]
+    pub(in crate::db) fn primary_key_only_direction(
+        &self,
+        primary_key_name: &str,
+    ) -> Option<OrderDirection> {
+        let (field, direction) = self.single_field()?;
+        (field == primary_key_name).then_some(direction)
+    }
+
+    /// Return true when `ORDER BY` is exactly one primary-key field.
+    #[must_use]
+    pub(in crate::db) fn is_primary_key_only(&self, primary_key_name: &str) -> bool {
+        self.primary_key_only_direction(primary_key_name).is_some()
+    }
+
+    /// Return true when ORDER BY includes exactly one primary-key tie-break
+    /// and that tie-break is the terminal sort component.
+    #[must_use]
+    pub(in crate::db) fn has_exact_primary_key_tie_break(&self, primary_key_name: &str) -> bool {
+        let pk_count = self
+            .fields
+            .iter()
+            .filter(|(field, _)| field == primary_key_name)
+            .count();
+        let trailing_pk = self
+            .fields
+            .last()
+            .is_some_and(|(field, _)| field == primary_key_name);
+
+        pk_count == 1 && trailing_pk
+    }
+
+    /// Return direction when ORDER BY preserves one deterministic secondary
+    /// ordering contract (`..., primary_key`) with uniform direction.
+    #[must_use]
+    pub(in crate::db) fn deterministic_secondary_order_direction(
+        &self,
+        primary_key_name: &str,
+    ) -> Option<OrderDirection> {
+        let (_, expected_direction) = self.fields.last()?;
+        if !self.has_exact_primary_key_tie_break(primary_key_name) {
+            return None;
+        }
+        if self
+            .fields
+            .iter()
+            .any(|(_, direction)| *direction != *expected_direction)
+        {
+            return None;
+        }
+
+        Some(*expected_direction)
+    }
+
+    /// Return true when ORDER BY non-PK fields match the index suffix
+    /// beginning at `prefix_len`, followed by primary key.
+    #[must_use]
+    pub(in crate::db) fn matches_index_suffix_plus_primary_key(
+        &self,
+        index_fields: &[&str],
+        prefix_len: usize,
+        primary_key_name: &str,
+    ) -> bool {
+        if prefix_len > index_fields.len() {
+            return false;
+        }
+
+        self.matches_index_field_sequence_plus_primary_key(
+            &index_fields[prefix_len..],
+            primary_key_name,
+        )
+    }
+
+    /// Return true when ORDER BY non-PK fields match full index order,
+    /// followed by primary key.
+    #[must_use]
+    pub(in crate::db) fn matches_index_full_plus_primary_key(
+        &self,
+        index_fields: &[&str],
+        primary_key_name: &str,
+    ) -> bool {
+        self.matches_index_field_sequence_plus_primary_key(index_fields, primary_key_name)
+    }
+
+    fn matches_index_field_sequence_plus_primary_key(
+        &self,
+        expected_non_pk_fields: &[&str],
+        primary_key_name: &str,
+    ) -> bool {
+        // Keep the PK tie-break requirement explicit so sequence-only checks
+        // never silently accept malformed ORDER BY shapes.
+        if !self.has_exact_primary_key_tie_break(primary_key_name) {
+            return false;
+        }
+        if self.fields.len() != expected_non_pk_fields.len().saturating_add(1) {
+            return false;
+        }
+
+        self.fields
+            .iter()
+            .take(expected_non_pk_fields.len())
+            .map(|(field, _)| field.as_str())
+            .zip(expected_non_pk_fields.iter().copied())
+            .all(|(actual, expected)| actual == expected)
+    }
+}
+
 ///
 /// DeleteLimitSpec
 /// Executor-facing delete bound with no offsets.

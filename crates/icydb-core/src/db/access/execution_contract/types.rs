@@ -67,23 +67,6 @@ pub(in crate::db) enum ExecutionBounds {
 }
 
 ///
-/// ExecutionPathKind
-///
-/// Canonical path discriminant used by executor runtime checks.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum ExecutionPathKind {
-    ByKey,
-    ByKeys,
-    KeyRange,
-    IndexPrefix,
-    IndexMultiLookup,
-    IndexRange,
-    FullScan,
-}
-
-///
 /// ExecutionPathPayload
 ///
 /// Variant payload needed for mechanical access execution only.
