@@ -10,7 +10,7 @@ use crate::{
         direction::Direction,
         executor::{
             Context, ExecutableAccessPlan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
-            LoweredKey,
+            LoweredKey, traversal::validate_index_range_specs_consumed,
         },
         index::predicate::IndexPredicateExecution,
     },
@@ -115,11 +115,7 @@ impl<'a> AccessSpecCursor<'a> {
                 "unused index-prefix executable specs after access-plan traversal",
             ));
         }
-        if self.index_range_offset < self.index_range_specs.len() {
-            return Err(crate::db::error::query_executor_invariant(
-                "unused index-range executable specs after access-plan traversal",
-            ));
-        }
+        validate_index_range_specs_consumed(self.index_range_offset, self.index_range_specs.len())?;
 
         Ok(())
     }

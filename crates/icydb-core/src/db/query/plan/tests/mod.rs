@@ -11,7 +11,7 @@ mod structural_guards;
 
 use crate::{
     db::access::{AccessPath, AccessPlan},
-    db::predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
+    db::predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, normalize},
     db::query::plan::plan_access,
     db::schema::SchemaInfo,
     model::{entity::EntityModel, field::FieldKind, index::IndexModel},
@@ -126,11 +126,21 @@ fn visit_access_paths<'a>(plan: &'a AccessPlan<Value>, f: &mut impl FnMut(&'a Ac
     }
 }
 
+fn plan_access_for_test(
+    model: &EntityModel,
+    schema: &SchemaInfo,
+    predicate: Option<&Predicate>,
+) -> Result<AccessPlan<Value>, crate::db::query::plan::PlannerError> {
+    let normalized = predicate.map(normalize);
+
+    plan_access(model, schema, normalized.as_ref())
+}
+
 #[test]
 fn plan_access_full_scan_without_predicate() {
     let model = model_with_index();
     let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
-    let plan = plan_access(model, &schema, None).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, None).expect("plan should build");
 
     assert_eq!(plan, AccessPlan::full_scan());
 }
@@ -143,7 +153,7 @@ fn plan_access_primary_key_is_null_lowers_to_empty_by_keys() {
         field: "id".to_string(),
     };
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -160,7 +170,7 @@ fn plan_access_secondary_is_null_retains_full_scan_fallback() {
         field: "tag".to_string(),
     };
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -180,7 +190,7 @@ fn plan_access_primary_key_is_null_or_secondary_eq_collapses_to_secondary_branch
         compare_strict("tag", CompareOp::Eq, Value::Text("alpha".to_string())),
     ]);
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -205,7 +215,7 @@ fn plan_access_primary_key_is_null_or_primary_key_is_null_stays_empty() {
         },
     ]);
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -226,7 +236,7 @@ fn plan_access_uses_primary_key_lookup() {
         CoercionId::Strict,
     ));
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(plan, AccessPlan::path(AccessPath::ByKey(Value::Ulid(key))));
 }
@@ -242,7 +252,7 @@ fn plan_access_uses_index_prefix_for_exact_match() {
         CoercionId::Strict,
     ));
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -266,7 +276,7 @@ fn plan_access_uses_index_multi_lookup_for_secondary_in() {
         ]),
     );
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -302,8 +312,10 @@ fn plan_access_stability_secondary_in_permutation_and_duplicates_are_canonical()
         ]),
     );
 
-    let plan_a = plan_access(model, &schema, Some(&predicate_a)).expect("plan should build");
-    let plan_b = plan_access(model, &schema, Some(&predicate_b)).expect("plan should build");
+    let plan_a =
+        plan_access_for_test(model, &schema, Some(&predicate_a)).expect("plan should build");
+    let plan_b =
+        plan_access_for_test(model, &schema, Some(&predicate_b)).expect("plan should build");
 
     assert_eq!(
         plan_a, plan_b,
@@ -344,8 +356,10 @@ fn plan_access_stability_primary_key_in_permutation_and_duplicates_are_canonical
         ]),
     );
 
-    let plan_a = plan_access(model, &schema, Some(&predicate_a)).expect("plan should build");
-    let plan_b = plan_access(model, &schema, Some(&predicate_b)).expect("plan should build");
+    let plan_a =
+        plan_access_for_test(model, &schema, Some(&predicate_a)).expect("plan should build");
+    let plan_b =
+        plan_access_for_test(model, &schema, Some(&predicate_b)).expect("plan should build");
 
     assert_eq!(
         plan_a, plan_b,
@@ -371,7 +385,7 @@ fn plan_access_secondary_in_singleton_collapses_to_index_prefix() {
         Value::List(vec![Value::Text("alpha".to_string())]),
     );
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -392,7 +406,7 @@ fn plan_access_stability_secondary_or_eq_lowers_to_index_multi_lookup() {
         compare_strict("tag", CompareOp::Eq, Value::Text("beta".to_string())),
     ]);
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -417,7 +431,7 @@ fn plan_access_stability_primary_key_or_eq_lowers_to_by_keys() {
         compare_strict("id", CompareOp::Eq, Value::Ulid(Ulid::from_u128(3))),
     ]);
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -443,7 +457,7 @@ fn plan_access_secondary_or_eq_with_non_strict_branch_stays_fail_closed() {
         )),
     ]);
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -458,7 +472,7 @@ fn plan_access_secondary_in_empty_lowers_to_empty_by_keys() {
     let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
     let predicate = compare_strict("tag", CompareOp::In, Value::List(Vec::new()));
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -474,9 +488,9 @@ fn plan_access_secondary_in_empty_remains_distinct_from_false_before_constant_fo
     let secondary_in_empty = compare_strict("tag", CompareOp::In, Value::List(Vec::new()));
 
     let plan_from_empty_in =
-        plan_access(model, &schema, Some(&secondary_in_empty)).expect("plan should build");
+        plan_access_for_test(model, &schema, Some(&secondary_in_empty)).expect("plan should build");
     let plan_from_false =
-        plan_access(model, &schema, Some(&Predicate::False)).expect("plan should build");
+        plan_access_for_test(model, &schema, Some(&Predicate::False)).expect("plan should build");
 
     assert_eq!(
         plan_from_empty_in,
@@ -503,7 +517,7 @@ fn plan_access_secondary_in_empty_in_and_group_collapses_to_empty_by_keys() {
         compare_strict("tag", CompareOp::Eq, Value::Text("alpha".to_string())),
     ]);
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -522,7 +536,7 @@ fn plan_access_secondary_in_mixed_literal_types_stays_fail_closed() {
         Value::List(vec![Value::Text("alpha".to_string()), Value::Uint(7)]),
     );
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -540,7 +554,7 @@ fn plan_access_emits_index_range_for_single_field_between_equivalent_bounds() {
         compare_strict("tag", CompareOp::Lte, Value::Text("omega".to_string())),
     ]);
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
     let (index, prefix, lower, upper) =
         find_index_range(&plan).expect("plan should include index range");
 
@@ -563,9 +577,10 @@ fn plan_access_stability_single_field_between_equal_bounds_and_eq_share_identica
     ]);
     let strict_eq = compare_strict("tag", CompareOp::Eq, Value::Text("alpha".to_string()));
 
-    let between_plan =
-        plan_access(model, &schema, Some(&between_equal_bounds)).expect("plan should build");
-    let eq_plan = plan_access(model, &schema, Some(&strict_eq)).expect("plan should build");
+    let between_plan = plan_access_for_test(model, &schema, Some(&between_equal_bounds))
+        .expect("plan should build");
+    let eq_plan =
+        plan_access_for_test(model, &schema, Some(&strict_eq)).expect("plan should build");
 
     assert_eq!(
         between_plan, eq_plan,
@@ -579,7 +594,7 @@ fn plan_access_emits_index_range_for_text_starts_with() {
     let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
     let predicate = compare_strict("tag", CompareOp::StartsWith, Value::Text("foo".to_string()));
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
     let (index, prefix, lower, upper) =
         find_index_range(&plan).expect("plan should include index range");
 
@@ -598,7 +613,7 @@ fn plan_access_starts_with_empty_prefix_falls_back_to_full_scan() {
     let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
     let predicate = compare_strict("tag", CompareOp::StartsWith, Value::Text(String::new()));
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(plan, AccessPlan::full_scan());
 }
@@ -610,7 +625,7 @@ fn plan_access_starts_with_high_unicode_prefix_skips_surrogate_gap_in_upper_boun
     let prefix = format!("foo{}", char::from_u32(0xD7FF).expect("valid scalar"));
     let predicate = compare_strict("tag", CompareOp::StartsWith, Value::Text(prefix.clone()));
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
     let (_, _, lower, upper) = find_index_range(&plan).expect("plan should include index range");
 
     assert_eq!(lower, &Bound::Included(Value::Text(prefix)));
@@ -630,7 +645,7 @@ fn plan_access_starts_with_max_unicode_prefix_uses_unbounded_upper() {
     let prefix = char::from_u32(0x10_FFFF).expect("valid scalar").to_string();
     let predicate = compare_strict("tag", CompareOp::StartsWith, Value::Text(prefix.clone()));
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
     let (_, _, lower, upper) = find_index_range(&plan).expect("plan should include index range");
 
     assert_eq!(lower, &Bound::Included(Value::Text(prefix)));
@@ -647,9 +662,9 @@ fn plan_access_stability_starts_with_and_equivalent_range_share_identical_access
         compare_strict("tag", CompareOp::Lt, Value::Text("fop".to_string())),
     ]);
 
-    let starts_with_plan =
-        plan_access(model, &schema, Some(&starts_with)).expect("starts_with plan should build");
-    let equivalent_range_plan = plan_access(model, &schema, Some(&equivalent_range))
+    let starts_with_plan = plan_access_for_test(model, &schema, Some(&starts_with))
+        .expect("starts_with plan should build");
+    let equivalent_range_plan = plan_access_for_test(model, &schema, Some(&equivalent_range))
         .expect("equivalent range plan should build");
 
     assert_eq!(
@@ -666,9 +681,9 @@ fn plan_access_stability_max_unicode_starts_with_and_equivalent_lower_bound_shar
     let starts_with = compare_strict("tag", CompareOp::StartsWith, Value::Text(prefix.clone()));
     let equivalent_lower_bound = compare_strict("tag", CompareOp::Gte, Value::Text(prefix));
 
-    let starts_with_plan =
-        plan_access(model, &schema, Some(&starts_with)).expect("starts_with plan should build");
-    let lower_bound_plan = plan_access(model, &schema, Some(&equivalent_lower_bound))
+    let starts_with_plan = plan_access_for_test(model, &schema, Some(&starts_with))
+        .expect("starts_with plan should build");
+    let lower_bound_plan = plan_access_for_test(model, &schema, Some(&equivalent_lower_bound))
         .expect("lower-bound plan should build");
 
     assert_eq!(
@@ -683,7 +698,7 @@ fn plan_access_emits_index_range_for_single_field_gt() {
     let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
     let predicate = compare_strict("tag", CompareOp::Gt, Value::Text("alpha".to_string()));
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
     let (index, prefix, lower, upper) =
         find_index_range(&plan).expect("plan should include index range");
 
@@ -702,7 +717,7 @@ fn plan_access_emits_index_range_for_single_field_lte() {
     let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
     let predicate = compare_strict("tag", CompareOp::Lte, Value::Text("omega".to_string()));
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
     let (index, prefix, lower, upper) =
         find_index_range(&plan).expect("plan should include index range");
 
@@ -726,7 +741,7 @@ fn plan_access_ignores_non_strict_predicates() {
         CoercionId::TextCasefold,
     ));
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(plan, AccessPlan::full_scan());
 }
@@ -741,7 +756,7 @@ fn plan_access_emits_index_range_for_prefix_plus_range() {
         compare_strict("b", CompareOp::Lt, Value::Uint(200)),
     ]);
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
     let (index, prefix, lower, upper) =
         find_index_range(&plan).expect("plan should include index range");
 
@@ -760,7 +775,7 @@ fn plan_access_emits_only_one_composite_index_range_for_and_eq_plus_gt() {
         compare_strict("b", CompareOp::Gt, Value::Uint(5)),
     ]);
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
     let AccessPlan::Path(path) = &plan else {
         panic!("composite eq+range predicate should emit a single access path");
     };
@@ -817,7 +832,7 @@ fn plan_access_emits_index_range_for_between_equivalent_bounds() {
         compare_strict("b", CompareOp::Lte, Value::Uint(200)),
     ]);
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
     let (index, prefix, lower, upper) =
         find_index_range(&plan).expect("plan should include index range");
 
@@ -837,7 +852,7 @@ fn plan_access_emits_index_range_for_prefix_plus_range_edge_bounds() {
         compare_strict("b", CompareOp::Lt, Value::Uint(u64::from(u32::MAX))),
     ]);
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
     let (index, prefix, lower, upper) =
         find_index_range(&plan).expect("plan should include index range");
 
@@ -857,7 +872,7 @@ fn plan_access_emits_index_range_for_between_equivalent_edge_bounds() {
         compare_strict("b", CompareOp::Lte, Value::Uint(u64::from(u32::MAX))),
     ]);
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
     let (index, prefix, lower, upper) =
         find_index_range(&plan).expect("plan should include index range");
 
@@ -877,7 +892,7 @@ fn plan_access_rejects_trailing_equality_after_range() {
         compare_strict("c", CompareOp::Eq, Value::Uint(3)),
     ]);
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
     assert!(
         find_index_range(&plan).is_none(),
         "range path should be rejected when equality appears after range field"
@@ -893,7 +908,7 @@ fn plan_access_rejects_range_with_missing_prefix_component() {
         compare_strict("c", CompareOp::Gte, Value::Uint(100)),
     ]);
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
     assert!(
         find_index_range(&plan).is_none(),
         "range path should be rejected when first non-equality component is skipped"
@@ -909,7 +924,7 @@ fn plan_access_rejects_range_before_prefix_equality() {
         compare_strict("b", CompareOp::Eq, Value::Uint(3)),
     ]);
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
     assert!(
         find_index_range(&plan).is_none(),
         "range path should be rejected when equality appears after a leading range field"
@@ -927,7 +942,7 @@ fn plan_access_merges_duplicate_lower_bounds_to_stricter_value() {
         compare_strict("b", CompareOp::Lte, Value::Uint(200)),
     ]);
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
     let (_, _, lower, upper) = find_index_range(&plan).expect("plan should include index range");
     assert_eq!(lower, &Bound::Excluded(Value::Uint(80)));
     assert_eq!(upper, &Bound::Included(Value::Uint(200)));
@@ -947,8 +962,10 @@ fn plan_access_stability_equivalent_predicates_share_identical_access_plan() {
         compare_strict("a", CompareOp::Eq, Value::Uint(7)),
     ]);
 
-    let plan_a = plan_access(model, &schema, Some(&predicate_a)).expect("plan should build");
-    let plan_b = plan_access(model, &schema, Some(&predicate_b)).expect("plan should build");
+    let plan_a =
+        plan_access_for_test(model, &schema, Some(&predicate_a)).expect("plan should build");
+    let plan_b =
+        plan_access_for_test(model, &schema, Some(&predicate_b)).expect("plan should build");
 
     assert_eq!(
         plan_a, plan_b,
@@ -967,9 +984,9 @@ fn plan_access_stability_contradictory_and_predicate_matches_constant_false_shap
     ]);
 
     let plan_from_contradiction =
-        plan_access(model, &schema, Some(&contradictory)).expect("plan should build");
+        plan_access_for_test(model, &schema, Some(&contradictory)).expect("plan should build");
     let plan_from_false =
-        plan_access(model, &schema, Some(&Predicate::False)).expect("plan should build");
+        plan_access_for_test(model, &schema, Some(&Predicate::False)).expect("plan should build");
 
     assert_eq!(
         plan_from_contradiction, plan_from_false,
@@ -987,7 +1004,7 @@ fn plan_access_rejects_empty_exclusive_interval() {
         compare_strict("b", CompareOp::Lt, Value::Uint(100)),
     ]);
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
     assert!(
         find_index_range(&plan).is_none(),
         "exclusive equal bounds should be rejected as empty interval"
@@ -1004,7 +1021,7 @@ fn plan_access_rejects_non_strict_numeric_widen_for_range_bounds() {
         compare_numeric_widen("b", CompareOp::Lte, Value::Uint(200)),
     ]);
 
-    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
     assert!(
         find_index_range(&plan).is_none(),
         "non-strict numeric widen predicates must not compile into index range access paths"

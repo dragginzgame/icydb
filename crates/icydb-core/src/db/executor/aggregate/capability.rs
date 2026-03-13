@@ -277,9 +277,9 @@ where
             ),
         };
     }
-    let offset = usize::try_from(
-        crate::db::executor::traversal::effective_page_offset_for_window(plan, false),
-    )
+    let offset = usize::try_from(crate::db::cursor::effective_page_offset_for_window(
+        plan, false,
+    ))
     .unwrap_or(usize::MAX);
     if offset > 0 {
         return AggregateFieldExtremaEligibility {

@@ -1,0 +1,258 @@
+//! Module: session
+//! Responsibility: user-facing query/write execution facade over db executors.
+//! Does not own: planning semantics, cursor validation rules, or storage mutation protocol.
+//! Boundary: converts fluent/query intent calls into executor operations and response DTOs.
+
+mod query;
+mod sql;
+///
+/// TESTS
+///
+#[cfg(test)]
+mod tests;
+mod write;
+
+use crate::{
+    db::{
+        Db, EntitySchemaDescription, FluentDeleteQuery, FluentLoadQuery, MissingRowPolicy,
+        PlanError, Query, QueryError, StorageReport, StoreRegistry, WriteBatchResponse,
+        commit::EntityRuntimeHooks,
+        cursor::decode_optional_cursor_token,
+        executor::{DeleteExecutor, ExecutorPlanError, LoadExecutor, SaveExecutor},
+        schema::{describe_entity_model, show_indexes_for_model},
+    },
+    error::InternalError,
+    metrics::sink::{MetricsSink, with_metrics_sink},
+    traits::{CanisterKind, EntityKind, EntityValue},
+    value::Value,
+};
+use std::thread::LocalKey;
+
+// Map executor-owned plan-surface failures into query-owned plan errors.
+fn map_executor_plan_error(err: ExecutorPlanError) -> QueryError {
+    match err {
+        ExecutorPlanError::Cursor(err) => QueryError::from(PlanError::from(*err)),
+    }
+}
+
+// Decode one optional external cursor token and map decode failures into the
+// query-plan cursor error boundary.
+fn decode_optional_cursor_bytes(cursor_token: Option<&str>) -> Result<Option<Vec<u8>>, QueryError> {
+    decode_optional_cursor_token(cursor_token).map_err(|err| QueryError::from(PlanError::from(err)))
+}
+
+///
+/// DbSession
+///
+/// Session-scoped database handle with policy (debug, metrics) and execution routing.
+///
+
+pub struct DbSession<C: CanisterKind> {
+    db: Db<C>,
+    debug: bool,
+    metrics: Option<&'static dyn MetricsSink>,
+}
+
+impl<C: CanisterKind> DbSession<C> {
+    /// Construct one session facade for a database handle.
+    #[must_use]
+    pub(crate) const fn new(db: Db<C>) -> Self {
+        Self {
+            db,
+            debug: false,
+            metrics: None,
+        }
+    }
+
+    /// Construct one session facade from store registry and runtime hooks.
+    #[must_use]
+    pub const fn new_with_hooks(
+        store: &'static LocalKey<StoreRegistry>,
+        entity_runtime_hooks: &'static [EntityRuntimeHooks<C>],
+    ) -> Self {
+        Self::new(Db::new_with_hooks(store, entity_runtime_hooks))
+    }
+
+    /// Enable debug execution behavior where supported by executors.
+    #[must_use]
+    pub const fn debug(mut self) -> Self {
+        self.debug = true;
+        self
+    }
+
+    /// Attach one metrics sink for all session-executed operations.
+    #[must_use]
+    pub const fn metrics_sink(mut self, sink: &'static dyn MetricsSink) -> Self {
+        self.metrics = Some(sink);
+        self
+    }
+
+    fn with_metrics<T>(&self, f: impl FnOnce() -> T) -> T {
+        if let Some(sink) = self.metrics {
+            with_metrics_sink(sink, f)
+        } else {
+            f()
+        }
+    }
+
+    // Shared save-facade wrapper keeps metrics wiring and response shaping uniform.
+    fn execute_save_with<E, T, R>(
+        &self,
+        op: impl FnOnce(SaveExecutor<E>) -> Result<T, InternalError>,
+        map: impl FnOnce(T) -> R,
+    ) -> Result<R, InternalError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let value = self.with_metrics(|| op(self.save_executor::<E>()))?;
+
+        Ok(map(value))
+    }
+
+    // Shared save-facade wrappers keep response shape explicit at call sites.
+    fn execute_save_entity<E>(
+        &self,
+        op: impl FnOnce(SaveExecutor<E>) -> Result<E, InternalError>,
+    ) -> Result<E, InternalError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        self.execute_save_with(op, std::convert::identity)
+    }
+
+    fn execute_save_batch<E>(
+        &self,
+        op: impl FnOnce(SaveExecutor<E>) -> Result<Vec<E>, InternalError>,
+    ) -> Result<WriteBatchResponse<E>, InternalError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        self.execute_save_with(op, WriteBatchResponse::new)
+    }
+
+    fn execute_save_view<E>(
+        &self,
+        op: impl FnOnce(SaveExecutor<E>) -> Result<E::ViewType, InternalError>,
+    ) -> Result<E::ViewType, InternalError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        self.execute_save_with(op, std::convert::identity)
+    }
+
+    // ---------------------------------------------------------------------
+    // Query entry points (public, fluent)
+    // ---------------------------------------------------------------------
+
+    /// Start a fluent load query with default missing-row policy (`Ignore`).
+    #[must_use]
+    pub const fn load<E>(&self) -> FluentLoadQuery<'_, E>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        FluentLoadQuery::new(self, Query::new(MissingRowPolicy::Ignore))
+    }
+
+    /// Start a fluent load query with explicit missing-row policy.
+    #[must_use]
+    pub const fn load_with_consistency<E>(
+        &self,
+        consistency: MissingRowPolicy,
+    ) -> FluentLoadQuery<'_, E>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        FluentLoadQuery::new(self, Query::new(consistency))
+    }
+
+    /// Start a fluent delete query with default missing-row policy (`Ignore`).
+    #[must_use]
+    pub fn delete<E>(&self) -> FluentDeleteQuery<'_, E>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        FluentDeleteQuery::new(self, Query::new(MissingRowPolicy::Ignore).delete())
+    }
+
+    /// Start a fluent delete query with explicit missing-row policy.
+    #[must_use]
+    pub fn delete_with_consistency<E>(
+        &self,
+        consistency: MissingRowPolicy,
+    ) -> FluentDeleteQuery<'_, E>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        FluentDeleteQuery::new(self, Query::new(consistency).delete())
+    }
+
+    /// Return one constant scalar row equivalent to SQL `SELECT 1`.
+    ///
+    /// This terminal bypasses query planning and access routing entirely.
+    #[must_use]
+    pub const fn select_one(&self) -> Value {
+        Value::Int(1)
+    }
+
+    /// Return one stable, human-readable index listing for the entity schema.
+    ///
+    /// Output format mirrors SQL-style introspection:
+    /// - `PRIMARY KEY (field)`
+    /// - `INDEX name (field_a, field_b)`
+    /// - `UNIQUE INDEX name (field_a, field_b)`
+    #[must_use]
+    pub fn show_indexes<E>(&self) -> Vec<String>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        show_indexes_for_model(E::MODEL)
+    }
+
+    /// Return one structured schema description for the entity.
+    ///
+    /// This is a typed `DESCRIBE`-style introspection surface consumed by
+    /// developer tooling and pre-EXPLAIN debugging.
+    #[must_use]
+    pub fn describe_entity<E>(&self) -> EntitySchemaDescription
+    where
+        E: EntityKind<Canister = C>,
+    {
+        describe_entity_model(E::MODEL)
+    }
+
+    /// Build one point-in-time storage report for observability endpoints.
+    pub fn storage_report(
+        &self,
+        name_to_path: &[(&'static str, &'static str)],
+    ) -> Result<StorageReport, InternalError> {
+        self.db.storage_report(name_to_path)
+    }
+
+    // ---------------------------------------------------------------------
+    // Low-level executors (crate-internal; execution primitives)
+    // ---------------------------------------------------------------------
+
+    #[must_use]
+    pub(in crate::db) const fn load_executor<E>(&self) -> LoadExecutor<E>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        LoadExecutor::new(self.db, self.debug)
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn delete_executor<E>(&self) -> DeleteExecutor<E>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        DeleteExecutor::new(self.db, self.debug)
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn save_executor<E>(&self) -> SaveExecutor<E>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        SaveExecutor::new(self.db, self.debug)
+    }
+}

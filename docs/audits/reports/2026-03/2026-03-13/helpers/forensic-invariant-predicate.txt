@@ -1,0 +1,74 @@
+crates/icydb-core/src/db/executor/mutation/save_validation.rs:9:        predicate::canonical_cmp,
+crates/icydb-core/src/value/compare.rs:9:/// Total canonical comparator used by planner/predicate/fingerprint surfaces.
+crates/icydb-core/src/value/mod.rs:399:    /// Total canonical comparator used by planner/predicate/fingerprint surfaces.
+crates/icydb-core/src/db/predicate/normalize.rs:1://! Module: predicate::normalize
+crates/icydb-core/src/db/predicate/normalize.rs:18:/// Normalize a predicate into a canonical, deterministic form.
+crates/icydb-core/src/db/predicate/normalize.rs:35:pub(in crate::db) fn normalize(predicate: &Predicate) -> Predicate {
+crates/icydb-core/src/db/predicate/normalize.rs:479:    fn normalize_and_orders_cheaper_predicates_before_text_contains() {
+crates/icydb-core/src/db/predicate/normalize.rs:490:            panic!("normalized mixed predicate should remain AND with two children");
+crates/icydb-core/src/db/predicate/normalize.rs:514:        let normalized = normalize(&predicate);
+crates/icydb-core/src/db/predicate/normalize.rs:530:        let normalized = normalize(&predicate);
+crates/icydb-core/src/db/predicate/normalize.rs:546:        let normalized = normalize(&predicate);
+crates/icydb-core/src/db/predicate/normalize.rs:562:        let normalized = normalize(&predicate);
+crates/icydb-core/src/db/predicate/normalize.rs:578:        let normalized = normalize(&predicate);
+crates/icydb-core/src/db/predicate/normalize.rs:604:        let normalized = normalize(&predicate);
+crates/icydb-core/src/db/predicate/normalize.rs:620:        let normalized = normalize(&predicate);
+crates/icydb-core/src/db/predicate/fingerprint.rs:9:/// Hash canonical predicate structure into the plan hash stream.
+crates/icydb-core/src/db/predicate/fingerprint.rs:11:    let normalized = normalize(predicate);
+crates/icydb-core/src/db/predicate/simplify.rs:3://! Does not own: recursive predicate normalization or schema literal canonicalization.
+crates/icydb-core/src/db/predicate/encoding.rs:596:        let predicate_canonical = Predicate::Compare(ComparePredicate::with_coercion(
+crates/icydb-core/src/db/predicate/encoding.rs:608:            encode_predicate_sort_key(&predicate_canonical)
+crates/icydb-core/src/db/sql/parser.rs:713:        // Phase 1: parse predicate and grouping clauses in canonical sequence.
+crates/icydb-core/src/db/query/fingerprint/hash_parts.rs:281:/// Hash canonical predicate model structure into the plan hash stream.
+crates/icydb-core/src/db/sql/lowering.rs:211:        .map(|predicate| normalize_predicate_identifiers(predicate, entity_scope.as_slice()));
+crates/icydb-core/src/db/sql/lowering.rs:252:        .map(|predicate| normalize_predicate_identifiers(predicate, entity_scope.as_slice()));
+crates/icydb-core/src/db/sql/lowering.rs:459:        .map(|predicate| normalize_predicate_identifiers(predicate, entity_scope.as_slice()));
+crates/icydb-core/src/db/sql/lowering.rs:552:fn normalize_predicate_identifiers(predicate: Predicate, entity_scope: &[String]) -> Predicate {
+crates/icydb-core/src/db/sql/lowering.rs:559:                .map(|child| normalize_predicate_identifiers(child, entity_scope))
+crates/icydb-core/src/db/sql/lowering.rs:565:                .map(|child| normalize_predicate_identifiers(child, entity_scope))
+crates/icydb-core/src/db/sql/lowering.rs:568:        Predicate::Not(inner) => Predicate::Not(Box::new(normalize_predicate_identifiers(
+crates/icydb-core/src/db/query/fingerprint/shape_signature/mod.rs:80:    /// - normalized predicate
+crates/icydb-core/src/db/query/fingerprint/fingerprint.rs:181:    fn fingerprint_and_signature_are_stable_for_reordered_and_non_canonical_map_predicates() {
+crates/icydb-core/src/db/query/fingerprint/fingerprint.rs:438:        let predicate_canonical = Predicate::Compare(ComparePredicate::with_coercion(
+crates/icydb-core/src/db/query/fingerprint/fingerprint.rs:452:        canonical_plan.scalar_plan_mut().predicate = Some(predicate_canonical);
+crates/icydb-core/src/db/query/plan/access_planner.rs:57:// Normalize one optional predicate into canonical planner form.
+crates/icydb-core/src/db/query/plan/access_planner.rs:58:pub(in crate::db::query) fn normalize_query_predicate(
+crates/icydb-core/src/db/query/plan/access_planner.rs:65:            let predicate = normalize_enum_literals(schema_info, predicate)?;
+crates/icydb-core/src/db/query/plan/access_planner.rs:67:            Ok::<Predicate, ValidateError>(normalize(&predicate))
+crates/icydb-core/src/db/query/plan/access_planner.rs:72:// Select one access plan from a normalized predicate.
+crates/icydb-core/src/db/query/plan/access_planner.rs:73:pub(in crate::db::query) fn plan_access_from_normalized_predicate(
+crates/icydb-core/src/db/query/plan/access_planner.rs:86:    normalized_predicate: Option<&Predicate>,
+crates/icydb-core/src/db/query/plan/access_planner.rs:91:        None => plan_access_from_normalized_predicate(model, schema_info, normalized_predicate),
+crates/icydb-core/src/db/query/intent/model.rs:19:                logical_query_from_logical_inputs, normalize_query_predicate, plan_query_access,
+crates/icydb-core/src/db/query/intent/model.rs:273:        // Phase 2: normalize scalar predicate and fold constant predicates
+crates/icydb-core/src/db/query/intent/model.rs:276:        let normalized_predicate = fold_constant_predicate(normalize_query_predicate(
+crates/icydb-core/src/db/query/intent/model.rs:282:        let constant_false_predicate = predicate_is_constant_false(normalized_predicate.as_ref());
+crates/icydb-core/src/db/query/intent/model.rs:289:                normalized_predicate.as_ref(),
+crates/icydb-core/src/db/query/intent/model.rs:293:        let normalized_predicate = strip_redundant_primary_key_equality_predicate_for_by_key_access(
+crates/icydb-core/src/db/query/intent/model.rs:296:            normalized_predicate,
+crates/icydb-core/src/db/query/intent/model.rs:303:            normalized_predicate,
+crates/icydb-core/src/db/query/intent/model.rs:324:// Drop one normalized `pk = literal` predicate when access planning already
+crates/icydb-core/src/db/query/intent/model.rs:330:    normalized_predicate: Option<Predicate>,
+crates/icydb-core/src/db/query/intent/model.rs:332:    let predicate = normalized_predicate?;
+crates/icydb-core/src/db/query/plan/planner/range.rs:10:        predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, canonical_cmp},
+crates/icydb-core/src/db/query/plan/mod.rs:32:    AccessPlanningInputs, normalize_query_predicate, plan_query_access,
+crates/icydb-core/src/db/query/plan/planner/mod.rs:22:        predicate::{Predicate, normalize as normalize_predicate},
+crates/icydb-core/src/db/query/plan/planner/mod.rs:74:    // Given a validated EntityModel and normalized predicate, planning is pure and deterministic.
+crates/icydb-core/src/db/query/plan/planner/mod.rs:82:    let normalized = normalize_predicate(predicate);
+crates/icydb-core/src/db/query/plan/planner/mod.rs:83:    let plan = normalize_planned_access_plan_for_stability(predicate::plan_predicate(
+crates/icydb-core/src/db/query/plan/logical_builder.rs:22:/// Logical planning consumes this contract together with normalized predicates.
+crates/icydb-core/src/db/query/plan/logical_builder.rs:65:    pub(in crate::db::query) normalized_predicate: Option<Predicate>,
+crates/icydb-core/src/db/query/plan/logical_builder.rs:77:    normalized_predicate: Option<Predicate>,
+crates/icydb-core/src/db/query/plan/logical_builder.rs:90:        normalized_predicate,
+crates/icydb-core/src/db/query/plan/logical_builder.rs:107:        normalized_predicate,
+crates/icydb-core/src/db/query/plan/logical_builder.rs:118:        predicate: normalized_predicate,
+crates/icydb-core/src/db/query/plan/constant_predicate.rs:4://! Boundary: folds canonical TRUE/FALSE predicates before access planning.
+crates/icydb-core/src/db/query/plan/constant_predicate.rs:8:/// Fold canonical constant predicates before access routing.
+crates/icydb-core/src/db/query/plan/constant_predicate.rs:24:/// Return true when the normalized predicate is a canonical constant false.
+crates/icydb-core/src/db/query/expr.rs:33:        // Phase 3: normalize structural predicate shape for deterministic planning.
+crates/icydb-core/src/db/query/explain/plan.rs:115:    /// Return the canonical predicate model used for hashing/fingerprints.
+crates/icydb-core/src/db/query/explain/plan.rs:124:                "explain predicate surface drifted from canonical predicate model"
+crates/icydb-core/src/db/query/explain/plan.rs:130:                "missing canonical predicate model requires ExplainPredicate::None"
+crates/icydb-core/src/db/query/explain/plan.rs:403:/// Deterministic projection of canonical predicate structure for explain output.
+crates/icydb-core/src/db/query/explain/plan.rs:404:/// This preserves normalized predicate shape used by hashing/fingerprints.
+crates/icydb-core/src/db/query/explain/plan.rs:610:    // Phase 1: derive canonical predicate projection from normalized predicate model.

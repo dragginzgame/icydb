@@ -19,14 +19,8 @@ use crate::{
 };
 use crate::{
     db::{
-        cursor::{
-            ContinuationToken, CursorBoundary,
-            next_cursor_for_materialized_rows as derive_next_materialized_cursor,
-        },
-        executor::{
-            ExecutionKernel, ScalarContinuationBindings,
-            route::access_order_satisfied_by_route_contract,
-        },
+        cursor::CursorBoundary,
+        executor::{ExecutionKernel, route::access_order_satisfied_by_route_contract},
         predicate::PredicateProgram,
         query::plan::{AccessPlannedQuery, DeleteLimitSpec, OrderSpec, PageSpec, QueryMode},
     },
@@ -166,30 +160,6 @@ impl ExecutionKernel {
             rows,
             cursor,
             compiled_predicate,
-        )
-    }
-
-    pub(in crate::db::executor) fn next_cursor_for_materialized_rows<E>(
-        plan: &AccessPlannedQuery<E::Key>,
-        rows: &[(Id<E>, E)],
-        stats: &PostAccessStats,
-        continuation: ScalarContinuationBindings<'_>,
-    ) -> Result<Option<ContinuationToken>, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
-        let post_access = PostAccessPlan::new(plan);
-
-        derive_next_materialized_cursor(
-            &plan.access,
-            post_access.order_spec(),
-            post_access.page_spec(),
-            rows,
-            stats.rows_after_cursor,
-            continuation.post_access_cursor_boundary(),
-            continuation.previous_index_range_anchor(),
-            continuation.direction(),
-            continuation.continuation_signature(),
         )
     }
 

@@ -6,7 +6,8 @@
 use super::*;
 use crate::{
     db::{
-        predicate::{CoercionId, CompareOp, ComparePredicate},
+        access::normalize_access_plan_value,
+        predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, normalize},
         query::intent::{KeyAccess, build_access_plan_from_keys},
     },
     model::{
@@ -56,6 +57,16 @@ static PLANNER_IN_EMPTY_MODEL: EntityModel = entity_model_from_static(
     &PLANNER_IN_EMPTY_INDEX_REFS,
 );
 
+fn plan_access_for_test(
+    model: &EntityModel,
+    schema: &SchemaInfo,
+    predicate: Option<&Predicate>,
+) -> Result<AccessPlan<Value>, PlannerError> {
+    let normalized = predicate.map(normalize);
+
+    plan_access(model, schema, normalized.as_ref())
+}
+
 #[test]
 fn normalize_union_dedups_identical_paths() {
     let key = Value::Ulid(Ulid::from_u128(1));
@@ -64,7 +75,7 @@ fn normalize_union_dedups_identical_paths() {
         AccessPlan::by_key(key),
     ]);
 
-    let normalized = normalize_planned_access_plan_for_stability(plan);
+    let normalized = normalize_access_plan_value(plan);
 
     assert_eq!(
         normalized,
@@ -81,7 +92,7 @@ fn normalize_union_sorts_by_key() {
         AccessPlan::by_key(a.clone()),
     ]);
 
-    let normalized = normalize_planned_access_plan_for_stability(plan);
+    let normalized = normalize_access_plan_value(plan);
     let AccessPlan::Union(children) = normalized else {
         panic!("expected union");
     };
@@ -96,7 +107,7 @@ fn normalize_intersection_removes_full_scan() {
     let key = Value::Ulid(Ulid::from_u128(7));
     let plan = AccessPlan::Intersection(vec![AccessPlan::full_scan(), AccessPlan::by_key(key)]);
 
-    let normalized = normalize_planned_access_plan_for_stability(plan);
+    let normalized = normalize_access_plan_value(plan);
 
     assert_eq!(
         normalized,
@@ -116,7 +127,7 @@ fn planner_and_intent_access_canonicalization_match_for_single_key_set() {
     let schema = SchemaInfo::from_entity_model(&PLANNER_CANONICAL_MODEL)
         .expect("planner canonicalization test model should produce schema info");
 
-    let planner_shape = plan_access(&PLANNER_CANONICAL_MODEL, &schema, Some(&predicate))
+    let planner_shape = plan_access_for_test(&PLANNER_CANONICAL_MODEL, &schema, Some(&predicate))
         .expect("planner access shape should build for strict single-key IN predicate");
     let intent_shape = build_access_plan_from_keys(&KeyAccess::Many(vec![key]));
 
@@ -142,7 +153,7 @@ fn planner_non_pk_in_empty_lowers_to_empty_by_keys() {
     let schema = SchemaInfo::from_entity_model(&PLANNER_IN_EMPTY_MODEL)
         .expect("IN-empty planner test model should produce schema info");
 
-    let planner_shape = plan_access(&PLANNER_IN_EMPTY_MODEL, &schema, Some(&predicate))
+    let planner_shape = plan_access_for_test(&PLANNER_IN_EMPTY_MODEL, &schema, Some(&predicate))
         .expect("planner access shape should build for strict IN-empty predicate");
 
     assert_eq!(

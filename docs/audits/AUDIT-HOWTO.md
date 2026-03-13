@@ -45,6 +45,7 @@ Use these file patterns:
 - Oneoff definitions: `<version>-<topic>.md`
 - Reports (inside day directory): `<scope>.md`
 - Required report directory: `docs/audits/reports/YYYY-MM/YYYY-MM-DD/`
+- Temporary/helper artifacts for a report run: `docs/audits/reports/YYYY-MM/YYYY-MM-DD/helpers/<artifact>`
 
 ## 4. Audit Execution Discipline
 
@@ -54,6 +55,7 @@ For each audit run:
 3. Record findings with structured risk levels.
 4. Save output as a new report file under `docs/audits/reports/YYYY-MM/YYYY-MM-DD/`.
 5. Never overwrite prior run artifacts.
+6. Keep day-level report roots clean: only report files (`*.md`) at `YYYY-MM/YYYY-MM-DD`, and write temporary/helper artifacts under `YYYY-MM/YYYY-MM-DD/helpers/`.
 
 ### Daily baseline rule (mandatory)
 

@@ -14,7 +14,9 @@ use crate::{
         },
         direction::Direction,
         index::{IndexKey, RawIndexKey},
-        query::plan::{OrderSpec, PageSpec, effective_offset_for_cursor_window},
+        query::plan::{
+            AccessPlannedQuery, OrderSpec, PageSpec, effective_offset_for_cursor_window,
+        },
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -101,7 +103,8 @@ where
 
     // Continuation eligibility is computed from the post-cursor cardinality
     // against the effective page window for this request.
-    let page_end = effective_keep_count_for_limit(page.offset, cursor_boundary.is_some(), limit);
+    let page_end =
+        effective_keep_count_for_page_limit(page.offset, cursor_boundary.is_some(), limit);
     if rows_after_cursor <= page_end {
         return Ok(None);
     }
@@ -128,6 +131,35 @@ where
         previous_index_range_anchor,
     )
     .map(Some)
+}
+
+/// Derive the effective pagination offset for one plan under cursor-window semantics.
+#[must_use]
+pub(in crate::db) fn effective_page_offset_for_window<K>(
+    plan: &AccessPlannedQuery<K>,
+    cursor_boundary_present: bool,
+) -> u32 {
+    let window_size = plan
+        .scalar_plan()
+        .page
+        .as_ref()
+        .map_or(0, |page| page.offset);
+
+    effective_offset_for_cursor_window(window_size, cursor_boundary_present)
+}
+
+/// Derive the effective keep-count (`offset + limit`) for one plan and limit.
+#[must_use]
+pub(in crate::db) fn effective_keep_count_for_limit<K>(
+    plan: &AccessPlannedQuery<K>,
+    cursor_boundary_present: bool,
+    limit: u32,
+) -> usize {
+    let effective_offset = effective_page_offset_for_window(plan, cursor_boundary_present);
+
+    usize::try_from(effective_offset)
+        .unwrap_or(usize::MAX)
+        .saturating_add(usize::try_from(limit).unwrap_or(usize::MAX))
 }
 
 fn next_cursor_for_entity<E>(
@@ -180,7 +212,7 @@ where
 }
 
 // Derive the effective keep-count (`offset + limit`) under cursor-window semantics.
-fn effective_keep_count_for_limit(
+fn effective_keep_count_for_page_limit(
     page_offset: u32,
     cursor_boundary_present: bool,
     limit: u32,

@@ -26,6 +26,7 @@ use crate::{
                     OrderedKeyStreamBox, VecOrderedKeyStream,
                 },
             },
+            traversal::validate_index_range_spec_alignment,
         },
         predicate::MissingRowPolicy,
     },
@@ -206,24 +207,6 @@ impl AccessPlanStreamResolver {
         Ok(())
     }
 
-    // Validate that a consumed range spec belongs to the same index path node.
-    fn validate_index_range_spec_alignment<K>(
-        path: &ExecutableAccessPath<'_, K>,
-        index_range_spec: Option<&LoweredIndexRangeSpec>,
-    ) -> Result<(), InternalError> {
-        let path_capabilities = path.capabilities();
-        if let Some(spec) = index_range_spec
-            && let Some(index) = path_capabilities.index_range_model()
-            && spec.index() != &index
-        {
-            return Err(crate::db::error::query_executor_invariant(
-                "index-range spec does not match access path index",
-            ));
-        }
-
-        Ok(())
-    }
-
     // Collect one child key stream for each child access plan.
     fn collect_child_key_streams<'a, E, K>(
         children: &[ExecutableAccessPlan<'a, K>],
@@ -310,7 +293,7 @@ impl AccessPlanStreamResolver {
                     None
                 };
                 Self::validate_index_prefix_spec_alignment(path, index_prefix_specs)?;
-                Self::validate_index_range_spec_alignment(path, index_range_spec)?;
+                validate_index_range_spec_alignment(path, index_range_spec)?;
 
                 Self::lower_path_access(path, inputs, index_prefix_specs, index_range_spec)
             }

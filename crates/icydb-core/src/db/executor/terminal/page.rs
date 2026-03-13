@@ -6,6 +6,7 @@
 use crate::{
     db::{
         Context,
+        cursor::next_cursor_for_materialized_rows,
         executor::{
             BudgetedOrderedKeyStream, ExecutionKernel, OrderedKeyStream,
             ScalarContinuationBindings,
@@ -95,9 +96,18 @@ where
             continuation.post_access_cursor_boundary(),
             predicate_slots,
         )?;
-        let next_cursor =
-            ExecutionKernel::next_cursor_for_materialized_rows(plan, rows, &stats, continuation)?
-                .map(PageCursor::Scalar);
+        let next_cursor = next_cursor_for_materialized_rows(
+            &plan.access,
+            plan.scalar_plan().order.as_ref(),
+            plan.scalar_plan().page.as_ref(),
+            rows,
+            stats.rows_after_cursor,
+            continuation.post_access_cursor_boundary(),
+            continuation.previous_index_range_anchor(),
+            continuation.direction(),
+            continuation.continuation_signature(),
+        )?
+        .map(PageCursor::Scalar);
         let projected_rows = Self::project_materialized_rows_if_needed(plan, rows.as_slice())?;
         Self::validate_projection_alignment(rows.as_slice(), projected_rows.as_deref())?;
         let items = EntityResponse::from_rows(std::mem::take(rows));

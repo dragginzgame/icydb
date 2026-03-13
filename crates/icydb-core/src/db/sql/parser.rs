@@ -1422,42 +1422,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_explain_execution_with_qualified_identifiers() {
-        let statement = parse_sql(
-            "EXPLAIN EXECUTION SELECT users.name FROM public.users \
-             WHERE users.age >= 21 ORDER BY users.age DESC LIMIT 1",
-        )
-        .expect("qualified-identifier explain statement should parse");
-
-        assert_eq!(
-            statement,
-            SqlStatement::Explain(SqlExplainStatement {
-                mode: SqlExplainMode::Execution,
-                statement: SqlExplainTarget::Select(SqlSelectStatement {
-                    entity: "public.users".to_string(),
-                    projection: SqlProjection::Items(vec![SqlSelectItem::Field(
-                        "users.name".to_string(),
-                    )]),
-                    predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
-                        "users.age",
-                        CompareOp::Gte,
-                        Value::Int(21),
-                        CoercionId::NumericWiden,
-                    ))),
-                    distinct: false,
-                    group_by: vec![],
-                    order_by: vec![SqlOrderTerm {
-                        field: "users.age".to_string(),
-                        direction: SqlOrderDirection::Desc,
-                    }],
-                    limit: Some(1),
-                    offset: None,
-                }),
-            }),
-        );
-    }
-
-    #[test]
     fn parse_select_grouped_statement_with_qualified_identifiers() {
         let statement = parse_sql(
             "SELECT users.age, COUNT(*) \
@@ -1493,6 +1457,42 @@ mod tests {
                 }],
                 limit: Some(5),
                 offset: Some(1),
+            }),
+        );
+    }
+
+    #[test]
+    fn parse_explain_execution_with_qualified_identifiers() {
+        let statement = parse_sql(
+            "EXPLAIN EXECUTION SELECT users.name FROM public.users \
+             WHERE users.age >= 21 ORDER BY users.age DESC LIMIT 1",
+        )
+        .expect("qualified-identifier explain statement should parse");
+
+        assert_eq!(
+            statement,
+            SqlStatement::Explain(SqlExplainStatement {
+                mode: SqlExplainMode::Execution,
+                statement: SqlExplainTarget::Select(SqlSelectStatement {
+                    entity: "public.users".to_string(),
+                    projection: SqlProjection::Items(vec![SqlSelectItem::Field(
+                        "users.name".to_string(),
+                    )]),
+                    predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+                        "users.age",
+                        CompareOp::Gte,
+                        Value::Int(21),
+                        CoercionId::NumericWiden,
+                    ))),
+                    distinct: false,
+                    group_by: vec![],
+                    order_by: vec![SqlOrderTerm {
+                        field: "users.age".to_string(),
+                        direction: SqlOrderDirection::Desc,
+                    }],
+                    limit: Some(1),
+                    offset: None,
+                }),
             }),
         );
     }

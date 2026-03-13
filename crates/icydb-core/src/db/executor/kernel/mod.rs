@@ -187,7 +187,7 @@ impl ExecutionKernel {
         let Some(limit) = logical.page.as_ref().and_then(|page| page.limit) else {
             return false;
         };
-        let keep_count = continuation.effective_keep_count_for_limit(plan, limit);
+        let keep_count = continuation.keep_count_for_limit_window(plan, limit);
         if keep_count == 0 {
             return false;
         }

@@ -1,0 +1,207 @@
+crates/icydb-core/src/db/index/range.rs:18:/// canonical raw index-key bounds.
+crates/icydb-core/src/db/index/range.rs:106:    // Phase 1: encode semantic values into canonical index-component bytes.
+crates/icydb-core/src/db/index/range.rs:112:    // Phase 2: lower encoded bounds to canonical raw index-key bounds.
+crates/icydb-core/src/db/index/key/build.rs:39:    /// `Value::Null` and unsupported canonical kinds are treated as non-indexable.
+crates/icydb-core/src/db/index/key/ordered/error.rs:2://! Responsibility: canonical ordered-component encode error taxonomy.
+crates/icydb-core/src/db/index/key/ordered/error.rs:20:    #[error("value kind '{kind}' is not canonically index-orderable")]
+crates/icydb-core/src/db/index/key/ordered/error.rs:36:            "index value is not canonically order-encodable: {err}"
+crates/icydb-core/src/db/index/key/ordered/parts.rs:7:    db::index::key::ordered::{OrderedValueEncodeError, encode_canonical_index_component},
+crates/icydb-core/src/db/index/key/ordered/parts.rs:71:            let payload_bytes = encode_canonical_index_component(payload)?;
+crates/icydb-core/src/db/index/key/ordered/mod.rs:2://! Responsibility: canonical component encoding where byte order matches value order.
+crates/icydb-core/src/db/index/key/ordered/mod.rs:26:/// Cached canonical index-component bytes for one logical `Value`.
+crates/icydb-core/src/db/index/key/ordered/mod.rs:38:    /// Encode a value once into canonical index-component bytes.
+crates/icydb-core/src/db/index/key/ordered/mod.rs:40:        let encoded = encode_canonical_index_component(&raw)?;
+crates/icydb-core/src/db/index/key/ordered/mod.rs:72:/// - mixed-variant values fall back to canonical key ordering for deterministic
+crates/icydb-core/src/db/index/key/ordered/mod.rs:87:/// canonical `Value` order for supported primitive variants.
+crates/icydb-core/src/db/index/key/ordered/mod.rs:88:pub(crate) fn encode_canonical_index_component(
+crates/icydb-core/src/db/index/key/ordered/mod.rs:91:    // Phase 1: emit canonical value tag to establish cross-kind ordering.
+crates/icydb-core/src/db/index/key/mod.rs:2://! Responsibility: canonical index-key construction and raw encoding layers.
+crates/icydb-core/src/model/index.rs:54:    /// Return the canonical index field list.
+crates/icydb-core/src/db/commit/replay.rs:2://! Responsibility: replay persisted row operations in canonical marker order.
+crates/icydb-core/src/db/commit/replay.rs:32:    // writes to one key in one marker replay in canonical marker order.
+crates/icydb-core/src/db/index/predicate/mod.rs:43:/// Operator subset that can be evaluated directly on canonical encoded index bytes.
+crates/icydb-core/src/db/index/predicate/mod.rs:173:/// Build canonical index-component bytes for one literal.
+crates/icydb-core/src/value/hash.rs:71:// Hash map entries under canonical key order to keep fingerprints deterministic
+crates/icydb-core/src/value/hash.rs:72:// even when callers construct `Value::Map` directly in non-canonical order.
+crates/icydb-core/src/value/hash.rs:172:            // Map entries must hash under canonical key order.
+crates/icydb-core/src/db/index/envelope.rs:2://! Responsibility: canonical bound-envelope containment helpers for index-domain operations.
+crates/icydb-core/src/db/registry.rs:140:        // Keep one canonical logical store name per physical row/index store pair.
+crates/icydb-core/src/value/tag.rs:11:/// Stable canonical value-variant tag used by hashing and ordering surfaces.
+crates/icydb-core/src/db/relation/reverse_index.rs:32:/// Build the canonical reverse-index id for a `(source entity, relation field)` pair.
+crates/icydb-core/src/value/mod.rs:171:    /// - Entries are always sorted by canonical key order and keys are unique.
+crates/icydb-core/src/value/mod.rs:285:    /// - entries are sorted by canonical key order
+crates/icydb-core/src/value/mod.rs:316:    /// Normalize map entries into canonical deterministic order.
+crates/icydb-core/src/value/mod.rs:393:    /// Stable canonical rank used by all cross-variant ordering surfaces.
+crates/icydb-core/src/value/mod.rs:845:// Value::partial_cmp is NOT the canonical ordering for database semantics.
+crates/icydb-core/src/value/mod.rs:847:// participate here. Use canonical_cmp / strict ordering for ORDER BY,
+crates/icydb-core/src/db/predicate/normalize.rs:479:    fn normalize_and_orders_cheaper_predicates_before_text_contains() {
+crates/icydb-core/src/db/predicate/encoding.rs:147:            // `Value::Map` directly in non-canonical order cannot perturb
+crates/icydb-core/src/db/predicate/encoding.rs:424:    fn predicate_sort_key_normalizes_map_entry_order() {
+crates/icydb-core/src/db/predicate/encoding.rs:443:    fn predicate_sort_key_normalizes_duplicate_map_keys_by_value_order() {
+crates/icydb-core/src/db/predicate/encoding.rs:462:    fn predicate_sort_key_normalizes_in_list_literal_order() {
+crates/icydb-core/src/db/predicate/fingerprint.rs:50:    fn canonical_hash_is_order_insensitive_for_and() {
+crates/icydb-core/src/db/predicate/fingerprint.rs:65:    fn canonical_hash_is_order_insensitive_for_or() {
+crates/icydb-core/src/db/predicate/fingerprint.rs:80:    fn canonical_hash_is_order_insensitive_for_in_list_literals() {
+crates/icydb-core/src/db/cursor/range_token.rs:60:/// Build a continuation anchor from one canonical index key.
+crates/icydb-core/src/db/identity/mod.rs:15://! - Stored byte representation is canonical and order-preserving.
+crates/icydb-core/src/db/predicate/mod.rs:30:    TextOp, canonical_cmp, compare_eq, compare_order, compare_text,
+crates/icydb-core/src/db/access/canonical.rs:8://! - canonical ordering must be total
+crates/icydb-core/src/db/access/canonical.rs:33:fn canonicalize_index_literal_values(values: &mut Vec<Value>) {
+crates/icydb-core/src/db/access/canonical.rs:95:    // Rank access-plan variants for canonical ordering.
+crates/icydb-core/src/db/access/canonical.rs:238:                canonicalize_index_literal_values(&mut values);
+crates/icydb-core/src/db/access/canonical.rs:426:    // Rank access-path variants for canonical ordering.
+crates/icydb-core/src/db/access/canonical.rs:524:    fn canonical_bound_ordering_is_unbounded_then_included_then_excluded() {
+crates/icydb-core/src/db/access/canonical.rs:549:    fn canonical_index_range_cmp_distinguishes_bound_discriminants() {
+crates/icydb-core/src/db/access/canonical.rs:570:    fn canonical_and_fingerprint_align_for_index_range_bound_discriminants() {
+crates/icydb-core/src/db/access/canonical.rs:593:    fn canonical_and_fingerprint_align_for_index_field_identity() {
+crates/icydb-core/src/db/cursor/mod.rs:232:/// Build one cursor boundary from one entity under one canonical order spec.
+crates/icydb-core/src/db/cursor/mod.rs:243:/// GROUP BY v1 uses canonical lexicographic group-key order by default, so
+crates/icydb-core/src/db/cursor/mod.rs:251:        "grouped cursor pagination uses canonical group-key order when ORDER BY is omitted",
+crates/icydb-core/src/db/cursor/anchor.rs:62:/// Cursor anchor proven against canonical index-range envelope invariants.
+crates/icydb-core/src/db/cursor/anchor.rs:243:            validate_anchor_identity::<E>(decode_canonical_cursor_anchor(anchor)?, &index)?;
+crates/icydb-core/src/db/cursor/order.rs:82:/// We select the smallest `keep_count` rows under canonical order and then sort
+crates/icydb-core/src/db/cursor/order.rs:116:/// Apply a strict continuation boundary using the canonical order comparator.
+crates/icydb-core/src/db/cursor/order.rs:134:    // Strict continuation: keep only rows greater than the boundary under canonical order.
+crates/icydb-core/src/db/cursor/order.rs:178:/// Compare an entity with a continuation boundary using the exact canonical ordering semantics.
+crates/icydb-core/src/db/cursor/boundary.rs:43:    /// Build one cursor boundary from one entity using canonical order fields.
+crates/icydb-core/src/db/cursor/boundary.rs:55:/// Build boundary slots from one entity using canonical order fields.
+crates/icydb-core/src/db/cursor/boundary.rs:76:/// Compare two cursor boundary slots under canonical cursor ordering semantics.
+crates/icydb-core/src/db/cursor/boundary.rs:133:/// Validate one cursor boundary arity against canonical order width.
+crates/icydb-core/src/db/cursor/boundary.rs:150:/// Validate one cursor boundary against canonical order fields and return typed PK key.
+crates/icydb-core/src/db/cursor/boundary.rs:162:/// Validate cursor boundary slot types against canonical order fields.
+crates/icydb-core/src/db/cursor/resume.rs:15:/// Apply one strict resume boundary under canonical cursor order semantics.
+crates/icydb-core/src/db/sql/lowering.rs:212:    statement.order_by = normalize_order_terms(statement.order_by, entity_scope.as_slice());
+crates/icydb-core/src/db/sql/lowering.rs:253:    statement.order_by = normalize_order_terms(statement.order_by, entity_scope.as_slice());
+crates/icydb-core/src/db/sql/lowering.rs:460:    statement.order_by = normalize_order_terms(statement.order_by, entity_scope.as_slice());
+crates/icydb-core/src/db/sql/lowering.rs:532:fn normalize_order_terms(
+crates/icydb-core/src/db/cursor/envelope.rs:250:    // Build one canonical raw index key from semantic composite components.
+crates/icydb-core/src/db/cursor/envelope.rs:253:            .expect("property-domain values must remain canonically index-encodable");
+crates/icydb-core/src/db/cursor/envelope.rs:296:        fn cross_layer_canonical_ordering_is_consistent(
+crates/icydb-core/src/db/cursor/envelope.rs:434:    fn canonical_ordering_property_domain_rejects_null_components() {
+crates/icydb-core/src/db/access/execution_contract/strategy.rs:78:        stream_order_contract_safe: bool,
+crates/icydb-core/src/db/access/execution_contract/strategy.rs:84:        if !stream_order_contract_safe {
+crates/icydb-core/src/db/contracts/semantics.rs:2://! Responsibility: canonical cross-subsystem value ordering contracts.
+crates/icydb-core/src/db/contracts/semantics.rs:40:/// Compare two values with canonical ordering semantics.
+crates/icydb-core/src/db/contracts/semantics.rs:56:    fn canonical_value_ordering_uses_value_canonical_order() {
+crates/icydb-core/src/db/contracts/semantics.rs:68:    fn canonical_value_ordering_prefers_shared_numeric_or_strict_authority() {
+crates/icydb-core/src/db/cursor/error.rs:49:    /// Cursor boundary width does not match canonical order width.
+crates/icydb-core/src/db/query/plan/mod.rs:20:mod order_contract;
+crates/icydb-core/src/db/query/plan/mod.rs:63:pub(in crate::db) use order_contract::{ExecutionOrderContract, ExecutionOrdering};
+crates/icydb-core/src/db/query/plan/mod.rs:76:    secondary_order_contract_is_deterministic,
+crates/icydb-core/src/db/query/fingerprint/shape_signature/mod.rs:81:    /// - canonical order-by (including implicit PK tie-break)
+crates/icydb-core/src/db/query/plan/continuation.rs:35:    pub(in crate::db) order_contract: ExecutionOrderContract,
+crates/icydb-core/src/db/query/plan/continuation.rs:179:        order_contract: ExecutionOrderContract,
+crates/icydb-core/src/db/query/plan/continuation.rs:188:            order_contract,
+crates/icydb-core/src/db/query/plan/continuation.rs:197:        self.order_contract.is_grouped()
+crates/icydb-core/src/db/query/plan/continuation.rs:202:    pub(in crate::db) const fn order_contract(&self) -> &ExecutionOrderContract {
+crates/icydb-core/src/db/query/plan/continuation.rs:203:        &self.order_contract
+crates/icydb-core/src/db/query/plan/continuation.rs:273:            &self.order_contract,
+crates/icydb-core/src/db/query/plan/continuation.rs:332:            self.order_contract.order_spec(),
+crates/icydb-core/src/db/query/plan/continuation.rs:333:            self.order_contract.direction(),
+crates/icydb-core/src/db/query/plan/continuation.rs:458:        let order_contract =
+crates/icydb-core/src/db/query/plan/continuation.rs:469:            order_contract,
+crates/icydb-core/src/db/query/plan/stability.rs:13:/// Values are sorted by canonical value ordering and deduplicated so equivalent
+crates/icydb-core/src/db/query/plan/stability.rs:51:            "IN literal canonicalization must be order-insensitive and duplicate-insensitive",
+crates/icydb-core/src/db/executor/stream/key/composite.rs:173:/// Produces one canonical ordered stream while suppressing duplicate keys.
+crates/icydb-core/src/db/executor/stream/key/composite.rs:283:/// Produces one canonical ordered stream containing keys present in both inputs.
+crates/icydb-core/src/db/executor/mutation/save_validation.rs:238:    /// Validate canonical ordering + uniqueness for set-encoded list values.
+crates/icydb-core/src/db/executor/mutation/save_validation.rs:298:                "map field entries are not in canonical deterministic order: {} field={field_name}",
+crates/icydb-core/src/db/query/intent/query.rs:210:    /// GROUP BY queries use canonical grouped-key order by default.
+crates/icydb-core/src/db/query/intent/query.rs:220:    /// GROUP BY queries use canonical grouped-key order by default.
+crates/icydb-core/src/db/executor/kernel/mod.rs:162:            stream_order_contract_safe: route_plan.stream_order_contract_safe(),
+crates/icydb-core/src/db/query/fluent/load/pagination.rs:39:    /// Requests are deterministic under canonical ordering, but continuation is
+crates/icydb-core/src/db/query/fluent/load/pagination.rs:103:    /// deterministic per request under canonical ordering, with no
+crates/icydb-core/src/db/query/plan/validate/plan_shape.rs:104:// GROUP BY v1 uses canonical grouped key ordering when ORDER BY is omitted,
+crates/icydb-core/src/db/query/fluent/load/builder.rs:175:    /// GROUP BY pagination uses canonical grouped-key order by default.
+crates/icydb-core/src/db/query/fluent/load/builder.rs:185:    /// GROUP BY pagination uses canonical grouped-key order by default.
+crates/icydb-core/src/db/query/plan/logical_builder.rs:119:        order: canonicalize_order_spec(model, order),
+crates/icydb-core/src/db/query/plan/logical_builder.rs:163:fn canonicalize_order_spec(model: &EntityModel, order: Option<OrderSpec>) -> Option<OrderSpec> {
+crates/icydb-core/src/db/query/plan/semantics/pushdown.rs:67:        secondary_order_contract_is_deterministic(model, plan.scalar_plan()),
+crates/icydb-core/src/db/query/plan/semantics/pushdown.rs:76:pub(in crate::db) fn secondary_order_contract_is_deterministic(
+crates/icydb-core/src/db/executor/diagnostics/node.rs:106:/// Collect deterministic diagnostics identities in canonical explain-node order.
+crates/icydb-core/src/db/executor/diagnostics/node.rs:286:            "diagnostics identity collection must preserve canonical node ordering and layers",
+crates/icydb-core/src/db/query/plan/expr/projection.rs:31:/// One canonical projection output field in declaration order.
+crates/icydb-core/src/db/query/plan/expr/projection.rs:45:/// Invariant: `fields` order is canonical output order and must not be
+crates/icydb-core/src/db/query/plan/expr/projection.rs:73:    /// Borrow declared projection fields in canonical order.
+crates/icydb-core/src/db/query/plan/order_contract.rs:1://! Module: query::plan::order_contract
+crates/icydb-core/src/db/query/plan/order_contract.rs:81:    /// Return canonical secondary-index scan direction for this contract.
+crates/icydb-core/src/db/query/plan/semantics/mod.rs:32:    secondary_order_contract_is_deterministic,
+crates/icydb-core/src/db/query/plan/covering.rs:39:    pub(in crate::db) order_contract: CoveringProjectionOrder,
+crates/icydb-core/src/db/query/plan/covering.rs:86:    let order_contract = covering_projection_order_contract(
+crates/icydb-core/src/db/query/plan/covering.rs:97:        order_contract,
+crates/icydb-core/src/db/query/plan/covering.rs:136:        context.order_contract,
+crates/icydb-core/src/db/query/plan/covering.rs:142:fn covering_projection_order_contract(
+crates/icydb-core/src/db/query/plan/covering.rs:323:            context.order_contract,
+crates/icydb-core/src/db/query/plan/covering.rs:359:            context.order_contract,
+crates/icydb-core/src/db/query/plan/covering.rs:402:    fn covering_projection_context_rejects_range_full_order_contract() {
+crates/icydb-core/src/db/executor/stream/access/physical.rs:133:        Self::normalize_ordered_keys(&mut candidates, continuation.direction(), key_order_state);
+crates/icydb-core/src/db/executor/stream/access/physical.rs:139:    fn normalize_ordered_keys(
+crates/icydb-core/src/db/executor/continuation/scalar.rs:366:        stream_order_contract_safe: bool,
+crates/icydb-core/src/db/executor/continuation/scalar.rs:374:            if !stream_order_contract_safe {
+crates/icydb-core/src/db/executor/stream/access/scan.rs:98:    // Resolve one unbounded range scan in canonical ascending storage order.
+crates/icydb-core/src/db/executor/aggregate/fast_path.rs:299:    // canonical secondary ordering is pushdown-eligible.
+crates/icydb-core/src/db/executor/group/key.rs:213:// Canonicalize map entries recursively and normalize key ordering.
+crates/icydb-core/src/db/executor/group/key.rs:257:    fn canonical_key_normalizes_map_order() {
+crates/icydb-core/src/db/executor/aggregate/projection/mod.rs:430:        let scan_direction = match context.order_contract {
+crates/icydb-core/src/db/executor/aggregate/projection/mod.rs:462:        match context.order_contract {
+crates/icydb-core/src/db/executor/aggregate/projection/decode.rs:12:// Decode one canonical encoded index component payload into a runtime `Value`.
+crates/icydb-core/src/db/executor/terminal/page.rs:40:    pub(in crate::db::executor) stream_order_contract_safe: bool,
+crates/icydb-core/src/db/executor/terminal/page.rs:59:            stream_order_contract_safe,
+crates/icydb-core/src/db/executor/terminal/page.rs:66:            .validate_load_scan_budget_hint(scan_budget_hint, stream_order_contract_safe)?;
+crates/icydb-core/src/db/executor/aggregate/numeric.rs:209:        // Phase 2: resolve the canonical ordered key stream from access descriptors.
+crates/icydb-core/src/db/executor/route/capability.rs:15:            route::{access_order_satisfied_by_route_contract, secondary_order_contract_active},
+crates/icydb-core/src/db/executor/route/capability.rs:19:            plan::{AccessPlannedQuery, secondary_order_contract_is_deterministic},
+crates/icydb-core/src/db/executor/route/capability.rs:51:pub(in crate::db::executor) fn stream_order_contract_safe<E, K>(
+crates/icydb-core/src/db/executor/route/capability.rs:116:            stream_order_contract_safe: stream_order_contract_safe::<E, _>(plan),
+crates/icydb-core/src/db/executor/route/capability.rs:165:        let order_contract_eligible = order.is_none_or(|_| {
+crates/icydb-core/src/db/executor/route/capability.rs:166:            secondary_order_contract_is_deterministic(E::MODEL, plan.scalar_plan())
+crates/icydb-core/src/db/executor/route/capability.rs:167:                && secondary_order_contract_active(
+crates/icydb-core/src/db/executor/route/capability.rs:173:        order_contract_eligible
+crates/icydb-core/src/db/executor/aggregate/field/mod.rs:361:/// - ties always break on canonical primary-key ascending order.
+crates/icydb-core/src/db/executor/group/hash.rs:65:    fn stable_hash_respects_canonical_map_order() {
+crates/icydb-core/src/db/executor/group/hash.rs:77:            "stable hash must not depend on non-canonical map insertion order",
+crates/icydb-core/src/db/executor/route/mod.rs:21:pub(in crate::db::executor) use capability::stream_order_contract_safe;
+crates/icydb-core/src/db/executor/route/mod.rs:29:pub(in crate::db::executor) use pushdown::secondary_order_contract_active;
+crates/icydb-core/src/db/executor/pipeline/operators/post_access/order_cursor.rs:18:/// Apply canonical cursor-owned ordering to post-access rows.
+crates/icydb-core/src/db/executor/pipeline/operators/post_access/order_cursor.rs:27:/// Apply bounded canonical ordering for first-page optimization paths.
+crates/icydb-core/src/db/executor/executable_plan.rs:173:            |contract| format!("{:?}", contract.order_contract().direction()),
+crates/icydb-core/src/db/executor/executable_plan.rs:269:        Ok(contract.order_contract().ordering().clone())
+crates/icydb-core/src/db/executor/executable_plan.rs:339:    /// Return one canonical scan direction for unordered plans (`Asc`) or
+crates/icydb-core/src/db/executor/pipeline/operators/post_access/mod.rs:17:    db::executor::route::{derive_budget_safety_flags, stream_order_contract_safe},
+crates/icydb-core/src/db/executor/pipeline/operators/post_access/mod.rs:209:    pub(in crate::db::executor) fn is_stream_order_contract_safe<E, K>(
+crates/icydb-core/src/db/executor/pipeline/operators/post_access/mod.rs:215:        PostAccessPlan::new(plan).is_stream_order_contract_safe::<E>()
+crates/icydb-core/src/db/executor/pipeline/operators/post_access/mod.rs:464:    fn is_stream_order_contract_safe<E>(&self) -> bool
+crates/icydb-core/src/db/executor/pipeline/operators/post_access/mod.rs:468:        stream_order_contract_safe::<E, _>(self.plan)
+crates/icydb-core/src/db/executor/route/contracts/capabilities.rs:29:    pub(in crate::db::executor) stream_order_contract_safe: bool,
+crates/icydb-core/src/db/executor/route/contracts/capabilities.rs:48:        stream_order_contract_safe: false,
+crates/icydb-core/src/db/executor/aggregate/contracts/grouped/engine.rs:34:/// Finalized rows are emitted in deterministic canonical order.
+crates/icydb-core/src/db/executor/route/planner/mod.rs:53:/// Captures aggregate presence, canonical fast-path order, and materialization
+crates/icydb-core/src/db/executor/pipeline/runtime/fast_path/mod.rs:32:    /// Resolve one canonical execution key stream in fast-path precedence order.
+crates/icydb-core/src/db/executor/route/planner/intent.rs:84:            "route invariant: route intent must map to the canonical fast-path order contract",
+crates/icydb-core/src/db/executor/route/contracts/execution/plan.rs:178:    pub(in crate::db::executor) const fn stream_order_contract_safe(&self) -> bool {
+crates/icydb-core/src/db/executor/route/contracts/execution/plan.rs:179:        self.capabilities.stream_order_contract_safe
+crates/icydb-core/src/db/executor/route/contracts/shape.rs:15:/// Routing implementations remain separate, but they iterate one canonical order.
+crates/icydb-core/src/db/executor/route/mode.rs:36:        // all other cases inherit canonical load ordering direction.
+crates/icydb-core/src/db/executor/route/mode.rs:64:        capabilities.stream_order_contract_safe
+crates/icydb-core/src/db/executor/route/mode.rs:76:        capabilities.stream_order_contract_safe || index_range_limit_enabled
+crates/icydb-core/src/db/executor/route/pushdown.rs:11:            secondary_order_contract_is_deterministic,
+crates/icydb-core/src/db/executor/route/pushdown.rs:23:    (secondary_order_contract_active(logical_pushdown_eligibility)
+crates/icydb-core/src/db/executor/route/pushdown.rs:24:        && secondary_order_contract_is_deterministic(model, logical))
+crates/icydb-core/src/db/executor/route/pushdown.rs:52:pub(in crate::db::executor) const fn secondary_order_contract_active(
+crates/icydb-core/src/db/executor/route/pushdown.rs:80:    let secondary_contract_active = secondary_order_contract_active(logical_pushdown_eligibility);
+crates/icydb-core/src/db/executor/pipeline/entrypoints/scalar/hints.rs:33:            if !route_plan.shape().is_streaming() || !route_plan.stream_order_contract_safe() {
+crates/icydb-core/src/db/executor/route/planner/feasibility/mod.rs:216:                capabilities.stream_order_contract_safe,
+crates/icydb-core/src/db/executor/route/planner/feasibility/grouped_strategy.rs:24:    stream_order_contract_safe: bool,
+crates/icydb-core/src/db/executor/route/planner/feasibility/grouped_strategy.rs:29:        self.ordered_hint && self.direction_compatible && self.stream_order_contract_safe
+crates/icydb-core/src/db/executor/route/planner/feasibility/grouped_strategy.rs:39:    stream_order_contract_safe: bool,
+crates/icydb-core/src/db/executor/route/planner/feasibility/grouped_strategy.rs:45:        stream_order_contract_safe,
+crates/icydb-core/src/db/executor/route/planner/feasibility/grouped_strategy.rs:66:    stream_order_contract_safe: bool,
+crates/icydb-core/src/db/executor/route/planner/feasibility/grouped_strategy.rs:73:        stream_order_contract_safe,
+crates/icydb-core/src/db/executor/route/planner/feasibility/grouped_strategy.rs:85:        stream_order_contract_safe: false,
+crates/icydb-core/src/db/executor/route/hints/load.rs:9:        query::plan::{AccessPlannedQuery, secondary_order_contract_is_deterministic},
+crates/icydb-core/src/db/executor/route/hints/load.rs:57:            capabilities.stream_order_contract_safe,
+crates/icydb-core/src/db/executor/route/hints/load.rs:76:        secondary_order_contract_is_deterministic(E::MODEL, logical).then_some(())?;
+crates/icydb-core/src/db/executor/route/hints/load.rs:77:        capabilities.stream_order_contract_safe.then_some(())?;
+crates/icydb-core/src/db/executor/runtime_context/mod.rs:214:    /// Deduplicate entity keys using canonical key ordering.
+crates/icydb-core/src/db/executor/pipeline/stages/mod.rs:4://! Boundary: defines canonical stage order + planner surface used by orchestrator.
+crates/icydb-core/src/db/executor/pipeline/stages/stage.rs:49:/// Return canonical stage labels in deterministic execution order.

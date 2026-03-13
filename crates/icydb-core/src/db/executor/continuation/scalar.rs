@@ -8,14 +8,15 @@ use crate::{
         access::LoweredKey,
         cursor::{
             ContinuationSignature, CursorBoundary, PlannedCursor, RangeToken,
-            decode_pk_cursor_boundary, range_token_anchor_key,
-            range_token_from_validated_cursor_anchor,
+            decode_pk_cursor_boundary,
+            effective_keep_count_for_limit as continuation_keep_count_for_limit,
+            effective_page_offset_for_window as continuation_page_offset_for_window,
+            range_token_anchor_key, range_token_from_validated_cursor_anchor,
         },
         direction::Direction,
         executor::{
             AccessScanContinuationInput, ContinuationMode, RouteContinuationPlan,
             continuation::capabilities::ContinuationCapabilities,
-            traversal::{effective_keep_count_for_limit, effective_page_offset_for_window},
         },
         query::plan::{AccessPlannedQuery, ContinuationPolicy},
     },
@@ -267,7 +268,7 @@ impl ResolvedScalarContinuationContext {
         );
         debug_assert_eq!(
             projection.effective_offset(),
-            effective_page_offset_for_window(plan, self.cursor_boundary().is_some()),
+            continuation_page_offset_for_window(plan, self.cursor_boundary().is_some()),
             "route window effective offset must match logical plan offset semantics",
         );
     }
@@ -328,12 +329,12 @@ impl<'a> ScalarContinuationBindings<'a> {
 
     /// Derive effective keep count (`offset + limit`) under this continuation context.
     #[must_use]
-    pub(in crate::db::executor) fn effective_keep_count_for_limit<K>(
+    pub(in crate::db::executor) fn keep_count_for_limit_window<K>(
         &self,
         plan: &AccessPlannedQuery<K>,
         limit: u32,
     ) -> usize {
-        effective_keep_count_for_limit(plan, self.continuation_applied(), limit)
+        continuation_keep_count_for_limit(plan, self.continuation_applied(), limit)
     }
 
     /// Borrow optional previous index-range anchor.

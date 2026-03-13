@@ -1,0 +1,459 @@
+module_path	file	loc	pub_types	pub_fns	match_count	if_count	branch_pressure	max_match_depth	fanout	module_layer	import_layers_touched	upward_imports	cross_layer_imports
+db::access::canonical	crates/icydb-core/src/db/access/canonical.rs	713	1	2	9	29	38	1	7	access	query/plan,access	1	1
+db::access::capabilities	crates/icydb-core/src/db/access/capabilities.rs	539	5	1	13	2	15	1	7	access	access	0	0
+db::access::dispatch	crates/icydb-core/src/db/access/dispatch.rs	173	4	2	4	0	4	1	7	access	access	0	0
+db::access::execution_contract::executable	crates/icydb-core/src/db/access/execution_contract/executable.rs	234	3	2	5	0	5	1	4	access	access	0	0
+db::access::execution_contract	crates/icydb-core/src/db/access/execution_contract/mod.rs	23	0	0	0	0	0	0	0	access		0	0
+db::access::execution_contract::pushdown	crates/icydb-core/src/db/access/execution_contract/pushdown.rs	93	0	1	0	4	4	0	3	access	query/plan,access	1	1
+db::access::execution_contract::route	crates/icydb-core/src/db/access/execution_contract/route.rs	283	1	3	1	10	11	1	5	access	query/plan,access	1	1
+db::access::execution_contract::strategy	crates/icydb-core/src/db/access/execution_contract/strategy.rs	116	1	4	0	3	3	0	3	access	access	0	0
+db::access::execution_contract::summary	crates/icydb-core/src/db/access/execution_contract/summary.rs	148	0	1	5	8	13	1	3	access	access	0	0
+db::access::execution_contract::types	crates/icydb-core/src/db/access/execution_contract/types.rs	94	5	0	0	0	0	0	3	access		0	0
+db::access::lowering	crates/icydb-core/src/db/access/lowering.rs	396	3	3	7	1	8	2	23	access	access,index/storage	0	5
+db::access	crates/icydb-core/src/db/access/mod.rs	42	0	0	0	0	0	0	0	access		0	0
+db::access::path	crates/icydb-core/src/db/access/path.rs	264	3	4	4	0	4	1	2	access		0	0
+db::access::plan	crates/icydb-core/src/db/access/plan.rs	416	5	15	5	9	14	1	7	access	access	0	0
+db::access::validate	crates/icydb-core/src/db/access/validate.rs	451	1	2	5	18	23	1	9	access	access	0	0
+db::codec::cursor	crates/icydb-core/src/db/codec/cursor.rs	164	1	3	1	3	4	1	1	codec	executor	1	1
+db::codec::hash_stream	crates/icydb-core/src/db/codec/hash_stream.rs	55	0	8	0	0	0	0	0	codec		0	0
+db::codec	crates/icydb-core/src/db/codec/mod.rs	103	0	3	1	0	1	1	4	codec	codec	0	0
+db::commit::apply	crates/icydb-core/src/db/commit/apply.rs	46	0	2	0	3	3	0	1	index/storage	index/storage	0	0
+db::commit::guard	crates/icydb-core/src/db/commit/guard.rs	163	2	4	0	5	5	0	3	index/storage	index/storage	0	0
+db::commit::hooks	crates/icydb-core/src/db/commit/hooks.rs	136	1	2	0	4	4	0	12	index/storage	index/storage	0	0
+db::commit::marker	crates/icydb-core/src/db/commit/marker.rs	235	4	6	0	7	7	0	11	index/storage	index/storage,codec	0	1
+db::commit::memory	crates/icydb-core/src/db/commit/memory.rs	153	0	2	2	4	6	2	4	index/storage	index/storage	0	0
+db::commit	crates/icydb-core/src/db/commit/mod.rs	129	0	6	1	1	2	1	4	index/storage		0	0
+db::commit::prepare	crates/icydb-core/src/db/commit/prepare.rs	212	0	2	1	6	7	1	21	index/storage	index/storage,codec	0	1
+db::commit::prepared_op	crates/icydb-core/src/db/commit/prepared_op.rs	56	3	0	0	0	0	0	6	index/storage	index/storage	0	0
+db::commit::rebuild	crates/icydb-core/src/db/commit/rebuild.rs	148	0	1	0	4	4	0	12	index/storage	index/storage	0	0
+db::commit::recovery	crates/icydb-core/src/db/commit/recovery.rs	92	0	1	0	5	5	0	6	index/storage	index/storage	0	0
+db::commit::replay	crates/icydb-core/src/db/commit/replay.rs	48	0	1	1	0	1	1	7	index/storage	index/storage	0	0
+db::commit::rollback	crates/icydb-core/src/db/commit/rollback.rs	62	0	3	0	0	0	0	3	index/storage	index/storage	0	0
+db::commit::store	crates/icydb-core/src/db/commit/store.rs	429	1	8	1	6	7	1	15	index/storage	index/storage,codec	0	5
+db::contracts	crates/icydb-core/src/db/contracts/mod.rs	12	0	0	0	0	0	0	0	support		0	0
+db::contracts::rules	crates/icydb-core/src/db/contracts/rules.rs	19	0	1	0	1	1	0	0	support		0	0
+db::contracts::semantics	crates/icydb-core/src/db/contracts/semantics.rs	74	2	1	0	1	1	0	3	support		0	0
+db::cursor::anchor	crates/icydb-core/src/db/cursor/anchor.rs	302	1	4	2	11	13	1	16	executor	executor,index/storage	0	9
+db::cursor::boundary	crates/icydb-core/src/db/cursor/boundary.rs	295	2	8	6	7	13	1	11	executor	query/plan,executor	2	2
+db::cursor::continuation	crates/icydb-core/src/db/cursor/continuation.rs	193	1	3	1	4	5	1	19	executor	query/plan,access,executor,index/storage	5	7
+db::cursor::envelope	crates/icydb-core/src/db/cursor/envelope.rs	443	0	5	11	2	13	2	15	executor	index/storage	0	7
+db::cursor::error	crates/icydb-core/src/db/cursor/error.rs	206	1	8	5	0	5	1	4	executor	executor,codec	0	1
+db::cursor	crates/icydb-core/src/db/cursor/mod.rs	272	0	8	2	1	3	1	8	executor	query/plan,executor,codec	3	4
+db::cursor::order	crates/icydb-core/src/db/cursor/order.rs	193	0	3	1	4	5	1	8	executor	query/plan,executor	2	2
+db::cursor::planned	crates/icydb-core/src/db/cursor/planned.rs	121	2	1	0	0	0	0	3	executor	executor	0	0
+db::cursor::range_token	crates/icydb-core/src/db/cursor/range_token.rs	78	2	2	0	0	0	0	4	executor	access,executor,index/storage	1	2
+db::cursor::resume	crates/icydb-core/src/db/cursor/resume.rs	63	0	2	0	2	2	0	6	executor	query/plan,executor	2	2
+db::cursor::runtime	crates/icydb-core/src/db/cursor/runtime.rs	215	4	4	0	6	6	0	6	executor	query/plan,executor,index/storage	2	3
+db::cursor::signature	crates/icydb-core/src/db/cursor/signature.rs	25	1	0	0	0	0	0	0	executor		0	0
+db::cursor::spine	crates/icydb-core/src/db/cursor/spine.rs	311	0	4	0	4	4	0	19	executor	query/plan,executor	1	1
+db::cursor::token::error	crates/icydb-core/src/db/cursor/token/error.rs	37	1	2	0	0	0	0	0	executor		0	0
+db::cursor::token::grouped	crates/icydb-core/src/db/cursor/token/grouped.rs	203	1	3	0	0	0	0	9	executor	executor,codec	0	3
+db::cursor::token	crates/icydb-core/src/db/cursor/token/mod.rs	41	1	0	0	0	0	0	0	executor		0	0
+db::cursor::token::scalar	crates/icydb-core/src/db/cursor/token/scalar.rs	257	1	3	1	0	1	1	12	executor	executor,codec	0	3
+db::cursor::token::wire	crates/icydb-core/src/db/cursor/token/wire.rs	136	5	1	5	0	5	1	4	executor	executor	0	0
+db::cursor::validation	crates/icydb-core/src/db/cursor/validation.rs	78	1	1	1	1	2	1	10	executor	query/plan,executor	2	2
+db::data::entity_decode	crates/icydb-core/src/db/data/entity_decode.rs	168	0	2	0	1	1	0	8	index/storage	index/storage	0	0
+db::data::key	crates/icydb-core/src/db/data/key.rs	454	5	9	0	3	3	0	9	index/storage		0	0
+db::data	crates/icydb-core/src/db/data/mod.rs	18	0	0	0	0	0	0	3	index/storage		0	0
+db::data::row	crates/icydb-core/src/db/data/row.rs	147	4	3	0	1	1	0	8	index/storage	index/storage,codec	0	2
+db::data::store	crates/icydb-core/src/db/data/store.rs	56	1	6	0	0	0	0	3	index/storage	index/storage	0	0
+db::diagnostics::execution_trace	crates/icydb-core/src/db/diagnostics/execution_trace.rs	397	5	4	5	2	7	2	9	support	query/plan,access	0	0
+db::diagnostics	crates/icydb-core/src/db/diagnostics/mod.rs	432	4	1	2	5	7	1	8	support	index/storage	0	0
+db::direction	crates/icydb-core/src/db/direction.rs	20	1	0	0	0	0	0	0	support		0	0
+db::error::access	crates/icydb-core/src/db/error/access.rs	12	0	1	0	0	0	0	2	support	access	0	0
+db::error::cursor	crates/icydb-core/src/db/error/cursor.rs	42	0	2	1	0	1	1	4	support	executor	0	0
+db::error::executor	crates/icydb-core/src/db/error/executor.rs	36	0	4	0	0	0	0	3	support		0	0
+db::error	crates/icydb-core/src/db/error/mod.rs	22	0	0	0	0	0	0	0	support		0	0
+db::error::planner	crates/icydb-core/src/db/error/planner.rs	72	0	5	4	0	4	2	4	support	query/plan	0	0
+db::error::query	crates/icydb-core/src/db/error/query.rs	21	0	2	0	0	0	0	3	support		0	0
+db::executor::aggregate::capability	crates/icydb-core/src/db/executor/aggregate/capability.rs	398	4	5	1	11	12	1	9	executor	query/plan,executor	2	2
+db::executor::aggregate::contracts::error	crates/icydb-core/src/db/executor/aggregate/contracts/error.rs	37	1	0	0	0	0	0	1	executor		0	0
+db::executor::aggregate::contracts::grouped::context	crates/icydb-core/src/db/executor/aggregate/contracts/grouped/context.rs	416	3	5	0	12	12	0	5	executor	executor	0	0
+db::executor::aggregate::contracts::grouped::engine	crates/icydb-core/src/db/executor/aggregate/contracts/grouped/engine.rs	296	4	7	5	2	7	1	7	executor	executor,index/storage	0	1
+db::executor::aggregate::contracts::grouped	crates/icydb-core/src/db/executor/aggregate/contracts/grouped/mod.rs	13	0	0	0	0	0	0	0	executor		0	0
+db::executor::aggregate::contracts	crates/icydb-core/src/db/executor/aggregate/contracts/mod.rs	20	0	0	0	0	0	0	0	executor		0	0
+db::executor::aggregate::contracts::spec	crates/icydb-core/src/db/executor/aggregate/contracts/spec.rs	74	1	0	2	0	2	1	4	executor	query/plan	1	1
+db::executor::aggregate::contracts::state	crates/icydb-core/src/db/executor/aggregate/contracts/state.rs	321	6	3	5	8	13	2	8	executor	executor,index/storage	0	1
+db::executor::aggregate::distinct	crates/icydb-core/src/db/executor/aggregate/distinct.rs	106	0	2	0	4	4	0	9	executor	query/plan,executor	3	3
+db::executor::aggregate::execution	crates/icydb-core/src/db/executor/aggregate/execution.rs	94	3	0	0	0	0	0	13	executor	query/plan,executor,index/storage	2	3
+db::executor::aggregate::fast_path	crates/icydb-core/src/db/executor/aggregate/fast_path.rs	497	0	3	2	15	17	1	15	executor	query/plan,executor,index/storage	1	2
+db::executor::aggregate::field	crates/icydb-core/src/db/executor/aggregate/field/mod.rs	398	2	12	3	9	12	1	12	executor	query/plan,executor	1	1
+db::executor::aggregate::field_extrema	crates/icydb-core/src/db/executor/aggregate/field_extrema.rs	320	0	3	3	13	16	2	19	executor	executor,index/storage	0	1
+db::executor::aggregate::helpers	crates/icydb-core/src/db/executor/aggregate/helpers.rs	277	0	6	4	8	12	2	13	executor	executor	0	0
+db::executor::aggregate::materialized_distinct	crates/icydb-core/src/db/executor/aggregate/materialized_distinct.rs	50	0	1	0	0	0	0	3	executor	executor	0	0
+db::executor::aggregate	crates/icydb-core/src/db/executor/aggregate/mod.rs	423	0	3	3	6	9	1	18	executor	query/plan,executor,index/storage	1	3
+db::executor::aggregate::numeric	crates/icydb-core/src/db/executor/aggregate/numeric.rs	361	0	3	4	8	12	1	23	executor	query/plan,access,executor	3	3
+db::executor::aggregate::projection::covering	crates/icydb-core/src/db/executor/aggregate/projection/covering.rs	100	1	4	0	2	2	0	9	executor	query/plan,access,executor	5	5
+db::executor::aggregate::projection::decode	crates/icydb-core/src/db/executor/aggregate/projection/decode.rs	154	0	1	2	12	14	1	4	executor		0	0
+db::executor::aggregate::projection	crates/icydb-core/src/db/executor/aggregate/projection/mod.rs	576	0	5	7	18	25	2	18	executor	query/plan,executor,index/storage	11	12
+db::executor::aggregate::runtime::grouped_distinct::aggregate	crates/icydb-core/src/db/executor/aggregate/runtime/grouped_distinct/aggregate.rs	150	1	1	3	7	10	1	13	executor	executor	0	0
+db::executor::aggregate::runtime::grouped_distinct	crates/icydb-core/src/db/executor/aggregate/runtime/grouped_distinct/mod.rs	9	0	0	0	0	0	0	0	executor		0	0
+db::executor::aggregate::runtime::grouped_distinct::paging	crates/icydb-core/src/db/executor/aggregate/runtime/grouped_distinct/paging.rs	91	0	1	0	1	1	0	5	executor	executor	0	0
+db::executor::aggregate::runtime::grouped_fold::candidate_rows	crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/candidate_rows/mod.rs	135	0	2	0	8	8	0	8	executor	executor	0	0
+db::executor::aggregate::runtime::grouped_fold::candidate_rows::sink	crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/candidate_rows/sink.rs	112	1	2	4	1	5	2	3	executor		0	0
+db::executor::aggregate::runtime::grouped_fold::engine_init	crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/engine_init.rs	74	0	1	0	2	2	0	8	executor	query/plan,executor	1	1
+db::executor::aggregate::runtime::grouped_fold::global_distinct	crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/global_distinct.rs	88	0	1	1	0	1	1	6	executor	query/plan,executor	2	2
+db::executor::aggregate::runtime::grouped_fold::ingest	crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/ingest.rs	105	0	1	2	4	6	1	11	executor	executor,index/storage	0	1
+db::executor::aggregate::runtime::grouped_fold	crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/mod.rs	159	0	3	1	1	2	1	11	executor	executor,index/storage	0	1
+db::executor::aggregate::runtime::grouped_fold::page_finalize	crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/page_finalize.rs	86	0	1	1	3	4	1	8	executor	query/plan,executor	1	1
+db::executor::aggregate::runtime::grouped_having	crates/icydb-core/src/db/executor/aggregate/runtime/grouped_having.rs	87	0	1	2	1	3	2	8	executor	query/plan,executor	3	3
+db::executor::aggregate::runtime::grouped_output::finalize	crates/icydb-core/src/db/executor/aggregate/runtime/grouped_output/finalize.rs	98	0	2	0	2	2	0	5	executor	executor	0	0
+db::executor::aggregate::runtime::grouped_output	crates/icydb-core/src/db/executor/aggregate/runtime/grouped_output/mod.rs	7	0	0	0	0	0	0	0	executor		0	0
+db::executor::aggregate::runtime::grouped_output::projection	crates/icydb-core/src/db/executor/aggregate/runtime/grouped_output/projection.rs	113	0	3	1	0	1	1	10	executor	query/plan,executor	4	4
+db::executor::aggregate::runtime	crates/icydb-core/src/db/executor/aggregate/runtime/mod.rs	9	0	0	0	0	0	0	0	executor		0	0
+db::executor::aggregate::terminals	crates/icydb-core/src/db/executor/aggregate/terminals.rs	491	0	11	7	10	17	1	22	executor	query/plan,access,executor,index/storage	11	12
+db::executor::continuation::capabilities	crates/icydb-core/src/db/executor/continuation/capabilities.rs	138	1	0	0	0	0	0	3	executor	query/plan,executor	1	1
+db::executor::continuation::engine	crates/icydb-core/src/db/executor/continuation/engine.rs	190	5	5	2	0	2	1	11	executor	query/plan,executor	1	1
+db::executor::continuation::grouped::capabilities	crates/icydb-core/src/db/executor/continuation/grouped/capabilities.rs	96	1	0	0	0	0	0	2	executor	executor	0	0
+db::executor::continuation::grouped::context	crates/icydb-core/src/db/executor/continuation/grouped/context.rs	85	1	1	0	1	1	0	7	executor	executor	0	0
+db::executor::continuation::grouped	crates/icydb-core/src/db/executor/continuation/grouped/mod.rs	12	0	0	0	0	0	0	0	executor		0	0
+db::executor::continuation::grouped::window	crates/icydb-core/src/db/executor/continuation/grouped/window.rs	73	1	0	0	0	0	0	1	executor		0	0
+db::executor::continuation	crates/icydb-core/src/db/executor/continuation/mod.rs	24	0	0	0	0	0	0	0	executor		0	0
+db::executor::continuation::route	crates/icydb-core/src/db/executor/continuation/route.rs	264	3	1	0	0	0	0	5	executor	query/plan,executor	2	2
+db::executor::continuation::scalar	crates/icydb-core/src/db/executor/continuation/scalar.rs	383	4	8	2	3	5	1	18	executor	query/plan,access,executor	3	3
+db::executor::delete	crates/icydb-core/src/db/executor/delete/mod.rs	216	2	2	0	3	3	0	21	executor	executor,index/storage	0	5
+db::executor::diagnostics::counters	crates/icydb-core/src/db/executor/diagnostics/counters.rs	124	1	0	0	0	0	0	3	executor	access	1	1
+db::executor::diagnostics	crates/icydb-core/src/db/executor/diagnostics/mod.rs	14	0	0	0	0	0	0	5	executor		0	0
+db::executor::diagnostics::node	crates/icydb-core/src/db/executor/diagnostics/node.rs	350	2	3	3	0	3	1	1	executor	query/plan	3	3
+db::executor::executable_plan	crates/icydb-core/src/db/executor/executable_plan.rs	598	2	23	9	10	19	1	26	executor	query/plan,access,executor,codec	14	15
+db::executor::explain::descriptor	crates/icydb-core/src/db/executor/explain/descriptor.rs	1030	0	3	20	34	54	2	17	executor	query/plan,access,executor	18	18
+db::executor::explain	crates/icydb-core/src/db/executor/explain/mod.rs	11	0	0	0	0	0	0	0	executor		0	0
+db::executor::group::hash	crates/icydb-core/src/db/executor/group/hash.rs	114	1	1	0	0	0	0	4	executor		0	0
+db::executor::group::key	crates/icydb-core/src/db/executor/group/key.rs	398	4	6	4	2	6	1	6	executor	executor	0	0
+db::executor::group	crates/icydb-core/src/db/executor/group/mod.rs	141	1	0	0	0	0	0	2	executor	query/plan,executor	1	1
+db::executor::kernel	crates/icydb-core/src/db/executor/kernel/mod.rs	200	1	2	0	6	6	0	9	executor	query/plan,executor,index/storage	1	2
+db::executor	crates/icydb-core/src/db/executor/mod.rs	219	3	6	2	0	2	1	18	executor	access,executor,index/storage	10	11
+db::executor::mutation::commit_window	crates/icydb-core/src/db/executor/mutation/commit_window.rs	459	3	8	1	8	9	1	27	executor	index/storage	0	21
+db::executor::mutation	crates/icydb-core/src/db/executor/mutation/mod.rs	48	0	2	0	0	0	0	9	executor	query/plan,executor,index/storage	1	2
+db::executor::mutation::save	crates/icydb-core/src/db/executor/mutation/save.rs	428	1	12	3	12	15	1	14	executor	executor,index/storage,codec	0	5
+db::executor::mutation::save_validation	crates/icydb-core/src/db/executor/mutation/save_validation.rs	340	0	3	4	13	17	1	15	executor	executor,index/storage	0	1
+db::executor::pipeline::contracts::execution::inputs	crates/icydb-core/src/db/executor/pipeline/contracts/execution/inputs.rs	104	2	0	0	0	0	0	8	executor	query/plan,executor	1	1
+db::executor::pipeline::contracts::execution	crates/icydb-core/src/db/executor/pipeline/contracts/execution/mod.rs	12	0	0	0	0	0	0	0	executor		0	0
+db::executor::pipeline::contracts::execution::outcomes	crates/icydb-core/src/db/executor/pipeline/contracts/execution/outcomes.rs	60	2	1	0	0	0	0	3	executor	executor	0	0
+db::executor::pipeline::contracts::execution::stream	crates/icydb-core/src/db/executor/pipeline/contracts/execution/stream.rs	105	1	4	0	0	0	0	3	executor	executor	0	0
+db::executor::pipeline::contracts::grouped	crates/icydb-core/src/db/executor/pipeline/contracts/grouped/mod.rs	13	0	0	0	0	0	0	0	executor		0	0
+db::executor::pipeline::contracts::grouped::route_stage	crates/icydb-core/src/db/executor/pipeline/contracts/grouped/route_stage/mod.rs	12	0	0	0	0	0	0	0	executor		0	0
+db::executor::pipeline::contracts::grouped::route_stage::payload	crates/icydb-core/src/db/executor/pipeline/contracts/grouped/route_stage/payload.rs	74	4	0	0	0	0	0	5	executor	query/plan,executor	5	5
+db::executor::pipeline::contracts::grouped::route_stage::projection	crates/icydb-core/src/db/executor/pipeline/contracts/grouped/route_stage/projection.rs	172	1	0	0	0	0	0	13	executor	query/plan,executor	5	5
+db::executor::pipeline::contracts::grouped::stages	crates/icydb-core/src/db/executor/pipeline/contracts/grouped/stages.rs	175	2	4	0	0	0	0	6	executor	executor	0	0
+db::executor::pipeline::contracts	crates/icydb-core/src/db/executor/pipeline/contracts/mod.rs	129	5	0	2	0	2	1	10	executor	executor	0	0
+db::executor::pipeline::entrypoints::grouped	crates/icydb-core/src/db/executor/pipeline/entrypoints/grouped.rs	74	0	2	1	0	1	1	8	executor	executor	0	0
+db::executor::pipeline::entrypoints	crates/icydb-core/src/db/executor/pipeline/entrypoints/mod.rs	85	0	5	0	0	0	0	12	executor	executor	0	0
+db::executor::pipeline::entrypoints::scalar::hints	crates/icydb-core/src/db/executor/pipeline/entrypoints/scalar/hints.rs	95	0	0	1	6	7	1	2	executor	executor	0	0
+db::executor::pipeline::entrypoints::scalar	crates/icydb-core/src/db/executor/pipeline/entrypoints/scalar/mod.rs	119	0	1	0	0	0	0	16	executor	access,executor,index/storage	1	2
+db::executor::pipeline::entrypoints::scalar::surface	crates/icydb-core/src/db/executor/pipeline/entrypoints/scalar/surface.rs	99	0	3	3	0	3	1	8	executor	executor	0	0
+db::executor::pipeline::grouped_runtime	crates/icydb-core/src/db/executor/pipeline/grouped_runtime/mod.rs	9	0	0	0	0	0	0	0	executor		0	0
+db::executor::pipeline::grouped_runtime::route_stage	crates/icydb-core/src/db/executor/pipeline/grouped_runtime/route_stage.rs	112	0	1	0	1	1	0	10	executor	executor	0	0
+db::executor::pipeline::grouped_runtime::runtime	crates/icydb-core/src/db/executor/pipeline/grouped_runtime/runtime.rs	76	1	1	0	0	0	0	4	executor	executor	0	0
+db::executor::pipeline	crates/icydb-core/src/db/executor/pipeline/mod.rs	12	0	0	0	0	0	0	0	executor		0	0
+db::executor::pipeline::operators::distinct	crates/icydb-core/src/db/executor/pipeline/operators/distinct.rs	292	0	2	1	3	4	1	14	executor	query/plan,executor,index/storage	2	4
+db::executor::pipeline::operators	crates/icydb-core/src/db/executor/pipeline/operators/mod.rs	13	0	0	0	0	0	0	0	executor		0	0
+db::executor::pipeline::operators::post_access	crates/icydb-core/src/db/executor/pipeline/operators/post_access/mod.rs	470	3	5	0	11	11	0	14	executor	query/plan,executor	5	5
+db::executor::pipeline::operators::post_access::order_cursor	crates/icydb-core/src/db/executor/pipeline/operators/post_access/order_cursor.rs	37	0	2	0	0	0	0	6	executor	query/plan,executor	1	1
+db::executor::pipeline::operators::post_access::window	crates/icydb-core/src/db/executor/pipeline/operators/post_access/window.rs	38	0	2	1	1	2	1	1	executor	executor	0	0
+db::executor::pipeline::operators::reducer	crates/icydb-core/src/db/executor/pipeline/operators/reducer.rs	412	4	2	11	6	17	2	19	executor	query/plan,executor,index/storage	1	2
+db::executor::pipeline::orchestrator::guards	crates/icydb-core/src/db/executor/pipeline/orchestrator/guards.rs	41	0	1	0	0	0	0	2	executor	executor	0	0
+db::executor::pipeline::orchestrator	crates/icydb-core/src/db/executor/pipeline/orchestrator/mod.rs	384	4	2	7	2	9	1	10	executor	executor	0	0
+db::executor::pipeline::orchestrator::payload	crates/icydb-core/src/db/executor/pipeline/orchestrator/payload.rs	129	0	2	2	6	8	1	4	executor	executor	0	0
+db::executor::pipeline::orchestrator::state	crates/icydb-core/src/db/executor/pipeline/orchestrator/state.rs	79	5	0	0	0	0	0	5	executor	executor	0	0
+db::executor::pipeline::runtime::fast_path	crates/icydb-core/src/db/executor/pipeline/runtime/fast_path/mod.rs	173	0	1	2	1	3	1	11	executor	executor,index/storage	0	3
+db::executor::pipeline::runtime::fast_path::strategy	crates/icydb-core/src/db/executor/pipeline/runtime/fast_path/strategy.rs	197	3	4	3	2	5	1	7	executor	executor,index/storage	0	1
+db::executor::pipeline::runtime	crates/icydb-core/src/db/executor/pipeline/runtime/mod.rs	89	0	1	0	0	0	0	8	executor	executor	0	0
+db::executor::pipeline::stages	crates/icydb-core/src/db/executor/pipeline/stages/mod.rs	12	0	0	0	0	0	0	0	executor		0	0
+db::executor::pipeline::stages::planner	crates/icydb-core/src/db/executor/pipeline/stages/planner.rs	59	0	0	0	0	0	0	1	executor	executor	0	0
+db::executor::pipeline::stages::stage	crates/icydb-core/src/db/executor/pipeline/stages/stage.rs	60	1	0	1	0	1	1	0	executor		0	0
+db::executor::plan_metrics	crates/icydb-core/src/db/executor/plan_metrics.rs	101	1	6	1	0	1	1	3	executor	access	1	1
+db::executor::plan_validate	crates/icydb-core/src/db/executor/plan_validate.rs	31	0	1	0	0	0	0	5	executor	query/plan,access	2	2
+db::executor::preparation	crates/icydb-core/src/db/executor/preparation.rs	100	1	2	1	0	1	1	9	executor	query/plan,executor,index/storage	1	4
+db::executor::projection::eval	crates/icydb-core/src/db/executor/projection/eval/mod.rs	162	1	2	2	0	2	1	6	executor	query/plan,executor	1	1
+db::executor::projection::eval::operators::binary::comparison	crates/icydb-core/src/db/executor/projection/eval/operators/binary/comparison.rs	94	0	2	2	4	6	1	7	executor	query/plan,executor	1	1
+db::executor::projection::eval::operators::binary	crates/icydb-core/src/db/executor/projection/eval/operators/binary/mod.rs	124	0	2	4	1	5	1	5	executor	query/plan,executor	1	1
+db::executor::projection::eval::operators	crates/icydb-core/src/db/executor/projection/eval/operators/mod.rs	10	0	0	0	0	0	0	0	executor		0	0
+db::executor::projection::eval::operators::unary	crates/icydb-core/src/db/executor/projection/eval/operators/unary.rs	57	0	1	2	1	3	1	6	executor	query/plan,executor	1	1
+db::executor::projection::grouped	crates/icydb-core/src/db/executor/projection/grouped.rs	67	1	2	0	2	2	0	3	executor	query/plan	2	2
+db::executor::projection::materialize	crates/icydb-core/src/db/executor/projection/materialize.rs	183	1	4	4	3	7	1	11	executor	query/plan,executor	4	4
+db::executor::projection	crates/icydb-core/src/db/executor/projection/mod.rs	15	0	0	0	0	0	0	0	executor		0	0
+db::executor::route::capability	crates/icydb-core/src/db/executor/route/capability.rs	179	0	5	0	1	1	0	10	executor	query/plan,access,executor	4	4
+db::executor::route::contracts::capabilities	crates/icydb-core/src/db/executor/route/contracts/capabilities.rs	63	2	0	0	0	0	0	1	executor	executor	0	0
+db::executor::route::contracts::execution	crates/icydb-core/src/db/executor/route/contracts/execution/mod.rs	182	8	0	1	0	1	1	1	executor	executor	0	0
+db::executor::route::contracts::execution::observability	crates/icydb-core/src/db/executor/route/contracts/execution/observability.rs	82	3	0	0	0	0	0	1	executor	executor	0	0
+db::executor::route::contracts::execution::plan	crates/icydb-core/src/db/executor/route/contracts/execution/plan.rs	284	1	1	4	1	5	2	4	executor	access,executor	1	1
+db::executor::route::contracts	crates/icydb-core/src/db/executor/route/contracts/mod.rs	37	0	0	0	0	0	0	3	executor	executor	0	0
+db::executor::route::contracts::shape	crates/icydb-core/src/db/executor/route/contracts/shape.rs	108	4	0	0	0	0	0	3	executor	query/plan,executor	2	2
+db::executor::route::fast_path	crates/icydb-core/src/db/executor/route/fast_path.rs	128	0	3	0	0	0	0	8	executor	query/plan,executor	1	1
+db::executor::route::grouped_runtime	crates/icydb-core/src/db/executor/route/grouped_runtime.rs	62	0	1	1	0	1	1	7	executor	executor	0	0
+db::executor::route::guard	crates/icydb-core/src/db/executor/route/guard.rs	182	0	3	0	1	1	0	2	executor		0	0
+db::executor::route::hints::aggregate	crates/icydb-core/src/db/executor/route/hints/aggregate.rs	123	0	2	2	2	4	1	8	executor	query/plan,executor	3	3
+db::executor::route::hints::load	crates/icydb-core/src/db/executor/route/hints/load.rs	126	0	4	0	1	1	0	6	executor	query/plan,executor	2	2
+db::executor::route::hints	crates/icydb-core/src/db/executor/route/hints/mod.rs	7	0	0	0	0	0	0	0	executor		0	0
+db::executor::route	crates/icydb-core/src/db/executor/route/mod.rs	36	0	0	0	0	0	0	0	executor		0	0
+db::executor::route::mode	crates/icydb-core/src/db/executor/route/mode.rs	78	0	3	1	2	3	1	7	executor	query/plan,executor	3	3
+db::executor::route::planner::entrypoints	crates/icydb-core/src/db/executor/route/planner/entrypoints.rs	227	0	7	2	2	4	1	14	executor	query/plan,executor	4	4
+db::executor::route::planner::execution	crates/icydb-core/src/db/executor/route/planner/execution/mod.rs	101	0	1	2	0	2	1	4	executor	executor	0	0
+db::executor::route::planner::execution::shape_aggregate_count	crates/icydb-core/src/db/executor/route/planner/execution/shape_aggregate_count.rs	76	0	1	2	0	2	1	5	executor	executor	0	0
+db::executor::route::planner::execution::shape_aggregate_grouped	crates/icydb-core/src/db/executor/route/planner/execution/shape_aggregate_grouped.rs	44	0	1	0	1	1	0	5	executor	executor	0	0
+db::executor::route::planner::execution::shape_aggregate_non_count	crates/icydb-core/src/db/executor/route/planner/execution/shape_aggregate_non_count.rs	73	0	2	1	0	1	1	5	executor	executor	0	0
+db::executor::route::planner::execution::shape_load	crates/icydb-core/src/db/executor/route/planner/execution/shape_load.rs	47	0	0	0	1	1	0	5	executor	executor	0	0
+db::executor::route::planner::feasibility::gates	crates/icydb-core/src/db/executor/route/planner/feasibility/gates.rs	125	0	2	0	0	0	0	2	executor	executor	0	0
+db::executor::route::planner::feasibility::grouped_strategy	crates/icydb-core/src/db/executor/route/planner/feasibility/grouped_strategy.rs	89	0	0	0	1	1	0	3	executor	query/plan,executor	2	2
+db::executor::route::planner::feasibility	crates/icydb-core/src/db/executor/route/planner/feasibility/mod.rs	235	0	2	2	0	2	1	8	executor	query/plan,executor	5	5
+db::executor::route::planner::intent	crates/icydb-core/src/db/executor/route/planner/intent.rs	102	0	1	2	1	3	1	5	executor	query/plan,executor	1	1
+db::executor::route::planner	crates/icydb-core/src/db/executor/route/planner/mod.rs	103	4	1	0	1	1	0	6	executor	query/plan,access,executor	3	3
+db::executor::route::pushdown	crates/icydb-core/src/db/executor/route/pushdown.rs	96	0	2	0	0	0	0	4	executor	query/plan,access	6	6
+db::executor::route::semantics	crates/icydb-core/src/db/executor/route/semantics.rs	44	0	1	0	0	0	0	3	executor	query/plan	2	2
+db::executor::route::terminal	crates/icydb-core/src/db/executor/route/terminal.rs	112	3	3	0	0	0	0	6	executor	access,executor	1	1
+db::executor::runtime_context::load	crates/icydb-core/src/db/executor/runtime_context/load.rs	55	0	3	0	0	0	0	6	executor	executor	0	0
+db::executor::runtime_context	crates/icydb-core/src/db/executor/runtime_context/mod.rs	422	1	12	5	10	15	1	27	executor	executor,index/storage	0	14
+db::executor::scan::fast_stream	crates/icydb-core/src/db/executor/scan/fast_stream/mod.rs	55	0	1	0	0	0	0	8	executor	executor	0	0
+db::executor::scan::fast_stream_route::handlers	crates/icydb-core/src/db/executor/scan/fast_stream_route/handlers.rs	141	0	3	0	1	1	0	14	executor	query/plan,executor,index/storage	1	2
+db::executor::scan::fast_stream_route	crates/icydb-core/src/db/executor/scan/fast_stream_route/mod.rs	127	2	1	1	0	1	1	11	executor	query/plan,executor,index/storage	1	2
+db::executor::scan::index_range_limit	crates/icydb-core/src/db/executor/scan/index_range_limit.rs	46	0	1	0	0	0	0	10	executor	query/plan,executor,index/storage	1	2
+db::executor::scan	crates/icydb-core/src/db/executor/scan/mod.rs	12	0	0	0	0	0	0	0	executor		0	0
+db::executor::scan::pk_stream	crates/icydb-core/src/db/executor/scan/pk_stream.rs	41	0	1	0	0	0	0	8	executor	query/plan,executor	1	1
+db::executor::scan::secondary_index	crates/icydb-core/src/db/executor/scan/secondary_index.rs	47	0	1	0	0	0	0	10	executor	query/plan,executor,index/storage	1	2
+db::executor::stream::access::bindings	crates/icydb-core/src/db/executor/stream/access/bindings.rs	305	7	4	0	3	3	0	12	executor	access,executor,index/storage	1	2
+db::executor::stream::access	crates/icydb-core/src/db/executor/stream/access/mod.rs	18	0	0	0	0	0	0	0	executor		0	0
+db::executor::stream::access::physical	crates/icydb-core/src/db/executor/stream/access/physical.rs	336	1	1	2	8	10	1	19	executor	access,executor,index/storage	2	4
+db::executor::stream::access::scan	crates/icydb-core/src/db/executor/stream/access/scan.rs	208	2	3	2	3	5	1	12	executor	executor,index/storage	0	2
+db::executor::stream::access::traversal	crates/icydb-core/src/db/executor/stream/access/traversal.rs	369	0	5	3	8	11	1	15	executor	access,executor,index/storage	3	4
+db::executor::stream::key::composite	crates/icydb-core/src/db/executor/stream/key/composite.rs	387	2	0	2	13	15	1	6	executor	executor,index/storage	0	2
+db::executor::stream::key::contracts	crates/icydb-core/src/db/executor/stream/key/contracts.rs	143	4	2	1	1	2	1	2	executor	index/storage	0	1
+db::executor::stream::key::distinct	crates/icydb-core/src/db/executor/stream/key/distinct.rs	89	1	0	0	4	4	0	3	executor	executor,index/storage	0	1
+db::executor::stream::key	crates/icydb-core/src/db/executor/stream/key/mod.rs	16	0	0	0	0	0	0	0	executor		0	0
+db::executor::stream::key::order	crates/icydb-core/src/db/executor/stream/key/order.rs	68	1	3	3	0	3	1	3	executor	index/storage	0	2
+db::executor::stream	crates/icydb-core/src/db/executor/stream/mod.rs	7	0	0	0	0	0	0	0	executor		0	0
+db::executor::terminal::bytes	crates/icydb-core/src/db/executor/terminal/bytes.rs	161	0	2	2	1	3	1	17	executor	query/plan,access,executor,index/storage	3	4
+db::executor::terminal	crates/icydb-core/src/db/executor/terminal/mod.rs	76	0	2	0	3	3	0	5	executor	query/plan,executor,codec	1	2
+db::executor::terminal::page	crates/icydb-core/src/db/executor/terminal/page.rs	135	1	2	0	3	3	0	15	executor	query/plan,executor	1	1
+db::executor::terminal::ranking::by_slot	crates/icydb-core/src/db/executor/terminal/ranking/by_slot.rs	148	0	6	0	0	0	0	10	executor	query/plan,executor	1	1
+db::executor::terminal::ranking::materialized	crates/icydb-core/src/db/executor/terminal/ranking/materialized/mod.rs	119	0	2	1	2	3	1	8	executor	executor	0	0
+db::executor::terminal::ranking::materialized::projections	crates/icydb-core/src/db/executor/terminal/ranking/materialized/projections.rs	152	0	6	0	0	0	0	8	executor	executor	0	0
+db::executor::terminal::ranking	crates/icydb-core/src/db/executor/terminal/ranking/mod.rs	8	0	0	0	0	0	0	0	executor		0	0
+db::executor::terminal::ranking::take	crates/icydb-core/src/db/executor/terminal/ranking/take.rs	44	0	1	0	1	1	0	6	executor	executor	0	0
+db::executor::traversal	crates/icydb-core/src/db/executor/traversal.rs	51	0	2	0	0	0	0	2	executor	query/plan	2	2
+db::executor::util	crates/icydb-core/src/db/executor/util.rs	36	0	0	0	1	1	0	0	executor		0	0
+db::executor::window	crates/icydb-core/src/db/executor/window.rs	202	1	7	0	2	2	0	11	executor	query/plan,executor	1	1
+db::identity	crates/icydb-core/src/db/identity/mod.rs	394	5	10	0	15	15	0	1	support		0	0
+db::index::entry	crates/icydb-core/src/db/index/entry.rs	466	4	14	1	9	10	1	7	index/storage	index/storage	0	0
+db::index::envelope	crates/icydb-core/src/db/index/envelope.rs	102	1	2	2	0	2	1	0	index/storage		0	0
+db::index::key::build	crates/icydb-core/src/db/index/key/build.rs	358	0	8	6	13	19	1	11	index/storage	index/storage	0	0
+db::index::key::codec::bounds	crates/icydb-core/src/db/index/key/codec/bounds.rs	62	0	4	0	0	0	0	4	index/storage	index/storage	0	0
+db::index::key::codec::envelope	crates/icydb-core/src/db/index/key/codec/envelope.rs	39	0	1	0	0	0	0	2	index/storage	index/storage	0	0
+db::index::key::codec::error	crates/icydb-core/src/db/index/key/codec/error.rs	14	0	0	0	0	0	0	0	index/storage		0	0
+db::index::key::codec	crates/icydb-core/src/db/index/key/codec/mod.rs	199	2	5	1	3	4	1	5	index/storage	index/storage	0	0
+db::index::key::codec::scalar	crates/icydb-core/src/db/index/key/codec/scalar.rs	36	1	0	1	0	1	1	1	index/storage	index/storage	0	0
+db::index::key::codec::tuple	crates/icydb-core/src/db/index/key/codec/tuple.rs	78	0	4	0	5	5	0	1	index/storage	index/storage	0	0
+db::index::key::id	crates/icydb-core/src/db/index/key/id.rs	27	1	0	0	0	0	0	1	index/storage		0	0
+db::index::key	crates/icydb-core/src/db/index/key/mod.rs	16	0	0	0	0	0	0	0	index/storage		0	0
+db::index::key::ordered::error	crates/icydb-core/src/db/index/key/ordered/error.rs	39	1	0	0	0	0	0	1	index/storage		0	0
+db::index::key::ordered	crates/icydb-core/src/db/index/key/ordered/mod.rs	162	1	5	1	1	2	1	3	index/storage	index/storage	0	0
+db::index::key::ordered::normalize	crates/icydb-core/src/db/index/key/ordered/normalize.rs	220	0	3	0	10	10	0	4	index/storage	index/storage	0	0
+db::index::key::ordered::parts	crates/icydb-core/src/db/index/key/ordered/parts.rs	117	0	5	2	3	5	1	4	index/storage	index/storage	0	0
+db::index::key::ordered::semantics	crates/icydb-core/src/db/index/key/ordered/semantics.rs	92	1	0	0	2	2	0	7	index/storage	index/storage	0	0
+db::index	crates/icydb-core/src/db/index/mod.rs	33	0	0	0	0	0	0	0	index/storage		0	0
+db::index::pk_equivalence	crates/icydb-core/src/db/index/pk_equivalence.rs	52	1	1	0	0	0	0	5	index/storage	index/storage	0	0
+db::index::plan::commit_ops	crates/icydb-core/src/db/index/plan/commit_ops.rs	133	0	1	1	7	8	1	10	index/storage	index/storage	0	0
+db::index::plan	crates/icydb-core/src/db/index/plan/mod.rs	233	4	2	2	4	6	1	14	index/storage	index/storage	0	0
+db::index::plan::private	crates/icydb-core/src/db/index/plan/private.rs	22	2	0	0	0	0	0	2	index/storage		0	0
+db::index::plan::unique	crates/icydb-core/src/db/index/plan/unique.rs	193	0	1	0	6	6	0	15	index/storage	index/storage	0	0
+db::index::predicate::compile	crates/icydb-core/src/db/index/predicate/compile.rs	263	1	1	10	6	16	2	9	index/storage	index/storage	0	0
+db::index::predicate	crates/icydb-core/src/db/index/predicate/mod.rs	179	4	4	2	3	5	1	4	index/storage	index/storage	0	0
+db::index::range	crates/icydb-core/src/db/index/range.rs	207	1	5	4	2	6	1	9	index/storage	index/storage	0	0
+db::index::scan	crates/icydb-core/src/db/index/scan.rs	262	0	2	2	10	12	1	15	index/storage	executor,index/storage	5	5
+db::index::store	crates/icydb-core/src/db/index/store.rs	227	2	10	0	4	4	0	3	index/storage	index/storage	0	0
+db	crates/icydb-core/src/db/mod.rs	231	1	10	0	1	1	0	11	support	executor,index/storage	0	0
+db::numeric	crates/icydb-core/src/db/numeric/mod.rs	193	1	9	2	2	4	1	3	support		0	0
+db::predicate::coercion	crates/icydb-core/src/db/predicate/coercion.rs	132	4	1	2	0	2	1	1	support		0	0
+db::predicate::encoding	crates/icydb-core/src/db/predicate/encoding.rs	611	0	3	9	5	14	2	13	support	codec	0	0
+db::predicate::fingerprint	crates/icydb-core/src/db/predicate/fingerprint.rs	158	0	1	0	0	0	0	7	support		0	0
+db::predicate	crates/icydb-core/src/db/predicate/mod.rs	32	0	0	0	0	0	0	0	support		0	0
+db::predicate::model	crates/icydb-core/src/db/predicate/model.rs	304	5	20	0	0	0	0	2	support		0	0
+db::predicate::normalize	crates/icydb-core/src/db/predicate/normalize.rs	628	0	2	11	8	19	2	10	support		0	0
+db::predicate::resolved	crates/icydb-core/src/db/predicate/resolved.rs	62	2	0	0	0	0	0	3	support		0	0
+db::predicate::row_policy	crates/icydb-core/src/db/predicate/row_policy.rs	22	1	0	0	0	0	0	0	support		0	0
+db::predicate::runtime	crates/icydb-core/src/db/predicate/runtime.rs	279	1	3	7	2	9	1	16	support		0	0
+db::predicate::semantics	crates/icydb-core/src/db/predicate/semantics.rs	196	1	5	7	5	12	1	6	support		0	0
+db::predicate::simplify	crates/icydb-core/src/db/predicate/simplify.rs	297	0	1	10	13	23	1	5	support		0	0
+db::query::access::access_visitor	crates/icydb-core/src/db/query/access/access_visitor.rs	82	1	1	1	0	1	1	2	query/plan	query/plan	0	0
+db::query::access	crates/icydb-core/src/db/query/access/mod.rs	8	0	0	0	0	0	0	0	query/plan		0	0
+db::query::api	crates/icydb-core/src/db/query/api/mod.rs	13	0	0	0	0	0	0	0	query/plan		0	0
+db::query::api::private	crates/icydb-core/src/db/query/api/private.rs	17	1	0	0	0	0	0	2	query/plan		0	0
+db::query::api::result_ext	crates/icydb-core/src/db/query/api/result_ext.rs	94	1	0	2	1	3	1	6	query/plan	query/plan	0	0
+db::query::builder::aggregate	crates/icydb-core/src/db/query/builder/aggregate.rs	259	1	7	3	2	5	1	2	query/plan	query/plan	0	0
+db::query::builder::field	crates/icydb-core/src/db/query/builder/field.rs	189	1	16	2	0	2	1	6	query/plan		0	0
+db::query::builder	crates/icydb-core/src/db/query/builder/mod.rs	12	0	0	0	0	0	0	0	query/plan		0	0
+db::query::explain::access_projection	crates/icydb-core/src/db/query/explain/access_projection.rs	311	0	3	0	2	2	0	6	query/plan	query/plan,access	0	1
+db::query::explain::execution	crates/icydb-core/src/db/query/explain/execution.rs	458	7	3	6	0	6	2	3	query/plan	query/plan	0	0
+db::query::explain::json	crates/icydb-core/src/db/query/explain/json.rs	116	0	1	11	1	12	1	1	query/plan	query/plan	0	0
+db::query::explain	crates/icydb-core/src/db/query/explain/mod.rs	22	0	0	0	0	0	0	0	query/plan		0	0
+db::query::explain::nodes::aggregate	crates/icydb-core/src/db/query/explain/nodes/aggregate.rs	25	0	0	0	0	0	0	1	query/plan	query/plan	0	0
+db::query::explain::nodes	crates/icydb-core/src/db/query/explain/nodes/mod.rs	80	0	3	4	6	10	1	2	query/plan	query/plan	0	0
+db::query::explain::nodes::pipeline	crates/icydb-core/src/db/query/explain/nodes/pipeline.rs	20	0	0	0	0	0	0	1	query/plan	query/plan	0	0
+db::query::explain::nodes::scan	crates/icydb-core/src/db/query/explain/nodes/scan.rs	21	0	0	0	0	0	0	1	query/plan	query/plan	0	0
+db::query::explain::nodes::terminal	crates/icydb-core/src/db/query/explain/nodes/terminal.rs	15	0	0	0	0	0	0	1	query/plan	query/plan	0	0
+db::query::explain::plan	crates/icydb-core/src/db/query/explain/plan.rs	821	15	6	14	2	16	2	15	query/plan	query/plan,access	0	4
+db::query::explain::render	crates/icydb-core/src/db/query/explain/render.rs	227	0	2	0	25	25	0	2	query/plan	query/plan	0	0
+db::query::explain::writer	crates/icydb-core/src/db/query/explain/writer.rs	141	1	12	1	4	5	1	0	query/plan		0	0
+db::query::expr	crates/icydb-core/src/db/query/expr.rs	92	3	3	0	0	0	0	8	query/plan	query/plan	0	0
+db::query::fingerprint::aggregate_hash	crates/icydb-core/src/db/query/fingerprint/aggregate_hash.rs	195	1	1	2	1	3	1	3	query/plan	query/plan	0	0
+db::query::fingerprint::fingerprint	crates/icydb-core/src/db/query/fingerprint/fingerprint.rs	948	1	3	0	0	0	0	17	query/plan	intent,query/plan,access,codec	2	4
+db::query::fingerprint::hash_parts	crates/icydb-core/src/db/query/fingerprint/hash_parts.rs	984	1	13	18	6	24	2	14	query/plan	query/plan,access,codec	0	5
+db::query::fingerprint	crates/icydb-core/src/db/query/fingerprint/mod.rs	36	0	3	0	0	0	0	2	query/plan	codec	0	2
+db::query::fingerprint::projection_hash	crates/icydb-core/src/db/query/fingerprint/projection_hash.rs	454	1	2	6	2	8	1	7	query/plan	query/plan,codec	0	1
+db::query::fingerprint::shape_signature	crates/icydb-core/src/db/query/fingerprint/shape_signature/mod.rs	100	0	2	0	0	0	0	5	query/plan	query/plan,executor	0	1
+db::query::fluent::delete	crates/icydb-core/src/db/query/fluent/delete.rs	215	1	19	0	0	0	0	12	query/plan	intent,query/plan	4	4
+db::query::fluent::load::builder	crates/icydb-core/src/db/query/fluent/load/builder.rs	250	1	23	0	2	2	0	12	query/plan	intent,query/plan	4	4
+db::query::fluent::load	crates/icydb-core/src/db/query/fluent/load/mod.rs	12	0	0	0	0	0	0	0	query/plan		0	0
+db::query::fluent::load::pagination	crates/icydb-core/src/db/query/fluent/load/pagination.rs	129	1	6	0	0	0	0	7	query/plan	intent,query/plan	2	2
+db::query::fluent::load::terminals	crates/icydb-core/src/db/query/fluent/load/terminals.rs	652	0	44	0	6	6	0	15	query/plan	intent,query/plan,executor	1	3
+db::query::fluent::load::validation	crates/icydb-core/src/db/query/fluent/load/validation.rs	77	0	7	0	2	2	0	4	query/plan	intent,query/plan	2	2
+db::query::fluent	crates/icydb-core/src/db/query/fluent/mod.rs	7	0	0	0	0	0	0	0	query/plan		0	0
+db::query::intent::errors	crates/icydb-core/src/db/query/intent/errors.rs	390	4	1	7	1	8	1	7	intent	query/plan,executor	0	7
+db::query::intent::key_access	crates/icydb-core/src/db/query/intent/key_access.rs	99	3	4	1	0	1	1	8	intent	query/plan,access	0	4
+db::query::intent	crates/icydb-core/src/db/query/intent/mod.rs	39	0	0	0	0	0	0	3	intent	query/plan	0	2
+db::query::intent::model	crates/icydb-core/src/db/query/intent/model.rs	369	1	20	2	6	8	1	12	intent	intent,query/plan,access	0	25
+db::query::intent::mutation	crates/icydb-core/src/db/query/intent/mutation.rs	170	0	12	1	7	8	1	3	intent	intent,query/plan	0	8
+db::query::intent::order	crates/icydb-core/src/db/query/intent/order.rs	23	0	1	1	0	1	1	1	intent	query/plan	0	2
+db::query::intent::planning	crates/icydb-core/src/db/query/intent/planning.rs	45	0	2	1	0	1	1	3	intent	intent,query/plan	0	2
+db::query::intent::policy	crates/icydb-core/src/db/query/intent/policy.rs	43	0	1	1	0	1	1	2	intent	intent,query/plan	0	3
+db::query::intent::query	crates/icydb-core/src/db/query/intent/query.rs	800	3	33	7	7	14	1	15	intent	intent,query/plan	0	12
+db::query::intent::state	crates/icydb-core/src/db/query/intent/state.rs	543	5	3	18	3	21	2	5	intent	intent,query/plan	0	13
+db::query	crates/icydb-core/src/db/query/mod.rs	31	0	0	0	0	0	0	0	query/plan		0	0
+db::query::plan::access_choice	crates/icydb-core/src/db/query/plan/access_choice.rs	830	4	2	12	45	57	1	12	query/plan	query/plan	0	0
+db::query::plan::access_plan	crates/icydb-core/src/db/query/plan/access_plan.rs	121	1	6	1	0	1	1	5	query/plan	query/plan,access	0	3
+db::query::plan::access_planner	crates/icydb-core/src/db/query/plan/access_planner.rs	93	1	4	1	1	2	1	10	query/plan	query/plan,access	0	1
+db::query::plan::constant_predicate	crates/icydb-core/src/db/query/plan/constant_predicate.rs	30	0	1	1	0	1	1	1	query/plan		0	0
+db::query::plan::continuation	crates/icydb-core/src/db/query/plan/continuation.rs	513	3	14	2	17	19	1	10	query/plan	query/plan,access,executor	0	6
+db::query::plan::covering	crates/icydb-core/src/db/query/plan/covering.rs	495	2	3	2	10	12	1	7	query/plan	query/plan,access	0	2
+db::query::plan::expr::ast	crates/icydb-core/src/db/query/plan/expr/ast.rs	139	5	2	0	0	0	0	2	query/plan	query/plan	0	0
+db::query::plan::expr	crates/icydb-core/src/db/query/plan/expr/mod.rs	12	0	0	0	0	0	0	0	query/plan		0	0
+db::query::plan::expr::projection	crates/icydb-core/src/db/query/plan/expr/projection.rs	106	3	2	1	0	1	1	1	query/plan	query/plan	0	0
+db::query::plan::expr::type_inference	crates/icydb-core/src/db/query/plan/expr/type_inference/mod.rs	372	2	1	9	9	18	1	6	query/plan	query/plan	0	0
+db::query::plan::group	crates/icydb-core/src/db/query/plan/group.rs	351	4	1	5	0	5	2	3	query/plan	query/plan	0	0
+db::query::plan::grouped_layout	crates/icydb-core/src/db/query/plan/grouped_layout.rs	65	0	1	0	5	5	0	2	query/plan	query/plan	0	0
+db::query::plan::limit_zero	crates/icydb-core/src/db/query/plan/limit_zero.rs	12	0	1	0	1	1	0	1	query/plan	query/plan	0	0
+db::query::plan::logical_builder	crates/icydb-core/src/db/query/plan/logical_builder.rs	183	2	2	2	3	5	1	4	query/plan	query/plan	0	0
+db::query::plan	crates/icydb-core/src/db/query/plan/mod.rs	94	0	0	0	0	0	0	0	query/plan		0	0
+db::query::plan::model	crates/icydb-core/src/db/query/plan/model.rs	565	22	7	2	5	7	1	6	query/plan	query/plan,executor	0	1
+db::query::plan::model_builder	crates/icydb-core/src/db/query/plan/model_builder.rs	72	0	1	0	0	0	0	1	query/plan	query/plan	0	0
+db::query::plan::order_contract	crates/icydb-core/src/db/query/plan/order_contract.rs	134	2	2	4	1	5	1	2	query/plan	query/plan	0	0
+db::query::plan::planner::compare	crates/icydb-core/src/db/query/plan/planner/compare.rs	216	0	1	3	16	19	2	10	query/plan	query/plan,access	0	2
+db::query::plan::planner::index_select	crates/icydb-core/src/db/query/plan/planner/index_select.rs	76	0	4	0	2	2	0	6	query/plan		0	0
+db::query::plan::planner	crates/icydb-core/src/db/query/plan/planner/mod.rs	90	1	1	0	0	0	0	8	query/plan	query/plan,access	0	1
+db::query::plan::planner::predicate	crates/icydb-core/src/db/query/plan/planner/predicate.rs	126	0	1	1	10	11	1	10	query/plan	query/plan,access	0	1
+db::query::plan::planner::prefix	crates/icydb-core/src/db/query/plan/planner/prefix.rs	141	0	3	1	11	12	1	9	query/plan	query/plan,access	0	1
+db::query::plan::planner::range	crates/icydb-core/src/db/query/plan/planner/range.rs	382	0	1	12	16	28	2	12	query/plan	query/plan,access	0	1
+db::query::plan::projection	crates/icydb-core/src/db/query/plan/projection.rs	107	0	2	3	0	3	1	3	query/plan	query/plan	0	0
+db::query::plan::semantics::access_projection	crates/icydb-core/src/db/query/plan/semantics/access_projection.rs	516	1	2	2	0	2	1	6	query/plan	query/plan,access	0	2
+db::query::plan::semantics::group_distinct	crates/icydb-core/src/db/query/plan/semantics/group_distinct.rs	266	3	6	4	8	12	1	2	query/plan	query/plan	0	0
+db::query::plan::semantics::group_having	crates/icydb-core/src/db/query/plan/semantics/group_having.rs	124	1	2	1	3	4	1	5	query/plan	query/plan	0	0
+db::query::plan::semantics::group_model	crates/icydb-core/src/db/query/plan/semantics/group_model.rs	175	0	5	0	0	0	0	4	query/plan	query/plan	0	0
+db::query::plan::semantics::grouped_strategy	crates/icydb-core/src/db/query/plan/semantics/grouped_strategy.rs	101	1	1	0	8	8	0	2	query/plan	query/plan,access	0	1
+db::query::plan::semantics::logical	crates/icydb-core/src/db/query/plan/semantics/logical.rs	184	0	5	7	4	11	1	4	query/plan	query/plan,access	0	1
+db::query::plan::semantics	crates/icydb-core/src/db/query/plan/semantics/mod.rs	33	0	0	0	0	0	0	0	query/plan		0	0
+db::query::plan::semantics::pushdown	crates/icydb-core/src/db/query/plan/semantics/pushdown.rs	87	1	2	0	0	0	0	2	query/plan	query/plan	0	0
+db::query::plan::stability	crates/icydb-core/src/db/query/plan/stability.rs	71	0	2	0	0	0	0	5	query/plan	access	0	4
+db::query::plan::validate::core	crates/icydb-core/src/db/query/plan/validate/core.rs	126	0	2	1	2	3	1	6	query/plan	query/plan,access	0	1
+db::query::plan::validate::cursor_policy	crates/icydb-core/src/db/query/plan/validate/cursor_policy.rs	115	0	1	2	0	2	1	1	query/plan	query/plan	0	0
+db::query::plan::validate::errors	crates/icydb-core/src/db/query/plan/validate/errors.rs	477	12	0	0	1	1	0	3	query/plan	access,executor	0	2
+db::query::plan::validate::fluent_policy	crates/icydb-core/src/db/query/plan/validate/fluent_policy.rs	213	0	2	2	0	2	2	2	query/plan	query/plan	0	0
+db::query::plan::validate::grouped::cursor	crates/icydb-core/src/db/query/plan/validate/grouped/cursor/mod.rs	42	0	1	0	0	0	0	1	query/plan	query/plan	0	0
+db::query::plan::validate::grouped	crates/icydb-core/src/db/query/plan/validate/grouped/mod.rs	16	0	0	0	0	0	0	0	query/plan		0	0
+db::query::plan::validate::grouped::policy	crates/icydb-core/src/db/query/plan/validate/grouped/policy/mod.rs	117	0	1	2	0	2	1	2	query/plan	query/plan	0	0
+db::query::plan::validate::grouped::policy::rules	crates/icydb-core/src/db/query/plan/validate/grouped/policy/rules.rs	198	0	3	0	0	0	0	3	query/plan	query/plan	0	0
+db::query::plan::validate::grouped::projection_expr	crates/icydb-core/src/db/query/plan/validate/grouped/projection_expr/mod.rs	68	0	2	2	0	2	1	2	query/plan	query/plan	0	0
+db::query::plan::validate::grouped::structure	crates/icydb-core/src/db/query/plan/validate/grouped/structure/mod.rs	151	0	1	2	1	3	1	3	query/plan	query/plan	0	0
+db::query::plan::validate::intent_policy	crates/icydb-core/src/db/query/plan/validate/intent_policy.rs	259	0	2	0	1	1	0	2	query/plan	query/plan	0	0
+db::query::plan::validate	crates/icydb-core/src/db/query/plan/validate/mod.rs	45	0	0	0	0	0	0	0	query/plan		0	0
+db::query::plan::validate::order	crates/icydb-core/src/db/query/plan/validate/order.rs	82	0	3	0	1	1	0	3	query/plan	query/plan	0	0
+db::query::plan::validate::plan_shape	crates/icydb-core/src/db/query/plan/validate/plan_shape.rs	162	0	4	1	3	4	1	1	query/plan	query/plan	0	0
+db::query::plan::validate::symbols	crates/icydb-core/src/db/query/plan/validate/symbols.rs	24	0	1	0	0	0	0	2	query/plan	query/plan	0	0
+db::query::policy	crates/icydb-core/src/db/query/policy.rs	23	0	0	0	0	0	0	1	query/plan	query/plan	0	0
+db::query::trace	crates/icydb-core/src/db/query/trace.rs	75	2	0	0	0	0	0	1	query/plan	query/plan	0	0
+db::registry	crates/icydb-core/src/db/registry.rs	282	3	8	1	2	3	1	7	support	index/storage	0	0
+db::relation::metadata	crates/icydb-core/src/db/relation/metadata.rs	111	2	1	1	2	3	1	2	index/storage		0	0
+db::relation	crates/icydb-core/src/db/relation/mod.rs	268	2	5	5	3	8	1	11	index/storage	index/storage	0	0
+db::relation::reverse_index	crates/icydb-core/src/db/relation/reverse_index.rs	319	0	5	2	9	11	1	25	index/storage	index/storage	0	0
+db::relation::save_validate	crates/icydb-core/src/db/relation/save_validate.rs	100	0	1	0	1	1	0	11	index/storage	index/storage	0	0
+db::relation::validate	crates/icydb-core/src/db/relation/validate.rs	139	0	1	0	3	3	0	14	index/storage	index/storage	0	0
+db::response::grouped	crates/icydb-core/src/db/response/grouped.rs	166	3	7	0	0	0	0	3	support		0	0
+db::response	crates/icydb-core/src/db/response/mod.rs	355	8	15	0	2	2	0	5	support		0	0
+db::response::paged	crates/icydb-core/src/db/response/paged.rs	153	2	8	0	0	0	0	5	support		0	0
+db::response::private	crates/icydb-core/src/db/response/private.rs	12	1	0	0	0	0	0	0	support		0	0
+db::schema::describe	crates/icydb-core/src/db/schema/describe.rs	670	6	1	5	1	6	1	8	support		0	0
+db::schema::errors	crates/icydb-core/src/db/schema/errors.rs	91	1	2	0	0	0	0	5	support		0	0
+db::schema::fingerprint	crates/icydb-core/src/db/schema/fingerprint.rs	59	0	1	0	0	0	0	3	support	index/storage	0	0
+db::schema::format	crates/icydb-core/src/db/schema/format.rs	25	0	1	0	1	1	0	1	support		0	0
+db::schema::info	crates/icydb-core/src/db/schema/info.rs	148	1	3	0	8	8	0	8	support		0	0
+db::schema	crates/icydb-core/src/db/schema/mod.rs	25	0	0	0	0	0	0	0	support		0	0
+db::schema::types	crates/icydb-core/src/db/schema/types.rs	280	2	2	16	1	17	2	4	support		0	0
+db::schema::validate	crates/icydb-core/src/db/schema/validate.rs	360	0	2	7	20	27	1	13	support		0	0
+db::session	crates/icydb-core/src/db/session.rs	3367	1	30	16	9	25	2	56	support	intent,query/plan,access,executor,index/storage	0	0
+db::sql::lowering	crates/icydb-core/src/db/sql/lowering.rs	1457	4	2	16	34	50	2	15	query/plan	intent,query/plan,executor	2	3
+db::sql	crates/icydb-core/src/db/sql/mod.rs	7	0	0	0	0	0	0	0	query/plan		0	0
+db::sql::parser	crates/icydb-core/src/db/sql/parser.rs	1683	13	1	11	74	85	1	7	query/plan	query/plan	0	0
+error	crates/icydb-core/src/error/mod.rs	535	6	31	3	2	5	1	1	support		0	0
+lib	crates/icydb-core/src/lib.rs	56	0	0	0	0	0	0	6	support		0	0
+metrics	crates/icydb-core/src/metrics/mod.rs	25	0	0	0	0	0	0	0	support		0	0
+metrics::sink	crates/icydb-core/src/metrics/sink.rs	752	7	5	7	2	9	2	2	support		0	0
+metrics::state	crates/icydb-core/src/metrics/state.rs	714	6	9	2	5	7	2	0	support		0	0
+model::entity	crates/icydb-core/src/model/entity.rs	119	1	2	0	0	0	0	2	support		0	0
+model::field	crates/icydb-core/src/model/field.rs	184	3	0	2	1	3	1	1	support		0	0
+model::index	crates/icydb-core/src/model/index.rs	83	1	1	0	1	1	0	0	support		0	0
+model	crates/icydb-core/src/model/mod.rs	33	0	0	0	0	0	0	0	support		0	0
+patch::list	crates/icydb-core/src/patch/list.rs	73	1	0	0	0	0	0	1	support		0	0
+patch::map	crates/icydb-core/src/patch/map.rs	141	1	0	1	0	1	1	2	support		0	0
+patch::merge::error	crates/icydb-core/src/patch/merge/error.rs	87	1	3	3	2	5	1	0	support		0	0
+patch::merge::list	crates/icydb-core/src/patch/merge/list.rs	65	0	1	1	2	3	1	3	support		0	0
+patch::merge::map	crates/icydb-core/src/patch/merge/map.rs	418	0	2	3	7	10	1	3	support		0	0
+patch::merge	crates/icydb-core/src/patch/merge/mod.rs	17	0	0	0	0	0	0	0	support		0	0
+patch::merge::scalar	crates/icydb-core/src/patch/merge/scalar.rs	48	0	2	1	1	2	1	3	support		0	0
+patch::merge::set	crates/icydb-core/src/patch/merge/set.rs	131	0	2	1	0	1	1	3	support		0	0
+patch	crates/icydb-core/src/patch/mod.rs	16	0	0	0	0	0	0	0	support		0	0
+patch::set	crates/icydb-core/src/patch/set.rs	54	1	0	0	0	0	0	1	support		0	0
+sanitize	crates/icydb-core/src/sanitize.rs	28	0	1	0	0	0	0	6	support		0	0
+scalar_registry	crates/icydb-core/src/scalar_registry.rs	174	0	0	0	0	0	0	0	support		0	0
+serialize::cbor	crates/icydb-core/src/serialize/cbor.rs	96	0	4	1	1	2	1	1	codec	codec	0	0
+serialize	crates/icydb-core/src/serialize/mod.rs	115	2	4	2	0	2	1	0	codec		0	0
+traits::atomic	crates/icydb-core/src/traits/atomic.rs	39	1	0	0	0	0	0	0	support		0	0
+traits::macros	crates/icydb-core/src/traits/macros.rs	26	0	0	0	0	0	0	0	support		0	0
+traits	crates/icydb-core/src/traits/mod.rs	573	23	0	4	3	7	1	4	support		0	0
+traits::view	crates/icydb-core/src/traits/view.rs	324	3	0	0	4	4	0	6	support		0	0
+traits::visitor	crates/icydb-core/src/traits/visitor.rs	240	7	0	0	6	6	0	6	support		0	0
+types::account	crates/icydb-core/src/types/account.rs	576	2	6	1	16	17	1	14	support		0	0
+types::blob	crates/icydb-core/src/types/blob.rs	129	1	6	1	0	1	1	10	support		0	0
+types::date	crates/icydb-core/src/types/date.rs	455	1	7	3	2	5	1	13	support		0	0
+types::decimal	crates/icydb-core/src/types/decimal.rs	1392	3	9	5	72	77	1	13	support		0	0
+types::duration	crates/icydb-core/src/types/duration.rs	496	1	1	2	7	9	1	14	support		0	0
+types::float::float32	crates/icydb-core/src/types/float/float32.rs	281	2	2	1	8	9	1	13	support		0	0
+types::float::float64	crates/icydb-core/src/types/float/float64.rs	276	2	2	1	7	8	1	13	support		0	0
+types::float	crates/icydb-core/src/types/float/mod.rs	10	0	0	0	0	0	0	0	support		0	0
+types::identity::generate_key	crates/icydb-core/src/types/identity/generate_key.rs	17	1	0	0	0	0	0	0	support		0	0
+types::identity::id	crates/icydb-core/src/types/identity/id.rs	383	1	3	0	0	0	0	14	support		0	0
+types::identity	crates/icydb-core/src/types/identity/mod.rs	12	0	0	0	0	0	0	0	support		0	0
+types::identity::projection	crates/icydb-core/src/types/identity/projection.rs	174	1	1	0	1	1	0	5	support		0	0
+types::int::int128	crates/icydb-core/src/types/int/int128.rs	288	1	0	1	1	2	1	13	support		0	0
+types::int	crates/icydb-core/src/types/int/mod.rs	183	1	6	1	0	1	1	10	support		0	0
+types	crates/icydb-core/src/types/mod.rs	58	10	0	0	0	0	0	0	support		0	0
+types::nat	crates/icydb-core/src/types/nat/mod.rs	193	1	6	1	1	2	1	10	support		0	0
+types::nat::nat128	crates/icydb-core/src/types/nat/nat128.rs	267	1	0	1	1	2	1	12	support		0	0
+types::principal	crates/icydb-core/src/types/principal.rs	321	4	3	2	2	4	1	11	support		0	0
+types::subaccount	crates/icydb-core/src/types/subaccount.rs	282	1	2	1	1	2	1	13	support		0	0
+types::timestamp	crates/icydb-core/src/types/timestamp.rs	610	1	5	6	4	10	1	16	support		0	0
+types::ulid::fixture	crates/icydb-core/src/types/ulid/fixture.rs	88	0	1	0	2	2	0	1	support		0	0
+types::ulid::generator	crates/icydb-core/src/types/ulid/generator.rs	78	1	2	0	2	2	0	2	support		0	0
+types::ulid	crates/icydb-core/src/types/ulid/mod.rs	264	3	4	2	3	5	1	13	support		0	0
+types::unit	crates/icydb-core/src/types/unit.rs	96	1	0	0	0	0	0	11	support		0	0
+validate	crates/icydb-core/src/validate.rs	29	0	1	0	0	0	0	6	support		0	0
+value::coercion	crates/icydb-core/src/value/coercion.rs	39	2	0	0	0	0	0	0	support		0	0
+value::compare	crates/icydb-core/src/value/compare.rs	153	0	3	3	7	10	1	2	support		0	0
+value::hash	crates/icydb-core/src/value/hash.rs	231	0	2	5	2	7	3	3	support		0	0
+value	crates/icydb-core/src/value/mod.rs	958	5	35	20	31	51	2	6	support		0	0
+value::rank	crates/icydb-core/src/value/rank.rs	21	0	0	0	0	0	0	2	support		0	0
+value::storage_key	crates/icydb-core/src/value/storage_key.rs	611	3	3	10	8	18	1	18	support		0	0
+value::tag	crates/icydb-core/src/value/tag.rs	113	1	0	2	0	2	1	1	support		0	0
+value::wire	crates/icydb-core/src/value/wire.rs	97	0	0	1	0	1	1	4	support		0	0
+visitor::context	crates/icydb-core/src/visitor/context.rs	108	4	6	1	1	2	1	0	support		0	0
+visitor	crates/icydb-core/src/visitor/mod.rs	402	8	4	1	12	13	1	4	support		0	0
+visitor::sanitize	crates/icydb-core/src/visitor/sanitize.rs	33	1	0	0	0	0	0	3	support		0	0
+visitor::validate	crates/icydb-core/src/visitor/validate.rs	33	1	0	0	0	0	0	3	support		0	0

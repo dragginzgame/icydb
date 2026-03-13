@@ -18,6 +18,16 @@ const CONTINUATION_POLICY_METHOD_TOKENS: &[&str] = &[
     "is_grouped_safe(",
 ];
 
+const EXECUTOR_FORBIDDEN_CONTINUATION_DEFINITION_FUNCTIONS: &[&str] = &[
+    "continuation_advanced",
+    "resume_bounds_from_refs",
+    "validate_index_scan_continuation_envelope",
+    "validate_index_scan_continuation_advancement",
+    "next_cursor_for_materialized_rows",
+    "effective_page_offset_for_window",
+    "effective_keep_count_for_limit",
+];
+
 // Walk one source tree and collect every Rust source path deterministically.
 fn collect_rust_sources(root: &Path, out: &mut Vec<PathBuf>) {
     let entries = fs::read_dir(root)
@@ -86,6 +96,14 @@ fn continuation_policy_method_reference_count(source: &str) -> usize {
         .sum()
 }
 
+// Match one function definition token for both generic and non-generic signatures.
+fn contains_function_definition(source: &str, function_name: &str) -> bool {
+    let non_generic = format!("fn {function_name}(");
+    let generic = format!("fn {function_name}<");
+
+    source.contains(non_generic.as_str()) || source.contains(generic.as_str())
+}
+
 // Collect runtime continuation-policy method references for executor sources.
 fn runtime_continuation_policy_reference_counts() -> BTreeMap<String, usize> {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor");
@@ -129,6 +147,53 @@ fn runtime_continuation_policy_reference_counts() -> BTreeMap<String, usize> {
     counts
 }
 
+fn runtime_forbidden_continuation_definitions() -> BTreeMap<String, Vec<String>> {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor");
+    let mut sources = Vec::new();
+    collect_rust_sources(source_root.as_path(), &mut sources);
+    sources.sort();
+
+    let mut violations = BTreeMap::new();
+    for source_path in sources {
+        if source_path
+            .components()
+            .any(|part| part.as_os_str() == "tests")
+            || source_path
+                .file_name()
+                .is_some_and(|name| name == "tests.rs")
+        {
+            continue;
+        }
+
+        let source = fs::read_to_string(&source_path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
+        let runtime_source = strip_cfg_test_items(source.as_str());
+        let mut matched = Vec::new();
+        for function_name in EXECUTOR_FORBIDDEN_CONTINUATION_DEFINITION_FUNCTIONS {
+            if contains_function_definition(runtime_source.as_str(), function_name) {
+                matched.push((*function_name).to_string());
+            }
+        }
+        if matched.is_empty() {
+            continue;
+        }
+
+        let relative = source_path
+            .strip_prefix(Path::new(env!("CARGO_MANIFEST_DIR")))
+            .unwrap_or_else(|err| {
+                panic!(
+                    "failed to compute relative source path for {}: {err}",
+                    source_path.display()
+                )
+            })
+            .to_string_lossy()
+            .replace('\\', "/");
+        violations.insert(relative, matched);
+    }
+
+    violations
+}
+
 #[test]
 fn runtime_continuation_policy_method_references_stay_within_continuation_boundary() {
     let counts = runtime_continuation_policy_reference_counts();
@@ -165,4 +230,14 @@ fn runtime_continuation_policy_method_reference_count_stays_within_soft_budget()
             "continuation-policy method fan-out exceeded baseline budget: total={total_references}, max={max_references}",
         );
     }
+}
+
+#[test]
+fn runtime_continuation_semantic_definitions_stay_cursor_owned() {
+    let violations = runtime_forbidden_continuation_definitions();
+
+    assert!(
+        violations.is_empty(),
+        "continuation semantic definitions must remain cursor-owned (`cursor/envelope.rs` + `cursor/continuation.rs`); executor duplicates found: {violations:?}",
+    );
 }

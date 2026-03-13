@@ -7,10 +7,7 @@ use crate::{
     db::{
         access::AccessPlan,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
-        query::plan::{
-            planner::{compare, index_literal_matches_schema, prefix, range},
-            stability::canonicalize_in_literal_values,
-        },
+        query::plan::planner::{compare, index_literal_matches_schema, prefix, range},
         schema::SchemaInfo,
     },
     error::InternalError,
@@ -81,7 +78,8 @@ pub(super) fn plan_predicate(
 }
 
 // Fold strictly bounded OR-equality shapes (`a=v1 OR a=v2 ...`) into one
-// canonical IN planning path so access selection and explain metadata align.
+// IN planning path so access selection and explain metadata align.
+// Access canonicalization owns IN-list set normalization semantics.
 fn plan_strict_same_field_eq_or(
     model: &EntityModel,
     schema: &SchemaInfo,
@@ -114,11 +112,10 @@ fn plan_strict_same_field_eq_or(
     }
 
     let field = field?;
-    let canonical_values = canonicalize_in_literal_values(&values);
     let in_compare = ComparePredicate::with_coercion(
         field,
         CompareOp::In,
-        Value::List(canonical_values),
+        Value::List(values),
         CoercionId::Strict,
     );
 

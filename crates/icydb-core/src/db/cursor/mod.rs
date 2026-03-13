@@ -40,7 +40,8 @@ pub(in crate::db) use boundary::{
     validate_cursor_direction, validate_cursor_window_offset,
 };
 pub(in crate::db) use continuation::{
-    IndexScanContinuationInput, next_cursor_for_materialized_rows,
+    IndexScanContinuationInput, effective_keep_count_for_limit, effective_page_offset_for_window,
+    next_cursor_for_materialized_rows,
 };
 pub(in crate::db) use envelope::{
     continuation_advanced, resume_bounds_from_refs, validate_index_scan_continuation_advancement,

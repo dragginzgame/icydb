@@ -21,7 +21,6 @@ mod order_contract;
 mod planner;
 mod projection;
 mod semantics;
-mod stability;
 #[cfg(test)]
 mod tests;
 pub(crate) mod validate;

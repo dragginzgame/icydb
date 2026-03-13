@@ -307,6 +307,70 @@ fn projection_shape_construction_remains_planner_owned() {
 }
 
 #[test]
+fn canonicalization_ownership_stays_in_access_and_predicate_layers() {
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let planner_root = crate_root.join("src/db/query/plan/planner");
+    let mut sources = Vec::new();
+    collect_rust_sources(planner_root.as_path(), &mut sources);
+    sources.sort();
+
+    let mut forbidden_hits = Vec::new();
+    for source_path in sources {
+        if source_path
+            .components()
+            .any(|part| part.as_os_str() == "tests")
+            || source_path
+                .file_name()
+                .is_some_and(|name| name == "tests.rs")
+        {
+            continue;
+        }
+
+        let source = fs::read_to_string(&source_path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
+        let runtime_source = strip_cfg_test_items(source.as_str());
+        for forbidden in [
+            "fn canonicalize_",
+            "canonicalize_in_literal_values(",
+            "normalize_planned_access_plan_for_stability(",
+        ] {
+            if runtime_source.contains(forbidden) {
+                let relative = source_path
+                    .strip_prefix(crate_root)
+                    .unwrap_or_else(|err| {
+                        panic!(
+                            "failed to compute relative source path for {}: {err}",
+                            source_path.display()
+                        )
+                    })
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                forbidden_hits.push(format!("{relative}: {forbidden}"));
+            }
+        }
+    }
+
+    assert!(
+        forbidden_hits.is_empty(),
+        "planner canonicalization drift detected; keep canonicalization in access/predicate owners: {forbidden_hits:?}",
+    );
+
+    let access_owner = fs::read_to_string(crate_root.join("src/db/access/canonical.rs"))
+        .expect("access canonical owner source should be readable");
+    assert!(
+        access_owner.contains("pub(crate) fn normalize_access_plan_value("),
+        "access canonicalization owner surface should expose normalize_access_plan_value(...)",
+    );
+
+    let predicate_owner = fs::read_to_string(crate_root.join("src/db/predicate/normalize.rs"))
+        .expect("predicate normalize owner source should be readable");
+    assert!(
+        predicate_owner.contains("pub(in crate::db) fn normalize("),
+        "predicate canonicalization owner surface should expose normalize(...)",
+    );
+}
+
+#[test]
 fn grouped_and_scalar_projection_specs_share_planner_projection_boundary() {
     let model = <PlanModelEntity as EntitySchema>::MODEL;
     let scalar: AccessPlannedQuery<Value> =

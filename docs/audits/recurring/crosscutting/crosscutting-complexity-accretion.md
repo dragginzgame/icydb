@@ -1,3 +1,6 @@
+This audit must not reuse structural counts from other audits in the same run.
+All metrics must originate from STEP -1 enumeration or the metrics dataset.
+
 # WEEKLY AUDIT — Complexity Accretion (icydb-core)
 
 ## Purpose
@@ -37,16 +40,73 @@ Assume this audit runs weekly and results are diffed.
 
 ---
 
+# Execution Integrity Requirements (Mandatory)
+
+You must read the entire runtime module tree before computing metrics.
+Do not reuse partial results from other audits.
+
+Run crosscutting audits sequentially in this order (do not run in parallel):
+
+1. `complexity-accretion`
+2. `dry-consolidation`
+3. `layer-violation`
+4. `module-structure`
+5. `velocity-preservation`
+
+Generate runtime metrics once per run and reuse that dataset in later
+crosscutting audits.
+
+Preferred generator: `scripts/audit/runtime_metrics.sh`
+
+Required dataset columns:
+
+* `module`
+* `loc`
+* `if_count`
+* `match_count`
+* `fanout`
+
+---
+
+# STEP -1 — Runtime Module Enumeration (Mandatory)
+
+Enumerate all runtime modules under:
+
+`crates/icydb-core/src`
+
+Exclude:
+
+* `tests`
+* `benches`
+* `examples`
+
+Produce:
+
+| module | file | LOC | match | if | fanout |
+| ---- | ---- | ----: | ----: | ----: | ----: |
+
+Definitions:
+
+* `module` = Rust module path in `icydb-core` runtime scope.
+* `LOC` = logical non-empty lines in the module file.
+* `match` = count of `match` expressions in the module file.
+* `if` = count of `if` / `else if` branches in the module file.
+* `fanout` = number of internal runtime module imports in that module file.
+
+Store this dataset for later steps.
+
+Do not continue until enumeration completes.
+
+---
+
 # STEP 0 — Baseline Capture (Mandatory)
 
 Capture baseline values before computing current metrics.
 
 Baseline source rule:
 
-* first run of day (`complexity-accretion.md`): compare to the latest prior
-  comparable complexity report (or `N/A` if none)
-* same-day rerun (`complexity-accretion-*.md`): compare to that day's
-  `complexity-accretion.md` baseline
+* baseline = most recent comparable `complexity-accretion` run.
+* if no comparable run exists, baseline = `N/A`.
 
 Produce:
 
@@ -54,18 +114,22 @@ Produce:
 | ---- | ----: | ----: | ----: |
 | Total runtime files in scope |  |  |  |
 | Runtime LOC |  |  |  |
-| Files >= 600 LOC |  |  |  |
+| Runtime fanout (sum) |  |  |  |
+| Modules with fanout > 12 |  |  |  |
+| Super-nodes (`fanout > 20 OR domain_count >= 3`) |  |  |  |
 | Continuation mentions |  |  |  |
 | Continuation decision owners |  |  |  |
 | AccessPath decision owners |  |  |  |
 | AccessPath executor dispatch sites |  |  |  |
+| AccessPath branch modules |  |  |  |
 | RouteShape decision owners |  |  |  |
+| RouteShape branch modules |  |  |  |
 | Predicate coercion decision owners |  |  |  |
 | Continuation execution consumers |  |  |  |
 | Continuation plumbing modules |  |  |  |
 
-If no prior comparable report exists for the first run of day, mark previous
-values as `N/A` and treat that first run as the daily baseline.
+If no prior comparable report exists, mark previous values as `N/A` and treat
+this run as the new baseline.
 
 ---
 
@@ -130,6 +194,25 @@ Flag:
 
 ---
 
+# STEP 2A — Branching Centralization (Concept-Level)
+
+Count distinct runtime modules branching on each concept:
+
+* `AccessPath`
+* `RouteShape`
+
+Produce:
+
+| Concept | Branch Modules | Previous | Delta |
+| ---- | ----: | ----: | ----: |
+
+Flag:
+
+* any positive week-over-week branch-module delta.
+* branch-module count increasing while decision-owner count is unchanged.
+
+---
+
 # STEP 3 — Execution Path Multiplicity (Effective Flows)
 
 For each core operation (`save`, `replace`, `delete`, `load`, `recovery replay`, `cursor continuation`, `index mutation`), compute flow count via decision axes.
@@ -185,9 +268,9 @@ Produce:
 
 Definitions:
 
-* `decision owners` = modules that define protocol rules/policies.
-* `execution consumers` = modules that branch on concept state to execute behavior.
-* `plumbing modules` = DTO/transport/projection modules that only carry values.
+* `Decision Owner` = module defining semantic rules or protocol contracts.
+* `Execution Consumer` = module branching on concept state to drive behavior.
+* `Plumbing Module` = module transporting concept values without branching.
 
 Risk should be driven by `decision owners` and `semantic layers`, not raw mention totals.
 
@@ -199,17 +282,60 @@ Flag:
 
 ---
 
-# STEP 5 — Cognitive Load Indicators (Hub + Call Depth)
+# STEP 4A — Concept Authority Drift
+
+For each concept:
+
+* continuation
+* `AccessPath`
+* `RouteShape`
+* predicate coercion
+* index range
+* canonicalization
+
+Produce:
+
+| Concept | Decision Owners | Previous | Delta | Risk |
+| ---- | ----: | ----: | ----: | ---- |
+
+Flag:
+
+* `owner_count > 2`
+* any owner-count increase week-over-week
+
+---
+
+# STEP 4B — Fanout Pressure
+
+Compute module fanout trend using the STEP -1 dataset.
+
+Produce:
+
+| Module | Fanout | Previous | Delta | Risk |
+| ---- | ----: | ----: | ----: | ---- |
+
+Flag:
+
+* `fanout > 12`
+* fanout growth week-over-week
+
+---
+
+# STEP 5 — Cognitive Load Indicators (Super-Node + Call Depth)
 
 Compute structural mental-load signals:
 
 1. Functions > 80–100 logical lines.
 2. Deep core-operation call depth.
-3. Hub pressure modules.
+3. Super-node modules.
 
-Hub pressure definition:
+Super-node definition:
 
-* `LOC > 600` AND `domain_count >= 3`
+* `fanout > 20` OR `domain_count >= 3`
+
+Reference example:
+
+* `db::session` with fanout in the 50+ range is a super-node even when LOC is below prior hub thresholds.
 
 Domain count categories:
 
@@ -221,13 +347,13 @@ Domain count categories:
 
 Produce:
 
-| Module/Operation | LOC or Call Depth | Domain Count | Previous | Delta | Risk |
-| ---- | ----: | ----: | ----: | ----: | ---- |
+| Module/Operation | LOC or Call Depth | Fanout | Domain Count | Previous | Delta | Risk |
+| ---- | ----: | ----: | ----: | ----: | ----: | ---- |
 
 Flag:
 
 * `call_depth > 6` for core operations.
-* rising hub pressure across consecutive runs.
+* rising super-node pressure across consecutive runs.
 
 ---
 
@@ -252,10 +378,12 @@ Flag:
 Score each bucket 1–10, then compute weighted aggregate:
 
 * variant explosion risk ×2
-* branching pressure trend ×2
+* branching pressure + centralization trend ×2
 * flow multiplicity ×2
 * cross-layer spread ×3
-* hub pressure + call depth ×2
+* authority fragmentation ×2
+* fanout pressure + super-node load ×2
+* call-depth pressure ×1
 
 Produce:
 
@@ -279,9 +407,11 @@ Before finalizing risk, apply this filter:
 
 * If concept mentions increase **and** decision owners decrease/hold,
   mark as `refactor transient`.
+* If mentions increase **and** execution consumers increase while decision
+  owners are unchanged, mark as `benign surface growth`.
 * If decision-owner count increases for `AccessPath`, `RouteShape`, or predicate coercion,
   do NOT mark as transient without a documented ownership consolidation.
-* If file count increases due module split **and** hub pressure decreases,
+* If file count increases due module split **and** super-node pressure decreases,
   mark as `structural improvement`.
 
 Produce:
@@ -291,23 +421,39 @@ Produce:
 
 ---
 
+# STEP 8A — Complexity Trend Table (Required)
+
+Show trend direction, not only pairwise deltas.
+
+Produce a time-series table across at least 4 comparable run dates
+(or all available comparable dates if fewer):
+
+| Concept | <date-1> | <date-2> | <date-3> | <date-4> |
+| ---- | ----: | ----: | ----: | ----: |
+| continuation mentions |  |  |  |  |
+| `AccessPath` variants |  |  |  |  |
+| branch hotspots (count) |  |  |  |  |
+
+---
+
 # Required Summary
 
 0. Run Metadata + Comparability Note
 1. Overall Complexity Risk Index
 2. Fastest Growing Concept Families
 3. Highest Branch Multipliers
-4. Flow Multiplication Risks (axis-based)
-5. Cross-Layer Spread Risks (owner vs plumbing aware)
-6. Hub Pressure + Call-Depth Warnings
-7. Refactor-Transient vs True-Entropy Findings
-8. Verification Readout (`PASS`/`FAIL`/`BLOCKED`)
+4. Branching Centralization Drift (`AccessPath` / `RouteShape`)
+5. Flow Multiplication Risks (axis-based)
+6. Cross-Layer Spread Risks (owner vs plumbing aware)
+7. Authority Drift + Fanout Pressure
+8. Super-Node + Call-Depth Warnings
+9. Refactor-Transient vs True-Entropy Findings
+10. Complexity Trend Table
+11. Verification Readout (`PASS`/`FAIL`/`BLOCKED`)
 
 Run metadata must include:
 
-- compared baseline report path (daily baseline rule: first run of day compares
-  to latest prior comparable report or `N/A`; same-day reruns compare to that
-  day's `complexity-accretion.md` baseline)
+- compared baseline report path (`baseline = most recent comparable run`)
 - method tag/version
 - comparability status (`comparable` or `non-comparable` with reason)
 

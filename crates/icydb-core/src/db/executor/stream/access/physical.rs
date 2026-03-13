@@ -13,6 +13,7 @@ use crate::{
         executor::{
             Context, ExecutableAccessPath, IndexScan, LoweredIndexPrefixSpec,
             LoweredIndexRangeSpec, OrderedKeyStreamBox, PrimaryScan, VecOrderedKeyStream,
+            traversal::require_index_range_spec,
         },
         index::predicate::IndexPredicateExecution,
     },
@@ -310,11 +311,7 @@ impl<K> ExecutableAccessPath<'_, K> {
         E: EntityKind<Key = K> + EntityValue,
         K: Copy + Ord,
     {
-        let Some(spec) = index_range_spec else {
-            return Err(crate::db::error::query_executor_invariant(
-                "index-range execution requires pre-lowered index-range spec",
-            ));
-        };
+        let spec = require_index_range_spec(index_range_spec)?;
 
         let fetch_limit = index_fetch_hint.unwrap_or(usize::MAX);
         let keys = IndexScan::range::<E>(
