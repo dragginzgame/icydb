@@ -56,6 +56,9 @@ pub enum QueryExecutionError {
     Corruption(InternalError),
 
     #[error("{0}")]
+    IncompatiblePersistedFormat(InternalError),
+
+    #[error("{0}")]
     InvariantViolation(InternalError),
 
     #[error("{0}")]
@@ -77,6 +80,7 @@ impl QueryExecutionError {
     pub const fn as_internal(&self) -> &InternalError {
         match self {
             Self::Corruption(err)
+            | Self::IncompatiblePersistedFormat(err)
             | Self::InvariantViolation(err)
             | Self::Conflict(err)
             | Self::NotFound(err)
@@ -90,6 +94,7 @@ impl From<InternalError> for QueryExecutionError {
     fn from(err: InternalError) -> Self {
         match err.class {
             ErrorClass::Corruption => Self::Corruption(err),
+            ErrorClass::IncompatiblePersistedFormat => Self::IncompatiblePersistedFormat(err),
             ErrorClass::InvariantViolation => Self::InvariantViolation(err),
             ErrorClass::Conflict => Self::Conflict(err),
             ErrorClass::NotFound => Self::NotFound(err),
@@ -224,6 +229,12 @@ mod tests {
     fn assert_execute_variant_for_class(err: &QueryExecutionError, class: ErrorClass) {
         match class {
             ErrorClass::Corruption => assert!(matches!(err, QueryExecutionError::Corruption(_))),
+            ErrorClass::IncompatiblePersistedFormat => {
+                assert!(matches!(
+                    err,
+                    QueryExecutionError::IncompatiblePersistedFormat(_)
+                ));
+            }
             ErrorClass::InvariantViolation => {
                 assert!(matches!(err, QueryExecutionError::InvariantViolation(_)));
             }
@@ -238,6 +249,10 @@ mod tests {
     fn query_execute_error_from_internal_preserves_class_and_origin_matrix() {
         let cases = [
             (ErrorClass::Corruption, ErrorOrigin::Store),
+            (
+                ErrorClass::IncompatiblePersistedFormat,
+                ErrorOrigin::Serialize,
+            ),
             (ErrorClass::InvariantViolation, ErrorOrigin::Query),
             (ErrorClass::InvariantViolation, ErrorOrigin::Recovery),
             (ErrorClass::Conflict, ErrorOrigin::Executor),

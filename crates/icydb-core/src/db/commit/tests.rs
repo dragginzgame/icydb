@@ -6,10 +6,12 @@
 use crate::{
     db::{
         Db, EntityRuntimeHooks,
+        codec::{ROW_FORMAT_VERSION_CURRENT, ROW_FORMAT_VERSION_PREVIOUS},
         commit::{
-            CommitMarker, CommitRowOp, begin_commit, commit_marker_present, ensure_recovered,
-            finish_commit, init_commit_store_for_tests, prepare_row_commit_for_entity,
-            rollback_prepared_row_ops_reverse, snapshot_row_rollback, store,
+            COMMIT_MARKER_FORMAT_VERSION_CURRENT, CommitMarker, CommitRowOp, begin_commit,
+            commit_marker_present, ensure_recovered, finish_commit, init_commit_store_for_tests,
+            prepare_row_commit_for_entity, rollback_prepared_row_ops_reverse,
+            snapshot_row_rollback, store,
         },
         data::{DataKey, DataStore, RawDataKey, RawRow, StorageKey},
         executor::SaveExecutor,
@@ -729,6 +731,40 @@ fn recovery_rejects_corrupt_marker_data_key_decode() {
     );
 
     // Cleanup so unrelated tests do not observe this intentionally-corrupt marker.
+    store::with_commit_store(|store| {
+        store.clear_infallible();
+        Ok(())
+    })
+    .expect("commit marker cleanup should succeed");
+}
+
+#[test]
+fn recovery_rejects_incompatible_marker_format_version_fail_closed() {
+    reset_recovery_state();
+
+    let marker = CommitMarker {
+        id: [0xAB; 16],
+        row_ops: Vec::new(),
+    };
+    let marker_payload = serialize(&marker).expect("marker payload encode should succeed");
+    let future_version = COMMIT_MARKER_FORMAT_VERSION_CURRENT.saturating_add(1);
+    let encoded = serialize(&(future_version, marker_payload))
+        .expect("future-version marker envelope encode should succeed");
+    store::set_raw_commit_marker_bytes_for_tests(encoded)
+        .expect("test helper should persist raw marker bytes");
+
+    let err =
+        ensure_recovered(&DB).expect_err("recovery should reject incompatible marker versions");
+    assert_eq!(err.class, ErrorClass::IncompatiblePersistedFormat);
+    assert_eq!(err.origin, ErrorOrigin::Recovery);
+    let marker_still_present = store::with_commit_store(|store| Ok(!store.is_empty()))
+        .expect("raw commit marker presence check should succeed");
+    assert!(
+        marker_still_present,
+        "marker should remain present when recovery decode fails compatibility checks"
+    );
+
+    // Cleanup so unrelated tests do not observe this intentionally-incompatible marker.
     store::with_commit_store(|store| {
         store.clear_infallible();
         Ok(())
@@ -1733,6 +1769,99 @@ fn recovery_startup_gate_rebuilds_secondary_indexes_from_authoritative_rows() {
         indexed_ids_for(&second).expect("second index entry should exist"),
         std::iter::once(second.id).collect::<BTreeSet<_>>()
     );
+}
+
+#[test]
+fn recovery_startup_rebuild_decodes_previous_row_format_within_window() {
+    reset_recovery_state();
+
+    let entity = RecoveryIndexedEntity {
+        id: Ulid::from_u128(924),
+        group: 33,
+    };
+    let raw_key = DataKey::try_new::<RecoveryIndexedEntity>(entity.id)
+        .expect("row key should build")
+        .to_raw()
+        .expect("row key should encode");
+    let payload = serialize(&entity).expect("entity payload should encode");
+    let previous_version_row = serialize(&(ROW_FORMAT_VERSION_PREVIOUS, payload))
+        .expect("previous-version row envelope should encode");
+
+    with_recovery_store(|store| {
+        store.with_data_mut(|data_store| {
+            data_store.insert(
+                raw_key,
+                RawRow::try_new(previous_version_row)
+                    .expect("previous-version row should fit raw row bounds"),
+            );
+        });
+    });
+
+    let marker = CommitMarker::new(Vec::new()).expect("marker creation should succeed");
+    begin_commit(marker).expect("begin_commit should persist marker");
+    ensure_recovered(&DB).expect("recovery should accept previous-version row formats");
+
+    assert!(
+        !commit_marker_present().expect("commit marker check should succeed"),
+        "commit marker should be cleared after successful recovery",
+    );
+    assert_eq!(
+        indexed_ids_for(&entity).expect("index entry should exist after rebuild"),
+        std::iter::once(entity.id).collect::<BTreeSet<_>>(),
+    );
+}
+
+#[test]
+fn recovery_startup_rebuild_rejects_future_row_format_fail_closed() {
+    reset_recovery_state();
+
+    let entity = RecoveryIndexedEntity {
+        id: Ulid::from_u128(925),
+        group: 34,
+    };
+    let raw_key = DataKey::try_new::<RecoveryIndexedEntity>(entity.id)
+        .expect("row key should build")
+        .to_raw()
+        .expect("row key should encode");
+    let payload = serialize(&entity).expect("entity payload should encode");
+    let future_version = ROW_FORMAT_VERSION_CURRENT.saturating_add(1);
+    let future_version_row =
+        serialize(&(future_version, payload)).expect("future-version row envelope should encode");
+
+    with_recovery_store(|store| {
+        store.with_data_mut(|data_store| {
+            data_store.insert(
+                raw_key,
+                RawRow::try_new(future_version_row)
+                    .expect("future-version row should fit raw row bounds"),
+            );
+        });
+    });
+
+    let marker = CommitMarker::new(Vec::new()).expect("marker creation should succeed");
+    begin_commit(marker).expect("begin_commit should persist marker");
+    let err = ensure_recovered(&DB).expect_err("recovery should reject future row formats");
+
+    assert_eq!(err.class, ErrorClass::IncompatiblePersistedFormat);
+    assert_eq!(err.origin, ErrorOrigin::Recovery);
+    assert!(
+        commit_marker_present().expect("commit marker check should succeed"),
+        "marker should remain present when recovery rejects incompatible row format",
+    );
+    assert!(
+        row_bytes_for(&raw_key).is_some(),
+        "failed recovery must not discard persisted rows",
+    );
+    assert!(
+        indexed_ids_for(&entity).is_none(),
+        "failed recovery must not publish index state for incompatible rows",
+    );
+
+    store::with_commit_store(|store| {
+        store.clear_infallible();
+        Ok(())
+    })
+    .expect("commit marker cleanup should succeed");
 }
 
 #[test]

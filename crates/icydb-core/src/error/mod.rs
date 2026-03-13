@@ -294,6 +294,15 @@ impl InternalError {
         Self::new(ErrorClass::Unsupported, ErrorOrigin::Cursor, message.into())
     }
 
+    /// Construct a serialize-origin incompatible persisted-format error.
+    pub(crate) fn serialize_incompatible_persisted_format(message: impl Into<String>) -> Self {
+        Self::new(
+            ErrorClass::IncompatiblePersistedFormat,
+            ErrorOrigin::Serialize,
+            message.into(),
+        )
+    }
+
     /// Construct a query-origin unsupported error preserving one SQL parser
     /// unsupported-feature label in structured error detail.
     pub(crate) fn query_unsupported_sql_feature(feature: &'static str) -> Self {
@@ -473,6 +482,7 @@ pub enum QueryErrorDetail {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ErrorClass {
     Corruption,
+    IncompatiblePersistedFormat,
     NotFound,
     Internal,
     Conflict,
@@ -484,6 +494,7 @@ impl fmt::Display for ErrorClass {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let label = match self {
             Self::Corruption => "corruption",
+            Self::IncompatiblePersistedFormat => "incompatible_persisted_format",
             Self::NotFound => "not_found",
             Self::Internal => "internal",
             Self::Conflict => "conflict",

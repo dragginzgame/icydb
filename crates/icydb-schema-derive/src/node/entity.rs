@@ -511,6 +511,7 @@ mod tests {
             vec![Index {
                 fields: vec![format_ident!("missing_field")],
                 unique: false,
+                predicate: None,
             }],
         );
         let err = entity
@@ -530,6 +531,7 @@ mod tests {
             vec![Index {
                 fields: vec![format_ident!("tags")],
                 unique: false,
+                predicate: None,
             }],
         );
         let err = entity

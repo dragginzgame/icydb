@@ -5,10 +5,20 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.54.x] - 2026-03-13 - Filtered Indexes Line Open
+
+- `0.54.0` starts filtered-index work by adding optional index-predicate metadata across schema/runtime index models and derive codegen, while keeping storage and recovery semantics unchanged until planner/mutation integration slices land.
+
+See detailed breakdown:
+[docs/changelog/0.54.md](docs/changelog/0.54.md)
+
+---
+
 ## [0.53.x] - 2026-03-12 - Data Survivability Line Planned
 
-- `0.53.0 (unreleased)` reframes the `0.53` design contract around data survivability and upgrade safety, with explicit persisted-format compatibility-window guarantees, migration resume/recovery safety language, and clearer corruption-vs-compatibility error-taxonomy boundaries.
-- `0.53.1 (unreleased)` splits the session runtime into smaller facades and tightens ownership boundaries so canonicalization, continuation, and index-range validation each stay in one authority layer with stronger CI guard coverage.
+- `0.53.0` reframes the `0.53` design contract around data survivability and upgrade safety, with explicit persisted-format compatibility-window guarantees, migration resume/recovery safety language, and clearer corruption-vs-compatibility error-taxonomy boundaries.
+- `0.53.1` splits the session runtime into smaller facades and tightens ownership boundaries so canonicalization, continuation, and index-range validation each stay in one authority layer with stronger guard coverage.
+- `0.53.2` lands the data-survivability runtime hardening pass with versioned row and commit-marker envelopes, durable migration-step resume state bound to commit markers, integrity reporting, and fail-closed startup recovery checks that prevent silent row orphaning/discard.
 
 See detailed breakdown:
 [docs/changelog/0.53.md](docs/changelog/0.53.md)

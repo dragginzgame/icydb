@@ -14,8 +14,9 @@ mod write;
 
 use crate::{
     db::{
-        Db, EntitySchemaDescription, FluentDeleteQuery, FluentLoadQuery, MissingRowPolicy,
-        PlanError, Query, QueryError, StorageReport, StoreRegistry, WriteBatchResponse,
+        Db, EntitySchemaDescription, FluentDeleteQuery, FluentLoadQuery, IntegrityReport,
+        MigrationPlan, MigrationRunOutcome, MissingRowPolicy, PlanError, Query, QueryError,
+        StorageReport, StoreRegistry, WriteBatchResponse,
         commit::EntityRuntimeHooks,
         cursor::decode_optional_cursor_token,
         executor::{DeleteExecutor, ExecutorPlanError, LoadExecutor, SaveExecutor},
@@ -226,6 +227,23 @@ impl<C: CanisterKind> DbSession<C> {
         name_to_path: &[(&'static str, &'static str)],
     ) -> Result<StorageReport, InternalError> {
         self.db.storage_report(name_to_path)
+    }
+
+    /// Build one point-in-time integrity scan report for observability endpoints.
+    pub fn integrity_report(&self) -> Result<IntegrityReport, InternalError> {
+        self.db.integrity_report()
+    }
+
+    /// Execute one bounded migration run with durable internal cursor state.
+    ///
+    /// Migration progress is persisted internally so upgrades/restarts can
+    /// resume from the last successful step without external cursor ownership.
+    pub fn execute_migration_plan(
+        &self,
+        plan: &MigrationPlan,
+        max_steps: usize,
+    ) -> Result<MigrationRunOutcome, InternalError> {
+        self.with_metrics(|| self.db.execute_migration_plan(plan, max_steps))
     }
 
     // ---------------------------------------------------------------------

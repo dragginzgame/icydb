@@ -122,6 +122,30 @@ pub(crate) fn begin_commit(marker: CommitMarker) -> Result<CommitGuard, Internal
     })
 }
 
+/// Persist a commit marker plus migration progress and open the commit window.
+///
+/// This variant atomically binds migration-step progress to the same durable
+/// write as marker persistence, so replay/recovery can never observe a marker
+/// without corresponding migration-step ownership.
+pub(crate) fn begin_commit_with_migration_state(
+    marker: CommitMarker,
+    migration_state_bytes: Vec<u8>,
+) -> Result<CommitGuard, InternalError> {
+    with_commit_store(|store| {
+        // Phase 1: enforce one in-flight marker at a time.
+        if store.load()?.is_some() {
+            return Err(InternalError::store_invariant(
+                "commit marker already present before begin",
+            ));
+        }
+
+        // Phase 2: persist marker + migration step progress atomically.
+        store.set_with_migration_state(&marker, migration_state_bytes)?;
+
+        Ok(CommitGuard { marker })
+    })
+}
+
 /// Apply commit ops and clear the marker only on successful completion.
 ///
 /// The apply closure performs mechanical marker application only.

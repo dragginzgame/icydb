@@ -5,10 +5,11 @@
 
 use crate::{
     db::{
-        codec::{MAX_ROW_BYTES, deserialize_row},
+        codec::{MAX_ROW_BYTES, deserialize_row, serialize_row_payload},
         data::DataKey,
     },
     error::InternalError,
+    serialize::serialize,
     traits::{EntityKind, Storable},
 };
 use canic_cdk::structures::storable::Bound;
@@ -73,6 +74,19 @@ impl RawRow {
     pub(crate) fn try_new(bytes: Vec<u8>) -> Result<Self, RawRowError> {
         Self::ensure_size(&bytes)?;
         Ok(Self(bytes))
+    }
+
+    /// Encode one entity into the canonical persisted row envelope.
+    pub(crate) fn from_entity<E>(entity: &E) -> Result<Self, InternalError>
+    where
+        E: EntityKind,
+    {
+        let payload = serialize(entity).map_err(|err| {
+            InternalError::serialize_internal(format!("row encode failed: {err}"))
+        })?;
+        let encoded = serialize_row_payload(payload)?;
+
+        Self::try_new(encoded).map_err(InternalError::from)
     }
 
     #[must_use]

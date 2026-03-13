@@ -44,6 +44,14 @@ fn index_plan_serialize_corruption_uses_serialize_origin() {
 }
 
 #[test]
+fn serialize_incompatible_persisted_format_uses_serialize_origin() {
+    let err = InternalError::serialize_incompatible_persisted_format("row format version 7");
+    assert_eq!(err.class, ErrorClass::IncompatiblePersistedFormat);
+    assert_eq!(err.origin, ErrorOrigin::Serialize);
+    assert_eq!(err.message, "row format version 7");
+}
+
+#[test]
 fn index_plan_store_invariant_uses_store_origin() {
     let err = InternalError::index_plan_store_invariant("row/key mismatch");
     assert_eq!(err.class, ErrorClass::InvariantViolation);
@@ -205,6 +213,7 @@ fn cursor_plan_error_mapping_keeps_invariant_violation_class() {
 fn classification_integrity_helpers_preserve_error_class() {
     let classes = [
         ErrorClass::Corruption,
+        ErrorClass::IncompatiblePersistedFormat,
         ErrorClass::NotFound,
         ErrorClass::Internal,
         ErrorClass::Conflict,

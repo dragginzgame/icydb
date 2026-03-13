@@ -16,7 +16,7 @@ use crate::{
         relation::prepare_reverse_relation_index_mutations_for_source,
         schema::commit_schema_fingerprint_for_entity,
     },
-    error::InternalError,
+    error::{ErrorClass, InternalError},
     traits::{EntityKind, EntityValue, Path},
 };
 use std::collections::BTreeMap;
@@ -79,9 +79,12 @@ fn prepare_row_commit_for_entity_impl<E: EntityKind + EntityValue>(
             expected_key,
             || deserialize_row::<E>(bytes),
             |err| {
-                InternalError::serialize_corruption(format!(
-                    "commit marker {label} row decode failed: {err}"
-                ))
+                let message = format!("commit marker {label} row decode failed: {err}");
+                if err.class() == ErrorClass::IncompatiblePersistedFormat {
+                    InternalError::serialize_incompatible_persisted_format(message)
+                } else {
+                    InternalError::serialize_corruption(message)
+                }
             },
             |expected, actual| {
                 InternalError::store_corruption(format!(

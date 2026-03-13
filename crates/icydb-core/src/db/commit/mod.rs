@@ -40,15 +40,18 @@ use std::fmt::Display;
 ///
 /// Re-exports
 ///
-pub(in crate::db) use guard::{CommitApplyGuard, CommitGuard, begin_commit, finish_commit};
+pub(in crate::db) use guard::{
+    CommitApplyGuard, CommitGuard, begin_commit, begin_commit_with_migration_state, finish_commit,
+};
 pub use hooks::EntityRuntimeHooks;
 pub(in crate::db) use hooks::{
     has_runtime_hooks, resolve_runtime_hook_by_name, resolve_runtime_hook_by_path,
 };
 pub(in crate::db) use marker::CommitRowOp;
 pub(in crate::db) use marker::{
-    CommitIndexOp, CommitMarker, CommitSchemaFingerprint, MAX_COMMIT_BYTES, decode_data_key,
-    decode_index_entry, decode_index_key, validate_commit_marker_shape,
+    COMMIT_MARKER_FORMAT_VERSION_CURRENT, COMMIT_MARKER_FORMAT_VERSION_PREVIOUS, CommitIndexOp,
+    CommitMarker, CommitSchemaFingerprint, MAX_COMMIT_BYTES, decode_data_key, decode_index_entry,
+    decode_index_key, validate_commit_marker_shape,
 };
 pub(in crate::db) use prepare::{
     prepare_row_commit_for_entity, prepare_row_commit_for_entity_with_readers,
@@ -93,6 +96,25 @@ pub(in crate::db) fn commit_component_corruption(
 #[cfg(test)]
 pub(in crate::db) fn commit_marker_present() -> Result<bool, InternalError> {
     store::commit_marker_present()
+}
+
+/// Clear the persisted commit marker in tests.
+#[cfg(test)]
+pub(in crate::db) fn clear_commit_marker_for_tests() -> Result<(), InternalError> {
+    store::with_commit_store(|store| {
+        store.clear_infallible();
+        Ok(())
+    })
+}
+
+/// Load persisted migration-state bytes from the shared commit control slot.
+pub(in crate::db) fn load_migration_state_bytes() -> Result<Option<Vec<u8>>, InternalError> {
+    store::with_commit_store(|store| store.load_migration_state_bytes())
+}
+
+/// Clear persisted migration-state bytes from the shared commit control slot.
+pub(in crate::db) fn clear_migration_state_bytes() -> Result<(), InternalError> {
+    store::with_commit_store(store::CommitStore::clear_migration_state_bytes)
 }
 
 /// Initialize commit marker storage for tests.

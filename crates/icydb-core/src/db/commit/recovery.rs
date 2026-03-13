@@ -23,6 +23,7 @@ use crate::{
             memory::configure_commit_memory_id,
             store::{commit_marker_present_fast, with_commit_store},
         },
+        diagnostics::integrity_report_after_recovery,
     },
     error::{ErrorOrigin, InternalError},
     traits::CanisterKind,
@@ -72,7 +73,10 @@ fn perform_recovery<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
     db.rebuild_secondary_indexes_from_rows()
         .map_err(recovery_origin)?;
 
-    // Phase 3: clear marker only after replay + rebuild both succeed.
+    // Phase 3: enforce post-recovery integrity before clearing marker authority.
+    validate_recovery_integrity(db).map_err(recovery_origin)?;
+
+    // Phase 4: clear marker only after replay + rebuild + integrity validation succeed.
     if had_marker {
         with_commit_store(|store| {
             store.clear_infallible();
@@ -89,4 +93,27 @@ fn perform_recovery<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
 // Re-originate recovery-phase failures at the recovery boundary for telemetry.
 fn recovery_origin(err: InternalError) -> InternalError {
     err.with_origin(ErrorOrigin::Recovery)
+}
+
+// Fail closed if recovery leaves any index/data divergence findings.
+fn validate_recovery_integrity<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
+    if !db.has_runtime_hooks() {
+        return Ok(());
+    }
+
+    let report = integrity_report_after_recovery(db)?;
+    let totals = report.totals();
+    if totals.missing_index_entries() > 0
+        || totals.divergent_index_entries() > 0
+        || totals.orphan_index_references() > 0
+    {
+        return Err(InternalError::store_corruption(format!(
+            "recovery integrity validation failed: missing_index_entries={} divergent_index_entries={} orphan_index_references={}",
+            totals.missing_index_entries(),
+            totals.divergent_index_entries(),
+            totals.orphan_index_references(),
+        )));
+    }
+
+    Ok(())
 }

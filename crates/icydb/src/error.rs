@@ -108,6 +108,7 @@ impl From<QueryError> for Error {
 
             QueryError::Execute(err) => match err {
                 QueryExecutionError::Corruption(inner)
+                | QueryExecutionError::IncompatiblePersistedFormat(inner)
                 | QueryExecutionError::InvariantViolation(inner)
                 | QueryExecutionError::Conflict(inner)
                 | QueryExecutionError::NotFound(inner)
@@ -121,6 +122,9 @@ impl From<QueryError> for Error {
 const fn map_class(class: CoreErrorClass) -> RuntimeErrorKind {
     match class {
         CoreErrorClass::Corruption => RuntimeErrorKind::Corruption,
+        CoreErrorClass::IncompatiblePersistedFormat => {
+            RuntimeErrorKind::IncompatiblePersistedFormat
+        }
         CoreErrorClass::InvariantViolation => RuntimeErrorKind::InvariantViolation,
         CoreErrorClass::Conflict => RuntimeErrorKind::Conflict,
         CoreErrorClass::NotFound => RuntimeErrorKind::NotFound,
@@ -159,6 +163,7 @@ pub enum ErrorKind {
 #[serde(rename_all = "PascalCase")]
 pub enum RuntimeErrorKind {
     Corruption,
+    IncompatiblePersistedFormat,
     InvariantViolation,
     Conflict,
     NotFound,
@@ -341,6 +346,10 @@ mod tests {
         let cases = [
             (CoreErrorClass::Corruption, RuntimeErrorKind::Corruption),
             (
+                CoreErrorClass::IncompatiblePersistedFormat,
+                RuntimeErrorKind::IncompatiblePersistedFormat,
+            ),
+            (
                 CoreErrorClass::InvariantViolation,
                 RuntimeErrorKind::InvariantViolation,
             ),
@@ -426,6 +435,13 @@ mod tests {
                 RuntimeErrorKind::Unsupported,
                 ErrorOrigin::Store,
                 "store unsupported",
+            ),
+            (
+                CoreErrorClass::IncompatiblePersistedFormat,
+                CoreErrorOrigin::Serialize,
+                RuntimeErrorKind::IncompatiblePersistedFormat,
+                ErrorOrigin::Serialize,
+                "incompatible persisted format",
             ),
         ];
 

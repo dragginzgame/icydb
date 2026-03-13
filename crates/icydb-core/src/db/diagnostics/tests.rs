@@ -3,20 +3,29 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use super::{DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, StorageReport, storage_report};
+use super::{
+    DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, IntegrityReport, IntegrityStoreSnapshot,
+    IntegrityTotals, StorageReport, integrity_report, storage_report,
+};
 use crate::{
     db::{
-        Db,
-        commit::{ensure_recovered, init_commit_store_for_tests},
+        Db, EntityRuntimeHooks,
+        codec::ROW_FORMAT_VERSION_CURRENT,
+        commit::{CommitRowOp, ensure_recovered, init_commit_store_for_tests},
         data::{DataKey, DataStore, RawDataKey, RawRow, StorageKey},
         identity::{EntityName, IndexName},
         index::{IndexId, IndexKey, IndexKeyKind, IndexStore, RawIndexEntry, RawIndexKey},
         registry::StoreRegistry,
+        schema::commit_schema_fingerprint_for_entity,
     },
+    model::{field::FieldKind, index::IndexModel},
+    serialize::serialize,
     testing::test_memory,
-    traits::Storable,
+    traits::{Path, Storable, StoreKind},
+    types::Ulid,
 };
-use serde::Serialize;
+use icydb_derive::FieldProjection;
+use serde::{Deserialize, Serialize};
 use serde_cbor::Value as CborValue;
 use std::{borrow::Cow, cell::RefCell, collections::BTreeMap};
 
@@ -38,6 +47,46 @@ const MINMAX_ENTITY_PATH: &str = "diagnostics_tests::entity::minmax";
 const VALID_ENTITY_NAME: &str = "diag_valid_entity";
 const VALID_ENTITY_PATH: &str = "diagnostics_tests::entity::valid";
 
+struct DiagnosticsStoreA;
+
+impl Path for DiagnosticsStoreA {
+    const PATH: &'static str = STORE_A_PATH;
+}
+
+impl StoreKind for DiagnosticsStoreA {
+    type Canister = DiagnosticsCanister;
+}
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+struct IntegrityIndexedEntity {
+    id: Ulid,
+    email: String,
+}
+
+static INTEGRITY_EMAIL_INDEX_FIELDS: [&str; 1] = ["email"];
+static INTEGRITY_EMAIL_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
+    "email",
+    STORE_A_PATH,
+    &INTEGRITY_EMAIL_INDEX_FIELDS,
+    false,
+)];
+
+crate::test_entity_schema! {
+    ident = IntegrityIndexedEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "DiagnosticsIntegrityIndexedEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [("id", FieldKind::Ulid), ("email", FieldKind::Text)],
+    indexes = [&INTEGRITY_EMAIL_INDEX_MODELS[0]],
+    store = DiagnosticsStoreA,
+    canister = DiagnosticsCanister,
+}
+
+static DIAGNOSTICS_INTEGRITY_HOOKS: &[EntityRuntimeHooks<DiagnosticsCanister>] =
+    &[EntityRuntimeHooks::for_entity::<IntegrityIndexedEntity>()];
+
 thread_local! {
     static STORE_Z_DATA: RefCell<DataStore> = RefCell::new(DataStore::init(test_memory(153)));
     static STORE_Z_INDEX: RefCell<IndexStore> = RefCell::new(IndexStore::init(test_memory(154)));
@@ -56,6 +105,8 @@ thread_local! {
 }
 
 static DB: Db<DiagnosticsCanister> = Db::new(&DIAGNOSTICS_REGISTRY);
+static DB_WITH_HOOKS: Db<DiagnosticsCanister> =
+    Db::new_with_hooks(&DIAGNOSTICS_REGISTRY, DIAGNOSTICS_INTEGRITY_HOOKS);
 
 fn with_data_store_mut<R>(path: &'static str, f: impl FnOnce(&mut DataStore) -> R) -> R {
     DB.with_store_registry(|registry| {
@@ -140,6 +191,75 @@ fn insert_index_entry(path: &'static str, key: RawIndexKey, entry: RawIndexEntry
 
 fn diagnostics_report(name_to_path: &[(&'static str, &'static str)]) -> StorageReport {
     storage_report(&DB, name_to_path).expect("diagnostics snapshot should succeed")
+}
+
+fn diagnostics_integrity_report() -> IntegrityReport {
+    integrity_report(&DB_WITH_HOOKS).expect("diagnostics integrity scan should succeed")
+}
+
+fn insert_integrity_entity_row(entity: &IntegrityIndexedEntity) {
+    let raw_key = DataKey::try_new::<IntegrityIndexedEntity>(entity.id)
+        .expect("integrity test data key should build")
+        .to_raw()
+        .expect("integrity test data key should encode");
+    let raw_row = RawRow::from_entity(entity).expect("integrity test row should encode");
+
+    with_data_store_mut(STORE_A_PATH, |store| {
+        store.insert(raw_key, raw_row);
+    });
+}
+
+fn insert_integrity_entity_row_with_format_version(entity: &IntegrityIndexedEntity, version: u8) {
+    let raw_key = DataKey::try_new::<IntegrityIndexedEntity>(entity.id)
+        .expect("integrity test data key should build")
+        .to_raw()
+        .expect("integrity test data key should encode");
+    let payload = serialize(entity).expect("integrity test entity payload should encode");
+    let encoded =
+        serialize(&(version, payload)).expect("integrity test row envelope should encode");
+    let raw_row = RawRow::try_new(encoded).expect("integrity test row envelope should fit bounds");
+
+    with_data_store_mut(STORE_A_PATH, |store| {
+        store.insert(raw_key, raw_row);
+    });
+}
+
+fn insert_integrity_expected_indexes(entity: &IntegrityIndexedEntity) {
+    let raw_key = DataKey::try_new::<IntegrityIndexedEntity>(entity.id)
+        .expect("integrity test data key should build")
+        .to_raw()
+        .expect("integrity test data key should encode");
+    let raw_row = RawRow::from_entity(entity).expect("integrity test row should encode");
+    let row_op = CommitRowOp::new(
+        IntegrityIndexedEntity::PATH,
+        raw_key.as_bytes().to_vec(),
+        None,
+        Some(raw_row.as_bytes().to_vec()),
+        commit_schema_fingerprint_for_entity::<IntegrityIndexedEntity>(),
+    );
+    let prepared = DB_WITH_HOOKS
+        .prepare_row_commit_op(&row_op)
+        .expect("integrity test row op should prepare");
+
+    for index_op in prepared.index_ops {
+        let Some(raw_entry) = index_op.value else {
+            continue;
+        };
+        index_op.store.with_borrow_mut(|store| {
+            store.insert(index_op.key.clone(), raw_entry);
+        });
+    }
+}
+
+fn integrity_store_snapshot<'a>(
+    report: &'a IntegrityReport,
+    path: &str,
+) -> &'a IntegrityStoreSnapshot {
+    report
+        .stores()
+        .iter()
+        .find(|snapshot| snapshot.path() == path)
+        .expect("integrity snapshot should contain target store path")
 }
 
 fn data_paths(report: &StorageReport) -> Vec<&str> {
@@ -369,6 +489,82 @@ fn storage_report_system_vs_user_namespace_split() {
 }
 
 #[test]
+fn integrity_report_detects_missing_forward_index_entries() {
+    reset_stores();
+
+    let entity = IntegrityIndexedEntity {
+        id: Ulid::from_u128(70_001),
+        email: "missing@index.local".to_string(),
+    };
+    insert_integrity_entity_row(&entity);
+
+    let report = diagnostics_integrity_report();
+    let store = integrity_store_snapshot(&report, STORE_A_PATH);
+
+    assert_eq!(store.data_rows_scanned(), 1);
+    assert_eq!(store.missing_index_entries(), 1);
+    assert_eq!(store.divergent_index_entries(), 0);
+    assert_eq!(store.orphan_index_references(), 0);
+    assert_eq!(report.totals().missing_index_entries(), 1);
+}
+
+#[test]
+fn integrity_report_detects_orphan_index_references() {
+    reset_stores();
+
+    let entity = IntegrityIndexedEntity {
+        id: Ulid::from_u128(70_002),
+        email: "orphan@index.local".to_string(),
+    };
+    insert_integrity_expected_indexes(&entity);
+
+    let report = diagnostics_integrity_report();
+    let store = integrity_store_snapshot(&report, STORE_A_PATH);
+
+    assert_eq!(store.data_rows_scanned(), 0);
+    assert_eq!(store.index_entries_scanned(), 1);
+    assert_eq!(store.orphan_index_references(), 1);
+    assert_eq!(report.totals().orphan_index_references(), 1);
+}
+
+#[test]
+fn integrity_report_classifies_unsupported_entity_rows_as_misuse() {
+    reset_stores();
+
+    insert_data_row(STORE_A_PATH, "diag_unknown_entity", StorageKey::Int(9), 8);
+
+    let report = diagnostics_integrity_report();
+    let store = integrity_store_snapshot(&report, STORE_A_PATH);
+
+    assert_eq!(store.misuse_findings(), 1);
+    assert_eq!(store.compatibility_findings(), 0);
+    assert_eq!(store.corrupted_data_rows(), 0);
+    assert_eq!(report.totals().misuse_findings(), 1);
+}
+
+#[test]
+fn integrity_report_classifies_incompatible_row_formats() {
+    reset_stores();
+
+    let entity = IntegrityIndexedEntity {
+        id: Ulid::from_u128(70_003),
+        email: "future@index.local".to_string(),
+    };
+    insert_integrity_entity_row_with_format_version(
+        &entity,
+        ROW_FORMAT_VERSION_CURRENT.saturating_add(1),
+    );
+
+    let report = diagnostics_integrity_report();
+    let store = integrity_store_snapshot(&report, STORE_A_PATH);
+
+    assert_eq!(store.compatibility_findings(), 1);
+    assert_eq!(store.misuse_findings(), 0);
+    assert_eq!(store.corrupted_data_rows(), 0);
+    assert_eq!(report.totals().compatibility_findings(), 1);
+}
+
+#[test]
 fn storage_report_serialization_shape_is_stable() {
     let encoded = to_cbor_value(&StorageReport::new(
         vec![DataStoreSnapshot::new("store_a".to_string(), 2, 64)],
@@ -489,5 +685,85 @@ fn entity_snapshot_serialization_shape_is_stable() {
     assert!(
         map_field(root, "max_key").is_some(),
         "EntitySnapshot must keep `max_key` as serialized field key",
+    );
+}
+
+#[test]
+fn integrity_totals_serialization_shape_is_stable() {
+    let encoded = to_cbor_value(&IntegrityTotals {
+        data_rows_scanned: 1,
+        index_entries_scanned: 2,
+        corrupted_data_keys: 3,
+        corrupted_data_rows: 4,
+        corrupted_index_keys: 5,
+        corrupted_index_entries: 6,
+        missing_index_entries: 7,
+        divergent_index_entries: 8,
+        orphan_index_references: 9,
+        compatibility_findings: 10,
+        misuse_findings: 11,
+    });
+    let root = expect_cbor_map(&encoded);
+
+    assert!(map_field(root, "data_rows_scanned").is_some());
+    assert!(map_field(root, "index_entries_scanned").is_some());
+    assert!(map_field(root, "corrupted_data_keys").is_some());
+    assert!(map_field(root, "corrupted_data_rows").is_some());
+    assert!(map_field(root, "corrupted_index_keys").is_some());
+    assert!(map_field(root, "corrupted_index_entries").is_some());
+    assert!(map_field(root, "missing_index_entries").is_some());
+    assert!(map_field(root, "divergent_index_entries").is_some());
+    assert!(map_field(root, "orphan_index_references").is_some());
+    assert!(map_field(root, "compatibility_findings").is_some());
+    assert!(map_field(root, "misuse_findings").is_some());
+}
+
+#[test]
+fn integrity_store_snapshot_serialization_shape_is_stable() {
+    let encoded = to_cbor_value(&IntegrityStoreSnapshot {
+        path: "store_a".to_string(),
+        data_rows_scanned: 1,
+        index_entries_scanned: 2,
+        corrupted_data_keys: 3,
+        corrupted_data_rows: 4,
+        corrupted_index_keys: 5,
+        corrupted_index_entries: 6,
+        missing_index_entries: 7,
+        divergent_index_entries: 8,
+        orphan_index_references: 9,
+        compatibility_findings: 10,
+        misuse_findings: 11,
+    });
+    let root = expect_cbor_map(&encoded);
+
+    assert!(map_field(root, "path").is_some());
+    assert!(map_field(root, "data_rows_scanned").is_some());
+    assert!(map_field(root, "index_entries_scanned").is_some());
+    assert!(map_field(root, "corrupted_data_keys").is_some());
+    assert!(map_field(root, "corrupted_data_rows").is_some());
+    assert!(map_field(root, "corrupted_index_keys").is_some());
+    assert!(map_field(root, "corrupted_index_entries").is_some());
+    assert!(map_field(root, "missing_index_entries").is_some());
+    assert!(map_field(root, "divergent_index_entries").is_some());
+    assert!(map_field(root, "orphan_index_references").is_some());
+    assert!(map_field(root, "compatibility_findings").is_some());
+    assert!(map_field(root, "misuse_findings").is_some());
+}
+
+#[test]
+fn integrity_report_serialization_shape_is_stable() {
+    let encoded = to_cbor_value(&IntegrityReport::new(
+        vec![IntegrityStoreSnapshot::new("store_a".to_string())],
+        IntegrityTotals::default(),
+    ));
+    let root = expect_cbor_map(&encoded);
+
+    assert!(
+        map_field(root, "stores").is_some(),
+        "IntegrityReport must keep `stores` as serialized field key",
+    );
+    assert!(
+        map_field(root, "totals").is_some(),
+        "IntegrityReport must keep `totals` as serialized field key",
     );
 }

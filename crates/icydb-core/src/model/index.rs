@@ -21,6 +21,7 @@ pub struct IndexModel {
     store: &'static str,
     fields: &'static [&'static str],
     unique: bool,
+    predicate: Option<&'static str>,
 }
 
 impl IndexModel {
@@ -31,11 +32,24 @@ impl IndexModel {
         fields: &'static [&'static str],
         unique: bool,
     ) -> Self {
+        Self::new_with_predicate(name, store, fields, unique, None)
+    }
+
+    /// Construct one index descriptor with an optional conditional predicate.
+    #[must_use]
+    pub const fn new_with_predicate(
+        name: &'static str,
+        store: &'static str,
+        fields: &'static [&'static str],
+        unique: bool,
+        predicate: Option<&'static str>,
+    ) -> Self {
         Self {
             name,
             store,
             fields,
             unique,
+            predicate,
         }
     }
 
@@ -63,6 +77,12 @@ impl IndexModel {
         self.unique
     }
 
+    /// Return optional schema-declared conditional index predicate metadata.
+    #[must_use]
+    pub const fn predicate(&self) -> Option<&'static str> {
+        self.predicate
+    }
+
     /// Whether this index's field prefix matches the start of another index.
     #[must_use]
     pub fn is_prefix_of(&self, other: &Self) -> bool {
@@ -73,11 +93,64 @@ impl IndexModel {
 impl Display for IndexModel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let fields = self.fields().join(", ");
-
         if self.is_unique() {
-            write!(f, "{}: UNIQUE {}({})", self.name(), self.store(), fields)
+            if let Some(predicate) = self.predicate() {
+                write!(
+                    f,
+                    "{}: UNIQUE {}({}) WHERE {}",
+                    self.name(),
+                    self.store(),
+                    fields,
+                    predicate
+                )
+            } else {
+                write!(f, "{}: UNIQUE {}({})", self.name(), self.store(), fields)
+            }
+        } else if let Some(predicate) = self.predicate() {
+            write!(
+                f,
+                "{}: {}({}) WHERE {}",
+                self.name(),
+                self.store(),
+                fields,
+                predicate
+            )
         } else {
             write!(f, "{}: {}({})", self.name(), self.store(), fields)
         }
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use crate::model::index::IndexModel;
+
+    #[test]
+    fn index_model_with_predicate_exposes_predicate_metadata() {
+        let model = IndexModel::new_with_predicate(
+            "users|email|active",
+            "users::index",
+            &["email"],
+            false,
+            Some("active = true"),
+        );
+
+        assert_eq!(model.predicate(), Some("active = true"));
+        assert_eq!(
+            model.to_string(),
+            "users|email|active: users::index(email) WHERE active = true"
+        );
+    }
+
+    #[test]
+    fn index_model_without_predicate_preserves_legacy_display_shape() {
+        let model = IndexModel::new("users|email", "users::index", &["email"], true);
+
+        assert_eq!(model.predicate(), None);
+        assert_eq!(model.to_string(), "users|email: UNIQUE users::index(email)");
     }
 }

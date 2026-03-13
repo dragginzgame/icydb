@@ -16,7 +16,6 @@ use crate::{
     },
     error::InternalError,
     metrics::sink::{ExecKind, MetricsEvent, Span, record},
-    serialize::serialize,
     traits::{EntityKind, EntityValue},
 };
 use candid::CandidType;
@@ -283,10 +282,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
 
         // Phase 2: encode the after-image and build a marker row op.
-        let bytes = serialize(entity).map_err(|err| {
-            InternalError::serialize_internal(format!("row encode failed: {err}"))
-        })?;
-        let row = RawRow::try_new(bytes)?;
+        let row = RawRow::from_entity(entity)?;
         let row_op = CommitRowOp::new(
             E::PATH,
             raw_key.as_bytes().to_vec(),

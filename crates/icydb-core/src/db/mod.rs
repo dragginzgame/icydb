@@ -24,6 +24,7 @@ pub(in crate::db) mod data;
 pub(in crate::db) mod direction;
 pub(in crate::db) mod executor;
 pub(in crate::db) mod index;
+pub(in crate::db) mod migration;
 pub(in crate::db) mod numeric;
 pub(in crate::db) mod relation;
 
@@ -46,10 +47,14 @@ pub use commit::EntityRuntimeHooks;
 pub use data::DataStore;
 pub use diagnostics::{
     ExecutionAccessPathVariant, ExecutionMetrics, ExecutionOptimization, ExecutionTrace,
-    StorageReport,
+    IntegrityReport, IntegrityStoreSnapshot, IntegrityTotals, StorageReport,
 };
 pub use identity::{EntityName, IndexName};
 pub use index::IndexStore;
+pub use migration::{
+    MigrationCursor, MigrationPlan, MigrationRowOp, MigrationRunOutcome, MigrationRunState,
+    MigrationStep,
+};
 pub use predicate::{
     CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate, UnsupportedQueryFeature,
 };
@@ -156,6 +161,11 @@ impl<C: CanisterKind> Db<C> {
         diagnostics::storage_report(self, name_to_path)
     }
 
+    /// Build one integrity scan report for registered stores/entities.
+    pub(crate) fn integrity_report(&self) -> Result<IntegrityReport, InternalError> {
+        diagnostics::integrity_report(self)
+    }
+
     pub(in crate::db) fn prepare_row_commit_op(
         &self,
         op: &CommitRowOp,
@@ -174,6 +184,15 @@ impl<C: CanisterKind> Db<C> {
 
     pub(in crate::db) fn rebuild_secondary_indexes_from_rows(&self) -> Result<(), InternalError> {
         rebuild_secondary_indexes_from_rows(self)
+    }
+
+    /// Execute one bounded migration run using explicit row-op plan contracts.
+    pub(crate) fn execute_migration_plan(
+        &self,
+        plan: &migration::MigrationPlan,
+        max_steps: usize,
+    ) -> Result<migration::MigrationRunOutcome, InternalError> {
+        migration::execute_migration_plan(self, plan, max_steps)
     }
 
     // Validate strong relation constraints for delete-selected target keys.

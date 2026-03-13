@@ -26,6 +26,9 @@ use std::borrow::Cow;
 pub(crate) const COMMIT_LABEL: &str = "CommitMarker";
 const COMMIT_ID_BYTES: usize = 16;
 const COMMIT_SCHEMA_FINGERPRINT_BYTES: usize = 16;
+pub(in crate::db) const COMMIT_MARKER_FORMAT_VERSION_CURRENT: u8 = 2;
+pub(in crate::db) const COMMIT_MARKER_FORMAT_VERSION_PREVIOUS: u8 =
+    COMMIT_MARKER_FORMAT_VERSION_CURRENT - 1;
 
 pub(in crate::db) type CommitSchemaFingerprint = [u8; COMMIT_SCHEMA_FINGERPRINT_BYTES];
 
@@ -89,7 +92,8 @@ pub(crate) struct CommitIndexOp {
 ///
 /// Persisted mutation plan covering row-level operations.
 /// Recovery replays the marker exactly as stored.
-/// Unknown fields are rejected as corruption; commit markers are not forward-compatible.
+/// Unknown fields are rejected as corruption inside one marker payload version.
+/// Cross-version compatibility is owned by the versioned marker envelope in `commit::store`.
 /// This is internal commit-protocol metadata, not a user-schema type.
 ///
 
