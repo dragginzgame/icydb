@@ -15,6 +15,8 @@ use crate::{
         index::{
             IndexEntry, IndexEntryCorruption, IndexKey, IndexStore, RawIndexEntry, RawIndexKey,
         },
+        predicate::PredicateProgram,
+        sql::parser::parse_sql_predicate,
     },
     error::InternalError,
     model::index::IndexModel,
@@ -87,6 +89,41 @@ pub(in crate::db) trait IndexEntryReader<E: EntityKind + EntityValue>:
     ) -> Result<Vec<E::Key>, InternalError>;
 }
 
+/// Compile the optional conditional-index predicate into one runtime program.
+pub(in crate::db) fn compile_index_membership_predicate<E: EntityKind>(
+    index: &IndexModel,
+) -> Result<Option<PredicateProgram>, InternalError> {
+    let Some(predicate_sql) = index.predicate() else {
+        return Ok(None);
+    };
+
+    let predicate = parse_sql_predicate(predicate_sql).map_err(|err| {
+        InternalError::index_invariant(format!(
+            "index predicate parse failed: {} ({}) WHERE {} -> {err}",
+            E::PATH,
+            index.name(),
+            predicate_sql,
+        ))
+    })?;
+
+    Ok(Some(PredicateProgram::compile::<E>(&predicate)))
+}
+
+/// Build one index key for an entity after applying optional predicate gating.
+pub(in crate::db) fn index_key_for_entity_with_membership<E: EntityKind + EntityValue>(
+    index: &IndexModel,
+    predicate_program: Option<&PredicateProgram>,
+    entity: &E,
+) -> Result<Option<IndexKey>, InternalError> {
+    if let Some(predicate_program) = predicate_program
+        && !predicate_program.eval(entity)
+    {
+        return Ok(None);
+    }
+
+    IndexKey::new(entity, index)
+}
+
 /// Plan all index mutations for a single entity transition.
 ///
 /// This function:
@@ -115,17 +152,22 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
         let store = db
             .with_store_registry(|registry| registry.try_get_store(index.store()))?
             .index_store();
+        let membership_program = compile_index_membership_predicate::<E>(index)?;
 
         let old_key = match old {
-            Some(entity) => IndexKey::new(entity, index)?,
+            Some(entity) => {
+                index_key_for_entity_with_membership(index, membership_program.as_ref(), entity)?
+            }
             None => None,
         };
         let new_key = match new {
-            Some(entity) => IndexKey::new(entity, index)?,
+            Some(entity) => {
+                index_key_for_entity_with_membership(index, membership_program.as_ref(), entity)?
+            }
             None => None,
         };
 
-        let old_entry = load_existing_entry(index_reader, store, index, old)?;
+        let old_entry = load_existing_entry(index_reader, store, index, old_key.as_ref())?;
 
         // Prevalidate membership so commit-phase mutations cannot surface corruption.
         if let Some(old_key) = &old_key {
@@ -166,20 +208,26 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
         let new_entry = if old_key == new_key {
             old_entry.clone()
         } else {
-            load_existing_entry(index_reader, store, index, new)?
+            load_existing_entry(index_reader, store, index, new_key.as_ref())?
         };
 
         // Unique validation is evaluated through the provided reader view for
         // the target unique value. During commit-window preflight that reader
         // can include staged prior row ops (overlay), so same-window conflicts
         // are validated against the correct logical ownership model.
+        let unique_new_entity = if new_key.is_some() { new } else { None };
+        let unique_new_entity_key = if new_key.is_some() {
+            new_entity_key.as_ref()
+        } else {
+            None
+        };
         unique::validate_unique_constraint::<E>(
             row_reader,
             index_reader,
             index,
             store,
-            new_entity_key.as_ref(),
-            new,
+            unique_new_entity_key,
+            unique_new_entity,
         )?;
 
         commit_ops::build_commit_ops_for_index::<E>(
@@ -204,17 +252,13 @@ pub(super) fn load_existing_entry<E: EntityKind + EntityValue>(
     index_reader: &impl IndexEntryReader<E>,
     store: &'static LocalKey<RefCell<IndexStore>>,
     index: &'static IndexModel,
-    entity: Option<&E>,
+    key: Option<&IndexKey>,
 ) -> Result<Option<IndexEntry<E>>, InternalError> {
-    // No entity transition input means no index entry to load.
-    let Some(entity) = entity else {
+    // No indexed key means no index entry to load.
+    let Some(key) = key else {
         return Ok(None);
     };
 
-    // Build the candidate key; non-indexable values produce no entry.
-    let Some(key) = IndexKey::new(entity, index)? else {
-        return Ok(None);
-    };
     let raw_key = key.to_raw();
 
     index_reader

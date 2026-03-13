@@ -71,6 +71,7 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
     model: &EntityModel,
     schema: &SchemaInfo,
     children: &[Predicate],
+    query_predicate: &Predicate,
 ) -> Option<SemanticIndexRangeSpec> {
     let mut compares = Vec::with_capacity(children.len());
     for child in children {
@@ -102,7 +103,7 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
         Vec<Value>,
         RangeConstraint,
     )> = None;
-    for index in sorted_indexes(model) {
+    for index in sorted_indexes(model, query_predicate) {
         let Some((range_slot, prefix, range)) = index_range_candidate_for_index(index, &compares)
         else {
             continue;

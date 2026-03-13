@@ -251,6 +251,36 @@ pub(crate) fn parse_sql(sql: &str) -> Result<SqlStatement, SqlParseError> {
     Ok(statement)
 }
 
+/// Parse one SQL predicate expression.
+///
+/// This is used by schema-level contracts (for example conditional index metadata)
+/// that need predicate parsing without a full SQL statement wrapper.
+pub(crate) fn parse_sql_predicate(sql: &str) -> Result<Predicate, SqlParseError> {
+    let tokens = Lexer::tokenize(sql)?;
+    if tokens.is_empty() {
+        return Err(SqlParseError::EmptyInput);
+    }
+
+    let mut parser = Parser::new(tokens);
+    let predicate = parser.parse_predicate()?;
+
+    if parser.eat_semicolon() && !parser.is_eof() {
+        return Err(SqlParseError::unsupported_feature(
+            "multi-statement SQL input",
+        ));
+    }
+
+    if !parser.is_eof() {
+        if let Some(feature) = parser.peek_unsupported_feature() {
+            return Err(SqlParseError::unsupported_feature(feature));
+        }
+
+        return Err(SqlParseError::expected_end_of_input(parser.peek_kind()));
+    }
+
+    Ok(predicate)
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Keyword {
     And,
@@ -1283,6 +1313,7 @@ mod tests {
                 SqlAggregateCall, SqlAggregateKind, SqlDeleteStatement, SqlExplainMode,
                 SqlExplainStatement, SqlExplainTarget, SqlOrderDirection, SqlOrderTerm,
                 SqlProjection, SqlSelectItem, SqlSelectStatement, SqlStatement, parse_sql,
+                parse_sql_predicate,
             },
         },
         value::Value,
@@ -1682,5 +1713,37 @@ mod tests {
                 .expect("variant statement should parse");
 
         assert_eq!(canonical, variant);
+    }
+
+    #[test]
+    fn parse_sql_predicate_parses_expression_without_statement_wrapper() {
+        let predicate = parse_sql_predicate("active = true AND age >= 21")
+            .expect("predicate-only SQL should parse");
+
+        assert_eq!(
+            predicate,
+            Predicate::And(vec![
+                Predicate::Compare(ComparePredicate::with_coercion(
+                    "active",
+                    CompareOp::Eq,
+                    Value::Bool(true),
+                    CoercionId::Strict,
+                )),
+                Predicate::Compare(ComparePredicate::with_coercion(
+                    "age",
+                    CompareOp::Gte,
+                    Value::Int(21),
+                    CoercionId::NumericWiden,
+                )),
+            ]),
+        );
+    }
+
+    #[test]
+    fn parse_sql_predicate_rejects_trailing_unsupported_clause() {
+        let err = parse_sql_predicate("active = true ORDER BY age")
+            .expect_err("predicate parser should reject trailing unsupported clauses");
+
+        assert!(matches!(err, super::SqlParseError::InvalidSyntax { .. }));
     }
 }

@@ -7,23 +7,24 @@ set -e
 source "$(dirname "$0")/../env.sh"
 cd "$SCRIPTS"
 
-# Check if an argument was provided
+# Check if required arguments were provided
 if [ $# -eq 0 ]; then
-    echo "usage: build.sh [canister_name]"
+    echo "usage: build.sh [canister_name] [cargo_package]"
     exit 1
 fi
-CAN=$1
+CAN="$1"
+PKG="${2:-$CAN}"
 
 #
 # Build Wasm
 #
 
-mkdir -p $ROOT/.dfx/local/canisters/$CAN
-WASM_TARGET=$ROOT/.dfx/local/canisters/$CAN/$CAN.wasm
+mkdir -p "$ROOT/.dfx/local/canisters/$CAN"
+WASM_TARGET="$ROOT/.dfx/local/canisters/$CAN/$CAN.wasm"
 
-cargo build --target wasm32-unknown-unknown -p $CAN
-cp -f $ROOT/target/wasm32-unknown-unknown/debug/$CAN.wasm $WASM_TARGET
+cargo build --target wasm32-unknown-unknown -p "$PKG"
+cp -f "$ROOT/target/wasm32-unknown-unknown/debug/$PKG.wasm" "$WASM_TARGET"
 
 # extract candid
-candid-extractor "$ROOT/.dfx/local/canisters/$CAN/$CAN.wasm" \
+candid-extractor "$WASM_TARGET" \
     > "$ROOT/.dfx/local/canisters/$CAN/${CAN}.did"

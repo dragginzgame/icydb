@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/canisters/test",
     "crates/icydb",
     "crates/icydb-build",
     "crates/icydb-core",

@@ -6,7 +6,8 @@
 use crate::{
     db::{
         identity::{EntityName, IndexName},
-        schema::{FieldType, ValidateError, field_type_from_model_kind},
+        schema::{FieldType, ValidateError, field_type_from_model_kind, validate},
+        sql::parser::parse_sql_predicate,
     },
     model::{entity::EntityModel, field::FieldKind, index::IndexModel},
 };
@@ -59,6 +60,24 @@ fn validate_index_fields(
                 });
             }
         }
+    }
+
+    Ok(())
+}
+
+fn validate_index_predicates(
+    schema: &SchemaInfo,
+    indexes: &[&IndexModel],
+) -> Result<(), ValidateError> {
+    for index in indexes {
+        let Some(predicate_sql) = index.predicate() else {
+            continue;
+        };
+
+        let predicate = parse_sql_predicate(predicate_sql)
+            .map_err(|_| ValidateError::invalid_index_predicate_syntax(**index, predicate_sql))?;
+        validate(schema, &predicate)
+            .map_err(|_| ValidateError::invalid_index_predicate_schema(**index, predicate_sql))?;
     }
 
     Ok(())
@@ -140,9 +159,12 @@ impl SchemaInfo {
             })?;
         }
 
-        Ok(Self {
+        let schema = Self {
             fields,
             field_kinds,
-        })
+        };
+        validate_index_predicates(&schema, model.indexes)?;
+
+        Ok(schema)
     }
 }

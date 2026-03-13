@@ -85,6 +85,20 @@ struct RecoveryUniqueEntity {
     email: String,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+struct RecoveryConditionalEntity {
+    id: Ulid,
+    group: u32,
+    active: bool,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+struct RecoveryConditionalUniqueEntity {
+    id: Ulid,
+    email: String,
+    active: bool,
+}
+
 static RECOVERY_INDEXED_INDEX_FIELDS: [&str; 1] = ["group"];
 static RECOVERY_INDEXED_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
     "group",
@@ -99,6 +113,23 @@ static RECOVERY_UNIQUE_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
     &RECOVERY_UNIQUE_INDEX_FIELDS,
     true,
 )];
+static RECOVERY_CONDITIONAL_INDEX_FIELDS: [&str; 1] = ["group"];
+static RECOVERY_CONDITIONAL_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new_with_predicate(
+    "group_active_only",
+    RecoveryTestDataStore::PATH,
+    &RECOVERY_CONDITIONAL_INDEX_FIELDS,
+    false,
+    Some("active = true"),
+)];
+static RECOVERY_CONDITIONAL_UNIQUE_INDEX_FIELDS: [&str; 1] = ["email"];
+static RECOVERY_CONDITIONAL_UNIQUE_INDEX_MODELS: [IndexModel; 1] =
+    [IndexModel::new_with_predicate(
+        "email_unique_active_only",
+        RecoveryTestDataStore::PATH,
+        &RECOVERY_CONDITIONAL_UNIQUE_INDEX_FIELDS,
+        true,
+        Some("active = true"),
+    )];
 static RECOVERY_INDEXED_MISSING_FIELD_INDEX_FIELDS: [&str; 1] = ["missing_group"];
 static RECOVERY_INDEXED_MISSING_FIELD_INDEX_MODEL: IndexModel = IndexModel::new(
     "missing_group",
@@ -133,6 +164,40 @@ crate::test_entity_schema! {
     canister = RecoveryTestCanister,
 }
 
+crate::test_entity_schema! {
+    ident = RecoveryConditionalEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "RecoveryConditionalEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("group", FieldKind::Uint),
+        ("active", FieldKind::Bool),
+    ],
+    indexes = [&RECOVERY_CONDITIONAL_INDEX_MODELS[0]],
+    store = RecoveryTestDataStore,
+    canister = RecoveryTestCanister,
+}
+
+crate::test_entity_schema! {
+    ident = RecoveryConditionalUniqueEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "RecoveryConditionalUniqueEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("email", FieldKind::Text),
+        ("active", FieldKind::Bool),
+    ],
+    indexes = [&RECOVERY_CONDITIONAL_UNIQUE_INDEX_MODELS[0]],
+    store = RecoveryTestDataStore,
+    canister = RecoveryTestCanister,
+}
+
 static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
     EntityRuntimeHooks::new(
         RecoveryTestEntity::ENTITY_NAME,
@@ -154,6 +219,20 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         commit_schema_fingerprint_for_entity::<RecoveryUniqueEntity>,
         prepare_row_commit_for_entity::<RecoveryUniqueEntity>,
         validate_delete_strong_relations_for_source::<RecoveryUniqueEntity>,
+    ),
+    EntityRuntimeHooks::new(
+        RecoveryConditionalEntity::ENTITY_NAME,
+        RecoveryConditionalEntity::PATH,
+        commit_schema_fingerprint_for_entity::<RecoveryConditionalEntity>,
+        prepare_row_commit_for_entity::<RecoveryConditionalEntity>,
+        validate_delete_strong_relations_for_source::<RecoveryConditionalEntity>,
+    ),
+    EntityRuntimeHooks::new(
+        RecoveryConditionalUniqueEntity::ENTITY_NAME,
+        RecoveryConditionalUniqueEntity::PATH,
+        commit_schema_fingerprint_for_entity::<RecoveryConditionalUniqueEntity>,
+        prepare_row_commit_for_entity::<RecoveryConditionalUniqueEntity>,
+        validate_delete_strong_relations_for_source::<RecoveryConditionalUniqueEntity>,
     ),
 ];
 
@@ -267,6 +346,12 @@ fn row_op_for_path(
         RecoveryUniqueEntity::PATH => {
             commit_schema_fingerprint_for_entity::<RecoveryUniqueEntity>()
         }
+        RecoveryConditionalEntity::PATH => {
+            commit_schema_fingerprint_for_entity::<RecoveryConditionalEntity>()
+        }
+        RecoveryConditionalUniqueEntity::PATH => {
+            commit_schema_fingerprint_for_entity::<RecoveryConditionalUniqueEntity>()
+        }
         _ => [0u8; 16],
     };
     row_op_for_path_with_schema(path, data_key, before, after, schema_fingerprint)
@@ -291,6 +376,26 @@ fn indexed_ids_for(entity: &RecoveryIndexedEntity) -> Option<BTreeSet<Ulid>> {
                 entry
                     .try_decode::<RecoveryIndexedEntity>()
                     .expect("index entry decode should succeed")
+                    .iter_ids()
+                    .collect::<BTreeSet<_>>()
+            })
+        })
+    })
+}
+
+fn conditional_indexed_ids_for(entity: &RecoveryConditionalEntity) -> Option<BTreeSet<Ulid>> {
+    let index = RecoveryConditionalEntity::INDEXES[0];
+    let index_key = IndexKey::new(entity, index)
+        .expect("conditional index key build should succeed")
+        .expect("conditional index key should exist")
+        .to_raw();
+
+    with_recovery_store(|store| {
+        store.with_index(|index_store| {
+            index_store.get(&index_key).map(|entry| {
+                entry
+                    .try_decode::<RecoveryConditionalEntity>()
+                    .expect("conditional index entry decode should succeed")
                     .iter_ids()
                     .collect::<BTreeSet<_>>()
             })
@@ -365,12 +470,34 @@ fn unique_data_key(id: Ulid) -> RawDataKey {
         .expect("unique key should encode")
 }
 
+fn conditional_data_key(id: Ulid) -> RawDataKey {
+    DataKey::try_new::<RecoveryConditionalEntity>(id)
+        .expect("conditional key should build")
+        .to_raw()
+        .expect("conditional key should encode")
+}
+
+fn conditional_unique_data_key(id: Ulid) -> RawDataKey {
+    DataKey::try_new::<RecoveryConditionalUniqueEntity>(id)
+        .expect("conditional-unique key should build")
+        .to_raw()
+        .expect("conditional-unique key should encode")
+}
+
 fn indexed_row_bytes(entity: &RecoveryIndexedEntity) -> Vec<u8> {
     serialize(entity).expect("indexed row serialization should succeed")
 }
 
 fn unique_row_bytes(entity: &RecoveryUniqueEntity) -> Vec<u8> {
     serialize(entity).expect("unique row serialization should succeed")
+}
+
+fn conditional_row_bytes(entity: &RecoveryConditionalEntity) -> Vec<u8> {
+    serialize(entity).expect("conditional row serialization should succeed")
+}
+
+fn conditional_unique_row_bytes(entity: &RecoveryConditionalUniqueEntity) -> Vec<u8> {
+    serialize(entity).expect("conditional-unique row serialization should succeed")
 }
 
 // Build one deterministic seed snapshot used by forward/replay equivalence checks.
@@ -495,6 +622,175 @@ fn mixed_recovery_marker_ops() -> Vec<CommitRowOp> {
     ]
 }
 
+// Build one deterministic conditional-index seed snapshot used by forward/replay checks.
+fn conditional_recovery_seed_ops() -> Vec<CommitRowOp> {
+    let activate_later = RecoveryConditionalEntity {
+        id: Ulid::from_u128(9401),
+        group: 31,
+        active: false,
+    };
+    let deactivate_later = RecoveryConditionalEntity {
+        id: Ulid::from_u128(9402),
+        group: 32,
+        active: true,
+    };
+    let move_key_later = RecoveryConditionalEntity {
+        id: Ulid::from_u128(9403),
+        group: 33,
+        active: true,
+    };
+    let delete_active_later = RecoveryConditionalEntity {
+        id: Ulid::from_u128(9404),
+        group: 35,
+        active: true,
+    };
+    let delete_inactive_later = RecoveryConditionalEntity {
+        id: Ulid::from_u128(9405),
+        group: 36,
+        active: false,
+    };
+
+    vec![
+        row_op_for_path(
+            RecoveryConditionalEntity::PATH,
+            conditional_data_key(activate_later.id).as_bytes().to_vec(),
+            None,
+            Some(conditional_row_bytes(&activate_later)),
+        ),
+        row_op_for_path(
+            RecoveryConditionalEntity::PATH,
+            conditional_data_key(deactivate_later.id)
+                .as_bytes()
+                .to_vec(),
+            None,
+            Some(conditional_row_bytes(&deactivate_later)),
+        ),
+        row_op_for_path(
+            RecoveryConditionalEntity::PATH,
+            conditional_data_key(move_key_later.id).as_bytes().to_vec(),
+            None,
+            Some(conditional_row_bytes(&move_key_later)),
+        ),
+        row_op_for_path(
+            RecoveryConditionalEntity::PATH,
+            conditional_data_key(delete_active_later.id)
+                .as_bytes()
+                .to_vec(),
+            None,
+            Some(conditional_row_bytes(&delete_active_later)),
+        ),
+        row_op_for_path(
+            RecoveryConditionalEntity::PATH,
+            conditional_data_key(delete_inactive_later.id)
+                .as_bytes()
+                .to_vec(),
+            None,
+            Some(conditional_row_bytes(&delete_inactive_later)),
+        ),
+    ]
+}
+
+// Build one deterministic conditional-index marker sequence that spans membership transitions.
+fn conditional_recovery_marker_ops() -> Vec<CommitRowOp> {
+    let activate_before = RecoveryConditionalEntity {
+        id: Ulid::from_u128(9401),
+        group: 31,
+        active: false,
+    };
+    let activate_after = RecoveryConditionalEntity {
+        id: activate_before.id,
+        group: activate_before.group,
+        active: true,
+    };
+    let deactivate_before = RecoveryConditionalEntity {
+        id: Ulid::from_u128(9402),
+        group: 32,
+        active: true,
+    };
+    let deactivate_after = RecoveryConditionalEntity {
+        id: deactivate_before.id,
+        group: deactivate_before.group,
+        active: false,
+    };
+    let move_before = RecoveryConditionalEntity {
+        id: Ulid::from_u128(9403),
+        group: 33,
+        active: true,
+    };
+    let move_after = RecoveryConditionalEntity {
+        id: move_before.id,
+        group: 34,
+        active: true,
+    };
+    let delete_active = RecoveryConditionalEntity {
+        id: Ulid::from_u128(9404),
+        group: 35,
+        active: true,
+    };
+    let delete_inactive = RecoveryConditionalEntity {
+        id: Ulid::from_u128(9405),
+        group: 36,
+        active: false,
+    };
+    let insert_inactive = RecoveryConditionalEntity {
+        id: Ulid::from_u128(9406),
+        group: 37,
+        active: false,
+    };
+    let insert_active = RecoveryConditionalEntity {
+        id: Ulid::from_u128(9407),
+        group: 38,
+        active: true,
+    };
+
+    vec![
+        row_op_for_path(
+            RecoveryConditionalEntity::PATH,
+            conditional_data_key(activate_before.id).as_bytes().to_vec(),
+            Some(conditional_row_bytes(&activate_before)),
+            Some(conditional_row_bytes(&activate_after)),
+        ),
+        row_op_for_path(
+            RecoveryConditionalEntity::PATH,
+            conditional_data_key(deactivate_before.id)
+                .as_bytes()
+                .to_vec(),
+            Some(conditional_row_bytes(&deactivate_before)),
+            Some(conditional_row_bytes(&deactivate_after)),
+        ),
+        row_op_for_path(
+            RecoveryConditionalEntity::PATH,
+            conditional_data_key(move_before.id).as_bytes().to_vec(),
+            Some(conditional_row_bytes(&move_before)),
+            Some(conditional_row_bytes(&move_after)),
+        ),
+        row_op_for_path(
+            RecoveryConditionalEntity::PATH,
+            conditional_data_key(delete_active.id).as_bytes().to_vec(),
+            Some(conditional_row_bytes(&delete_active)),
+            None,
+        ),
+        row_op_for_path(
+            RecoveryConditionalEntity::PATH,
+            conditional_data_key(delete_inactive.id).as_bytes().to_vec(),
+            Some(conditional_row_bytes(&delete_inactive)),
+            None,
+        ),
+        row_op_for_path(
+            RecoveryConditionalEntity::PATH,
+            conditional_data_key(insert_inactive.id).as_bytes().to_vec(),
+            None,
+            Some(conditional_row_bytes(&insert_inactive)),
+        ),
+        row_op_for_path(
+            RecoveryConditionalEntity::PATH,
+            conditional_data_key(insert_active.id).as_bytes().to_vec(),
+            None,
+            Some(conditional_row_bytes(&insert_active)),
+        ),
+    ]
+}
+
 #[test]
 fn commit_forward_apply_and_replay_preserve_identical_store_state_for_mixed_marker_sequence() {
     let seed_ops = mixed_recovery_seed_ops();
@@ -529,6 +825,90 @@ fn commit_forward_apply_and_replay_preserve_identical_store_state_for_mixed_mark
 }
 
 #[test]
+fn conditional_index_forward_apply_and_replay_preserve_identical_store_state_for_membership_matrix()
+{
+    let seed_ops = conditional_recovery_seed_ops();
+    let marker_ops = conditional_recovery_marker_ops();
+
+    // Phase 1: apply the full conditional-membership transition matrix through live apply.
+    reset_recovery_state();
+    apply_row_ops_forward(seed_ops.as_slice())
+        .expect("conditional seed state apply should succeed for matrix fixture");
+    apply_row_ops_forward(marker_ops.as_slice())
+        .expect("forward apply should succeed for conditional membership transition matrix");
+    let forward_snapshot = recovery_store_snapshot();
+
+    // Phase 2: replay the same marker from the same seeded snapshot and compare outcomes.
+    reset_recovery_state();
+    apply_row_ops_forward(seed_ops.as_slice())
+        .expect("conditional seed state apply should succeed before replay marker");
+    let marker = CommitMarker::new(marker_ops)
+        .expect("conditional membership transition marker should build for replay");
+    begin_commit(marker).expect("conditional replay marker begin_commit should persist marker");
+    ensure_recovered(&DB).expect("conditional marker replay should recover successfully");
+    let replay_snapshot = recovery_store_snapshot();
+
+    assert_eq!(
+        replay_snapshot, forward_snapshot,
+        "conditional-index forward apply and replay must converge on identical store state"
+    );
+    assert!(
+        !commit_marker_present().expect("commit marker presence check should succeed"),
+        "successful conditional replay must clear the persisted marker"
+    );
+
+    // Phase 3: lock the final membership shape for representative transition outcomes.
+    let activated = RecoveryConditionalEntity {
+        id: Ulid::from_u128(9401),
+        group: 31,
+        active: true,
+    };
+    let deactivated = RecoveryConditionalEntity {
+        id: Ulid::from_u128(9402),
+        group: 32,
+        active: false,
+    };
+    let moved_old_key = RecoveryConditionalEntity {
+        id: Ulid::from_u128(9403),
+        group: 33,
+        active: true,
+    };
+    let moved_new_key = RecoveryConditionalEntity {
+        id: Ulid::from_u128(9403),
+        group: 34,
+        active: true,
+    };
+    let inserted_active = RecoveryConditionalEntity {
+        id: Ulid::from_u128(9407),
+        group: 38,
+        active: true,
+    };
+    assert_eq!(
+        conditional_indexed_ids_for(&activated),
+        Some(BTreeSet::from([activated.id])),
+        "false->true transitions must create conditional index membership",
+    );
+    assert!(
+        conditional_indexed_ids_for(&deactivated).is_none(),
+        "true->false transitions must remove conditional index membership",
+    );
+    assert!(
+        conditional_indexed_ids_for(&moved_old_key).is_none(),
+        "true->true key-move transitions must remove old conditional index key membership",
+    );
+    assert_eq!(
+        conditional_indexed_ids_for(&moved_new_key),
+        Some(BTreeSet::from([moved_new_key.id])),
+        "true->true key-move transitions must create new conditional index key membership",
+    );
+    assert_eq!(
+        conditional_indexed_ids_for(&inserted_active),
+        Some(BTreeSet::from([inserted_active.id])),
+        "none->true inserts must publish conditional index membership",
+    );
+}
+
+#[test]
 fn index_key_new_rejects_missing_index_field_on_entity_model() {
     let entity = RecoveryIndexedEntity {
         id: Ulid::from_u128(9901),
@@ -538,6 +918,124 @@ fn index_key_new_rejects_missing_index_field_on_entity_model() {
     let err = IndexKey::new(&entity, &RECOVERY_INDEXED_MISSING_FIELD_INDEX_MODEL)
         .expect_err("index fields missing from the entity model must fail as invariants");
     assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Index);
+}
+
+#[test]
+fn conditional_index_mutation_tracks_false_true_false_membership_transitions() {
+    reset_recovery_state();
+
+    let inactive = RecoveryConditionalEntity {
+        id: Ulid::from_u128(9_931),
+        group: 7,
+        active: false,
+    };
+    let active = RecoveryConditionalEntity {
+        id: inactive.id,
+        group: inactive.group,
+        active: true,
+    };
+    let inactive_again = RecoveryConditionalEntity {
+        id: inactive.id,
+        group: inactive.group,
+        active: false,
+    };
+    let key = conditional_data_key(inactive.id);
+
+    // Phase 1: inactive insert must not create a conditional index entry.
+    apply_row_ops_forward(&[row_op_for_path(
+        RecoveryConditionalEntity::PATH,
+        key.as_bytes().to_vec(),
+        None,
+        Some(conditional_row_bytes(&inactive)),
+    )])
+    .expect("inactive conditional row insert should succeed");
+    assert!(
+        conditional_indexed_ids_for(&inactive).is_none(),
+        "inactive conditional rows must stay absent from the index",
+    );
+
+    // Phase 2: false -> true transition must insert one entry.
+    apply_row_ops_forward(&[row_op_for_path(
+        RecoveryConditionalEntity::PATH,
+        key.as_bytes().to_vec(),
+        Some(conditional_row_bytes(&inactive)),
+        Some(conditional_row_bytes(&active)),
+    )])
+    .expect("conditional false->true transition should succeed");
+    assert_eq!(
+        conditional_indexed_ids_for(&active),
+        Some(BTreeSet::from([active.id])),
+        "active conditional rows must be present in the index",
+    );
+
+    // Phase 3: true -> false transition must remove that entry.
+    apply_row_ops_forward(&[row_op_for_path(
+        RecoveryConditionalEntity::PATH,
+        key.as_bytes().to_vec(),
+        Some(conditional_row_bytes(&active)),
+        Some(conditional_row_bytes(&inactive_again)),
+    )])
+    .expect("conditional true->false transition should succeed");
+    assert!(
+        conditional_indexed_ids_for(&inactive_again).is_none(),
+        "inactive conditional rows must be removed from the index",
+    );
+}
+
+#[test]
+fn conditional_unique_index_skips_unique_validation_when_predicate_is_false() {
+    reset_recovery_state();
+
+    let first_active = RecoveryConditionalUniqueEntity {
+        id: Ulid::from_u128(9_941),
+        email: "conditional-unique@example.com".to_string(),
+        active: true,
+    };
+    let second_inactive = RecoveryConditionalUniqueEntity {
+        id: Ulid::from_u128(9_942),
+        email: first_active.email.clone(),
+        active: false,
+    };
+    let second_active = RecoveryConditionalUniqueEntity {
+        id: second_inactive.id,
+        email: second_inactive.email.clone(),
+        active: true,
+    };
+
+    // Phase 1: baseline active row reserves the unique conditional slot.
+    apply_row_ops_forward(&[row_op_for_path(
+        RecoveryConditionalUniqueEntity::PATH,
+        conditional_unique_data_key(first_active.id)
+            .as_bytes()
+            .to_vec(),
+        None,
+        Some(conditional_unique_row_bytes(&first_active)),
+    )])
+    .expect("active conditional-unique insert should succeed");
+
+    // Phase 2: duplicate email with inactive predicate must bypass unique checks.
+    apply_row_ops_forward(&[row_op_for_path(
+        RecoveryConditionalUniqueEntity::PATH,
+        conditional_unique_data_key(second_inactive.id)
+            .as_bytes()
+            .to_vec(),
+        None,
+        Some(conditional_unique_row_bytes(&second_inactive)),
+    )])
+    .expect("inactive duplicate should bypass conditional unique validation");
+
+    // Phase 3: activating the duplicate row must enforce unique ownership.
+    let err = apply_row_ops_forward(&[row_op_for_path(
+        RecoveryConditionalUniqueEntity::PATH,
+        conditional_unique_data_key(second_inactive.id)
+            .as_bytes()
+            .to_vec(),
+        Some(conditional_unique_row_bytes(&second_inactive)),
+        Some(conditional_unique_row_bytes(&second_active)),
+    )])
+    .expect_err("active duplicate should violate conditional unique index");
+    assert_eq!(err.class, ErrorClass::Conflict);
     assert_eq!(err.origin, ErrorOrigin::Index);
 }
 
@@ -1352,6 +1850,101 @@ fn unique_conflict_classification_parity_holds_between_live_apply_and_replay() {
     .expect("commit marker cleanup should succeed");
 }
 
+#[test]
+fn conditional_unique_conflict_classification_parity_holds_between_live_update_and_replay() {
+    reset_recovery_state();
+
+    let first_active = RecoveryConditionalUniqueEntity {
+        id: Ulid::from_u128(9231),
+        email: "dup-conditional-live-replay@example.com".to_string(),
+        active: true,
+    };
+    let second_inactive = RecoveryConditionalUniqueEntity {
+        id: Ulid::from_u128(9232),
+        email: first_active.email.clone(),
+        active: false,
+    };
+    let second_active = RecoveryConditionalUniqueEntity {
+        id: second_inactive.id,
+        email: second_inactive.email.clone(),
+        active: true,
+    };
+
+    // Phase 1: capture live save-path conditional-unique conflict classification.
+    let save = SaveExecutor::<RecoveryConditionalUniqueEntity>::new(DB, false);
+    save.insert(first_active.clone())
+        .expect("seed active conditional-unique row should save in live path");
+    save.insert(second_inactive.clone())
+        .expect("inactive duplicate should save in live path");
+    let live_err = save
+        .update(second_active.clone())
+        .expect_err("live update path should reject duplicate conditional-unique activation");
+    assert_eq!(live_err.class, ErrorClass::Conflict);
+    assert_eq!(live_err.origin, ErrorOrigin::Index);
+    assert!(
+        live_err.message.contains("index constraint violation"),
+        "live conditional-unique conflict should remain explicit: {live_err:?}"
+    );
+
+    // Phase 2: capture replay-path conditional-unique conflict for the same activation conflict.
+    reset_recovery_state();
+    let first_key = conditional_unique_data_key(first_active.id);
+    let second_key = conditional_unique_data_key(second_inactive.id);
+    let first_row = conditional_unique_row_bytes(&first_active);
+    let second_inactive_row = conditional_unique_row_bytes(&second_inactive);
+    let second_active_row = conditional_unique_row_bytes(&second_active);
+
+    apply_row_ops_forward(&[
+        row_op_for_path(
+            RecoveryConditionalUniqueEntity::PATH,
+            first_key.as_bytes().to_vec(),
+            None,
+            Some(first_row),
+        ),
+        row_op_for_path(
+            RecoveryConditionalUniqueEntity::PATH,
+            second_key.as_bytes().to_vec(),
+            None,
+            Some(second_inactive_row.clone()),
+        ),
+    ])
+    .expect("seed state apply should succeed before replay conflict marker");
+
+    let replay_marker = CommitMarker::new(vec![row_op_for_path(
+        RecoveryConditionalUniqueEntity::PATH,
+        second_key.as_bytes().to_vec(),
+        Some(second_inactive_row.clone()),
+        Some(second_active_row),
+    )])
+    .expect("replay conditional-unique conflict marker should build");
+    begin_commit(replay_marker).expect("begin_commit should persist replay conflict marker");
+
+    let replay_err = ensure_recovered(&DB)
+        .expect_err("replay recovery should reject duplicate conditional-unique activation");
+    assert_eq!(replay_err.class, ErrorClass::Conflict);
+    assert_eq!(replay_err.class, live_err.class);
+    assert_eq!(replay_err.origin, ErrorOrigin::Recovery);
+    assert!(
+        replay_err.message.contains("index constraint violation"),
+        "replay conditional-unique conflict should remain explicit: {replay_err:?}"
+    );
+    assert!(
+        commit_marker_present().expect("commit marker check should succeed"),
+        "failed replay conditional-unique conflict must keep marker persisted for retry",
+    );
+    assert_eq!(
+        row_bytes_for(&second_key),
+        Some(second_inactive_row),
+        "failed replay must keep the prior predicate-false row state visible",
+    );
+
+    store::with_commit_store(|store| {
+        store.clear_infallible();
+        Ok(())
+    })
+    .expect("commit marker cleanup should succeed");
+}
+
 #[expect(clippy::too_many_lines)]
 #[test]
 fn recovery_replays_interrupted_atomic_update_batch_marker_and_is_idempotent() {
@@ -1768,6 +2361,113 @@ fn recovery_startup_gate_rebuilds_secondary_indexes_from_authoritative_rows() {
     assert_eq!(
         indexed_ids_for(&second).expect("second index entry should exist"),
         std::iter::once(second.id).collect::<BTreeSet<_>>()
+    );
+}
+
+#[test]
+fn recovery_startup_gate_rebuilds_conditional_indexes_from_authoritative_rows() {
+    reset_recovery_state();
+
+    let active = RecoveryConditionalEntity {
+        id: Ulid::from_u128(926),
+        group: 61,
+        active: true,
+    };
+    let inactive = RecoveryConditionalEntity {
+        id: Ulid::from_u128(927),
+        group: 62,
+        active: false,
+    };
+    let stale = RecoveryConditionalEntity {
+        id: Ulid::from_u128(928),
+        group: 63,
+        active: true,
+    };
+
+    let active_key = DataKey::try_new::<RecoveryConditionalEntity>(active.id)
+        .expect("active data key should build")
+        .to_raw()
+        .expect("active data key should encode");
+    let inactive_key = DataKey::try_new::<RecoveryConditionalEntity>(inactive.id)
+        .expect("inactive data key should build")
+        .to_raw()
+        .expect("inactive data key should encode");
+    let active_row = serialize(&active).expect("active row serialization should succeed");
+    let inactive_row = serialize(&inactive).expect("inactive row serialization should succeed");
+
+    let index = RecoveryConditionalEntity::INDEXES[0];
+    let inactive_index_key = IndexKey::new(&inactive, index)
+        .expect("inactive index key build should succeed")
+        .expect("inactive index key should exist")
+        .to_raw();
+    let stale_index_key = IndexKey::new(&stale, index)
+        .expect("stale index key build should succeed")
+        .expect("stale index key should exist")
+        .to_raw();
+    let inactive_entry = RawIndexEntry::try_from_keys(vec![
+        StorageKey::try_from_value(&inactive.id.to_value())
+            .expect("inactive storage key should encode"),
+    ])
+    .expect("inactive stale index entry should encode");
+    let stale_entry = RawIndexEntry::try_from_keys(vec![
+        StorageKey::try_from_value(&stale.id.to_value()).expect("stale storage key should encode"),
+    ])
+    .expect("stale index entry should encode");
+
+    // Phase 1: seed authoritative rows and intentionally stale conditional index state.
+    with_recovery_store(|store| {
+        store.with_data_mut(|data_store| {
+            data_store.insert(
+                active_key,
+                RawRow::try_new(active_row).expect("active raw row construction should succeed"),
+            );
+            data_store.insert(
+                inactive_key,
+                RawRow::try_new(inactive_row)
+                    .expect("inactive raw row construction should succeed"),
+            );
+        });
+        store.with_index_mut(|index_store| {
+            index_store.insert(inactive_index_key, inactive_entry);
+            index_store.insert(stale_index_key, stale_entry);
+        });
+    });
+
+    // Phase 2: startup recovery must rebuild conditional index state from row truth only.
+    let marker = CommitMarker::new(Vec::new()).expect("marker creation should succeed");
+    begin_commit(marker).expect("begin_commit should persist marker");
+    ensure_recovered(&DB).expect("recovery should rebuild conditional indexes from row truth");
+    assert!(
+        !commit_marker_present().expect("commit marker check should succeed"),
+        "commit marker should be cleared after conditional startup recovery",
+    );
+
+    let mut expected = vec![
+        IndexKey::new(&active, index)
+            .expect("active conditional index key build should succeed")
+            .expect("active conditional index key should exist")
+            .to_raw()
+            .as_bytes()
+            .to_vec(),
+    ];
+    expected.sort();
+    assert_eq!(
+        index_key_bytes_snapshot(),
+        expected,
+        "startup rebuild should keep predicate-true rows only and purge stale/predicate-false entries",
+    );
+    assert_eq!(
+        conditional_indexed_ids_for(&active).expect("active conditional index entry should exist"),
+        std::iter::once(active.id).collect::<BTreeSet<_>>(),
+        "predicate-true rows must remain indexed after startup rebuild",
+    );
+    assert!(
+        conditional_indexed_ids_for(&inactive).is_none(),
+        "predicate-false rows must remain absent from the conditional index after rebuild",
+    );
+    assert!(
+        conditional_indexed_ids_for(&stale).is_none(),
+        "stale index-only rows must be dropped during conditional rebuild",
     );
 }
 

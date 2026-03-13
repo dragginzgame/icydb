@@ -195,3 +195,99 @@ fn model_rejects_duplicate_index_names() {
         Err(ValidateError::DuplicateIndexName { .. })
     ));
 }
+
+#[test]
+fn model_accepts_schema_valid_index_predicate() {
+    const INDEX_FIELDS: [&str; 1] = ["active"];
+    const INDEX_MODEL: IndexModel = IndexModel::new_with_predicate(
+        "test::idx_active_true",
+        "test::IndexStore",
+        &INDEX_FIELDS,
+        false,
+        Some("active = true"),
+    );
+    const INDEXES: [&IndexModel; 1] = [&INDEX_MODEL];
+
+    let fields: &'static [FieldModel] = Box::leak(
+        vec![
+            field("id", FieldKind::Ulid),
+            field("active", FieldKind::Bool),
+        ]
+        .into_boxed_slice(),
+    );
+    let model = InvalidEntityModelBuilder::from_static(
+        "test::Entity",
+        "TestEntity",
+        &fields[0],
+        fields,
+        &INDEXES,
+    );
+
+    SchemaInfo::from_entity_model(&model).expect("schema-valid index predicate should pass");
+}
+
+#[test]
+fn model_rejects_index_predicate_with_invalid_sql_syntax() {
+    const INDEX_FIELDS: [&str; 1] = ["active"];
+    const INDEX_MODEL: IndexModel = IndexModel::new_with_predicate(
+        "test::idx_active_bad_syntax",
+        "test::IndexStore",
+        &INDEX_FIELDS,
+        false,
+        Some("active ="),
+    );
+    const INDEXES: [&IndexModel; 1] = [&INDEX_MODEL];
+
+    let fields: &'static [FieldModel] = Box::leak(
+        vec![
+            field("id", FieldKind::Ulid),
+            field("active", FieldKind::Bool),
+        ]
+        .into_boxed_slice(),
+    );
+    let model = InvalidEntityModelBuilder::from_static(
+        "test::Entity",
+        "TestEntity",
+        &fields[0],
+        fields,
+        &INDEXES,
+    );
+
+    assert!(matches!(
+        SchemaInfo::from_entity_model(&model),
+        Err(ValidateError::InvalidIndexPredicateSyntax { .. })
+    ));
+}
+
+#[test]
+fn model_rejects_index_predicate_with_schema_invalid_field_reference() {
+    const INDEX_FIELDS: [&str; 1] = ["active"];
+    const INDEX_MODEL: IndexModel = IndexModel::new_with_predicate(
+        "test::idx_active_missing_field",
+        "test::IndexStore",
+        &INDEX_FIELDS,
+        false,
+        Some("missing = true"),
+    );
+    const INDEXES: [&IndexModel; 1] = [&INDEX_MODEL];
+
+    let fields: &'static [FieldModel] = Box::leak(
+        vec![
+            field("id", FieldKind::Ulid),
+            field("active", FieldKind::Bool),
+        ]
+        .into_boxed_slice(),
+    );
+    let model = InvalidEntityModelBuilder::from_static(
+        "test::Entity",
+        "TestEntity",
+        &fields[0],
+        fields,
+        &INDEXES,
+    );
+
+    assert!(matches!(
+        SchemaInfo::from_entity_model(&model),
+        Err(ValidateError::InvalidIndexPredicateSchema { .. })
+    ));
+}

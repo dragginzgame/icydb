@@ -80,7 +80,9 @@ pub(crate) fn plan_access(
     // - Access paths are ranked: primary key lookups, exact index matches, prefix matches, full scans.
     // - Order specs preserve user order after validation (planner does not reorder).
     // - Field resolution uses SchemaInfo's name map (sorted by field name).
-    let plan = normalize_access_plan_value(predicate::plan_predicate(model, schema, predicate)?);
+    let plan = normalize_access_plan_value(predicate::plan_predicate(
+        model, schema, predicate, predicate,
+    )?);
 
     Ok(plan)
 }

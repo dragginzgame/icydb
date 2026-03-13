@@ -19,6 +19,7 @@ pub(super) fn plan_predicate(
     model: &EntityModel,
     schema: &SchemaInfo,
     predicate: &Predicate,
+    query_predicate: &Predicate,
 ) -> Result<AccessPlan<Value>, InternalError> {
     let plan = match predicate {
         Predicate::True
@@ -43,35 +44,41 @@ pub(super) fn plan_predicate(
             }
         }
         Predicate::And(children) => {
-            if let Some(range_spec) = range::index_range_from_and(model, schema, children) {
+            if let Some(range_spec) =
+                range::index_range_from_and(model, schema, children, query_predicate)
+            {
                 return Ok(AccessPlan::index_range(range_spec));
             }
 
             let mut plans = children
                 .iter()
-                .map(|child| plan_predicate(model, schema, child))
+                .map(|child| plan_predicate(model, schema, child, query_predicate))
                 .collect::<Result<Vec<_>, _>>()?;
 
             // Composite index planning phase:
             // - Range candidate extraction is resolved before child recursion.
             // - If no range candidate exists, retain equality-prefix planning.
-            if let Some(prefix) = prefix::index_prefix_from_and(model, schema, children) {
+            if let Some(prefix) =
+                prefix::index_prefix_from_and(model, schema, children, query_predicate)
+            {
                 plans.push(prefix);
             }
 
             AccessPlan::intersection(plans)
         }
         Predicate::Or(children) => AccessPlan::union(
-            if let Some(rewritten) = plan_strict_same_field_eq_or(model, schema, children) {
+            if let Some(rewritten) =
+                plan_strict_same_field_eq_or(model, schema, children, query_predicate)
+            {
                 vec![rewritten]
             } else {
                 children
                     .iter()
-                    .map(|child| plan_predicate(model, schema, child))
+                    .map(|child| plan_predicate(model, schema, child, query_predicate))
                     .collect::<Result<Vec<_>, _>>()?
             },
         ),
-        Predicate::Compare(cmp) => compare::plan_compare(model, schema, cmp),
+        Predicate::Compare(cmp) => compare::plan_compare(model, schema, cmp, query_predicate),
     };
 
     Ok(plan)
@@ -84,6 +91,7 @@ fn plan_strict_same_field_eq_or(
     model: &EntityModel,
     schema: &SchemaInfo,
     children: &[Predicate],
+    query_predicate: &Predicate,
 ) -> Option<AccessPlan<Value>> {
     if children.len() < 2 {
         return None;
@@ -119,5 +127,10 @@ fn plan_strict_same_field_eq_or(
         CoercionId::Strict,
     );
 
-    Some(compare::plan_compare(model, schema, &in_compare))
+    Some(compare::plan_compare(
+        model,
+        schema,
+        &in_compare,
+        query_predicate,
+    ))
 }

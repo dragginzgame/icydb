@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.54.x] - 2026-03-13 - Filtered Indexes Line Open
 
-- `0.54.0` starts filtered-index work by adding optional index-predicate metadata across schema/runtime index models and derive codegen, while keeping storage and recovery semantics unchanged until planner/mutation integration slices land.
+- `0.54.0` ships filtered/conditional indexes end-to-end: optional index predicates in schema/runtime metadata, schema-time predicate validation, mutation-path membership gating, planner implication-based index eligibility, and replay/startup recovery parity tests that lock live-vs-replay behavior.
 
 See detailed breakdown:
 [docs/changelog/0.54.md](docs/changelog/0.54.md)
@@ -30,7 +30,7 @@ See detailed breakdown:
 - `0.52.0` opens the reduced SQL parser line with deterministic reduced-SQL parsing plus initial SQL-to-query lowering and session entrypoints (`query_from_sql`, `execute_sql`, `explain_sql`) for the minimum executable subset (`SELECT *` and constrained `DELETE`) while broader SQL projection/grouping semantics remain gated for follow-up patches.
 - `0.52.1` adds executable SQL field-list projection lowering, a new projection-shaped SQL session API (`execute_sql_projection`), facade projection-response iteration support (`IntoIterator`), parity tests that lock SQL/fluent projection identity and fingerprints, and clearer SQL subset docs for what remains gated.
 - `0.52.2` adds reduced SQL grouped execution (`execute_sql_grouped`), a constrained global aggregate SQL surface (`execute_sql_aggregate` for `COUNT(*)`/`COUNT(field)`/`SUM(field)`/`AVG(field)`/`MIN(field)`/`MAX(field)`), `EXPLAIN` support for those constrained aggregate selects, constrained scalar `SELECT DISTINCT` support (`DISTINCT *` or field lists including primary key), qualified identifier normalization (`schema.Entity`, `Entity.field`) for executable SQL surfaces, and tighter fail-closed parser boundaries with stable unsupported-feature labels (table aliases, quoted identifiers, and `COUNT(DISTINCT ...)` plus other out-of-scope grammar branches).
-- `0.52.3 (unreleased)` expands SQL-first matrix coverage across scalar/projection/grouped/aggregate/explain paths, adds grouped cursor fail-closed regression checks for invalid payloads and query-signature mismatch, extends facade SQL matrix coverage for `query_from_sql` and `explain_sql` surfaces, and adds a test-canister-only `sql(...)` query endpoint for quick ad-hoc SQL checks.
+- `0.52.3` expands SQL-first matrix coverage across scalar/projection/grouped/aggregate/explain paths, adds grouped cursor fail-closed regression checks for invalid payloads and query-signature mismatch, extends facade SQL matrix coverage for `query_from_sql` and `explain_sql` surfaces, and adds a test-canister-only `sql(...)` query endpoint for quick ad-hoc SQL checks.
 
 See detailed breakdown:
 [docs/changelog/0.52.md](docs/changelog/0.52.md)

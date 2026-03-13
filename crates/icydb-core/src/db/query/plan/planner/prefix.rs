@@ -21,13 +21,14 @@ pub(super) fn index_prefix_for_eq(
     schema: &SchemaInfo,
     field: &str,
     value: &Value,
+    query_predicate: &Predicate,
 ) -> Option<Vec<AccessPlan<Value>>> {
     if !index_literal_matches_schema(schema, field, value) {
         return None;
     }
 
     let mut out = Vec::new();
-    for index in sorted_indexes(model) {
+    for index in sorted_indexes(model, query_predicate) {
         if index.fields().first() != Some(&field) || !index.is_field_indexable(field, CompareOp::Eq)
         {
             continue;
@@ -43,6 +44,7 @@ pub(super) fn index_multi_lookup_for_in(
     schema: &SchemaInfo,
     field: &str,
     values: &[Value],
+    query_predicate: &Predicate,
 ) -> Option<Vec<AccessPlan<Value>>> {
     // Fail closed for strict IN pushdown when any literal is schema-incompatible.
     // Mixed compatible/incompatible sets remain executable through full-scan fallback.
@@ -54,7 +56,7 @@ pub(super) fn index_multi_lookup_for_in(
     }
 
     let mut out = Vec::new();
-    for index in sorted_indexes(model) {
+    for index in sorted_indexes(model, query_predicate) {
         if index.fields().first() != Some(&field) || !index.is_field_indexable(field, CompareOp::Eq)
         {
             continue;
@@ -69,6 +71,7 @@ pub(super) fn index_prefix_from_and(
     model: &EntityModel,
     schema: &SchemaInfo,
     children: &[Predicate],
+    query_predicate: &Predicate,
 ) -> Option<AccessPlan<Value>> {
     // Cache literal/schema compatibility once per equality literal so index
     // candidate selection does not repeat schema checks on every index iteration.
@@ -92,7 +95,7 @@ pub(super) fn index_prefix_from_and(
     }
 
     let mut best: Option<(usize, bool, &IndexModel, Vec<Value>)> = None;
-    for index in sorted_indexes(model) {
+    for index in sorted_indexes(model, query_predicate) {
         let mut prefix = Vec::new();
         for field in index.fields() {
             // NOTE: duplicate equality predicates on the same field are assumed

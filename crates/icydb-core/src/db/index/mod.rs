@@ -21,6 +21,7 @@ pub(in crate::db) use key::{EncodedValue, IndexId, IndexKey, IndexKeyKind, RawIn
 pub(in crate::db) use pk_equivalence::{PrimaryKeyEquivalenceError, primary_key_matches_value};
 pub(in crate::db) use plan::{
     IndexEntryReader, PrimaryRowReader, SealedIndexEntryReader, SealedPrimaryRowReader,
+    compile_index_membership_predicate, index_key_for_entity_with_membership,
     plan_index_mutation_for_entity,
 };
 pub(in crate::db) use predicate::{

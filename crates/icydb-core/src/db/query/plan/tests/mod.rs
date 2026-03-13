@@ -35,6 +35,22 @@ const RANGE_INDEX_MODEL: IndexModel = IndexModel::new(
     &RANGE_INDEX_FIELDS,
     false,
 );
+const FILTERED_INDEX_FIELDS: [&str; 1] = ["tag"];
+const FILTERED_INDEX_MODEL: IndexModel = IndexModel::new_with_predicate(
+    "plan_tests::idx_tag_active_only",
+    "plan_tests::FilteredIndexStore",
+    &FILTERED_INDEX_FIELDS,
+    false,
+    Some("active = true"),
+);
+const FILTERED_NUMERIC_INDEX_FIELDS: [&str; 1] = ["score"];
+const FILTERED_NUMERIC_INDEX_MODEL: IndexModel = IndexModel::new_with_predicate(
+    "plan_tests::idx_score_ge_10",
+    "plan_tests::FilteredNumericIndexStore",
+    &FILTERED_NUMERIC_INDEX_FIELDS,
+    false,
+    Some("score >= 10"),
+);
 
 crate::test_entity! {
     ident = PlanModelEntity,
@@ -64,6 +80,33 @@ crate::test_entity! {
     indexes = [&RANGE_INDEX_MODEL],
 }
 
+crate::test_entity! {
+    ident = PlanFilteredEntity,
+    id = Ulid,
+    entity_name = "PlanFilteredEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("tag", FieldKind::Text),
+        ("active", FieldKind::Bool),
+    ],
+    indexes = [&FILTERED_INDEX_MODEL],
+}
+
+crate::test_entity! {
+    ident = PlanFilteredNumericEntity,
+    id = Ulid,
+    entity_name = "PlanFilteredNumericEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("score", FieldKind::Uint),
+    ],
+    indexes = [&FILTERED_NUMERIC_INDEX_MODEL],
+}
+
 // Helper for tests that need the indexed model derived from a typed schema.
 fn model_with_index() -> &'static EntityModel {
     <PlanModelEntity as EntitySchema>::MODEL
@@ -71,6 +114,14 @@ fn model_with_index() -> &'static EntityModel {
 
 fn model_with_range_index() -> &'static EntityModel {
     <PlanRangeEntity as EntitySchema>::MODEL
+}
+
+fn model_with_filtered_index() -> &'static EntityModel {
+    <PlanFilteredEntity as EntitySchema>::MODEL
+}
+
+fn model_with_filtered_numeric_index() -> &'static EntityModel {
+    <PlanFilteredNumericEntity as EntitySchema>::MODEL
 }
 
 fn compare_strict(field: &str, op: CompareOp, value: Value) -> Predicate {
@@ -261,6 +312,65 @@ fn plan_access_uses_index_prefix_for_exact_match() {
             values: vec![Value::Text("alpha".to_string())],
         })
     );
+}
+
+#[test]
+fn plan_access_filtered_index_requires_query_implication_for_predicate() {
+    let model = model_with_filtered_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+
+    let missing_implication =
+        compare_strict("tag", CompareOp::Eq, Value::Text("alpha".to_string()));
+    let missing_plan = plan_access_for_test(model, &schema, Some(&missing_implication))
+        .expect("plan should build");
+    assert_eq!(
+        missing_plan,
+        AccessPlan::full_scan(),
+        "filtered index must be rejected when the query does not imply its predicate",
+    );
+
+    let implied_predicate = Predicate::And(vec![
+        compare_strict("tag", CompareOp::Eq, Value::Text("alpha".to_string())),
+        compare_strict("active", CompareOp::Eq, Value::Bool(true)),
+    ]);
+    let implied_plan =
+        plan_access_for_test(model, &schema, Some(&implied_predicate)).expect("plan should build");
+    assert_eq!(
+        implied_plan,
+        AccessPlan::path(AccessPath::IndexPrefix {
+            index: FILTERED_INDEX_MODEL,
+            values: vec![Value::Text("alpha".to_string())],
+        }),
+        "filtered index should be eligible once query predicate implies index predicate",
+    );
+}
+
+#[test]
+fn plan_access_filtered_numeric_index_requires_lower_bound_implication() {
+    let model = model_with_filtered_numeric_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+
+    let weaker = compare_strict("score", CompareOp::Gte, Value::Uint(5));
+    let weaker_plan =
+        plan_access_for_test(model, &schema, Some(&weaker)).expect("plan should build");
+    assert_eq!(
+        weaker_plan,
+        AccessPlan::full_scan(),
+        "query lower bound below index predicate bound must not use filtered index",
+    );
+
+    let stronger = compare_strict("score", CompareOp::Gte, Value::Uint(20));
+    let stronger_plan =
+        plan_access_for_test(model, &schema, Some(&stronger)).expect("plan should build");
+    let (index, prefix, lower, upper) =
+        find_index_range(&stronger_plan).expect("stronger lower bound should use index range");
+    assert_eq!(index.name(), FILTERED_NUMERIC_INDEX_MODEL.name());
+    assert!(
+        prefix.is_empty(),
+        "single-field range index should have empty prefix"
+    );
+    assert_eq!(lower, &Bound::Included(Value::Uint(20)));
+    assert_eq!(upper, &Bound::Unbounded);
 }
 
 #[test]

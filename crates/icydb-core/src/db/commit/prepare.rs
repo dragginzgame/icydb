@@ -12,7 +12,10 @@ use crate::{
             decode_data_key, decode_index_entry, decode_index_key,
         },
         data::{RawRow, decode_and_validate_entity_key},
-        index::{IndexEntryReader, IndexKey, PrimaryRowReader, plan_index_mutation_for_entity},
+        index::{
+            IndexEntryReader, PrimaryRowReader, compile_index_membership_predicate,
+            index_key_for_entity_with_membership, plan_index_mutation_for_entity,
+        },
         relation::prepare_reverse_relation_index_mutations_for_source,
         schema::commit_schema_fingerprint_for_entity,
     },
@@ -125,15 +128,20 @@ fn prepare_row_commit_for_entity_impl<E: EntityKind + EntityValue>(
     )?;
     let mut index_delta_kind_by_key = BTreeMap::new();
     for index in E::INDEXES {
+        let membership_program = compile_index_membership_predicate::<E>(index)?;
         let old_key = old_entity
             .as_ref()
-            .map(|entity| IndexKey::new(entity, index))
+            .map(|entity| {
+                index_key_for_entity_with_membership(index, membership_program.as_ref(), entity)
+            })
             .transpose()?
             .flatten()
             .map(|key| key.to_raw());
         let new_key = new_pair
             .as_ref()
-            .map(|(_, new_entity)| IndexKey::new(new_entity, index))
+            .map(|(_, new_entity)| {
+                index_key_for_entity_with_membership(index, membership_program.as_ref(), new_entity)
+            })
             .transpose()?
             .flatten()
             .map(|key| key.to_raw());

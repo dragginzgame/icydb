@@ -64,6 +64,18 @@ pub enum ValidateError {
     #[error("duplicate index name '{name}'")]
     DuplicateIndexName { name: String },
 
+    #[error("index '{index}' predicate '{predicate}' has invalid SQL syntax")]
+    InvalidIndexPredicateSyntax {
+        index: IndexModel,
+        predicate: &'static str,
+    },
+
+    #[error("index '{index}' predicate '{predicate}' is invalid for schema")]
+    InvalidIndexPredicateSchema {
+        index: IndexModel,
+        predicate: &'static str,
+    },
+
     #[error("operator {op} is not valid for field '{field}'")]
     InvalidOperator { field: String, op: String },
 
@@ -87,5 +99,19 @@ impl ValidateError {
             field: field.to_string(),
             message: msg.to_string(),
         }
+    }
+
+    pub(crate) const fn invalid_index_predicate_syntax(
+        index: IndexModel,
+        predicate: &'static str,
+    ) -> Self {
+        Self::InvalidIndexPredicateSyntax { index, predicate }
+    }
+
+    pub(crate) const fn invalid_index_predicate_schema(
+        index: IndexModel,
+        predicate: &'static str,
+    ) -> Self {
+        Self::InvalidIndexPredicateSchema { index, predicate }
     }
 }

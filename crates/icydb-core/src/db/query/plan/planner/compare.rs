@@ -6,7 +6,7 @@
 use crate::{
     db::{
         access::{AccessPlan, SemanticIndexRangeSpec},
-        predicate::{CoercionId, CompareOp, ComparePredicate},
+        predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::plan::planner::{
             index_literal_matches_schema,
             prefix::{index_multi_lookup_for_in, index_prefix_for_eq},
@@ -23,6 +23,7 @@ pub(super) fn plan_compare(
     model: &EntityModel,
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
+    query_predicate: &Predicate,
 ) -> AccessPlan<Value> {
     if cmp.coercion.id != CoercionId::Strict {
         return AccessPlan::full_scan();
@@ -36,7 +37,9 @@ pub(super) fn plan_compare(
 
     match cmp.op {
         CompareOp::Eq => {
-            if let Some(paths) = index_prefix_for_eq(model, schema, &cmp.field, &cmp.value) {
+            if let Some(paths) =
+                index_prefix_for_eq(model, schema, &cmp.field, &cmp.value, query_predicate)
+            {
                 return AccessPlan::union(paths);
             }
         }
@@ -49,7 +52,9 @@ pub(super) fn plan_compare(
                 if items.is_empty() {
                     return AccessPlan::by_keys(Vec::new());
                 }
-                if let Some(paths) = index_multi_lookup_for_in(model, schema, &cmp.field, items) {
+                if let Some(paths) =
+                    index_multi_lookup_for_in(model, schema, &cmp.field, items, query_predicate)
+                {
                     return AccessPlan::union(paths);
                 }
             }
@@ -66,7 +71,7 @@ pub(super) fn plan_compare(
                     _ => unreachable!("range arm must be one of Gt/Gte/Lt/Lte"),
                 };
 
-                for index in sorted_indexes(model) {
+                for index in sorted_indexes(model, query_predicate) {
                     if index.fields().len() == 1
                         && index.fields()[0] == cmp.field.as_str()
                         && index.is_field_indexable(&cmp.field, cmp.op)
@@ -85,7 +90,7 @@ pub(super) fn plan_compare(
             }
         }
         CompareOp::StartsWith => {
-            if let Some(path) = plan_starts_with_compare(model, schema, cmp) {
+            if let Some(path) = plan_starts_with_compare(model, schema, cmp, query_predicate) {
                 return path;
             }
         }
@@ -149,6 +154,7 @@ fn plan_starts_with_compare(
     model: &EntityModel,
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
+    query_predicate: &Predicate,
 ) -> Option<AccessPlan<Value>> {
     if !index_literal_matches_schema(schema, &cmp.field, &cmp.value) {
         return None;
@@ -163,7 +169,7 @@ fn plan_starts_with_compare(
 
     let lower = Bound::Included(Value::Text(prefix.clone()));
     let upper = strict_text_prefix_upper_bound(prefix);
-    for index in sorted_indexes(model) {
+    for index in sorted_indexes(model, query_predicate) {
         if index.fields().first() != Some(&cmp.field.as_str())
             || !index.is_field_indexable(cmp.field.as_str(), CompareOp::StartsWith)
         {
