@@ -4,7 +4,7 @@ mod macros;
 
 use crate::{
     db::{
-        EntitySchemaDescription, StorageReport,
+        EntitySchemaDescription, SqlStatementRoute, StorageReport,
         query::{MissingRowPolicy, Query, QueryTracePlan},
         response::{
             PagedGroupedResponse, ProjectionResponse, Response, WriteBatchResponse, WriteResponse,
@@ -87,6 +87,19 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         Ok(self.inner.query_from_sql::<E>(sql)?)
+    }
+
+    /// Parse one reduced SQL statement into canonical route metadata.
+    pub fn sql_statement_route(&self, sql: &str) -> Result<SqlStatementRoute, Error> {
+        Ok(self.inner.sql_statement_route(sql)?)
+    }
+
+    /// Derive canonical projection column labels for one reduced SQL `SELECT` statement.
+    pub fn sql_projection_columns<E>(&self, sql: &str) -> Result<Vec<String>, Error>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        Ok(self.inner.sql_projection_columns::<E>(sql)?)
     }
 
     /// Execute one reduced SQL `SELECT`/`DELETE` statement.

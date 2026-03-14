@@ -5,18 +5,49 @@ use crate::{
         query::{
             builder::aggregate::{AggregateExpr, avg, count, count_by, max_by, min_by, sum},
             intent::IntentError,
-            plan::{FieldSlot, QueryMode},
+            plan::{
+                AggregateKind, FieldSlot, QueryMode,
+                expr::{Expr, ProjectionField},
+            },
         },
         sql::lowering::{
             SqlCommand, SqlGlobalAggregateCommand, SqlGlobalAggregateTerminal, SqlLoweringError,
             compile_sql_command, compile_sql_global_aggregate_command,
         },
-        sql::parser::SqlExplainMode,
+        sql::parser::{SqlExplainMode, SqlExplainTarget, SqlStatement, parse_sql},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     traits::{CanisterKind, EntityKind, EntityValue},
     value::Value,
 };
+
+///
+/// SqlStatementRoute
+///
+/// Canonical SQL statement routing metadata derived from reduced SQL parser output.
+/// Carries surface kind (`Query` / `Explain`) and canonical parsed entity identifier.
+///
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SqlStatementRoute {
+    Query { entity: String },
+    Explain { entity: String },
+}
+
+impl SqlStatementRoute {
+    /// Borrow the parsed SQL entity identifier for this statement.
+    #[must_use]
+    pub const fn entity(&self) -> &str {
+        match self {
+            Self::Query { entity } | Self::Explain { entity } => entity.as_str(),
+        }
+    }
+
+    /// Return whether this route targets the EXPLAIN surface.
+    #[must_use]
+    pub const fn is_explain(&self) -> bool {
+        matches!(self, Self::Explain { .. })
+    }
+}
 
 // Map SQL frontend parse/lowering failures into query-facing execution errors.
 fn map_sql_lowering_error(err: SqlLoweringError) -> QueryError {
@@ -31,6 +62,12 @@ fn map_sql_lowering_error(err: SqlLoweringError) -> QueryError {
             format!("SQL query is not executable in this release: {other}"),
         )),
     }
+}
+
+// Map reduced SQL parse failures through the same query-facing classification
+// policy used by SQL lowering entrypoints.
+fn map_sql_parse_error(err: crate::db::sql::parser::SqlParseError) -> QueryError {
+    map_sql_lowering_error(SqlLoweringError::Parse(err))
 }
 
 // Resolve one aggregate target field through planner slot contracts before
@@ -78,7 +115,90 @@ fn sql_global_aggregate_terminal_to_expr<E: EntityKind>(
     }
 }
 
+// Render one aggregate expression into a canonical projection column label.
+fn projection_label_from_aggregate(aggregate: &AggregateExpr) -> String {
+    let kind = match aggregate.kind() {
+        AggregateKind::Count => "COUNT",
+        AggregateKind::Sum => "SUM",
+        AggregateKind::Avg => "AVG",
+        AggregateKind::Exists => "EXISTS",
+        AggregateKind::First => "FIRST",
+        AggregateKind::Last => "LAST",
+        AggregateKind::Min => "MIN",
+        AggregateKind::Max => "MAX",
+    };
+    let distinct = if aggregate.is_distinct() {
+        "DISTINCT "
+    } else {
+        ""
+    };
+
+    if let Some(field) = aggregate.target_field() {
+        return format!("{kind}({distinct}{field})");
+    }
+
+    format!("{kind}({distinct}*)")
+}
+
+// Render one projection expression into a canonical output label.
+fn projection_label_from_expr(expr: &Expr, ordinal: usize) -> String {
+    match expr {
+        Expr::Field(field) => field.as_str().to_string(),
+        Expr::Aggregate(aggregate) => projection_label_from_aggregate(aggregate),
+        Expr::Alias { name, .. } => name.as_str().to_string(),
+        Expr::Literal(_) | Expr::Unary { .. } | Expr::Binary { .. } => {
+            format!("expr_{ordinal}")
+        }
+    }
+}
+
+// Derive canonical projection column labels from one planned query projection spec.
+fn projection_labels_from_query<E: EntityKind>(
+    query: &Query<E>,
+) -> Result<Vec<String>, QueryError> {
+    let projection = query.plan()?.projection_spec();
+    let mut labels = Vec::with_capacity(projection.len());
+
+    for (ordinal, field) in projection.fields().enumerate() {
+        match field {
+            ProjectionField::Scalar {
+                expr: _,
+                alias: Some(alias),
+            } => labels.push(alias.as_str().to_string()),
+            ProjectionField::Scalar { expr, alias: None } => {
+                labels.push(projection_label_from_expr(expr, ordinal));
+            }
+        }
+    }
+
+    Ok(labels)
+}
+
 impl<C: CanisterKind> DbSession<C> {
+    /// Parse one reduced SQL statement into canonical routing metadata.
+    ///
+    /// This method is the SQL dispatch authority for entity/surface routing
+    /// outside typed-entity lowering paths.
+    pub fn sql_statement_route(&self, sql: &str) -> Result<SqlStatementRoute, QueryError> {
+        let statement = parse_sql(sql).map_err(map_sql_parse_error)?;
+        match statement {
+            SqlStatement::Select(select) => Ok(SqlStatementRoute::Query {
+                entity: select.entity,
+            }),
+            SqlStatement::Delete(delete) => Ok(SqlStatementRoute::Query {
+                entity: delete.entity,
+            }),
+            SqlStatement::Explain(explain) => match explain.statement {
+                SqlExplainTarget::Select(select) => Ok(SqlStatementRoute::Explain {
+                    entity: select.entity,
+                }),
+                SqlExplainTarget::Delete(delete) => Ok(SqlStatementRoute::Explain {
+                    entity: delete.entity,
+                }),
+            },
+        }
+    }
+
     /// Build one typed query intent from one reduced SQL statement.
     ///
     /// This parser/lowering entrypoint is intentionally constrained to the
@@ -99,6 +219,28 @@ impl<C: CanisterKind> DbSession<C> {
                     "query_from_sql does not accept EXPLAIN statements; use explain_sql(...)",
                 )))
             }
+        }
+    }
+
+    /// Derive canonical projection column labels for one reduced SQL `SELECT` statement.
+    pub fn sql_projection_columns<E>(&self, sql: &str) -> Result<Vec<String>, QueryError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let query = self.query_from_sql::<E>(sql)?;
+        if query.has_grouping() {
+            return Err(QueryError::Intent(
+                IntentError::GroupedRequiresExecuteGrouped,
+            ));
+        }
+
+        match query.mode() {
+            QueryMode::Load(_) => projection_labels_from_query(&query),
+            QueryMode::Delete(_) => Err(QueryError::execute(InternalError::classified(
+                ErrorClass::Unsupported,
+                ErrorOrigin::Query,
+                "sql_projection_columns only supports SELECT statements",
+            ))),
         }
     }
 

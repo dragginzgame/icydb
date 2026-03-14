@@ -1,0 +1,4 @@
+enum	file	line	variants
+StoreError	crates/icydb-core/src/error/mod.rs	453	3
+StoreRegistryError	crates/icydb-core/src/db/registry.rs	19	3
+IndexEntryCorruption	crates/icydb-core/src/db/index/entry.rs	34	10

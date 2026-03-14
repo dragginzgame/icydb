@@ -14,12 +14,15 @@ use crate::{
             compare_eq, compare_order,
         },
     },
+    model::index::IndexModel,
     types::Decimal,
     value::Value,
 };
 use std::cmp::Ordering;
 
-use super::{IndexCompilePolicy, compile_index_program, eval_index_compare};
+use super::{
+    IndexCompilePolicy, canonical_index_predicate, compile_index_program, eval_index_compare,
+};
 
 // Match index compare operations to strict predicate semantics for expected results.
 fn expected_strict_compare(
@@ -39,6 +42,62 @@ fn expected_strict_compare(
             unreachable!("expected_strict_compare only handles one-literal compare operators")
         }
     }
+}
+
+#[test]
+fn canonical_index_predicate_reuses_parsed_predicate_for_equivalent_sql_text() {
+    static INDEX_A: IndexModel = IndexModel::new_with_predicate(
+        "entity|active",
+        "entity::index",
+        &["active"],
+        false,
+        Some("active = true"),
+    );
+    static INDEX_B: IndexModel = IndexModel::new_with_predicate(
+        "entity|active|alt",
+        "entity::index",
+        &["active"],
+        false,
+        Some("active = true"),
+    );
+
+    let first = canonical_index_predicate(&INDEX_A)
+        .expect("predicate parse should succeed")
+        .expect("predicate should exist");
+    let second = canonical_index_predicate(&INDEX_A)
+        .expect("cached predicate parse should succeed")
+        .expect("predicate should exist");
+    let third = canonical_index_predicate(&INDEX_B)
+        .expect("equivalent sql predicate parse should reuse cache entry")
+        .expect("predicate should exist");
+
+    assert!(
+        std::ptr::eq(first, second),
+        "same index predicate should return the same canonical predicate instance",
+    );
+    assert!(
+        std::ptr::eq(first, third),
+        "equivalent predicate SQL should resolve to the same canonical predicate instance",
+    );
+}
+
+#[test]
+fn canonical_index_predicate_caches_parse_failures_for_invalid_sql() {
+    static INDEX_BAD: IndexModel = IndexModel::new_with_predicate(
+        "entity|active|broken",
+        "entity::index",
+        &["active"],
+        false,
+        Some("active ="),
+    );
+
+    let first = canonical_index_predicate(&INDEX_BAD).expect_err("invalid SQL should fail");
+    let second = canonical_index_predicate(&INDEX_BAD).expect_err("cached invalid SQL should fail");
+
+    assert_eq!(
+        first, second,
+        "invalid predicate parsing should be stable and cached",
+    );
 }
 
 #[test]

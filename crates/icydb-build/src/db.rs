@@ -171,9 +171,10 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
         });
         projection_match.extend(quote! {
             Self::#variant_ident => {
+                let columns = db().sql_projection_columns::<#entity_ty>(sql)?;
                 let projection = db().execute_sql_projection::<#entity_ty>(sql)?;
                 Ok(::icydb::db::sql::projection_rows_from_response::<#entity_ty>(
-                    sql, projection,
+                    columns, projection,
                 ))
             }
         });
@@ -212,17 +213,17 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
 
             impl SqlEntityRoute {
                 /// Resolve one runtime entity route from a parsed SQL statement.
-                pub fn from_statement_sql(sql: &str) -> Result<Self, Error> {
-                    let sql_entity = ::icydb::db::sql::statement_entity_name(sql)?;
-                    Self::from_entity_name(sql_entity.as_str())
-                        .ok_or_else(|| unsupported_sql_entity_error(sql_entity.as_str()))
+                pub fn from_statement_route(statement: &::icydb::db::SqlStatementRoute) -> Result<Self, Error> {
+                    let sql_entity = statement.entity();
+                    Self::from_entity_name(sql_entity)
+                        .ok_or_else(|| unsupported_sql_entity_error(sql_entity))
                 }
 
                 /// Resolve one runtime entity route from one SQL entity identifier.
                 #[must_use]
                 pub fn from_entity_name(entity_name: &str) -> Option<Self> {
                     for route in SQL_ENTITY_ROUTES {
-                        if ::icydb::db::sql::identifiers_tail_match(
+                        if ::icydb::db::identifiers_tail_match(
                             entity_name,
                             route.entity_name(),
                         ) {
@@ -276,15 +277,16 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
             /// Execute one reduced SQL statement and render shell-friendly output lines.
             pub fn query(sql: &str) -> Result<Vec<String>, Error> {
                 let sql_trimmed = ::icydb::db::sql::normalize_sql_input(sql)?;
-                if ::icydb::db::sql::is_explain_sql(sql_trimmed) {
-                    let route = SqlEntityRoute::from_statement_sql(sql_trimmed)?;
+                let statement = db().sql_statement_route(sql_trimmed)?;
+                let route = SqlEntityRoute::from_statement_route(&statement)?;
+                if statement.is_explain() {
                     let explain_text = route
                         .execute_explain(sql_trimmed)
                         .map_err(|err| explain_surface_error(sql_trimmed, route, err))?;
                     return Ok(::icydb::db::sql::render_explain_lines(explain_text.as_str()));
                 }
 
-                let (entity, rows) = projection_rows(sql_trimmed)?;
+                let (entity, rows) = projection_rows_for_statement(sql_trimmed, &statement)?;
 
                 Ok(::icydb::db::sql::render_projection_lines(entity.as_str(), &rows))
             }
@@ -292,11 +294,12 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
             /// Execute one reduced SQL projection statement and return structured rows.
             pub fn query_rows(sql: &str) -> Result<::icydb::db::sql::SqlQueryRowsOutput, Error> {
                 let sql_trimmed = ::icydb::db::sql::normalize_sql_input(sql)?;
-                if ::icydb::db::sql::is_explain_sql(sql_trimmed) {
+                let statement = db().sql_statement_route(sql_trimmed)?;
+                if statement.is_explain() {
                     return Err(unsupported_query_rows_explain_error());
                 }
 
-                let (entity, rows) = projection_rows(sql_trimmed)?;
+                let (entity, rows) = projection_rows_for_statement(sql_trimmed, &statement)?;
 
                 Ok(::icydb::db::sql::SqlQueryRowsOutput::from_projection(
                     entity, rows,
@@ -305,16 +308,25 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
 
             /// Resolve SQL entity and execute one projection query.
             pub fn projection_rows(sql: &str) -> Result<(String, SqlProjectionRows), Error> {
-                let route = SqlEntityRoute::from_statement_sql(sql)?;
-                let rows = route.execute_projection_rows(sql)?;
-
-                Ok((route.entity_name().to_string(), rows))
+                let statement = db().sql_statement_route(sql)?;
+                projection_rows_for_statement(sql, &statement)
             }
 
             /// Resolve SQL entity and execute one explain query.
             pub fn explain(sql: &str) -> Result<String, Error> {
-                let route = SqlEntityRoute::from_statement_sql(sql)?;
+                let statement = db().sql_statement_route(sql)?;
+                let route = SqlEntityRoute::from_statement_route(&statement)?;
                 route.execute_explain(sql)
+            }
+
+            fn projection_rows_for_statement(
+                sql: &str,
+                statement: &::icydb::db::SqlStatementRoute,
+            ) -> Result<(String, SqlProjectionRows), Error> {
+                let route = SqlEntityRoute::from_statement_route(statement)?;
+                let rows = route.execute_projection_rows(sql)?;
+
+                Ok((route.entity_name().to_string(), rows))
             }
 
             fn unsupported_sql_entity_error(entity_name: &str) -> Error {

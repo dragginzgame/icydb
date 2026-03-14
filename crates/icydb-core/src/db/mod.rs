@@ -88,7 +88,11 @@ pub use schema::{
     EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
     EntityRelationDescription, EntityRelationStrength, EntitySchemaDescription, ValidateError,
 };
-pub use session::DbSession;
+pub use session::{DbSession, SqlStatementRoute};
+pub use sql::identifier::{
+    identifier_last_segment, identifiers_tail_match, normalize_identifier_to_scope,
+    split_qualified_identifier,
+};
 
 ///
 /// Db

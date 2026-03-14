@@ -25,7 +25,8 @@ pub(in crate::db) use plan::{
     plan_index_mutation_for_entity,
 };
 pub(in crate::db) use predicate::{
-    IndexCompareOp, IndexCompilePolicy, IndexLiteral, IndexPredicateProgram, compile_index_program,
+    IndexCompareOp, IndexCompilePolicy, IndexLiteral, IndexPredicateProgram,
+    canonical_index_predicate, compile_index_program,
 };
 pub(in crate::db) use range::{
     IndexRangeBoundEncodeError, envelope_is_empty, raw_bounds_for_semantic_index_component_range,

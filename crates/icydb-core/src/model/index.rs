@@ -6,6 +6,41 @@
 use std::fmt::{self, Display};
 
 ///
+/// IndexKeyItem
+///
+/// Canonical index key-item metadata.
+/// `Field` preserves legacy field-key behavior.
+/// `Expression` reserves deterministic expression-key identity metadata.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum IndexKeyItem {
+    Field(&'static str),
+    Expression(&'static str),
+}
+
+impl IndexKeyItem {
+    /// Borrow this key-item's canonical text payload.
+    #[must_use]
+    pub const fn text(&self) -> &'static str {
+        match self {
+            Self::Field(field) | Self::Expression(field) => field,
+        }
+    }
+}
+
+///
+/// IndexKeyItemsRef
+///
+/// Borrowed view over index key-item metadata.
+/// Field-only indexes use `Fields`; mixed/explicit key metadata uses `Items`.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum IndexKeyItemsRef {
+    Fields(&'static [&'static str]),
+    Items(&'static [IndexKeyItem]),
+}
+
+///
 /// IndexModel
 ///
 /// Runtime-only descriptor for an index used by the executor and stores.
@@ -20,7 +55,10 @@ pub struct IndexModel {
     name: &'static str,
     store: &'static str,
     fields: &'static [&'static str],
+    key_items: Option<&'static [IndexKeyItem]>,
     unique: bool,
+    // Raw schema-declared predicate text is input metadata only.
+    // Runtime/planner semantics must flow through canonical_index_predicate(...).
     predicate: Option<&'static str>,
 }
 
@@ -32,7 +70,7 @@ impl IndexModel {
         fields: &'static [&'static str],
         unique: bool,
     ) -> Self {
-        Self::new_with_predicate(name, store, fields, unique, None)
+        Self::new_with_key_items_and_predicate(name, store, fields, None, unique, None)
     }
 
     /// Construct one index descriptor with an optional conditional predicate.
@@ -44,10 +82,36 @@ impl IndexModel {
         unique: bool,
         predicate: Option<&'static str>,
     ) -> Self {
+        Self::new_with_key_items_and_predicate(name, store, fields, None, unique, predicate)
+    }
+
+    /// Construct one index descriptor with explicit canonical key-item metadata.
+    #[must_use]
+    pub const fn new_with_key_items(
+        name: &'static str,
+        store: &'static str,
+        fields: &'static [&'static str],
+        key_items: &'static [IndexKeyItem],
+        unique: bool,
+    ) -> Self {
+        Self::new_with_key_items_and_predicate(name, store, fields, Some(key_items), unique, None)
+    }
+
+    /// Construct one index descriptor with explicit key-item + predicate metadata.
+    #[must_use]
+    pub const fn new_with_key_items_and_predicate(
+        name: &'static str,
+        store: &'static str,
+        fields: &'static [&'static str],
+        key_items: Option<&'static [IndexKeyItem]>,
+        unique: bool,
+        predicate: Option<&'static str>,
+    ) -> Self {
         Self {
             name,
             store,
             fields,
+            key_items,
             unique,
             predicate,
         }
@@ -71,13 +135,44 @@ impl IndexModel {
         self.fields
     }
 
+    /// Borrow canonical key-item metadata for this index.
+    #[must_use]
+    pub const fn key_items(&self) -> IndexKeyItemsRef {
+        if let Some(items) = self.key_items {
+            IndexKeyItemsRef::Items(items)
+        } else {
+            IndexKeyItemsRef::Fields(self.fields)
+        }
+    }
+
+    /// Return whether this index includes expression key items.
+    #[must_use]
+    pub const fn has_expression_key_items(&self) -> bool {
+        let Some(items) = self.key_items else {
+            return false;
+        };
+
+        let mut index = 0usize;
+        while index < items.len() {
+            if matches!(items[index], IndexKeyItem::Expression(_)) {
+                return true;
+            }
+            index = index.saturating_add(1);
+        }
+
+        false
+    }
+
     /// Return whether the index enforces value uniqueness.
     #[must_use]
     pub const fn is_unique(&self) -> bool {
         self.unique
     }
 
-    /// Return optional schema-declared conditional index predicate metadata.
+    /// Return optional schema-declared conditional index predicate text metadata.
+    ///
+    /// This string is input-only and must be lowered through the canonical
+    /// index-predicate boundary before semantic use.
     #[must_use]
     pub const fn predicate(&self) -> Option<&'static str> {
         self.predicate
@@ -88,11 +183,22 @@ impl IndexModel {
     pub fn is_prefix_of(&self, other: &Self) -> bool {
         self.fields().len() < other.fields().len() && other.fields().starts_with(self.fields())
     }
+
+    fn joined_key_items(&self) -> String {
+        match self.key_items() {
+            IndexKeyItemsRef::Fields(fields) => fields.join(", "),
+            IndexKeyItemsRef::Items(items) => items
+                .iter()
+                .map(IndexKeyItem::text)
+                .collect::<Vec<_>>()
+                .join(", "),
+        }
+    }
 }
 
 impl Display for IndexModel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let fields = self.fields().join(", ");
+        let fields = self.joined_key_items();
         if self.is_unique() {
             if let Some(predicate) = self.predicate() {
                 write!(
@@ -127,7 +233,7 @@ impl Display for IndexModel {
 
 #[cfg(test)]
 mod tests {
-    use crate::model::index::IndexModel;
+    use crate::model::index::{IndexKeyItem, IndexKeyItemsRef, IndexModel};
 
     #[test]
     fn index_model_with_predicate_exposes_predicate_metadata() {
@@ -152,5 +258,31 @@ mod tests {
 
         assert_eq!(model.predicate(), None);
         assert_eq!(model.to_string(), "users|email: UNIQUE users::index(email)");
+    }
+
+    #[test]
+    fn index_model_with_explicit_key_items_exposes_expression_items() {
+        static KEY_ITEMS: [IndexKeyItem; 2] = [
+            IndexKeyItem::Field("tenant_id"),
+            IndexKeyItem::Expression("LOWER(email)"),
+        ];
+        let model = IndexModel::new_with_key_items(
+            "users|tenant|email_expr",
+            "users::index",
+            &["tenant_id"],
+            &KEY_ITEMS,
+            false,
+        );
+
+        assert!(model.has_expression_key_items());
+        assert_eq!(
+            model.to_string(),
+            "users|tenant|email_expr: users::index(tenant_id, LOWER(email))"
+        );
+        assert!(matches!(
+            model.key_items(),
+            IndexKeyItemsRef::Items(items)
+                if items == KEY_ITEMS.as_slice()
+        ));
     }
 }

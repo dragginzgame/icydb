@@ -6,12 +6,57 @@
 use crate::{
     db::{
         identity::{EntityName, IndexName},
+        index::canonical_index_predicate,
         schema::{FieldType, ValidateError, field_type_from_model_kind, validate},
-        sql::parser::parse_sql_predicate,
     },
-    model::{entity::EntityModel, field::FieldKind, index::IndexModel},
+    model::{
+        entity::EntityModel,
+        field::FieldKind,
+        index::{IndexKeyItem, IndexKeyItemsRef, IndexModel},
+    },
 };
 use std::collections::{BTreeMap, BTreeSet};
+
+fn validate_index_field_reference(
+    fields: &BTreeMap<String, FieldType>,
+    index: &IndexModel,
+    field: &'static str,
+    seen: &mut BTreeSet<&'static str>,
+) -> Result<(), ValidateError> {
+    if !fields.contains_key(field) {
+        return Err(ValidateError::IndexFieldUnknown {
+            index: *index,
+            field: field.to_string(),
+        });
+    }
+    if seen.contains(field) {
+        return Err(ValidateError::IndexFieldDuplicate {
+            index: *index,
+            field: field.to_string(),
+        });
+    }
+    seen.insert(field);
+
+    let field_type = fields
+        .get(field)
+        .expect("index field existence checked above");
+    // Guardrail: map fields are deterministic stored values but remain
+    // non-queryable and non-indexable in 0.7.
+    if matches!(field_type, FieldType::Map { .. }) {
+        return Err(ValidateError::IndexFieldMapNotQueryable {
+            index: *index,
+            field: field.to_string(),
+        });
+    }
+    if !field_type.value_kind().is_queryable() {
+        return Err(ValidateError::IndexFieldNotQueryable {
+            index: *index,
+            field: field.to_string(),
+        });
+    }
+
+    Ok(())
+}
 
 fn validate_index_fields(
     fields: &BTreeMap<String, FieldType>,
@@ -27,37 +72,25 @@ fn validate_index_fields(
         seen_names.insert(index.name());
 
         let mut seen = BTreeSet::new();
-        for field in index.fields() {
-            if !fields.contains_key(*field) {
-                return Err(ValidateError::IndexFieldUnknown {
-                    index: **index,
-                    field: (*field).to_string(),
-                });
+        match index.key_items() {
+            IndexKeyItemsRef::Fields(fields_ref) => {
+                for field in fields_ref {
+                    validate_index_field_reference(fields, index, field, &mut seen)?;
+                }
             }
-            if seen.contains(*field) {
-                return Err(ValidateError::IndexFieldDuplicate {
-                    index: **index,
-                    field: (*field).to_string(),
-                });
-            }
-            seen.insert(*field);
-
-            let field_type = fields
-                .get(*field)
-                .expect("index field existence checked above");
-            // Guardrail: map fields are deterministic stored values but remain
-            // non-queryable and non-indexable in 0.7.
-            if matches!(field_type, FieldType::Map { .. }) {
-                return Err(ValidateError::IndexFieldMapNotQueryable {
-                    index: **index,
-                    field: (*field).to_string(),
-                });
-            }
-            if !field_type.value_kind().is_queryable() {
-                return Err(ValidateError::IndexFieldNotQueryable {
-                    index: **index,
-                    field: (*field).to_string(),
-                });
+            IndexKeyItemsRef::Items(items) => {
+                for item in items {
+                    match item {
+                        IndexKeyItem::Field(field) => {
+                            validate_index_field_reference(fields, index, field, &mut seen)?;
+                        }
+                        IndexKeyItem::Expression(expression) => {
+                            return Err(ValidateError::index_expression_unsupported(
+                                **index, expression,
+                            ));
+                        }
+                    }
+                }
             }
         }
     }
@@ -74,9 +107,10 @@ fn validate_index_predicates(
             continue;
         };
 
-        let predicate = parse_sql_predicate(predicate_sql)
+        let predicate = canonical_index_predicate(index)
             .map_err(|_| ValidateError::invalid_index_predicate_syntax(**index, predicate_sql))?;
-        validate(schema, &predicate)
+        let predicate = predicate.expect("index predicate metadata was checked above");
+        validate(schema, predicate)
             .map_err(|_| ValidateError::invalid_index_predicate_schema(**index, predicate_sql))?;
     }
 

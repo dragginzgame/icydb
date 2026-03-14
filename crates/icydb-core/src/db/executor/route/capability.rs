@@ -122,7 +122,7 @@ where
             count_pushdown_shape_supported: aggregate_execution_policy
                 .count_pushdown_shape_supported(),
             count_pushdown_existing_rows_shape_supported:
-                Self::count_pushdown_existing_rows_shape_supported(access_class),
+                Self::count_pushdown_existing_rows_shape_supported(&access_class),
             index_range_limit_pushdown_shape_supported:
                 Self::is_index_range_limit_pushdown_shape_supported(plan),
             composite_aggregate_fast_path_eligible: aggregate_execution_policy
@@ -152,7 +152,7 @@ where
     // Route-owned gate for COUNT streaming paths that must preserve stale-key
     // safety through `ExistingRows` fold mode on secondary index traversal.
     const fn count_pushdown_existing_rows_shape_supported(
-        access_class: crate::db::access::AccessRouteClass,
+        access_class: &crate::db::access::AccessRouteClass,
     ) -> bool {
         access_class.single_path() && (access_class.prefix_scan() || access_class.range_scan())
     }

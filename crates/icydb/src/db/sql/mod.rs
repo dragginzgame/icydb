@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     db::ProjectionResponse,
     error::{Error, ErrorKind, ErrorOrigin, RuntimeErrorKind},
-    traits::{EntityKind, EntitySchema},
+    traits::EntityKind,
     value::{Value, ValueEnum},
 };
 
@@ -113,12 +113,6 @@ pub fn normalize_sql_input(sql: &str) -> Result<&str, Error> {
     Ok(sql_trimmed)
 }
 
-/// Return whether the input SQL statement is an EXPLAIN surface statement.
-#[must_use]
-pub fn is_explain_sql(sql: &str) -> bool {
-    sql.to_ascii_uppercase().starts_with("EXPLAIN ")
-}
-
 /// Return the wrapped SQL statement text inside one EXPLAIN surface statement.
 ///
 /// If `sql` does not begin with EXPLAIN, this returns the trimmed input.
@@ -137,75 +131,13 @@ pub fn explain_target_sql(sql: &str) -> &str {
     rest.trim_start()
 }
 
-/// Extract one entity identifier from a reduced SQL statement.
-///
-/// Supports `SELECT`, `DELETE`, and `EXPLAIN {PLAN|EXECUTION|JSON}` wrappers.
-/// Returns the raw SQL entity token (for example `FixtureUser` or `public.FixtureUser`).
-pub fn statement_entity_name(sql: &str) -> Result<String, Error> {
-    // Phase 1: normalize optional EXPLAIN prefix.
-    let mut rest = sql.trim_start();
-    if let Some(next) = consume_keyword(rest, "EXPLAIN") {
-        rest = next;
-        if let Some(next) = consume_keyword(rest, "EXECUTION") {
-            rest = next;
-        } else if let Some(next) = consume_keyword(rest, "JSON") {
-            rest = next;
-        }
-    }
-
-    // Phase 2: extract the target entity from DELETE/SELECT statement heads.
-    if let Some(next) = consume_keyword(rest, "DELETE") {
-        let Some(next) = consume_keyword(next, "FROM") else {
-            return Err(unsupported_sql_entity_error(
-                "query endpoint expected DELETE FROM <entity>",
-            ));
-        };
-        let Some((entity, _)) = parse_qualified_identifier(next) else {
-            return Err(unsupported_sql_entity_error(
-                "query endpoint expected DELETE FROM <entity>",
-            ));
-        };
-
-        return Ok(entity.to_string());
-    }
-
-    if let Some(next) = consume_keyword(rest, "SELECT") {
-        let Some(from_index) = find_top_level_keyword(next, "FROM") else {
-            return Err(unsupported_sql_entity_error(
-                "query endpoint expected SELECT ... FROM <entity>",
-            ));
-        };
-        let after_from = &next[from_index + "FROM".len()..];
-        let Some((entity, _)) = parse_qualified_identifier(after_from) else {
-            return Err(unsupported_sql_entity_error(
-                "query endpoint expected SELECT ... FROM <entity>",
-            ));
-        };
-
-        return Ok(entity.to_string());
-    }
-
-    Err(unsupported_sql_entity_error(
-        "query endpoint supports SELECT/DELETE statements only",
-    ))
-}
-
 /// Return whether two entity identifiers refer to the same logical entity.
 ///
 /// Matching is case-insensitive and accepts one schema-qualified side by
 /// comparing the final identifier segment (for example `public.User` vs `User`).
 #[must_use]
 pub fn identifiers_tail_match(left: &str, right: &str) -> bool {
-    if left.eq_ignore_ascii_case(right) {
-        return true;
-    }
-
-    let left_last = identifier_last_segment(left);
-    let right_last = identifier_last_segment(right);
-    match (left_last, right_last) {
-        (Some(lhs), Some(rhs)) => lhs.eq_ignore_ascii_case(rhs),
-        _ => false,
-    }
+    crate::db::identifiers_tail_match(left, right)
 }
 
 /// Render one value into a shell-friendly stable text form.
@@ -258,11 +190,11 @@ pub fn render_value_text(value: &Value) -> String {
 /// Build one rendered projection row payload from one SQL projection response.
 #[must_use]
 pub fn projection_rows_from_response<E>(
-    sql: &str,
+    columns: Vec<String>,
     projection: ProjectionResponse<E>,
 ) -> SqlProjectionRows
 where
-    E: EntityKind + EntitySchema,
+    E: EntityKind,
 {
     // Phase 1: render each projected row cell into stable text.
     let row_count = projection.count();
@@ -279,8 +211,12 @@ where
         rows.push(rendered_row);
     }
 
-    // Phase 2: derive stable projection column labels for the output surface.
-    let columns = projection_columns_for_entity::<E>(sql, max_column_count);
+    // Phase 2: derive stable projection column labels from canonical core metadata.
+    let columns = if max_column_count == 0 || columns.len() == max_column_count {
+        columns
+    } else {
+        projection_columns(max_column_count)
+    };
 
     SqlProjectionRows::new(columns, rows, row_count)
 }
@@ -342,123 +278,6 @@ fn projection_columns(column_count: usize) -> Vec<String> {
         .collect()
 }
 
-fn split_projection_items(projection_sql: &str) -> Vec<String> {
-    let mut items = Vec::new();
-    let mut depth = 0usize;
-    let mut start = 0usize;
-
-    for (index, ch) in projection_sql.char_indices() {
-        match ch {
-            '(' => depth = depth.saturating_add(1),
-            ')' => depth = depth.saturating_sub(1),
-            ',' if depth == 0 => {
-                items.push(projection_sql[start..index].trim().to_string());
-                start = index.saturating_add(1);
-            }
-            _ => {}
-        }
-    }
-
-    let trailing = projection_sql[start..].trim();
-    if !trailing.is_empty() {
-        items.push(trailing.to_string());
-    }
-
-    items
-}
-
-fn projection_clause(sql: &str) -> Option<String> {
-    // Parse one reduced SQL `SELECT ... FROM ...` projection segment while
-    // respecting nested function parentheses.
-    let sql_bytes = sql.as_bytes();
-    let upper = sql.to_ascii_uppercase();
-    let upper_bytes = upper.as_bytes();
-    if !upper_bytes.starts_with(b"SELECT ") {
-        return None;
-    }
-
-    let mut depth = 0usize;
-    let mut from_index = None;
-    let mut index = "SELECT ".len();
-
-    while index < upper_bytes.len() {
-        match upper_bytes[index] {
-            b'(' => depth = depth.saturating_add(1),
-            b')' => depth = depth.saturating_sub(1),
-            b'F' if depth == 0 => {
-                if upper_bytes[index..].starts_with(b"FROM")
-                    && (index == 0 || upper_bytes[index - 1].is_ascii_whitespace())
-                    && upper_bytes
-                        .get(index.saturating_add(4))
-                        .is_some_and(u8::is_ascii_whitespace)
-                {
-                    from_index = Some(index);
-                    break;
-                }
-            }
-            _ => {}
-        }
-
-        index = index.saturating_add(1);
-    }
-
-    let from_index = from_index?;
-    let projection = std::str::from_utf8(&sql_bytes["SELECT ".len()..from_index]).ok()?;
-
-    Some(projection.trim().to_string())
-}
-
-fn projection_columns_for_entity<E: EntitySchema>(
-    sql: &str,
-    observed_column_count: usize,
-) -> Vec<String> {
-    // Phase 1: extract projection clause from reduced SQL.
-    let Some(mut projection) = projection_clause(sql) else {
-        return projection_columns(observed_column_count);
-    };
-
-    // Phase 2: strip optional DISTINCT prefix.
-    if projection
-        .to_ascii_uppercase()
-        .strip_prefix("DISTINCT ")
-        .is_some()
-    {
-        projection = projection["DISTINCT ".len()..].trim_start().to_string();
-    }
-
-    // Phase 3: expand SELECT * from entity schema order.
-    if projection == "*" {
-        return E::MODEL
-            .fields()
-            .iter()
-            .map(|field| field.name().to_string())
-            .collect();
-    }
-
-    // Phase 4: normalize explicit projection items to output labels.
-    let items = split_projection_items(projection.as_str());
-    if items.is_empty() {
-        return projection_columns(observed_column_count);
-    }
-
-    let columns = items
-        .into_iter()
-        .map(|item| {
-            if item.contains('(') {
-                return item;
-            }
-
-            item.rsplit('.').next().unwrap_or(item.as_str()).to_string()
-        })
-        .collect::<Vec<_>>();
-
-    if observed_column_count == 0 || columns.len() == observed_column_count {
-        columns
-    } else {
-        projection_columns(observed_column_count)
-    }
-}
-
 fn render_table_separator(widths: &[usize]) -> String {
     let segments = widths
         .iter()
@@ -478,15 +297,6 @@ fn render_table_row(cells: &[String], widths: &[usize]) -> String {
     format!("| {} |", parts.join(" | "))
 }
 
-// Build one stable unsupported-surface error for SQL endpoint helpers.
-fn unsupported_sql_entity_error(message: &str) -> Error {
-    Error::new(
-        ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
-        ErrorOrigin::Query,
-        message,
-    )
-}
-
 // Consume one keyword at the start of `input` (after optional leading whitespace).
 fn consume_keyword<'a>(input: &'a str, keyword: &str) -> Option<&'a str> {
     let trimmed = input.trim_start();
@@ -495,85 +305,6 @@ fn consume_keyword<'a>(input: &'a str, keyword: &str) -> Option<&'a str> {
     }
 
     Some(&trimmed[keyword.len()..])
-}
-
-// Parse one dotted identifier (`schema.entity`) and return `(identifier, trailing)`.
-fn parse_qualified_identifier(input: &str) -> Option<(&str, &str)> {
-    let leading_ws = input.bytes().take_while(u8::is_ascii_whitespace).count();
-    let bytes = input.as_bytes();
-    let mut cursor = leading_ws;
-
-    cursor = parse_identifier_segment(bytes, cursor)?;
-    while bytes.get(cursor).is_some_and(|byte| *byte == b'.') {
-        cursor = cursor.saturating_add(1);
-        cursor = parse_identifier_segment(bytes, cursor)?;
-    }
-
-    Some((&input[leading_ws..cursor], &input[cursor..]))
-}
-
-// Return the first top-level keyword position while ignoring parenthesized/string scopes.
-fn find_top_level_keyword(input: &str, keyword: &str) -> Option<usize> {
-    let bytes = input.as_bytes();
-    let keyword_bytes = keyword.as_bytes();
-    let mut depth = 0usize;
-    let mut index = 0usize;
-    let mut in_string = false;
-
-    while index < bytes.len() {
-        match bytes[index] {
-            b'\'' => {
-                if in_string
-                    && bytes
-                        .get(index.saturating_add(1))
-                        .is_some_and(|byte| *byte == b'\'')
-                {
-                    index = index.saturating_add(2);
-                    continue;
-                }
-                in_string = !in_string;
-            }
-            b'(' if !in_string => depth = depth.saturating_add(1),
-            b')' if !in_string => depth = depth.saturating_sub(1),
-            _ => {}
-        }
-
-        if depth == 0
-            && !in_string
-            && is_keyword_at(bytes, index, keyword_bytes)
-            && keyword_boundary_before(bytes, index)
-            && keyword_boundary_after(bytes, index.saturating_add(keyword_bytes.len()))
-        {
-            return Some(index);
-        }
-
-        index = index.saturating_add(1);
-    }
-
-    None
-}
-
-// Return one final dotted identifier segment.
-fn identifier_last_segment(identifier: &str) -> Option<&str> {
-    identifier.rsplit('.').next()
-}
-
-// Parse one SQL identifier segment and return its exclusive end index.
-fn parse_identifier_segment(bytes: &[u8], start: usize) -> Option<usize> {
-    let first = *bytes.get(start)?;
-    if !is_identifier_start(first) {
-        return None;
-    }
-
-    let mut end = start.saturating_add(1);
-    while bytes
-        .get(end)
-        .is_some_and(|byte| is_identifier_continue(*byte))
-    {
-        end = end.saturating_add(1);
-    }
-
-    Some(end)
 }
 
 // Return whether `input` begins with one keyword token.
@@ -595,27 +326,11 @@ fn is_keyword_at(bytes: &[u8], index: usize, keyword: &[u8]) -> bool {
         .all(|(found, expected)| found.eq_ignore_ascii_case(expected))
 }
 
-// Return whether one keyword start index is token-delimited.
-fn keyword_boundary_before(bytes: &[u8], index: usize) -> bool {
-    if index == 0 {
-        return true;
-    }
-
-    bytes
-        .get(index.saturating_sub(1))
-        .is_none_or(|byte| !is_identifier_continue(*byte))
-}
-
 // Return whether one keyword end index is token-delimited.
 fn keyword_boundary_after(bytes: &[u8], end: usize) -> bool {
     bytes
         .get(end)
         .is_none_or(|byte| !is_identifier_continue(*byte))
-}
-
-// Return whether one byte may start an unquoted SQL identifier segment.
-const fn is_identifier_start(byte: u8) -> bool {
-    byte.is_ascii_alphabetic() || byte == b'_'
 }
 
 // Return whether one byte may continue an unquoted SQL identifier segment.
@@ -656,50 +371,7 @@ fn render_enum(value: &ValueEnum) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::db::sql::{explain_target_sql, identifiers_tail_match, statement_entity_name};
-
-    #[test]
-    fn statement_entity_name_select_returns_entity() {
-        let entity = statement_entity_name("SELECT * FROM FixtureUser ORDER BY name")
-            .expect("entity should parse");
-        assert_eq!(entity, "FixtureUser");
-    }
-
-    #[test]
-    fn statement_entity_name_explain_json_returns_schema_qualified_entity() {
-        let entity =
-            statement_entity_name("EXPLAIN JSON SELECT name FROM public.FixtureOrder LIMIT 1")
-                .expect("entity should parse");
-        assert_eq!(entity, "public.FixtureOrder");
-    }
-
-    #[test]
-    fn statement_entity_name_delete_returns_entity() {
-        let entity = statement_entity_name("DELETE FROM FixtureOrder WHERE status = 'paid'")
-            .expect("entity should parse");
-        assert_eq!(entity, "FixtureOrder");
-    }
-
-    #[test]
-    fn statement_entity_name_ignores_from_inside_string_literals() {
-        let entity = statement_entity_name(
-            "SELECT name FROM FixtureUser WHERE note = 'before from after' ORDER BY name",
-        )
-        .expect("entity should parse");
-        assert_eq!(entity, "FixtureUser");
-    }
-
-    #[test]
-    fn statement_entity_name_rejects_unsupported_statement_kind() {
-        let error =
-            statement_entity_name("INSERT INTO FixtureUser VALUES ('alice')").expect_err("reject");
-        assert!(
-            error
-                .message()
-                .contains("query endpoint supports SELECT/DELETE statements only"),
-            "error should explain supported statement kinds: {error:?}"
-        );
-    }
+    use crate::db::sql::{explain_target_sql, identifiers_tail_match};
 
     #[test]
     fn explain_target_sql_strips_explain_wrappers() {

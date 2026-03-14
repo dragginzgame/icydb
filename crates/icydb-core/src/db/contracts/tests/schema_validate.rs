@@ -7,7 +7,7 @@ use crate::{
     db::schema::{SchemaInfo, ValidateError},
     model::{
         field::{FieldKind, FieldModel},
-        index::IndexModel,
+        index::{IndexKeyItem, IndexModel},
     },
     testing::InvalidEntityModelBuilder,
 };
@@ -154,6 +154,40 @@ fn model_rejects_index_map_field_in_0_7_x() {
     assert!(matches!(
         SchemaInfo::from_entity_model(&model),
         Err(ValidateError::IndexFieldMapNotQueryable { .. })
+    ));
+}
+
+#[test]
+fn model_rejects_expression_index_key_items_in_current_release() {
+    const INDEX_FIELDS: [&str; 1] = ["email"];
+    const INDEX_KEY_ITEMS: [IndexKeyItem; 1] = [IndexKeyItem::Expression("LOWER(email)")];
+    const INDEX_MODEL: IndexModel = IndexModel::new_with_key_items(
+        "test::idx_email_lower",
+        "test::IndexStore",
+        &INDEX_FIELDS,
+        &INDEX_KEY_ITEMS,
+        false,
+    );
+    const INDEXES: [&IndexModel; 1] = [&INDEX_MODEL];
+
+    let fields: &'static [FieldModel] = Box::leak(
+        vec![
+            field("id", FieldKind::Ulid),
+            field("email", FieldKind::Text),
+        ]
+        .into_boxed_slice(),
+    );
+    let model = InvalidEntityModelBuilder::from_static(
+        "test::Entity",
+        "TestEntity",
+        &fields[0],
+        fields,
+        &INDEXES,
+    );
+
+    assert!(matches!(
+        SchemaInfo::from_entity_model(&model),
+        Err(ValidateError::IndexExpressionUnsupported { .. })
     ));
 }
 

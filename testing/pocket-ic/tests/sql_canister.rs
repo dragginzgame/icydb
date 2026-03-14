@@ -41,8 +41,9 @@ fn sql_canister_smoke_flow() {
         )
         .expect("sql_entities query call should succeed");
     let entities: Vec<String> = decode_one(&entities_bytes).expect("decode sql_entities response");
-    assert!(entities.iter().any(|name| name == "FixtureUser"));
-    assert!(entities.iter().any(|name| name == "FixtureOrder"));
+    assert!(entities.iter().any(|name| name == "User"));
+    assert!(entities.iter().any(|name| name == "Order"));
+    assert!(entities.iter().any(|name| name == "Character"));
 
     let load_bytes = pic
         .update_call(
@@ -64,7 +65,7 @@ fn sql_canister_smoke_flow() {
             canister_id,
             Principal::anonymous(),
             "query",
-            encode_one("EXPLAIN SELECT name FROM FixtureUser ORDER BY name LIMIT 1".to_string())
+            encode_one("EXPLAIN SELECT name FROM User ORDER BY name LIMIT 1".to_string())
                 .expect("encode explain query args"),
         )
         .expect("EXPLAIN query call should succeed");
@@ -81,7 +82,7 @@ fn sql_canister_smoke_flow() {
         "EXPLAIN output should be tagged as explain surface",
     );
 
-    let query_sql = "SELECT name FROM FixtureUser ORDER BY name LIMIT 1".to_string();
+    let query_sql = "SELECT name FROM User ORDER BY name LIMIT 1".to_string();
     let query_arg = encode_one(query_sql.clone()).expect("encode query args");
     let query_bytes = pic
         .query_call(canister_id, Principal::anonymous(), "query", query_arg)
@@ -111,7 +112,7 @@ fn sql_canister_smoke_flow() {
     let query_rows_result: Result<SqlQueryRowsOutput, icydb::Error> =
         decode_one(&query_rows_bytes).expect("decode query_rows response");
     let query_rows = query_rows_result.expect("query_rows endpoint should return structured rows");
-    assert_eq!(query_rows.entity, "FixtureUser");
+    assert_eq!(query_rows.entity, "User");
     assert_eq!(query_rows.row_count, 1);
     assert_eq!(query_rows.columns, vec!["name".to_string()]);
     assert_eq!(query_rows.rows, vec![vec!["alice".to_string()]]);
@@ -163,91 +164,94 @@ fn sql_canister_dispatch_is_entity_keyed_and_deterministic() {
         "fixtures_load_default returned error: {load_result:?}"
     );
 
-    // Property 1: resolution is by parsed SQL entity name for FixtureOrder.
-    let order_query_rows_bytes = pic
+    // Property 1: resolution is by parsed SQL entity name for Character.
+    let character_query_rows_bytes = pic
         .query_call(
             canister_id,
             Principal::anonymous(),
             "query_rows",
-            encode_one("SELECT status FROM FixtureOrder ORDER BY status ASC LIMIT 1".to_string())
-                .expect("encode FixtureOrder query_rows args"),
+            encode_one("SELECT name FROM Character ORDER BY name ASC LIMIT 1".to_string())
+                .expect("encode Character query_rows args"),
         )
-        .expect("FixtureOrder query_rows call should succeed");
-    let order_query_rows_result: Result<SqlQueryRowsOutput, icydb::Error> =
-        decode_one(&order_query_rows_bytes).expect("decode FixtureOrder query_rows response");
-    let order_query_rows =
-        order_query_rows_result.expect("FixtureOrder query_rows should return Ok");
-    assert_eq!(order_query_rows.entity, "FixtureOrder");
-    assert_eq!(order_query_rows.columns, vec!["status".to_string()]);
-    assert_eq!(order_query_rows.row_count, 1);
-    assert_eq!(order_query_rows.rows, vec![vec!["failed".to_string()]]);
+        .expect("Character query_rows call should succeed");
+    let character_query_rows_result: Result<SqlQueryRowsOutput, icydb::Error> =
+        decode_one(&character_query_rows_bytes).expect("decode Character query_rows response");
+    let character_query_rows =
+        character_query_rows_result.expect("Character query_rows should return Ok");
+    assert_eq!(character_query_rows.entity, "Character");
+    assert_eq!(character_query_rows.columns, vec!["name".to_string()]);
+    assert_eq!(character_query_rows.row_count, 1);
+    assert_eq!(
+        character_query_rows.rows,
+        vec![vec!["Alex Ander".to_string()]]
+    );
 
-    // Property 1: resolution is by parsed SQL entity name for FixtureUser.
+    // Property 1: resolution is by parsed SQL entity name for User.
     let user_query_rows_bytes = pic
         .query_call(
             canister_id,
             Principal::anonymous(),
             "query_rows",
-            encode_one("SELECT name FROM FixtureUser ORDER BY name ASC LIMIT 1".to_string())
-                .expect("encode FixtureUser query_rows args"),
+            encode_one("SELECT name FROM User ORDER BY name ASC LIMIT 1".to_string())
+                .expect("encode User query_rows args"),
         )
-        .expect("FixtureUser query_rows call should succeed");
+        .expect("User query_rows call should succeed");
     let user_query_rows_result: Result<SqlQueryRowsOutput, icydb::Error> =
-        decode_one(&user_query_rows_bytes).expect("decode FixtureUser query_rows response");
-    let user_query_rows = user_query_rows_result.expect("FixtureUser query_rows should return Ok");
-    assert_eq!(user_query_rows.entity, "FixtureUser");
+        decode_one(&user_query_rows_bytes).expect("decode User query_rows response");
+    let user_query_rows = user_query_rows_result.expect("User query_rows should return Ok");
+    assert_eq!(user_query_rows.entity, "User");
     assert_eq!(user_query_rows.columns, vec!["name".to_string()]);
     assert_eq!(user_query_rows.row_count, 1);
     assert_eq!(user_query_rows.rows, vec![vec!["alice".to_string()]]);
 
-    // Property 3: no fallthrough; invalid field on FixtureUser must be validated as FixtureUser.
+    // Property 3: no fallthrough; invalid field on User must be validated as User.
     let bad_user_field_query_bytes = pic
         .query_call(
             canister_id,
             Principal::anonymous(),
             "query_rows",
-            encode_one("SELECT total_cents FROM FixtureUser ORDER BY id ASC LIMIT 1".to_string())
-                .expect("encode bad FixtureUser field query"),
+            encode_one("SELECT total_cents FROM User ORDER BY id ASC LIMIT 1".to_string())
+                .expect("encode bad User field query"),
         )
-        .expect("bad FixtureUser field query call should succeed");
+        .expect("bad User field query call should succeed");
     let bad_user_field_query_result: Result<SqlQueryRowsOutput, icydb::Error> =
-        decode_one(&bad_user_field_query_bytes).expect("decode bad FixtureUser field response");
+        decode_one(&bad_user_field_query_bytes).expect("decode bad User field response");
     let bad_user_field_error =
-        bad_user_field_query_result.expect_err("bad FixtureUser field should return error");
+        bad_user_field_query_result.expect_err("bad User field should return error");
     assert!(
         bad_user_field_error
             .message()
             .contains("unknown expression field 'total_cents'"),
-        "bad FixtureUser field should stay on FixtureUser route: {bad_user_field_error:?}",
+        "bad User field should stay on User route: {bad_user_field_error:?}",
     );
     assert!(
         !bad_user_field_error.message().contains("last_error"),
-        "bad FixtureUser field must not include fallback chaining text: {bad_user_field_error:?}",
+        "bad User field must not include fallback chaining text: {bad_user_field_error:?}",
     );
 
-    // Property 3: no fallthrough; invalid field on FixtureOrder must be validated as FixtureOrder.
-    let bad_order_field_query_bytes = pic
+    // Property 3: no fallthrough; invalid field on Character must be validated as Character.
+    let bad_character_field_query_bytes = pic
         .query_call(
             canister_id,
             Principal::anonymous(),
             "query_rows",
-            encode_one("SELECT age FROM FixtureOrder ORDER BY id ASC LIMIT 1".to_string())
-                .expect("encode bad FixtureOrder field query"),
+            encode_one("SELECT age FROM Character ORDER BY id ASC LIMIT 1".to_string())
+                .expect("encode bad Character field query"),
         )
-        .expect("bad FixtureOrder field query call should succeed");
-    let bad_order_field_query_result: Result<SqlQueryRowsOutput, icydb::Error> =
-        decode_one(&bad_order_field_query_bytes).expect("decode bad FixtureOrder field response");
-    let bad_order_field_error =
-        bad_order_field_query_result.expect_err("bad FixtureOrder field should return error");
+        .expect("bad Character field query call should succeed");
+    let bad_character_field_query_result: Result<SqlQueryRowsOutput, icydb::Error> =
+        decode_one(&bad_character_field_query_bytes).expect("decode bad Character field response");
+    let bad_character_field_error =
+        bad_character_field_query_result.expect_err("bad Character field should return error");
     assert!(
-        bad_order_field_error
+        bad_character_field_error
             .message()
             .contains("unknown expression field 'age'"),
-        "bad FixtureOrder field should stay on FixtureOrder route: {bad_order_field_error:?}",
+        "bad Character field should stay on Character route: {bad_character_field_error:?}",
     );
     assert!(
-        !bad_order_field_error.message().contains("last_error"),
-        "bad FixtureOrder field must not include fallback chaining text: {bad_order_field_error:?}",
+        !bad_character_field_error.message().contains("last_error"),
+        "bad Character field must not include fallback chaining text: {bad_character_field_error:?}",
     );
 
     // Property 2: unsupported entity errors are immediate, deterministic, and enumerate support.
@@ -279,8 +283,9 @@ fn sql_canister_dispatch_is_entity_keyed_and_deterministic() {
         "MissingEntity dispatch error should include unsupported entity detail: {unknown_entity_error:?}",
     );
     assert!(
-        unknown_entity_error.message().contains("FixtureUser")
-            && unknown_entity_error.message().contains("FixtureOrder"),
+        unknown_entity_error.message().contains("User")
+            && unknown_entity_error.message().contains("Order")
+            && unknown_entity_error.message().contains("Character"),
         "MissingEntity dispatch error should enumerate supported entities: {unknown_entity_error:?}",
     );
     assert!(
@@ -294,7 +299,7 @@ fn sql_canister_dispatch_is_entity_keyed_and_deterministic() {
             canister_id,
             Principal::anonymous(),
             "query",
-            encode_one("EXPLAIN SELECT * FROM FixtureOrder LIMIT 1".to_string())
+            encode_one("EXPLAIN SELECT * FROM Character LIMIT 1".to_string())
                 .expect("encode unordered EXPLAIN query"),
         )
         .expect("unordered EXPLAIN query call should succeed");
@@ -319,13 +324,13 @@ fn sql_canister_dispatch_is_entity_keyed_and_deterministic() {
     assert!(
         explain_unordered_error
             .message()
-            .contains("SQL:\nSELECT * FROM FixtureOrder LIMIT 1"),
+            .contains("SQL:\nSELECT * FROM Character LIMIT 1"),
         "unordered EXPLAIN should include wrapped SQL statement: {explain_unordered_error:?}",
     );
     assert!(
         explain_unordered_error
             .message()
-            .contains("EXPLAIN SELECT * FROM FixtureOrder ORDER BY id ASC LIMIT 1"),
+            .contains("EXPLAIN SELECT * FROM Character ORDER BY id ASC LIMIT 1"),
         "unordered EXPLAIN should include stable-order fix suggestion: {explain_unordered_error:?}",
     );
 }

@@ -5,10 +5,10 @@
 
 use crate::{
     db::{
+        index::canonical_index_predicate,
         numeric::compare_numeric_or_strict_order,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         schema::{SchemaInfo, literal_matches_type},
-        sql::parser::parse_sql_predicate,
     },
     model::{entity::EntityModel, index::IndexModel},
     value::Value,
@@ -63,14 +63,17 @@ pub(in crate::db::query::plan::planner) fn index_literal_matches_schema(
 // index predicate. This check is intentionally conservative and fail-closed:
 // unsupported predicate forms are treated as non-implying.
 fn index_predicate_implied_by_query(index: &IndexModel, query_predicate: &Predicate) -> bool {
-    let Some(index_predicate_sql) = index.predicate() else {
+    if index.predicate().is_none() {
         return true;
-    };
-    let Ok(index_predicate) = parse_sql_predicate(index_predicate_sql) else {
+    }
+    let Ok(index_predicate) = canonical_index_predicate(index) else {
         return false;
     };
+    let Some(index_predicate) = index_predicate else {
+        return true;
+    };
 
-    let Some(required) = required_compare_clauses(&index_predicate) else {
+    let Some(required) = required_compare_clauses(index_predicate) else {
         return false;
     };
     let query = query_compare_clauses(query_predicate);

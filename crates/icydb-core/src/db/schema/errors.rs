@@ -61,6 +61,14 @@ pub enum ValidateError {
     #[error("index '{index}' repeats field '{field}'")]
     IndexFieldDuplicate { index: IndexModel, field: String },
 
+    #[error(
+        "index '{index}' declares unsupported expression key item '{expression}' in this release"
+    )]
+    IndexExpressionUnsupported {
+        index: IndexModel,
+        expression: &'static str,
+    },
+
     #[error("duplicate index name '{name}'")]
     DuplicateIndexName { name: String },
 
@@ -113,5 +121,12 @@ impl ValidateError {
         predicate: &'static str,
     ) -> Self {
         Self::InvalidIndexPredicateSchema { index, predicate }
+    }
+
+    pub(crate) const fn index_expression_unsupported(
+        index: IndexModel,
+        expression: &'static str,
+    ) -> Self {
+        Self::IndexExpressionUnsupported { index, expression }
     }
 }

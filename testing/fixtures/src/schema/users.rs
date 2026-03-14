@@ -2,7 +2,7 @@ use crate::schema::SqlTestStore;
 use icydb::design::prelude::*;
 
 ///
-/// FixtureUser
+/// User
 ///
 /// Fixture user entity used by SQL endpoint and integration harnesses.
 ///
@@ -17,4 +17,4 @@ use icydb::design::prelude::*;
         field(ident = "age", value(item(prim = "Int32")), default = 0)
     )
 )]
-pub struct FixtureUser {}
+pub struct User {}

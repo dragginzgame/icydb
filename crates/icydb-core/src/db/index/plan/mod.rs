@@ -14,9 +14,9 @@ use crate::{
         data::{DataKey, RawRow},
         index::{
             IndexEntry, IndexEntryCorruption, IndexKey, IndexStore, RawIndexEntry, RawIndexKey,
+            canonical_index_predicate,
         },
         predicate::PredicateProgram,
-        sql::parser::parse_sql_predicate,
     },
     error::InternalError,
     model::index::IndexModel,
@@ -97,7 +97,7 @@ pub(in crate::db) fn compile_index_membership_predicate<E: EntityKind>(
         return Ok(None);
     };
 
-    let predicate = parse_sql_predicate(predicate_sql).map_err(|err| {
+    let predicate = canonical_index_predicate(index).map_err(|err| {
         InternalError::index_invariant(format!(
             "index predicate parse failed: {} ({}) WHERE {} -> {err}",
             E::PATH,
@@ -105,8 +105,9 @@ pub(in crate::db) fn compile_index_membership_predicate<E: EntityKind>(
             predicate_sql,
         ))
     })?;
+    let predicate = predicate.expect("index predicate metadata was checked above");
 
-    Ok(Some(PredicateProgram::compile::<E>(&predicate)))
+    Ok(Some(PredicateProgram::compile::<E>(predicate)))
 }
 
 /// Build one index key for an entity after applying optional predicate gating.

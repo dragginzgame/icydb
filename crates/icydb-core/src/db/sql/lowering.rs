@@ -10,6 +10,9 @@ use crate::{
             builder::aggregate::{avg, count, count_by, max_by, min_by, sum},
             intent::{Query, QueryError},
         },
+        sql::identifier::{
+            identifier_last_segment, identifiers_tail_match, normalize_identifier_to_scope,
+        },
         sql::parser::{
             SqlAggregateCall, SqlAggregateKind, SqlDeleteStatement, SqlExplainMode,
             SqlExplainStatement, SqlExplainTarget, SqlOrderDirection, SqlProjection, SqlSelectItem,
@@ -606,43 +609,7 @@ fn normalize_compare(compare: ComparePredicate, entity_scope: &[String]) -> Comp
 }
 
 fn normalize_identifier(identifier: String, entity_scope: &[String]) -> String {
-    let Some((qualifier, leaf)) = split_qualified_identifier(identifier.as_str()) else {
-        return identifier;
-    };
-    if !entity_scope
-        .iter()
-        .any(|candidate| identifiers_tail_match(candidate.as_str(), qualifier))
-    {
-        return identifier;
-    }
-
-    leaf.to_string()
-}
-
-fn split_qualified_identifier(identifier: &str) -> Option<(&str, &str)> {
-    let (qualifier, leaf) = identifier.rsplit_once('.')?;
-    if qualifier.is_empty() || leaf.is_empty() {
-        return None;
-    }
-
-    Some((qualifier, leaf))
-}
-
-fn identifier_last_segment(identifier: &str) -> Option<&str> {
-    identifier.rsplit('.').next()
-}
-
-fn identifiers_tail_match(left: &str, right: &str) -> bool {
-    if left.eq_ignore_ascii_case(right) {
-        return true;
-    }
-
-    let left_last = identifier_last_segment(left);
-    let right_last = identifier_last_segment(right);
-    match (left_last, right_last) {
-        (Some(l), Some(r)) => l.eq_ignore_ascii_case(r),
-        _ => false,
-    }
+    normalize_identifier_to_scope(identifier, entity_scope)
 }
 
 fn ensure_entity_matches<E: EntityKind>(sql_entity: &str) -> Result<(), SqlLoweringError> {

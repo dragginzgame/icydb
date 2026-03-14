@@ -29,6 +29,8 @@ use crate::{
 };
 use std::thread::LocalKey;
 
+pub use sql::SqlStatementRoute;
+
 // Map executor-owned plan-surface failures into query-owned plan errors.
 fn map_executor_plan_error(err: ExecutorPlanError) -> QueryError {
     match err {

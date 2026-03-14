@@ -9,12 +9,66 @@ mod tests;
 
 use crate::{
     db::index::{EncodedValue, IndexKey},
+    db::{
+        predicate::Predicate,
+        sql::parser::{SqlParseError, parse_sql_predicate},
+    },
     error::InternalError,
+    model::index::IndexModel,
     value::Value,
 };
-use std::cell::Cell;
+use std::{
+    cell::Cell,
+    collections::HashMap,
+    sync::{Mutex, OnceLock},
+};
 
 pub(crate) use compile::{IndexCompilePolicy, compile_index_program};
+
+type CachedIndexPredicateResult = Result<&'static Predicate, SqlParseError>;
+
+static INDEX_PREDICATE_SQL_CACHE: OnceLock<
+    Mutex<HashMap<&'static str, CachedIndexPredicateResult>>,
+> = OnceLock::new();
+
+/// Resolve one index predicate through the canonical parse/cache boundary.
+///
+/// Raw schema predicate text is input-only metadata; planner/runtime callers must
+/// consume predicate semantics through this accessor.
+pub(in crate::db) fn canonical_index_predicate(
+    index: &IndexModel,
+) -> Result<Option<&'static Predicate>, SqlParseError> {
+    let Some(predicate_sql) = index.predicate() else {
+        return Ok(None);
+    };
+
+    cached_index_predicate_from_sql(predicate_sql).map(Some)
+}
+
+// Parse one schema predicate SQL string once and cache canonical predicate semantics.
+fn cached_index_predicate_from_sql(
+    predicate_sql: &'static str,
+) -> Result<&'static Predicate, SqlParseError> {
+    let cache = INDEX_PREDICATE_SQL_CACHE
+        .get_or_init(|| Mutex::new(HashMap::<&'static str, CachedIndexPredicateResult>::new()));
+    if let Some(cached) = cache
+        .lock()
+        .expect("index predicate cache mutex poisoned")
+        .get(predicate_sql)
+        .cloned()
+    {
+        return cached;
+    }
+
+    let parsed: CachedIndexPredicateResult = parse_sql_predicate(predicate_sql).map(|predicate| {
+        let predicate: &'static Predicate = Box::leak(Box::new(predicate));
+        predicate
+    });
+    let mut guard = cache.lock().expect("index predicate cache mutex poisoned");
+    let cached = guard.entry(predicate_sql).or_insert_with(|| parsed.clone());
+
+    cached.clone()
+}
 
 ///
 /// IndexPredicateProgram

@@ -42,6 +42,13 @@ impl IndexKey {
         index: &IndexModel,
     ) -> Result<Option<Self>, InternalError> {
         // Phase 1: validate declared index shape and collect encoded components.
+        if index.has_expression_key_items() {
+            return Err(InternalError::index_unsupported(format!(
+                "index '{}' uses expression key items; expression indexes are not executable in this release",
+                index.name(),
+            )));
+        }
+
         if index.fields().len() > MAX_INDEX_FIELDS {
             return Err(InternalError::index_invariant(format!(
                 "index '{}' has {} fields (max {})",

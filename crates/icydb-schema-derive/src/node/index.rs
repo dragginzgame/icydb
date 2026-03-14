@@ -13,12 +13,18 @@ pub struct Index {
     pub(crate) unique: bool,
 
     #[darling(default)]
+    // Raw SQL predicate text is accepted at derive input boundary and lowered
+    // into canonical predicate semantics by runtime schema construction.
     pub(crate) predicate: Option<String>,
 }
 
 impl HasSchemaPart for Index {
     fn schema_part(&self) -> TokenStream {
         let fields = quote_slice(&self.fields, to_str_lit);
+        let key_items = quote_slice(&self.fields, |field| {
+            let field = to_str_lit(field);
+            quote! { ::icydb::schema::node::IndexKeyItem::Field(#field) }
+        });
         let unique = &self.unique;
         let predicate = self
             .predicate
@@ -32,7 +38,12 @@ impl HasSchemaPart for Index {
 
         // quote
         quote! {
-            ::icydb::schema::node::Index::new_with_predicate(#fields, #unique, #predicate)
+            ::icydb::schema::node::Index::new_with_key_items_and_predicate(
+                #fields,
+                Some(#key_items),
+                #unique,
+                #predicate,
+            )
         }
     }
 }
@@ -48,6 +59,10 @@ impl Index {
 
     pub fn runtime_part(&self, entity_name: &str, store: &Path) -> TokenStream {
         let fields = quote_slice(&self.fields, to_str_lit);
+        let key_items = quote_slice(&self.fields, |field| {
+            let field = to_str_lit(field);
+            quote! { ::icydb::model::index::IndexKeyItem::Field(#field) }
+        });
         let unique = self.unique;
         let predicate = self
             .predicate
@@ -63,10 +78,11 @@ impl Index {
 
         // quote
         quote! {
-            ::icydb::model::index::IndexModel::new_with_predicate(
+            ::icydb::model::index::IndexModel::new_with_key_items_and_predicate(
                 #name,
                 #store,
                 #fields,
+                Some(#key_items),
                 #unique,
                 #predicate,
             )

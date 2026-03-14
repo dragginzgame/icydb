@@ -2,7 +2,7 @@ use crate::schema::SqlTestStore;
 use icydb::design::prelude::*;
 
 ///
-/// FixtureOrder
+/// Order
 ///
 /// Fixture order entity used by SQL endpoint and integration harnesses.
 ///
@@ -26,4 +26,4 @@ use icydb::design::prelude::*;
         )
     )
 )]
-pub struct FixtureOrder {}
+pub struct Order {}

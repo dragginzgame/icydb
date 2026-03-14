@@ -5,7 +5,7 @@
 use ic_cdk::{export_candid, query as ic_query, update};
 use icydb::db::sql::SqlQueryRowsOutput;
 use icydb_testing_fixtures::{
-    schema::{FixtureOrder, FixtureUser},
+    schema::{Character, Order, User},
     seed,
 };
 
@@ -32,8 +32,9 @@ fn query_rows(sql: String) -> Result<SqlQueryRowsOutput, icydb::Error> {
 /// Clear all fixture rows from this canister.
 #[update]
 fn fixtures_reset() -> Result<(), icydb::Error> {
-    db().delete::<FixtureOrder>().execute()?;
-    db().delete::<FixtureUser>().execute()?;
+    db().delete::<Order>().execute()?;
+    db().delete::<Character>().execute()?;
+    db().delete::<User>().execute()?;
 
     Ok(())
 }
@@ -45,6 +46,7 @@ fn fixtures_load_default() -> Result<(), icydb::Error> {
 
     db().insert_many_atomic(seed::base_users())?;
     db().insert_many_atomic(seed::base_orders())?;
+    db().insert_many_atomic(seed::base_rpg_characters())?;
 
     Ok(())
 }
@@ -64,8 +66,12 @@ mod tests {
             "generated actor surface must include sql_dispatch module"
         );
         assert!(
-            actor.contains("from_statement_sql"),
-            "generated sql_dispatch must include from_statement_sql resolver"
+            actor.contains("from_statement_route"),
+            "generated sql_dispatch must include from_statement_route resolver"
+        );
+        assert!(
+            !actor.contains("from_statement_sql"),
+            "generated sql_dispatch must not include legacy from_statement_sql resolver"
         );
         assert!(
             actor.contains("from_entity_name"),

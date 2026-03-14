@@ -591,8 +591,7 @@ impl<E: EntityKind> CompiledQuery<E> {
 
     /// Borrow planner-lowered projection semantics for this compiled query.
     #[must_use]
-    #[cfg(test)]
-    pub(crate) fn projection_spec(&self) -> crate::db::query::plan::expr::ProjectionSpec {
+    pub(in crate::db) fn projection_spec(&self) -> crate::db::query::plan::expr::ProjectionSpec {
         self.plan.projection_spec(E::MODEL)
     }
 

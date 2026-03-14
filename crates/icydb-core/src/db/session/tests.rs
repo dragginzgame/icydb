@@ -545,6 +545,57 @@ fn query_from_sql_rejects_explain_statements() {
 }
 
 #[test]
+fn sql_statement_route_select_classifies_query_entity() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let route = session
+        .sql_statement_route("SELECT * FROM SessionSqlEntity ORDER BY age ASC LIMIT 1")
+        .expect("select SQL statement should parse");
+
+    assert_eq!(
+        route,
+        SqlStatementRoute::Query {
+            entity: "SessionSqlEntity".to_string(),
+        }
+    );
+    assert_eq!(route.entity(), "SessionSqlEntity");
+    assert!(!route.is_explain());
+}
+
+#[test]
+fn sql_statement_route_explain_classifies_wrapped_entity() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let route = session
+        .sql_statement_route("EXPLAIN JSON DELETE FROM SessionSqlEntity WHERE age > 20 LIMIT 1")
+        .expect("explain SQL statement should parse");
+
+    assert_eq!(
+        route,
+        SqlStatementRoute::Explain {
+            entity: "SessionSqlEntity".to_string(),
+        }
+    );
+    assert_eq!(route.entity(), "SessionSqlEntity");
+    assert!(route.is_explain());
+}
+
+#[test]
+fn sql_statement_route_preserves_parser_unsupported_feature_detail_labels() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    for (sql, feature) in unsupported_sql_feature_cases() {
+        let err = session
+            .sql_statement_route(sql)
+            .expect_err("unsupported SQL feature should fail through sql_statement_route");
+        assert_sql_unsupported_feature_detail(err, feature);
+    }
+}
+
+#[test]
 fn query_from_sql_preserves_parser_unsupported_feature_detail_labels() {
     reset_session_sql_store();
     let session = sql_session();
@@ -699,6 +750,53 @@ fn execute_sql_select_field_projection_currently_returns_entity_shaped_rows() {
         row.entity_ref().age,
         29,
         "field-list SQL projection should preserve full entity payload until projection response shaping is introduced",
+    );
+}
+
+#[test]
+fn sql_projection_columns_select_field_list_returns_canonical_labels() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let columns = session
+        .sql_projection_columns::<SessionSqlEntity>("SELECT name, age FROM SessionSqlEntity")
+        .expect("field-list SQL projection columns should derive");
+
+    assert_eq!(columns, vec!["name".to_string(), "age".to_string()]);
+}
+
+#[test]
+fn sql_projection_columns_select_star_returns_entity_model_order() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let columns = session
+        .sql_projection_columns::<SessionSqlEntity>("SELECT * FROM SessionSqlEntity")
+        .expect("star SQL projection columns should derive");
+
+    assert_eq!(
+        columns,
+        vec!["id".to_string(), "name".to_string(), "age".to_string()]
+    );
+}
+
+#[test]
+fn sql_projection_columns_rejects_delete_statements() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .sql_projection_columns::<SessionSqlEntity>("DELETE FROM SessionSqlEntity WHERE age > 10")
+        .expect_err("delete SQL should be rejected for projection-column derivation");
+
+    assert!(
+        matches!(
+            err,
+            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                _
+            ))
+        ),
+        "projection column derivation should reject non-SELECT SQL",
     );
 }
 
