@@ -26,6 +26,7 @@ use crate::{
     testing::test_memory,
     traits::{EntityIdentity, EntitySchema, FieldValue, Path},
     types::Ulid,
+    value::{Value, ValueEnum},
 };
 use icydb_derive::FieldProjection;
 use serde::{Deserialize, Serialize};
@@ -99,6 +100,23 @@ struct RecoveryConditionalUniqueEntity {
     active: bool,
 }
 
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, Serialize)]
+struct RecoveryConditionalUniqueEnumEntity {
+    id: Ulid,
+    status: Value,
+    active: bool,
+}
+
+impl Default for RecoveryConditionalUniqueEnumEntity {
+    fn default() -> Self {
+        Self {
+            id: Ulid::from_u128(0),
+            status: enum_status("Pending"),
+            active: false,
+        }
+    }
+}
+
 static RECOVERY_INDEXED_INDEX_FIELDS: [&str; 1] = ["group"];
 static RECOVERY_INDEXED_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
     "group",
@@ -127,6 +145,15 @@ static RECOVERY_CONDITIONAL_UNIQUE_INDEX_MODELS: [IndexModel; 1] =
         "email_unique_active_only",
         RecoveryTestDataStore::PATH,
         &RECOVERY_CONDITIONAL_UNIQUE_INDEX_FIELDS,
+        true,
+        Some("active = true"),
+    )];
+static RECOVERY_CONDITIONAL_UNIQUE_ENUM_INDEX_FIELDS: [&str; 1] = ["status"];
+static RECOVERY_CONDITIONAL_UNIQUE_ENUM_INDEX_MODELS: [IndexModel; 1] =
+    [IndexModel::new_with_predicate(
+        "status_unique_active_only",
+        RecoveryTestDataStore::PATH,
+        &RECOVERY_CONDITIONAL_UNIQUE_ENUM_INDEX_FIELDS,
         true,
         Some("active = true"),
     )];
@@ -198,6 +225,23 @@ crate::test_entity_schema! {
     canister = RecoveryTestCanister,
 }
 
+crate::test_entity_schema! {
+    ident = RecoveryConditionalUniqueEnumEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "RecoveryConditionalUniqueEnumEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("status", FieldKind::Enum { path: RECOVERY_STATUS_ENUM_PATH }),
+        ("active", FieldKind::Bool),
+    ],
+    indexes = [&RECOVERY_CONDITIONAL_UNIQUE_ENUM_INDEX_MODELS[0]],
+    store = RecoveryTestDataStore,
+    canister = RecoveryTestCanister,
+}
+
 static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
     EntityRuntimeHooks::new(
         RecoveryTestEntity::ENTITY_NAME,
@@ -233,6 +277,13 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         commit_schema_fingerprint_for_entity::<RecoveryConditionalUniqueEntity>,
         prepare_row_commit_for_entity::<RecoveryConditionalUniqueEntity>,
         validate_delete_strong_relations_for_source::<RecoveryConditionalUniqueEntity>,
+    ),
+    EntityRuntimeHooks::new(
+        RecoveryConditionalUniqueEnumEntity::ENTITY_NAME,
+        RecoveryConditionalUniqueEnumEntity::PATH,
+        commit_schema_fingerprint_for_entity::<RecoveryConditionalUniqueEnumEntity>,
+        prepare_row_commit_for_entity::<RecoveryConditionalUniqueEnumEntity>,
+        validate_delete_strong_relations_for_source::<RecoveryConditionalUniqueEnumEntity>,
     ),
 ];
 
@@ -351,6 +402,9 @@ fn row_op_for_path(
         }
         RecoveryConditionalUniqueEntity::PATH => {
             commit_schema_fingerprint_for_entity::<RecoveryConditionalUniqueEntity>()
+        }
+        RecoveryConditionalUniqueEnumEntity::PATH => {
+            commit_schema_fingerprint_for_entity::<RecoveryConditionalUniqueEnumEntity>()
         }
         _ => [0u8; 16],
     };
@@ -484,6 +538,13 @@ fn conditional_unique_data_key(id: Ulid) -> RawDataKey {
         .expect("conditional-unique key should encode")
 }
 
+fn conditional_unique_enum_data_key(id: Ulid) -> RawDataKey {
+    DataKey::try_new::<RecoveryConditionalUniqueEnumEntity>(id)
+        .expect("conditional-unique-enum key should build")
+        .to_raw()
+        .expect("conditional-unique-enum key should encode")
+}
+
 fn indexed_row_bytes(entity: &RecoveryIndexedEntity) -> Vec<u8> {
     serialize(entity).expect("indexed row serialization should succeed")
 }
@@ -498,6 +559,16 @@ fn conditional_row_bytes(entity: &RecoveryConditionalEntity) -> Vec<u8> {
 
 fn conditional_unique_row_bytes(entity: &RecoveryConditionalUniqueEntity) -> Vec<u8> {
     serialize(entity).expect("conditional-unique row serialization should succeed")
+}
+
+fn conditional_unique_enum_row_bytes(entity: &RecoveryConditionalUniqueEnumEntity) -> Vec<u8> {
+    serialize(entity).expect("conditional-unique-enum row serialization should succeed")
+}
+
+const RECOVERY_STATUS_ENUM_PATH: &str = "db::commit::tests::RecoveryConditionalStatus";
+
+fn enum_status(variant: &str) -> Value {
+    Value::Enum(ValueEnum::new(variant, Some(RECOVERY_STATUS_ENUM_PATH)))
 }
 
 // Build one deterministic seed snapshot used by forward/replay equivalence checks.
@@ -1035,6 +1106,78 @@ fn conditional_unique_index_skips_unique_validation_when_predicate_is_false() {
         Some(conditional_unique_row_bytes(&second_active)),
     )])
     .expect_err("active duplicate should violate conditional unique index");
+    assert_eq!(err.class, ErrorClass::Conflict);
+    assert_eq!(err.origin, ErrorOrigin::Index);
+}
+
+#[test]
+fn conditional_unique_index_rejects_duplicate_active_enum_variant() {
+    reset_recovery_state();
+
+    let first_active = RecoveryConditionalUniqueEnumEntity {
+        id: Ulid::from_u128(9_943),
+        status: enum_status("Paid"),
+        active: true,
+    };
+    let second_inactive = RecoveryConditionalUniqueEnumEntity {
+        id: Ulid::from_u128(9_944),
+        status: first_active.status.clone(),
+        active: false,
+    };
+    let second_active = RecoveryConditionalUniqueEnumEntity {
+        id: second_inactive.id,
+        status: second_inactive.status.clone(),
+        active: true,
+    };
+    let third_active_distinct = RecoveryConditionalUniqueEnumEntity {
+        id: Ulid::from_u128(9_945),
+        status: enum_status("Pending"),
+        active: true,
+    };
+
+    // Phase 1: baseline active enum variant reserves the unique conditional slot.
+    apply_row_ops_forward(&[row_op_for_path(
+        RecoveryConditionalUniqueEnumEntity::PATH,
+        conditional_unique_enum_data_key(first_active.id)
+            .as_bytes()
+            .to_vec(),
+        None,
+        Some(conditional_unique_enum_row_bytes(&first_active)),
+    )])
+    .expect("active conditional-unique enum insert should succeed");
+
+    // Phase 2: predicate-false duplicate variant should bypass unique checks.
+    apply_row_ops_forward(&[row_op_for_path(
+        RecoveryConditionalUniqueEnumEntity::PATH,
+        conditional_unique_enum_data_key(second_inactive.id)
+            .as_bytes()
+            .to_vec(),
+        None,
+        Some(conditional_unique_enum_row_bytes(&second_inactive)),
+    )])
+    .expect("inactive duplicate enum variant should bypass conditional unique validation");
+
+    // Phase 3: distinct active enum variant should still be accepted.
+    apply_row_ops_forward(&[row_op_for_path(
+        RecoveryConditionalUniqueEnumEntity::PATH,
+        conditional_unique_enum_data_key(third_active_distinct.id)
+            .as_bytes()
+            .to_vec(),
+        None,
+        Some(conditional_unique_enum_row_bytes(&third_active_distinct)),
+    )])
+    .expect("distinct active enum variant should remain insertable");
+
+    // Phase 4: activating duplicate enum variant must enforce unique ownership.
+    let err = apply_row_ops_forward(&[row_op_for_path(
+        RecoveryConditionalUniqueEnumEntity::PATH,
+        conditional_unique_enum_data_key(second_inactive.id)
+            .as_bytes()
+            .to_vec(),
+        Some(conditional_unique_enum_row_bytes(&second_inactive)),
+        Some(conditional_unique_enum_row_bytes(&second_active)),
+    )])
+    .expect_err("active duplicate enum variant should violate conditional unique index");
     assert_eq!(err.class, ErrorClass::Conflict);
     assert_eq!(err.origin, ErrorOrigin::Index);
 }

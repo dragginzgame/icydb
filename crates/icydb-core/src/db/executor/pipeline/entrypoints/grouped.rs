@@ -10,12 +10,12 @@ use crate::{
             ExecutablePlan, ExecutionTrace, LoadCursorInput,
             pipeline::contracts::{GroupedCursorPage, LoadExecutor},
             pipeline::entrypoints::{LoadExecutionMode, LoadExecutionSurface, LoadTracingMode},
+            pipeline::timing::{elapsed_execution_micros, start_execution_timer},
         },
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
 };
-use std::time::Instant;
 
 impl<E> LoadExecutor<E>
 where
@@ -46,12 +46,11 @@ where
         plan: ExecutablePlan<E>,
         cursor: GroupedPlannedCursor,
     ) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), InternalError> {
-        let execution_started_at = Instant::now();
+        let execution_started_at = start_execution_timer();
         let route = Self::resolve_grouped_route(plan, cursor, self.debug)?;
         let stream = self.build_grouped_stream(&route)?;
         let folded = Self::execute_group_fold(&route, stream)?;
-        let execution_time_micros =
-            u64::try_from(execution_started_at.elapsed().as_micros()).unwrap_or(u64::MAX);
+        let execution_time_micros = elapsed_execution_micros(execution_started_at);
 
         Ok(Self::finalize_grouped_output(
             route,

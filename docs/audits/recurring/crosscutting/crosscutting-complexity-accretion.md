@@ -5,7 +5,8 @@ All metrics must originate from STEP -1 enumeration or the metrics dataset.
 
 ## Purpose
 
-Measure **conceptual growth, branching pressure, and cognitive load expansion** in `icydb-core`.
+Measure conceptual growth, branching pressure, and cognitive load expansion in
+`icydb-core`.
 
 This audit tracks structural entropy over time.
 
@@ -40,6 +41,56 @@ Assume this audit runs weekly and results are diffed.
 
 ---
 
+# Measurement Classes + Evidence Modes (Mandatory)
+
+Column classes:
+
+* `[M]` Mechanical: directly derivable from code or dataset.
+* `[C]` Classified: analyst judgment required.
+* `[D]` Derived: formula over mechanical columns.
+
+Evidence modes:
+
+* `mechanical` (high confidence)
+* `semi-mechanical` (medium confidence)
+* `classified` (medium/low confidence)
+
+Requirements:
+
+* Every produced metric column MUST be labeled by `[M]`, `[C]`, or `[D]`
+  (either in the header or via an explicit `Class` column).
+* Every step MUST declare one evidence mode.
+* Mention counts are weak context signals and MUST NOT drive risk alone.
+
+---
+
+# Method Contract (Mandatory)
+
+Method manifest (include exactly in run metadata):
+
+* `method_version = CA-1.3`
+* `runtime_metrics_generator = scripts/audit/runtime_metrics.sh`
+* `domain_taxonomy = D-2`
+* `flow_axis_model = F-1`
+* `switch_site_rule = S-1`
+* `risk_rubric = R-1`
+* `trend_filter_rule = T-1`
+
+Comparability gate:
+
+* Baseline is comparable only when all method manifest tags are unchanged.
+* Mark run `non-comparable` if any of the following changed since baseline:
+  * runtime scope definition
+  * exclusion rules
+  * metric generator
+  * branch-counting rules
+  * concept taxonomy
+  * flow axis set/model
+  * domain taxonomy mapping
+  * switch-site rule
+
+---
+
 # Execution Integrity Requirements (Mandatory)
 
 You must read the entire runtime module tree before computing metrics.
@@ -60,15 +111,22 @@ Preferred generator: `scripts/audit/runtime_metrics.sh`
 
 Required dataset columns:
 
-* `module`
-* `loc`
-* `if_count`
-* `match_count`
-* `fanout`
+* `module [M]`
+* `loc [M]`
+* `match_count [M]`
+* `match_arms_total [M]`
+* `avg_match_arms [D]`
+* `if_count [M]`
+* `if_chain_count [M]`
+* `max_branch_depth [M]`
+* `fanout [M]`
+* `branch_sites_total [D]`
 
 ---
 
 # STEP -1 — Runtime Module Enumeration (Mandatory)
+
+Evidence mode: `mechanical`
 
 Enumerate all runtime modules under:
 
@@ -79,19 +137,32 @@ Exclude:
 * `tests`
 * `benches`
 * `examples`
+* generated files unless explicitly included and marked
 
 Produce:
 
-| module | file | LOC | match | if | fanout |
-| ---- | ---- | ----: | ----: | ----: | ----: |
+| module [M] | file [M] | LOC [M] | match_count [M] | match_arms_total [M] | avg_match_arms [D] | if_count [M] | if_chain_count [M] | max_branch_depth [M] | fanout [M] | branch_sites_total [D] |
+| ---- | ---- | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ----: |
 
 Definitions:
 
 * `module` = Rust module path in `icydb-core` runtime scope.
 * `LOC` = logical non-empty lines in the module file.
-* `match` = count of `match` expressions in the module file.
-* `if` = count of `if` / `else if` branches in the module file.
+* `match_count` = count of source-level `match` expressions.
+* `match_arms_total` = total arm count across all source-level `match` expressions.
+* `avg_match_arms` = `match_arms_total / match_count` (0 when `match_count = 0`).
+* `if_count` = count of `if` and `else if` branches.
+* `if_chain_count` = number of distinct `if`/`else if` chains (chain roots).
+* `max_branch_depth` = maximum nested depth of `match` + `if` branching.
 * `fanout` = number of internal runtime module imports in that module file.
+* `branch_sites_total` = `match_count + if_chain_count`.
+
+Branch-counting rules:
+
+* Count `if let` as `if` branch forms.
+* Count source code only; exclude macro-expanded branches.
+* Boolean operators inside a single condition (`&&`, `||`) do not increment branch counts.
+* Keep counting rules stable week-over-week under `method_version`.
 
 Store this dataset for later steps.
 
@@ -100,6 +171,8 @@ Do not continue until enumeration completes.
 ---
 
 # STEP 0 — Baseline Capture (Mandatory)
+
+Evidence mode: `semi-mechanical`
 
 Capture baseline values before computing current metrics.
 
@@ -110,23 +183,23 @@ Baseline source rule:
 
 Produce:
 
-| Metric | Previous | Current | Delta |
-| ---- | ----: | ----: | ----: |
-| Total runtime files in scope |  |  |  |
-| Runtime LOC |  |  |  |
-| Runtime fanout (sum) |  |  |  |
-| Modules with fanout > 12 |  |  |  |
-| Super-nodes (`fanout > 20 OR domain_count >= 3`) |  |  |  |
-| Continuation mentions |  |  |  |
-| Continuation decision owners |  |  |  |
-| AccessPath decision owners |  |  |  |
-| AccessPath executor dispatch sites |  |  |  |
-| AccessPath branch modules |  |  |  |
-| RouteShape decision owners |  |  |  |
-| RouteShape branch modules |  |  |  |
-| Predicate coercion decision owners |  |  |  |
-| Continuation execution consumers |  |  |  |
-| Continuation plumbing modules |  |  |  |
+| Metric | Class | Signal Strength | Previous | Current | Delta |
+| ---- | ---- | ---- | ----: | ----: | ----: |
+| Total runtime files in scope | `[M]` | primary |  |  |  |
+| Runtime LOC | `[M]` | primary |  |  |  |
+| Runtime fanout (sum) | `[M]` | primary |  |  |  |
+| Modules with fanout > 12 | `[D]` | primary |  |  |  |
+| Super-nodes (`fanout > 20 OR domain_count >= 3`) | `[D]` | primary |  |  |  |
+| Continuation decision owners | `[C]` | primary |  |  |  |
+| Continuation execution consumers | `[C]` | primary |  |  |  |
+| Continuation plumbing modules | `[C]` | primary |  |  |  |
+| AccessPath decision owners | `[C]` | primary |  |  |  |
+| AccessPath executor dispatch sites | `[M]` | primary |  |  |  |
+| AccessPath branch modules | `[M]` | primary |  |  |  |
+| RouteShape decision owners | `[C]` | primary |  |  |  |
+| RouteShape branch modules | `[M]` | primary |  |  |  |
+| Predicate coercion decision owners | `[C]` | primary |  |  |  |
+| Continuation mentions (context only) | `[M]` | weak |  |  |  |
 
 If no prior comparable report exists, mark previous values as `N/A` and treat
 this run as the new baseline.
@@ -135,7 +208,9 @@ this run as the new baseline.
 
 # STEP 1 — Variant Surface Growth + Branch Multiplier
 
-Quantify the following:
+Evidence mode: `semi-mechanical`
+
+Quantify:
 
 * `PlanError` variant count
 * `QueryError` variant count
@@ -148,53 +223,65 @@ Quantify the following:
 * Commit-phase enums
 * Store-layer error variants
 
-For each:
+Switch-site rule (`S-1`):
 
-| Enum | Variants | Switch Sites | Branch Multiplier | Domain Scope | Mixed Domains? | Growth Risk |
-| ---- | ----: | ----: | ----: | ---- | ---- | ---- |
+* Count only direct runtime `match` or `if let` sites on the target enum type.
+* Count only sites in runtime scope (`crates/icydb-core/src` exclusions apply).
+* Exclude pass-through delegations that only forward the enum without adding branch semantics.
+* Exclude `matches!` macro predicates, guard-only checks, tests, and generated code.
+* Distinct site identity: `module::function::line`.
+
+Produce:
+
+| Enum [M] | Variants [M] | Switch Sites [M] | Branch Multiplier [D] | Decision Owners [C] | Domain Scope [C] | Mixed Domains? [C] | Growth Risk [C] |
+| ---- | ----: | ----: | ----: | ----: | ---- | ---- | ---- |
 
 Definitions:
 
-* `switch_sites` = number of distinct match/switch callsites over that enum in runtime scope.
-* `branch_multiplier` = `variants × switch_sites`.
-* `AccessPath executor dispatch sites` = distinct runtime executor callsites that branch on executable AccessPath shape (for example via centralized dispatch adapters).
+* `branch_multiplier = variants × switch_sites`.
+* `AccessPath executor dispatch sites [M]` = distinct runtime executor callsites
+  that branch on executable `AccessPath` shape.
 
 Flag:
 
 * `branch_multiplier` trend up week-over-week.
-* Enums >8 variants and still growing.
-* Enums mixing planning + execution + storage semantics.
-* Any increase in `AccessPath executor dispatch sites` without an explicit dispatch-consolidation note.
+* enums `> 8` variants and still growing.
+* enums mixing planning + execution + storage semantics.
+* any increase in `AccessPath executor dispatch sites` without explicit dispatch-consolidation note.
 
 ---
 
-# STEP 2 — Execution Branching Pressure (Trend-Based)
+# STEP 2 — Local Branching Pressure (Function-Level)
 
-Identify high-branch-density functions and compare against previous run.
+Evidence mode: `semi-mechanical`
 
-For each hotspot:
+Identify high-branch-density runtime functions and compare against previous run.
 
-| Function | Module | Branch Layers | Match Depth | Previous Branch Layers | Delta | Domains Mixed | Risk |
-| ---- | ---- | ----: | ----: | ----: | ----: | ----: | ---- |
+Produce:
 
-Also detect axis coupling in each function:
+| Function [M] | Module [M] | Branch Layers [D] | match_count [M] | match_arms_total [M] | avg_match_arms [D] | if_chain_count [M] | max_branch_depth [M] | Axis Count [C] | Previous Branch Layers [M] | Delta [D] | Domains Mixed [C] | Risk [C] |
+| ---- | ---- | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ---- |
 
-* Access path type
-* Predicate type
-* Cursor presence
-* Plan shape
-* Index uniqueness
-* Recovery mode
+Axis coupling checklist (classified):
+
+* access path type
+* predicate type
+* cursor presence
+* plan shape
+* index uniqueness
+* recovery mode
 
 Flag:
 
-* Any function with `domains_mixed > 3`.
-* Positive weekly branch-layer growth.
-* Functions where enum growth directly increased branch layers.
+* any function with `domains_mixed > 3`.
+* positive weekly branch-layer growth.
+* enum growth directly increasing branch layers.
 
 ---
 
-# STEP 2A — Branching Centralization (Concept-Level)
+# STEP 2A — Concept Branch Distribution Across Modules
+
+Evidence mode: `semi-mechanical`
 
 Count distinct runtime modules branching on each concept:
 
@@ -203,8 +290,8 @@ Count distinct runtime modules branching on each concept:
 
 Produce:
 
-| Concept | Branch Modules | Previous | Delta |
-| ---- | ----: | ----: | ----: |
+| Concept [M] | Branch Modules [M] | Decision Owners [C] | Branch/Owner Ratio [D] | Previous Branch Modules [M] | Delta [D] |
+| ---- | ----: | ----: | ----: | ----: | ----: |
 
 Flag:
 
@@ -215,15 +302,18 @@ Flag:
 
 # STEP 3 — Execution Path Multiplicity (Effective Flows)
 
-For each core operation (`save`, `replace`, `delete`, `load`, `recovery replay`, `cursor continuation`, `index mutation`), compute flow count via decision axes.
+Evidence mode: `semi-mechanical`
 
-Use this model:
+For each core operation (`save`, `replace`, `delete`, `load`, `recovery replay`,
+`cursor continuation`, `index mutation`), compute flow count via decision axes.
+
+Flow model (`F-1`):
 
 1. `theoretical_space = Π(axis cardinalities)`
-2. Apply contract constraints and remove illegal combinations.
-3. `effective_flows = sum(valid combinations)`
+2. apply only explicit, evidenced constraints
+3. `effective_flows = theoretical_space - constrained_combinations`
 
-Required axis set (add/remove only with explicit note):
+Required axis set (add/remove only with explicit note and comparability impact):
 
 * operation type
 * access path type
@@ -232,10 +322,20 @@ Required axis set (add/remove only with explicit note):
 * index uniqueness
 * ordering mode
 
-Produce:
+Required constraint ledger (mandatory before effective-flow totals):
 
-| Operation | Axes Used | Axis Cardinalities | Theoretical Space | Effective Flows | Previous Effective Flows | Delta | Shared Core? | Risk |
+| Operation [M] | Constraint [C] | Axes Restricted [M] | Combinations Removed [D] | Evidence [M/C] |
+| ---- | ---- | ---- | ----: | ---- |
+
+Flow table:
+
+| Operation [M] | Axes Used [M] | Axis Cardinalities [M] | Theoretical Space [D] | Effective Flows [D] | Previous Effective Flows [M] | Delta [D] | Shared Core? [C] | Risk [C] |
 | ---- | ---- | ---- | ----: | ----: | ----: | ----: | ---- | ---- |
+
+Rules:
+
+* Every removed combination MUST map to exactly one ledger row.
+* If ledger evidence is incomplete, mark section `low confidence` and run `non-comparable`.
 
 Flag:
 
@@ -245,26 +345,28 @@ Flag:
 
 ---
 
-# STEP 4 — Cross-Cutting Concern Spread (Authority vs Plumbing)
+# STEP 4 — Semantic Authority vs Execution Spread
 
-For each concept, classify usage by ownership and layer.
+Evidence mode: `classified`
+
+For each concept, classify usage by ownership and execution role.
 
 Target concepts:
 
-* Continuation / cursor anchor semantics
-* AccessPath decision semantics
-* RouteShape decision semantics
-* Predicate coercion decision semantics
-* Envelope boundary checks
-* Bound conversions
-* Plan shape enforcement
-* Error origin mapping
-* Index id / namespace validation
+* continuation / cursor anchor semantics
+* `AccessPath` decision semantics
+* `RouteShape` decision semantics
+* predicate coercion decision semantics
+* envelope boundary checks
+* bound conversions
+* plan shape enforcement
+* error origin mapping
+* index id / namespace validation
 
 Produce:
 
-| Concept | Decision Owners | Execution Consumers | Plumbing Modules | Total Modules | Semantic Layers | Transport Layers | Risk |
-| ---- | ----: | ----: | ----: | ----: | ---- | ---- | ---- |
+| Concept [M] | Decision Owners [C] | Execution Consumers [C] | Plumbing Modules [C] | Owner Count [D] | Consumer Count [D] | Plumbing Count [D] | Semantic Layers [C] | Transport Layers [C] | Risk [C] |
+| ---- | ---- | ---- | ---- | ----: | ----: | ----: | ---- | ---- | ---- |
 
 Definitions:
 
@@ -272,17 +374,19 @@ Definitions:
 * `Execution Consumer` = module branching on concept state to drive behavior.
 * `Plumbing Module` = module transporting concept values without branching.
 
-Risk should be driven by `decision owners` and `semantic layers`, not raw mention totals.
+Role-aware counts are primary; mention totals are context only.
 
 Flag:
 
 * `semantic_layer_count >= 3` (architectural leakage).
-* semantic owner growth without explicit boundary consolidation.
-* Any increase in `AccessPath`, `RouteShape`, or predicate coercion decision-owner count without an explicit ownership-consolidation note.
+* semantic-owner growth without explicit boundary consolidation.
+* any increase in `AccessPath`, `RouteShape`, or predicate coercion decision-owner count without explicit ownership-consolidation note.
 
 ---
 
-# STEP 4A — Concept Authority Drift
+# STEP 4A — Concept Ownership Drift (Only)
+
+Evidence mode: `classified`
 
 For each concept:
 
@@ -295,7 +399,7 @@ For each concept:
 
 Produce:
 
-| Concept | Decision Owners | Previous | Delta | Risk |
+| Concept [M] | Decision Owners [C] | Previous Owners [C] | Delta [D] | Risk [C] |
 | ---- | ----: | ----: | ----: | ---- |
 
 Flag:
@@ -307,11 +411,13 @@ Flag:
 
 # STEP 4B — Fanout Pressure
 
+Evidence mode: `mechanical`
+
 Compute module fanout trend using the STEP -1 dataset.
 
 Produce:
 
-| Module | Fanout | Previous | Delta | Risk |
+| Module [M] | Fanout [M] | Previous Fanout [M] | Delta [D] | Risk [C] |
 | ---- | ----: | ----: | ----: | ---- |
 
 Flag:
@@ -323,47 +429,79 @@ Flag:
 
 # STEP 5 — Cognitive Load Indicators (Super-Node + Call Depth)
 
+Evidence mode: `mechanical`
+
 Compute structural mental-load signals:
 
-1. Functions > 80–100 logical lines.
-2. Deep core-operation call depth.
-3. Super-node modules.
+1. functions > 80-100 logical lines.
+2. deep core-operation call depth.
+3. super-node modules.
 
 Super-node definition:
 
 * `fanout > 20` OR `domain_count >= 3`
 
-Reference example:
+Domain taxonomy mapping (`D-2`, fixed):
 
-* `db::session` with fanout in the 50+ range is a super-node even when LOC is below prior hub thresholds.
+| Domain Family [M] | Module Prefix Rules [M] |
+| ---- | ---- |
+| cursor/continuation | `db::cursor::*`, `db::continuation::*` |
+| access/index | `db::index::*`, `db::access::*` |
+| predicate/filter | `db::predicate::*`, `db::filter::*` |
+| query/plan | `db::query::*`, `db::plan::*` |
+| storage/commit | `db::storage::*`, `db::commit::*` |
 
-Domain count categories:
+`domain_count(module) [D]` rule:
 
-* cursor/continuation
-* access/index
-* predicate/filter
-* query/plan
-* storage/commit
+* distinct domain families referenced by internal runtime imports and fully-qualified internal paths in that module.
+* ignore `std::*`, external crates, and test-only imports.
+* unresolved internal path prefixes must be labeled `other` and called out explicitly.
 
 Produce:
 
-| Module/Operation | LOC or Call Depth | Fanout | Domain Count | Previous | Delta | Risk |
+| Module/Operation [M] | LOC or Call Depth [M] | Fanout [M] | Domain Count [D] | Previous [M] | Delta [D] | Risk [C] |
 | ---- | ----: | ----: | ----: | ----: | ----: | ---- |
 
 Flag:
 
 * `call_depth > 6` for core operations.
-* rising super-node pressure across consecutive runs.
+* rising super-node pressure across consecutive comparable runs.
+
+---
+
+# STEP 5A — Complexity Concentration Ratios
+
+Evidence mode: `mechanical`
+
+Measure how concentrated structural complexity is.
+
+Produce:
+
+| Metric [M] | Current [D] | Previous [D] | Delta [D] | Risk [C] |
+| ---- | ----: | ----: | ----: | ---- |
+| Fanout concentration (top 10 modules) |  |  |  |  |
+| Branch-site concentration (top 10 modules) |  |  |  |  |
+| AccessPath branch concentration (top 3 modules) |  |  |  |  |
+| RouteShape branch concentration (top 3 modules) |  |  |  |  |
+
+Definitions:
+
+* `fanout concentration = sum(fanout_top10) / sum(fanout_all)`
+* `branch-site concentration = sum(branch_sites_top10) / sum(branch_sites_all)`
+* `AccessPath branch concentration = sum(accesspath_sites_top3) / sum(accesspath_sites_all)`
+* `RouteShape branch concentration = sum(routeshape_sites_top3) / sum(routeshape_sites_all)`
 
 ---
 
 # STEP 6 — Drift Sensitivity (Axis Count)
 
+Evidence mode: `semi-mechanical`
+
 Quantify areas where growth vectors multiply structural cost.
 
 Produce:
 
-| Area | Decision Axes | Axis Count | Branch Multiplier | Drift Sensitivity | Risk |
+| Area [M] | Decision Axes [M] | Axis Count [D] | Branch Multiplier [D] | Drift Sensitivity [C] | Risk [C] |
 | ---- | ---- | ----: | ----: | ---- | ---- |
 
 Flag:
@@ -373,89 +511,138 @@ Flag:
 
 ---
 
-# STEP 7 — Complexity Risk Index (Semi-Mechanical)
+# STEP 7 — Complexity Risk Index (Rubric-Guided)
 
-Score each bucket 1–10, then compute weighted aggregate:
+Evidence mode: `semi-mechanical`
 
-* variant explosion risk ×2
-* branching pressure + centralization trend ×2
-* flow multiplicity ×2
-* cross-layer spread ×3
-* authority fragmentation ×2
-* fanout pressure + super-node load ×2
-* call-depth pressure ×1
+Score each bucket 1-10, then compute weighted aggregate:
+
+* variant explosion risk x2
+* branching pressure + centralization trend x2
+* flow multiplicity x2
+* cross-layer spread x3
+* authority fragmentation x2
+* fanout pressure + super-node load x2
+* call-depth pressure x1
+
+Bucket scoring anchors (`R-1`):
+
+| Bucket [M] | 2 Anchor [C] | 5 Anchor [C] | 8 Anchor [C] | 10 Anchor [C] |
+| ---- | ---- | ---- | ---- | ---- |
+| Variant explosion risk | no enum growth and flat multipliers | one enum > 8 variants or multiplier growth in one concept | multiple growing enums with multiplier growth | growth across planning + execution + storage mixed enums |
+| Branching pressure + centralization trend | flat hotspot count and stable branch-module spread | hotspot growth in one core area | multiple hotspot deltas and branch-module spread growth | sustained growth with no owner consolidation |
+| Flow multiplicity | no effective-flow increase | one operation `effective_flows > 4` | multiple operations with rising effective flows | widespread axis multiplication with owner drift |
+| Cross-layer spread | semantic layers stable (`<=2`) | one concept at 3 layers | several concepts at 3+ layers | broad semantic leakage across subsystems |
+| Authority fragmentation | owner counts stable and `<=2` | one concept owner delta +1 | multiple concept owner increases | repeated owner drift in core concepts without consolidation |
+| Fanout pressure + super-node load | flat fanout profile and no new super-nodes | one module `fanout > 12` growth | multiple modules with rising fanout and super-node growth | widespread super-node growth across comparable runs |
+| Call-depth pressure | no core op above depth 6 | one core op above depth 6 | multiple core ops above depth 6 with growth | deep call chains across most core operations |
 
 Produce:
 
-| Area | Score (1-10) | Weight | Weighted Score |
+| Area [M] | Score (1-10) [C] | Weight [M] | Weighted Score [D] |
 | ---- | ----: | ----: | ----: |
 
 `overall_index = weighted_sum / weight_sum`
 
 Interpretation:
 
-* 1–3 = Low risk / structurally healthy
-* 4–6 = Moderate risk / manageable pressure
-* 7–8 = High risk / requires monitoring
-* 9–10 = Critical risk / structural instability
+* 1-3 = low risk / structurally healthy
+* 4-6 = moderate risk / manageable pressure
+* 7-8 = high risk / requires monitoring
+* 9-10 = critical risk / structural instability
 
 ---
 
-# STEP 8 — Refactor Noise Filter
+# STEP 8 — Trend Interpretation Filter (Structural Noise Filter)
 
-Before finalizing risk, apply this filter:
+Evidence mode: `semi-mechanical`
 
-* If concept mentions increase **and** decision owners decrease/hold,
-  mark as `refactor transient`.
-* If mentions increase **and** execution consumers increase while decision
-  owners are unchanged, mark as `benign surface growth`.
-* If decision-owner count increases for `AccessPath`, `RouteShape`, or predicate coercion,
-  do NOT mark as transient without a documented ownership consolidation.
-* If file count increases due module split **and** super-node pressure decreases,
-  mark as `structural improvement`.
+Before finalizing risk, apply this interpretation filter:
+
+* if concept mentions increase and decision owners decrease/hold, mark as `refactor transient`.
+* if mentions increase and execution consumers increase while decision owners unchanged, mark as `benign surface growth`.
+* if decision-owner count increases for `AccessPath`, `RouteShape`, or predicate coercion, do NOT mark as transient without documented ownership consolidation.
+* if file count increases due to module split and super-node pressure decreases, mark as `structural improvement`.
 
 Produce:
 
-| Signal | Raw Trend | Noise Filter Result | Adjusted Interpretation |
+| Signal [M/C] | Raw Trend [M/D] | Filter Result [C] | Adjusted Interpretation [C] |
 | ---- | ---- | ---- | ---- |
 
 ---
 
 # STEP 8A — Complexity Trend Table (Required)
 
+Evidence mode: `mechanical` (primary) + `classified` (secondary)
+
 Show trend direction, not only pairwise deltas.
 
 Produce a time-series table across at least 4 comparable run dates
 (or all available comparable dates if fewer):
 
-| Concept | <date-1> | <date-2> | <date-3> | <date-4> |
+| Metric [M/C] | <date-1> | <date-2> | <date-3> | <date-4> |
 | ---- | ----: | ----: | ----: | ----: |
-| continuation mentions |  |  |  |  |
-| `AccessPath` variants |  |  |  |  |
-| branch hotspots (count) |  |  |  |  |
+| continuation decision-owner count `[C]` |  |  |  |  |
+| continuation execution-consumer count `[C]` |  |  |  |  |
+| AccessPath branch-module count `[M]` |  |  |  |  |
+| RouteShape branch-module count `[M]` |  |  |  |  |
+| branch hotspots (count) `[M]` |  |  |  |  |
+| super-node count `[D]` |  |  |  |  |
+| AccessPath variants `[M]` |  |  |  |  |
+| continuation mentions (weak context) `[M]` |  |  |  |  |
+
+---
+
+# STEP 8B — Invalidating Signals (Required)
+
+Evidence mode: `classified`
+
+Capture interpretation-distorting changes before final conclusions.
+
+Produce:
+
+| Signal [M/C] | Present? [C] | Expected Distortion [C] | Handling Rule [C] |
+| ---- | ---- | ---- | ---- |
+| large module moves |  |  |  |
+| file splits without semantic change |  |  |  |
+| generated code expansion |  |  |  |
+| parser/table-driven conversion replacing branch expressions |  |  |  |
+| branch consolidation into helper functions |  |  |  |
+
+If any signal is present, include explicit impact in comparability note.
 
 ---
 
 # Required Summary
 
-0. Run Metadata + Comparability Note
-1. Overall Complexity Risk Index
-2. Fastest Growing Concept Families
-3. Highest Branch Multipliers
-4. Branching Centralization Drift (`AccessPath` / `RouteShape`)
-5. Flow Multiplication Risks (axis-based)
-6. Cross-Layer Spread Risks (owner vs plumbing aware)
-7. Authority Drift + Fanout Pressure
-8. Super-Node + Call-Depth Warnings
-9. Refactor-Transient vs True-Entropy Findings
-10. Complexity Trend Table
-11. Verification Readout (`PASS`/`FAIL`/`BLOCKED`)
+0. Run metadata + comparability note
+1. Overall complexity risk index
+2. Fastest growing concept families
+3. Highest branch multipliers
+4. Branch distribution drift (`AccessPath` / `RouteShape`)
+5. Flow multiplication risks (axis-based)
+6. Semantic authority vs execution spread risks
+7. Ownership drift + fanout pressure
+8. Super-node + call-depth warnings
+9. Trend-interpretation filter outcomes
+10. Complexity trend table
+11. Verification readout (`PASS` / `FAIL` / `BLOCKED`)
+
+Summary bullet rule:
+
+* Every summary bullet MUST cite at least one anchor metric:
+  * delta
+  * multiplier
+  * owner count
+  * axis count
+  * fanout threshold
+  * hotspot count
 
 Run metadata must include:
 
-- compared baseline report path (`baseline = most recent comparable run`)
-- method tag/version
-- comparability status (`comparable` or `non-comparable` with reason)
+* compared baseline report path (`baseline = most recent comparable run`)
+* full method manifest tags (`CA-1.3`, `D-2`, `F-1`, `S-1`, `R-1`, `T-1`)
+* comparability status (`comparable` or `non-comparable` with reason)
 
 ---
 
@@ -463,19 +650,19 @@ Run metadata must include:
 
 Do NOT:
 
-* Say "code looks clean"
-* Give generic statements
-* Provide unquantified claims
-* Comment on naming
-* Comment on macro usage
-* Comment on formatting
+* say "code looks clean"
+* give generic statements
+* provide unquantified claims
+* comment on naming
+* comment on macro usage
+* comment on formatting
 
 Every claim must reference:
 
-* Count
-* Structural pattern
-* Growth vector
-* Branch multiplier or axis product
+* count
+* structural pattern
+* growth vector
+* branch multiplier or axis product
 
 ---
 
@@ -483,9 +670,9 @@ Every claim must reference:
 
 Detect:
 
-* Variant explosion before branching explosion
-* Flow multiplication before semantic divergence
-* Concept leakage before cross-layer drift
-* Cognitive load growth before fragility
+* variant explosion before branching explosion
+* flow multiplication before semantic divergence
+* concept leakage before cross-layer drift
+* cognitive load growth before fragility
 
 This audit measures structural entropy, not quality.

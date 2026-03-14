@@ -19,8 +19,59 @@ IcyDB uses **five distinct classes of tests**. Each class has a clear purpose an
 | Unit Tests             | Local invariants of a single module       | Same crate as code                         | Yes                 | No         |
 | Integration Tests      | Cross-module correctness inside one crate | `crates/*/tests` or `mod tests`            | Limited             | No         |
 | Schema / Planner Tests | Declarative schema → planning semantics   | `icydb-core`                               | Yes                 | No         |
-| End-to-End (E2E) Tests | System-level behavior of generated code   | `crates/icydb-schema-tests/src/e2e`        | No                  | No         |
+| End-to-End (E2E) Tests | System-level behavior of generated code   | `testing/macro-tests/src/e2e`              | No                  | No         |
 | Regression Tests       | Lock in previously-broken behavior        | Wherever the bug lived                     | Yes                 | Depends    |
+
+---
+
+## Fixture Ownership (Authoritative)
+
+Use fixture modules according to ownership, not convenience.
+
+> `testing/fixtures` = runtime integration fixtures  
+> `crates/*/testing` = engine-internal fixtures
+
+### `testing/fixtures`
+
+Use for shared fixtures that represent runtime-facing behavior:
+
+* SQL test canister fixture schema/seed data
+* Macro/schema contract fixture entities reused across test crates
+* Integration harness fixture datasets
+
+### `crates/*/testing`
+
+Use for crate-local engine scaffolding and internal invariants:
+
+* Planner/executor/internal model scaffolds
+* Internal helper constructors for white-box tests
+* Boundary-contract fixtures that should not leak across crates
+
+### Rule
+
+If a fixture is intended to be consumed by canister/runtime integration flows, it belongs in `testing/fixtures`.  
+If a fixture exists only to test one crate's internals, it belongs under that crate's `testing` modules.
+
+---
+
+## Generated SQL Dispatch Ownership (Authoritative)
+
+Runtime SQL entity routing for canisters is generated at build time by `icydb-build` and belongs to the actor/facade boundary.
+
+### Ownership Rule
+
+* `icydb-build` generated `sql_dispatch` is the standard canister-local SQL routing layer.
+* `icydb-core` and typed session SQL APIs remain entity-typed execution surfaces and must not absorb multi-entity runtime routing concerns.
+* SQL statement entity parsing and identifier matching semantics remain SQL-owned helpers (for example `statement_entity_name` and `identifiers_tail_match`).
+* Generated code may compose SQL-owned helpers, but must not re-implement SQL identifier semantics.
+
+### Regression Rule
+
+Pocket-IC integration coverage must assert deterministic dispatch behavior:
+
+* Runtime routing is keyed by SQL entity identifier.
+* Unsupported entity failures are direct and stable.
+* Error payloads must not depend on speculative per-entity trial order (no chained `last_error` fallback behavior).
 
 ---
 
@@ -161,7 +212,7 @@ These tests answer: *"Does the generated surface behave coherently?"*
 
 ### Location
 
-`crates/icydb-schema-tests/src/e2e`
+`testing/macro-tests/src/e2e`
 
 ### Characteristics
 

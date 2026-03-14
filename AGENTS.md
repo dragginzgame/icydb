@@ -7,7 +7,10 @@
 * `crates/icydb-schema-derive`: Derive and codegen macros.
 * `crates/icydb-schema`: Schema AST/builders and validation.
 * `crates/icydb-build`: Build/codegen helpers and canister glue.
-* `crates/icydb-schema-tests`: Integration and design tests.
+* `canisters/sql-test-canister`: Test-only SQL canister harness.
+* `testing/fixtures`: Shared schema and seed fixtures for tests/canisters.
+* `testing/macro-tests`: Macro and schema contract tests.
+* `testing/pocket-ic`: Pocket-IC integration tests.
 * `assets/`: Images and docs assets. `scripts/`: release/version helpers. `Makefile`: common tasks.
 * Workspace manifest: `Cargo.toml` (edition 2024, rust-version 1.94.0).
 
@@ -381,7 +384,7 @@ Code is considered non-trivial if it:
 ## Testing Guidelines
 
 * Framework: Rust test harness.
-* Unit tests live near code (`mod tests`); integration tests live in `crates/icydb-schema-tests`.
+* Unit tests live near code (`mod tests`); macro/schema integration tests live in `testing/macro-tests`.
 * Every inline unit test module (`mod tests`) MUST be preceded by the exact doc banner:
 
 ```rust
@@ -393,7 +396,7 @@ Code is considered non-trivial if it:
 * Leave exactly one blank line before and one blank line after that banner block.
 * Run all tests with `make test`.
 * If `make test` fails during a Codex run, do not run `make test` a second time in that same run unless the user explicitly asks; treat the failure as likely blocked by a build lock or environment contention and report it.
-* In `icydb-core` tests, do not create ad-hoc `DummyEntity` types; macro-driven entity and index tests belong in `crates/icydb-schema-tests`.
+* In `icydb-core` tests, do not create ad-hoc `DummyEntity` types; macro-driven entity and index tests belong in `testing/macro-tests`.
 * If test execution fails due to cross-filesystem errors (for example `Invalid cross-device link (os error 18)`), notify the user and stop retrying; those tests must be run manually by the user in a working environment.
 
 ---
@@ -405,7 +408,7 @@ Code is considered non-trivial if it:
 * Release job (tags): `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, `cargo build --release`.
 * Package cache: clears `~/.cargo/.package-cache` before running cargo.
 * Versioning: separate job runs `scripts/app/check-versioning.sh`.
-* Canisters: release job builds `test_canister` to WASM, extracts `.did` via `candid-extractor`, and uploads artifacts.
+* Canisters: release job builds `canister_sql_test` to WASM, extracts `.did` via `candid-extractor`, and uploads artifacts.
 
 ---
 

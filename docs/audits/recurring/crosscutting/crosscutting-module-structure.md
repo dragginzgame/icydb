@@ -1,4 +1,4 @@
-# WEEKLY AUDIT — Structure / Module / Visibility Discipline
+# WEEKLY AUDIT - Structure / Module / Visibility Discipline
 
 `icydb-core` (+ facade where relevant)
 
@@ -6,38 +6,86 @@
 
 Verify that architectural boundaries remain:
 
-* Layered
-* Directional
-* Encapsulated
-* Narrowly exposed
-* Intentionally public
+* layered
+* directional
+* encapsulated
+* narrowly exposed
+* intentionally public
 
 This audit measures structural containment and visibility discipline.
 
 It does NOT evaluate:
 
-* Correctness
-* Performance
-* Features
-* Style
-* Refactoring ideas (unless boundary violation is severe)
+* correctness
+* performance
+* features
+* style
+* refactoring ideas (unless boundary violation is severe)
 
 ---
 
-# STEP 1 — Public Surface Mapping
+# Audit Rules (Mandatory)
+
+## Evidence Standard
+
+Every non-trivial claim MUST identify:
+
+* module or file
+* dependency or exposed item
+* visibility scope (`pub`, `pub(crate)`, `pub(super)`, private)
+* directional impact or exposure impact
+
+For medium/high/critical findings, evidence must come from inspected file/module
+context, not symbol mention counts alone.
+
+## Severity Rules
+
+* `Low`: acceptable but worth monitoring.
+* `Medium`: mild boundary pressure or avoidable exposure.
+* `High`: clear architectural violation or unstable exposure pattern.
+* `Critical`: cross-layer breach, public leak of internals, or dependency cycle
+  that materially harms containment.
+
+## Counting + Comparability Rules
+
+* `Publicly reachable from root` means reachable from crate root by public path,
+  including via `pub mod`, `pub use`, or nested public items under public modules.
+* `Subsystem dependency` means dependency across top-level subsystem roots, not
+  intra-subsystem references.
+* `Cross-layer dependency` means dependency on a subsystem outside expected
+  responsibility layer of that subsystem.
+* `Cycle` means real subsystem-level mutual dependency/back-reference, not two
+  subsystems both depending on shared lower utilities.
+* Ignore test-only code except in explicit test-leakage checks.
+* Ignore generated artifacts unless they are committed runtime API surface.
+* Treat macros separately from ordinary runtime API.
+
+## Pressure vs Violation Rule
+
+* `Pressure` = coordination/breadth/containment strain.
+* `Violation` = directional breach, public internal leak, or real cycle.
+
+Do not collapse pressure and violation language in findings.
+
+---
+
+# STEP 1 - Public Surface Mapping
 
 ## 1A. Crate Root Enumeration
 
 Enumerate:
 
-* All `pub mod` at crate root.
-* All `pub use` re-exports.
-* All `pub struct`, `pub enum`, `pub trait` reachable from crate root.
-* All `pub fn` reachable from crate root.
+* all `pub mod` at crate root
+* all `pub use` re-exports
+* all publicly reachable `pub struct`, `pub enum`, `pub trait`
+* all publicly reachable `pub fn`
+* all publicly reachable `pub type`
+* all publicly reachable macros (if any), tracked separately from runtime API
 
 Produce:
 
-| Item | Path | Publicly Reachable From Root? | Intended Public API? | Risk |
+| Item | Kind | Path | Publicly Reachable From Root? | Classification | Visibility Scope | Exposure Impact | Risk |
+| ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- |
 
 ---
 
@@ -45,19 +93,27 @@ Produce:
 
 For each public item, classify:
 
-* API Surface (intended for external callers)
-* Facade-support type
-* Macro support type
-* Internal plumbing (should not be public)
-* Accidentally exposed
+* intended external API
+* facade-support item
+* macro-support item
+* internal plumbing exposed for convenience
+* accidentally exposed
+* unclear / requires judgment
 
-Flag:
+Exposure scan must explicitly check:
 
-* Executor internals publicly reachable.
-* Planner internals publicly reachable.
-* Recovery or commit machinery publicly reachable.
-* Raw storage types publicly reachable.
-* `__internal` modules leaking.
+* executor internals
+* planner internals
+* recovery/commit machinery
+* raw storage types
+* `__internal` namespaces (or equivalent)
+* internal diagnostics/test helpers
+* unstable implementation wiring types
+
+Pressure vs violation guidance:
+
+* convenience overexposure is usually pressure unless it leaks unstable internals
+* accidental exposure of internals is a violation
 
 ---
 
@@ -65,17 +121,23 @@ Flag:
 
 Scan for:
 
-* `pub struct` with `pub` fields.
-* Enums exposing internal representation types.
-* Public types exposing Raw* storage types.
+* `pub struct` with `pub` fields
+* public enums exposing representation-heavy/internal variants
+* public types exposing `Raw*`, storage-entry, commit, recovery, or executor-owned representation types
+* public constructors requiring internal representation types
 
 Produce:
 
-| Type | Public Fields? | Leaks Internal Representation? | Risk |
+| Type | Public Fields? | Representation Leakage? | Stable DTO/Facade Contract? | Exposure Impact | Risk |
+| ---- | ---- | ---- | ---- | ---- | ---- |
+
+Decision rule:
+
+* do NOT mark a public field/type as risky when it is clearly a stable DTO/facade contract
 
 ---
 
-# STEP 2 — Subsystem Boundary Mapping
+# STEP 2 - Subsystem Boundary Mapping
 
 Evaluate the following subsystems:
 
@@ -94,18 +156,19 @@ Evaluate the following subsystems:
 * error
 * facade (icydb)
 
+Assignment rule:
+
+* ambiguous modules must be assigned to the nearest owning subsystem and the
+  ambiguity must be noted in findings.
+
 For each subsystem:
 
 ## 2A. Dependency Direction
 
 Identify:
 
-* What it imports from.
-* What imports it.
-
-Produce:
-
-| Subsystem | Depends On | Depended On By | Direction Clean? | Risk |
+* what it imports from
+* what imports it
 
 Expected high-level layering (reference model):
 
@@ -120,43 +183,56 @@ Expected high-level layering (reference model):
 9. commit / recovery
 10. facade
 
-Confirm no subsystem depends upward in this hierarchy.
+Direction rules:
+
+* lower-layer dependency = acceptable
+* same-layer dependency = pressure, not automatic violation
+* higher-layer dependency = violation unless clearly facade-only wrapping with no behavioral coupling
+
+Produce:
+
+| Subsystem | Depends On | Depended On By | Lower-Layer Dependencies | Same-Layer Dependencies | Upward Dependency Found? | Direction Assessment (Pressure/Violation) | Risk |
+| ---- | ---- | ---- | ----: | ----: | ---- | ---- | ---- |
 
 ---
 
 ## 2B. Circular Dependency Check
 
-Identify:
+Cycle definition for this audit:
 
-* Module-level circular references.
-* Cross-subsystem back references.
-* Mutual type imports across layers.
-
-Flag any cycle.
+* report only real subsystem-level mutual dependency/back-reference patterns
+* do NOT report false cycles from shared lower utilities
+* do NOT report incidental trait/type references without reverse ownership
 
 Produce:
 
-| Subsystem A | Subsystem B | Cycle? | Risk |
+| Subsystem A | Subsystem B | Real Cycle? | Evidence | Risk |
+| ---- | ---- | ---- | ---- | ---- |
 
 ---
 
 ## 2C. Implementation Leakage
 
-Flag cases where:
+Explicitly check:
 
-* Planner references executor internals.
-* Executor references intent internal AST structures.
-* Recovery references planner logic.
-* Index layer references query-layer constructs.
-* Error layer imports execution details.
+* planner referencing executor internals
+* executor referencing intent-internal AST details instead of planned/executable forms
+* recovery referencing planner logic
+* index referencing query-layer constructs
+* error layer depending on execution internals
+* facade exposing implementation-owned core internals
+
+Each finding MUST include location, dependency, description, and directional
+impact.
 
 Produce:
 
-| Violation | Location | Description | Risk |
+| Violation | Location | Dependency | Description | Directional Impact | Risk |
+| ---- | ---- | ---- | ---- | ---- | ---- |
 
 ---
 
-# STEP 3 — Visibility Hygiene Audit
+# STEP 3 - Visibility Hygiene Audit
 
 Evaluate usage of:
 
@@ -171,23 +247,35 @@ For each subsystem:
 
 Identify:
 
-* `pub(crate)` that could be private.
-* `pub` that could be `pub(crate)`.
-* Helper functions unnecessarily exposed.
+* `pub` items that appear crate-internal only
+* `pub(crate)` helpers used only in one module or narrow parent chain
+* helper constructors/accessors wider than their call graph appears to require
+* modules made public only for tests or convenience imports
 
 Produce:
 
-| Item | Current Visibility | Could Be Narrower? | Risk |
+| Item | Path | Current Visibility | Narrowest Plausible Visibility | Why Narrower Seems Valid | Risk |
+| ---- | ---- | ---- | ---- | ---- | ---- |
+
+Rule:
+
+* do not recommend narrowing unless usage evidence suggests intended API shape
+  remains intact
 
 ---
 
 ## 3B. Under-Containment Signals
 
-Flag patterns such as:
+Explicitly detect:
 
-* Deep internal helpers used across multiple subsystems.
-* Shared helpers bypassing intended boundary.
-* Large modules using `pub(crate)` widely.
+* deep internal helpers used across multiple subsystems
+* "utility" modules acting as unofficial cross-layer bridges
+* large modules with unusually broad `pub(crate)` surface
+
+Produce:
+
+| Area | Signal | Evidence | Pressure or Violation | Risk |
+| ---- | ---- | ---- | ---- | ---- |
 
 ---
 
@@ -195,137 +283,206 @@ Flag patterns such as:
 
 Check:
 
-* Test-only modules exposed outside `#[cfg(test)]`.
-* Internal test helpers marked pub unnecessarily.
-* Test utilities imported by runtime modules.
+* test-only modules/helpers exposed outside `#[cfg(test)]`
+* runtime modules importing test utilities
+* test helper re-exports leaking into non-test builds
+
+Produce:
+
+| Item | Location | Leakage Type | Build Impact | Risk |
+| ---- | ---- | ---- | ---- | ---- |
 
 ---
 
-# STEP 4 — Layering Integrity Validation
+# STEP 4 - Layering Integrity Validation
 
 Using the expected layering model, validate:
 
 ### 4A. No Upward References
 
-Confirm:
+Explicitly test:
 
-* Lower layers never depend on higher layers.
-* Data layer does not depend on planner.
-* Index layer does not depend on executor.
-* Recovery does not depend on query planner logic.
+* data does not depend on planner
+* index does not depend on executor
+* recovery does not depend on planner logic
+* lower layers do not encode query policy
+* cursor does not own planner semantics unless explicitly intended
 
 Produce:
 
-| Layer | Upward Dependency Found? | Description | Risk |
+| Layer/Rule | Upward Dependency Found? | Description | Risk |
+| ---- | ---- | ---- | ---- |
 
 ---
 
 ### 4B. Plan / Execution Separation
 
-Confirm:
+Explicitly validate:
 
-* Intent does not depend on execution.
-* Planner does not depend on commit.
-* Executor does not modify plan types.
-* Plan types are immutable across layers.
+* intent does not depend on executor
+* planner does not depend on commit/recovery behavior
+* executor consumes plan types without mutating planning semantics
+* executable plan is a boundary artifact, not a mutable semantic owner
+
+Produce:
+
+| Separation Rule | Breach Found? | Evidence | Risk |
+| ---- | ---- | ---- | ---- |
 
 ---
 
 ### 4C. Facade Containment
 
-Verify:
+Explicitly validate:
 
-* Facade does not expose core internals.
-* Facade does not re-export Raw* types.
-* Facade maintains namespace discipline.
+* facade does not re-export core internals accidentally
+* facade does not expose `Raw*` / storage-owned types
+* facade does not flatten unstable namespaces
 
 Produce:
 
-| Facade Item | Leaks Core Internal? | Risk |
+| Facade Item | Leak Type | Exposure Impact | Risk |
+| ---- | ---- | ---- | ---- |
 
 ---
 
-# STEP 5 — Structural Pressure Indicators
+# STEP 5 - Structural Pressure Indicators
 
-Identify signs of boundary erosion:
+This step records architectural pressure areas. Pressure is not automatic
+violation unless directional breach/leak/cycle evidence is present.
 
-* Subsystems importing 5+ other subsystems.
-* Large “hub” modules.
-* Modules that mix identity + index + execution.
-* Enums spanning multiple conceptual layers.
-* Error types defined in low layers but used everywhere.
+Explicitly identify:
+
+* subsystems importing 5+ sibling subsystems
+* high-coordination hub modules
+* modules spanning identity + index + execution concerns
+* enums/traits spanning multiple conceptual layers
+* low-layer error types used as de facto universal coordination types
 
 Produce:
 
-| Area | Pressure Type | Drift Sensitivity | Risk |
+| Area | Pressure Type | Why This Is Pressure (Not Yet Violation) | Drift Sensitivity | Risk |
+| ---- | ---- | ---- | ---- | ---- |
 
 ## 5A. Hub Import Pressure (Required Metric)
 
-For each high-coordination hub module (for example `db/mod.rs`, `executor/load/mod.rs`, `executor/route/mod.rs`, `query/plan/mod.rs`):
+For each high-coordination hub module (if present), include:
 
-1. List top imported sibling subsystems (top 5 by imported symbol count).
-2. Count unique sibling subsystems imported.
-3. Count cross-layer dependencies imported by the hub.
-4. Compare counts to the previous audit report.
+* `db/mod.rs`
+* `executor/load/mod.rs`
+* `executor/route/mod.rs`
+* `query/plan/mod.rs`
+
+Required for each hub:
+
+1. top imported sibling subsystems by imported symbol count
+2. unique sibling subsystem count
+3. cross-layer dependency count
+4. delta vs previous report
+5. HIP calculation
 
 Produce:
 
-| Hub Module | Top Imported Subsystems | Unique Sibling Subsystems Imported | Cross-Layer Dependency Count | Delta vs Previous Report | Risk |
+| Hub Module | Top Imported Sibling Subsystems (by Symbol Count) | Unique Sibling Subsystems Imported | Cross-Layer Dependency Count | Delta vs Previous Report | HIP | Pressure Band | Risk |
+| ---- | ---- | ----: | ----: | ---- | ----: | ---- | ---- |
 
-Rules:
-
-* Cross-layer dependency count means imported subsystem roots outside the hub's own layer responsibility.
-* If refactors claim boundary cleanup, this count should decrease or stay flat.
-* Any increase must include a one-sentence justification and expected follow-up.
-
-Hub Import Pressure Index (architectural debt interest rate):
+Formula:
 
 `HIP = cross_layer_dependency_count / max(1, total_unique_imported_subsystems)`
 
-Interpretation:
+Interpretation bands:
 
 * `< 0.30`: low pressure
 * `0.30 - 0.60`: moderate pressure
 * `> 0.60`: high pressure
 
----
+Rule:
 
-# STEP 6 — Encapsulation Risk Index
-
-Evaluate:
-
-| Category                  | Risk Index (1–10, lower is better) |
-| ------------------------- | ------------- |
-| Public Surface Discipline |               |
-| Layer Directionality      |               |
-| Circularity Safety        |               |
-| Visibility Hygiene        |               |
-| Facade Containment        |               |
-
-Then provide:
-
-### Overall Structural Risk Index (1–10, lower is better)
-
-Interpretation:
-1–3  = Low risk / structurally healthy
-4–6  = Moderate risk / manageable pressure
-7–8  = High risk / requires monitoring
-9–10 = Critical risk / structural instability
+* if counts increased, include a one-sentence explanation grounded in observed code movement
 
 ---
 
-# STEP 7 — Drift Sensitivity Analysis
+# STEP 6 - Encapsulation Risk Index
 
-Identify areas where:
-
-* Adding a new AccessPath would force cross-layer edits.
-* Adding DESC would require executor + planner + cursor + index edits.
-* Adding new commit marker would require multiple subsystem edits.
-* Adding new error type would widen visibility unnecessarily.
+Score each category and include a short basis explanation.
 
 Produce:
 
-| Growth Vector | Affected Subsystems | Drift Risk |
+| Category | Risk Index (1-10, lower is better) | Basis |
+| ---- | ----: | ---- |
+| Public Surface Discipline |  |  |
+| Layer Directionality |  |  |
+| Circularity Safety |  |  |
+| Visibility Hygiene |  |  |
+| Facade Containment |  |  |
+
+Then provide:
+
+### Overall Structural Risk Index (1-10, lower is better)
+
+Rule:
+
+* overall score must reflect worst real boundary pressures/violations, not a polite average
+
+Interpretation:
+
+* 1-3 = low risk / structurally healthy
+* 4-6 = moderate risk / manageable pressure
+* 7-8 = high risk / requires monitoring
+* 9-10 = critical risk / structural instability
+
+---
+
+# STEP 7 - Drift Sensitivity Analysis
+
+Include only growth vectors supported by observed dependency structure.
+
+Explicitly test vectors such as:
+
+* new `AccessPath`
+* DESC / alternate order semantics
+* new commit marker
+* new public error type
+* new execution terminal
+* new cursor continuation mode
+
+Produce:
+
+| Growth Vector | Affected Subsystems | Why Multiple Layers Would Change | Drift Risk |
+| ---- | ---- | ---- | ---- |
+
+---
+
+# Known Intentional Exceptions
+
+Purpose: prevent relitigating deliberate structural choices every week.
+
+Typical examples:
+
+* facade re-exports of stable DTOs
+* executable plan depending on planner-owned immutable artifacts
+* cursor depending on execution-neutral continuation contracts
+
+Produce:
+
+| Exception | Why Intentional | Scope Guardrail | Still Valid This Run? |
+| ---- | ---- | ---- | ---- |
+
+---
+
+# Delta Since Baseline
+
+Highlight only:
+
+* newly public items
+* newly widened visibilities
+* new subsystem dependencies
+* new hub-pressure increases
+
+Produce:
+
+| Delta Type | Item/Subsystem | Previous | Current | Impact |
+| ---- | ---- | ---- | ---- | ---- |
 
 ---
 
@@ -340,15 +497,25 @@ Produce:
 6. Structural Pressure Areas
 7. Drift Sensitivity Summary
 8. Structural Risk Index
-9. Verification Readout (`PASS`/`FAIL`/`BLOCKED`)
+9. Verification Readout (`PASS` / `FAIL` / `BLOCKED`)
 
 Run metadata must include:
 
-- compared baseline report path (daily baseline rule: first run of day compares
-  to latest prior comparable report or `N/A`; same-day reruns compare to that
-  day's `module-structure.md` baseline)
-- method tag/version
-- comparability status (`comparable` or `non-comparable` with reason)
+* target scope
+* compared baseline report path
+* method tag/version
+* comparability status (`comparable` or `non-comparable` with reason)
+* exclusions applied
+* notable methodology changes vs baseline
+* daily baseline rule:
+  * first run of day compares to latest prior comparable report or `N/A`
+  * same-day reruns compare to that day's `module-structure.md` baseline
+
+Verification rules:
+
+* `PASS` = no high/critical structural violations; only low/moderate pressure
+* `FAIL` = any confirmed high/critical layering, exposure, or cycle violation
+* `BLOCKED` = insufficient evidence/repo visibility for comparable judgment
 
 ---
 
@@ -356,15 +523,15 @@ Run metadata must include:
 
 Do NOT:
 
-* Say “structure looks clean.”
-* Give high-level praise.
-* Comment on naming.
-* Comment on formatting.
-* Propose redesign unless boundary violation is severe.
+* give praise
+* comment on naming
+* comment on formatting
+* propose redesign unless severe violation requires it
+* produce medium/high findings from grep-only conclusions
 
-Every claim must identify:
+Rules:
 
-* Module
-* Dependency
-* Visibility scope
-* Directional impact
+* do not infer architectural violations from symbol mentions alone
+* inspect file/module context for every medium/high finding
+* every claim must identify module/file, dependency/exposed item, visibility
+  scope, and directional/exposure impact

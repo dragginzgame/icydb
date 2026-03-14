@@ -134,6 +134,54 @@ let grouped = db!().execute_sql_grouped::<User>(
 )?;
 ```
 
+### Expose SQL endpoints in your canister (generated dispatch)
+
+`icydb::start!()` generates a `sql_dispatch` module for your canister schema.
+Use it to expose a small SQL API without hand-written per-entity routing:
+
+```rust
+use ic_cdk::query;
+use icydb::db::sql::SqlQueryRowsOutput;
+
+icydb::start!();
+
+#[query]
+fn sql_entities() -> Vec<String> {
+    sql_dispatch::entities()
+}
+
+#[query]
+fn query(sql: String) -> Result<Vec<String>, icydb::Error> {
+    sql_dispatch::query(sql.as_str())
+}
+
+#[query]
+fn query_rows(sql: String) -> Result<SqlQueryRowsOutput, icydb::Error> {
+    sql_dispatch::query_rows(sql.as_str())
+}
+```
+
+What each endpoint returns:
+
+- `sql_entities`: supported SQL entity names for this canister.
+- `query`: shell-friendly output lines (good for `dfx canister call` and logs), including `EXPLAIN` output.
+- `query_rows`: structured projection rows (`entity`, `columns`, `rows`, `row_count`) for programmatic clients.
+
+Dispatch behavior:
+
+- Routing is keyed by the parsed SQL entity name.
+- Unknown entities fail immediately with one deterministic unsupported-entity error listing supported entities.
+- `EXPLAIN` follows execution parity: invalid/non-executable queries are rejected (for example unordered `LIMIT/OFFSET`).
+
+Example calls:
+
+```bash
+dfx canister call <canister> sql_entities
+dfx canister call <canister> query '("SELECT id, name FROM User ORDER BY id LIMIT 5")'
+dfx canister call <canister> query_rows '("SELECT id, name FROM User ORDER BY id LIMIT 5")'
+dfx canister call <canister> query '("EXPLAIN SELECT id, name FROM User ORDER BY id LIMIT 5")'
+```
+
 ---
 
 ## Query Engine Notes
@@ -230,7 +278,10 @@ Out of scope and fail-closed by design:
 - `crates/icydb-schema-derive` — procedural macros for schema/types.
 - `crates/icydb-schema` — schema AST and validation.
 - `crates/icydb-build` — build-time codegen for canister wiring.
-- `crates/icydb-schema-tests` — integration/design tests.
+- `canisters/sql-test` — test-only SQL canister harness.
+- `testing/fixtures` — shared schema and seed fixtures for tests/canisters.
+- `testing/macro-tests` — macro and schema contract tests.
+- `testing/pocket-ic` — Pocket-IC integration tests for canister flows.
 - `assets`, `scripts`, `Makefile` — docs, helpers, workspace commands.
 
 ---

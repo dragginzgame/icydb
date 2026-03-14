@@ -7,6 +7,7 @@ use syn::parse_str;
 pub fn generate(builder: &ActorBuilder) -> TokenStream {
     let mut tokens = quote!();
     tokens.extend(stores(builder));
+    tokens.extend(sql_dispatch(builder));
     tokens
 }
 
@@ -131,5 +132,252 @@ fn entity_runtime_hooks(builder: &ActorBuilder, canister_path: &syn::Path) -> To
         ] = &[
             #hook_inits
         ];
+    }
+}
+
+#[expect(clippy::too_many_lines)]
+fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
+    let entities = builder.get_entities();
+
+    let mut variants = quote!();
+    let mut all_routes = quote!();
+    let mut entity_name_match = quote!();
+    let mut primary_key_field_match = quote!();
+    let mut projection_match = quote!();
+    let mut explain_match = quote!();
+
+    for (entity_path, entity) in entities {
+        let variant_ident = format_ident!("{}", entity.def().ident());
+        let entity_ty: syn::Path = parse_str(&entity_path)
+            .unwrap_or_else(|_| panic!("invalid entity path: {entity_path}"));
+
+        variants.extend(quote! {
+            #variant_ident,
+        });
+        all_routes.extend(quote! {
+            SqlEntityRoute::#variant_ident,
+        });
+        entity_name_match.extend(quote! {
+            Self::#variant_ident => {
+                <#entity_ty as ::icydb::traits::EntityIdentity>::ENTITY_NAME
+            }
+        });
+        primary_key_field_match.extend(quote! {
+            Self::#variant_ident => {
+                <#entity_ty as ::icydb::traits::EntitySchema>::MODEL
+                    .primary_key()
+                    .name()
+            }
+        });
+        projection_match.extend(quote! {
+            Self::#variant_ident => {
+                let projection = db().execute_sql_projection::<#entity_ty>(sql)?;
+                Ok(::icydb::db::sql::projection_rows_from_response::<#entity_ty>(
+                    sql, projection,
+                ))
+            }
+        });
+        explain_match.extend(quote! {
+            Self::#variant_ident => db().explain_sql::<#entity_ty>(sql),
+        });
+    }
+
+    quote! {
+        ///
+        /// SQL Runtime Dispatch
+        ///
+        /// Auto-generated helpers that map runtime SQL entity identifiers
+        /// to concrete entity types for this canister.
+        ///
+        pub mod sql_dispatch {
+            use super::db;
+
+            use ::icydb::{
+                Error,
+                db::sql::SqlProjectionRows,
+                error::{ErrorKind, ErrorOrigin, QueryErrorKind, RuntimeErrorKind},
+            };
+
+            ///
+            /// SqlEntityRoute
+            ///
+            /// One generated runtime route that resolves to a concrete schema entity type.
+            ///
+            #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+            pub enum SqlEntityRoute {
+                #variants
+            }
+
+            static SQL_ENTITY_ROUTES: &[SqlEntityRoute] = &[#all_routes];
+
+            impl SqlEntityRoute {
+                /// Resolve one runtime entity route from a parsed SQL statement.
+                pub fn from_statement_sql(sql: &str) -> Result<Self, Error> {
+                    let sql_entity = ::icydb::db::sql::statement_entity_name(sql)?;
+                    Self::from_entity_name(sql_entity.as_str())
+                        .ok_or_else(|| unsupported_sql_entity_error(sql_entity.as_str()))
+                }
+
+                /// Resolve one runtime entity route from one SQL entity identifier.
+                #[must_use]
+                pub fn from_entity_name(entity_name: &str) -> Option<Self> {
+                    for route in SQL_ENTITY_ROUTES {
+                        if ::icydb::db::sql::identifiers_tail_match(
+                            entity_name,
+                            route.entity_name(),
+                        ) {
+                            return Some(*route);
+                        }
+                    }
+
+                    None
+                }
+
+                /// Return this route's canonical entity name.
+                #[must_use]
+                pub const fn entity_name(self) -> &'static str {
+                    match self {
+                        #entity_name_match
+                    }
+                }
+
+                /// Return this route's primary-key field name.
+                #[must_use]
+                pub const fn primary_key_field(self) -> &'static str {
+                    match self {
+                        #primary_key_field_match
+                    }
+                }
+
+                /// Execute one SQL projection query for this concrete route.
+                pub fn execute_projection_rows(self, sql: &str) -> Result<SqlProjectionRows, Error> {
+                    match self {
+                        #projection_match
+                    }
+                }
+
+                /// Execute one SQL explain query for this concrete route.
+                pub fn execute_explain(self, sql: &str) -> Result<String, Error> {
+                    match self {
+                        #explain_match
+                    }
+                }
+            }
+
+            /// Return one list of all supported SQL entity names.
+            #[must_use]
+            pub fn entities() -> Vec<String> {
+                SQL_ENTITY_ROUTES
+                    .iter()
+                    .map(|route| route.entity_name().to_string())
+                    .collect()
+            }
+
+            /// Execute one reduced SQL statement and render shell-friendly output lines.
+            pub fn query(sql: &str) -> Result<Vec<String>, Error> {
+                let sql_trimmed = ::icydb::db::sql::normalize_sql_input(sql)?;
+                if ::icydb::db::sql::is_explain_sql(sql_trimmed) {
+                    let route = SqlEntityRoute::from_statement_sql(sql_trimmed)?;
+                    let explain_text = route
+                        .execute_explain(sql_trimmed)
+                        .map_err(|err| explain_surface_error(sql_trimmed, route, err))?;
+                    return Ok(::icydb::db::sql::render_explain_lines(explain_text.as_str()));
+                }
+
+                let (entity, rows) = projection_rows(sql_trimmed)?;
+
+                Ok(::icydb::db::sql::render_projection_lines(entity.as_str(), &rows))
+            }
+
+            /// Execute one reduced SQL projection statement and return structured rows.
+            pub fn query_rows(sql: &str) -> Result<::icydb::db::sql::SqlQueryRowsOutput, Error> {
+                let sql_trimmed = ::icydb::db::sql::normalize_sql_input(sql)?;
+                if ::icydb::db::sql::is_explain_sql(sql_trimmed) {
+                    return Err(unsupported_query_rows_explain_error());
+                }
+
+                let (entity, rows) = projection_rows(sql_trimmed)?;
+
+                Ok(::icydb::db::sql::SqlQueryRowsOutput::from_projection(
+                    entity, rows,
+                ))
+            }
+
+            /// Resolve SQL entity and execute one projection query.
+            pub fn projection_rows(sql: &str) -> Result<(String, SqlProjectionRows), Error> {
+                let route = SqlEntityRoute::from_statement_sql(sql)?;
+                let rows = route.execute_projection_rows(sql)?;
+
+                Ok((route.entity_name().to_string(), rows))
+            }
+
+            /// Resolve SQL entity and execute one explain query.
+            pub fn explain(sql: &str) -> Result<String, Error> {
+                let route = SqlEntityRoute::from_statement_sql(sql)?;
+                route.execute_explain(sql)
+            }
+
+            fn unsupported_sql_entity_error(entity_name: &str) -> Error {
+                let supported = entities().join(", ");
+
+                Error::new(
+                    ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+                    ErrorOrigin::Query,
+                    format!(
+                        "query endpoint does not support entity '{entity_name}'; supported: {supported}"
+                    ),
+                )
+            }
+
+            fn unsupported_query_rows_explain_error() -> Error {
+                Error::new(
+                    ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+                    ErrorOrigin::Query,
+                    "query_rows supports projection SQL only; use query for EXPLAIN output",
+                )
+            }
+
+            fn explain_surface_error(sql: &str, route: SqlEntityRoute, err: Error) -> Error {
+                if !matches!(
+                    err.kind(),
+                    ErrorKind::Query(QueryErrorKind::UnorderedPagination)
+                ) {
+                    return err;
+                }
+
+                let target_sql = ::icydb::db::sql::explain_target_sql(sql);
+                let suggestion = explain_order_hint_sql(target_sql, route.primary_key_field());
+                let message = format!(
+                    "Cannot EXPLAIN this SQL statement.\n\nReason:\nThe wrapped query uses LIMIT or OFFSET without ORDER BY, so it is non-deterministic and not executable under IcyDB's ordering contract.\n\nSQL:\n{target_sql}\n\nHow to fix:\nAdd an explicit ORDER BY that produces a stable total order, for example:\n{suggestion}",
+                );
+
+                Error::new(
+                    ErrorKind::Query(QueryErrorKind::UnorderedPagination),
+                    err.origin(),
+                    message,
+                )
+            }
+
+            fn explain_order_hint_sql(target_sql: &str, order_field: &str) -> String {
+                let trimmed = target_sql.trim().trim_end_matches(';').trim_end();
+                let upper = trimmed.to_ascii_uppercase();
+
+                if let Some(index) = upper.find(" LIMIT ") {
+                    return format!(
+                        "EXPLAIN {} ORDER BY {order_field} ASC{}",
+                        &trimmed[..index],
+                        &trimmed[index..]
+                    );
+                } else if let Some(index) = upper.find(" OFFSET ") {
+                    return format!(
+                        "EXPLAIN {} ORDER BY {order_field} ASC{}",
+                        &trimmed[..index],
+                        &trimmed[index..]
+                    );
+                }
+
+                format!("EXPLAIN {trimmed} ORDER BY {order_field} ASC")
+            }
+        }
     }
 }

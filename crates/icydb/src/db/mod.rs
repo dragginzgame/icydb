@@ -1,6 +1,7 @@
 pub mod query;
 pub mod response;
 mod session;
+pub mod sql;
 
 // re-exports
 pub use icydb_core::db::Row;

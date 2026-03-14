@@ -27,6 +27,22 @@ pub enum PlanError {
     Cursor(Box<CursorPlanError>),
 }
 
+impl PlanError {
+    /// Return whether this plan error is the deterministic pagination policy failure.
+    #[must_use]
+    pub fn is_unordered_pagination(&self) -> bool {
+        matches!(
+            self,
+            Self::Policy(inner)
+                if matches!(
+                    inner.as_ref(),
+                    PlanPolicyError::Policy(policy)
+                        if matches!(policy.as_ref(), PolicyPlanError::UnorderedPagination)
+                )
+        )
+    }
+}
+
 ///
 /// PlanUserError
 ///

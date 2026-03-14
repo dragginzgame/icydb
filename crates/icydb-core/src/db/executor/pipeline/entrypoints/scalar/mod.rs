@@ -14,6 +14,7 @@ use crate::{
             ExecutionTrace, ResolvedScalarContinuationContext,
             ScalarRouteContinuationInvariantProjection,
             pipeline::contracts::{CursorPage, ExecutionInputs, LoadExecutor},
+            pipeline::timing::{elapsed_execution_micros, start_execution_timer},
             plan_metrics::record_plan_metrics,
             validate_executor_plan,
         },
@@ -23,7 +24,6 @@ use crate::{
     metrics::sink::{ExecKind, Span},
     traits::{EntityKind, EntityValue},
 };
-use std::time::Instant;
 
 use crate::db::executor::pipeline::entrypoints::scalar::hints::apply_unpaged_top_n_seek_hints;
 
@@ -76,7 +76,7 @@ where
             .debug
             .then(|| ExecutionTrace::new(&logical_plan.access, direction, continuation_applied));
         let execution_preparation = ExecutionPreparation::for_plan::<E>(&logical_plan);
-        let execution_started_at = Instant::now();
+        let execution_started_at = start_execution_timer();
 
         let result = (|| {
             let mut span = Span::<E>::new(ExecKind::Load);
@@ -102,8 +102,7 @@ where
                 IndexCompilePolicy::ConservativeSubset,
             )?;
             let (page, metrics) = materialized.into_page_and_metrics();
-            let execution_time_micros =
-                u64::try_from(execution_started_at.elapsed().as_micros()).unwrap_or(u64::MAX);
+            let execution_time_micros = elapsed_execution_micros(execution_started_at);
 
             Ok(Self::finalize_execution(
                 page,

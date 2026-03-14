@@ -1,0 +1,22 @@
+[package]
+name = "canister_sql_test"
+edition = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+candid = { workspace = true }
+ic-cdk = { workspace = true }
+icydb = { workspace = true }
+icydb-testing-fixtures = { workspace = true }
+
+[build-dependencies]
+icydb = { workspace = true }
+icydb-testing-fixtures = { workspace = true }
+
+[lints]
+workspace = true

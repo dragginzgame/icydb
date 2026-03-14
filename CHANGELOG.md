@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ## [0.54.x] - 2026-03-13 - Filtered Indexes Line Open
 
 - `0.54.0` ships filtered/conditional indexes end-to-end: optional index predicates in schema/runtime metadata, schema-time predicate validation, mutation-path membership gating, planner implication-based index eligibility, and replay/startup recovery parity tests that lock live-vs-replay behavior.
+- `0.54.1` adds generated canister-local SQL dispatch helpers (`sql_dispatch`) with deterministic entity-keyed routing, shell-friendly `query` output plus structured `query_rows` payloads, clearer `EXPLAIN` rejection guidance for unordered pagination, and actionable reduced-SQL clause-order parse diagnostics.
 
 See detailed breakdown:
 [docs/changelog/0.54.md](docs/changelog/0.54.md)

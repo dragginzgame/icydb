@@ -98,11 +98,15 @@ impl From<QueryError> for Error {
                 err.to_string(),
             ),
 
-            QueryError::Plan(_) => Self::new(
-                ErrorKind::Query(QueryErrorKind::Plan),
-                ErrorOrigin::Query,
-                err.to_string(),
-            ),
+            QueryError::Plan(ref plan) => {
+                let kind = if plan.as_ref().is_unordered_pagination() {
+                    QueryErrorKind::UnorderedPagination
+                } else {
+                    QueryErrorKind::Plan
+                };
+
+                Self::new(ErrorKind::Query(kind), ErrorOrigin::Query, err.to_string())
+            }
 
             QueryError::Response(err) => Self::from_response_error(err),
 
