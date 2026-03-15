@@ -44,9 +44,9 @@ fn fixtures_reset() -> Result<(), icydb::Error> {
 fn fixtures_load_default() -> Result<(), icydb::Error> {
     fixtures_reset()?;
 
-    db().insert_many_atomic(seed::base_users())?;
-    db().insert_many_atomic(seed::base_orders())?;
-    db().insert_many_atomic(seed::base_characters())?;
+    db().insert_many_atomic(seed::base::users())?;
+    db().insert_many_atomic(seed::base::orders())?;
+    db().insert_many_atomic(seed::rpg::characters())?;
 
     Ok(())
 }
