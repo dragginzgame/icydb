@@ -8,6 +8,7 @@ use std::{
 
 const SQL_TEST_CANISTER_PACKAGE: &str = "canister_sql_test";
 const WASM_TARGET_TRIPLE: &str = "wasm32-unknown-unknown";
+const SQL_TEST_WASM_PROFILE_ENV: &str = "SQL_TEST_WASM_PROFILE";
 
 fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -21,10 +22,10 @@ fn target_dir(workspace_root: &Path) -> PathBuf {
     env::var_os("CARGO_TARGET_DIR").map_or_else(|| workspace_root.join("target"), PathBuf::from)
 }
 
-fn sql_test_wasm_path(workspace_root: &Path) -> PathBuf {
+fn sql_test_wasm_path(workspace_root: &Path, profile: &str) -> PathBuf {
     target_dir(workspace_root)
         .join(WASM_TARGET_TRIPLE)
-        .join("debug")
+        .join(profile)
         .join(format!("{SQL_TEST_CANISTER_PACKAGE}.wasm"))
 }
 
@@ -39,14 +40,46 @@ fn run_checked(mut command: Command, context: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn should_default_to_release_profile() -> bool {
+    matches!(
+        env::var("DFX_NETWORK").ok().as_deref(),
+        Some("mainnet" | "staging" | "ic")
+    )
+}
+
+fn selected_sql_test_wasm_profile() -> Result<&'static str, String> {
+    if let Some(explicit_profile) = env::var_os(SQL_TEST_WASM_PROFILE_ENV) {
+        let normalized = explicit_profile.to_string_lossy().to_ascii_lowercase();
+        return match normalized.as_str() {
+            "debug" => Ok("debug"),
+            "release" => Ok("release"),
+            other => Err(format!(
+                "invalid {SQL_TEST_WASM_PROFILE_ENV} value '{other}', expected 'debug' or 'release'"
+            )),
+        };
+    }
+
+    if should_default_to_release_profile() {
+        Ok("release")
+    } else {
+        Ok("debug")
+    }
+}
+
 ///
 /// build_sql_test_canister
 ///
 /// Build the SQL test canister WASM and return the built wasm path.
 ///
+/// Build profile selection:
+/// - `release` when `DFX_NETWORK` is `mainnet`, `staging`, or `ic`
+/// - `debug` otherwise
+/// - overridden by `SQL_TEST_WASM_PROFILE=debug|release`
+///
 
 pub fn build_sql_test_canister() -> Result<PathBuf, String> {
     let root = workspace_root();
+    let profile = selected_sql_test_wasm_profile()?;
     let mut cargo = Command::new("cargo");
     cargo.current_dir(&root).args([
         "build",
@@ -55,9 +88,12 @@ pub fn build_sql_test_canister() -> Result<PathBuf, String> {
         "--package",
         SQL_TEST_CANISTER_PACKAGE,
     ]);
-    run_checked(cargo, "sql test canister build")?;
+    if profile == "release" {
+        cargo.arg("--release");
+    }
+    run_checked(cargo, &format!("sql test canister build ({profile})"))?;
 
-    let wasm_path = sql_test_wasm_path(&root);
+    let wasm_path = sql_test_wasm_path(&root, profile);
     if !wasm_path.is_file() {
         return Err(format!(
             "sql test canister build succeeded but wasm was not found at {}",

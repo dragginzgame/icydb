@@ -8,7 +8,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ## [0.55.x] - 2026-03-15 - Expression Index Foundations
 
 - `0.55.0` ships the initial expression-index foundation line with canonical index key-item metadata, validated expression-key derivation, and shared planner/EXPLAIN eligibility for the first supported deterministic subset.
-- `0.55.1` (not yet pushed) hardens the line with filtered+expression composition locks, conditional+expression uniqueness coverage, and live-vs-replay expression-unique conflict parity checks.
+- `0.55.1` hardens the line with filtered+expression composition locks, conditional+expression uniqueness coverage, and live-vs-replay expression-unique conflict parity checks.
+- `0.55.2` expands expression-index planning/runtime parity for supported `LOWER(field)` case-insensitive `Eq`/`In` lookups, while keeping unsupported-expression and range-family shapes fail-closed.
+- `0.55.3` closes the line with unsupported-expression fail-closed recovery/runtime parity coverage and adds a recurring canonical semantic-authority crosscutting audit track.
 
 See detailed breakdown:
 [docs/changelog/0.55.md](docs/changelog/0.55.md)
