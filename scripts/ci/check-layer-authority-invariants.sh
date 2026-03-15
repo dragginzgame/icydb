@@ -120,7 +120,7 @@ if [[ -n "$key_comparator_leaks" ]]; then
 fi
 
 envelope_authority_leaks="$(
-  run_rg "\\bfn\\s+(anchor_within_envelope|resume_bounds_from_refs|continuation_advanced)\\s*\\(" \
+  run_rg "\\bfn\\s+(anchor_within_envelope|resume_bounds_from_refs|continuation_advanced)(\\s*<[^>]+>)?\\s*\\(" \
     "$DB_ROOT" \
     --glob '!crates/icydb-core/src/db/index/envelope.rs' \
     | strip_comment_only
@@ -142,7 +142,7 @@ if [[ -n "$commit_store_leaks" ]]; then
 fi
 
 continuation_rewrite_leaks="$(
-  run_rg "\\bfn\\s+resume_bounds_from_refs\\s*\\(" "$DB_ROOT" \
+  run_rg "\\bfn\\s+resume_bounds_from_refs(\\s*<[^>]+>)?\\s*\\(" "$DB_ROOT" \
     --glob '!crates/icydb-core/src/db/index/envelope.rs' \
     | strip_comment_only
 )"

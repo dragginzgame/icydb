@@ -9,7 +9,6 @@ mod tests;
 mod anchor;
 pub(crate) mod boundary;
 mod continuation;
-mod envelope;
 mod error;
 mod order;
 mod planned;
@@ -33,6 +32,10 @@ use crate::{
     traits::{EntityKind, EntityValue, FieldValue},
 };
 
+pub(in crate::db) use crate::db::index::{
+    continuation_advanced, resume_bounds_from_refs, validate_index_scan_continuation_advancement,
+    validate_index_scan_continuation_envelope,
+};
 pub(in crate::db) use anchor::ValidatedInEnvelopeIndexRangeCursorAnchor;
 pub(crate) use boundary::{CursorBoundary, CursorBoundarySlot};
 pub(in crate::db) use boundary::{
@@ -42,10 +45,6 @@ pub(in crate::db) use boundary::{
 pub(in crate::db) use continuation::{
     IndexScanContinuationInput, effective_keep_count_for_limit, effective_page_offset_for_window,
     next_cursor_for_materialized_rows,
-};
-pub(in crate::db) use envelope::{
-    continuation_advanced, resume_bounds_from_refs, validate_index_scan_continuation_advancement,
-    validate_index_scan_continuation_envelope,
 };
 pub(crate) use error::CursorPlanError;
 pub(in crate::db) use order::{apply_order_spec, apply_order_spec_bounded};

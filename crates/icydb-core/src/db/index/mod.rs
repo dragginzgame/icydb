@@ -16,7 +16,10 @@ mod store;
 pub(in crate::db) use entry::{
     IndexEntry, IndexEntryCorruption, IndexEntryEncodeError, MAX_INDEX_ENTRY_BYTES, RawIndexEntry,
 };
-pub(in crate::db) use envelope::{KeyEnvelope, key_within_envelope};
+pub(in crate::db) use envelope::{
+    KeyEnvelope, continuation_advanced, key_within_envelope, resume_bounds_from_refs,
+    validate_index_scan_continuation_advancement, validate_index_scan_continuation_envelope,
+};
 pub(in crate::db) use key::{
     EncodedValue, IndexId, IndexKey, IndexKeyKind, RawIndexKey, derive_index_expression_value,
 };

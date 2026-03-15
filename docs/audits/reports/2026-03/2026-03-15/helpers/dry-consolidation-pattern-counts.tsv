@@ -1,0 +1,7 @@
+pattern_family	match_count	file_count
+continuation_envelope	14	4
+semantic_bound_conversion	10	4
+cursor_token_decode_revalidate	23	8
+error_mapping_boundaries	11	5
+reverse_relation_index_mutation	21	5
+commit_replay_prepare_chain	29	10
