@@ -11,6 +11,38 @@
 
 ---
 
+## Local SQL Harness Quick Start
+
+Use this when working inside this repo with the test SQL canister.
+
+1. Start local `dfx`:
+
+```bash
+scripts/app/dfx_start.sh
+```
+
+2. Initialize the SQL harness (deploy + erase fixtures + load defaults):
+
+```bash
+scripts/dev/sql.sh --init
+```
+
+3. Run one query:
+
+```bash
+scripts/dev/sql.sh "select name, charisma from character order by charisma desc limit 5"
+```
+
+Command split:
+
+```bash
+scripts/dev/sql.sh --deploy   # deploy canister only
+scripts/dev/sql.sh --reset    # destructive: erase fixtures + reload defaults
+scripts/dev/sql.sh --init     # deploy + destructive reset + reload
+```
+
+---
+
 ## What Is IcyDB?
 
 **IcyDB** is an embedded Rust runtime for canister data with a typed query planner/executor.
@@ -45,7 +77,7 @@ If you are new to this space: think "database-like query execution and safety" w
 
 ---
 
-## Quick Start
+## Library Quick Start
 
 ### 1. Toolchain
 
@@ -317,9 +349,11 @@ make build      # release build
 
 Pre-commit hooks run:
 
-- `cargo fmt --all -- --check`
-- `cargo sort --check`
-- `cargo sort-derives --check`
+```bash
+cargo fmt --all -- --check
+cargo sort --check
+cargo sort-derives --check
+```
 
 ---
 

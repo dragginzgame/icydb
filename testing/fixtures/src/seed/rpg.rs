@@ -1,5 +1,5 @@
 use crate::schema::Character;
-use icydb::design::prelude::{Float32, Float64, Principal};
+use icydb::design::prelude::{Decimal, Float64, Principal};
 
 const DUNGEON_MASTER_CHARACTERS: [&str; 24] = [
     "Iaido Ruyito Chiburi",
@@ -45,7 +45,7 @@ const BLOODWYCH_CHARACTERS: [&str; 16] = [
     "Thai Chang of Yinn",
     "Rosanne Swifthand",
 ];
-const RPG_CHARACTER_ROW_COUNT: usize = DUNGEON_MASTER_CHARACTERS.len() + BLOODWYCH_CHARACTERS.len();
+const CHARACTER_ROW_COUNT: usize = DUNGEON_MASTER_CHARACTERS.len() + BLOODWYCH_CHARACTERS.len();
 const CLASSES: [&str; 8] = [
     "Fighter", "Wizard", "Rogue", "Cleric", "Ranger", "Paladin", "Druid", "Bard",
 ];
@@ -74,7 +74,7 @@ const RESISTANCES: [&str; 8] = [
 /// Build one deterministic RPG fixture set with one row per named character from
 /// Amiga-era Dungeon Master and Bloodwych rosters.
 #[must_use]
-pub fn base_rpg_characters() -> Vec<Character> {
+pub fn characters() -> Vec<Character> {
     let rows = DUNGEON_MASTER_CHARACTERS
         .iter()
         .copied()
@@ -116,8 +116,7 @@ pub fn base_rpg_characters() -> Vec<Character> {
             };
             let critical_step = u8::try_from(index % 10).unwrap_or(u8::MAX);
             let dodge_step = u8::try_from(index % 15).unwrap_or(u8::MAX);
-            let critical_chance =
-                Float32::try_new(0.05 + f32::from(critical_step) * 0.01).unwrap_or_default();
+            let critical_chance = Decimal::new(i64::from(critical_step) + 5, 2);
             let dodge_chance =
                 Float64::try_new(0.1 + f64::from(dodge_step) * 0.015).unwrap_or_default();
 
@@ -169,7 +168,7 @@ pub fn base_rpg_characters() -> Vec<Character> {
             }
         })
         .collect::<Vec<_>>();
-    debug_assert_eq!(rows.len(), RPG_CHARACTER_ROW_COUNT);
+    debug_assert_eq!(rows.len(), CHARACTER_ROW_COUNT);
 
     rows
 }
@@ -184,14 +183,14 @@ mod tests {
     use std::collections::BTreeSet;
 
     #[test]
-    fn base_rpg_characters_has_one_row_per_amiga_character() {
-        let rows = base_rpg_characters();
-        assert_eq!(rows.len(), RPG_CHARACTER_ROW_COUNT);
+    fn base_characters_has_one_row_per_amiga_character() {
+        let rows = characters();
+        assert_eq!(rows.len(), CHARACTER_ROW_COUNT);
     }
 
     #[test]
     fn base_rpg_characters_covers_full_character_roster_once() {
-        let rows = base_rpg_characters();
+        let rows = characters();
         let names: BTreeSet<&str> = rows.iter().map(|row| row.name.as_str()).collect();
         assert_eq!(names.len(), rows.len());
 
@@ -205,7 +204,7 @@ mod tests {
 
     #[test]
     fn base_rpg_characters_has_non_empty_multi_value_fields() {
-        let rows = base_rpg_characters();
+        let rows = characters();
         assert!(
             rows.iter()
                 .all(|row| !row.resistances.is_empty() && !row.inventory_weights.is_empty())

@@ -8,7 +8,10 @@ use crate::{
     db::{
         data::StorageKey,
         identity::{EntityName, IndexName},
-        index::key::{EncodedValue, IndexId, IndexKey, IndexKeyKind, OrderedValueEncodeError},
+        index::{
+            derive_index_expression_value,
+            key::{EncodedValue, IndexId, IndexKey, IndexKeyKind, OrderedValueEncodeError},
+        },
     },
     error::InternalError,
     model::{
@@ -16,41 +19,9 @@ use crate::{
         index::{IndexExpression, IndexKeyItem, IndexKeyItemsRef, IndexModel},
     },
     traits::{EntityKind, EntityValue, FieldValue},
-    types::Date,
     value::Value,
 };
 use std::ops::Bound;
-
-const MILLIS_PER_DAY: i64 = 86_400_000;
-
-fn fold_lower(input: &str) -> String {
-    if input.is_ascii() {
-        input.to_ascii_lowercase()
-    } else {
-        input.to_lowercase()
-    }
-}
-
-fn fold_upper(input: &str) -> String {
-    if input.is_ascii() {
-        input.to_ascii_uppercase()
-    } else {
-        input.to_uppercase()
-    }
-}
-
-fn timestamp_to_bucket_date(timestamp_millis: i64) -> Date {
-    let days = timestamp_millis.div_euclid(MILLIS_PER_DAY);
-    let days = if let Ok(days) = i32::try_from(days) {
-        days
-    } else if days < 0 {
-        i32::MIN
-    } else {
-        i32::MAX
-    };
-
-    Date::from_days_since_epoch(days)
-}
 
 fn value_for_expression(
     index: &IndexModel,
@@ -58,103 +29,14 @@ fn value_for_expression(
     source: Value,
 ) -> Result<Option<Value>, InternalError> {
     let source_label = source.canonical_tag().label();
-    match expression {
-        IndexExpression::Lower(_) => match source {
-            Value::Null => Ok(None),
-            Value::Text(value) => Ok(Some(Value::Text(fold_lower(&value)))),
-            _ => Err(InternalError::index_invariant(format!(
-                "index '{}' expression '{}' expected Text source value, got {}",
-                index.name(),
-                expression,
-                source_label
-            ))),
-        },
-        IndexExpression::Upper(_) => match source {
-            Value::Null => Ok(None),
-            Value::Text(value) => Ok(Some(Value::Text(fold_upper(&value)))),
-            _ => Err(InternalError::index_invariant(format!(
-                "index '{}' expression '{}' expected Text source value, got {}",
-                index.name(),
-                expression,
-                source_label
-            ))),
-        },
-        IndexExpression::Trim(_) => match source {
-            Value::Null => Ok(None),
-            Value::Text(value) => Ok(Some(Value::Text(value.trim().to_string()))),
-            _ => Err(InternalError::index_invariant(format!(
-                "index '{}' expression '{}' expected Text source value, got {}",
-                index.name(),
-                expression,
-                source_label
-            ))),
-        },
-        IndexExpression::LowerTrim(_) => match source {
-            Value::Null => Ok(None),
-            Value::Text(value) => Ok(Some(Value::Text(fold_lower(value.trim())))),
-            _ => Err(InternalError::index_invariant(format!(
-                "index '{}' expression '{}' expected Text source value, got {}",
-                index.name(),
-                expression,
-                source_label
-            ))),
-        },
-        IndexExpression::Date(_) => match source {
-            Value::Null => Ok(None),
-            Value::Date(value) => Ok(Some(Value::Date(value))),
-            Value::Timestamp(value) => Ok(Some(Value::Date(timestamp_to_bucket_date(
-                value.as_millis(),
-            )))),
-            _ => Err(InternalError::index_invariant(format!(
-                "index '{}' expression '{}' expected Date/Timestamp source value, got {}",
-                index.name(),
-                expression,
-                source_label
-            ))),
-        },
-        IndexExpression::Year(_) => match source {
-            Value::Null => Ok(None),
-            Value::Date(value) => Ok(Some(Value::Int(i64::from(value.year())))),
-            Value::Timestamp(value) => {
-                let bucket = timestamp_to_bucket_date(value.as_millis());
-                Ok(Some(Value::Int(i64::from(bucket.year()))))
-            }
-            _ => Err(InternalError::index_invariant(format!(
-                "index '{}' expression '{}' expected Date/Timestamp source value, got {}",
-                index.name(),
-                expression,
-                source_label
-            ))),
-        },
-        IndexExpression::Month(_) => match source {
-            Value::Null => Ok(None),
-            Value::Date(value) => Ok(Some(Value::Int(i64::from(value.month())))),
-            Value::Timestamp(value) => {
-                let bucket = timestamp_to_bucket_date(value.as_millis());
-                Ok(Some(Value::Int(i64::from(bucket.month()))))
-            }
-            _ => Err(InternalError::index_invariant(format!(
-                "index '{}' expression '{}' expected Date/Timestamp source value, got {}",
-                index.name(),
-                expression,
-                source_label
-            ))),
-        },
-        IndexExpression::Day(_) => match source {
-            Value::Null => Ok(None),
-            Value::Date(value) => Ok(Some(Value::Int(i64::from(value.day())))),
-            Value::Timestamp(value) => {
-                let bucket = timestamp_to_bucket_date(value.as_millis());
-                Ok(Some(Value::Int(i64::from(bucket.day()))))
-            }
-            _ => Err(InternalError::index_invariant(format!(
-                "index '{}' expression '{}' expected Date/Timestamp source value, got {}",
-                index.name(),
-                expression,
-                source_label
-            ))),
-        },
-    }
+    derive_index_expression_value(expression, source).map_err(|expected| {
+        InternalError::index_invariant(format!(
+            "index '{}' expression '{}' expected {expected} source value, got {}",
+            index.name(),
+            expression,
+            source_label
+        ))
+    })
 }
 
 fn index_component_value<E: EntityKind + EntityValue>(

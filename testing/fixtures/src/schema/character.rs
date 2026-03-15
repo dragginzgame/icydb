@@ -87,7 +87,11 @@ use icydb::design::prelude::*;
             value(item(prim = "Nat32")),
             default = "u32::default"
         ),
-        field(ident = "critical_chance", value(item(prim = "Float32")), default = 0),
+        field(
+            ident = "critical_chance",
+            value(item(prim = "Decimal", scale = 2)),
+            default = 0
+        ),
         field(ident = "dodge_chance", value(item(prim = "Float64")), default = 0),
         field(
             ident = "is_npc",

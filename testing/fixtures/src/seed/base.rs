@@ -2,7 +2,7 @@ use crate::schema::{Order, User};
 
 /// Build one deterministic baseline user fixture batch.
 #[must_use]
-pub fn base_users() -> Vec<User> {
+pub fn users() -> Vec<User> {
     vec![
         User {
             name: "alice".to_string(),
@@ -24,7 +24,7 @@ pub fn base_users() -> Vec<User> {
 
 /// Build one deterministic baseline order fixture batch.
 #[must_use]
-pub fn base_orders() -> Vec<Order> {
+pub fn orders() -> Vec<Order> {
     vec![
         Order {
             status: "paid".to_string(),

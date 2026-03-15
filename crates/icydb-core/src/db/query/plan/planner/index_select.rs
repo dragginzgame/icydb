@@ -319,6 +319,11 @@ impl IndexModel {
         field: &str,
         op: CompareOp,
     ) -> bool {
+        // Range/startswith planning remains field-key-only in this release.
+        // Expression-key indexes are handled by dedicated Eq/In key-item paths.
+        if self.has_expression_key_items() {
+            return false;
+        }
         if !self.fields().contains(&field) {
             return false;
         }

@@ -53,6 +53,13 @@ impl IndexExpression {
             Self::Day(_) => 0x08,
         }
     }
+
+    /// Return whether planner/access Eq/In lookup lowering supports this expression
+    /// under `TextCasefold` coercion in the current release.
+    #[must_use]
+    pub const fn supports_text_casefold_lookup(&self) -> bool {
+        matches!(self, Self::Lower(_))
+    }
 }
 
 impl Display for IndexExpression {
@@ -359,5 +366,17 @@ mod tests {
             IndexKeyItemsRef::Items(items)
                 if items == KEY_ITEMS.as_slice()
         ));
+    }
+
+    #[test]
+    fn index_expression_lookup_support_matrix_is_explicit() {
+        assert!(IndexExpression::Lower("email").supports_text_casefold_lookup());
+        assert!(!IndexExpression::Upper("email").supports_text_casefold_lookup());
+        assert!(!IndexExpression::Trim("email").supports_text_casefold_lookup());
+        assert!(!IndexExpression::LowerTrim("email").supports_text_casefold_lookup());
+        assert!(!IndexExpression::Date("created_at").supports_text_casefold_lookup());
+        assert!(!IndexExpression::Year("created_at").supports_text_casefold_lookup());
+        assert!(!IndexExpression::Month("created_at").supports_text_casefold_lookup());
+        assert!(!IndexExpression::Day("created_at").supports_text_casefold_lookup());
     }
 }

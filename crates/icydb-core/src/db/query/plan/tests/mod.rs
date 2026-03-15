@@ -65,6 +65,16 @@ const EXPRESSION_CASEFOLD_INDEX_MODEL: IndexModel = IndexModel::new_with_key_ite
     &EXPRESSION_CASEFOLD_INDEX_KEY_ITEMS,
     false,
 );
+const EXPRESSION_UPPER_INDEX_FIELDS: [&str; 1] = ["email"];
+const EXPRESSION_UPPER_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
+    [IndexKeyItem::Expression(IndexExpression::Upper("email"))];
+const EXPRESSION_UPPER_INDEX_MODEL: IndexModel = IndexModel::new_with_key_items(
+    "plan_tests::idx_email_upper",
+    "plan_tests::ExpressionUpperIndexStore",
+    &EXPRESSION_UPPER_INDEX_FIELDS,
+    &EXPRESSION_UPPER_INDEX_KEY_ITEMS,
+    false,
+);
 const FILTERED_EXPRESSION_CASEFOLD_INDEX_FIELDS: [&str; 1] = ["email"];
 const FILTERED_EXPRESSION_CASEFOLD_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
     [IndexKeyItem::Expression(IndexExpression::Lower("email"))];
@@ -160,6 +170,19 @@ crate::test_entity! {
     indexes = [&FILTERED_EXPRESSION_CASEFOLD_INDEX_MODEL],
 }
 
+crate::test_entity! {
+    ident = PlanExpressionUpperEntity,
+    id = Ulid,
+    entity_name = "PlanExpressionUpperEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("email", FieldKind::Text),
+    ],
+    indexes = [&EXPRESSION_UPPER_INDEX_MODEL],
+}
+
 // Helper for tests that need the indexed model derived from a typed schema.
 fn model_with_index() -> &'static EntityModel {
     <PlanModelEntity as EntitySchema>::MODEL
@@ -183,6 +206,10 @@ fn model_with_expression_casefold_index() -> &'static EntityModel {
 
 fn model_with_filtered_expression_casefold_index() -> &'static EntityModel {
     <PlanFilteredExpressionCasefoldEntity as EntitySchema>::MODEL
+}
+
+fn model_with_expression_upper_index() -> &'static EntityModel {
+    <PlanExpressionUpperEntity as EntitySchema>::MODEL
 }
 
 fn compare_strict(field: &str, op: CompareOp, value: Value) -> Predicate {
@@ -531,6 +558,47 @@ fn plan_access_text_casefold_eq_uses_expression_index_prefix() {
 }
 
 #[test]
+fn plan_access_text_casefold_eq_rejects_unsupported_expression_lookup_kind() {
+    let model = model_with_expression_upper_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = compare_text_casefold(
+        "email",
+        CompareOp::Eq,
+        Value::Text("Alice@Example.Com".to_string()),
+    );
+
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+
+    assert_eq!(
+        plan,
+        AccessPlan::full_scan(),
+        "unsupported expression lookup kinds must fail closed for text-casefold equality",
+    );
+}
+
+#[test]
+fn plan_access_text_casefold_in_rejects_unsupported_expression_lookup_kind() {
+    let model = model_with_expression_upper_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = compare_text_casefold(
+        "email",
+        CompareOp::In,
+        Value::List(vec![
+            Value::Text("alice@example.com".to_string()),
+            Value::Text("BOB@example.com".to_string()),
+        ]),
+    );
+
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+
+    assert_eq!(
+        plan,
+        AccessPlan::full_scan(),
+        "unsupported expression lookup kinds must fail closed for text-casefold IN",
+    );
+}
+
+#[test]
 fn plan_access_text_casefold_in_uses_expression_index_multi_lookup() {
     let model = model_with_expression_casefold_index();
     let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
@@ -556,6 +624,40 @@ fn plan_access_text_casefold_in_uses_expression_index_multi_lookup() {
             ],
         }),
         "text-casefold IN should lower through canonical expression-index lookup values",
+    );
+}
+
+#[test]
+fn plan_access_gt_rejects_expression_index() {
+    let model = model_with_expression_casefold_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = compare_strict("email", CompareOp::Gt, Value::Text("a@x.io".to_string()));
+
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+
+    assert_eq!(
+        plan,
+        AccessPlan::full_scan(),
+        "range compare planning must stay fail-closed for expression-key indexes",
+    );
+}
+
+#[test]
+fn plan_access_starts_with_rejects_expression_index() {
+    let model = model_with_expression_casefold_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = compare_strict(
+        "email",
+        CompareOp::StartsWith,
+        Value::Text("alice".to_string()),
+    );
+
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+
+    assert_eq!(
+        plan,
+        AccessPlan::full_scan(),
+        "starts-with planning must stay fail-closed for expression-key indexes",
     );
 }
 

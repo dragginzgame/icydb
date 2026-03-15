@@ -42,7 +42,7 @@ use crate::{
     },
     model::{
         field::{FieldKind, RelationStrength},
-        index::IndexModel,
+        index::{IndexExpression, IndexKeyItem, IndexModel},
     },
     testing::test_memory,
     traits::{EntityIdentity, EntityKind, EntityValue, Path},
@@ -275,6 +275,45 @@ crate::test_entity_schema! {
         ("label", FieldKind::Text),
     ],
     indexes = [&TEXT_PREFIX_PARITY_INDEX_MODELS[0]],
+    store = TestDataStore,
+    canister = TestCanister,
+}
+
+///
+/// ExpressionCasefoldParityEntity
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+struct ExpressionCasefoldParityEntity {
+    id: Ulid,
+    email: String,
+    label: String,
+}
+
+static EXPRESSION_CASEFOLD_PARITY_INDEX_FIELDS: [&str; 1] = ["email"];
+static EXPRESSION_CASEFOLD_PARITY_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
+    [IndexKeyItem::Expression(IndexExpression::Lower("email"))];
+static EXPRESSION_CASEFOLD_PARITY_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new_with_key_items(
+    "email_lower",
+    TestDataStore::PATH,
+    &EXPRESSION_CASEFOLD_PARITY_INDEX_FIELDS,
+    &EXPRESSION_CASEFOLD_PARITY_INDEX_KEY_ITEMS,
+    false,
+)];
+
+crate::test_entity_schema! {
+    ident = ExpressionCasefoldParityEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "ExpressionCasefoldParityEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("email", FieldKind::Text),
+        ("label", FieldKind::Text),
+    ],
+    indexes = [&EXPRESSION_CASEFOLD_PARITY_INDEX_MODELS[0]],
     store = TestDataStore,
     canister = TestCanister,
 }

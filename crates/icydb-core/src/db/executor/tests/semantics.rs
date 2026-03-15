@@ -29,6 +29,40 @@ fn id_in_predicate(ids: &[u128]) -> Predicate {
     ))
 }
 
+// Seed one deterministic expression-index fixture used by parity tests.
+fn seed_expression_casefold_parity_rows(base_id: u128) {
+    let save = SaveExecutor::<ExpressionCasefoldParityEntity>::new(DB, false);
+    for (offset, email, label) in [
+        (1_u128, "Alice@Example.Com", "alice"),
+        (2_u128, "BOB@example.com", "bob"),
+        (3_u128, "carol@example.com", "carol"),
+    ] {
+        save.insert(ExpressionCasefoldParityEntity {
+            id: Ulid::from_u128(base_id.saturating_add(offset)),
+            email: email.to_string(),
+            label: label.to_string(),
+        })
+        .expect("seed row save should succeed");
+    }
+}
+
+// Assert one verbose diagnostics map selects the expected expression index.
+fn assert_expression_index_access_choice_selected(diagnostics: &BTreeMap<String, String>) {
+    assert_eq!(
+        diagnostics.get(DIAG_ROUTE_ACCESS_CHOICE_CHOSEN),
+        Some(&format!(
+            "index:{}",
+            EXPRESSION_CASEFOLD_PARITY_INDEX_MODELS[0].name()
+        )),
+        "access-choice must select the same expression index chosen by planner access lowering",
+    );
+    assert_eq!(
+        diagnostics.get(DIAG_ROUTE_ACCESS_CHOICE_CHOSEN_REASON),
+        Some(&"single_candidate".to_string()),
+        "expression lookup parity matrix expects deterministic single-candidate selection",
+    );
+}
+
 // Remove one pushdown row from the primary store while keeping index entries.
 fn remove_pushdown_row_data(id: u128) {
     let raw_key = DataKey::try_new::<PushdownParityEntity>(Ulid::from_u128(id))
@@ -1238,6 +1272,161 @@ fn secondary_or_eq_explain_uses_index_multi_lookup_access_shape() {
     assert!(
         matches!(explain.access(), ExplainAccessPath::IndexMultiLookup { .. }),
         "same-field strict OR equality should lower to index-multi-lookup access shape",
+    );
+}
+
+#[test]
+fn expression_casefold_eq_planner_access_choice_and_runtime_route_stay_in_parity() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+    seed_expression_casefold_parity_rows(8_100);
+
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "email",
+        CompareOp::Eq,
+        Value::Text("ALICE@EXAMPLE.COM".to_string()),
+        CoercionId::TextCasefold,
+    ));
+
+    // Phase 1: planner eligibility must lower to one canonical expression-index prefix shape.
+    let explain = Query::<ExpressionCasefoldParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .explain()
+        .expect("expression eq explain should build");
+    let ExplainAccessPath::IndexPrefix {
+        name,
+        fields,
+        prefix_len,
+        values,
+    } = explain.access()
+    else {
+        panic!("expression eq should lower to index-prefix access");
+    };
+    assert_eq!(name, &EXPRESSION_CASEFOLD_PARITY_INDEX_MODELS[0].name());
+    assert_eq!(fields.as_slice(), ["email"]);
+    assert_eq!(*prefix_len, 1);
+    assert_eq!(
+        values.as_slice(),
+        [Value::Text("alice@example.com".to_string())]
+    );
+
+    // Phase 2: access-choice diagnostics must project the same chosen index authority.
+    let verbose = Query::<ExpressionCasefoldParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .explain_execution_verbose()
+        .expect("expression eq verbose explain should build");
+    let diagnostics = verbose_diagnostics_map(&verbose);
+    assert_expression_index_access_choice_selected(&diagnostics);
+
+    // Phase 3: runtime route selection must execute through the same index-prefix route.
+    let execution = Query::<ExpressionCasefoldParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .explain_execution()
+        .expect("expression eq execution explain should build");
+    assert!(
+        explain_execution_contains_node_type(&execution, ExplainExecutionNodeType::IndexPrefixScan),
+        "execution route must preserve expression eq index-prefix route selection",
+    );
+
+    let load = LoadExecutor::<ExpressionCasefoldParityEntity>::new(DB, false);
+    let plan = Query::<ExpressionCasefoldParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("expression eq load plan should build");
+    let response = load
+        .execute(plan)
+        .expect("expression eq load should execute");
+    let ids = response
+        .iter()
+        .map(|row| row.entity_ref().id)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ids,
+        vec![Ulid::from_u128(8_101)],
+        "expression eq execution results must match canonical lower(email) semantics",
+    );
+}
+
+#[test]
+fn expression_casefold_in_planner_access_choice_and_runtime_route_stay_in_parity() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+    seed_expression_casefold_parity_rows(8_200);
+
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "email",
+        CompareOp::In,
+        Value::List(vec![
+            Value::Text("BOB@EXAMPLE.COM".to_string()),
+            Value::Text("alice@example.com".to_string()),
+            Value::Text("bob@example.com".to_string()),
+        ]),
+        CoercionId::TextCasefold,
+    ));
+
+    // Phase 1: planner eligibility must lower to one canonical expression-index multi-lookup shape.
+    let explain = Query::<ExpressionCasefoldParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .explain()
+        .expect("expression IN explain should build");
+    let ExplainAccessPath::IndexMultiLookup {
+        name,
+        fields,
+        values,
+    } = explain.access()
+    else {
+        panic!("expression IN should lower to index-multi-lookup access");
+    };
+    assert_eq!(name, &EXPRESSION_CASEFOLD_PARITY_INDEX_MODELS[0].name());
+    assert_eq!(fields.as_slice(), ["email"]);
+    assert_eq!(
+        values.as_slice(),
+        [
+            Value::Text("alice@example.com".to_string()),
+            Value::Text("bob@example.com".to_string())
+        ],
+    );
+
+    // Phase 2: access-choice diagnostics must project the same chosen index authority.
+    let verbose = Query::<ExpressionCasefoldParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .explain_execution_verbose()
+        .expect("expression IN verbose explain should build");
+    let diagnostics = verbose_diagnostics_map(&verbose);
+    assert_expression_index_access_choice_selected(&diagnostics);
+
+    // Phase 3: runtime route selection must execute through the same index-multi-lookup route.
+    let execution = Query::<ExpressionCasefoldParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .explain_execution()
+        .expect("expression IN execution explain should build");
+    assert!(
+        explain_execution_contains_node_type(
+            &execution,
+            ExplainExecutionNodeType::IndexMultiLookup
+        ),
+        "execution route must preserve expression IN index-multi-lookup route selection",
+    );
+
+    let load = LoadExecutor::<ExpressionCasefoldParityEntity>::new(DB, false);
+    let plan = Query::<ExpressionCasefoldParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("expression IN load plan should build");
+    let response = load
+        .execute(plan)
+        .expect("expression IN load should execute");
+    let mut ids = response
+        .iter()
+        .map(|row| row.entity_ref().id)
+        .collect::<Vec<_>>();
+    ids.sort();
+    assert_eq!(
+        ids,
+        vec![Ulid::from_u128(8_201), Ulid::from_u128(8_202)],
+        "expression IN execution results must match canonical lower(email) set semantics",
     );
 }
 

@@ -17,7 +17,9 @@ pub(in crate::db) use entry::{
     IndexEntry, IndexEntryCorruption, IndexEntryEncodeError, MAX_INDEX_ENTRY_BYTES, RawIndexEntry,
 };
 pub(in crate::db) use envelope::{KeyEnvelope, key_within_envelope};
-pub(in crate::db) use key::{EncodedValue, IndexId, IndexKey, IndexKeyKind, RawIndexKey};
+pub(in crate::db) use key::{
+    EncodedValue, IndexId, IndexKey, IndexKeyKind, RawIndexKey, derive_index_expression_value,
+};
 pub(in crate::db) use pk_equivalence::{PrimaryKeyEquivalenceError, primary_key_matches_value};
 pub(in crate::db) use plan::{
     IndexEntryReader, PrimaryRowReader, SealedIndexEntryReader, SealedPrimaryRowReader,

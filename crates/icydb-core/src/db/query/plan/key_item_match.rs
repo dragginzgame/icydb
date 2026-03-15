@@ -4,7 +4,7 @@
 //! Boundary: canonical field/expression key-item lookup compatibility and literal lowering.
 
 use crate::{
-    db::predicate::CoercionId,
+    db::{index::derive_index_expression_value, predicate::CoercionId},
     model::index::{IndexExpression, IndexKeyItem, IndexKeyItemsRef, IndexModel},
     value::Value,
 };
@@ -50,18 +50,19 @@ pub(in crate::db::query::plan) fn key_item_matches_field_and_coercion(
 ) -> bool {
     match key_item {
         IndexKeyItem::Field(key_field) => key_field == field && coercion == CoercionId::Strict,
-        IndexKeyItem::Expression(IndexExpression::Lower(key_field)) => {
-            key_field == field && coercion == CoercionId::TextCasefold
+        IndexKeyItem::Expression(expression) => {
+            expression.field() == field && expression_supports_lookup_coercion(expression, coercion)
         }
-        IndexKeyItem::Expression(_) => false,
     }
 }
 
-fn fold_ci_text(input: &str) -> String {
-    if input.is_ascii() {
-        input.to_ascii_lowercase()
-    } else {
-        input.to_lowercase()
+const fn expression_supports_lookup_coercion(
+    expression: IndexExpression,
+    coercion: CoercionId,
+) -> bool {
+    match coercion {
+        CoercionId::TextCasefold => expression.supports_text_casefold_lookup(),
+        CoercionId::Strict | CoercionId::NumericWiden | CoercionId::CollectionElement => false,
     }
 }
 
@@ -82,16 +83,70 @@ pub(in crate::db::query::plan) fn eq_lookup_value_for_key_item(
 
             Some(value.clone())
         }
-        IndexKeyItem::Expression(IndexExpression::Lower(key_field)) => {
-            if key_field != field || coercion != CoercionId::TextCasefold || !literal_compatible {
+        IndexKeyItem::Expression(expression) => {
+            if expression.field() != field
+                || !expression_supports_lookup_coercion(expression, coercion)
+                || !literal_compatible
+            {
                 return None;
             }
-            let Value::Text(text) = value else {
-                return None;
-            };
 
-            Some(Value::Text(fold_ci_text(text)))
+            derive_index_expression_value(expression, value.clone())
+                .ok()
+                .flatten()
         }
-        IndexKeyItem::Expression(_) => None,
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        db::{
+            predicate::CoercionId,
+            query::plan::key_item_match::{
+                eq_lookup_value_for_key_item, key_item_matches_field_and_coercion,
+            },
+        },
+        model::index::{IndexExpression, IndexKeyItem},
+        value::Value,
+    };
+
+    #[test]
+    fn key_item_match_supports_only_declared_expression_lookup_matrix() {
+        assert!(key_item_matches_field_and_coercion(
+            IndexKeyItem::Expression(IndexExpression::Lower("email")),
+            "email",
+            CoercionId::TextCasefold,
+        ));
+        assert!(!key_item_matches_field_and_coercion(
+            IndexKeyItem::Expression(IndexExpression::Upper("email")),
+            "email",
+            CoercionId::TextCasefold,
+        ));
+    }
+
+    #[test]
+    fn eq_lookup_value_rejects_expression_not_in_lookup_matrix() {
+        let lowered = eq_lookup_value_for_key_item(
+            IndexKeyItem::Expression(IndexExpression::Lower("email")),
+            "email",
+            &Value::Text("ALICE@Example.Com".to_string()),
+            CoercionId::TextCasefold,
+            true,
+        );
+        assert_eq!(lowered, Some(Value::Text("alice@example.com".to_string())));
+
+        let unsupported = eq_lookup_value_for_key_item(
+            IndexKeyItem::Expression(IndexExpression::Upper("email")),
+            "email",
+            &Value::Text("ALICE@Example.Com".to_string()),
+            CoercionId::TextCasefold,
+            true,
+        );
+        assert_eq!(unsupported, None);
     }
 }
