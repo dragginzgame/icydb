@@ -1,5 +1,3 @@
-# docs/audits/recurring/executor/executor-state-machine-integrity.md
-
 # Weekly Audit: State Machine & Transition Integrity
 
 ## Scope

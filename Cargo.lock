@@ -231,6 +231,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "canister_minimal"
+version = "0.55.5"
+dependencies = [
+ "candid",
+ "ic-cdk",
+ "icydb",
+ "icydb-testing-minimal-fixtures",
+]
+
+[[package]]
 name = "canister_sql_test"
 version = "0.55.5"
 dependencies = [
@@ -1229,6 +1239,15 @@ dependencies = [
  "candid",
  "icydb",
  "pocket-ic",
+ "serde",
+]
+
+[[package]]
+name = "icydb-testing-minimal-fixtures"
+version = "0.55.5"
+dependencies = [
+ "candid",
+ "icydb",
  "serde",
 ]
 

@@ -430,16 +430,32 @@ fn delete_runtime_uses_executor_row_read_consistency_helper() {
 
 #[test]
 fn kernel_reducer_uses_executor_row_read_consistency_helper() {
-    let source_path =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/pipeline/operators/reducer.rs");
-    let source = fs::read_to_string(&source_path)
-        .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
-    let runtime_source = strip_cfg_test_items(source.as_str());
+    let source_root =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/pipeline/operators/reducer");
+    let mut sources = Vec::new();
+    collect_rust_sources(source_root.as_path(), &mut sources);
+    sources.sort();
 
-    assert!(
-        !runtime_source.contains("plan.scalar_plan().consistency"),
-        "pipeline reducer runners must consume executor row-read consistency helper instead of direct scalar-plan consistency reads",
-    );
+    for source_path in sources {
+        if source_path
+            .components()
+            .any(|part| part.as_os_str() == "tests")
+            || source_path
+                .file_name()
+                .is_some_and(|name| name == "tests.rs")
+        {
+            continue;
+        }
+
+        let source = fs::read_to_string(&source_path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
+        let runtime_source = strip_cfg_test_items(source.as_str());
+        assert!(
+            !runtime_source.contains("plan.scalar_plan().consistency"),
+            "pipeline reducer runners must consume executor row-read consistency helper instead of direct scalar-plan consistency reads; found in {}",
+            source_path.display(),
+        );
+    }
 }
 
 #[test]

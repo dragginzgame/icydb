@@ -60,6 +60,7 @@ This directory contains recurring architecture/correctness audits.
 - `crosscutting/crosscutting-layer-violation.md`
 - `crosscutting/crosscutting-module-structure.md`
 - `crosscutting/crosscutting-velocity-preservation.md`
+- `crosscutting/crosscutting-wasm-footprint.md`
 
 ### Crosscutting Run Order (Summary Integration)
 
@@ -72,6 +73,7 @@ that includes more than one crosscutting audit:
 4. `crosscutting/crosscutting-layer-violation.md`
 5. `crosscutting/crosscutting-module-structure.md`
 6. `crosscutting/crosscutting-velocity-preservation.md`
+7. `crosscutting/crosscutting-wasm-footprint.md`
 
 `Audit Run Order and Results` sections in day-level summaries must reflect this
 ordering when the listed audits are present in the run.
@@ -80,8 +82,3 @@ ordering when the listed audits are present in the run.
 
 - `contracts/error-taxonomy.md`
 - `contracts/resource-model-compliance.md`
-
-## Legacy Path Markers
-
-- files ending in `_legacy.md` are preserved path markers after domain/file renames
-- run recurring audits from the active files listed above, not from `_legacy.md` markers

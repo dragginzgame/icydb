@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/../.. && pwd)"
 OUT_DIR="$ROOT/artifacts/wasm-size"
-CANISTER_NAME="${WASM_CANISTER_NAME:-sql_test}"
+CANISTER_NAME="${WASM_CANISTER_NAME:-minimal}"
 PROFILE="${WASM_PROFILE:-wasm-release}"
 
 mkdir -p "$OUT_DIR"
@@ -11,6 +11,7 @@ mkdir -p "$OUT_DIR"
 echo "[wasm-size] Building '$CANISTER_NAME' using profile '$PROFILE'"
 (
     cd "$ROOT"
+    export ICYDB_CANISTER_WASM_PROFILE="$PROFILE"
     export SQL_TEST_WASM_PROFILE="$PROFILE"
     cargo run -p icydb-testing-integration --bin build_sql_test_canister --locked -- "$CANISTER_NAME"
 )

@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `0.55.3` closes the line with unsupported-expression fail-closed recovery/runtime parity coverage and adds a recurring canonical semantic-authority crosscutting audit track.
 - `0.55.4` completes the predicate semantic-authority audit by centralizing OR-equality canonicalization and identifier rewrites in predicate-owned boundaries, and makes PocketIC canister tests deterministic in `make test`/CI by resolving `POCKET_IC_BIN` explicitly.
 - `0.55.5` consolidates continuation-envelope semantics under one index-owned boundary, hardens layer-authority leak detection for generic helper signatures, makes PocketIC integration teardown keep primary failures visible, and publishes the 2026-03-15 canonical-semantic-authority and DRY-consolidation audit reports.
+- `0.55.6` continues load-pipeline containment by splitting post-access, orchestrator, reducer, distinct, and terminal execution seams into smaller owner modules, and keeps invariant gates green by fixing a pipeline planner-import leak in post-access coordination.
 
 See detailed breakdown:
 [docs/changelog/0.55.md](docs/changelog/0.55.md)

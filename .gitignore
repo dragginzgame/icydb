@@ -33,6 +33,7 @@ perf.data.old
 # tmp
 .env
 target
+/artifacts/
 generated
 /.cache/pocket-ic-server-*
 

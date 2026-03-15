@@ -1,5 +1,18 @@
 {
     "canisters": {
+        "minimal": {
+            "type": "custom",
+            "candid": ".dfx/local/canisters/minimal/minimal.did",
+            "build": "bash -c 'cargo run -p icydb-testing-integration --bin build_sql_test_canister -- minimal'",
+            "wasm": ".dfx/local/canisters/minimal/minimal.wasm",
+            "shrink": true,
+            "gzip": true,
+            "metadata": [
+                {
+                    "name": "candid:service"
+                }
+            ]
+        },
         "sql_test": {
             "type": "custom",
             "candid": ".dfx/local/canisters/sql_test/sql_test.did",

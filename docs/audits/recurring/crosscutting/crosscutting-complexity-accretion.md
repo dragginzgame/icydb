@@ -104,6 +104,7 @@ Run crosscutting audits sequentially in this order (do not run in parallel):
 4. `layer-violation`
 5. `module-structure`
 6. `velocity-preservation`
+7. `wasm-footprint`
 
 Generate runtime metrics once per run and reuse that dataset in later
 crosscutting audits.

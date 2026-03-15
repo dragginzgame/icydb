@@ -2,7 +2,7 @@
         test build check clippy fmt fmt-check clean install-dev \
         test-watch all ensure-clean security-check check-versioning \
         ensure-hooks install-hooks check-index-range-spec-invariants \
-        wasm-size-report \
+        wasm-size-report wasm-audit-report \
         check-architecture-text-scan-invariants check-invariants
 
 # in case we need this
@@ -41,7 +41,8 @@ help:
 	@echo "  fmt              Format code"
 	@echo "  fmt-check        Check formatting"
 	@echo "  clean            Clean build artifacts"
-	@echo "  wasm-size-report Build and report sql_test wasm sizes"
+	@echo "  wasm-size-report Build and report minimal canister wasm sizes"
+	@echo "  wasm-audit-report Build wasm + write Twiggy audit report under docs/audits/reports"
 	@echo ""
 	@echo "Utilities:"
 	@echo "  test-watch       Run tests in watch mode"
@@ -71,7 +72,7 @@ install-dev:
 install-canister-deps:
 	rustup toolchain install 1.94.0 || true
 	rustup target add wasm32-unknown-unknown
-	$(CARGO_ENV) cargo install candid-extractor ic-wasm --locked || true
+	$(CARGO_ENV) cargo install candid-extractor ic-wasm twiggy --locked || true
 
 # Optional explicit install target (idempotent)
 install-hooks ensure-hooks:
@@ -121,6 +122,9 @@ test-canisters:
 
 wasm-size-report:
 	bash scripts/ci/wasm-size-report.sh
+
+wasm-audit-report:
+	bash scripts/ci/wasm-audit-report.sh
 
 #
 # Development commands

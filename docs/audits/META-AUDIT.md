@@ -47,6 +47,7 @@ Recurring domains under `docs/audits/recurring/` must continuously cover:
 - global invariant preservation
 - error/contracts taxonomy integrity
 - canonical semantic authority continuity across schema/build/frontends/planner/runtime/explain/replay
+- wasm footprint continuity with attribution outputs for size growth root-cause analysis
 
 Cross-domain findings belong in `recurring/crosscutting/`.
 

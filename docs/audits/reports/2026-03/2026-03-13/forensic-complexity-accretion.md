@@ -8,10 +8,10 @@ All metrics must originate from STEP -1 enumeration or the metrics dataset.
 - Scope root: `crates/icydb-core/src/`
 - Excluded from scan: `**/tests/**`, `**/tests.rs`, `**/testing/**`, `**/benches/**`, `**/examples/**`
 - Runtime modules scanned: `458`
-- Full per-module dataset: `docs/audits/reports/2026-03/2026-03-13/helpers/forensic-runtime-metrics.tsv`
-- Full layer verification table: `docs/audits/reports/2026-03/2026-03-13/helpers/forensic-layer-verification.tsv`
-- Full concept spread table: `docs/audits/reports/2026-03/2026-03-13/helpers/forensic-concept-map.tsv`
-- Full invariant match artifacts: `docs/audits/reports/2026-03/2026-03-13/helpers/forensic-invariant-*.txt`
+- Full per-module dataset: `docs/audits/reports/2026-03/2026-03-13/artifacts/forensic-complexity-accretion/forensic-runtime-metrics.tsv`
+- Full layer verification table: `docs/audits/reports/2026-03/2026-03-13/artifacts/forensic-complexity-accretion/forensic-layer-verification.tsv`
+- Full concept spread table: `docs/audits/reports/2026-03/2026-03-13/artifacts/forensic-complexity-accretion/forensic-concept-map.tsv`
+- Full invariant match artifacts: `docs/audits/reports/2026-03/2026-03-13/artifacts/forensic-complexity-accretion/forensic-invariant-*.txt`
 
 ---
 
@@ -21,7 +21,7 @@ All metrics must originate from STEP -1 enumeration or the metrics dataset.
 
 The complete table requested in this phase is provided in:
 
-- `docs/audits/reports/2026-03/2026-03-13/helpers/forensic-runtime-metrics.tsv`
+- `docs/audits/reports/2026-03/2026-03-13/artifacts/forensic-complexity-accretion/forensic-runtime-metrics.tsv`
 
 Columns:
 
@@ -73,7 +73,7 @@ Expected order used for verification:
 
 The complete module-level layer table is provided in:
 
-- `docs/audits/reports/2026-03/2026-03-13/helpers/forensic-layer-verification.tsv`
+- `docs/audits/reports/2026-03/2026-03-13/artifacts/forensic-complexity-accretion/forensic-layer-verification.tsv`
 
 ### 2.2 Violation Slice (Top Upward/Cross-Layer Import Pressure)
 
@@ -121,7 +121,7 @@ Evidence:
 
 Full source for counts and matched files:
 
-- `docs/audits/reports/2026-03/2026-03-13/helpers/forensic-concept-map.tsv`
+- `docs/audits/reports/2026-03/2026-03-13/artifacts/forensic-complexity-accretion/forensic-concept-map.tsv`
 
 ---
 
@@ -165,7 +165,7 @@ Risk:
 
 Control-plane candidate table is in:
 
-- `docs/audits/reports/2026-03/2026-03-13/helpers/forensic-control-plane.tsv`
+- `docs/audits/reports/2026-03/2026-03-13/artifacts/forensic-complexity-accretion/forensic-control-plane.tsv`
 
 Hot slice:
 
@@ -187,7 +187,7 @@ Required threshold finding:
 
 Full fan-out table:
 
-- `docs/audits/reports/2026-03/2026-03-13/helpers/forensic-fanout.tsv`
+- `docs/audits/reports/2026-03/2026-03-13/artifacts/forensic-complexity-accretion/forensic-fanout.tsv`
 
 Top fan-out and multi-layer touch modules:
 
@@ -213,7 +213,7 @@ Flag counts:
 
 Full state-machine extraction:
 
-- `docs/audits/reports/2026-03/2026-03-13/helpers/forensic-state-machines.tsv`
+- `docs/audits/reports/2026-03/2026-03-13/artifacts/forensic-complexity-accretion/forensic-state-machines.tsv`
 
 State machine table:
 
@@ -237,7 +237,7 @@ Implicit state-machine pressure:
 
 Full coupling table:
 
-- `docs/audits/reports/2026-03/2026-03-13/helpers/forensic-hidden-coupling.tsv`
+- `docs/audits/reports/2026-03/2026-03-13/artifacts/forensic-complexity-accretion/forensic-hidden-coupling.tsv`
 
 High-coupling modules:
 
@@ -262,7 +262,7 @@ Evidence:
 
 Duplication matrix:
 
-- `docs/audits/reports/2026-03/2026-03-13/helpers/forensic-duplication.tsv`
+- `docs/audits/reports/2026-03/2026-03-13/artifacts/forensic-complexity-accretion/forensic-duplication.tsv`
 
 | Concept | Files | Severity | Evidence |
 | --- | ---: | --- | --- |
@@ -280,7 +280,7 @@ Duplication matrix:
 
 Full pass-through scan:
 
-- `docs/audits/reports/2026-03/2026-03-13/helpers/forensic-pass-through.tsv`
+- `docs/audits/reports/2026-03/2026-03-13/artifacts/forensic-complexity-accretion/forensic-pass-through.tsv`
 
 Top pass-through concentration:
 
@@ -309,7 +309,7 @@ Notes:
 
 Scan artifact:
 
-- `docs/audits/reports/2026-03/2026-03-13/helpers/forensic-phantom-candidates.tsv`
+- `docs/audits/reports/2026-03/2026-03-13/artifacts/forensic-complexity-accretion/forensic-phantom-candidates.tsv`
 
 Result:
 
@@ -343,7 +343,7 @@ Formula used:
 
 Ranking source:
 
-- `docs/audits/reports/2026-03/2026-03-13/helpers/forensic-hotspots.tsv`
+- `docs/audits/reports/2026-03/2026-03-13/artifacts/forensic-complexity-accretion/forensic-hotspots.tsv`
 
 | Rank | Module | Score | Reason |
 | ---: | --- | ---: | --- |

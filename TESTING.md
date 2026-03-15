@@ -28,10 +28,10 @@ IcyDB uses **five distinct classes of tests**. Each class has a clear purpose an
 
 Use fixture modules according to ownership, not convenience.
 
-> `testing/fixtures` = runtime integration fixtures  
+> `schema/fixtures` = runtime integration fixtures  
 > `crates/*/testing` = engine-internal fixtures
 
-### `testing/fixtures`
+### `schema/fixtures`
 
 Use for shared fixtures that represent runtime-facing behavior:
 
@@ -49,7 +49,7 @@ Use for crate-local engine scaffolding and internal invariants:
 
 ### Rule
 
-If a fixture is intended to be consumed by canister/runtime integration flows, it belongs in `testing/fixtures`.  
+If a fixture is intended to be consumed by canister/runtime integration flows, it belongs in `schema/fixtures`.  
 If a fixture exists only to test one crate's internals, it belongs under that crate's `testing` modules.
 
 ---

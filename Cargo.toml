@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "canisters/minimal",
     "canisters/sql-test",
     "crates/icydb",
     "crates/icydb-build",
@@ -8,8 +9,8 @@ members = [
     "crates/icydb-primitives",
     "crates/icydb-schema",
     "crates/icydb-schema-derive",
-    # Test-only crates
-    "testing/fixtures",
+    "schema/fixtures",
+    "schema/minimal-fixtures",
     "testing/macro-tests",
     "testing/pocket-ic",
 ]
@@ -44,7 +45,8 @@ icydb-schema = { path = "crates/icydb-schema", version = "0.55.5" }
 icydb-schema-derive = { path = "crates/icydb-schema-derive", version = "0.55.5" }
 # Test harnesses
 icydb-schema-tests = { path = "testing/macro-tests" }
-icydb-testing-fixtures = { path = "testing/fixtures" }
+icydb-testing-fixtures = { path = "schema/fixtures" }
+icydb-testing-minimal-fixtures = { path = "schema/minimal-fixtures" }
 num-traits = { version = "0.2", default-features = false }
 proc-macro2 = "1.0"
 proptest = "1.9.0"

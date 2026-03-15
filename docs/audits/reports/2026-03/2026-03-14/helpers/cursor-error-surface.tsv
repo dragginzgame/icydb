@@ -1,5 +1,0 @@
-enum	file	line	variants
-CursorDecodeError	crates/icydb-core/src/db/codec/cursor.rs	16	4
-CursorPlanError	crates/icydb-core/src/db/cursor/error.rs	22	9
-CursorPagingPolicyError	crates/icydb-core/src/db/query/plan/validate/errors.rs	160	2
-CursorOrderPlanShapeError	crates/icydb-core/src/db/query/plan/validate/errors.rs	331	2

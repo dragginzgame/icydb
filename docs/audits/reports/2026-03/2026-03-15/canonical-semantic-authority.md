@@ -19,9 +19,9 @@
 
 ## Evidence Artifacts
 
-- `docs/audits/reports/2026-03/2026-03-15/helpers/canonical-semantic-authority-concept-signals.tsv`
-- `docs/audits/reports/2026-03/2026-03-15/helpers/canonical-semantic-authority-owner-boundaries.tsv`
-- `docs/audits/reports/2026-03/2026-03-15/helpers/canonical-semantic-authority-reparse-sites.tsv`
+- `docs/audits/reports/2026-03/2026-03-15/artifacts/canonical-semantic-authority/canonical-semantic-authority-concept-signals.tsv`
+- `docs/audits/reports/2026-03/2026-03-15/artifacts/canonical-semantic-authority/canonical-semantic-authority-owner-boundaries.tsv`
+- `docs/audits/reports/2026-03/2026-03-15/artifacts/canonical-semantic-authority/canonical-semantic-authority-reparse-sites.tsv`
 
 ## STEP 0 — Canonical Concept Inventory
 

@@ -45,8 +45,8 @@ jobs:
       - run: bash scripts/ci/check-memory-id-invariants.sh
       - run: bash scripts/ci/check-field-projection-invariants.sh
       - run: cargo fmt --all -- --check
-      - run: cargo clippy --workspace --all-targets --exclude canister_sql_test --exclude icydb-testing-integration -- -D warnings
-      - run: cargo test --workspace --all-targets --exclude canister_sql_test --exclude icydb-testing-integration --verbose
+      - run: cargo clippy --workspace --all-targets --exclude canister_sql_test --exclude canister_minimal --exclude icydb-testing-integration -- -D warnings
+      - run: cargo test --workspace --all-targets --exclude canister_sql_test --exclude canister_minimal --exclude icydb-testing-integration --verbose
       - run: cargo test -p icydb-testing-integration --test sql_canister --verbose
 
   wasm_size_report:
@@ -55,6 +55,7 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
       WASM_PROFILE: wasm-release
+      WASM_CANISTER_NAME: minimal
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@v1
@@ -69,7 +70,7 @@ jobs:
           cache-targets: "false"
       - name: Install wasm reporting tools
         run: cargo install candid-extractor ic-wasm --locked
-      - name: Report sql_test wasm size
+      - name: Report minimal wasm size
         run: bash scripts/ci/wasm-size-report.sh
       - uses: actions/upload-artifact@v4
         with:

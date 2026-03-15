@@ -310,11 +310,28 @@ Out of scope and fail-closed by design:
 - `crates/icydb-schema-derive` — procedural macros for schema/types.
 - `crates/icydb-schema` — schema AST and validation.
 - `crates/icydb-build` — build-time codegen for canister wiring.
+- `canisters/minimal` — minimal SQL canister harness for wasm footprint auditing.
 - `canisters/sql-test` — test-only SQL canister harness.
-- `testing/fixtures` — shared schema and seed fixtures for tests/canisters.
+- `schema/fixtures` — shared schema and seed fixtures for tests/canisters.
+- `schema/minimal-fixtures` — minimal schema fixtures for lightweight wasm audits.
 - `testing/macro-tests` — macro and schema contract tests.
 - `testing/pocket-ic` — Pocket-IC integration tests for canister flows.
 - `assets`, `scripts`, `Makefile` — docs, helpers, workspace commands.
+
+---
+
+## Schema Crates
+
+IcyDB keeps schema definitions in dedicated crates so canister builds only link
+the schema surface they need.
+
+- `schema/fixtures` holds broad shared fixtures and seed datasets used by
+  runtime/integration testing.
+- `schema/minimal-fixtures` holds a tiny single-entity schema used by the
+  `canisters/minimal` wasm footprint baseline.
+
+This split keeps the wasm audit baseline from absorbing unrelated fixture schema
+weight while preserving full-featured fixtures for test harnesses.
 
 ---
 
@@ -345,6 +362,8 @@ make clippy     # lint (warnings denied)
 make test       # unit + integration tests
 make fmt        # format workspace
 make build      # release build
+make wasm-size-report   # build/report minimal canister wasm size
+make wasm-audit-report  # write dated wasm+twiggy audit report under docs/audits/reports
 ```
 
 Pre-commit hooks run:

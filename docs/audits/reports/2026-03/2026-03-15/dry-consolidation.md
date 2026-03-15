@@ -17,8 +17,8 @@
 
 ## Evidence Artifacts
 
-- `docs/audits/reports/2026-03/2026-03-15/helpers/dry-consolidation-pattern-counts.tsv`
-- `docs/audits/reports/2026-03/2026-03-15/helpers/dry-consolidation-module-pressure.tsv`
+- `docs/audits/reports/2026-03/2026-03-15/artifacts/dry-consolidation/dry-consolidation-pattern-counts.tsv`
+- `docs/audits/reports/2026-03/2026-03-15/artifacts/dry-consolidation/dry-consolidation-module-pressure.tsv`
 
 ## STEP 0 — Run Metadata + Scope Capture
 

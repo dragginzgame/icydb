@@ -19,7 +19,7 @@
 ## Method Changes
 
 - `scripts/audit/runtime_metrics.sh` is missing in this branch, so runtime metrics were generated with a one-off mechanical extractor and stored in:
-  - `docs/audits/reports/2026-03/2026-03-15/helpers/runtime-metrics.tsv`
+  - `docs/audits/reports/2026-03/2026-03-15/artifacts/complexity-accretion/runtime-metrics.tsv`
 - Because the metric generator changed, historical deltas are marked `N/A (method change)` where required.
 
 ## STEP -1 — Runtime Module Enumeration
@@ -27,7 +27,7 @@
 Evidence mode: `mechanical`
 
 - full runtime dataset (all `467` modules):
-  - `docs/audits/reports/2026-03/2026-03-15/helpers/runtime-metrics.tsv`
+  - `docs/audits/reports/2026-03/2026-03-15/artifacts/complexity-accretion/runtime-metrics.tsv`
 
 Top branch-site modules from the required enumeration table:
 
@@ -73,8 +73,8 @@ Evidence mode: `semi-mechanical`
 Evidence mode: `semi-mechanical`
 
 - enum surface artifacts:
-  - `docs/audits/reports/2026-03/2026-03-15/helpers/enum-surface.tsv`
-  - `docs/audits/reports/2026-03/2026-03-15/helpers/enum-switch-sites.tsv`
+  - `docs/audits/reports/2026-03/2026-03-15/artifacts/complexity-accretion/enum-surface.tsv`
+  - `docs/audits/reports/2026-03/2026-03-15/artifacts/complexity-accretion/enum-switch-sites.tsv`
 
 | Enum [M] | Variants [M] | Switch Sites [M] | Branch Multiplier [D] | Decision Owners [C] | Domain Scope [C] | Mixed Domains? [C] | Growth Risk [C] |
 | ---- | ----: | ----: | ----: | ----: | ---- | ---- | ---- |
@@ -93,7 +93,7 @@ Evidence mode: `semi-mechanical`
 Evidence mode: `semi-mechanical`
 
 - hotspot artifact:
-  - `docs/audits/reports/2026-03/2026-03-15/helpers/function-branch-hotspots.tsv`
+  - `docs/audits/reports/2026-03/2026-03-15/artifacts/complexity-accretion/function-branch-hotspots.tsv`
 
 | Function [M] | Module [M] | Branch Layers [D] | match_count [M] | match_arms_total [M] | avg_match_arms [D] | if_chain_count [M] | max_branch_depth [M] | Axis Count [C] | Previous Branch Layers [M] | Delta [D] | Domains Mixed [C] | Risk [C] |
 | ---- | ---- | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ---- |
@@ -113,8 +113,8 @@ Evidence mode: `semi-mechanical`
 Evidence mode: `semi-mechanical`
 
 - concept branch artifacts:
-  - `docs/audits/reports/2026-03/2026-03-15/helpers/concept-branch-map.tsv`
-  - `docs/audits/reports/2026-03/2026-03-15/helpers/concept-branch-summary.tsv`
+  - `docs/audits/reports/2026-03/2026-03-15/artifacts/complexity-accretion/concept-branch-map.tsv`
+  - `docs/audits/reports/2026-03/2026-03-15/artifacts/complexity-accretion/concept-branch-summary.tsv`
 
 | Concept [M] | Branch Modules [M] | Decision Owners [C] | Branch/Owner Ratio [D] | Previous Branch Modules [M] | Delta [D] |
 | ---- | ----: | ----: | ----: | ----: | ----: |
@@ -307,7 +307,7 @@ Evidence mode: `classified`
 ## Verification Readout
 
 - `scripts/audit/runtime_metrics.sh` -> BLOCKED (missing in repository)
-- fallback mechanical runtime extraction -> PASS (`docs/audits/reports/2026-03/2026-03-15/helpers/runtime-metrics.tsv`)
+- fallback mechanical runtime extraction -> PASS (`docs/audits/reports/2026-03/2026-03-15/artifacts/complexity-accretion/runtime-metrics.tsv`)
 - `bash scripts/ci/check-layer-authority-invariants.sh` -> PASS
 - `bash scripts/ci/check-architecture-text-scan-invariants.sh` -> PASS
 - `cargo check -p icydb-core` -> PASS

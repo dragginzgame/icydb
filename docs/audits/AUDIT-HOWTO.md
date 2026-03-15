@@ -42,7 +42,7 @@ Use these file patterns:
 - Oneoff definitions: `<version>-<topic>.md`
 - Reports (inside day directory): `<scope>.md`
 - Required report directory: `docs/audits/reports/YYYY-MM/YYYY-MM-DD/`
-- Temporary/helper artifacts for a report run: `docs/audits/reports/YYYY-MM/YYYY-MM-DD/helpers/<artifact>`
+- Report artifacts for a run: `docs/audits/reports/YYYY-MM/YYYY-MM-DD/artifacts/<scope>/<artifact>`
 
 ## 4. Audit Execution Discipline
 
@@ -52,7 +52,8 @@ For each audit run:
 3. Record findings with structured risk levels.
 4. Save output as a new report file under `docs/audits/reports/YYYY-MM/YYYY-MM-DD/`.
 5. Never overwrite prior run artifacts.
-6. Keep day-level report roots clean: only report files (`*.md`) at `YYYY-MM/YYYY-MM-DD`, and write temporary/helper artifacts under `YYYY-MM/YYYY-MM-DD/helpers/`.
+6. Keep day-level report roots clean: only report files (`*.md`) and `artifacts/` at `YYYY-MM/YYYY-MM-DD`, and write run artifacts under `YYYY-MM/YYYY-MM-DD/artifacts/<scope>/`.
+7. Scope artifact directories by audit: `<scope>` must match the audit report scope (for example `wasm-footprint`) so artifacts are split by owning audit.
 
 ### Daily baseline rule (mandatory)
 
@@ -85,6 +86,7 @@ When a run includes crosscutting recurring audits, use this canonical order:
 4. `crosscutting/crosscutting-layer-violation`
 5. `crosscutting/crosscutting-module-structure`
 6. `crosscutting/crosscutting-velocity-preservation`
+7. `crosscutting/crosscutting-wasm-footprint`
 
 Rules:
 - In day-level `summary.md`, `Audit Run Order and Results` must list
