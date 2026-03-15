@@ -62,9 +62,9 @@ impl<K> PostAccessPlan<'_, K> {
 
         // Phase 2: ordering.
         let (ordered, rows_after_order) = apply_post_access_order_phase::<E, R, K>(
-            self.plan,
-            self.order_spec(),
-            self.has_predicate(),
+            self.contract.plan(),
+            self.contract.order_spec(),
+            self.contract.has_predicate(),
             rows,
             cursor,
             filtered,
@@ -73,7 +73,7 @@ impl<K> PostAccessPlan<'_, K> {
         // Phase 3: continuation boundary.
         let (_cursor_skipped, rows_after_cursor) =
             ExecutionKernel::apply_cursor_boundary_phase::<K, E, R>(
-                self.plan,
+                self.contract.plan(),
                 rows,
                 cursor,
                 ordered,
@@ -82,10 +82,10 @@ impl<K> PostAccessPlan<'_, K> {
 
         // Phase 4: load pagination.
         let (paged, rows_after_page) = apply_post_access_page_phase(
-            self.mode(),
-            self.order_spec(),
-            self.page_spec(),
-            self.plan,
+            self.contract.mode(),
+            self.contract.order_spec(),
+            self.contract.page_spec(),
+            self.contract.plan(),
             rows,
             ordered,
             cursor,
@@ -93,9 +93,9 @@ impl<K> PostAccessPlan<'_, K> {
 
         // Phase 5: delete limiting.
         let (delete_was_limited, rows_after_delete_limit) = apply_post_access_delete_limit_phase(
-            self.mode(),
-            self.order_spec(),
-            self.delete_limit_spec(),
+            self.contract.mode(),
+            self.contract.order_spec(),
+            self.contract.delete_limit_spec(),
             rows,
             ordered,
         )?;

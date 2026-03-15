@@ -17,7 +17,10 @@ use crate::{
     db::{
         cursor::CursorBoundary,
         executor::{
-            ExecutionKernel, pipeline::operators::post_access::coordinator::PostAccessPlan,
+            ExecutionKernel,
+            pipeline::{
+                contracts::PostAccessContract, operators::post_access::coordinator::PostAccessPlan,
+            },
         },
         predicate::PredicateProgram,
         query::plan::AccessPlannedQuery,
@@ -40,7 +43,7 @@ impl ExecutionKernel {
         E: EntityKind<Key = K> + EntityValue,
         R: PlanRow<E>,
     {
-        PostAccessPlan::new(plan)
+        PostAccessPlan::new(PostAccessContract::new(plan))
             .apply_post_access_with_compiled_predicate::<E, R>(rows, compiled_predicate)
     }
 
@@ -54,11 +57,12 @@ impl ExecutionKernel {
         E: EntityKind<Key = K> + EntityValue,
         R: PlanRow<E>,
     {
-        PostAccessPlan::new(plan).apply_post_access_with_cursor_and_compiled_predicate::<E, R>(
-            rows,
-            cursor,
-            compiled_predicate,
-        )
+        PostAccessPlan::new(PostAccessContract::new(plan))
+            .apply_post_access_with_cursor_and_compiled_predicate::<E, R>(
+                rows,
+                cursor,
+                compiled_predicate,
+            )
     }
 
     #[must_use]
@@ -69,7 +73,7 @@ impl ExecutionKernel {
     where
         E: EntitySchema<Key = K>,
     {
-        PostAccessPlan::new(plan).budget_safety_metadata::<E>()
+        PostAccessPlan::new(PostAccessContract::new(plan)).budget_safety_metadata::<E>()
     }
 
     #[must_use]
@@ -80,6 +84,6 @@ impl ExecutionKernel {
     where
         E: EntitySchema<Key = K>,
     {
-        PostAccessPlan::new(plan).is_stream_order_contract_safe::<E>()
+        PostAccessPlan::new(PostAccessContract::new(plan)).is_stream_order_contract_safe::<E>()
     }
 }

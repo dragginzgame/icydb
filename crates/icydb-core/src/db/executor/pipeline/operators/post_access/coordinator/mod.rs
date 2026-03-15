@@ -7,7 +7,7 @@ mod runtime;
 #[cfg(test)]
 mod safety;
 
-use crate::db::query::plan::{AccessPlannedQuery, DeleteLimitSpec, OrderSpec, PageSpec, QueryMode};
+use crate::db::executor::pipeline::contracts::PostAccessContract;
 
 ///
 /// PostAccessPlan
@@ -16,36 +16,11 @@ use crate::db::query::plan::{AccessPlannedQuery, DeleteLimitSpec, OrderSpec, Pag
 ///
 
 pub(super) struct PostAccessPlan<'a, K> {
-    plan: &'a AccessPlannedQuery<K>,
+    contract: PostAccessContract<'a, K>,
 }
 
 impl<'a, K> PostAccessPlan<'a, K> {
-    pub(super) const fn new(plan: &'a AccessPlannedQuery<K>) -> Self {
-        Self { plan }
-    }
-
-    // Project the plan mode through one post-access boundary accessor.
-    const fn mode(&self) -> QueryMode {
-        self.plan.scalar_plan().mode
-    }
-
-    // Project ORDER BY semantics through one post-access boundary accessor.
-    const fn order_spec(&self) -> Option<&OrderSpec> {
-        self.plan.scalar_plan().order.as_ref()
-    }
-
-    // Project page-window semantics through one post-access boundary accessor.
-    const fn page_spec(&self) -> Option<&PageSpec> {
-        self.plan.scalar_plan().page.as_ref()
-    }
-
-    // Project delete-limit semantics through one post-access boundary accessor.
-    const fn delete_limit_spec(&self) -> Option<&DeleteLimitSpec> {
-        self.plan.scalar_plan().delete_limit.as_ref()
-    }
-
-    // Project residual predicate presence through one post-access boundary accessor.
-    const fn has_predicate(&self) -> bool {
-        self.plan.scalar_plan().predicate.is_some()
+    pub(super) const fn new(contract: PostAccessContract<'a, K>) -> Self {
+        Self { contract }
     }
 }

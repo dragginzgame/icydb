@@ -5,6 +5,7 @@
 
 mod execution;
 pub(in crate::db::executor) mod grouped;
+mod post_access;
 
 use crate::{
     db::{
@@ -25,6 +26,7 @@ pub(in crate::db::executor) use grouped::{
     GroupedFoldStage, GroupedPlannerPayload, GroupedRoutePayload, GroupedRouteStage,
     GroupedRouteStageProjection, GroupedStreamStage, IndexSpecBundle,
 };
+pub(in crate::db::executor) use post_access::PostAccessContract;
 
 ///
 /// PageCursor
