@@ -46,6 +46,7 @@ Recurring domains under `docs/audits/recurring/` must continuously cover:
 - storage/recovery consistency
 - global invariant preservation
 - error/contracts taxonomy integrity
+- canonical semantic authority continuity across schema/build/frontends/planner/runtime/explain/replay
 
 Cross-domain findings belong in `recurring/crosscutting/`.
 
@@ -79,7 +80,6 @@ Audit governance paths are:
 - `docs/audits/recurring/`
 - `docs/audits/oneoff/`
 - `docs/audits/reports/`
-- `docs/audits/domains/`
 
 ## 7. Report-Quality Controls
 

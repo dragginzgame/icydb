@@ -35,9 +35,6 @@ Recurring audits are organized by subsystem domain:
 - `contracts/`
 - `crosscutting/` for multi-subsystem audits
 
-Domain descriptors are maintained in:
-- `docs/audits/domains/`
-
 ## 3. Naming Conventions
 
 Use these file patterns:
@@ -77,6 +74,26 @@ For crosscutting structure/velocity runs, include the required Hub Import Pressu
 - unique sibling subsystem import count
 - cross-layer dependency count
 - delta vs previous report
+
+### Crosscutting run order + summary integration (mandatory)
+
+When a run includes crosscutting recurring audits, use this canonical order:
+
+1. `crosscutting/crosscutting-complexity-accretion`
+2. `crosscutting/crosscutting-canonical-semantic-authority`
+3. `crosscutting/crosscutting-dry-consolidation`
+4. `crosscutting/crosscutting-layer-violation`
+5. `crosscutting/crosscutting-module-structure`
+6. `crosscutting/crosscutting-velocity-preservation`
+
+Rules:
+- In day-level `summary.md`, `Audit Run Order and Results` must list
+  crosscutting entries in the same relative order when present.
+- For crosscutting-only reruns, preserve the same relative order for the subset
+  being rerun.
+- Include canonical semantic authority whenever the rerun scope includes
+  semantic ownership/representation drift checks across schema/planner/runtime/
+  EXPLAIN/replay surfaces.
 
 ### Required report preamble (every report)
 
@@ -144,6 +161,5 @@ Use normalized paths only:
 - `docs/audits/recurring/...`
 - `docs/audits/oneoff/...`
 - `docs/audits/reports/...`
-- `docs/audits/domains/...`
 
 Do not reference deprecated locations.

@@ -55,10 +55,26 @@ This directory contains recurring architecture/correctness audits.
 ### Crosscutting
 
 - `crosscutting/crosscutting-complexity-accretion.md`
+- `crosscutting/crosscutting-canonical-semantic-authority.md`
 - `crosscutting/crosscutting-dry-consolidation.md`
 - `crosscutting/crosscutting-layer-violation.md`
 - `crosscutting/crosscutting-module-structure.md`
 - `crosscutting/crosscutting-velocity-preservation.md`
+
+### Crosscutting Run Order (Summary Integration)
+
+Use this order for weekly full-suite runs and for any crosscutting-only rerun
+that includes more than one crosscutting audit:
+
+1. `crosscutting/crosscutting-complexity-accretion.md`
+2. `crosscutting/crosscutting-canonical-semantic-authority.md`
+3. `crosscutting/crosscutting-dry-consolidation.md`
+4. `crosscutting/crosscutting-layer-violation.md`
+5. `crosscutting/crosscutting-module-structure.md`
+6. `crosscutting/crosscutting-velocity-preservation.md`
+
+`Audit Run Order and Results` sections in day-level summaries must reflect this
+ordering when the listed audits are present in the run.
 
 ### Contracts
 

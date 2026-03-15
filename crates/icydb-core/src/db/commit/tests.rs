@@ -96,6 +96,12 @@ struct RecoveryUniqueCasefoldEntity {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+struct RecoveryUpperExpressionEntity {
+    id: Ulid,
+    email: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
 struct RecoveryConditionalEntity {
     id: Ulid,
     group: u32,
@@ -156,6 +162,16 @@ static RECOVERY_UNIQUE_CASEFOLD_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new
     &RECOVERY_UNIQUE_CASEFOLD_INDEX_FIELDS,
     &RECOVERY_UNIQUE_CASEFOLD_INDEX_KEY_ITEMS,
     true,
+)];
+static RECOVERY_UPPER_EXPRESSION_INDEX_FIELDS: [&str; 1] = ["email"];
+static RECOVERY_UPPER_EXPRESSION_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
+    [IndexKeyItem::Expression(IndexExpression::Upper("email"))];
+static RECOVERY_UPPER_EXPRESSION_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new_with_key_items(
+    "email_upper",
+    RecoveryTestDataStore::PATH,
+    &RECOVERY_UPPER_EXPRESSION_INDEX_FIELDS,
+    &RECOVERY_UPPER_EXPRESSION_INDEX_KEY_ITEMS,
+    false,
 )];
 static RECOVERY_CONDITIONAL_INDEX_FIELDS: [&str; 1] = ["group"];
 static RECOVERY_CONDITIONAL_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new_with_predicate(
@@ -238,6 +254,19 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [("id", FieldKind::Ulid), ("email", FieldKind::Text)],
     indexes = [&RECOVERY_UNIQUE_CASEFOLD_INDEX_MODELS[0]],
+    store = RecoveryTestDataStore,
+    canister = RecoveryTestCanister,
+}
+
+crate::test_entity_schema! {
+    ident = RecoveryUpperExpressionEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "RecoveryUpperExpressionEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [("id", FieldKind::Ulid), ("email", FieldKind::Text)],
+    indexes = [&RECOVERY_UPPER_EXPRESSION_INDEX_MODELS[0]],
     store = RecoveryTestDataStore,
     canister = RecoveryTestCanister,
 }
@@ -338,6 +367,13 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         commit_schema_fingerprint_for_entity::<RecoveryUniqueCasefoldEntity>,
         prepare_row_commit_for_entity::<RecoveryUniqueCasefoldEntity>,
         validate_delete_strong_relations_for_source::<RecoveryUniqueCasefoldEntity>,
+    ),
+    EntityRuntimeHooks::new(
+        RecoveryUpperExpressionEntity::ENTITY_NAME,
+        RecoveryUpperExpressionEntity::PATH,
+        commit_schema_fingerprint_for_entity::<RecoveryUpperExpressionEntity>,
+        prepare_row_commit_for_entity::<RecoveryUpperExpressionEntity>,
+        validate_delete_strong_relations_for_source::<RecoveryUpperExpressionEntity>,
     ),
     EntityRuntimeHooks::new(
         RecoveryConditionalEntity::ENTITY_NAME,
@@ -2898,6 +2934,96 @@ fn recovery_startup_gate_rebuilds_conditional_indexes_from_authoritative_rows() 
     assert!(
         conditional_indexed_ids_for(&stale).is_none(),
         "stale index-only rows must be dropped during conditional rebuild",
+    );
+}
+
+#[test]
+fn recovery_startup_gate_rebuilds_upper_expression_indexes_from_authoritative_rows() {
+    reset_recovery_state();
+
+    let first = RecoveryUpperExpressionEntity {
+        id: Ulid::from_u128(940),
+        email: "Alice@Example.Com".to_string(),
+    };
+    let second = RecoveryUpperExpressionEntity {
+        id: Ulid::from_u128(941),
+        email: "bob@example.com".to_string(),
+    };
+    let stale = RecoveryUpperExpressionEntity {
+        id: Ulid::from_u128(999),
+        email: "stale@example.com".to_string(),
+    };
+
+    let first_key = DataKey::try_new::<RecoveryUpperExpressionEntity>(first.id)
+        .expect("first expression data key should build")
+        .to_raw()
+        .expect("first expression data key should encode");
+    let second_key = DataKey::try_new::<RecoveryUpperExpressionEntity>(second.id)
+        .expect("second expression data key should build")
+        .to_raw()
+        .expect("second expression data key should encode");
+    let first_row = serialize(&first).expect("first expression row serialization should succeed");
+    let second_row =
+        serialize(&second).expect("second expression row serialization should succeed");
+
+    let index = RecoveryUpperExpressionEntity::INDEXES[0];
+    let stale_key = IndexKey::new(&stale, index)
+        .expect("stale expression index key build should succeed")
+        .expect("stale expression index key should exist")
+        .to_raw();
+    let stale_entry = RawIndexEntry::try_from_keys(vec![
+        StorageKey::try_from_value(&stale.id.to_value()).expect("stale expression storage key"),
+    ])
+    .expect("stale expression index entry should encode");
+
+    // Phase 1: seed authoritative rows and intentionally stale expression-index state.
+    with_recovery_store(|store| {
+        store.with_data_mut(|data_store| {
+            data_store.insert(
+                first_key,
+                RawRow::try_new(first_row)
+                    .expect("first expression raw row construction should succeed"),
+            );
+            data_store.insert(
+                second_key,
+                RawRow::try_new(second_row)
+                    .expect("second expression raw row construction should succeed"),
+            );
+        });
+        store.with_index_mut(|index_store| {
+            index_store.insert(stale_key, stale_entry);
+        });
+    });
+
+    // Phase 2: startup recovery must rebuild expression index state from row truth only.
+    let marker = CommitMarker::new(Vec::new()).expect("marker creation should succeed");
+    begin_commit(marker).expect("begin_commit should persist marker");
+    ensure_recovered(&DB).expect("recovery should rebuild expression indexes from row truth");
+    assert!(
+        !commit_marker_present().expect("commit marker check should succeed"),
+        "commit marker should be cleared after expression startup recovery",
+    );
+
+    let mut expected = vec![
+        IndexKey::new(&first, index)
+            .expect("first expression index key build should succeed")
+            .expect("first expression index key should exist")
+            .to_raw()
+            .as_bytes()
+            .to_vec(),
+        IndexKey::new(&second, index)
+            .expect("second expression index key build should succeed")
+            .expect("second expression index key should exist")
+            .to_raw()
+            .as_bytes()
+            .to_vec(),
+    ];
+    expected.sort();
+
+    assert_eq!(
+        index_key_bytes_snapshot(),
+        expected,
+        "startup rebuild should drop stale expression index entries and recreate canonical UPPER(email) keys from rows",
     );
 }
 

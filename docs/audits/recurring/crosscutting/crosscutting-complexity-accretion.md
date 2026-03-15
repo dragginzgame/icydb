@@ -99,10 +99,11 @@ Do not reuse partial results from other audits.
 Run crosscutting audits sequentially in this order (do not run in parallel):
 
 1. `complexity-accretion`
-2. `dry-consolidation`
-3. `layer-violation`
-4. `module-structure`
-5. `velocity-preservation`
+2. `canonical-semantic-authority`
+3. `dry-consolidation`
+4. `layer-violation`
+5. `module-structure`
+6. `velocity-preservation`
 
 Generate runtime metrics once per run and reuse that dataset in later
 crosscutting audits.

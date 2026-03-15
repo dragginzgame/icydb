@@ -46,6 +46,23 @@ fn seed_expression_casefold_parity_rows(base_id: u128) {
     }
 }
 
+// Seed one deterministic unsupported-expression index fixture for parity tests.
+fn seed_expression_upper_parity_rows(base_id: u128) {
+    let save = SaveExecutor::<ExpressionUpperParityEntity>::new(DB, false);
+    for (offset, email, label) in [
+        (1_u128, "Alice@Example.Com", "alice"),
+        (2_u128, "BOB@example.com", "bob"),
+        (3_u128, "carol@example.com", "carol"),
+    ] {
+        save.insert(ExpressionUpperParityEntity {
+            id: Ulid::from_u128(base_id.saturating_add(offset)),
+            email: email.to_string(),
+            label: label.to_string(),
+        })
+        .expect("seed row save should succeed");
+    }
+}
+
 // Assert one verbose diagnostics map selects the expected expression index.
 fn assert_expression_index_access_choice_selected(diagnostics: &BTreeMap<String, String>) {
     assert_eq!(
@@ -60,6 +77,20 @@ fn assert_expression_index_access_choice_selected(diagnostics: &BTreeMap<String,
         diagnostics.get(DIAG_ROUTE_ACCESS_CHOICE_CHOSEN_REASON),
         Some(&"single_candidate".to_string()),
         "expression lookup parity matrix expects deterministic single-candidate selection",
+    );
+}
+
+// Assert one verbose diagnostics map remains on non-index full-scan access choice.
+fn assert_full_scan_access_choice_selected(diagnostics: &BTreeMap<String, String>) {
+    assert_eq!(
+        diagnostics.get(DIAG_ROUTE_ACCESS_CHOICE_CHOSEN),
+        Some(&"full_scan".to_string()),
+        "unsupported expression lookup must keep full-scan access-choice authority",
+    );
+    assert_eq!(
+        diagnostics.get(DIAG_ROUTE_ACCESS_CHOICE_CHOSEN_REASON),
+        Some(&"non_index_access".to_string()),
+        "unsupported expression lookup must classify as non-index access",
     );
 }
 
@@ -1427,6 +1458,137 @@ fn expression_casefold_in_planner_access_choice_and_runtime_route_stay_in_parity
         ids,
         vec![Ulid::from_u128(8_201), Ulid::from_u128(8_202)],
         "expression IN execution results must match canonical lower(email) set semantics",
+    );
+}
+
+#[test]
+fn expression_upper_casefold_eq_fails_closed_across_planner_access_choice_and_runtime() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+    seed_expression_upper_parity_rows(8_300);
+
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "email",
+        CompareOp::Eq,
+        Value::Text("ALICE@EXAMPLE.COM".to_string()),
+        CoercionId::TextCasefold,
+    ));
+
+    let explain = Query::<ExpressionUpperParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .explain()
+        .expect("unsupported expression eq explain should build");
+    assert!(
+        matches!(explain.access(), ExplainAccessPath::FullScan),
+        "unsupported expression lookup must fail closed to full scan at planner boundary",
+    );
+
+    let verbose = Query::<ExpressionUpperParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .explain_execution_verbose()
+        .expect("unsupported expression eq verbose explain should build");
+    let diagnostics = verbose_diagnostics_map(&verbose);
+    assert_full_scan_access_choice_selected(&diagnostics);
+    assert_eq!(
+        diagnostics.get(DIAG_PLAN_PREDICATE_PUSHDOWN),
+        Some(&"fallback(non_strict_compare_coercion)".to_string()),
+        "unsupported expression lookup should remain on non-strict compare fallback diagnostics",
+    );
+
+    let execution = Query::<ExpressionUpperParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .explain_execution()
+        .expect("unsupported expression eq execution explain should build");
+    assert!(
+        explain_execution_contains_node_type(&execution, ExplainExecutionNodeType::FullScan),
+        "runtime route must preserve full-scan fallback for unsupported expression lookup",
+    );
+
+    let load = LoadExecutor::<ExpressionUpperParityEntity>::new(DB, false);
+    let plan = Query::<ExpressionUpperParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("unsupported expression eq load plan should build");
+    let response = load
+        .execute(plan)
+        .expect("unsupported expression eq load should execute");
+    let ids = response
+        .iter()
+        .map(|row| row.entity_ref().id)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ids,
+        vec![Ulid::from_u128(8_301)],
+        "fallback execution must still apply text-casefold row filtering semantics",
+    );
+}
+
+#[test]
+fn expression_upper_casefold_in_fails_closed_across_planner_access_choice_and_runtime() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+    seed_expression_upper_parity_rows(8_400);
+
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "email",
+        CompareOp::In,
+        Value::List(vec![
+            Value::Text("alice@example.com".to_string()),
+            Value::Text("BOB@EXAMPLE.COM".to_string()),
+            Value::Text("bob@example.com".to_string()),
+        ]),
+        CoercionId::TextCasefold,
+    ));
+
+    let explain = Query::<ExpressionUpperParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .explain()
+        .expect("unsupported expression IN explain should build");
+    assert!(
+        matches!(explain.access(), ExplainAccessPath::FullScan),
+        "unsupported expression IN lookup must fail closed to full scan at planner boundary",
+    );
+
+    let verbose = Query::<ExpressionUpperParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .explain_execution_verbose()
+        .expect("unsupported expression IN verbose explain should build");
+    let diagnostics = verbose_diagnostics_map(&verbose);
+    assert_full_scan_access_choice_selected(&diagnostics);
+    assert_eq!(
+        diagnostics.get(DIAG_PLAN_PREDICATE_PUSHDOWN),
+        Some(&"fallback(non_strict_compare_coercion)".to_string()),
+        "unsupported expression IN lookup should remain on non-strict compare fallback diagnostics",
+    );
+
+    let execution = Query::<ExpressionUpperParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .explain_execution()
+        .expect("unsupported expression IN execution explain should build");
+    assert!(
+        explain_execution_contains_node_type(&execution, ExplainExecutionNodeType::FullScan),
+        "runtime route must preserve full-scan fallback for unsupported expression IN lookup",
+    );
+
+    let load = LoadExecutor::<ExpressionUpperParityEntity>::new(DB, false);
+    let plan = Query::<ExpressionUpperParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("unsupported expression IN load plan should build");
+    let response = load
+        .execute(plan)
+        .expect("unsupported expression IN load should execute");
+    let mut ids = response
+        .iter()
+        .map(|row| row.entity_ref().id)
+        .collect::<Vec<_>>();
+    ids.sort();
+    assert_eq!(
+        ids,
+        vec![Ulid::from_u128(8_401), Ulid::from_u128(8_402)],
+        "fallback execution must preserve canonical casefold IN row semantics",
     );
 }
 
