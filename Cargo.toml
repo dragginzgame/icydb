@@ -34,7 +34,7 @@ canic-utils = "0.15.1"
 ctor = "0.6"
 darling = "0.23"
 derive_more = { version = "2.0", default-features = false, features = ["full"] }
-ic-cdk = "0.19.0"
+ic-cdk = "0.20.0"
 icydb = { path = "crates/icydb", version = "0.55.0" }
 icydb-build = { path = "crates/icydb-build", version = "0.55.0" }
 icydb-core = { path = "crates/icydb-core", version = "0.55.0" }
