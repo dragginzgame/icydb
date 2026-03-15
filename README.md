@@ -11,29 +11,23 @@
 
 ---
 
-## Local SQL Harness Quick Start
+## SQL Quickstart
 
 Use this when working inside this repo with the test SQL canister.
 
-1. Start local `dfx`:
-
-```bash
-scripts/app/dfx_start.sh
-```
-
-2. Initialize the SQL harness (deploy + erase fixtures + load defaults):
+1. Initialize the SQL harness (deploy + erase fixtures + load defaults):
 
 ```bash
 scripts/dev/sql.sh --init
 ```
 
-3. Run one query:
+2. Run one query:
 
 ```bash
 scripts/dev/sql.sh "select name, charisma from character order by charisma desc limit 5"
 ```
 
-Command split:
+3. Command split:
 
 ```bash
 scripts/dev/sql.sh --deploy   # deploy canister only
@@ -61,9 +55,18 @@ If you are new to this space: think "database-like query execution and safety" w
 
 ## Current Line
 
-- Workspace version on `main`: `0.52.3`
-- Latest tagged release in this repo: `v0.52.3`
+- Workspace version on `main`: `0.55.7`
+- Latest tagged release in this repo: `v0.55.7`
 - Changelog: `CHANGELOG.md`
+- Detailed `0.55.x` notes: `docs/changelog/0.55.md`
+
+---
+
+## 0.55 Highlights
+
+- Expression indexes are now part of the core planning/runtime path for supported deterministic key expressions.
+- SQL dispatch routing is entity-keyed and deterministic, with one generated `sql_dispatch` surface for canister endpoints.
+- Continuation and load-pipeline containment work reduced mixed-concern executor hubs while preserving staged planner -> route -> executor contracts.
 
 ---
 
@@ -93,7 +96,7 @@ Use a pinned git tag so builds are repeatable:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.52.3" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.55.7" }
 ```
 
 ---
@@ -281,7 +284,7 @@ in one atomic transaction is out of scope for the current surface.
 
 ---
 
-## Reduced SQL Scope (Current 0.52 Line)
+## Reduced SQL Scope (Current 0.55 Line)
 
 Executable SQL entrypoints:
 
@@ -394,9 +397,10 @@ git ls-remote --tags https://github.com/dragginzgame/icydb.git
 
 ## Current Focus
 
-- Advance the `0.53` survivability line (upgrade safety and persisted-format compatibility guarantees).
-- Keep hardening the reduced SQL line with matrix coverage and fail-closed behavior.
-- Maintain planner/executor contract locks and observability parity for query/runtime stability.
+- Continue expression-index and reduced-SQL hardening with fail-closed behavior.
+- Keep RouteShape/AccessPath authority boundaries stable while reducing executor branching pressure.
+- Continue pipeline containment and continuation/cursor boundary cleanup without widening ownership surfaces.
+- Preserve deterministic local SQL harness flows (`scripts/dev/sql.sh`) and CI parity.
 - Track active work in `docs/ROADMAP.md` and current design docs under `docs/design/`.
 
 ---

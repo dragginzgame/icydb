@@ -4,16 +4,16 @@ set -euo pipefail
 usage() {
     cat <<'USAGE'
 Usage:
-  scripts/sql.sh [--canister NAME] [--method NAME] [--deploy] [--reset] [--init] "SELECT ..."
-  scripts/sql.sh [--canister NAME] [--deploy] [--reset] [--init]
+  sql.sh [--canister NAME] [--method NAME] [--deploy] [--reset] [--init] "SELECT ..."
+  sql.sh [--canister NAME] [--deploy] [--reset] [--init]
 
 Examples:
-  scripts/sql.sh "select name, charisma from character order by charisma desc"
-  scripts/sql.sh --canister sql_test "select count(*) from character"
-  scripts/sql.sh --deploy
-  scripts/sql.sh --reset
-  scripts/sql.sh --init
-  scripts/sql.sh --init "select count(*) from character"  # deploy + reset + load
+  sql.sh "select name, charisma from character order by charisma desc"
+  sql.sh --canister sql_test "select count(*) from character"
+  sql.sh --deploy
+  sql.sh --reset
+  sql.sh --init
+  sql.sh --init "select count(*) from character"  # deploy + reset + load
 
 Environment:
   SQLQ_CANISTER  Default canister name (default: sql_test)
