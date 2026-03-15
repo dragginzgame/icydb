@@ -11,7 +11,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `0.55.1` hardens the line with filtered+expression composition locks, conditional+expression uniqueness coverage, and live-vs-replay expression-unique conflict parity checks.
 - `0.55.2` expands expression-index planning/runtime parity for supported `LOWER(field)` case-insensitive `Eq`/`In` lookups, while keeping unsupported-expression and range-family shapes fail-closed.
 - `0.55.3` closes the line with unsupported-expression fail-closed recovery/runtime parity coverage and adds a recurring canonical semantic-authority crosscutting audit track.
-- `0.55.4` completes predicate and continuation semantic-authority cleanup by centralizing OR-equality/identifier normalization plus cursor-anchor envelope helpers under canonical owners, and makes PocketIC canister tests deterministic in `make test`/CI by resolving `POCKET_IC_BIN` explicitly.
+- `0.55.4` completes the predicate semantic-authority audit by centralizing OR-equality canonicalization and identifier rewrites in predicate-owned boundaries, and makes PocketIC canister tests deterministic in `make test`/CI by resolving `POCKET_IC_BIN` explicitly.
+- `0.55.5` consolidates continuation-envelope semantics under one index-owned boundary, hardens layer-authority leak detection for generic helper signatures, makes PocketIC integration teardown keep primary failures visible, and publishes the 2026-03-15 canonical-semantic-authority and DRY-consolidation audit reports.
 
 See detailed breakdown:
 [docs/changelog/0.55.md](docs/changelog/0.55.md)
