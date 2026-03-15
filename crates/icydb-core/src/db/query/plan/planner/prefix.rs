@@ -7,33 +7,51 @@ use crate::{
     db::{
         access::AccessPlan,
         predicate::{CoercionId, CompareOp, Predicate},
-        query::plan::planner::{
-            index_literal_matches_schema, index_select::better_index, sorted_indexes,
+        query::plan::{
+            key_item_match::{
+                eq_lookup_value_for_key_item, index_key_item_count, leading_index_key_item,
+            },
+            planner::{index_literal_matches_schema, index_select::better_index, sorted_indexes},
         },
         schema::SchemaInfo,
     },
-    model::{entity::EntityModel, index::IndexModel},
+    model::{
+        entity::EntityModel,
+        index::{IndexKeyItem, IndexKeyItemsRef, IndexModel},
+    },
     value::Value,
 };
+
+fn leading_index_prefix_lookup_value(
+    index: &IndexModel,
+    field: &str,
+    value: &Value,
+    coercion: CoercionId,
+    literal_compatible: bool,
+) -> Option<Value> {
+    let key_item = leading_index_key_item(index)?;
+    eq_lookup_value_for_key_item(key_item, field, value, coercion, literal_compatible)
+}
 
 pub(super) fn index_prefix_for_eq(
     model: &EntityModel,
     schema: &SchemaInfo,
     field: &str,
     value: &Value,
+    coercion: CoercionId,
     query_predicate: &Predicate,
 ) -> Option<Vec<AccessPlan<Value>>> {
-    if !index_literal_matches_schema(schema, field, value) {
-        return None;
-    }
+    let literal_compatible = index_literal_matches_schema(schema, field, value);
 
     let mut out = Vec::new();
     for index in sorted_indexes(model, query_predicate) {
-        if index.fields().first() != Some(&field) || !index.is_field_indexable(field, CompareOp::Eq)
-        {
+        let Some(lookup_value) =
+            leading_index_prefix_lookup_value(index, field, value, coercion, literal_compatible)
+        else {
             continue;
-        }
-        out.push(AccessPlan::index_prefix(*index, vec![value.clone()]));
+        };
+
+        out.push(AccessPlan::index_prefix(*index, vec![lookup_value]));
     }
 
     if out.is_empty() { None } else { Some(out) }
@@ -44,24 +62,32 @@ pub(super) fn index_multi_lookup_for_in(
     schema: &SchemaInfo,
     field: &str,
     values: &[Value],
+    coercion: CoercionId,
     query_predicate: &Predicate,
 ) -> Option<Vec<AccessPlan<Value>>> {
-    // Fail closed for strict IN pushdown when any literal is schema-incompatible.
-    // Mixed compatible/incompatible sets remain executable through full-scan fallback.
-    if values
-        .iter()
-        .any(|value| !index_literal_matches_schema(schema, field, value))
-    {
-        return None;
-    }
-
     let mut out = Vec::new();
     for index in sorted_indexes(model, query_predicate) {
-        if index.fields().first() != Some(&field) || !index.is_field_indexable(field, CompareOp::Eq)
-        {
+        let mut lookup_values = Vec::with_capacity(values.len());
+        for value in values {
+            let literal_compatible = index_literal_matches_schema(schema, field, value);
+            let Some(lookup_value) = leading_index_prefix_lookup_value(
+                index,
+                field,
+                value,
+                coercion,
+                literal_compatible,
+            ) else {
+                lookup_values.clear();
+                break;
+            };
+
+            lookup_values.push(lookup_value);
+        }
+        if lookup_values.is_empty() {
             continue;
         }
-        out.push(AccessPlan::index_multi_lookup(*index, values.to_vec()));
+
+        out.push(AccessPlan::index_multi_lookup(*index, lookup_values));
     }
 
     if out.is_empty() { None } else { Some(out) }
@@ -84,37 +110,30 @@ pub(super) fn index_prefix_from_and(
         if cmp.op != CompareOp::Eq {
             continue;
         }
-        if cmp.coercion.id != CoercionId::Strict {
+        if !matches!(
+            cmp.coercion.id,
+            CoercionId::Strict | CoercionId::TextCasefold
+        ) {
             continue;
         }
         field_values.push(CachedEqLiteral {
             field: cmp.field.as_str(),
             value: &cmp.value,
+            coercion: cmp.coercion.id,
             compatible: index_literal_matches_schema(schema, &cmp.field, &cmp.value),
         });
     }
 
     let mut best: Option<(usize, bool, &IndexModel, Vec<Value>)> = None;
     for index in sorted_indexes(model, query_predicate) {
-        let mut prefix = Vec::new();
-        for field in index.fields() {
-            // NOTE: duplicate equality predicates on the same field are assumed
-            // to have been validated upstream (no conflict). Planner picks the first.
-            let Some(cached) = field_values.iter().find(|cached| cached.field == *field) else {
-                break;
-            };
-            if !index.is_field_indexable(field, CompareOp::Eq) || !cached.compatible {
-                prefix.clear();
-                break;
-            }
-            prefix.push(cached.value.clone());
-        }
-
+        let Some(prefix) = build_index_eq_prefix(index, &field_values) else {
+            continue;
+        };
         if prefix.is_empty() {
             continue;
         }
 
-        let exact = prefix.len() == index.fields().len();
+        let exact = prefix.len() == index_key_item_count(index);
         match &best {
             None => best = Some((prefix.len(), exact, index, prefix)),
             Some((best_len, best_exact, best_index, _)) => {
@@ -140,5 +159,74 @@ pub(super) fn index_prefix_from_and(
 struct CachedEqLiteral<'a> {
     field: &'a str,
     value: &'a Value,
+    coercion: CoercionId,
     compatible: bool,
+}
+
+fn build_index_eq_prefix(
+    index: &IndexModel,
+    field_values: &[CachedEqLiteral<'_>],
+) -> Option<Vec<Value>> {
+    let mut prefix = Vec::new();
+    match index.key_items() {
+        IndexKeyItemsRef::Fields(fields) => {
+            for &field in fields {
+                let key_item = IndexKeyItem::Field(field);
+                let mut matched: Option<Value> = None;
+                for cached in field_values {
+                    let Some(candidate) = eq_lookup_value_for_key_item(
+                        key_item,
+                        cached.field,
+                        cached.value,
+                        cached.coercion,
+                        cached.compatible,
+                    ) else {
+                        continue;
+                    };
+
+                    if let Some(existing) = &matched
+                        && existing != &candidate
+                    {
+                        return None;
+                    }
+                    matched = Some(candidate);
+                }
+
+                let Some(value) = matched else {
+                    break;
+                };
+                prefix.push(value);
+            }
+        }
+        IndexKeyItemsRef::Items(items) => {
+            for &key_item in items {
+                let mut matched: Option<Value> = None;
+                for cached in field_values {
+                    let Some(candidate) = eq_lookup_value_for_key_item(
+                        key_item,
+                        cached.field,
+                        cached.value,
+                        cached.coercion,
+                        cached.compatible,
+                    ) else {
+                        continue;
+                    };
+
+                    if let Some(existing) = &matched
+                        && existing != &candidate
+                    {
+                        return None;
+                    }
+                    matched = Some(candidate);
+                }
+
+                let Some(value) = matched else {
+                    break;
+                };
+                prefix.push(value);
+            }
+        }
+    }
+
+    Some(prefix)
 }

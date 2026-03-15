@@ -98,16 +98,30 @@ fn plan_strict_same_field_eq_or(
     }
 
     let mut field: Option<&str> = None;
+    let mut coercion: Option<CoercionId> = None;
     let mut values = Vec::with_capacity(children.len());
     for child in children {
         let Predicate::Compare(cmp) = child else {
             return None;
         };
-        if cmp.coercion.id != CoercionId::Strict || cmp.op != CompareOp::Eq {
+        if cmp.op != CompareOp::Eq {
+            return None;
+        }
+        if !matches!(
+            cmp.coercion.id,
+            CoercionId::Strict | CoercionId::TextCasefold
+        ) {
             return None;
         }
         if !index_literal_matches_schema(schema, &cmp.field, &cmp.value) {
             return None;
+        }
+        if let Some(current) = coercion {
+            if current != cmp.coercion.id {
+                return None;
+            }
+        } else {
+            coercion = Some(cmp.coercion.id);
         }
         if let Some(current) = field {
             if current != cmp.field {
@@ -120,12 +134,9 @@ fn plan_strict_same_field_eq_or(
     }
 
     let field = field?;
-    let in_compare = ComparePredicate::with_coercion(
-        field,
-        CompareOp::In,
-        Value::List(values),
-        CoercionId::Strict,
-    );
+    let coercion = coercion?;
+    let in_compare =
+        ComparePredicate::with_coercion(field, CompareOp::In, Value::List(values), coercion);
 
     Some(compare::plan_compare(
         model,

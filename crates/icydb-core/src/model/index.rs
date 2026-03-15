@@ -6,6 +6,71 @@
 use std::fmt::{self, Display};
 
 ///
+/// IndexExpression
+///
+/// Canonical deterministic expression key metadata for expression indexes.
+/// This enum is semantic authority across schema/runtime/planner boundaries.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum IndexExpression {
+    Lower(&'static str),
+    Upper(&'static str),
+    Trim(&'static str),
+    LowerTrim(&'static str),
+    Date(&'static str),
+    Year(&'static str),
+    Month(&'static str),
+    Day(&'static str),
+}
+
+impl IndexExpression {
+    /// Borrow the referenced field for this expression key item.
+    #[must_use]
+    pub const fn field(&self) -> &'static str {
+        match self {
+            Self::Lower(field)
+            | Self::Upper(field)
+            | Self::Trim(field)
+            | Self::LowerTrim(field)
+            | Self::Date(field)
+            | Self::Year(field)
+            | Self::Month(field)
+            | Self::Day(field) => field,
+        }
+    }
+
+    /// Return one stable discriminant for fingerprint hashing.
+    #[must_use]
+    pub const fn kind_tag(&self) -> u8 {
+        match self {
+            Self::Lower(_) => 0x01,
+            Self::Upper(_) => 0x02,
+            Self::Trim(_) => 0x03,
+            Self::LowerTrim(_) => 0x04,
+            Self::Date(_) => 0x05,
+            Self::Year(_) => 0x06,
+            Self::Month(_) => 0x07,
+            Self::Day(_) => 0x08,
+        }
+    }
+}
+
+impl Display for IndexExpression {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Lower(field) => write!(f, "LOWER({field})"),
+            Self::Upper(field) => write!(f, "UPPER({field})"),
+            Self::Trim(field) => write!(f, "TRIM({field})"),
+            Self::LowerTrim(field) => write!(f, "LOWER(TRIM({field}))"),
+            Self::Date(field) => write!(f, "DATE({field})"),
+            Self::Year(field) => write!(f, "YEAR({field})"),
+            Self::Month(field) => write!(f, "MONTH({field})"),
+            Self::Day(field) => write!(f, "DAY({field})"),
+        }
+    }
+}
+
+///
 /// IndexKeyItem
 ///
 /// Canonical index key-item metadata.
@@ -15,15 +80,25 @@ use std::fmt::{self, Display};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum IndexKeyItem {
     Field(&'static str),
-    Expression(&'static str),
+    Expression(IndexExpression),
 }
 
 impl IndexKeyItem {
-    /// Borrow this key-item's canonical text payload.
+    /// Borrow this key-item's referenced field.
     #[must_use]
-    pub const fn text(&self) -> &'static str {
+    pub const fn field(&self) -> &'static str {
         match self {
-            Self::Field(field) | Self::Expression(field) => field,
+            Self::Field(field) => field,
+            Self::Expression(expression) => expression.field(),
+        }
+    }
+
+    /// Render one deterministic canonical text form for diagnostics/display.
+    #[must_use]
+    pub fn canonical_text(&self) -> String {
+        match self {
+            Self::Field(field) => (*field).to_string(),
+            Self::Expression(expression) => expression.to_string(),
         }
     }
 }
@@ -189,7 +264,7 @@ impl IndexModel {
             IndexKeyItemsRef::Fields(fields) => fields.join(", "),
             IndexKeyItemsRef::Items(items) => items
                 .iter()
-                .map(IndexKeyItem::text)
+                .map(IndexKeyItem::canonical_text)
                 .collect::<Vec<_>>()
                 .join(", "),
         }
@@ -233,7 +308,7 @@ impl Display for IndexModel {
 
 #[cfg(test)]
 mod tests {
-    use crate::model::index::{IndexKeyItem, IndexKeyItemsRef, IndexModel};
+    use crate::model::index::{IndexExpression, IndexKeyItem, IndexKeyItemsRef, IndexModel};
 
     #[test]
     fn index_model_with_predicate_exposes_predicate_metadata() {
@@ -264,7 +339,7 @@ mod tests {
     fn index_model_with_explicit_key_items_exposes_expression_items() {
         static KEY_ITEMS: [IndexKeyItem; 2] = [
             IndexKeyItem::Field("tenant_id"),
-            IndexKeyItem::Expression("LOWER(email)"),
+            IndexKeyItem::Expression(IndexExpression::Lower("email")),
         ];
         let model = IndexModel::new_with_key_items(
             "users|tenant|email_expr",

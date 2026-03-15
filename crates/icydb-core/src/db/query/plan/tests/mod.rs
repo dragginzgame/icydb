@@ -14,7 +14,11 @@ use crate::{
     db::predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, normalize},
     db::query::plan::plan_access,
     db::schema::SchemaInfo,
-    model::{entity::EntityModel, field::FieldKind, index::IndexModel},
+    model::{
+        entity::EntityModel,
+        field::FieldKind,
+        index::{IndexExpression, IndexKeyItem, IndexModel},
+    },
     traits::EntitySchema,
     types::Ulid,
     value::Value,
@@ -51,6 +55,28 @@ const FILTERED_NUMERIC_INDEX_MODEL: IndexModel = IndexModel::new_with_predicate(
     false,
     Some("score >= 10"),
 );
+const EXPRESSION_CASEFOLD_INDEX_FIELDS: [&str; 1] = ["email"];
+const EXPRESSION_CASEFOLD_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
+    [IndexKeyItem::Expression(IndexExpression::Lower("email"))];
+const EXPRESSION_CASEFOLD_INDEX_MODEL: IndexModel = IndexModel::new_with_key_items(
+    "plan_tests::idx_email_lower",
+    "plan_tests::ExpressionCasefoldIndexStore",
+    &EXPRESSION_CASEFOLD_INDEX_FIELDS,
+    &EXPRESSION_CASEFOLD_INDEX_KEY_ITEMS,
+    false,
+);
+const FILTERED_EXPRESSION_CASEFOLD_INDEX_FIELDS: [&str; 1] = ["email"];
+const FILTERED_EXPRESSION_CASEFOLD_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
+    [IndexKeyItem::Expression(IndexExpression::Lower("email"))];
+const FILTERED_EXPRESSION_CASEFOLD_INDEX_MODEL: IndexModel =
+    IndexModel::new_with_key_items_and_predicate(
+        "plan_tests::idx_email_lower_active_only",
+        "plan_tests::FilteredExpressionCasefoldIndexStore",
+        &FILTERED_EXPRESSION_CASEFOLD_INDEX_FIELDS,
+        Some(&FILTERED_EXPRESSION_CASEFOLD_INDEX_KEY_ITEMS),
+        false,
+        Some("active = true"),
+    );
 
 crate::test_entity! {
     ident = PlanModelEntity,
@@ -107,6 +133,33 @@ crate::test_entity! {
     indexes = [&FILTERED_NUMERIC_INDEX_MODEL],
 }
 
+crate::test_entity! {
+    ident = PlanExpressionCasefoldEntity,
+    id = Ulid,
+    entity_name = "PlanExpressionCasefoldEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("email", FieldKind::Text),
+    ],
+    indexes = [&EXPRESSION_CASEFOLD_INDEX_MODEL],
+}
+
+crate::test_entity! {
+    ident = PlanFilteredExpressionCasefoldEntity,
+    id = Ulid,
+    entity_name = "PlanFilteredExpressionCasefoldEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("email", FieldKind::Text),
+        ("active", FieldKind::Bool),
+    ],
+    indexes = [&FILTERED_EXPRESSION_CASEFOLD_INDEX_MODEL],
+}
+
 // Helper for tests that need the indexed model derived from a typed schema.
 fn model_with_index() -> &'static EntityModel {
     <PlanModelEntity as EntitySchema>::MODEL
@@ -124,6 +177,14 @@ fn model_with_filtered_numeric_index() -> &'static EntityModel {
     <PlanFilteredNumericEntity as EntitySchema>::MODEL
 }
 
+fn model_with_expression_casefold_index() -> &'static EntityModel {
+    <PlanExpressionCasefoldEntity as EntitySchema>::MODEL
+}
+
+fn model_with_filtered_expression_casefold_index() -> &'static EntityModel {
+    <PlanFilteredExpressionCasefoldEntity as EntitySchema>::MODEL
+}
+
 fn compare_strict(field: &str, op: CompareOp, value: Value) -> Predicate {
     Predicate::Compare(ComparePredicate::with_coercion(
         field,
@@ -139,6 +200,15 @@ fn compare_numeric_widen(field: &str, op: CompareOp, value: Value) -> Predicate 
         op,
         value,
         CoercionId::NumericWiden,
+    ))
+}
+
+fn compare_text_casefold(field: &str, op: CompareOp, value: Value) -> Predicate {
+    Predicate::Compare(ComparePredicate::with_coercion(
+        field,
+        op,
+        value,
+        CoercionId::TextCasefold,
     ))
 }
 
@@ -374,6 +444,44 @@ fn plan_access_filtered_numeric_index_requires_lower_bound_implication() {
 }
 
 #[test]
+fn plan_access_filtered_expression_index_requires_predicate_implication() {
+    let model = model_with_filtered_expression_casefold_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+
+    let missing_implication = compare_text_casefold(
+        "email",
+        CompareOp::Eq,
+        Value::Text("Alice@Example.Com".to_string()),
+    );
+    let missing_plan = plan_access_for_test(model, &schema, Some(&missing_implication))
+        .expect("plan should build");
+    assert_eq!(
+        missing_plan,
+        AccessPlan::full_scan(),
+        "filtered expression index must be rejected when query does not imply predicate",
+    );
+
+    let implied_predicate = Predicate::And(vec![
+        compare_text_casefold(
+            "email",
+            CompareOp::Eq,
+            Value::Text("Alice@Example.Com".to_string()),
+        ),
+        compare_strict("active", CompareOp::Eq, Value::Bool(true)),
+    ]);
+    let implied_plan =
+        plan_access_for_test(model, &schema, Some(&implied_predicate)).expect("plan should build");
+    assert_eq!(
+        implied_plan,
+        AccessPlan::path(AccessPath::IndexPrefix {
+            index: FILTERED_EXPRESSION_CASEFOLD_INDEX_MODEL,
+            values: vec![Value::Text("alice@example.com".to_string())],
+        }),
+        "query implication should unlock filtered expression-index prefix planning",
+    );
+}
+
+#[test]
 fn plan_access_uses_index_multi_lookup_for_secondary_in() {
     let model = model_with_index();
     let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
@@ -397,6 +505,57 @@ fn plan_access_uses_index_multi_lookup_for_secondary_in() {
                 Value::Text("beta".to_string()),
             ],
         }),
+    );
+}
+
+#[test]
+fn plan_access_text_casefold_eq_uses_expression_index_prefix() {
+    let model = model_with_expression_casefold_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = compare_text_casefold(
+        "email",
+        CompareOp::Eq,
+        Value::Text("Alice@Example.Com".to_string()),
+    );
+
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+
+    assert_eq!(
+        plan,
+        AccessPlan::path(AccessPath::IndexPrefix {
+            index: EXPRESSION_CASEFOLD_INDEX_MODEL,
+            values: vec![Value::Text("alice@example.com".to_string())],
+        }),
+        "text-casefold equality should lower through expression index prefix matching",
+    );
+}
+
+#[test]
+fn plan_access_text_casefold_in_uses_expression_index_multi_lookup() {
+    let model = model_with_expression_casefold_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = compare_text_casefold(
+        "email",
+        CompareOp::In,
+        Value::List(vec![
+            Value::Text("bob@example.com".to_string()),
+            Value::Text("ALICE@example.com".to_string()),
+            Value::Text("Bob@Example.Com".to_string()),
+        ]),
+    );
+
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+
+    assert_eq!(
+        plan,
+        AccessPlan::path(AccessPath::IndexMultiLookup {
+            index: EXPRESSION_CASEFOLD_INDEX_MODEL,
+            values: vec![
+                Value::Text("alice@example.com".to_string()),
+                Value::Text("bob@example.com".to_string()),
+            ],
+        }),
+        "text-casefold IN should lower through canonical expression-index lookup values",
     );
 }
 
@@ -528,6 +687,43 @@ fn plan_access_stability_secondary_or_eq_lowers_to_index_multi_lookup() {
             ],
         }),
         "same-field strict OR equality should canonicalize through bounded IN planning",
+    );
+}
+
+#[test]
+fn plan_access_text_casefold_or_eq_lowers_to_expression_index_multi_lookup() {
+    let model = model_with_expression_casefold_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = Predicate::Or(vec![
+        compare_text_casefold(
+            "email",
+            CompareOp::Eq,
+            Value::Text("alice@example.com".to_string()),
+        ),
+        compare_text_casefold(
+            "email",
+            CompareOp::Eq,
+            Value::Text("BOB@example.com".to_string()),
+        ),
+        compare_text_casefold(
+            "email",
+            CompareOp::Eq,
+            Value::Text("Bob@Example.Com".to_string()),
+        ),
+    ]);
+
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+
+    assert_eq!(
+        plan,
+        AccessPlan::path(AccessPath::IndexMultiLookup {
+            index: EXPRESSION_CASEFOLD_INDEX_MODEL,
+            values: vec![
+                Value::Text("alice@example.com".to_string()),
+                Value::Text("bob@example.com".to_string()),
+            ],
+        }),
+        "same-field text-casefold OR equality should canonicalize through expression-index IN planning",
     );
 }
 

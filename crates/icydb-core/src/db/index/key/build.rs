@@ -11,10 +11,179 @@ use crate::{
         index::key::{EncodedValue, IndexId, IndexKey, IndexKeyKind, OrderedValueEncodeError},
     },
     error::InternalError,
-    model::{entity::resolve_field_slot, index::IndexModel},
+    model::{
+        entity::resolve_field_slot,
+        index::{IndexExpression, IndexKeyItem, IndexKeyItemsRef, IndexModel},
+    },
     traits::{EntityKind, EntityValue, FieldValue},
+    types::Date,
+    value::Value,
 };
 use std::ops::Bound;
+
+const MILLIS_PER_DAY: i64 = 86_400_000;
+
+fn fold_lower(input: &str) -> String {
+    if input.is_ascii() {
+        input.to_ascii_lowercase()
+    } else {
+        input.to_lowercase()
+    }
+}
+
+fn fold_upper(input: &str) -> String {
+    if input.is_ascii() {
+        input.to_ascii_uppercase()
+    } else {
+        input.to_uppercase()
+    }
+}
+
+fn timestamp_to_bucket_date(timestamp_millis: i64) -> Date {
+    let days = timestamp_millis.div_euclid(MILLIS_PER_DAY);
+    let days = if let Ok(days) = i32::try_from(days) {
+        days
+    } else if days < 0 {
+        i32::MIN
+    } else {
+        i32::MAX
+    };
+
+    Date::from_days_since_epoch(days)
+}
+
+fn value_for_expression(
+    index: &IndexModel,
+    expression: IndexExpression,
+    source: Value,
+) -> Result<Option<Value>, InternalError> {
+    let source_label = source.canonical_tag().label();
+    match expression {
+        IndexExpression::Lower(_) => match source {
+            Value::Null => Ok(None),
+            Value::Text(value) => Ok(Some(Value::Text(fold_lower(&value)))),
+            _ => Err(InternalError::index_invariant(format!(
+                "index '{}' expression '{}' expected Text source value, got {}",
+                index.name(),
+                expression,
+                source_label
+            ))),
+        },
+        IndexExpression::Upper(_) => match source {
+            Value::Null => Ok(None),
+            Value::Text(value) => Ok(Some(Value::Text(fold_upper(&value)))),
+            _ => Err(InternalError::index_invariant(format!(
+                "index '{}' expression '{}' expected Text source value, got {}",
+                index.name(),
+                expression,
+                source_label
+            ))),
+        },
+        IndexExpression::Trim(_) => match source {
+            Value::Null => Ok(None),
+            Value::Text(value) => Ok(Some(Value::Text(value.trim().to_string()))),
+            _ => Err(InternalError::index_invariant(format!(
+                "index '{}' expression '{}' expected Text source value, got {}",
+                index.name(),
+                expression,
+                source_label
+            ))),
+        },
+        IndexExpression::LowerTrim(_) => match source {
+            Value::Null => Ok(None),
+            Value::Text(value) => Ok(Some(Value::Text(fold_lower(value.trim())))),
+            _ => Err(InternalError::index_invariant(format!(
+                "index '{}' expression '{}' expected Text source value, got {}",
+                index.name(),
+                expression,
+                source_label
+            ))),
+        },
+        IndexExpression::Date(_) => match source {
+            Value::Null => Ok(None),
+            Value::Date(value) => Ok(Some(Value::Date(value))),
+            Value::Timestamp(value) => Ok(Some(Value::Date(timestamp_to_bucket_date(
+                value.as_millis(),
+            )))),
+            _ => Err(InternalError::index_invariant(format!(
+                "index '{}' expression '{}' expected Date/Timestamp source value, got {}",
+                index.name(),
+                expression,
+                source_label
+            ))),
+        },
+        IndexExpression::Year(_) => match source {
+            Value::Null => Ok(None),
+            Value::Date(value) => Ok(Some(Value::Int(i64::from(value.year())))),
+            Value::Timestamp(value) => {
+                let bucket = timestamp_to_bucket_date(value.as_millis());
+                Ok(Some(Value::Int(i64::from(bucket.year()))))
+            }
+            _ => Err(InternalError::index_invariant(format!(
+                "index '{}' expression '{}' expected Date/Timestamp source value, got {}",
+                index.name(),
+                expression,
+                source_label
+            ))),
+        },
+        IndexExpression::Month(_) => match source {
+            Value::Null => Ok(None),
+            Value::Date(value) => Ok(Some(Value::Int(i64::from(value.month())))),
+            Value::Timestamp(value) => {
+                let bucket = timestamp_to_bucket_date(value.as_millis());
+                Ok(Some(Value::Int(i64::from(bucket.month()))))
+            }
+            _ => Err(InternalError::index_invariant(format!(
+                "index '{}' expression '{}' expected Date/Timestamp source value, got {}",
+                index.name(),
+                expression,
+                source_label
+            ))),
+        },
+        IndexExpression::Day(_) => match source {
+            Value::Null => Ok(None),
+            Value::Date(value) => Ok(Some(Value::Int(i64::from(value.day())))),
+            Value::Timestamp(value) => {
+                let bucket = timestamp_to_bucket_date(value.as_millis());
+                Ok(Some(Value::Int(i64::from(bucket.day()))))
+            }
+            _ => Err(InternalError::index_invariant(format!(
+                "index '{}' expression '{}' expected Date/Timestamp source value, got {}",
+                index.name(),
+                expression,
+                source_label
+            ))),
+        },
+    }
+}
+
+fn index_component_value<E: EntityKind + EntityValue>(
+    entity: &E,
+    index: &IndexModel,
+    key_item: IndexKeyItem,
+) -> Result<Option<Value>, InternalError> {
+    let field = key_item.field();
+    let Some(field_index) = resolve_field_slot(E::MODEL, field) else {
+        return Err(InternalError::index_invariant(format!(
+            "index key item field missing on entity model: {} ({})",
+            E::PATH,
+            field
+        )));
+    };
+
+    let Some(source) = entity.get_value_by_index(field_index) else {
+        return Err(InternalError::index_invariant(format!(
+            "index key item field missing on lookup entity: {} ({})",
+            E::PATH,
+            field
+        )));
+    };
+
+    match key_item {
+        IndexKeyItem::Field(_) => Ok(Some(source)),
+        IndexKeyItem::Expression(expression) => value_for_expression(index, expression, source),
+    }
+}
 
 impl IndexId {
     /// Build an index id from static entity metadata.
@@ -42,65 +211,85 @@ impl IndexKey {
         index: &IndexModel,
     ) -> Result<Option<Self>, InternalError> {
         // Phase 1: validate declared index shape and collect encoded components.
-        if index.has_expression_key_items() {
-            return Err(InternalError::index_unsupported(format!(
-                "index '{}' uses expression key items; expression indexes are not executable in this release",
-                index.name(),
-            )));
-        }
-
-        if index.fields().len() > MAX_INDEX_FIELDS {
+        let index_component_count = match index.key_items() {
+            IndexKeyItemsRef::Fields(fields) => fields.len(),
+            IndexKeyItemsRef::Items(items) => items.len(),
+        };
+        if index_component_count > MAX_INDEX_FIELDS {
             return Err(InternalError::index_invariant(format!(
                 "index '{}' has {} fields (max {})",
                 index.name(),
-                index.fields().len(),
+                index_component_count,
                 MAX_INDEX_FIELDS
             )));
         }
 
-        let mut components = Vec::with_capacity(index.fields().len());
+        let mut components = Vec::with_capacity(index_component_count);
 
-        for field in index.fields() {
-            let Some(field_index) = resolve_field_slot(E::MODEL, field) else {
-                return Err(InternalError::index_invariant(format!(
-                    "index field missing on entity model: {} ({})",
-                    E::PATH,
-                    field
-                )));
-            };
-            let Some(value) = entity.get_value_by_index(field_index) else {
-                return Err(InternalError::index_invariant(format!(
-                    "index field missing on lookup entity: {} ({})",
-                    E::PATH,
-                    field
-                )));
-            };
+        // Phase 2: materialize canonical field/expression key item values.
+        match index.key_items() {
+            IndexKeyItemsRef::Fields(fields) => {
+                for &field in fields {
+                    let key_item = IndexKeyItem::Field(field);
+                    let Some(value) = index_component_value(entity, index, key_item)? else {
+                        return Ok(None);
+                    };
+                    let encoded = match EncodedValue::try_from_ref(&value) {
+                        Ok(encoded) => encoded,
+                        Err(
+                            OrderedValueEncodeError::NullNotIndexable
+                            | OrderedValueEncodeError::UnsupportedValueKind { .. },
+                        ) => {
+                            return Ok(None);
+                        }
+                        Err(err) => return Err(err.into()),
+                    };
+                    let component = encoded.encoded().to_vec();
 
-            let encoded = match EncodedValue::try_from_ref(&value) {
-                Ok(encoded) => encoded,
-                Err(
-                    OrderedValueEncodeError::NullNotIndexable
-                    | OrderedValueEncodeError::UnsupportedValueKind { .. },
-                ) => {
-                    return Ok(None);
+                    if component.len() > Self::MAX_COMPONENT_SIZE {
+                        return Err(InternalError::index_unsupported(format!(
+                            "index component exceeds max size: key item '{}' -> {} bytes (limit {})",
+                            key_item.canonical_text(),
+                            component.len(),
+                            Self::MAX_COMPONENT_SIZE
+                        )));
+                    }
+
+                    components.push(component);
                 }
-                Err(err) => return Err(err.into()),
-            };
-            let component = encoded.encoded().to_vec();
-
-            if component.len() > Self::MAX_COMPONENT_SIZE {
-                return Err(InternalError::index_unsupported(format!(
-                    "index component exceeds max size: field '{}' -> {} bytes (limit {})",
-                    field,
-                    component.len(),
-                    Self::MAX_COMPONENT_SIZE
-                )));
             }
+            IndexKeyItemsRef::Items(items) => {
+                for &key_item in items {
+                    let Some(value) = index_component_value(entity, index, key_item)? else {
+                        return Ok(None);
+                    };
+                    let encoded = match EncodedValue::try_from_ref(&value) {
+                        Ok(encoded) => encoded,
+                        Err(
+                            OrderedValueEncodeError::NullNotIndexable
+                            | OrderedValueEncodeError::UnsupportedValueKind { .. },
+                        ) => {
+                            return Ok(None);
+                        }
+                        Err(err) => return Err(err.into()),
+                    };
+                    let component = encoded.encoded().to_vec();
 
-            components.push(component);
+                    if component.len() > Self::MAX_COMPONENT_SIZE {
+                        return Err(InternalError::index_unsupported(format!(
+                            "index component exceeds max size: key item '{}' -> {} bytes (limit {})",
+                            key_item.canonical_text(),
+                            component.len(),
+                            Self::MAX_COMPONENT_SIZE
+                        )));
+                    }
+
+                    components.push(component);
+                }
+            }
         }
 
-        // Phase 2: encode primary key payload and assemble full key.
+        // Phase 3: encode primary key payload and assemble full key.
         let entity_key_value = entity.id().key().to_value();
         let storage_key = StorageKey::try_from_value(&entity_key_value)?;
         let primary_key = storage_key.to_bytes()?.to_vec();

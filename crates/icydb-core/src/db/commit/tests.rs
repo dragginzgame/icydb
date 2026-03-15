@@ -21,7 +21,10 @@ use crate::{
         schema::commit_schema_fingerprint_for_entity,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
-    model::{field::FieldKind, index::IndexModel},
+    model::{
+        field::FieldKind,
+        index::{IndexExpression, IndexKeyItem, IndexModel},
+    },
     serialize::serialize,
     testing::test_memory,
     traits::{EntityIdentity, EntitySchema, FieldValue, Path},
@@ -87,6 +90,12 @@ struct RecoveryUniqueEntity {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+struct RecoveryUniqueCasefoldEntity {
+    id: Ulid,
+    email: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
 struct RecoveryConditionalEntity {
     id: Ulid,
     group: u32,
@@ -95,6 +104,13 @@ struct RecoveryConditionalEntity {
 
 #[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
 struct RecoveryConditionalUniqueEntity {
+    id: Ulid,
+    email: String,
+    active: bool,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
+struct RecoveryConditionalUniqueCasefoldEntity {
     id: Ulid,
     email: String,
     active: bool,
@@ -131,6 +147,16 @@ static RECOVERY_UNIQUE_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
     &RECOVERY_UNIQUE_INDEX_FIELDS,
     true,
 )];
+static RECOVERY_UNIQUE_CASEFOLD_INDEX_FIELDS: [&str; 1] = ["email"];
+static RECOVERY_UNIQUE_CASEFOLD_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
+    [IndexKeyItem::Expression(IndexExpression::Lower("email"))];
+static RECOVERY_UNIQUE_CASEFOLD_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new_with_key_items(
+    "email_unique_casefold",
+    RecoveryTestDataStore::PATH,
+    &RECOVERY_UNIQUE_CASEFOLD_INDEX_FIELDS,
+    &RECOVERY_UNIQUE_CASEFOLD_INDEX_KEY_ITEMS,
+    true,
+)];
 static RECOVERY_CONDITIONAL_INDEX_FIELDS: [&str; 1] = ["group"];
 static RECOVERY_CONDITIONAL_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new_with_predicate(
     "group_active_only",
@@ -145,6 +171,18 @@ static RECOVERY_CONDITIONAL_UNIQUE_INDEX_MODELS: [IndexModel; 1] =
         "email_unique_active_only",
         RecoveryTestDataStore::PATH,
         &RECOVERY_CONDITIONAL_UNIQUE_INDEX_FIELDS,
+        true,
+        Some("active = true"),
+    )];
+static RECOVERY_CONDITIONAL_UNIQUE_CASEFOLD_INDEX_FIELDS: [&str; 1] = ["email"];
+static RECOVERY_CONDITIONAL_UNIQUE_CASEFOLD_INDEX_KEY_ITEMS: [IndexKeyItem; 1] =
+    [IndexKeyItem::Expression(IndexExpression::Lower("email"))];
+static RECOVERY_CONDITIONAL_UNIQUE_CASEFOLD_INDEX_MODELS: [IndexModel; 1] =
+    [IndexModel::new_with_key_items_and_predicate(
+        "email_unique_casefold_active_only",
+        RecoveryTestDataStore::PATH,
+        &RECOVERY_CONDITIONAL_UNIQUE_CASEFOLD_INDEX_FIELDS,
+        Some(&RECOVERY_CONDITIONAL_UNIQUE_CASEFOLD_INDEX_KEY_ITEMS),
         true,
         Some("active = true"),
     )];
@@ -192,6 +230,19 @@ crate::test_entity_schema! {
 }
 
 crate::test_entity_schema! {
+    ident = RecoveryUniqueCasefoldEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "RecoveryUniqueCasefoldEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [("id", FieldKind::Ulid), ("email", FieldKind::Text)],
+    indexes = [&RECOVERY_UNIQUE_CASEFOLD_INDEX_MODELS[0]],
+    store = RecoveryTestDataStore,
+    canister = RecoveryTestCanister,
+}
+
+crate::test_entity_schema! {
     ident = RecoveryConditionalEntity,
     id = Ulid,
     id_field = id,
@@ -221,6 +272,23 @@ crate::test_entity_schema! {
         ("active", FieldKind::Bool),
     ],
     indexes = [&RECOVERY_CONDITIONAL_UNIQUE_INDEX_MODELS[0]],
+    store = RecoveryTestDataStore,
+    canister = RecoveryTestCanister,
+}
+
+crate::test_entity_schema! {
+    ident = RecoveryConditionalUniqueCasefoldEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "RecoveryConditionalUniqueCasefoldEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("email", FieldKind::Text),
+        ("active", FieldKind::Bool),
+    ],
+    indexes = [&RECOVERY_CONDITIONAL_UNIQUE_CASEFOLD_INDEX_MODELS[0]],
     store = RecoveryTestDataStore,
     canister = RecoveryTestCanister,
 }
@@ -265,6 +333,13 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         validate_delete_strong_relations_for_source::<RecoveryUniqueEntity>,
     ),
     EntityRuntimeHooks::new(
+        RecoveryUniqueCasefoldEntity::ENTITY_NAME,
+        RecoveryUniqueCasefoldEntity::PATH,
+        commit_schema_fingerprint_for_entity::<RecoveryUniqueCasefoldEntity>,
+        prepare_row_commit_for_entity::<RecoveryUniqueCasefoldEntity>,
+        validate_delete_strong_relations_for_source::<RecoveryUniqueCasefoldEntity>,
+    ),
+    EntityRuntimeHooks::new(
         RecoveryConditionalEntity::ENTITY_NAME,
         RecoveryConditionalEntity::PATH,
         commit_schema_fingerprint_for_entity::<RecoveryConditionalEntity>,
@@ -277,6 +352,13 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
         commit_schema_fingerprint_for_entity::<RecoveryConditionalUniqueEntity>,
         prepare_row_commit_for_entity::<RecoveryConditionalUniqueEntity>,
         validate_delete_strong_relations_for_source::<RecoveryConditionalUniqueEntity>,
+    ),
+    EntityRuntimeHooks::new(
+        RecoveryConditionalUniqueCasefoldEntity::ENTITY_NAME,
+        RecoveryConditionalUniqueCasefoldEntity::PATH,
+        commit_schema_fingerprint_for_entity::<RecoveryConditionalUniqueCasefoldEntity>,
+        prepare_row_commit_for_entity::<RecoveryConditionalUniqueCasefoldEntity>,
+        validate_delete_strong_relations_for_source::<RecoveryConditionalUniqueCasefoldEntity>,
     ),
     EntityRuntimeHooks::new(
         RecoveryConditionalUniqueEnumEntity::ENTITY_NAME,
@@ -397,11 +479,17 @@ fn row_op_for_path(
         RecoveryUniqueEntity::PATH => {
             commit_schema_fingerprint_for_entity::<RecoveryUniqueEntity>()
         }
+        RecoveryUniqueCasefoldEntity::PATH => {
+            commit_schema_fingerprint_for_entity::<RecoveryUniqueCasefoldEntity>()
+        }
         RecoveryConditionalEntity::PATH => {
             commit_schema_fingerprint_for_entity::<RecoveryConditionalEntity>()
         }
         RecoveryConditionalUniqueEntity::PATH => {
             commit_schema_fingerprint_for_entity::<RecoveryConditionalUniqueEntity>()
+        }
+        RecoveryConditionalUniqueCasefoldEntity::PATH => {
+            commit_schema_fingerprint_for_entity::<RecoveryConditionalUniqueCasefoldEntity>()
         }
         RecoveryConditionalUniqueEnumEntity::PATH => {
             commit_schema_fingerprint_for_entity::<RecoveryConditionalUniqueEnumEntity>()
@@ -538,6 +626,13 @@ fn conditional_unique_data_key(id: Ulid) -> RawDataKey {
         .expect("conditional-unique key should encode")
 }
 
+fn conditional_unique_casefold_data_key(id: Ulid) -> RawDataKey {
+    DataKey::try_new::<RecoveryConditionalUniqueCasefoldEntity>(id)
+        .expect("conditional-unique-casefold key should build")
+        .to_raw()
+        .expect("conditional-unique-casefold key should encode")
+}
+
 fn conditional_unique_enum_data_key(id: Ulid) -> RawDataKey {
     DataKey::try_new::<RecoveryConditionalUniqueEnumEntity>(id)
         .expect("conditional-unique-enum key should build")
@@ -559,6 +654,12 @@ fn conditional_row_bytes(entity: &RecoveryConditionalEntity) -> Vec<u8> {
 
 fn conditional_unique_row_bytes(entity: &RecoveryConditionalUniqueEntity) -> Vec<u8> {
     serialize(entity).expect("conditional-unique row serialization should succeed")
+}
+
+fn conditional_unique_casefold_row_bytes(
+    entity: &RecoveryConditionalUniqueCasefoldEntity,
+) -> Vec<u8> {
+    serialize(entity).expect("conditional-unique-casefold row serialization should succeed")
 }
 
 fn conditional_unique_enum_row_bytes(entity: &RecoveryConditionalUniqueEnumEntity) -> Vec<u8> {
@@ -1106,6 +1207,62 @@ fn conditional_unique_index_skips_unique_validation_when_predicate_is_false() {
         Some(conditional_unique_row_bytes(&second_active)),
     )])
     .expect_err("active duplicate should violate conditional unique index");
+    assert_eq!(err.class, ErrorClass::Conflict);
+    assert_eq!(err.origin, ErrorOrigin::Index);
+}
+
+#[test]
+fn conditional_unique_expression_index_skips_unique_validation_when_predicate_is_false() {
+    reset_recovery_state();
+
+    let first_active = RecoveryConditionalUniqueCasefoldEntity {
+        id: Ulid::from_u128(9_946),
+        email: "Conditional-CaseFold@example.com".to_string(),
+        active: true,
+    };
+    let second_inactive = RecoveryConditionalUniqueCasefoldEntity {
+        id: Ulid::from_u128(9_947),
+        email: "conditional-casefold@example.com".to_string(),
+        active: false,
+    };
+    let second_active = RecoveryConditionalUniqueCasefoldEntity {
+        id: second_inactive.id,
+        email: second_inactive.email.clone(),
+        active: true,
+    };
+
+    // Phase 1: baseline active row reserves the conditional+expression unique slot.
+    apply_row_ops_forward(&[row_op_for_path(
+        RecoveryConditionalUniqueCasefoldEntity::PATH,
+        conditional_unique_casefold_data_key(first_active.id)
+            .as_bytes()
+            .to_vec(),
+        None,
+        Some(conditional_unique_casefold_row_bytes(&first_active)),
+    )])
+    .expect("active conditional expression-unique insert should succeed");
+
+    // Phase 2: inactive duplicate bypasses unique validation while predicate=false.
+    apply_row_ops_forward(&[row_op_for_path(
+        RecoveryConditionalUniqueCasefoldEntity::PATH,
+        conditional_unique_casefold_data_key(second_inactive.id)
+            .as_bytes()
+            .to_vec(),
+        None,
+        Some(conditional_unique_casefold_row_bytes(&second_inactive)),
+    )])
+    .expect("inactive duplicate should bypass conditional expression-unique validation");
+
+    // Phase 3: activating the duplicate row must enforce canonical LOWER(email) uniqueness.
+    let err = apply_row_ops_forward(&[row_op_for_path(
+        RecoveryConditionalUniqueCasefoldEntity::PATH,
+        conditional_unique_casefold_data_key(second_inactive.id)
+            .as_bytes()
+            .to_vec(),
+        Some(conditional_unique_casefold_row_bytes(&second_inactive)),
+        Some(conditional_unique_casefold_row_bytes(&second_active)),
+    )])
+    .expect_err("active duplicate should violate conditional expression-unique index");
     assert_eq!(err.class, ErrorClass::Conflict);
     assert_eq!(err.origin, ErrorOrigin::Index);
 }
@@ -1984,6 +2141,136 @@ fn unique_conflict_classification_parity_holds_between_live_apply_and_replay() {
     assert!(
         commit_marker_present().expect("commit marker check should succeed"),
         "failed replay unique conflict must keep marker persisted for retry",
+    );
+
+    store::with_commit_store(|store| {
+        store.clear_infallible();
+        Ok(())
+    })
+    .expect("commit marker cleanup should succeed");
+}
+
+#[test]
+fn unique_expression_index_enforces_casefolded_conflicts_on_live_saves() {
+    reset_recovery_state();
+
+    // Phase 1: seed one row with mixed-case email.
+    let save = SaveExecutor::<RecoveryUniqueCasefoldEntity>::new(DB, false);
+    save.insert(RecoveryUniqueCasefoldEntity {
+        id: Ulid::from_u128(9311),
+        email: "CaseFold@Test.example".to_string(),
+    })
+    .expect("seed casefold unique row should save");
+
+    // Phase 2: inserting a case-variant duplicate must violate unique ownership.
+    let conflicting = RecoveryUniqueCasefoldEntity {
+        id: Ulid::from_u128(9312),
+        email: "casefold@test.example".to_string(),
+    };
+    let live_err = save
+        .insert(conflicting.clone())
+        .expect_err("casefold duplicate should violate unique expression index");
+    assert_eq!(live_err.class, ErrorClass::Conflict);
+    assert_eq!(live_err.origin, ErrorOrigin::Index);
+    assert!(
+        live_err.message.contains("index constraint violation"),
+        "casefold unique conflict should remain explicit: {live_err:?}"
+    );
+
+    // Phase 3: rejected insert must not leave a persisted primary row.
+    let conflicting_key = DataKey::try_new::<RecoveryUniqueCasefoldEntity>(conflicting.id)
+        .expect("conflicting casefold key should build")
+        .to_raw()
+        .expect("conflicting casefold key should encode");
+    assert!(
+        row_bytes_for(&conflicting_key).is_none(),
+        "conflicting casefold insert should not persist primary row",
+    );
+}
+
+#[test]
+fn unique_expression_conflict_classification_parity_holds_between_live_apply_and_replay() {
+    reset_recovery_state();
+
+    // Phase 1: capture live save-path casefold expression-unique conflict classification.
+    let save = SaveExecutor::<RecoveryUniqueCasefoldEntity>::new(DB, false);
+    save.insert(RecoveryUniqueCasefoldEntity {
+        id: Ulid::from_u128(9313),
+        email: "CaseFold-Replay@Test.example".to_string(),
+    })
+    .expect("seed casefold replay row should save in live path");
+    let live_err = save
+        .insert(RecoveryUniqueCasefoldEntity {
+            id: Ulid::from_u128(9314),
+            email: "casefold-replay@test.example".to_string(),
+        })
+        .expect_err("live save path should reject casefold duplicate unique value");
+    assert_eq!(live_err.class, ErrorClass::Conflict);
+    assert_eq!(live_err.origin, ErrorOrigin::Index);
+    assert!(
+        live_err.message.contains("index constraint violation"),
+        "live casefold unique conflict should remain explicit: {live_err:?}"
+    );
+
+    // Phase 2: capture replay-path classification for the same casefold semantic conflict.
+    reset_recovery_state();
+    let replay_first = RecoveryUniqueCasefoldEntity {
+        id: Ulid::from_u128(9315),
+        email: "CaseFold-Replay@Test.example".to_string(),
+    };
+    let replay_second = RecoveryUniqueCasefoldEntity {
+        id: Ulid::from_u128(9316),
+        email: "casefold-replay@test.example".to_string(),
+    };
+
+    let replay_marker = CommitMarker::new(vec![
+        row_op_for_path_with_schema(
+            RecoveryUniqueCasefoldEntity::PATH,
+            DataKey::try_new::<RecoveryUniqueCasefoldEntity>(replay_first.id)
+                .expect("first casefold replay key should build")
+                .to_raw()
+                .expect("first casefold replay key should encode")
+                .as_bytes()
+                .to_vec(),
+            None,
+            Some(
+                serialize(&replay_first)
+                    .expect("first casefold replay row serialization should succeed"),
+            ),
+            commit_schema_fingerprint_for_entity::<RecoveryUniqueCasefoldEntity>(),
+        ),
+        row_op_for_path_with_schema(
+            RecoveryUniqueCasefoldEntity::PATH,
+            DataKey::try_new::<RecoveryUniqueCasefoldEntity>(replay_second.id)
+                .expect("second casefold replay key should build")
+                .to_raw()
+                .expect("second casefold replay key should encode")
+                .as_bytes()
+                .to_vec(),
+            None,
+            Some(
+                serialize(&replay_second)
+                    .expect("second casefold replay row serialization should succeed"),
+            ),
+            commit_schema_fingerprint_for_entity::<RecoveryUniqueCasefoldEntity>(),
+        ),
+    ])
+    .expect("replay casefold unique-conflict marker should build");
+    begin_commit(replay_marker)
+        .expect("begin_commit should persist replay casefold conflict marker");
+
+    let replay_err = ensure_recovered(&DB)
+        .expect_err("replay recovery should reject casefold duplicate unique value marker");
+    assert_eq!(replay_err.class, ErrorClass::Conflict);
+    assert_eq!(replay_err.class, live_err.class);
+    assert_eq!(replay_err.origin, ErrorOrigin::Recovery);
+    assert!(
+        replay_err.message.contains("index constraint violation"),
+        "replay casefold unique conflict should remain explicit: {replay_err:?}"
+    );
+    assert!(
+        commit_marker_present().expect("commit marker check should succeed"),
+        "failed replay casefold unique conflict must keep marker persisted for retry",
     );
 
     store::with_commit_store(|store| {

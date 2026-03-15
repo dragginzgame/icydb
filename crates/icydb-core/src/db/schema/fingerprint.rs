@@ -62,6 +62,7 @@ fn hash_index_key_items_contract(hasher: &mut Xxh3, index: &IndexModel) {
         IndexKeyItemsRef::Fields(fields) => {
             hash_labeled_len(hasher, "index_field_count", fields.len());
             for field in fields {
+                hash_labeled_tag(hasher, "index_key_item_kind", 0x00);
                 hash_labeled_str(hasher, "index_field_name", field);
             }
         }
@@ -70,10 +71,13 @@ fn hash_index_key_items_contract(hasher: &mut Xxh3, index: &IndexModel) {
             for item in items {
                 match item {
                     IndexKeyItem::Field(field) => {
+                        hash_labeled_tag(hasher, "index_key_item_kind", 0x00);
                         hash_labeled_str(hasher, "index_field_name", field);
                     }
                     IndexKeyItem::Expression(expression) => {
-                        hash_labeled_str(hasher, "index_expression_key_item", expression);
+                        hash_labeled_tag(hasher, "index_key_item_kind", 0x01);
+                        hash_labeled_tag(hasher, "index_expression_kind", expression.kind_tag());
+                        hash_labeled_str(hasher, "index_expression_field", expression.field());
                     }
                 }
             }
@@ -130,7 +134,7 @@ mod tests {
         model::{
             entity::EntityModel,
             field::{FieldKind, FieldModel},
-            index::{IndexKeyItem, IndexModel},
+            index::{IndexExpression, IndexKeyItem, IndexModel},
         },
     };
     use canic_utils::hash::Xxh3;
@@ -172,7 +176,8 @@ mod tests {
         false,
         Some("active=true"),
     );
-    static INDEX_KEY_ITEMS_EXPR: [IndexKeyItem; 1] = [IndexKeyItem::Expression("LOWER(active)")];
+    static INDEX_KEY_ITEMS_EXPR: [IndexKeyItem; 1] =
+        [IndexKeyItem::Expression(IndexExpression::Lower("active"))];
     static INDEX_MODEL_KEY_ITEMS_EXPR: IndexModel = IndexModel::new_with_key_items_and_predicate(
         "entity|active",
         "entity::store",

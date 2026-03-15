@@ -30,4 +30,4 @@ pub(crate) mod index;
 // re-exports
 pub use entity::EntityModel;
 pub use field::{FieldKind, FieldModel, RelationStrength};
-pub use index::{IndexKeyItem, IndexKeyItemsRef, IndexModel};
+pub use index::{IndexExpression, IndexKeyItem, IndexKeyItemsRef, IndexModel};

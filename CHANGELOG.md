@@ -5,6 +5,16 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.55.x] - 2026-03-15 - Expression Index Foundations
+
+- `0.55.0` ships the initial expression-index foundation line with canonical index key-item metadata, validated expression-key derivation, and shared planner/EXPLAIN eligibility for the first supported deterministic subset.
+- `0.55.1` (not yet pushed) hardens the line with filtered+expression composition locks, conditional+expression uniqueness coverage, and live-vs-replay expression-unique conflict parity checks.
+
+See detailed breakdown:
+[docs/changelog/0.55.md](docs/changelog/0.55.md)
+
+---
+
 ## [0.54.x] - 2026-03-13 - Filtered Indexes Line Open
 
 - `0.54.0` ships filtered/conditional indexes end-to-end: optional index predicates in schema/runtime metadata, schema-time predicate validation, mutation-path membership gating, planner implication-based index eligibility, and replay/startup recovery parity tests that lock live-vs-replay behavior.

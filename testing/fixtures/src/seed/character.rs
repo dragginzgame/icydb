@@ -77,13 +77,13 @@ const RESISTANCES: [&str; 8] = [
 pub fn base_rpg_characters() -> Vec<Character> {
     let rows = DUNGEON_MASTER_CHARACTERS
         .iter()
-        .map(|name| (*name, "Dungeon Master"))
-        .chain(BLOODWYCH_CHARACTERS.iter().map(|name| (*name, "Bloodwych")))
+        .copied()
+        .chain(BLOODWYCH_CHARACTERS.iter().copied())
         .enumerate()
-        .map(|(index, (name, game))| {
+        .map(|(index, name)| {
             // Derive deterministic categorical values so queries can group/filter by role and rank.
             let class_name = CLASSES[index % CLASSES.len()].to_string();
-            let background = format!("{game} {}", BACKGROUNDS[index % BACKGROUNDS.len()]);
+            let background = BACKGROUNDS[index % BACKGROUNDS.len()].to_string();
             let guild_rank = if index % 5 == 0 {
                 None
             } else {
@@ -124,9 +124,8 @@ pub fn base_rpg_characters() -> Vec<Character> {
             Character {
                 name: name.to_string(),
                 description: format!(
-                    "{} from {} (Amiga), specialized in {} tactics.",
+                    "{} specialized in {} tactics.",
                     name,
-                    game,
                     if index % 2 == 0 {
                         "frontline"
                     } else {

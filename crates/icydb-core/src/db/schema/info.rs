@@ -12,34 +12,24 @@ use crate::{
     model::{
         entity::EntityModel,
         field::FieldKind,
-        index::{IndexKeyItem, IndexKeyItemsRef, IndexModel},
+        index::{IndexExpression, IndexKeyItem, IndexKeyItemsRef, IndexModel},
     },
 };
 use std::collections::{BTreeMap, BTreeSet};
 
-fn validate_index_field_reference(
-    fields: &BTreeMap<String, FieldType>,
+// Resolve one index field reference and enforce baseline queryability invariants.
+fn index_field_type<'a>(
+    fields: &'a BTreeMap<String, FieldType>,
     index: &IndexModel,
     field: &'static str,
-    seen: &mut BTreeSet<&'static str>,
-) -> Result<(), ValidateError> {
-    if !fields.contains_key(field) {
+) -> Result<&'a FieldType, ValidateError> {
+    let Some(field_type) = fields.get(field) else {
         return Err(ValidateError::IndexFieldUnknown {
             index: *index,
             field: field.to_string(),
         });
-    }
-    if seen.contains(field) {
-        return Err(ValidateError::IndexFieldDuplicate {
-            index: *index,
-            field: field.to_string(),
-        });
-    }
-    seen.insert(field);
+    };
 
-    let field_type = fields
-        .get(field)
-        .expect("index field existence checked above");
     // Guardrail: map fields are deterministic stored values but remain
     // non-queryable and non-indexable in 0.7.
     if matches!(field_type, FieldType::Map { .. }) {
@@ -53,6 +43,65 @@ fn validate_index_field_reference(
             index: *index,
             field: field.to_string(),
         });
+    }
+
+    Ok(field_type)
+}
+
+// Validate one field key item, including duplicate-field rejection for one index.
+fn validate_index_field_reference(
+    fields: &BTreeMap<String, FieldType>,
+    index: &IndexModel,
+    field: &'static str,
+    seen: &mut BTreeSet<&'static str>,
+) -> Result<(), ValidateError> {
+    index_field_type(fields, index, field)?;
+
+    if seen.contains(field) {
+        return Err(ValidateError::IndexFieldDuplicate {
+            index: *index,
+            field: field.to_string(),
+        });
+    }
+    seen.insert(field);
+
+    Ok(())
+}
+
+// Validate one expression key item against declared schema field types.
+fn validate_index_expression_reference(
+    fields: &BTreeMap<String, FieldType>,
+    index: &IndexModel,
+    expression: IndexExpression,
+) -> Result<(), ValidateError> {
+    let field = expression.field();
+    let field_type = index_field_type(fields, index, field)?;
+
+    match expression {
+        IndexExpression::Lower(_)
+        | IndexExpression::Upper(_)
+        | IndexExpression::Trim(_)
+        | IndexExpression::LowerTrim(_) => {
+            if !field_type.is_text() {
+                return Err(ValidateError::invalid_index_expression_field_type(
+                    *index,
+                    expression,
+                    "a text field",
+                ));
+            }
+        }
+        IndexExpression::Date(_)
+        | IndexExpression::Year(_)
+        | IndexExpression::Month(_)
+        | IndexExpression::Day(_) => {
+            if !field_type.is_date_or_timestamp() {
+                return Err(ValidateError::invalid_index_expression_field_type(
+                    *index,
+                    expression,
+                    "a date or timestamp field",
+                ));
+            }
+        }
     }
 
     Ok(())
@@ -79,15 +128,13 @@ fn validate_index_fields(
                 }
             }
             IndexKeyItemsRef::Items(items) => {
-                for item in items {
+                for &item in items {
                     match item {
                         IndexKeyItem::Field(field) => {
                             validate_index_field_reference(fields, index, field, &mut seen)?;
                         }
                         IndexKeyItem::Expression(expression) => {
-                            return Err(ValidateError::index_expression_unsupported(
-                                **index, expression,
-                            ));
+                            validate_index_expression_reference(fields, index, expression)?;
                         }
                     }
                 }

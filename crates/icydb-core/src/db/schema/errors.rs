@@ -8,7 +8,7 @@ use crate::{
         identity::{EntityNameError, IndexNameError},
         predicate::{CoercionId, UnsupportedQueryFeature},
     },
-    model::index::IndexModel,
+    model::index::{IndexExpression, IndexModel},
 };
 use std::fmt;
 
@@ -61,12 +61,11 @@ pub enum ValidateError {
     #[error("index '{index}' repeats field '{field}'")]
     IndexFieldDuplicate { index: IndexModel, field: String },
 
-    #[error(
-        "index '{index}' declares unsupported expression key item '{expression}' in this release"
-    )]
-    IndexExpressionUnsupported {
-        index: IndexModel,
-        expression: &'static str,
+    #[error("index '{index}' expression key item '{expression}' requires {expected}")]
+    IndexExpressionFieldTypeInvalid {
+        index: &'static str,
+        expression: IndexExpression,
+        expected: &'static str,
     },
 
     #[error("duplicate index name '{name}'")]
@@ -123,10 +122,15 @@ impl ValidateError {
         Self::InvalidIndexPredicateSchema { index, predicate }
     }
 
-    pub(crate) const fn index_expression_unsupported(
+    pub(crate) const fn invalid_index_expression_field_type(
         index: IndexModel,
-        expression: &'static str,
+        expression: IndexExpression,
+        expected: &'static str,
     ) -> Self {
-        Self::IndexExpressionUnsupported { index, expression }
+        Self::IndexExpressionFieldTypeInvalid {
+            index: index.name(),
+            expression,
+            expected,
+        }
     }
 }

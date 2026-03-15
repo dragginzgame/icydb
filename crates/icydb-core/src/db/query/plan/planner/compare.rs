@@ -25,11 +25,8 @@ pub(super) fn plan_compare(
     cmp: &ComparePredicate,
     query_predicate: &Predicate,
 ) -> AccessPlan<Value> {
-    if cmp.coercion.id != CoercionId::Strict {
-        return AccessPlan::full_scan();
-    }
-
-    if is_primary_key_model(schema, model, &cmp.field)
+    if cmp.coercion.id == CoercionId::Strict
+        && is_primary_key_model(schema, model, &cmp.field)
         && let Some(path) = plan_pk_compare(schema, model, cmp)
     {
         return path;
@@ -37,13 +34,30 @@ pub(super) fn plan_compare(
 
     match cmp.op {
         CompareOp::Eq => {
-            if let Some(paths) =
-                index_prefix_for_eq(model, schema, &cmp.field, &cmp.value, query_predicate)
-            {
+            if !matches!(
+                cmp.coercion.id,
+                CoercionId::Strict | CoercionId::TextCasefold
+            ) {
+                return AccessPlan::full_scan();
+            }
+            if let Some(paths) = index_prefix_for_eq(
+                model,
+                schema,
+                &cmp.field,
+                &cmp.value,
+                cmp.coercion.id,
+                query_predicate,
+            ) {
                 return AccessPlan::union(paths);
             }
         }
         CompareOp::In => {
+            if !matches!(
+                cmp.coercion.id,
+                CoercionId::Strict | CoercionId::TextCasefold
+            ) {
+                return AccessPlan::full_scan();
+            }
             if let Value::List(items) = &cmp.value {
                 // Access canonicalization owns IN-list set normalization
                 // (sorting/dedup and singleton collapse).
@@ -52,14 +66,22 @@ pub(super) fn plan_compare(
                 if items.is_empty() {
                     return AccessPlan::by_keys(Vec::new());
                 }
-                if let Some(paths) =
-                    index_multi_lookup_for_in(model, schema, &cmp.field, items, query_predicate)
-                {
+                if let Some(paths) = index_multi_lookup_for_in(
+                    model,
+                    schema,
+                    &cmp.field,
+                    items,
+                    cmp.coercion.id,
+                    query_predicate,
+                ) {
                     return AccessPlan::union(paths);
                 }
             }
         }
         CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte => {
+            if cmp.coercion.id != CoercionId::Strict {
+                return AccessPlan::full_scan();
+            }
             // Single compare predicates only map directly to one-field indexes.
             // Composite prefix+range extraction remains AND-group driven.
             if index_literal_matches_schema(schema, &cmp.field, &cmp.value) {
@@ -90,6 +112,9 @@ pub(super) fn plan_compare(
             }
         }
         CompareOp::StartsWith => {
+            if cmp.coercion.id != CoercionId::Strict {
+                return AccessPlan::full_scan();
+            }
             if let Some(path) = plan_starts_with_compare(model, schema, cmp, query_predicate) {
                 return path;
             }

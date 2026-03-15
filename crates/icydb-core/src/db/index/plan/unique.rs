@@ -8,13 +8,12 @@ use crate::{
     db::{
         data::DataKey,
         index::{
-            EncodedValue, IndexEntryCorruption, IndexEntryReader, IndexId, IndexKey, IndexStore,
-            PrimaryRowReader,
+            IndexEntryCorruption, IndexEntryReader, IndexId, IndexKey, IndexStore, PrimaryRowReader,
         },
     },
     error::InternalError,
     metrics::sink::{MetricsEvent, record},
-    model::{entity::resolve_field_slot, index::IndexModel},
+    model::index::IndexModel,
     traits::{EntityKind, EntityValue, FieldValue},
 };
 use std::{cell::RefCell, collections::BTreeSet, ops::Bound, thread::LocalKey};
@@ -56,40 +55,30 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
         ));
     };
 
-    // Phase 2: resolve indexed slots and encode unique-prefix components.
-    let mut indexed_field_slots = Vec::with_capacity(index.fields().len());
-    for field in index.fields() {
-        let Some(field_index) = resolve_field_slot(E::MODEL, field) else {
+    // Phase 2: build canonical unique-prefix components for the incoming row.
+    let Some(new_index_key) = IndexKey::new(new_entity, index)? else {
+        return Ok(());
+    };
+
+    let mut encoded_prefix = Vec::with_capacity(new_index_key.component_count());
+    for component_index in 0..new_index_key.component_count() {
+        let Some(component) = new_index_key.component(component_index) else {
             return Err(InternalError::index_invariant(format!(
-                "index field missing on entity model: {} ({})",
+                "index key missing component {} during unique validation: {} ({})",
+                component_index,
                 E::PATH,
-                field
+                index.fields().join(", ")
             )));
         };
-
-        indexed_field_slots.push((*field, field_index));
-    }
-
-    // Build and validate the semantic unique prefix for the incoming entity.
-    let mut encoded_prefix = Vec::with_capacity(index.fields().len());
-    for (field, field_index) in indexed_field_slots.iter().copied() {
-        let expected = new_entity.get_value_by_index(field_index).ok_or_else(|| {
-            InternalError::index_invariant(format!(
-                "index field missing on lookup entity: {} ({})",
-                E::PATH,
-                field
-            ))
-        })?;
-
-        let Ok(encoded_value) = EncodedValue::try_from_ref(&expected) else {
-            return Ok(());
-        };
-        encoded_prefix.push(encoded_value);
+        encoded_prefix.push(component.to_vec());
     }
 
     let index_id = IndexId::new::<E>(index);
-    let (lower, upper) =
-        IndexKey::bounds_for_prefix(&index_id, index.fields().len(), encoded_prefix.as_slice());
+    let (lower, upper) = IndexKey::bounds_for_prefix(
+        &index_id,
+        new_index_key.component_count(),
+        encoded_prefix.as_slice(),
+    );
     let lower = Bound::Included(lower.to_raw());
     let upper = Bound::Included(upper.to_raw());
 
@@ -160,27 +149,44 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
         )));
     }
 
-    for (field, field_index) in indexed_field_slots.iter().copied() {
-        let expected = new_entity.get_value_by_index(field_index).ok_or_else(|| {
-            InternalError::index_invariant(format!(
-                "index field missing on lookup entity: {} ({})",
+    let Some(stored_index_key) = IndexKey::new(&stored, index)? else {
+        return Err(InternalError::index_plan_index_corruption(format!(
+            "index corrupted: {} ({}) -> stored entity is not indexable for unique key",
+            E::PATH,
+            index.fields().join(", "),
+        )));
+    };
+    if stored_index_key.component_count() != new_index_key.component_count() {
+        return Err(InternalError::index_plan_index_corruption(format!(
+            "index corrupted: {} ({}) -> mismatched unique key component count",
+            E::PATH,
+            index.fields().join(", "),
+        )));
+    }
+
+    for component_index in 0..new_index_key.component_count() {
+        let Some(expected) = new_index_key.component(component_index) else {
+            return Err(InternalError::index_invariant(format!(
+                "index key missing expected component {} during unique validation: {} ({})",
+                component_index,
                 E::PATH,
-                field
-            ))
-        })?;
-        let actual = stored.get_value_by_index(field_index).ok_or_else(|| {
-            InternalError::index_plan_index_corruption(format!(
-                "index corrupted: {} ({}) -> stored entity missing field",
+                index.fields().join(", "),
+            )));
+        };
+        let Some(actual) = stored_index_key.component(component_index) else {
+            return Err(InternalError::index_plan_index_corruption(format!(
+                "index corrupted: {} ({}) -> stored entity missing component {}",
                 E::PATH,
-                field
-            ))
-        })?;
+                index.fields().join(", "),
+                component_index,
+            )));
+        };
 
         if expected != actual {
             return Err(InternalError::index_plan_index_corruption(format!(
                 "index canonical collision: {} ({})",
                 E::PATH,
-                field
+                index.fields().join(", ")
             )));
         }
     }

@@ -13,6 +13,7 @@ mod covering;
 pub(crate) mod expr;
 mod group;
 mod grouped_layout;
+mod key_item_match;
 mod limit_zero;
 mod logical_builder;
 mod model;

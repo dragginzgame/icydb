@@ -169,6 +169,11 @@ impl FieldType {
     }
 
     #[must_use]
+    pub(crate) const fn is_date_or_timestamp(&self) -> bool {
+        matches!(self, Self::Scalar(ScalarType::Date | ScalarType::Timestamp))
+    }
+
+    #[must_use]
     pub(crate) const fn is_collection(&self) -> bool {
         matches!(self, Self::List(_) | Self::Set(_) | Self::Map { .. })
     }
