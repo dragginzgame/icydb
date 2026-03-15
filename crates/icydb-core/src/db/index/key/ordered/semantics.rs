@@ -21,7 +21,7 @@ pub(super) trait OrderedEncode {
 
 impl OrderedEncode for Date {
     fn encode_ordered(&self, out: &mut Vec<u8>) -> Result<(), OrderedValueEncodeError> {
-        out.extend_from_slice(&ordered_i32_bytes(self.get()));
+        out.extend_from_slice(&ordered_i32_bytes(self.as_days_since_epoch()));
         Ok(())
     }
 }

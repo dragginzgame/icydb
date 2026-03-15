@@ -2,12 +2,11 @@
 //! Test-only SQL canister used by local and integration test harnesses.
 //!
 
+mod seed;
+
 use ic_cdk::{export_candid, query as ic_query, update};
 use icydb::db::sql::SqlQueryRowsOutput;
-use icydb_testing_fixtures::{
-    schema::{Character, Order, User},
-    seed,
-};
+use icydb_testing_sql_test_fixtures::schema::{Character, Order, User};
 
 icydb::start!();
 
@@ -71,7 +70,7 @@ mod tests {
         );
         assert!(
             !actor.contains("from_statement_sql"),
-            "generated sql_dispatch must not include legacy from_statement_sql resolver"
+            "generated sql_dispatch must not include removed from_statement_sql resolver"
         );
         assert!(
             actor.contains("from_entity_name"),

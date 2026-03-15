@@ -12,11 +12,11 @@ crate-type = ["cdylib"]
 candid = { workspace = true }
 ic-cdk = { workspace = true }
 icydb = { workspace = true }
-icydb-testing-fixtures = { workspace = true }
+icydb-testing-sql-test-fixtures = { workspace = true }
 
 [build-dependencies]
 icydb = { workspace = true }
-icydb-testing-fixtures = { workspace = true }
+icydb-testing-sql-test-fixtures = { workspace = true }
 
 [lints]
 workspace = true

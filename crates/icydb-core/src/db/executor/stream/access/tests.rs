@@ -257,7 +257,7 @@ fn grouped_order_limit_policy_symbols_remain_planner_owned() {
 }
 
 #[test]
-fn runtime_route_capability_shims_are_not_reintroduced() {
+fn runtime_route_capability_helpers_are_not_reintroduced() {
     let executor_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor");
     let mut sources = Vec::new();
     collect_rust_sources(executor_root.as_path(), &mut sources);
@@ -295,7 +295,7 @@ fn runtime_route_capability_shims_are_not_reintroduced() {
 
     assert!(
         violations.is_empty(),
-        "executor runtime must consume direct capability snapshots instead of reintroducing route-capability shim helpers. Violations: {}",
+        "executor runtime must consume direct capability snapshots instead of reintroducing route-capability forwarding helpers. Violations: {}",
         violations
             .iter()
             .map(|path| path.display().to_string())

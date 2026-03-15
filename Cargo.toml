@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "canisters/minimal",
-    "canisters/sql-test",
+    "canisters/quickstart",
     "crates/icydb",
     "crates/icydb-build",
     "crates/icydb-core",
@@ -9,8 +9,9 @@ members = [
     "crates/icydb-primitives",
     "crates/icydb-schema",
     "crates/icydb-schema-derive",
-    "schema/fixtures",
-    "schema/minimal-fixtures",
+    "schema/minimal",
+    "schema/quickstart",
+    "schema/test",
     "testing/macro-tests",
     "testing/pocket-ic",
 ]
@@ -27,7 +28,6 @@ license = "Apache-2.0 OR MIT"
 repository = "https://github.com/dragginzgame/icydb"
 
 [workspace.dependencies]
-bencher = "0.1.5"
 candid = "0.10"
 canic-cdk = "0.15.1"
 canic-memory = "0.15.1"
@@ -43,10 +43,9 @@ icydb-derive = { path = "crates/icydb-derive", version = "0.55.6" }
 icydb-primitives = { path = "crates/icydb-primitives", version = "0.55.6" }
 icydb-schema = { path = "crates/icydb-schema", version = "0.55.6" }
 icydb-schema-derive = { path = "crates/icydb-schema-derive", version = "0.55.6" }
-# Test harnesses
-icydb-schema-tests = { path = "testing/macro-tests" }
-icydb-testing-fixtures = { path = "schema/fixtures" }
-icydb-testing-minimal-fixtures = { path = "schema/minimal-fixtures" }
+icydb-testing-fixtures = { path = "schema/test" }
+icydb-testing-minimal-fixtures = { path = "schema/minimal" }
+icydb-testing-sql-test-fixtures = { path = "schema/quickstart" }
 num-traits = { version = "0.2", default-features = false }
 proc-macro2 = "1.0"
 proptest = "1.9.0"

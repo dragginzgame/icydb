@@ -247,7 +247,7 @@ dependencies = [
  "candid",
  "ic-cdk",
  "icydb",
- "icydb-testing-fixtures",
+ "icydb-testing-sql-test-fixtures",
 ]
 
 [[package]]
@@ -1152,7 +1152,6 @@ dependencies = [
  "derive_more",
  "icydb-derive",
  "icydb-primitives",
- "icydb-schema-derive",
  "num-traits",
  "proptest",
  "serde",
@@ -1239,11 +1238,19 @@ dependencies = [
  "candid",
  "icydb",
  "pocket-ic",
- "serde",
 ]
 
 [[package]]
 name = "icydb-testing-minimal-fixtures"
+version = "0.55.6"
+dependencies = [
+ "candid",
+ "icydb",
+ "serde",
+]
+
+[[package]]
+name = "icydb-testing-sql-test-fixtures"
 version = "0.55.6"
 dependencies = [
  "candid",

@@ -111,7 +111,7 @@ fn write_to_hasher(value: &Value, h: &mut Xxh3) -> Result<(), InternalError> {
         Value::Bool(b) => {
             feed_u8(h, u8::from(*b));
         }
-        Value::Date(d) => feed_i32(h, d.get()),
+        Value::Date(d) => feed_i32(h, d.as_days_since_epoch()),
         Value::Decimal(d) => {
             let normalized = d.normalize();
 

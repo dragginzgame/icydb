@@ -116,12 +116,6 @@ impl Date {
         self.0
     }
 
-    /// Backward-compatible alias for [`Date::as_days_since_epoch`].
-    #[must_use]
-    pub const fn get(self) -> i32 {
-        self.as_days_since_epoch()
-    }
-
     /// Returns the year component (e.g. 2025).
     #[must_use]
     pub fn year(self) -> i32 {
@@ -344,7 +338,7 @@ mod tests {
         let days = -365;
         let date = Date::from_days_since_epoch(days);
         assert_eq!(date.as_days_since_epoch(), days);
-        assert_eq!(date.get(), days);
+        assert_eq!(date.as_days_since_epoch(), days);
     }
 
     #[test]

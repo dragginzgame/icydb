@@ -311,9 +311,10 @@ Out of scope and fail-closed by design:
 - `crates/icydb-schema` — schema AST and validation.
 - `crates/icydb-build` — build-time codegen for canister wiring.
 - `canisters/minimal` — minimal SQL canister harness for wasm footprint auditing.
-- `canisters/sql-test` — test-only SQL canister harness.
-- `schema/fixtures` — shared schema and seed fixtures for tests/canisters.
-- `schema/minimal-fixtures` — minimal schema fixtures for lightweight wasm audits.
+- `canisters/quickstart` — SQL quickstart canister harness for onboarding and integration flows.
+- `schema/quickstart` — SQL quickstart canister schema fixtures.
+- `schema/minimal` — minimal schema fixtures for lightweight wasm audits.
+- `schema/test` — shared schema fixtures for macro/e2e test harnesses.
 - `testing/macro-tests` — macro and schema contract tests.
 - `testing/pocket-ic` — Pocket-IC integration tests for canister flows.
 - `assets`, `scripts`, `Makefile` — docs, helpers, workspace commands.
@@ -325,9 +326,10 @@ Out of scope and fail-closed by design:
 IcyDB keeps schema definitions in dedicated crates so canister builds only link
 the schema surface they need.
 
-- `schema/fixtures` holds broad shared fixtures and seed datasets used by
-  runtime/integration testing.
-- `schema/minimal-fixtures` holds a tiny single-entity schema used by the
+- `schema/quickstart` holds the SQL quickstart canister schema surface.
+- `schema/test` holds shared schema fixtures used by macro/e2e test harnesses.
+- `canisters/quickstart/src/seed` holds deterministic quickstart fixture datasets.
+- `schema/minimal` holds a tiny single-entity schema used by the
   `canisters/minimal` wasm footprint baseline.
 
 This split keeps the wasm audit baseline from absorbing unrelated fixture schema

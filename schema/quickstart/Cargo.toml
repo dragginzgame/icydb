@@ -1,18 +1,18 @@
 [package]
-name = "icydb-testing-integration"
+name = "icydb-testing-sql-test-fixtures"
 edition = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 publish = false
 license = { workspace = true }
-description = "Pocket-IC integration tests for IcyDB test canisters"
+description = "SQL-test schema fixtures for the quickstart canister"
 repository = { workspace = true }
 authors = { workspace = true }
 
 [dependencies]
 candid = { workspace = true }
 icydb = { workspace = true }
-pocket-ic = "12.0.0"
+serde = { workspace = true }
 
 [lints]
 workspace = true

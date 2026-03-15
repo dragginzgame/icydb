@@ -122,7 +122,7 @@ fn encode_value_sort_key_into(out: &mut Vec<u8>, value: &Value) {
         }
         Value::Blob(v) => push_bytes_u64(out, v),
         Value::Bool(v) => out.push(u8::from(*v)),
-        Value::Date(v) => out.extend_from_slice(&v.get().to_be_bytes()),
+        Value::Date(v) => out.extend_from_slice(&v.as_days_since_epoch().to_be_bytes()),
         Value::Decimal(v) => {
             let normalized = v.normalize();
             out.push(u8::from(normalized.is_sign_negative()));

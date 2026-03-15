@@ -4,7 +4,7 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
 };
@@ -26,6 +26,19 @@ const EXECUTOR_FORBIDDEN_CONTINUATION_DEFINITION_FUNCTIONS: &[&str] = &[
     "next_cursor_for_materialized_rows",
     "effective_page_offset_for_window",
     "effective_keep_count_for_limit",
+];
+
+const CURSOR_SIGNATURE_VALIDATION_FACADE_TOKENS: &[&str] = &[
+    "crate::db::cursor::validate_cursor_compatibility::<",
+    "crate::db::cursor::revalidate_cursor::<",
+    "crate::db::cursor::revalidate_grouped_cursor(",
+];
+
+const CURSOR_SIGNATURE_VALIDATION_INTERNAL_TOKENS: &[&str] = &[
+    "crate::db::cursor::spine::",
+    "crate::db::cursor::validation::",
+    "cursor::spine::",
+    "cursor::validation::",
 ];
 
 // Walk one source tree and collect every Rust source path deterministically.
@@ -194,6 +207,98 @@ fn runtime_forbidden_continuation_definitions() -> BTreeMap<String, Vec<String>>
     violations
 }
 
+fn runtime_cursor_signature_validation_facade_sites() -> BTreeMap<String, Vec<String>> {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db");
+    let mut sources = Vec::new();
+    collect_rust_sources(source_root.as_path(), &mut sources);
+    sources.sort();
+
+    let mut sites = BTreeMap::new();
+    for source_path in sources {
+        if source_path
+            .components()
+            .any(|part| part.as_os_str() == "tests")
+            || source_path
+                .file_name()
+                .is_some_and(|name| name == "tests.rs")
+        {
+            continue;
+        }
+
+        let source = fs::read_to_string(&source_path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
+        let runtime_source = strip_cfg_test_items(source.as_str());
+        let matched = CURSOR_SIGNATURE_VALIDATION_FACADE_TOKENS
+            .iter()
+            .filter(|token| runtime_source.contains(**token))
+            .map(|token| (*token).to_string())
+            .collect::<Vec<_>>();
+        if matched.is_empty() {
+            continue;
+        }
+
+        let relative = source_path
+            .strip_prefix(Path::new(env!("CARGO_MANIFEST_DIR")))
+            .unwrap_or_else(|err| {
+                panic!(
+                    "failed to compute relative source path for {}: {err}",
+                    source_path.display()
+                )
+            })
+            .to_string_lossy()
+            .replace('\\', "/");
+        sites.insert(relative, matched);
+    }
+
+    sites
+}
+
+fn runtime_cursor_signature_validation_internal_references() -> BTreeMap<String, Vec<String>> {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db");
+    let mut sources = Vec::new();
+    collect_rust_sources(source_root.as_path(), &mut sources);
+    sources.sort();
+
+    let mut references = BTreeMap::new();
+    for source_path in sources {
+        if source_path
+            .components()
+            .any(|part| part.as_os_str() == "tests")
+            || source_path
+                .file_name()
+                .is_some_and(|name| name == "tests.rs")
+        {
+            continue;
+        }
+
+        let source = fs::read_to_string(&source_path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
+        let runtime_source = strip_cfg_test_items(source.as_str());
+        let matched = CURSOR_SIGNATURE_VALIDATION_INTERNAL_TOKENS
+            .iter()
+            .filter(|token| runtime_source.contains(**token))
+            .map(|token| (*token).to_string())
+            .collect::<Vec<_>>();
+        if matched.is_empty() {
+            continue;
+        }
+
+        let relative = source_path
+            .strip_prefix(Path::new(env!("CARGO_MANIFEST_DIR")))
+            .unwrap_or_else(|err| {
+                panic!(
+                    "failed to compute relative source path for {}: {err}",
+                    source_path.display()
+                )
+            })
+            .to_string_lossy()
+            .replace('\\', "/");
+        references.insert(relative, matched);
+    }
+
+    references
+}
+
 #[test]
 fn runtime_continuation_policy_method_references_stay_within_continuation_boundary() {
     let counts = runtime_continuation_policy_reference_counts();
@@ -239,5 +344,28 @@ fn runtime_continuation_semantic_definitions_stay_cursor_owned() {
     assert!(
         violations.is_empty(),
         "continuation semantic definitions must remain cursor-owned (`cursor/envelope.rs` + `cursor/continuation.rs`); executor duplicates found: {violations:?}",
+    );
+}
+
+#[test]
+fn runtime_cursor_signature_validation_entrypoints_stay_cursor_facade_owned() {
+    let facade_sites = runtime_cursor_signature_validation_facade_sites();
+    let actual = facade_sites.keys().cloned().collect::<BTreeSet<_>>();
+    let expected =
+        std::iter::once("src/db/query/plan/continuation.rs".to_string()).collect::<BTreeSet<_>>();
+
+    assert_eq!(
+        actual, expected,
+        "cursor-signature validation entrypoints must remain centralized in cursor facade calls from query/plan continuation; actual sites: {facade_sites:?}",
+    );
+
+    let internal_references = runtime_cursor_signature_validation_internal_references();
+    let has_internal_violations = internal_references
+        .keys()
+        .filter(|relative| !relative.starts_with("src/db/cursor/"))
+        .any(|_| true);
+    assert!(
+        !has_internal_violations,
+        "cursor-signature validation internals must stay cursor-owned; non-cursor references: {internal_references:?}",
     );
 }

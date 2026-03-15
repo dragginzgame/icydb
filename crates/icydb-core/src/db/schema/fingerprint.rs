@@ -260,7 +260,7 @@ mod tests {
         assert_eq!(
             fingerprint_for_model(&MODEL_TRUE_A),
             fingerprint_for_model(&MODEL_KEY_ITEMS_FIELD),
-            "field-only key-item metadata should hash identically to legacy field metadata",
+            "field-only key-item metadata should hash identically to field metadata",
         );
     }
 

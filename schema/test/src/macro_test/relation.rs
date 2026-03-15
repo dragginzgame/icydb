@@ -1,4 +1,4 @@
-use crate::macro_schema::{relation::RelationDataStore, test::TestStore};
+use crate::schema::{relation::RelationDataStore, test::TestStore};
 use icydb::design::prelude::*;
 
 ///

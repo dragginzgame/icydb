@@ -1,24 +1,24 @@
-use crate::schema::{Order, User};
+use icydb::design::prelude::Ulid;
+use icydb_testing_sql_test_fixtures::schema::{
+    Order, User, orders::order_views::OrderCreate, users::user_views::UserCreate,
+};
 
 /// Build one deterministic baseline user fixture batch.
 #[must_use]
 pub fn users() -> Vec<User> {
     vec![
-        User {
+        User::from(UserCreate {
             name: "alice".to_string(),
             age: 31,
-            ..Default::default()
-        },
-        User {
+        }),
+        User::from(UserCreate {
             name: "bob".to_string(),
             age: 24,
-            ..Default::default()
-        },
-        User {
+        }),
+        User::from(UserCreate {
             name: "charlie".to_string(),
             age: 43,
-            ..Default::default()
-        },
+        }),
     ]
 }
 
@@ -26,20 +26,20 @@ pub fn users() -> Vec<User> {
 #[must_use]
 pub fn orders() -> Vec<Order> {
     vec![
-        Order {
+        Order::from(OrderCreate {
+            user_id: Ulid::generate(),
             status: "paid".to_string(),
             total_cents: 1_250,
-            ..Default::default()
-        },
-        Order {
+        }),
+        Order::from(OrderCreate {
+            user_id: Ulid::generate(),
             status: "pending".to_string(),
             total_cents: 3_999,
-            ..Default::default()
-        },
-        Order {
+        }),
+        Order::from(OrderCreate {
+            user_id: Ulid::generate(),
             status: "failed".to_string(),
             total_cents: 520,
-            ..Default::default()
-        },
+        }),
     ]
 }

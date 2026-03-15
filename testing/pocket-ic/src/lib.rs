@@ -151,7 +151,7 @@ pub fn build_minimal_canister() -> Result<PathBuf, String> {
 }
 
 ///
-/// stage_sql_test_canister_for_dfx
+/// stage_canister_for_dfx
 ///
 /// Build one supported canister and stage `.wasm` + `.did` artifacts into
 /// `.dfx/local/canisters/<canister_name>/`.
@@ -210,14 +210,4 @@ pub fn stage_canister_for_dfx(canister_name: &str) -> Result<(PathBuf, PathBuf),
     })?;
 
     Ok((staged_wasm_path, staged_did_path))
-}
-
-///
-/// stage_sql_test_canister_for_dfx
-///
-/// Backward-compatible alias for staging supported test canisters.
-///
-
-pub fn stage_sql_test_canister_for_dfx(canister_name: &str) -> Result<(PathBuf, PathBuf), String> {
-    stage_canister_for_dfx(canister_name)
 }

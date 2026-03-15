@@ -8,9 +8,10 @@
 * `crates/icydb-schema`: Schema AST/builders and validation.
 * `crates/icydb-build`: Build/codegen helpers and canister glue.
 * `canisters/minimal`: Minimal SQL canister harness used for wasm audit baseline.
-* `canisters/sql-test`: Test-only SQL canister harness.
-* `schema/fixtures`: Shared schema and seed fixtures for runtime/canister tests.
-* `schema/minimal-fixtures`: Minimal schema fixtures for lightweight wasm auditing.
+* `canisters/quickstart`: SQL quickstart canister harness used for onboarding and integration flows.
+* `schema/quickstart`: Quickstart canister schema fixtures.
+* `schema/minimal`: Minimal schema fixtures for lightweight wasm auditing.
+* `schema/test`: Shared schema fixtures for macro/e2e test harnesses.
 * `testing/macro-tests`: Macro and schema contract tests.
 * `testing/pocket-ic`: Pocket-IC integration tests.
 * `assets/`: Images and docs assets. `scripts/`: release/version helpers. `Makefile`: common tasks.

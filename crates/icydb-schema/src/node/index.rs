@@ -58,7 +58,7 @@ impl Display for IndexExpression {
 /// IndexKeyItem
 ///
 /// Canonical index key-item metadata.
-/// `Field` preserves legacy field-key behavior.
+/// `Field` preserves field-key behavior.
 /// `Expression` reserves deterministic expression-key identity metadata.
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]

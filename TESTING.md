@@ -28,16 +28,16 @@ IcyDB uses **five distinct classes of tests**. Each class has a clear purpose an
 
 Use fixture modules according to ownership, not convenience.
 
-> `schema/fixtures` = runtime integration fixtures  
+> `schema/test` = shared macro/e2e test schema fixtures  
 > `crates/*/testing` = engine-internal fixtures
 
-### `schema/fixtures`
+### `schema/test`
 
 Use for shared fixtures that represent runtime-facing behavior:
 
-* SQL test canister fixture schema/seed data
 * Macro/schema contract fixture entities reused across test crates
-* Integration harness fixture datasets
+* End-to-end runtime harness fixture schemas
+* Declarative schemas required by test framework coverage
 
 ### `crates/*/testing`
 
@@ -49,7 +49,7 @@ Use for crate-local engine scaffolding and internal invariants:
 
 ### Rule
 
-If a fixture is intended to be consumed by canister/runtime integration flows, it belongs in `schema/fixtures`.  
+If a fixture is intended to be consumed by shared test/runtime integration flows, it belongs in `schema/test`.  
 If a fixture exists only to test one crate's internals, it belongs under that crate's `testing` modules.
 
 ---
@@ -179,7 +179,7 @@ Tests in this category should:
 
 When a test needs a manual model:
 
-* Use the legacy helper `LegacyTestEntityModel` in `crates/icydb-core/src/test_fixtures.rs`
+* Use `entity_model_from_static` in `crates/icydb-core/src/testing/fixtures.rs`
 * Add a short comment explaining why typed entities are not used
 * Do **not** inline `EntityModel { ... }` in test modules
 
@@ -318,7 +318,7 @@ Do not add public exports solely to satisfy tests.
 * ❌ `__internal` test-only APIs
 * ❌ Dual schema languages ("real" vs "test")
 * ❌ Inline `EntityModel { ... }` in test modules
-* ❌ Unlabeled manual models (use `LegacyTestEntityModel`)
+* ❌ Unlabeled manual models (use `entity_model_from_static`)
 * ❌ `include_str!` used to enforce architectural invariants
 * ❌ String-content matching used for semantic error classification/assertion
 

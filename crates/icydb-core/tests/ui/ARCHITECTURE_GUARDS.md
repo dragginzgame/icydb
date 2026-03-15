@@ -28,7 +28,7 @@ This file maps each UI test to exactly one architecture rule.
 | `db/response_module_private.rs` | `db::response` module stays private; callers use root response types. |
 | `db/session_module_private.rs` | `db::session` module internals are private; callers use `db::DbSession`. |
 | `db/store_module_private.rs` | `db::data` store internals are not public API. |
-| `db/trace_module_absent.rs` | Legacy `db::trace` path must remain absent after trace move to diagnostics. |
+| `db/trace_module_absent.rs` | Removed `db::trace` path must remain absent after trace move to diagnostics. |
 | `query/fluent/removed_group_terminal_methods.rs` | Removed fluent grouped terminal methods must not reappear. |
 | `query/grouped/handoff_module_private.rs` | Grouped handoff internals are not publicly importable. |
 | `query/logical_plan_private.rs` | Query logical plan internals are not public via deep paths. |

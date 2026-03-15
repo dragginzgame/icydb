@@ -1,4 +1,4 @@
-use crate::macro_schema::test::TestStore;
+use crate::schema::test::TestStore;
 use icydb::design::prelude::*;
 
 ///

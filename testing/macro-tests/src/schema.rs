@@ -1,1 +1,1 @@
-pub use icydb_testing_fixtures::macro_schema::*;
+pub use icydb_testing_fixtures::schema::*;

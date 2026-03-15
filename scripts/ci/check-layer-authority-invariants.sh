@@ -152,6 +152,19 @@ if [[ -n "$continuation_rewrite_leaks" ]]; then
   status=1
 fi
 
+key_within_envelope_usage_leaks="$(
+  run_rg "\\bkey_within_envelope\\b" "$DB_ROOT" \
+    --glob '!crates/icydb-core/src/db/index/**' \
+    --glob '!crates/icydb-core/src/db/cursor/**' \
+    --glob '!crates/icydb-core/src/db/executor/mutation/commit_window.rs' \
+    | strip_comment_only
+)"
+if [[ -n "$key_within_envelope_usage_leaks" ]]; then
+  echo "[ERROR] key_within_envelope usage must remain index/cursor-owned with one executor mutation delegate." >&2
+  echo "$key_within_envelope_usage_leaks" >&2
+  status=1
+fi
+
 # 0.49 executor layer guardrails: prevent cross-layer import drift.
 aggregate_scan_import_leaks="$(
   run_rg "db::executor::scan::" "crates/icydb-core/src/db/executor/aggregate" \

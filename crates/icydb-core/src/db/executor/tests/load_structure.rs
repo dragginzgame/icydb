@@ -257,7 +257,7 @@ fn executor_legacy_load_module_directory_is_removed() {
     let load_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/load");
     assert!(
         !load_root.exists(),
-        "legacy executor/load directory must remain removed after 0.49 stabilization work",
+        "executor/load directory must remain removed after 0.49 stabilization work",
     );
 }
 

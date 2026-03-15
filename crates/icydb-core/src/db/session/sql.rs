@@ -261,8 +261,8 @@ impl<C: CanisterKind> DbSession<C> {
 
     /// Execute one reduced SQL `SELECT` statement and return projection-shaped rows.
     ///
-    /// This surface keeps `execute_sql(...)` backwards-compatible for callers
-    /// that currently consume full entity rows.
+    /// This surface keeps `execute_sql(...)` stable for callers
+    /// that consume full entity rows.
     pub fn execute_sql_projection<E>(&self, sql: &str) -> Result<ProjectionResponse<E>, QueryError>
     where
         E: EntityKind<Canister = C> + EntityValue,
