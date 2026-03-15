@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        predicate::{ComparePredicate, MissingRowPolicy, Predicate},
+        predicate::{MissingRowPolicy, Predicate, rewrite_field_identifiers},
         query::{
             builder::aggregate::{avg, count, count_by, max_by, min_by, sum},
             intent::{Query, QueryError},
@@ -211,7 +211,7 @@ fn lower_global_aggregate_select<E: EntityKind>(
         normalize_projection_identifiers(statement.projection, entity_scope.as_slice());
     statement.predicate = statement
         .predicate
-        .map(|predicate| normalize_predicate_identifiers(predicate, entity_scope.as_slice()));
+        .map(|predicate| adapt_predicate_identifiers_to_scope(predicate, entity_scope.as_slice()));
     statement.order_by = normalize_order_terms(statement.order_by, entity_scope.as_slice());
 
     if statement.distinct {
@@ -252,7 +252,7 @@ fn lower_select<E: EntityKind>(
     statement.group_by = normalize_identifier_list(statement.group_by, entity_scope.as_slice());
     statement.predicate = statement
         .predicate
-        .map(|predicate| normalize_predicate_identifiers(predicate, entity_scope.as_slice()));
+        .map(|predicate| adapt_predicate_identifiers_to_scope(predicate, entity_scope.as_slice()));
     statement.order_by = normalize_order_terms(statement.order_by, entity_scope.as_slice());
 
     // Phase 1: projection and predicate/order shaping.
@@ -459,7 +459,7 @@ fn lower_delete<E: EntityKind>(
     let entity_scope = sql_entity_scope_candidates::<E>(statement.entity.as_str());
     statement.predicate = statement
         .predicate
-        .map(|predicate| normalize_predicate_identifiers(predicate, entity_scope.as_slice()));
+        .map(|predicate| adapt_predicate_identifiers_to_scope(predicate, entity_scope.as_slice()));
     statement.order_by = normalize_order_terms(statement.order_by, entity_scope.as_slice());
 
     let mut query = Query::new(consistency).delete();
@@ -552,60 +552,13 @@ fn normalize_identifier_list(fields: Vec<String>, entity_scope: &[String]) -> Ve
         .collect()
 }
 
-fn normalize_predicate_identifiers(predicate: Predicate, entity_scope: &[String]) -> Predicate {
-    match predicate {
-        Predicate::True => Predicate::True,
-        Predicate::False => Predicate::False,
-        Predicate::And(children) => Predicate::And(
-            children
-                .into_iter()
-                .map(|child| normalize_predicate_identifiers(child, entity_scope))
-                .collect(),
-        ),
-        Predicate::Or(children) => Predicate::Or(
-            children
-                .into_iter()
-                .map(|child| normalize_predicate_identifiers(child, entity_scope))
-                .collect(),
-        ),
-        Predicate::Not(inner) => Predicate::Not(Box::new(normalize_predicate_identifiers(
-            *inner,
-            entity_scope,
-        ))),
-        Predicate::Compare(compare) => Predicate::Compare(normalize_compare(compare, entity_scope)),
-        Predicate::IsNull { field } => Predicate::IsNull {
-            field: normalize_identifier(field, entity_scope),
-        },
-        Predicate::IsNotNull { field } => Predicate::IsNotNull {
-            field: normalize_identifier(field, entity_scope),
-        },
-        Predicate::IsMissing { field } => Predicate::IsMissing {
-            field: normalize_identifier(field, entity_scope),
-        },
-        Predicate::IsEmpty { field } => Predicate::IsEmpty {
-            field: normalize_identifier(field, entity_scope),
-        },
-        Predicate::IsNotEmpty { field } => Predicate::IsNotEmpty {
-            field: normalize_identifier(field, entity_scope),
-        },
-        Predicate::TextContains { field, value } => Predicate::TextContains {
-            field: normalize_identifier(field, entity_scope),
-            value,
-        },
-        Predicate::TextContainsCi { field, value } => Predicate::TextContainsCi {
-            field: normalize_identifier(field, entity_scope),
-            value,
-        },
-    }
-}
-
-fn normalize_compare(compare: ComparePredicate, entity_scope: &[String]) -> ComparePredicate {
-    ComparePredicate {
-        field: normalize_identifier(compare.field, entity_scope),
-        op: compare.op,
-        value: compare.value,
-        coercion: compare.coercion,
-    }
+// SQL lowering only adapts identifier qualification (`entity.field` -> `field`)
+// and delegates predicate-tree traversal ownership to `db::predicate`.
+fn adapt_predicate_identifiers_to_scope(
+    predicate: Predicate,
+    entity_scope: &[String],
+) -> Predicate {
+    rewrite_field_identifiers(predicate, |field| normalize_identifier(field, entity_scope))
 }
 
 fn normalize_identifier(identifier: String, entity_scope: &[String]) -> String {
@@ -906,6 +859,52 @@ mod tests {
                 .expect("unqualified fluent plan should build")
                 .into_inner(),
             "qualified SQL field references should normalize to the same canonical planned intent as unqualified fluent references",
+        );
+    }
+
+    #[test]
+    fn compile_sql_command_qualified_nested_predicate_matches_unqualified_fluent_intent() {
+        let sql_command = compile_sql_command::<SqlLowerEntity>(
+            "SELECT * FROM SqlLowerEntity \
+             WHERE (SqlLowerEntity.age >= 21 OR SqlLowerEntity.name = 'Ada') \
+             AND NOT (SqlLowerEntity.name = 'Bob')",
+            MissingRowPolicy::Ignore,
+        )
+        .expect("qualified nested-predicate SQL query should lower");
+        let SqlCommand::Query(sql_query) = sql_command else {
+            panic!("expected lowered SQL query command");
+        };
+
+        let fluent_query =
+            Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::And(vec![
+                Predicate::Or(vec![
+                    Predicate::Compare(ComparePredicate::with_coercion(
+                        "age",
+                        CompareOp::Gte,
+                        Value::Int(21),
+                        CoercionId::NumericWiden,
+                    )),
+                    Predicate::Compare(ComparePredicate::eq(
+                        "name".to_string(),
+                        Value::Text("Ada".to_string()),
+                    )),
+                ]),
+                Predicate::Not(Box::new(Predicate::Compare(ComparePredicate::eq(
+                    "name".to_string(),
+                    Value::Text("Bob".to_string()),
+                )))),
+            ]));
+
+        assert_eq!(
+            sql_query
+                .plan()
+                .expect("qualified nested-predicate SQL plan should build")
+                .into_inner(),
+            fluent_query
+                .plan()
+                .expect("unqualified fluent nested-predicate plan should build")
+                .into_inner(),
+            "qualified nested predicate identifiers should normalize to the same canonical planned intent as unqualified fluent predicates",
         );
     }
 

@@ -14,9 +14,10 @@ use crate::{
                     eq_lookup_value_for_key_item, index_key_item_count,
                     key_item_matches_field_and_coercion, leading_index_key_item,
                 },
+                planner::index_literal_matches_schema,
             },
         },
-        schema::{SchemaInfo, literal_matches_type},
+        schema::SchemaInfo,
     },
     model::{
         entity::EntityModel,
@@ -449,7 +450,7 @@ fn evaluate_prefix_compare_candidate(
     if cmp.op != CompareOp::Eq {
         return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::OperatorNotPrefixEq);
     }
-    if !schema_literal_compatible(schema, cmp.field.as_str(), cmp.value()) {
+    if !index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value()) {
         return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::LiteralIncompatible);
     }
     let Some(leading_key_item) = leading_index_key_item(index) else {
@@ -521,7 +522,7 @@ fn collect_prefix_eq_constraints<'a>(
             cmp.field.as_str(),
             cmp.value(),
             cmp.coercion.id,
-            schema_literal_compatible(schema, cmp.field.as_str(), cmp.value()),
+            index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value()),
         ));
     }
 
@@ -635,7 +636,7 @@ fn evaluate_multi_lookup_candidate(
         return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::InLiteralEmpty);
     }
     for value in values {
-        let literal_compatible = schema_literal_compatible(schema, cmp.field.as_str(), value);
+        let literal_compatible = index_literal_matches_schema(schema, cmp.field.as_str(), value);
         if eq_lookup_value_for_key_item(
             leading_key_item,
             cmp.field.as_str(),
@@ -702,10 +703,10 @@ fn evaluate_range_compare_candidate(
     if index.fields().first() != Some(&cmp.field.as_str()) {
         return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::LeadingFieldMismatch);
     }
-    if !schema_literal_compatible(schema, cmp.field.as_str(), cmp.value()) {
+    if !index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value()) {
         return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::LiteralIncompatible);
     }
-    if !indexable_compare_op(cmp.op) {
+    if !index.is_field_indexable(cmp.field.as_str(), cmp.op) {
         return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::OperatorNotSupported);
     }
     if matches!(
@@ -799,10 +800,10 @@ fn classify_range_index_constraints(
             continue;
         };
 
-        if !schema_literal_compatible(schema, cmp.field.as_str(), cmp.value()) {
+        if !index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value()) {
             return Err(AccessChoiceRejectedReason::LiteralIncompatible);
         }
-        if !indexable_compare_op(cmp.op) {
+        if !index.is_field_indexable(cmp.field.as_str(), cmp.op) {
             return Err(AccessChoiceRejectedReason::OperatorNotSupported);
         }
 
@@ -929,27 +930,6 @@ fn sorted_indexes(model: &EntityModel) -> Vec<&'static IndexModel> {
     indexes.sort_by(|left, right| left.name().cmp(right.name()));
 
     indexes
-}
-
-const fn indexable_compare_op(op: CompareOp) -> bool {
-    matches!(
-        op,
-        CompareOp::Eq
-            | CompareOp::In
-            | CompareOp::Gt
-            | CompareOp::Gte
-            | CompareOp::Lt
-            | CompareOp::Lte
-            | CompareOp::StartsWith
-    )
-}
-
-fn schema_literal_compatible(schema: &SchemaInfo, field: &str, value: &Value) -> bool {
-    let Some(field_type) = schema.field(field) else {
-        return false;
-    };
-
-    literal_matches_type(value, field_type)
 }
 
 ///

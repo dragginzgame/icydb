@@ -368,6 +368,56 @@ fn canonicalization_ownership_stays_in_access_and_predicate_layers() {
         predicate_owner.contains("pub(in crate::db) fn normalize("),
         "predicate canonicalization owner surface should expose normalize(...)",
     );
+
+    let sql_lowering_source = fs::read_to_string(crate_root.join("src/db/sql/lowering.rs"))
+        .expect("sql lowering source should be readable");
+    let sql_lowering_runtime_source = strip_cfg_test_items(sql_lowering_source.as_str());
+    assert!(
+        sql_lowering_runtime_source.contains("rewrite_field_identifiers("),
+        "SQL lowering predicate adaptation should delegate traversal to predicate owner",
+    );
+    for forbidden in [
+        "fn normalize_predicate_identifiers(",
+        "fn normalize_compare(",
+    ] {
+        assert!(
+            !sql_lowering_runtime_source.contains(forbidden),
+            "SQL lowering must not own predicate canonical traversal helpers ({forbidden})",
+        );
+    }
+
+    let explain_plan_source = fs::read_to_string(crate_root.join("src/db/query/explain/plan.rs"))
+        .expect("query explain plan source should be readable");
+    let explain_plan_runtime_source = strip_cfg_test_items(explain_plan_source.as_str());
+    assert!(
+        !explain_plan_runtime_source.contains("map(normalize)"),
+        "EXPLAIN must consume canonical predicate models instead of re-normalizing",
+    );
+
+    let planner_predicate_source =
+        fs::read_to_string(crate_root.join("src/db/query/plan/planner/predicate.rs"))
+            .expect("planner predicate source should be readable");
+    let planner_predicate_runtime_source = strip_cfg_test_items(planner_predicate_source.as_str());
+    assert!(
+        !planner_predicate_runtime_source.contains("plan_strict_same_field_eq_or("),
+        "planner must not own local OR->IN structural rewrite helpers",
+    );
+
+    assert!(
+        predicate_owner.contains("fn collapse_same_field_or_eq_to_in("),
+        "predicate canonicalization owner should expose OR->IN structural rewrite boundary",
+    );
+
+    let access_choice_source =
+        fs::read_to_string(crate_root.join("src/db/query/plan/access_choice.rs"))
+            .expect("access choice source should be readable");
+    let access_choice_runtime_source = strip_cfg_test_items(access_choice_source.as_str());
+    for forbidden in ["fn schema_literal_compatible(", "fn indexable_compare_op("] {
+        assert!(
+            !access_choice_runtime_source.contains(forbidden),
+            "access-choice must consume shared planner compatibility helpers ({forbidden})",
+        );
+    }
 }
 
 #[test]

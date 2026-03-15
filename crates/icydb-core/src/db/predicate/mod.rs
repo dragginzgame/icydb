@@ -6,6 +6,7 @@
 mod coercion;
 mod encoding;
 mod fingerprint;
+mod identifiers;
 mod model;
 mod normalize;
 mod resolved;
@@ -20,6 +21,7 @@ pub use row_policy::MissingRowPolicy;
 
 pub(crate) use coercion::CoercionSpec;
 pub(in crate::db) use coercion::supports_coercion;
+pub(in crate::db) use identifiers::rewrite_field_identifiers;
 pub(crate) use model::PredicateExecutionModel;
 pub(in crate::db) use normalize::{normalize, normalize_enum_literals};
 

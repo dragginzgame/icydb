@@ -9,9 +9,7 @@ use crate::{
             AccessPlan, PushdownSurfaceEligibility, SecondaryOrderPushdownEligibility,
             SecondaryOrderPushdownRejection,
         },
-        predicate::{
-            CoercionSpec, CompareOp, ComparePredicate, MissingRowPolicy, Predicate, normalize,
-        },
+        predicate::{CoercionSpec, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::{
             explain::{access_projection::write_access_json, writer::JsonWriter},
             plan::{
@@ -607,8 +605,8 @@ fn explain_scalar_inner<K>(
 where
     K: FieldValue,
 {
-    // Phase 1: derive canonical predicate projection from normalized predicate model.
-    let predicate_model = logical.predicate.as_ref().map(normalize);
+    // Phase 1: consume canonical predicate model from planner-owned scalar semantics.
+    let predicate_model = logical.predicate.clone();
     let predicate = match &predicate_model {
         Some(predicate) => ExplainPredicate::from_predicate(predicate),
         None => ExplainPredicate::None,

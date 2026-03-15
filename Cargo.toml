@@ -113,3 +113,16 @@ codegen-units = 16
 strip = "debuginfo"
 debug = false
 overflow-checks = true
+
+# -------------------------
+#  RELEASE / WASM PROFILES
+# -------------------------
+[profile.release]
+strip = "symbols"
+
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"

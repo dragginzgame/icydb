@@ -2,6 +2,7 @@
         test build check clippy fmt fmt-check clean install-dev \
         test-watch all ensure-clean security-check check-versioning \
         ensure-hooks install-hooks check-index-range-spec-invariants \
+        wasm-size-report \
         check-architecture-text-scan-invariants check-invariants
 
 # in case we need this
@@ -40,6 +41,7 @@ help:
 	@echo "  fmt              Format code"
 	@echo "  fmt-check        Check formatting"
 	@echo "  clean            Clean build artifacts"
+	@echo "  wasm-size-report Build and report sql_test wasm sizes"
 	@echo ""
 	@echo "Utilities:"
 	@echo "  test-watch       Run tests in watch mode"
@@ -112,10 +114,13 @@ release: ensure-clean
 test: clippy test-unit
 
 test-unit:
-	$(CARGO_ENV) cargo test --workspace --all-targets --verbose
+	POCKET_IC_BIN="$$(bash scripts/ci/ensure-pocket-ic-bin.sh)" $(CARGO_ENV) cargo test --workspace --all-targets --verbose
 
 test-canisters:
 	@echo "Skipping canister tests (disabled)"
+
+wasm-size-report:
+	bash scripts/ci/wasm-size-report.sh
 
 #
 # Development commands

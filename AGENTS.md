@@ -7,7 +7,7 @@
 * `crates/icydb-schema-derive`: Derive and codegen macros.
 * `crates/icydb-schema`: Schema AST/builders and validation.
 * `crates/icydb-build`: Build/codegen helpers and canister glue.
-* `canisters/sql-test-canister`: Test-only SQL canister harness.
+* `canisters/sql-test`: Test-only SQL canister harness.
 * `testing/fixtures`: Shared schema and seed fixtures for tests/canisters.
 * `testing/macro-tests`: Macro and schema contract tests.
 * `testing/pocket-ic`: Pocket-IC integration tests.

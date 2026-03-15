@@ -15,7 +15,7 @@ use crate::{
 };
 use std::cmp::Ordering;
 
-pub(in crate::db::query::plan::planner) fn sorted_indexes(
+pub(in crate::db::query::plan) fn sorted_indexes(
     model: &EntityModel,
     query_predicate: &Predicate,
 ) -> Vec<&'static IndexModel> {
@@ -44,7 +44,7 @@ pub(in crate::db::query::plan::planner) fn better_index(
             && cand_index.name() < best_index.name())
 }
 
-pub(in crate::db::query::plan::planner) fn index_literal_matches_schema(
+pub(in crate::db::query::plan) fn index_literal_matches_schema(
     schema: &SchemaInfo,
     field: &str,
     value: &Value,
@@ -314,7 +314,7 @@ fn compare_values(left: &Value, right: &Value) -> Option<Ordering> {
 impl IndexModel {
     /// Return true when this index can structurally support the field/operator pair.
     #[must_use]
-    pub(in crate::db::query::plan::planner) fn is_field_indexable(
+    pub(in crate::db::query::plan) fn is_field_indexable(
         &self,
         field: &str,
         op: CompareOp,

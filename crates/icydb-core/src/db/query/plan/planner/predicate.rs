@@ -6,8 +6,8 @@
 use crate::{
     db::{
         access::AccessPlan,
-        predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
-        query::plan::planner::{compare, index_literal_matches_schema, prefix, range},
+        predicate::Predicate,
+        query::plan::planner::{compare, prefix, range},
         schema::SchemaInfo,
     },
     error::InternalError,
@@ -67,81 +67,13 @@ pub(super) fn plan_predicate(
             AccessPlan::intersection(plans)
         }
         Predicate::Or(children) => AccessPlan::union(
-            if let Some(rewritten) =
-                plan_strict_same_field_eq_or(model, schema, children, query_predicate)
-            {
-                vec![rewritten]
-            } else {
-                children
-                    .iter()
-                    .map(|child| plan_predicate(model, schema, child, query_predicate))
-                    .collect::<Result<Vec<_>, _>>()?
-            },
+            children
+                .iter()
+                .map(|child| plan_predicate(model, schema, child, query_predicate))
+                .collect::<Result<Vec<_>, _>>()?,
         ),
         Predicate::Compare(cmp) => compare::plan_compare(model, schema, cmp, query_predicate),
     };
 
     Ok(plan)
-}
-
-// Fold strictly bounded OR-equality shapes (`a=v1 OR a=v2 ...`) into one
-// IN planning path so access selection and explain metadata align.
-// Access canonicalization owns IN-list set normalization semantics.
-fn plan_strict_same_field_eq_or(
-    model: &EntityModel,
-    schema: &SchemaInfo,
-    children: &[Predicate],
-    query_predicate: &Predicate,
-) -> Option<AccessPlan<Value>> {
-    if children.len() < 2 {
-        return None;
-    }
-
-    let mut field: Option<&str> = None;
-    let mut coercion: Option<CoercionId> = None;
-    let mut values = Vec::with_capacity(children.len());
-    for child in children {
-        let Predicate::Compare(cmp) = child else {
-            return None;
-        };
-        if cmp.op != CompareOp::Eq {
-            return None;
-        }
-        if !matches!(
-            cmp.coercion.id,
-            CoercionId::Strict | CoercionId::TextCasefold
-        ) {
-            return None;
-        }
-        if !index_literal_matches_schema(schema, &cmp.field, &cmp.value) {
-            return None;
-        }
-        if let Some(current) = coercion {
-            if current != cmp.coercion.id {
-                return None;
-            }
-        } else {
-            coercion = Some(cmp.coercion.id);
-        }
-        if let Some(current) = field {
-            if current != cmp.field {
-                return None;
-            }
-        } else {
-            field = Some(cmp.field.as_str());
-        }
-        values.push(cmp.value.clone());
-    }
-
-    let field = field?;
-    let coercion = coercion?;
-    let in_compare =
-        ComparePredicate::with_coercion(field, CompareOp::In, Value::List(values), coercion);
-
-    Some(compare::plan_compare(
-        model,
-        schema,
-        &in_compare,
-        query_predicate,
-    ))
 }

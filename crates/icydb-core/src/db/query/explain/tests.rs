@@ -7,7 +7,7 @@ use super::*;
 use crate::db::access::{
     AccessPath, AccessPlan, SecondaryOrderPushdownEligibility, SecondaryOrderPushdownRejection,
 };
-use crate::db::predicate::{CompareOp, MissingRowPolicy, Predicate};
+use crate::db::predicate::{CompareOp, MissingRowPolicy, Predicate, normalize};
 use crate::db::query::builder::field::FieldRef;
 use crate::db::query::intent::{KeyAccess, build_access_plan_from_keys};
 use crate::db::query::plan::{
@@ -57,14 +57,14 @@ fn explain_is_deterministic_for_same_query() {
 fn explain_is_deterministic_for_equivalent_predicates() {
     let id = Ulid::default();
 
-    let predicate_a = Predicate::And(vec![
+    let predicate_a = normalize(&Predicate::And(vec![
         FieldRef::new("id").eq(id),
         FieldRef::new("other").eq(Value::Text("x".to_string())),
-    ]);
-    let predicate_b = Predicate::And(vec![
+    ]));
+    let predicate_b = normalize(&Predicate::And(vec![
         FieldRef::new("other").eq(Value::Text("x".to_string())),
         FieldRef::new("id").eq(id),
-    ]);
+    ]));
 
     let mut plan_a: AccessPlannedQuery<Value> =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);

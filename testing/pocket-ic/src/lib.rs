@@ -40,7 +40,7 @@ fn run_checked(mut command: Command, context: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn should_default_to_release_profile() -> bool {
+fn should_default_to_wasm_release_profile() -> bool {
     matches!(
         env::var("DFX_NETWORK").ok().as_deref(),
         Some("mainnet" | "staging" | "ic")
@@ -53,14 +53,15 @@ fn selected_sql_test_wasm_profile() -> Result<&'static str, String> {
         return match normalized.as_str() {
             "debug" => Ok("debug"),
             "release" => Ok("release"),
+            "wasm-release" => Ok("wasm-release"),
             other => Err(format!(
-                "invalid {SQL_TEST_WASM_PROFILE_ENV} value '{other}', expected 'debug' or 'release'"
+                "invalid {SQL_TEST_WASM_PROFILE_ENV} value '{other}', expected 'debug', 'release', or 'wasm-release'"
             )),
         };
     }
 
-    if should_default_to_release_profile() {
-        Ok("release")
+    if should_default_to_wasm_release_profile() {
+        Ok("wasm-release")
     } else {
         Ok("debug")
     }
@@ -72,9 +73,9 @@ fn selected_sql_test_wasm_profile() -> Result<&'static str, String> {
 /// Build the SQL test canister WASM and return the built wasm path.
 ///
 /// Build profile selection:
-/// - `release` when `DFX_NETWORK` is `mainnet`, `staging`, or `ic`
+/// - `wasm-release` when `DFX_NETWORK` is `mainnet`, `staging`, or `ic`
 /// - `debug` otherwise
-/// - overridden by `SQL_TEST_WASM_PROFILE=debug|release`
+/// - overridden by `SQL_TEST_WASM_PROFILE=debug|release|wasm-release`
 ///
 
 pub fn build_sql_test_canister() -> Result<PathBuf, String> {
@@ -90,6 +91,8 @@ pub fn build_sql_test_canister() -> Result<PathBuf, String> {
     ]);
     if profile == "release" {
         cargo.arg("--release");
+    } else if profile != "debug" {
+        cargo.args(["--profile", profile]);
     }
     run_checked(cargo, &format!("sql test canister build ({profile})"))?;
 

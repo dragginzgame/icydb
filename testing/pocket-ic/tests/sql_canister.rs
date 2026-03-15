@@ -1,10 +1,34 @@
 use candid::{Principal, decode_one, encode_one};
 use icydb::db::sql::SqlQueryRowsOutput;
 use icydb_testing_integration::build_sql_test_canister;
-use pocket_ic::PocketIc;
-use std::fs;
+use pocket_ic::{PocketIc, PocketIcBuilder};
+use std::{fs, path::PathBuf};
 
 const INIT_CYCLES: u128 = 2_000_000_000_000;
+const POCKET_IC_BIN_ENV: &str = "POCKET_IC_BIN";
+
+// Build Pocket-IC with an explicit server binary to avoid implicit network
+// downloads during local test execution.
+fn new_pocket_ic() -> PocketIc {
+    let Some(server_binary_raw) = std::env::var_os(POCKET_IC_BIN_ENV) else {
+        panic!(
+            "set {POCKET_IC_BIN_ENV} to an executable pocket-ic server binary; \
+             these tests disable implicit PocketIC downloads"
+        );
+    };
+    let server_binary = PathBuf::from(server_binary_raw);
+    assert!(
+        server_binary.is_file(),
+        "{POCKET_IC_BIN_ENV} points to {}, but that file does not exist",
+        server_binary.display()
+    );
+
+    PocketIcBuilder::new()
+        // Match PocketIc::new() topology expectations: at least one subnet.
+        .with_application_subnet()
+        .with_server_binary(server_binary)
+        .build()
+}
 
 fn build_sql_test_canister_wasm() -> Vec<u8> {
     let wasm_path = build_sql_test_canister().expect("build sql_test canister");
@@ -19,7 +43,7 @@ fn build_sql_test_canister_wasm() -> Vec<u8> {
 #[test]
 #[expect(clippy::too_many_lines)]
 fn sql_canister_smoke_flow() {
-    let pic = PocketIc::new();
+    let pic = new_pocket_ic();
 
     let canister_id = pic.create_canister();
     pic.add_cycles(canister_id, INIT_CYCLES);
@@ -136,7 +160,7 @@ fn sql_canister_smoke_flow() {
 #[test]
 #[expect(clippy::too_many_lines)]
 fn sql_canister_dispatch_is_entity_keyed_and_deterministic() {
-    let pic = PocketIc::new();
+    let pic = new_pocket_ic();
 
     let canister_id = pic.create_canister();
     pic.add_cycles(canister_id, INIT_CYCLES);

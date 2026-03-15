@@ -259,6 +259,48 @@ mod tests {
     }
 
     #[test]
+    fn fingerprint_and_signature_treat_same_field_or_eq_and_in_as_identical() {
+        let predicate_or_eq = Predicate::Or(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "rank",
+                CompareOp::Eq,
+                Value::Uint(3),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "rank",
+                CompareOp::Eq,
+                Value::Uint(1),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "rank",
+                CompareOp::Eq,
+                Value::Uint(3),
+                CoercionId::Strict,
+            )),
+        ]);
+        let predicate_in = Predicate::Compare(ComparePredicate::with_coercion(
+            "rank",
+            CompareOp::In,
+            Value::List(vec![Value::Uint(1), Value::Uint(3)]),
+            CoercionId::Strict,
+        ));
+
+        let mut plan_or_eq: AccessPlannedQuery<Value> = full_scan_query();
+        plan_or_eq.scalar_plan_mut().predicate = Some(predicate_or_eq);
+
+        let mut plan_in: AccessPlannedQuery<Value> = full_scan_query();
+        plan_in.scalar_plan_mut().predicate = Some(predicate_in);
+
+        assert_eq!(plan_or_eq.fingerprint(), plan_in.fingerprint());
+        assert_eq!(
+            plan_or_eq.continuation_signature("tests::Entity"),
+            plan_in.continuation_signature("tests::Entity")
+        );
+    }
+
+    #[test]
     fn fingerprint_and_signature_treat_equivalent_in_list_duplicate_literals_as_identical() {
         let predicate_a = Predicate::Compare(ComparePredicate::in_(
             "rank".to_string(),

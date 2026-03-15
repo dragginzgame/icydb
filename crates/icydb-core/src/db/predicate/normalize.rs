@@ -6,8 +6,8 @@
 use crate::{
     db::{
         predicate::{
-            CompareOp, ComparePredicate, Predicate, encoding::encode_predicate_sort_key,
-            simplify::simplify_and_compare_constraints,
+            CoercionId, CompareOp, ComparePredicate, Predicate,
+            encoding::encode_predicate_sort_key, simplify::simplify_and_compare_constraints,
         },
         schema::{SchemaInfo, ValidateError},
     },
@@ -395,11 +395,79 @@ fn normalize_or(children: &[Predicate]) -> Predicate {
     out.sort_by_cached_key(|predicate| (predicate_eval_cost_rank(predicate), sort_key(predicate)));
     out.dedup();
 
+    // Collapse canonical same-field equality disjunctions into one IN compare
+    // at the predicate authority boundary.
+    if let Some(collapsed) = collapse_same_field_or_eq_to_in(out.as_slice()) {
+        return collapsed;
+    }
+
     if out.len() == 1 {
         return out.remove(0);
     }
 
     Predicate::Or(out)
+}
+
+// Collapse `field = a OR field = b ...` into `field IN [a, b, ...]` when:
+// - all children are equality compares
+// - all children target the same field
+// - all children share one supported coercion family
+// - all equality literals are scalar-ish (not list/map payloads)
+fn collapse_same_field_or_eq_to_in(children: &[Predicate]) -> Option<Predicate> {
+    if children.len() < 2 {
+        return None;
+    }
+
+    let mut field: Option<&str> = None;
+    let mut coercion: Option<CoercionId> = None;
+    let mut values = Vec::with_capacity(children.len());
+
+    for child in children {
+        let Predicate::Compare(compare) = child else {
+            return None;
+        };
+        if compare.op != CompareOp::Eq {
+            return None;
+        }
+        if !matches!(
+            compare.coercion.id,
+            CoercionId::Strict | CoercionId::TextCasefold
+        ) {
+            return None;
+        }
+        if !or_eq_compare_value_is_in_safe(&compare.value) {
+            return None;
+        }
+        if let Some(current) = field {
+            if current != compare.field {
+                return None;
+            }
+        } else {
+            field = Some(compare.field.as_str());
+        }
+        if let Some(current) = coercion {
+            if current != compare.coercion.id {
+                return None;
+            }
+        } else {
+            coercion = Some(compare.coercion.id);
+        }
+
+        values.push(compare.value.clone());
+    }
+
+    Some(Predicate::Compare(ComparePredicate::with_coercion(
+        field?,
+        CompareOp::In,
+        Value::List(values),
+        coercion?,
+    )))
+}
+
+// Keep OR->IN canonicalization fail-closed for collection/map literals because
+// list-like equality remains a distinct validation/runtime surface from `IN`.
+const fn or_eq_compare_value_is_in_safe(value: &Value) -> bool {
+    !matches!(value, Value::List(_) | Value::Map(_))
 }
 
 // Return a stable heuristic rank for predicate evaluation cost. Lower ranks
@@ -439,7 +507,7 @@ fn sort_key(predicate: &Predicate) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        db::predicate::{CompareOp, ComparePredicate, Predicate, normalize},
+        db::predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, normalize},
         value::Value,
     };
 
@@ -624,5 +692,100 @@ mod tests {
             Predicate::False,
             "crossed lower/upper bounds must collapse to false",
         );
+    }
+
+    #[test]
+    fn normalize_or_same_field_eq_collapses_to_in() {
+        let predicate = Predicate::Or(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "tag",
+                CompareOp::Eq,
+                Value::Text("beta".to_string()),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "tag",
+                CompareOp::Eq,
+                Value::Text("alpha".to_string()),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "tag",
+                CompareOp::Eq,
+                Value::Text("beta".to_string()),
+                CoercionId::Strict,
+            )),
+        ]);
+
+        let normalized = normalize(&predicate);
+        let Predicate::Compare(compare) = normalized else {
+            panic!("same-field strict OR-equality should collapse to one IN compare");
+        };
+
+        assert_eq!(compare.field, "tag".to_string());
+        assert_eq!(compare.op, CompareOp::In);
+        assert_eq!(compare.coercion.id, CoercionId::Strict);
+        let Value::List(mut values) = compare.value else {
+            panic!("collapsed OR-equality compare should carry list literal");
+        };
+        values.sort_by(Value::canonical_cmp);
+        assert_eq!(
+            values,
+            vec![
+                Value::Text("alpha".to_string()),
+                Value::Text("beta".to_string()),
+            ],
+            "same-field strict OR-equality should collapse to deduplicated IN-list members",
+        );
+    }
+
+    #[test]
+    fn normalize_or_mixed_eq_coercions_do_not_collapse_to_in() {
+        let predicate = Predicate::Or(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "tag",
+                CompareOp::Eq,
+                Value::Text("alpha".to_string()),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "tag",
+                CompareOp::Eq,
+                Value::Text("beta".to_string()),
+                CoercionId::TextCasefold,
+            )),
+        ]);
+
+        let normalized = normalize(&predicate);
+        let Predicate::Or(children) = normalized else {
+            panic!("mixed coercion OR-equality should remain OR in canonical form");
+        };
+
+        assert_eq!(children.len(), 2);
+    }
+
+    #[test]
+    fn normalize_or_list_equality_literals_do_not_collapse_to_in() {
+        let predicate = Predicate::Or(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "tags",
+                CompareOp::Eq,
+                Value::List(vec![Value::Text("a".to_string())]),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "tags",
+                CompareOp::Eq,
+                Value::List(vec![Value::Text("b".to_string())]),
+                CoercionId::Strict,
+            )),
+        ]);
+
+        let normalized = normalize(&predicate);
+        let Predicate::Or(children) = normalized else {
+            panic!("list-literal OR-equality should remain OR in canonical form");
+        };
+
+        assert_eq!(children.len(), 2);
     }
 }

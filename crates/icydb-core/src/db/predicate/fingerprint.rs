@@ -77,6 +77,39 @@ mod tests {
     }
 
     #[test]
+    fn canonical_hash_treats_same_field_or_eq_and_in_as_equivalent() {
+        let or_eq = Predicate::Or(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "rank",
+                CompareOp::Eq,
+                Value::Uint(3),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "rank",
+                CompareOp::Eq,
+                Value::Uint(1),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "rank",
+                CompareOp::Eq,
+                Value::Uint(3),
+                CoercionId::Strict,
+            )),
+        ]);
+        let in_list = Predicate::Compare(ComparePredicate::with_coercion(
+            "rank",
+            CompareOp::In,
+            Value::List(vec![Value::Uint(1), Value::Uint(3)]),
+            CoercionId::Strict,
+        ));
+
+        assert_eq!(normalize(&or_eq), normalize(&in_list));
+        assert_eq!(digest(&or_eq), digest(&in_list));
+    }
+
+    #[test]
     fn canonical_hash_is_order_insensitive_for_in_list_literals() {
         let left = Predicate::Compare(ComparePredicate::in_(
             "rank".to_string(),
