@@ -5,7 +5,16 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.55.x] - 2026-03-15 - Expression Index Foundations
+## [0.56.x] - 2026-03-15 - Reduced SQL Introspection and Entity Listing
+
+- `0.56.0` adds reduced-SQL `DESCRIBE <entity>` and `SHOW INDEXES <entity>` introspection lanes across parser/lowering/session/facade, expands generated `sql_dispatch` with typed and shell-friendly describe/index helpers plus `SHOW ENTITIES` support, and keeps `query_rows` projection-only with deterministic introspection-lane rejections.
+
+See detailed breakdown:
+[docs/changelog/0.56.md](docs/changelog/0.56.md)
+
+---
+
+## [0.55.x] - 2026-03-15 - Expression Indexes
 
 - `0.55.0` ships the initial expression-index foundation line with canonical index key-item metadata, validated expression-key derivation, and shared planner/EXPLAIN eligibility for the first supported deterministic subset.
 - `0.55.1` hardens the line with filtered+expression composition locks, conditional+expression uniqueness coverage, and live-vs-replay expression-unique conflict parity checks.

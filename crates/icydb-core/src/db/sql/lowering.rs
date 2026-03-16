@@ -16,7 +16,7 @@ use crate::{
         sql::parser::{
             SqlAggregateCall, SqlAggregateKind, SqlDeleteStatement, SqlExplainMode,
             SqlExplainStatement, SqlExplainTarget, SqlOrderDirection, SqlProjection, SqlSelectItem,
-            SqlSelectStatement, SqlStatement, parse_sql,
+            SqlSelectStatement, SqlShowIndexesStatement, SqlStatement, parse_sql,
         },
     },
     traits::EntityKind,
@@ -45,6 +45,8 @@ pub(crate) enum SqlCommand<E: EntityKind> {
         mode: SqlExplainMode,
         command: SqlGlobalAggregateCommand<E>,
     },
+    DescribeEntity,
+    ShowIndexesEntity,
 }
 
 ///
@@ -154,7 +156,23 @@ fn lower_statement<E: EntityKind>(
             consistency,
         )?)),
         SqlStatement::Explain(statement) => lower_explain::<E>(statement, consistency),
+        SqlStatement::Describe(statement) => lower_describe::<E>(statement.entity.as_str()),
+        SqlStatement::ShowIndexes(statement) => lower_show_indexes::<E>(statement),
     }
+}
+
+fn lower_describe<E: EntityKind>(sql_entity: &str) -> Result<SqlCommand<E>, SqlLoweringError> {
+    ensure_entity_matches::<E>(sql_entity)?;
+
+    Ok(SqlCommand::DescribeEntity)
+}
+
+fn lower_show_indexes<E: EntityKind>(
+    statement: SqlShowIndexesStatement,
+) -> Result<SqlCommand<E>, SqlLoweringError> {
+    ensure_entity_matches::<E>(statement.entity.as_str())?;
+
+    Ok(SqlCommand::ShowIndexesEntity)
 }
 
 fn lower_global_aggregate_statement<E: EntityKind>(
@@ -720,6 +738,56 @@ mod tests {
         };
 
         assert!(matches!(query.mode(), QueryMode::Delete(_)));
+    }
+
+    #[test]
+    fn compile_sql_command_describe_lowers_to_describe_entity_lane() {
+        let command = compile_sql_command::<SqlLowerEntity>(
+            "DESCRIBE public.SqlLowerEntity",
+            MissingRowPolicy::Ignore,
+        )
+        .expect("DESCRIBE should lower");
+
+        assert!(
+            matches!(command, SqlCommand::DescribeEntity),
+            "DESCRIBE should lower to dedicated describe command lane",
+        );
+    }
+
+    #[test]
+    fn compile_sql_command_describe_rejects_entity_mismatch() {
+        let err = compile_sql_command::<SqlLowerEntity>(
+            "DESCRIBE DifferentEntity",
+            MissingRowPolicy::Ignore,
+        )
+        .expect_err("DESCRIBE entity mismatch should fail lowering");
+
+        assert!(matches!(err, SqlLoweringError::EntityMismatch { .. }));
+    }
+
+    #[test]
+    fn compile_sql_command_show_indexes_lowers_to_show_indexes_lane() {
+        let command = compile_sql_command::<SqlLowerEntity>(
+            "SHOW INDEXES public.SqlLowerEntity",
+            MissingRowPolicy::Ignore,
+        )
+        .expect("SHOW INDEXES should lower");
+
+        assert!(
+            matches!(command, SqlCommand::ShowIndexesEntity),
+            "SHOW INDEXES should lower to dedicated show-indexes command lane",
+        );
+    }
+
+    #[test]
+    fn compile_sql_command_show_indexes_rejects_entity_mismatch() {
+        let err = compile_sql_command::<SqlLowerEntity>(
+            "SHOW INDEXES DifferentEntity",
+            MissingRowPolicy::Ignore,
+        )
+        .expect_err("SHOW INDEXES entity mismatch should fail lowering");
+
+        assert!(matches!(err, SqlLoweringError::EntityMismatch { .. }));
     }
 
     #[test]

@@ -545,6 +545,46 @@ fn query_from_sql_rejects_explain_statements() {
 }
 
 #[test]
+fn query_from_sql_rejects_describe_statements() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .query_from_sql::<SessionSqlEntity>("DESCRIBE SessionSqlEntity")
+        .expect_err("query_from_sql must reject DESCRIBE statements");
+
+    assert!(
+        matches!(
+            err,
+            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                _
+            ))
+        ),
+        "query_from_sql DESCRIBE rejection must map to unsupported execution class",
+    );
+}
+
+#[test]
+fn query_from_sql_rejects_show_indexes_statements() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .query_from_sql::<SessionSqlEntity>("SHOW INDEXES SessionSqlEntity")
+        .expect_err("query_from_sql must reject SHOW INDEXES statements");
+
+    assert!(
+        matches!(
+            err,
+            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                _
+            ))
+        ),
+        "query_from_sql SHOW INDEXES rejection must map to unsupported execution class",
+    );
+}
+
+#[test]
 fn sql_statement_route_select_classifies_query_entity() {
     reset_session_sql_store();
     let session = sql_session();
@@ -561,6 +601,50 @@ fn sql_statement_route_select_classifies_query_entity() {
     );
     assert_eq!(route.entity(), "SessionSqlEntity");
     assert!(!route.is_explain());
+    assert!(!route.is_describe());
+    assert!(!route.is_show_indexes());
+}
+
+#[test]
+fn sql_statement_route_describe_classifies_entity() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let route = session
+        .sql_statement_route("DESCRIBE public.SessionSqlEntity")
+        .expect("describe SQL statement should parse");
+
+    assert_eq!(
+        route,
+        SqlStatementRoute::Describe {
+            entity: "public.SessionSqlEntity".to_string(),
+        }
+    );
+    assert_eq!(route.entity(), "public.SessionSqlEntity");
+    assert!(!route.is_explain());
+    assert!(route.is_describe());
+    assert!(!route.is_show_indexes());
+}
+
+#[test]
+fn sql_statement_route_show_indexes_classifies_entity() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let route = session
+        .sql_statement_route("SHOW INDEXES public.SessionSqlEntity")
+        .expect("show indexes SQL statement should parse");
+
+    assert_eq!(
+        route,
+        SqlStatementRoute::ShowIndexes {
+            entity: "public.SessionSqlEntity".to_string(),
+        }
+    );
+    assert_eq!(route.entity(), "public.SessionSqlEntity");
+    assert!(!route.is_explain());
+    assert!(!route.is_describe());
+    assert!(route.is_show_indexes());
 }
 
 #[test]
@@ -580,6 +664,120 @@ fn sql_statement_route_explain_classifies_wrapped_entity() {
     );
     assert_eq!(route.entity(), "SessionSqlEntity");
     assert!(route.is_explain());
+    assert!(!route.is_describe());
+    assert!(!route.is_show_indexes());
+}
+
+#[test]
+fn describe_sql_returns_same_payload_as_describe_entity() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let from_sql = session
+        .describe_sql::<SessionSqlEntity>("DESCRIBE SessionSqlEntity")
+        .expect("describe_sql should succeed");
+    let from_typed = session.describe_entity::<SessionSqlEntity>();
+
+    assert_eq!(
+        from_sql, from_typed,
+        "describe_sql should project through canonical describe_entity payload",
+    );
+}
+
+#[test]
+fn describe_sql_rejects_non_describe_statements() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .describe_sql::<SessionSqlEntity>("SELECT * FROM SessionSqlEntity")
+        .expect_err("describe_sql should reject SELECT statements");
+
+    assert!(
+        matches!(
+            err,
+            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                _
+            ))
+        ),
+        "describe_sql rejection should map to unsupported execution class",
+    );
+}
+
+#[test]
+fn show_indexes_sql_returns_same_payload_as_show_indexes() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let from_sql = session
+        .show_indexes_sql::<SessionSqlEntity>("SHOW INDEXES SessionSqlEntity")
+        .expect("show_indexes_sql should succeed");
+    let from_typed = session.show_indexes::<SessionSqlEntity>();
+
+    assert_eq!(
+        from_sql, from_typed,
+        "show_indexes_sql should project through canonical show_indexes payload",
+    );
+}
+
+#[test]
+fn show_indexes_sql_rejects_non_show_indexes_statements() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .show_indexes_sql::<SessionSqlEntity>("SELECT * FROM SessionSqlEntity")
+        .expect_err("show_indexes_sql should reject SELECT statements");
+
+    assert!(
+        matches!(
+            err,
+            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                _
+            ))
+        ),
+        "show_indexes_sql rejection should map to unsupported execution class",
+    );
+}
+
+#[test]
+fn explain_sql_rejects_describe_statements() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .explain_sql::<SessionSqlEntity>("DESCRIBE SessionSqlEntity")
+        .expect_err("explain_sql should reject DESCRIBE statements");
+
+    assert!(
+        matches!(
+            err,
+            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                _
+            ))
+        ),
+        "explain_sql DESCRIBE rejection should map to unsupported execution class",
+    );
+}
+
+#[test]
+fn explain_sql_rejects_show_indexes_statements() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = session
+        .explain_sql::<SessionSqlEntity>("SHOW INDEXES SessionSqlEntity")
+        .expect_err("explain_sql should reject SHOW INDEXES statements");
+
+    assert!(
+        matches!(
+            err,
+            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                _
+            ))
+        ),
+        "explain_sql SHOW INDEXES rejection should map to unsupported execution class",
+    );
 }
 
 #[test]

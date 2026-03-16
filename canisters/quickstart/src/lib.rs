@@ -28,6 +28,12 @@ fn query_rows(sql: String) -> Result<SqlQueryRowsOutput, icydb::Error> {
     sql_dispatch::query_rows(sql.as_str())
 }
 
+/// Execute one reduced SQL `DESCRIBE` statement and return shell-friendly lines.
+#[ic_query]
+fn describe(sql: String) -> Result<Vec<String>, icydb::Error> {
+    sql_dispatch::describe(sql.as_str())
+}
+
 /// Clear all fixture rows from this canister.
 #[update]
 fn fixtures_reset() -> Result<(), icydb::Error> {
@@ -91,6 +97,18 @@ mod tests {
         assert!(
             actor.contains("explain"),
             "generated sql_dispatch must include explain execution entrypoint"
+        );
+        assert!(
+            actor.contains("pub fn describe_schema ("),
+            "generated sql_dispatch must include describe_schema helper"
+        );
+        assert!(
+            actor.contains("pub fn describe ("),
+            "generated sql_dispatch must include describe helper"
+        );
+        assert!(
+            actor.contains("pub fn show_indexes ("),
+            "generated sql_dispatch must include show_indexes helper"
         );
     }
 }

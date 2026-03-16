@@ -8,7 +8,7 @@ use candid::CandidType;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    db::ProjectionResponse,
+    db::{EntitySchemaDescription, ProjectionResponse},
     error::{Error, ErrorKind, ErrorOrigin, RuntimeErrorKind},
     traits::EntityKind,
     value::{Value, ValueEnum},
@@ -226,6 +226,75 @@ where
 pub fn render_explain_lines(explain: &str) -> Vec<String> {
     let mut lines = vec!["surface=explain".to_string()];
     lines.extend(explain.lines().map(ToString::to_string));
+
+    lines
+}
+
+/// Render one typed `DESCRIBE` payload into deterministic shell output lines.
+#[must_use]
+pub fn render_describe_lines(description: &EntitySchemaDescription) -> Vec<String> {
+    let mut lines = Vec::new();
+
+    // Phase 1: emit top-level entity identity metadata.
+    lines.push(format!("entity: {}", description.entity_name()));
+    lines.push(format!("path: {}", description.entity_path()));
+    lines.push(format!("primary_key: {}", description.primary_key()));
+
+    // Phase 2: emit field descriptors in stable model order.
+    lines.push("fields:".to_string());
+    for field in description.fields() {
+        lines.push(format!(
+            "  - {}: {} (primary_key={}, queryable={})",
+            field.name(),
+            field.kind(),
+            field.primary_key(),
+            field.queryable(),
+        ));
+    }
+
+    // Phase 3: emit index descriptors or explicit empty marker.
+    if description.indexes().is_empty() {
+        lines.push("indexes: []".to_string());
+    } else {
+        lines.push("indexes:".to_string());
+        for index in description.indexes() {
+            let unique = if index.unique() { ", unique" } else { "" };
+            lines.push(format!(
+                "  - {}({}){}",
+                index.name(),
+                index.fields().join(", "),
+                unique,
+            ));
+        }
+    }
+
+    // Phase 4: emit relation descriptors or explicit empty marker.
+    if description.relations().is_empty() {
+        lines.push("relations: []".to_string());
+    } else {
+        lines.push("relations:".to_string());
+        for relation in description.relations() {
+            lines.push(format!(
+                "  - {} -> {} ({:?}, {:?})",
+                relation.field(),
+                relation.target_entity_name(),
+                relation.strength(),
+                relation.cardinality(),
+            ));
+        }
+    }
+
+    lines
+}
+
+/// Render one `SHOW INDEXES` payload into deterministic shell output lines.
+#[must_use]
+pub fn render_show_indexes_lines(entity: &str, indexes: &[String]) -> Vec<String> {
+    let mut lines = vec![format!(
+        "surface=indexes entity={entity} index_count={}",
+        indexes.len()
+    )];
+    lines.extend(indexes.iter().cloned());
 
     lines
 }

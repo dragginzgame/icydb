@@ -145,6 +145,8 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
     let mut primary_key_field_match = quote!();
     let mut projection_match = quote!();
     let mut explain_match = quote!();
+    let mut describe_schema_match = quote!();
+    let mut show_indexes_match = quote!();
 
     for (entity_path, entity) in entities {
         let variant_ident = format_ident!("{}", entity.def().ident());
@@ -180,6 +182,12 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
         });
         explain_match.extend(quote! {
             Self::#variant_ident => db().explain_sql::<#entity_ty>(sql),
+        });
+        describe_schema_match.extend(quote! {
+            Self::#variant_ident => db().describe_sql::<#entity_ty>(sql),
+        });
+        show_indexes_match.extend(quote! {
+            Self::#variant_ident => db().show_indexes_sql::<#entity_ty>(sql),
         });
     }
 
@@ -263,6 +271,23 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
                         #explain_match
                     }
                 }
+
+                /// Execute one SQL `DESCRIBE` statement for this concrete route.
+                pub fn execute_describe_schema(
+                    self,
+                    sql: &str,
+                ) -> Result<::icydb::db::EntitySchemaDescription, Error> {
+                    match self {
+                        #describe_schema_match
+                    }
+                }
+
+                /// Execute one SQL `SHOW INDEXES` statement for this concrete route.
+                pub fn execute_show_indexes(self, sql: &str) -> Result<Vec<String>, Error> {
+                    match self {
+                        #show_indexes_match
+                    }
+                }
             }
 
             /// Return one list of all supported SQL entity names.
@@ -274,16 +299,48 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
                     .collect()
             }
 
+            // Match one helper-level SHOW ENTITIES command without routing
+            // through reduced SQL parser/lowering lanes.
+            fn is_show_entities_sql(sql: &str) -> bool {
+                let normalized = sql.trim().trim_end_matches(';').trim_end();
+                let mut words = normalized.split_whitespace();
+
+                matches!(
+                    (words.next(), words.next(), words.next()),
+                    (Some(first), Some(second), None)
+                        if first.eq_ignore_ascii_case("SHOW")
+                            && second.eq_ignore_ascii_case("ENTITIES")
+                )
+            }
+
+            // Render one deterministic shell-friendly entity listing payload.
+            fn render_show_entities_lines() -> Vec<String> {
+                let mut lines = vec!["surface=entities".to_string()];
+                for entity in entities() {
+                    lines.push(format!("entity={entity}"));
+                }
+
+                lines
+            }
+
             /// Execute one reduced SQL statement and render shell-friendly output lines.
             pub fn query(sql: &str) -> Result<Vec<String>, Error> {
                 let sql_trimmed = ::icydb::db::sql::normalize_sql_input(sql)?;
+                if is_show_entities_sql(sql_trimmed) {
+                    return Ok(render_show_entities_lines());
+                }
+
                 let statement = db().sql_statement_route(sql_trimmed)?;
-                let route = SqlEntityRoute::from_statement_route(&statement)?;
                 if statement.is_explain() {
+                    let route = SqlEntityRoute::from_statement_route(&statement)?;
                     let explain_text = route
                         .execute_explain(sql_trimmed)
                         .map_err(|err| explain_surface_error(sql_trimmed, route, err))?;
                     return Ok(::icydb::db::sql::render_explain_lines(explain_text.as_str()));
+                } else if statement.is_describe() {
+                    return describe_for_statement(sql_trimmed, &statement);
+                } else if statement.is_show_indexes() {
+                    return show_indexes_for_statement(sql_trimmed, &statement);
                 }
 
                 let (entity, rows) = projection_rows_for_statement(sql_trimmed, &statement)?;
@@ -297,6 +354,10 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
                 let statement = db().sql_statement_route(sql_trimmed)?;
                 if statement.is_explain() {
                     return Err(unsupported_query_rows_explain_error());
+                } else if statement.is_describe() {
+                    return Err(unsupported_query_rows_describe_error());
+                } else if statement.is_show_indexes() {
+                    return Err(unsupported_query_rows_show_indexes_error());
                 }
 
                 let (entity, rows) = projection_rows_for_statement(sql_trimmed, &statement)?;
@@ -309,6 +370,12 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
             /// Resolve SQL entity and execute one projection query.
             pub fn projection_rows(sql: &str) -> Result<(String, SqlProjectionRows), Error> {
                 let statement = db().sql_statement_route(sql)?;
+                if statement.is_describe() {
+                    return Err(unsupported_query_rows_describe_error());
+                } else if statement.is_show_indexes() {
+                    return Err(unsupported_query_rows_show_indexes_error());
+                }
+
                 projection_rows_for_statement(sql, &statement)
             }
 
@@ -317,6 +384,68 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
                 let statement = db().sql_statement_route(sql)?;
                 let route = SqlEntityRoute::from_statement_route(&statement)?;
                 route.execute_explain(sql)
+            }
+
+            /// Execute one reduced SQL `DESCRIBE` statement and return one typed schema payload.
+            pub fn describe_schema(sql: &str) -> Result<::icydb::db::EntitySchemaDescription, Error> {
+                let sql_trimmed = ::icydb::db::sql::normalize_sql_input(sql)?;
+                let statement = db().sql_statement_route(sql_trimmed)?;
+
+                describe_schema_for_statement(sql_trimmed, &statement)
+            }
+
+            /// Execute one reduced SQL `DESCRIBE` statement and render shell-friendly lines.
+            pub fn describe(sql: &str) -> Result<Vec<String>, Error> {
+                let sql_trimmed = ::icydb::db::sql::normalize_sql_input(sql)?;
+                let statement = db().sql_statement_route(sql_trimmed)?;
+
+                describe_for_statement(sql_trimmed, &statement)
+            }
+
+            /// Execute one reduced SQL `SHOW INDEXES` statement and render shell-friendly lines.
+            pub fn show_indexes(sql: &str) -> Result<Vec<String>, Error> {
+                let sql_trimmed = ::icydb::db::sql::normalize_sql_input(sql)?;
+                let statement = db().sql_statement_route(sql_trimmed)?;
+
+                show_indexes_for_statement(sql_trimmed, &statement)
+            }
+
+            fn describe_schema_for_statement(
+                sql: &str,
+                statement: &::icydb::db::SqlStatementRoute,
+            ) -> Result<::icydb::db::EntitySchemaDescription, Error> {
+                if !statement.is_describe() {
+                    return Err(unsupported_describe_statement_error());
+                }
+
+                let route = SqlEntityRoute::from_statement_route(statement)?;
+                route.execute_describe_schema(sql)
+            }
+
+            fn describe_for_statement(
+                sql: &str,
+                statement: &::icydb::db::SqlStatementRoute,
+            ) -> Result<Vec<String>, Error> {
+                let description = describe_schema_for_statement(sql, statement)?;
+
+                Ok(::icydb::db::sql::render_describe_lines(&description))
+            }
+
+            fn show_indexes_for_statement(
+                sql: &str,
+                statement: &::icydb::db::SqlStatementRoute,
+            ) -> Result<Vec<String>, Error> {
+                if !statement.is_show_indexes() {
+                    return Err(unsupported_show_indexes_statement_error());
+                }
+
+                let route = SqlEntityRoute::from_statement_route(statement)?;
+                let index_lines = route.execute_show_indexes(sql)?;
+
+                Ok(::icydb::db::sql::render_show_indexes_lines(
+                    route.entity_name(),
+                    index_lines.as_slice(),
+                ))
             }
 
             fn projection_rows_for_statement(
@@ -346,6 +475,38 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
                     ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
                     ErrorOrigin::Query,
                     "query_rows supports projection SQL only; use query for EXPLAIN output",
+                )
+            }
+
+            fn unsupported_describe_statement_error() -> Error {
+                Error::new(
+                    ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+                    ErrorOrigin::Query,
+                    "describe helper requires one DESCRIBE statement",
+                )
+            }
+
+            fn unsupported_query_rows_describe_error() -> Error {
+                Error::new(
+                    ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+                    ErrorOrigin::Query,
+                    "query_rows supports projection SQL only; DESCRIBE is not available in generated sql_dispatch for 0.56",
+                )
+            }
+
+            fn unsupported_show_indexes_statement_error() -> Error {
+                Error::new(
+                    ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+                    ErrorOrigin::Query,
+                    "show_indexes helper requires one SHOW INDEXES statement",
+                )
+            }
+
+            fn unsupported_query_rows_show_indexes_error() -> Error {
+                Error::new(
+                    ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+                    ErrorOrigin::Query,
+                    "query_rows supports projection SQL only; SHOW INDEXES is not available on this endpoint",
                 )
             }
 

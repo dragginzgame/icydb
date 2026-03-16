@@ -4,9 +4,10 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use super::{
-    SqlAggregateCall, SqlAggregateKind, SqlDeleteStatement, SqlExplainMode, SqlExplainStatement,
-    SqlExplainTarget, SqlOrderDirection, SqlOrderTerm, SqlProjection, SqlSelectItem,
-    SqlSelectStatement, SqlStatement, parse_sql, parse_sql_predicate,
+    SqlAggregateCall, SqlAggregateKind, SqlDeleteStatement, SqlDescribeStatement, SqlExplainMode,
+    SqlExplainStatement, SqlExplainTarget, SqlOrderDirection, SqlOrderTerm, SqlProjection,
+    SqlSelectItem, SqlSelectStatement, SqlShowIndexesStatement, SqlStatement, parse_sql,
+    parse_sql_predicate,
 };
 use crate::{
     db::predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
@@ -106,6 +107,31 @@ fn parse_explain_json_wrapped_select() {
                 limit: Some(1),
                 offset: None,
             }),
+        }),
+    );
+}
+
+#[test]
+fn parse_describe_statement_with_schema_qualified_entity() {
+    let statement = parse_sql("DESCRIBE public.users").expect("describe statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Describe(SqlDescribeStatement {
+            entity: "public.users".to_string(),
+        }),
+    );
+}
+
+#[test]
+fn parse_show_indexes_statement_with_schema_qualified_entity() {
+    let statement =
+        parse_sql("SHOW INDEXES public.users").expect("show indexes statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::ShowIndexes(SqlShowIndexesStatement {
+            entity: "public.users".to_string(),
         }),
     );
 }
@@ -324,6 +350,10 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
             "DISTINCT aggregate qualifiers",
         ),
         ("SELECT * FROM public.users AS u", "table aliases"),
+        ("DESCRIBE users WHERE age > 1", "DESCRIBE modifiers"),
+        ("EXPLAIN DESCRIBE users", "DESCRIBE modifiers"),
+        ("SHOW TABLES", "SHOW commands beyond SHOW INDEXES"),
+        ("SHOW INDEXES users WHERE age > 1", "SHOW INDEXES modifiers"),
     ];
 
     for (sql, expected_feature) in cases {

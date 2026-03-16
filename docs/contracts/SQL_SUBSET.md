@@ -7,7 +7,7 @@ Anything not listed here is out of scope and must fail closed.
 ## Scope
 
 - Applies to SQL text parsing and SQL-to-planner lowering.
-- Applies to the initial reduced SQL parser implementation line.
+- Applies to the current reduced SQL parser implementation line.
 - Uses existing planner/executor capabilities as the authority.
 
 ## Core Rule
@@ -24,11 +24,12 @@ The reduced parser normalizes one statement deterministically before lowering.
 - A trailing statement terminator (`;`) is optional.
 - Multi-statement SQL input is rejected.
 
-## Executable Baseline (Current 0.52 Line)
+## Executable Baseline (Current 0.56 Line)
 
-The current `0.52` line ships a projection-aware scalar SQL subset plus one
-reduced grouped-aggregate SQL path. Broader SQL grammar support remains staged
-behind lowering gates.
+The current `0.56` line ships a projection-aware scalar SQL subset, constrained
+grouped/global aggregate SQL execution, and dedicated DESCRIBE/SHOW INDEXES
+introspection lanes. Broader SQL grammar support remains staged behind lowering
+gates.
 
 ### SELECT
 
@@ -177,6 +178,70 @@ Qualified identifiers (`schema.Entity`, `Entity.field`) are normalized before
 planning, so equivalent qualified and unqualified statements map to identical
 explainable intent.
 
+### DESCRIBE
+
+Executable shape:
+
+```sql
+DESCRIBE <entity>
+```
+
+Execution notes:
+
+- DESCRIBE SQL uses the dedicated session introspection API
+  `describe_sql::<E>(...)`.
+- DESCRIBE returns canonical typed schema payload
+  `EntitySchemaDescription`.
+- DESCRIBE entity matching follows the same trailing-segment rule used by
+  other SQL surfaces (`public.Entity` matches model `Entity`).
+- DESCRIBE is a dedicated introspection lane and does not lower into
+  executable `Query<E>` planner paths.
+- `EXPLAIN DESCRIBE ...` remains out of scope in this line.
+
+### SHOW INDEXES
+
+Executable shape:
+
+```sql
+SHOW INDEXES <entity>
+```
+
+Execution notes:
+
+- `SHOW INDEXES` SQL uses the dedicated session introspection API
+  `show_indexes_sql::<E>(...)`.
+- `SHOW INDEXES` returns the canonical index-listing payload from
+  `show_indexes::<E>()`.
+- `SHOW INDEXES` entity matching follows the same trailing-segment rule used by
+  other SQL surfaces (`public.Entity` matches model `Entity`).
+- `SHOW INDEXES` is a dedicated introspection lane and does not lower into
+  executable `Query<E>` planner paths.
+- `EXPLAIN SHOW INDEXES ...` remains out of scope in this line.
+
+## Generated `sql_dispatch` Boundary (0.56)
+
+Generated canister SQL helpers include projection/explain plus reduced
+introspection helpers in this line.
+
+- `sql_dispatch::query(...)` supports:
+  - projection SQL rendering
+  - `EXPLAIN ...` rendering
+  - helper-level `SHOW ENTITIES`
+  - `DESCRIBE ...` rendering
+  - `SHOW INDEXES ...` rendering
+- `sql_dispatch::describe_schema(...)` returns typed
+  `EntitySchemaDescription`.
+- `sql_dispatch::describe(...)` returns shell-rendered DESCRIBE lines.
+- `sql_dispatch::show_indexes(...)` returns shell-rendered index listing lines.
+- `sql_dispatch::query_rows(...)` rejects `DESCRIBE ...` with deterministic
+  unsupported-lane errors.
+- `sql_dispatch::query_rows(...)` rejects `SHOW INDEXES ...` with deterministic
+  unsupported-lane errors.
+- `sql_dispatch::projection_rows(...)` rejects `DESCRIBE ...` with deterministic
+  unsupported-lane errors.
+- `sql_dispatch::projection_rows(...)` rejects `SHOW INDEXES ...` with
+  deterministic unsupported-lane errors.
+
 ## Parsed but Lowering-Gated (Follow-Up Slices)
 
 The reduced parser can parse additional reduced SQL constructs that remain
@@ -266,11 +331,12 @@ No additional intermediate semantic layer is introduced by this contract.
 
 - Invalid SQL syntax: parser error.
 - Valid SQL outside this subset: unsupported-feature error.
-  - Reduced parser `UnsupportedFeature` labels are contract-stable within the
-    current `0.52` line.
+- Reduced parser `UnsupportedFeature` labels are contract-stable within the
+  current `0.56` line.
   - Session SQL frontends (`query_from_sql`, `execute_sql`,
     `execute_sql_projection`, `execute_sql_grouped`, `execute_sql_aggregate`,
-    `explain_sql`) preserve those labels in structured query error detail.
+    `explain_sql`, `describe_sql`) preserve those labels in structured query
+    error detail.
 - Valid SQL parsed but non-executable in this baseline: lowering-gated
   unsupported error.
 - Valid SQL in the executable subset but planner-ineligible shape: existing

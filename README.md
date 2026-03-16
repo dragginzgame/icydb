@@ -27,7 +27,25 @@ scripts/dev/sql.sh --init
 scripts/dev/sql.sh "select name, charisma from character order by charisma desc limit 5"
 ```
 
-3. Command split:
+3. Run one DESCRIBE:
+
+```bash
+scripts/dev/sql.sh "describe character"
+```
+
+4. Show supported entities:
+
+```bash
+scripts/dev/sql.sh "show entities"
+```
+
+5. Show indexes for one entity:
+
+```bash
+scripts/dev/sql.sh "show indexes character"
+```
+
+6. Command split:
 
 ```bash
 scripts/dev/sql.sh --deploy   # deploy canister only
@@ -55,18 +73,18 @@ If you are new to this space: think "database-like query execution and safety" w
 
 ## Current Line
 
-- Workspace version on `main`: `0.55.7`
-- Latest tagged release in this repo: `v0.55.7`
+- Workspace version on `main`: `0.56.0`
+- Latest tagged release in this repo: `v0.56.0`
 - Changelog: `CHANGELOG.md`
-- Detailed `0.55.x` notes: `docs/changelog/0.55.md`
+- Detailed `0.56.x` notes: `docs/changelog/0.56.md`
 
 ---
 
-## 0.55 Highlights
+## 0.56 Highlights
 
-- Expression indexes are now part of the core planning/runtime path for supported deterministic key expressions.
-- SQL dispatch routing is entity-keyed and deterministic, with one generated `sql_dispatch` surface for canister endpoints.
-- Continuation and load-pipeline containment work reduced mixed-concern executor hubs while preserving staged planner -> route -> executor contracts.
+- Reduced SQL now includes dedicated introspection lanes for `DESCRIBE <entity>` and `SHOW INDEXES <entity>`.
+- Generated canister `sql_dispatch` now supports helper-level `SHOW ENTITIES` plus dedicated `describe` and `show_indexes` helper surfaces.
+- Projection endpoints remain fail-closed for introspection lanes (`query_rows`/`projection_rows` still reject `DESCRIBE`/`SHOW INDEXES`).
 
 ---
 
@@ -96,7 +114,7 @@ Use a pinned git tag so builds are repeatable:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.55.7" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.56.0" }
 ```
 
 ---
@@ -194,13 +212,19 @@ fn query(sql: String) -> Result<Vec<String>, icydb::Error> {
 fn query_rows(sql: String) -> Result<SqlQueryRowsOutput, icydb::Error> {
     sql_dispatch::query_rows(sql.as_str())
 }
+
+#[query]
+fn describe(sql: String) -> Result<Vec<String>, icydb::Error> {
+    sql_dispatch::describe(sql.as_str())
+}
 ```
 
 What each endpoint returns:
 
 - `sql_entities`: supported SQL entity names for this canister.
-- `query`: shell-friendly output lines (good for `dfx canister call` and logs), including `EXPLAIN` output.
+- `query`: shell-friendly output lines (good for `dfx canister call` and logs), including `EXPLAIN`, `DESCRIBE`, `SHOW INDEXES`, and helper `SHOW ENTITIES` output.
 - `query_rows`: structured projection rows (`entity`, `columns`, `rows`, `row_count`) for programmatic clients.
+- `describe`: shell-friendly schema lines for one `DESCRIBE <entity>` statement.
 
 Dispatch behavior:
 
@@ -284,7 +308,7 @@ in one atomic transaction is out of scope for the current surface.
 
 ---
 
-## Reduced SQL Scope (Current 0.55 Line)
+## Reduced SQL Scope (Current 0.56 Line)
 
 Executable SQL entrypoints:
 

@@ -155,6 +155,22 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(self.inner.explain_sql::<E>(sql)?)
     }
 
+    /// Execute one reduced SQL `DESCRIBE` statement.
+    pub fn describe_sql<E>(&self, sql: &str) -> Result<EntitySchemaDescription, Error>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        Ok(self.inner.describe_sql::<E>(sql)?)
+    }
+
+    /// Execute one reduced SQL `SHOW INDEXES` statement.
+    pub fn show_indexes_sql<E>(&self, sql: &str) -> Result<Vec<String>, Error>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        Ok(self.inner.show_indexes_sql::<E>(sql)?)
+    }
+
     #[must_use]
     pub fn delete<E>(&self) -> SessionDeleteQuery<'_, E>
     where
@@ -580,6 +596,76 @@ mod tests {
     }
 
     #[test]
+    fn facade_sql_statement_route_describe_classifies_entity() {
+        let session = fresh_facade_session();
+
+        let route = session
+            .sql_statement_route("DESCRIBE public.FacadeSqlEntity")
+            .expect("facade SQL statement route should classify DESCRIBE");
+
+        assert_eq!(
+            route,
+            SqlStatementRoute::Describe {
+                entity: "public.FacadeSqlEntity".to_string(),
+            }
+        );
+        assert_eq!(route.entity(), "public.FacadeSqlEntity");
+        assert!(route.is_describe());
+        assert!(!route.is_explain());
+        assert!(!route.is_show_indexes());
+    }
+
+    #[test]
+    fn facade_sql_statement_route_show_indexes_classifies_entity() {
+        let session = fresh_facade_session();
+
+        let route = session
+            .sql_statement_route("SHOW INDEXES public.FacadeSqlEntity")
+            .expect("facade SQL statement route should classify SHOW INDEXES");
+
+        assert_eq!(
+            route,
+            SqlStatementRoute::ShowIndexes {
+                entity: "public.FacadeSqlEntity".to_string(),
+            }
+        );
+        assert_eq!(route.entity(), "public.FacadeSqlEntity");
+        assert!(route.is_show_indexes());
+        assert!(!route.is_describe());
+        assert!(!route.is_explain());
+    }
+
+    #[test]
+    fn facade_describe_sql_matches_describe_entity_payload() {
+        let session = fresh_facade_session();
+
+        let from_sql = session
+            .describe_sql::<FacadeSqlEntity>("DESCRIBE FacadeSqlEntity")
+            .expect("facade describe_sql should succeed");
+        let from_typed = session.describe_entity::<FacadeSqlEntity>();
+
+        assert_eq!(
+            from_sql, from_typed,
+            "facade describe_sql should return the same canonical payload as describe_entity",
+        );
+    }
+
+    #[test]
+    fn facade_show_indexes_sql_matches_show_indexes_payload() {
+        let session = fresh_facade_session();
+
+        let from_sql = session
+            .show_indexes_sql::<FacadeSqlEntity>("SHOW INDEXES FacadeSqlEntity")
+            .expect("facade show_indexes_sql should succeed");
+        let from_typed = session.show_indexes::<FacadeSqlEntity>();
+
+        assert_eq!(
+            from_sql, from_typed,
+            "facade show_indexes_sql should return the same canonical payload as show_indexes",
+        );
+    }
+
+    #[test]
     fn facade_explain_sql_plan_matrix_queries_include_expected_tokens() {
         let session = fresh_facade_session();
 
@@ -700,6 +786,16 @@ mod tests {
     }
 
     #[test]
+    fn facade_query_from_sql_rejects_describe_statements() {
+        let session = fresh_facade_session();
+
+        assert_unsupported_sql_runtime_result(
+            session.query_from_sql::<FacadeSqlEntity>("DESCRIBE FacadeSqlEntity"),
+            "facade query_from_sql DESCRIBE",
+        );
+    }
+
+    #[test]
     fn facade_execute_sql_preserves_unsupported_runtime_contract() {
         let session = fresh_facade_session();
 
@@ -758,5 +854,25 @@ mod tests {
                 "facade explain_sql",
             );
         }
+    }
+
+    #[test]
+    fn facade_explain_sql_rejects_describe_statements() {
+        let session = fresh_facade_session();
+
+        assert_unsupported_sql_runtime_result(
+            session.explain_sql::<FacadeSqlEntity>("DESCRIBE FacadeSqlEntity"),
+            "facade explain_sql DESCRIBE",
+        );
+    }
+
+    #[test]
+    fn facade_describe_sql_rejects_non_describe_statements() {
+        let session = fresh_facade_session();
+
+        assert_unsupported_sql_runtime_result(
+            session.describe_sql::<FacadeSqlEntity>("SELECT * FROM FacadeSqlEntity"),
+            "facade describe_sql SELECT",
+        );
     }
 }

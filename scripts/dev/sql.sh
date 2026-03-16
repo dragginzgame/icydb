@@ -9,7 +9,11 @@ Usage:
 
 Examples:
   sql.sh "select name, charisma from character order by charisma desc"
+  sql.sh "describe character"
+  sql.sh "show entities"
+  sql.sh "show indexes character"
   sql.sh --canister sql_test "select count(*) from character"
+  sql.sh --method describe "describe character"
   sql.sh --deploy
   sql.sh --reset
   sql.sh --init
@@ -17,7 +21,7 @@ Examples:
 
 Environment:
   SQLQ_CANISTER  Default canister name (default: sql_test)
-  SQLQ_METHOD    Default method name (default: query)
+  SQLQ_METHOD    Default method name (default: query; DESCRIBE auto-selects describe)
 
 Flags:
   --deploy  Deploy canister only.
@@ -28,9 +32,14 @@ USAGE
 
 canister="${SQLQ_CANISTER:-sql_test}"
 method="${SQLQ_METHOD:-query}"
+method_explicit=false
 deploy_requested=false
 reset_requested=false
 init_requested=false
+
+if [[ -n "${SQLQ_METHOD:-}" ]]; then
+    method_explicit=true
+fi
 
 # Parse flags first, then treat remaining args as a single SQL string.
 while [[ $# -gt 0 ]]; do
@@ -53,6 +62,7 @@ while [[ $# -gt 0 ]]; do
                 exit 2
             fi
             method="$2"
+            method_explicit=true
             shift 2
             ;;
         --init)
@@ -108,6 +118,13 @@ if [[ $# -eq 0 ]]; then
 fi
 
 sql="$*"
+
+# Keep the common path zero-config: route DESCRIBE to its dedicated canister method
+# unless the caller explicitly picked a method.
+if [[ "$method_explicit" == false ]] \
+    && [[ "$sql" =~ ^[[:space:]]*[Dd][Ee][Ss][Cc][Rr][Ii][Bb][Ee]([[:space:];]|$) ]]; then
+    method="describe"
+fi
 
 # Escape characters that would break the Candid string argument.
 sql=${sql//\\/\\\\}

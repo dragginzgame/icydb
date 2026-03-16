@@ -95,6 +95,42 @@ fn sql_canister_smoke_flow() {
         assert!(entities.iter().any(|name| name == "Order"));
         assert!(entities.iter().any(|name| name == "Character"));
 
+        let show_entities_bytes = pic
+            .query_call(
+                canister_id,
+                Principal::anonymous(),
+                "query",
+                encode_one("SHOW ENTITIES".to_string()).expect("encode show entities args"),
+            )
+            .expect("SHOW ENTITIES query call should succeed");
+        let show_entities_result: Result<Vec<String>, icydb::Error> =
+            decode_one(&show_entities_bytes).expect("decode SHOW ENTITIES query response");
+        let show_entities_output =
+            show_entities_result.expect("SHOW ENTITIES query should return an Ok payload");
+        assert_eq!(
+            show_entities_output.first().map(String::as_str),
+            Some("surface=entities"),
+            "SHOW ENTITIES output should be tagged as entity-list surface",
+        );
+        assert!(
+            show_entities_output
+                .iter()
+                .any(|line| line == "entity=User"),
+            "SHOW ENTITIES output should include User",
+        );
+        assert!(
+            show_entities_output
+                .iter()
+                .any(|line| line == "entity=Order"),
+            "SHOW ENTITIES output should include Order",
+        );
+        assert!(
+            show_entities_output
+                .iter()
+                .any(|line| line == "entity=Character"),
+            "SHOW ENTITIES output should include Character",
+        );
+
         let load_bytes = pic
             .update_call(
                 canister_id,
@@ -385,6 +421,156 @@ fn sql_canister_dispatch_is_entity_keyed_and_deterministic() {
                 .message()
                 .contains("EXPLAIN SELECT * FROM Character ORDER BY id ASC LIMIT 1"),
             "unordered EXPLAIN should include stable-order fix suggestion: {explain_unordered_error:?}",
+        );
+    });
+}
+
+#[test]
+#[expect(clippy::too_many_lines)]
+fn sql_canister_describe_lane_is_explicit_and_projection_lanes_reject_describe() {
+    run_with_pocket_ic(|pic| {
+        let canister_id = pic.create_canister();
+        pic.add_cycles(canister_id, INIT_CYCLES);
+
+        let wasm = build_sql_test_canister_wasm();
+        pic.install_canister(
+            canister_id,
+            wasm,
+            encode_one(()).expect("encode init args"),
+            None,
+        );
+
+        let load_bytes = pic
+            .update_call(
+                canister_id,
+                Principal::anonymous(),
+                "fixtures_load_default",
+                encode_one(()).expect("encode fixtures_load_default args"),
+            )
+            .expect("fixtures_load_default update call should succeed");
+        let load_result: Result<(), icydb::Error> =
+            decode_one(&load_bytes).expect("decode fixtures_load_default response");
+        assert!(
+            load_result.is_ok(),
+            "fixtures_load_default returned error: {load_result:?}"
+        );
+
+        // The explicit describe surface should return stable, shell-friendly lines.
+        let describe_bytes = pic
+            .query_call(
+                canister_id,
+                Principal::anonymous(),
+                "describe",
+                encode_one("DESCRIBE Character".to_string()).expect("encode describe args"),
+            )
+            .expect("describe query call should succeed");
+        let describe_result: Result<Vec<String>, icydb::Error> =
+            decode_one(&describe_bytes).expect("decode describe response");
+        let describe_lines = describe_result.expect("describe endpoint should return Ok lines");
+
+        assert!(
+            describe_lines
+                .iter()
+                .any(|line| line == "entity: Character"),
+            "describe output should include canonical entity name",
+        );
+        assert!(
+            describe_lines.iter().any(|line| line == "primary_key: id"),
+            "describe output should include primary key field",
+        );
+        assert!(
+            describe_lines
+                .iter()
+                .any(|line| line.starts_with("  - name: ")),
+            "describe output should include field descriptor rows",
+        );
+
+        // The generated query lane now supports DESCRIBE rendering too.
+        let query_describe_bytes = pic
+            .query_call(
+                canister_id,
+                Principal::anonymous(),
+                "query",
+                encode_one("DESCRIBE Character".to_string()).expect("encode query describe args"),
+            )
+            .expect("query DESCRIBE call should return encoded Result");
+        let query_describe_result: Result<Vec<String>, icydb::Error> =
+            decode_one(&query_describe_bytes).expect("decode query DESCRIBE response");
+        let query_describe_lines =
+            query_describe_result.expect("query DESCRIBE should return shell lines");
+        assert!(
+            query_describe_lines
+                .iter()
+                .any(|line| line == "entity: Character"),
+            "query DESCRIBE should include canonical entity name",
+        );
+
+        let query_rows_describe_bytes = pic
+            .query_call(
+                canister_id,
+                Principal::anonymous(),
+                "query_rows",
+                encode_one("DESCRIBE Character".to_string())
+                    .expect("encode query_rows describe args"),
+            )
+            .expect("query_rows DESCRIBE call should return encoded Result");
+        let query_rows_describe_result: Result<SqlQueryRowsOutput, icydb::Error> =
+            decode_one(&query_rows_describe_bytes).expect("decode query_rows DESCRIBE response");
+        let query_rows_describe_error =
+            query_rows_describe_result.expect_err("query_rows DESCRIBE should be unsupported");
+        assert!(
+            query_rows_describe_error
+                .message()
+                .contains("query_rows supports projection SQL only"),
+            "query_rows DESCRIBE should return deterministic unsupported-lane message: {query_rows_describe_error:?}",
+        );
+
+        // SHOW INDEXES should render through the generated query lane.
+        let query_show_indexes_bytes = pic
+            .query_call(
+                canister_id,
+                Principal::anonymous(),
+                "query",
+                encode_one("SHOW INDEXES Character".to_string())
+                    .expect("encode query show indexes args"),
+            )
+            .expect("query SHOW INDEXES call should return encoded Result");
+        let query_show_indexes_result: Result<Vec<String>, icydb::Error> =
+            decode_one(&query_show_indexes_bytes).expect("decode query SHOW INDEXES response");
+        let query_show_indexes_lines =
+            query_show_indexes_result.expect("query SHOW INDEXES should return shell lines");
+        assert!(
+            query_show_indexes_lines
+                .first()
+                .is_some_and(|line| line.starts_with("surface=indexes entity=Character")),
+            "query SHOW INDEXES should emit indexes surface header",
+        );
+        assert!(
+            query_show_indexes_lines
+                .iter()
+                .any(|line| line.contains("PRIMARY KEY")),
+            "query SHOW INDEXES should include at least primary-key index row",
+        );
+
+        let query_rows_show_indexes_bytes = pic
+            .query_call(
+                canister_id,
+                Principal::anonymous(),
+                "query_rows",
+                encode_one("SHOW INDEXES Character".to_string())
+                    .expect("encode query_rows show indexes args"),
+            )
+            .expect("query_rows SHOW INDEXES call should return encoded Result");
+        let query_rows_show_indexes_result: Result<SqlQueryRowsOutput, icydb::Error> =
+            decode_one(&query_rows_show_indexes_bytes)
+                .expect("decode query_rows SHOW INDEXES response");
+        let query_rows_show_indexes_error = query_rows_show_indexes_result
+            .expect_err("query_rows SHOW INDEXES should be unsupported");
+        assert!(
+            query_rows_show_indexes_error
+                .message()
+                .contains("query_rows supports projection SQL only"),
+            "query_rows SHOW INDEXES should return deterministic unsupported-lane message: {query_rows_show_indexes_error:?}",
         );
     });
 }

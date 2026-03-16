@@ -1,7 +1,7 @@
 use crate::{
     db::{
-        DbSession, EntityResponse, MissingRowPolicy, PagedGroupedExecutionWithTrace,
-        ProjectionResponse, Query, QueryError,
+        DbSession, EntityResponse, EntitySchemaDescription, MissingRowPolicy,
+        PagedGroupedExecutionWithTrace, ProjectionResponse, Query, QueryError,
         query::{
             builder::aggregate::{AggregateExpr, avg, count, count_by, max_by, min_by, sum},
             intent::IntentError,
@@ -25,12 +25,15 @@ use crate::{
 /// SqlStatementRoute
 ///
 /// Canonical SQL statement routing metadata derived from reduced SQL parser output.
-/// Carries surface kind (`Query` / `Explain`) and canonical parsed entity identifier.
+/// Carries surface kind (`Query` / `Explain` / `Describe` / `ShowIndexes`)
+/// and canonical parsed entity identifier.
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SqlStatementRoute {
     Query { entity: String },
     Explain { entity: String },
+    Describe { entity: String },
+    ShowIndexes { entity: String },
 }
 
 impl SqlStatementRoute {
@@ -38,7 +41,10 @@ impl SqlStatementRoute {
     #[must_use]
     pub const fn entity(&self) -> &str {
         match self {
-            Self::Query { entity } | Self::Explain { entity } => entity.as_str(),
+            Self::Query { entity }
+            | Self::Explain { entity }
+            | Self::Describe { entity }
+            | Self::ShowIndexes { entity } => entity.as_str(),
         }
     }
 
@@ -46,6 +52,18 @@ impl SqlStatementRoute {
     #[must_use]
     pub const fn is_explain(&self) -> bool {
         matches!(self, Self::Explain { .. })
+    }
+
+    /// Return whether this route targets the DESCRIBE surface.
+    #[must_use]
+    pub const fn is_describe(&self) -> bool {
+        matches!(self, Self::Describe { .. })
+    }
+
+    /// Return whether this route targets the `SHOW INDEXES` surface.
+    #[must_use]
+    pub const fn is_show_indexes(&self) -> bool {
+        matches!(self, Self::ShowIndexes { .. })
     }
 }
 
@@ -196,6 +214,54 @@ impl<C: CanisterKind> DbSession<C> {
                     entity: delete.entity,
                 }),
             },
+            SqlStatement::Describe(describe) => Ok(SqlStatementRoute::Describe {
+                entity: describe.entity,
+            }),
+            SqlStatement::ShowIndexes(show_indexes) => Ok(SqlStatementRoute::ShowIndexes {
+                entity: show_indexes.entity,
+            }),
+        }
+    }
+
+    /// Execute one reduced SQL `DESCRIBE` statement for entity `E`.
+    pub fn describe_sql<E>(&self, sql: &str) -> Result<EntitySchemaDescription, QueryError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let command = compile_sql_command::<E>(sql, MissingRowPolicy::Ignore)
+            .map_err(map_sql_lowering_error)?;
+
+        match command {
+            SqlCommand::DescribeEntity => Ok(self.describe_entity::<E>()),
+            SqlCommand::Query(_)
+            | SqlCommand::Explain { .. }
+            | SqlCommand::ExplainGlobalAggregate { .. }
+            | SqlCommand::ShowIndexesEntity => Err(QueryError::execute(InternalError::classified(
+                ErrorClass::Unsupported,
+                ErrorOrigin::Query,
+                "describe_sql requires a DESCRIBE statement",
+            ))),
+        }
+    }
+
+    /// Execute one reduced SQL `SHOW INDEXES` statement for entity `E`.
+    pub fn show_indexes_sql<E>(&self, sql: &str) -> Result<Vec<String>, QueryError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let command = compile_sql_command::<E>(sql, MissingRowPolicy::Ignore)
+            .map_err(map_sql_lowering_error)?;
+
+        match command {
+            SqlCommand::ShowIndexesEntity => Ok(self.show_indexes::<E>()),
+            SqlCommand::Query(_)
+            | SqlCommand::Explain { .. }
+            | SqlCommand::ExplainGlobalAggregate { .. }
+            | SqlCommand::DescribeEntity => Err(QueryError::execute(InternalError::classified(
+                ErrorClass::Unsupported,
+                ErrorOrigin::Query,
+                "show_indexes_sql requires a SHOW INDEXES statement",
+            ))),
         }
     }
 
@@ -219,6 +285,16 @@ impl<C: CanisterKind> DbSession<C> {
                     "query_from_sql does not accept EXPLAIN statements; use explain_sql(...)",
                 )))
             }
+            SqlCommand::DescribeEntity => Err(QueryError::execute(InternalError::classified(
+                ErrorClass::Unsupported,
+                ErrorOrigin::Query,
+                "query_from_sql does not accept DESCRIBE statements; use describe_sql(...)",
+            ))),
+            SqlCommand::ShowIndexesEntity => Err(QueryError::execute(InternalError::classified(
+                ErrorClass::Unsupported,
+                ErrorOrigin::Query,
+                "query_from_sql does not accept SHOW INDEXES statements; use show_indexes_sql(...)",
+            ))),
         }
     }
 
@@ -400,6 +476,16 @@ impl<C: CanisterKind> DbSession<C> {
                 ErrorClass::Unsupported,
                 ErrorOrigin::Query,
                 "explain_sql requires an EXPLAIN statement",
+            ))),
+            SqlCommand::DescribeEntity => Err(QueryError::execute(InternalError::classified(
+                ErrorClass::Unsupported,
+                ErrorOrigin::Query,
+                "explain_sql does not accept DESCRIBE statements; use describe_sql(...)",
+            ))),
+            SqlCommand::ShowIndexesEntity => Err(QueryError::execute(InternalError::classified(
+                ErrorClass::Unsupported,
+                ErrorOrigin::Query,
+                "explain_sql does not accept SHOW INDEXES statements; use show_indexes_sql(...)",
             ))),
             SqlCommand::Explain { mode, query } => match mode {
                 SqlExplainMode::Plan => Ok(query.explain()?.render_text_canonical()),

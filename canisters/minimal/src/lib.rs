@@ -12,6 +12,12 @@ fn query(sql: String) -> Result<Vec<String>, icydb::Error> {
     sql_dispatch::query(sql.as_str())
 }
 
+/// Execute one reduced SQL `DESCRIBE` statement and return shell-friendly lines.
+#[ic_query]
+fn describe(sql: String) -> Result<Vec<String>, icydb::Error> {
+    sql_dispatch::describe(sql.as_str())
+}
+
 ///
 /// TESTS
 ///
@@ -33,6 +39,18 @@ mod tests {
         assert!(
             actor.contains("pub fn query ("),
             "generated sql_dispatch must include query convenience entrypoint"
+        );
+        assert!(
+            actor.contains("pub fn describe_schema ("),
+            "generated sql_dispatch must include describe_schema helper"
+        );
+        assert!(
+            actor.contains("pub fn describe ("),
+            "generated sql_dispatch must include describe helper"
+        );
+        assert!(
+            actor.contains("pub fn show_indexes ("),
+            "generated sql_dispatch must include show_indexes helper"
         );
     }
 }

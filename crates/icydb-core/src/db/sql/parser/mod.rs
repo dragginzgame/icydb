@@ -17,7 +17,7 @@ use thiserror::Error as ThisError;
 ///
 /// SqlStatement
 ///
-/// Reduced SQL statement contract accepted by the `0.52` parser baseline.
+/// Reduced SQL statement contract accepted by the current parser baseline.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -25,6 +25,8 @@ pub(crate) enum SqlStatement {
     Select(SqlSelectStatement),
     Delete(SqlDeleteStatement),
     Explain(SqlExplainStatement),
+    Describe(SqlDescribeStatement),
+    ShowIndexes(SqlShowIndexesStatement),
 }
 
 ///
@@ -179,6 +181,30 @@ pub(crate) struct SqlExplainStatement {
 }
 
 ///
+/// SqlDescribeStatement
+///
+/// Canonical parsed `DESCRIBE` statement.
+/// Carries one schema entity identifier for typed session introspection.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SqlDescribeStatement {
+    pub(crate) entity: String,
+}
+
+///
+/// SqlShowIndexesStatement
+///
+/// Canonical parsed `SHOW INDEXES` statement.
+/// Carries one schema entity identifier for typed session introspection.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SqlShowIndexesStatement {
+    pub(crate) entity: String,
+}
+
+///
 /// SqlParseError
 ///
 /// Reduced SQL parser errors for syntax and subset-policy failures.
@@ -298,6 +324,7 @@ enum Keyword {
     By,
     Count,
     Delete,
+    Describe,
     Desc,
     Distinct,
     Except,
@@ -308,6 +335,7 @@ enum Keyword {
     Group,
     Having,
     In,
+    Indexes,
     Insert,
     Intersect,
     Is,
@@ -322,6 +350,7 @@ enum Keyword {
     Or,
     Order,
     Select,
+    Show,
     Sum,
     True,
     Union,
@@ -341,6 +370,7 @@ impl Keyword {
             Self::By => "BY",
             Self::Count => "COUNT",
             Self::Delete => "DELETE",
+            Self::Describe => "DESCRIBE",
             Self::Desc => "DESC",
             Self::Distinct => "DISTINCT",
             Self::Except => "EXCEPT",
@@ -351,6 +381,7 @@ impl Keyword {
             Self::Group => "GROUP",
             Self::Having => "HAVING",
             Self::In => "IN",
+            Self::Indexes => "INDEXES",
             Self::Insert => "INSERT",
             Self::Intersect => "INTERSECT",
             Self::Is => "IS",
@@ -365,6 +396,7 @@ impl Keyword {
             Self::Or => "OR",
             Self::Order => "ORDER",
             Self::Select => "SELECT",
+            Self::Show => "SHOW",
             Self::Sum => "SUM",
             Self::True => "TRUE",
             Self::Union => "UNION",
@@ -649,6 +681,7 @@ fn keyword_from_ident(value: &str) -> Option<Keyword> {
         "BY" => Some(Keyword::By),
         "COUNT" => Some(Keyword::Count),
         "DELETE" => Some(Keyword::Delete),
+        "DESCRIBE" => Some(Keyword::Describe),
         "DESC" => Some(Keyword::Desc),
         "DISTINCT" => Some(Keyword::Distinct),
         "EXCEPT" => Some(Keyword::Except),
@@ -659,6 +692,7 @@ fn keyword_from_ident(value: &str) -> Option<Keyword> {
         "GROUP" => Some(Keyword::Group),
         "HAVING" => Some(Keyword::Having),
         "IN" => Some(Keyword::In),
+        "INDEXES" => Some(Keyword::Indexes),
         "INSERT" => Some(Keyword::Insert),
         "INTERSECT" => Some(Keyword::Intersect),
         "IS" => Some(Keyword::Is),
@@ -673,6 +707,7 @@ fn keyword_from_ident(value: &str) -> Option<Keyword> {
         "OR" => Some(Keyword::Or),
         "ORDER" => Some(Keyword::Order),
         "SELECT" => Some(Keyword::Select),
+        "SHOW" => Some(Keyword::Show),
         "SUM" => Some(Keyword::Sum),
         "TRUE" => Some(Keyword::True),
         "UNION" => Some(Keyword::Union),
@@ -704,14 +739,32 @@ impl Parser {
         if self.eat_keyword(Keyword::Explain) {
             return Ok(SqlStatement::Explain(self.parse_explain_statement()?));
         }
+        if self.eat_keyword(Keyword::Describe) {
+            return Ok(SqlStatement::Describe(self.parse_describe_statement()?));
+        }
+        if self.eat_keyword(Keyword::Show) {
+            return self.parse_show_statement();
+        }
 
         if let Some(feature) = self.peek_unsupported_feature() {
             return Err(SqlParseError::unsupported_feature(feature));
         }
 
         Err(SqlParseError::expected(
-            "one of SELECT, DELETE, EXPLAIN",
+            "one of SELECT, DELETE, EXPLAIN, DESCRIBE, SHOW",
             self.peek_kind(),
+        ))
+    }
+
+    fn parse_show_statement(&mut self) -> Result<SqlStatement, SqlParseError> {
+        if self.eat_keyword(Keyword::Indexes) {
+            return Ok(SqlStatement::ShowIndexes(
+                self.parse_show_indexes_statement()?,
+            ));
+        }
+
+        Err(SqlParseError::unsupported_feature(
+            "SHOW commands beyond SHOW INDEXES",
         ))
     }
 
@@ -750,6 +803,12 @@ impl Parser {
                 SqlExplainTarget::Select(select) => self.select_clause_order_error(select),
                 SqlExplainTarget::Delete(delete) => self.delete_clause_order_error(delete),
             },
+            SqlStatement::Describe(_) => {
+                Some(SqlParseError::unsupported_feature("DESCRIBE modifiers"))
+            }
+            SqlStatement::ShowIndexes(_) => {
+                Some(SqlParseError::unsupported_feature("SHOW INDEXES modifiers"))
+            }
         }
     }
 
@@ -868,6 +927,18 @@ impl Parser {
             order_by,
             limit,
         })
+    }
+
+    fn parse_describe_statement(&mut self) -> Result<SqlDescribeStatement, SqlParseError> {
+        let entity = self.expect_identifier()?;
+
+        Ok(SqlDescribeStatement { entity })
+    }
+
+    fn parse_show_indexes_statement(&mut self) -> Result<SqlShowIndexesStatement, SqlParseError> {
+        let entity = self.expect_identifier()?;
+
+        Ok(SqlShowIndexesStatement { entity })
     }
 
     fn parse_projection(&mut self) -> Result<SqlProjection, SqlParseError> {
@@ -1288,9 +1359,11 @@ impl Parser {
     fn peek_unsupported_feature(&self) -> Option<&'static str> {
         match self.peek_kind() {
             Some(TokenKind::Keyword(Keyword::As)) => Some("column/expression aliases"),
+            Some(TokenKind::Keyword(Keyword::Describe)) => Some("DESCRIBE modifiers"),
             Some(TokenKind::Keyword(Keyword::Having)) => Some("HAVING"),
             Some(TokenKind::Keyword(Keyword::Insert)) => Some("INSERT"),
             Some(TokenKind::Keyword(Keyword::Join)) => Some("JOIN"),
+            Some(TokenKind::Keyword(Keyword::Show)) => Some("SHOW commands beyond SHOW INDEXES"),
             Some(TokenKind::Keyword(Keyword::With)) => Some("WITH"),
             Some(TokenKind::Keyword(Keyword::Union | Keyword::Intersect | Keyword::Except)) => {
                 Some("UNION/INTERSECT/EXCEPT")
