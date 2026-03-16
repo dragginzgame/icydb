@@ -99,6 +99,54 @@ impl SqlQueryRowsOutput {
     }
 }
 
+///
+/// SqlQueryResult
+///
+/// Unified SQL endpoint envelope for one executed statement.
+/// Carries projection, explain, describe, index-listing, and entity-listing
+/// payloads behind one canister-friendly return type.
+///
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum SqlQueryResult {
+    Projection(SqlQueryRowsOutput),
+    Explain {
+        entity: String,
+        explain: String,
+    },
+    Describe(EntitySchemaDescription),
+    ShowIndexes {
+        entity: String,
+        indexes: Vec<String>,
+    },
+    ShowEntities {
+        entities: Vec<String>,
+    },
+}
+
+impl SqlQueryResult {
+    /// Render this payload into deterministic shell-friendly lines.
+    #[must_use]
+    pub fn render_lines(&self) -> Vec<String> {
+        match self {
+            Self::Projection(rows) => {
+                render_projection_lines(rows.entity.as_str(), &rows.as_projection_rows())
+            }
+            Self::Explain { explain, .. } => render_explain_lines(explain.as_str()),
+            Self::Describe(description) => render_describe_lines(description),
+            Self::ShowIndexes { entity, indexes } => {
+                render_show_indexes_lines(entity.as_str(), indexes.as_slice())
+            }
+            Self::ShowEntities { entities } => render_show_entities_lines(entities.as_slice()),
+        }
+    }
+
+    /// Render this payload into one newline-separated display string.
+    #[must_use]
+    pub fn render_text(&self) -> String {
+        self.render_lines().join("\n")
+    }
+}
+
 /// Validate and normalize SQL endpoint input.
 pub fn normalize_sql_input(sql: &str) -> Result<&str, Error> {
     let sql_trimmed = sql.trim();
@@ -299,6 +347,15 @@ pub fn render_show_indexes_lines(entity: &str, indexes: &[String]) -> Vec<String
     lines
 }
 
+/// Render one helper-level `SHOW ENTITIES` payload into deterministic lines.
+#[must_use]
+pub fn render_show_entities_lines(entities: &[String]) -> Vec<String> {
+    let mut lines = vec!["surface=entities".to_string()];
+    lines.extend(entities.iter().map(|entity| format!("entity={entity}")));
+
+    lines
+}
+
 /// Render one SQL projection payload into pretty table lines for shell output.
 #[must_use]
 pub fn render_projection_lines(entity: &str, projection: &SqlProjectionRows) -> Vec<String> {
@@ -441,8 +498,8 @@ fn render_enum(value: &ValueEnum) -> String {
 #[cfg(test)]
 mod tests {
     use crate::db::sql::{
-        explain_target_sql, identifiers_tail_match, render_describe_lines,
-        render_show_indexes_lines,
+        SqlQueryResult, SqlQueryRowsOutput, explain_target_sql, identifiers_tail_match,
+        render_describe_lines, render_show_entities_lines, render_show_indexes_lines,
     };
     use crate::db::{
         EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
@@ -542,6 +599,50 @@ mod tests {
                 "INDEX character_name_idx(name)".to_string(),
             ],
             "show-indexes shell output must remain contract-stable across release lines",
+        );
+    }
+
+    #[test]
+    fn render_show_entities_lines_output_contract_vector_is_stable() {
+        let entities = vec![
+            "Character".to_string(),
+            "Order".to_string(),
+            "User".to_string(),
+        ];
+
+        assert_eq!(
+            render_show_entities_lines(entities.as_slice()),
+            vec![
+                "surface=entities".to_string(),
+                "entity=Character".to_string(),
+                "entity=Order".to_string(),
+                "entity=User".to_string(),
+            ],
+            "show-entities shell output must remain contract-stable across release lines",
+        );
+    }
+
+    #[test]
+    fn sql_query_result_projection_render_lines_output_contract_vector_is_stable() {
+        let projection = SqlQueryRowsOutput {
+            entity: "User".to_string(),
+            columns: vec!["name".to_string()],
+            rows: vec![vec!["alice".to_string()]],
+            row_count: 1,
+        };
+        let result = SqlQueryResult::Projection(projection);
+
+        assert_eq!(
+            result.render_lines(),
+            vec![
+                "surface=projection entity=User row_count=1".to_string(),
+                "+-------+".to_string(),
+                "| name  |".to_string(),
+                "+-------+".to_string(),
+                "| alice |".to_string(),
+                "+-------+".to_string(),
+            ],
+            "projection query-result rendering must remain contract-stable across release lines",
         );
     }
 }

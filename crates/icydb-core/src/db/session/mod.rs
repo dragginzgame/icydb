@@ -211,6 +211,12 @@ impl<C: CanisterKind> DbSession<C> {
         show_indexes_for_model(E::MODEL)
     }
 
+    /// Return one stable list of runtime-registered entity names.
+    #[must_use]
+    pub fn show_entities(&self) -> Vec<String> {
+        self.db.runtime_entity_names()
+    }
+
     /// Return one structured schema description for the entity.
     ///
     /// This is a typed `DESCRIBE`-style introspection surface consumed by

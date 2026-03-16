@@ -15,8 +15,9 @@ use crate::{
         },
         sql::parser::{
             SqlAggregateCall, SqlAggregateKind, SqlDeleteStatement, SqlExplainMode,
-            SqlExplainStatement, SqlExplainTarget, SqlOrderDirection, SqlProjection, SqlSelectItem,
-            SqlSelectStatement, SqlShowIndexesStatement, SqlStatement, parse_sql,
+            SqlExplainStatement, SqlExplainTarget, SqlHavingClause, SqlHavingSymbol,
+            SqlOrderDirection, SqlProjection, SqlSelectItem, SqlSelectStatement,
+            SqlShowIndexesStatement, SqlStatement, parse_sql,
         },
     },
     traits::EntityKind,
@@ -47,6 +48,7 @@ pub(crate) enum SqlCommand<E: EntityKind> {
     },
     DescribeEntity,
     ShowIndexesEntity,
+    ShowEntities,
 }
 
 ///
@@ -122,6 +124,9 @@ pub(crate) enum SqlLoweringError {
 
     #[error("unsupported SQL GROUP BY projection shape in this release")]
     UnsupportedSelectGroupBy,
+
+    #[error("unsupported SQL HAVING shape in this release")]
+    UnsupportedSelectHaving,
 }
 
 /// Parse and lower one SQL statement into canonical query intent for `E`.
@@ -158,6 +163,7 @@ fn lower_statement<E: EntityKind>(
         SqlStatement::Explain(statement) => lower_explain::<E>(statement, consistency),
         SqlStatement::Describe(statement) => lower_describe::<E>(statement.entity.as_str()),
         SqlStatement::ShowIndexes(statement) => lower_show_indexes::<E>(statement),
+        SqlStatement::ShowEntities(_) => Ok(SqlCommand::ShowEntities),
     }
 }
 
@@ -231,12 +237,16 @@ fn lower_global_aggregate_select<E: EntityKind>(
         .predicate
         .map(|predicate| adapt_predicate_identifiers_to_scope(predicate, entity_scope.as_slice()));
     statement.order_by = normalize_order_terms(statement.order_by, entity_scope.as_slice());
+    statement.having = normalize_having_clauses(statement.having, entity_scope.as_slice());
 
     if statement.distinct {
         return Err(SqlLoweringError::UnsupportedSelectDistinct);
     }
     if !statement.group_by.is_empty() {
         return Err(SqlLoweringError::UnsupportedSelectGroupBy);
+    }
+    if !statement.having.is_empty() {
+        return Err(SqlLoweringError::UnsupportedSelectHaving);
     }
 
     let terminal = lower_global_aggregate_terminal(statement.projection)?;
@@ -272,9 +282,11 @@ fn lower_select<E: EntityKind>(
         .predicate
         .map(|predicate| adapt_predicate_identifiers_to_scope(predicate, entity_scope.as_slice()));
     statement.order_by = normalize_order_terms(statement.order_by, entity_scope.as_slice());
+    statement.having = normalize_having_clauses(statement.having, entity_scope.as_slice());
 
     // Phase 1: projection and predicate/order shaping.
     let mut query = Query::new(consistency);
+    let projection_for_having = statement.projection.clone();
     query = apply_group_by_fields(query, statement.group_by.as_slice())?;
     query = apply_scalar_distinct_flag::<E>(
         query,
@@ -283,6 +295,12 @@ fn lower_select<E: EntityKind>(
         statement.group_by.as_slice(),
     )?;
     query = apply_projection(query, statement.projection, statement.group_by.as_slice())?;
+    query = apply_having_clauses(
+        query,
+        statement.having,
+        &projection_for_having,
+        statement.group_by.as_slice(),
+    )?;
     if let Some(predicate) = statement.predicate {
         query = query.filter(predicate);
     }
@@ -374,6 +392,27 @@ fn apply_projection<E: EntityKind>(
     let SqlProjection::Items(items) = projection else {
         return Err(SqlLoweringError::UnsupportedSelectGroupBy);
     };
+    let aggregate_calls =
+        grouped_projection_aggregate_calls(&SqlProjection::Items(items), group_by_fields)?;
+
+    for aggregate_call in aggregate_calls {
+        query = query.aggregate(lower_aggregate_call(aggregate_call)?);
+    }
+
+    Ok(query)
+}
+
+fn grouped_projection_aggregate_calls(
+    projection: &SqlProjection,
+    group_by_fields: &[String],
+) -> Result<Vec<SqlAggregateCall>, SqlLoweringError> {
+    if group_by_fields.is_empty() {
+        return Err(SqlLoweringError::UnsupportedSelectGroupBy);
+    }
+
+    let SqlProjection::Items(items) = projection else {
+        return Err(SqlLoweringError::UnsupportedSelectGroupBy);
+    };
 
     let mut projected_group_fields = Vec::<String>::new();
     let mut aggregate_calls = Vec::<SqlAggregateCall>::new();
@@ -387,11 +426,11 @@ fn apply_projection<E: EntityKind>(
                 if seen_aggregate {
                     return Err(SqlLoweringError::UnsupportedSelectGroupBy);
                 }
-                projected_group_fields.push(field);
+                projected_group_fields.push(field.clone());
             }
             SqlSelectItem::Aggregate(aggregate) => {
                 seen_aggregate = true;
-                aggregate_calls.push(aggregate);
+                aggregate_calls.push(aggregate.clone());
             }
         }
     }
@@ -400,11 +439,7 @@ fn apply_projection<E: EntityKind>(
         return Err(SqlLoweringError::UnsupportedSelectGroupBy);
     }
 
-    for aggregate_call in aggregate_calls {
-        query = query.aggregate(lower_aggregate_call(aggregate_call)?);
-    }
-
-    Ok(query)
+    Ok(aggregate_calls)
 }
 
 fn apply_scalar_projection<E: EntityKind>(
@@ -469,6 +504,55 @@ fn lower_aggregate_call(
     }
 }
 
+fn apply_having_clauses<E: EntityKind>(
+    mut query: Query<E>,
+    having_clauses: Vec<SqlHavingClause>,
+    projection: &SqlProjection,
+    group_by_fields: &[String],
+) -> Result<Query<E>, SqlLoweringError> {
+    if having_clauses.is_empty() {
+        return Ok(query);
+    }
+    if group_by_fields.is_empty() {
+        return Err(SqlLoweringError::UnsupportedSelectHaving);
+    }
+
+    let aggregate_calls = grouped_projection_aggregate_calls(projection, group_by_fields)
+        .map_err(|_| SqlLoweringError::UnsupportedSelectHaving)?;
+    for clause in having_clauses {
+        match clause.symbol {
+            SqlHavingSymbol::Field(field) => {
+                query = query.having_group(field, clause.op, clause.value)?;
+            }
+            SqlHavingSymbol::Aggregate(aggregate) => {
+                let aggregate_index =
+                    resolve_having_aggregate_index(&aggregate, aggregate_calls.as_slice())?;
+                query = query.having_aggregate(aggregate_index, clause.op, clause.value)?;
+            }
+        }
+    }
+
+    Ok(query)
+}
+
+fn resolve_having_aggregate_index(
+    target: &SqlAggregateCall,
+    grouped_projection_aggregates: &[SqlAggregateCall],
+) -> Result<usize, SqlLoweringError> {
+    let mut matched = grouped_projection_aggregates
+        .iter()
+        .enumerate()
+        .filter_map(|(index, aggregate)| (aggregate == target).then_some(index));
+    let Some(index) = matched.next() else {
+        return Err(SqlLoweringError::UnsupportedSelectHaving);
+    };
+    if matched.next().is_some() {
+        return Err(SqlLoweringError::UnsupportedSelectHaving);
+    }
+
+    Ok(index)
+}
+
 fn lower_delete<E: EntityKind>(
     mut statement: SqlDeleteStatement,
     consistency: MissingRowPolicy,
@@ -504,6 +588,43 @@ fn apply_order_terms<E: EntityKind>(
     }
 
     query
+}
+
+fn normalize_having_clauses(
+    clauses: Vec<SqlHavingClause>,
+    entity_scope: &[String],
+) -> Vec<SqlHavingClause> {
+    clauses
+        .into_iter()
+        .map(|clause| SqlHavingClause {
+            symbol: normalize_having_symbol(clause.symbol, entity_scope),
+            op: clause.op,
+            value: clause.value,
+        })
+        .collect()
+}
+
+fn normalize_having_symbol(symbol: SqlHavingSymbol, entity_scope: &[String]) -> SqlHavingSymbol {
+    match symbol {
+        SqlHavingSymbol::Field(field) => {
+            SqlHavingSymbol::Field(normalize_identifier_to_scope(field, entity_scope))
+        }
+        SqlHavingSymbol::Aggregate(aggregate) => SqlHavingSymbol::Aggregate(
+            normalize_aggregate_call_identifiers(aggregate, entity_scope),
+        ),
+    }
+}
+
+fn normalize_aggregate_call_identifiers(
+    aggregate: SqlAggregateCall,
+    entity_scope: &[String],
+) -> SqlAggregateCall {
+    SqlAggregateCall {
+        kind: aggregate.kind,
+        field: aggregate
+            .field
+            .map(|field| normalize_identifier_to_scope(field, entity_scope)),
+    }
 }
 
 // Build one identifier scope used for reducing SQL-qualified field references
@@ -791,6 +912,18 @@ mod tests {
     }
 
     #[test]
+    fn compile_sql_command_show_entities_lowers_to_show_entities_lane() {
+        let command =
+            compile_sql_command::<SqlLowerEntity>("SHOW ENTITIES", MissingRowPolicy::Ignore)
+                .expect("SHOW ENTITIES should lower");
+
+        assert!(
+            matches!(command, SqlCommand::ShowEntities),
+            "SHOW ENTITIES should lower to dedicated show-entities command lane",
+        );
+    }
+
+    #[test]
     fn compile_sql_command_explain_execution_wraps_lowered_query() {
         let command = compile_sql_command::<SqlLowerEntity>(
             "EXPLAIN EXECUTION SELECT * FROM SqlLowerEntity LIMIT 1",
@@ -1068,6 +1201,63 @@ mod tests {
                 .into_inner(),
             "qualified grouped SQL identifiers should normalize to the same canonical planned intent as unqualified grouped SQL",
         );
+    }
+
+    #[test]
+    fn compile_sql_command_select_grouped_having_parity_matches_fluent_intent() {
+        let sql_command = compile_sql_command::<SqlLowerEntity>(
+            "SELECT age, COUNT(*) \
+             FROM SqlLowerEntity \
+             WHERE age >= 21 \
+             GROUP BY age \
+             HAVING age >= 21 AND COUNT(*) > 1 \
+             ORDER BY age DESC LIMIT 3",
+            MissingRowPolicy::Ignore,
+        )
+        .expect("grouped HAVING SQL query should lower");
+        let SqlCommand::Query(sql_query) = sql_command else {
+            panic!("expected lowered grouped HAVING SQL query command");
+        };
+
+        let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+            .filter(Predicate::Compare(ComparePredicate::with_coercion(
+                "age",
+                CompareOp::Gte,
+                Value::Int(21),
+                CoercionId::NumericWiden,
+            )))
+            .group_by("age")
+            .expect("fluent grouped query should accept grouped field")
+            .aggregate(crate::db::count())
+            .having_group("age", CompareOp::Gte, Value::Int(21))
+            .expect("fluent grouped HAVING group-field clause should be accepted")
+            .having_aggregate(0, CompareOp::Gt, Value::Int(1))
+            .expect("fluent grouped HAVING aggregate clause should be accepted")
+            .order_by_desc("age")
+            .limit(3);
+
+        assert_eq!(
+            sql_query
+                .plan()
+                .expect("grouped HAVING SQL plan should build")
+                .into_inner(),
+            fluent_query
+                .plan()
+                .expect("fluent grouped HAVING plan should build")
+                .into_inner(),
+            "grouped HAVING SQL lowering and fluent grouped HAVING query must produce identical normalized planned intent",
+        );
+    }
+
+    #[test]
+    fn compile_sql_command_select_having_without_group_by_rejects() {
+        let err = compile_sql_command::<SqlLowerEntity>(
+            "SELECT * FROM SqlLowerEntity HAVING COUNT(*) > 1",
+            MissingRowPolicy::Ignore,
+        )
+        .expect_err("HAVING without GROUP BY should fail closed");
+
+        assert!(matches!(err, SqlLoweringError::UnsupportedSelectHaving));
     }
 
     #[test]

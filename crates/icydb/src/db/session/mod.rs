@@ -171,6 +171,11 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(self.inner.show_indexes_sql::<E>(sql)?)
     }
 
+    /// Execute one reduced SQL `SHOW ENTITIES` statement.
+    pub fn show_entities_sql(&self, sql: &str) -> Result<Vec<String>, Error> {
+        Ok(self.inner.show_entities_sql(sql)?)
+    }
+
     #[must_use]
     pub fn delete<E>(&self) -> SessionDeleteQuery<'_, E>
     where
@@ -201,6 +206,12 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         self.inner.show_indexes::<E>()
+    }
+
+    /// Return one stable list of runtime-registered entity names.
+    #[must_use]
+    pub fn show_entities(&self) -> Vec<String> {
+        self.inner.show_entities()
     }
 
     /// Return one structured schema description for the entity.
@@ -613,6 +624,7 @@ mod tests {
         assert!(route.is_describe());
         assert!(!route.is_explain());
         assert!(!route.is_show_indexes());
+        assert!(!route.is_show_entities());
     }
 
     #[test]
@@ -631,6 +643,23 @@ mod tests {
         );
         assert_eq!(route.entity(), "public.FacadeSqlEntity");
         assert!(route.is_show_indexes());
+        assert!(!route.is_describe());
+        assert!(!route.is_explain());
+        assert!(!route.is_show_entities());
+    }
+
+    #[test]
+    fn facade_sql_statement_route_show_entities_classifies_surface() {
+        let session = fresh_facade_session();
+
+        let route = session
+            .sql_statement_route("SHOW ENTITIES")
+            .expect("facade SQL statement route should classify SHOW ENTITIES");
+
+        assert_eq!(route, SqlStatementRoute::ShowEntities);
+        assert!(route.is_show_entities());
+        assert_eq!(route.entity(), "");
+        assert!(!route.is_show_indexes());
         assert!(!route.is_describe());
         assert!(!route.is_explain());
     }
@@ -662,6 +691,21 @@ mod tests {
         assert_eq!(
             from_sql, from_typed,
             "facade show_indexes_sql should return the same canonical payload as show_indexes",
+        );
+    }
+
+    #[test]
+    fn facade_show_entities_sql_matches_show_entities_payload() {
+        let session = fresh_facade_session();
+
+        let from_sql = session
+            .show_entities_sql("SHOW ENTITIES")
+            .expect("facade show_entities_sql should succeed");
+        let from_typed = session.show_entities();
+
+        assert_eq!(
+            from_sql, from_typed,
+            "facade show_entities_sql should return the same canonical payload as show_entities",
         );
     }
 

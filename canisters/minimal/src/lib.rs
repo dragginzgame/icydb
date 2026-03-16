@@ -3,19 +3,14 @@
 //!
 
 use ic_cdk::{export_candid, query as ic_query};
+use icydb::db::sql::SqlQueryResult;
 
 icydb::start!();
 
 /// Execute one reduced SQL statement against the minimal entity set.
 #[ic_query]
-fn query(sql: String) -> Result<Vec<String>, icydb::Error> {
+fn query(sql: String) -> Result<SqlQueryResult, icydb::Error> {
     sql_dispatch::query(sql.as_str())
-}
-
-/// Execute one reduced SQL `DESCRIBE` statement and return shell-friendly lines.
-#[ic_query]
-fn describe(sql: String) -> Result<Vec<String>, icydb::Error> {
-    sql_dispatch::describe(sql.as_str())
 }
 
 ///
@@ -41,16 +36,16 @@ mod tests {
             "generated sql_dispatch must include query convenience entrypoint"
         );
         assert!(
-            actor.contains("pub fn describe_schema ("),
-            "generated sql_dispatch must include describe_schema helper"
+            !actor.contains("pub fn describe_schema ("),
+            "generated sql_dispatch must not include removed describe_schema helper"
         );
         assert!(
-            actor.contains("pub fn describe ("),
-            "generated sql_dispatch must include describe helper"
+            !actor.contains("pub fn describe ("),
+            "generated sql_dispatch must not include removed describe helper"
         );
         assert!(
-            actor.contains("pub fn show_indexes ("),
-            "generated sql_dispatch must include show_indexes helper"
+            !actor.contains("pub fn show_indexes ("),
+            "generated sql_dispatch must not include removed show_indexes helper"
         );
     }
 }

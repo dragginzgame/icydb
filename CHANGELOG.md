@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 - `0.56.0` adds reduced-SQL `DESCRIBE <entity>` and `SHOW INDEXES <entity>` introspection lanes across parser/lowering/session/facade, expands generated `sql_dispatch` with typed and shell-friendly describe/index helpers plus `SHOW ENTITIES` support, and keeps `query_rows` projection-only with deterministic introspection-lane rejections.
 - `0.56.1` hardens the introspection surfaces by locking `DESCRIBE`/`SHOW INDEXES` shell output vectors in tests, broadening canister integration coverage for mixed-case/schema-qualified/semicolon forms, and removing version-specific wording from generated helper error messages.
+- `0.56.2` replaces split SQL canister helpers with one `query(...)` enum envelope (`SqlQueryResult`) across projection/explain/describe/show-indexes/show-entities, updates local shell rendering flows around that unified result, and fixes generated empty-entity route stubs so downstream builds do not emit unused-`sql` warnings.
+- `0.56.3` makes `SHOW ENTITIES` a first-class reduced-SQL route across parser/lowering/session/generated dispatch and adds constrained grouped `HAVING` execution for SQL `GROUP BY` shapes, while keeping unsupported HAVING boolean forms fail-closed.
 
 See detailed breakdown:
 [docs/changelog/0.56.md](docs/changelog/0.56.md)

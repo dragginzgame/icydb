@@ -27,6 +27,7 @@ pub(crate) enum SqlStatement {
     Explain(SqlExplainStatement),
     Describe(SqlDescribeStatement),
     ShowIndexes(SqlShowIndexesStatement),
+    ShowEntities(SqlShowEntitiesStatement),
 }
 
 ///
@@ -51,6 +52,31 @@ pub(crate) enum SqlProjection {
 pub(crate) enum SqlSelectItem {
     Field(String),
     Aggregate(SqlAggregateCall),
+}
+
+///
+/// SqlHavingSymbol
+///
+/// One grouped HAVING symbol reference (`group_field` or aggregate terminal).
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum SqlHavingSymbol {
+    Field(String),
+    Aggregate(SqlAggregateCall),
+}
+
+///
+/// SqlHavingClause
+///
+/// One reduced grouped HAVING compare clause.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SqlHavingClause {
+    pub(crate) symbol: SqlHavingSymbol,
+    pub(crate) op: CompareOp,
+    pub(crate) value: Value,
 }
 
 ///
@@ -120,6 +146,7 @@ pub(crate) struct SqlSelectStatement {
     pub(crate) predicate: Option<Predicate>,
     pub(crate) distinct: bool,
     pub(crate) group_by: Vec<String>,
+    pub(crate) having: Vec<SqlHavingClause>,
     pub(crate) order_by: Vec<SqlOrderTerm>,
     pub(crate) limit: Option<u32>,
     pub(crate) offset: Option<u32>,
@@ -203,6 +230,16 @@ pub(crate) struct SqlDescribeStatement {
 pub(crate) struct SqlShowIndexesStatement {
     pub(crate) entity: String,
 }
+
+///
+/// SqlShowEntitiesStatement
+///
+/// Canonical parsed `SHOW ENTITIES` statement.
+/// This lane carries no entity identifier and targets SQL helper introspection.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SqlShowEntitiesStatement;
 
 ///
 /// SqlParseError
@@ -330,6 +367,7 @@ enum Keyword {
     Except,
     Execution,
     Explain,
+    Entities,
     False,
     From,
     Group,
@@ -376,6 +414,7 @@ impl Keyword {
             Self::Except => "EXCEPT",
             Self::Execution => "EXECUTION",
             Self::Explain => "EXPLAIN",
+            Self::Entities => "ENTITIES",
             Self::False => "FALSE",
             Self::From => "FROM",
             Self::Group => "GROUP",
@@ -687,6 +726,7 @@ fn keyword_from_ident(value: &str) -> Option<Keyword> {
         "EXCEPT" => Some(Keyword::Except),
         "EXECUTION" => Some(Keyword::Execution),
         "EXPLAIN" => Some(Keyword::Explain),
+        "ENTITIES" => Some(Keyword::Entities),
         "FALSE" => Some(Keyword::False),
         "FROM" => Some(Keyword::From),
         "GROUP" => Some(Keyword::Group),
@@ -762,9 +802,12 @@ impl Parser {
                 self.parse_show_indexes_statement()?,
             ));
         }
+        if self.eat_keyword(Keyword::Entities) {
+            return Ok(SqlStatement::ShowEntities(SqlShowEntitiesStatement));
+        }
 
         Err(SqlParseError::unsupported_feature(
-            "SHOW commands beyond SHOW INDEXES",
+            "SHOW commands beyond SHOW INDEXES/SHOW ENTITIES",
         ))
     }
 
@@ -809,6 +852,9 @@ impl Parser {
             SqlStatement::ShowIndexes(_) => {
                 Some(SqlParseError::unsupported_feature("SHOW INDEXES modifiers"))
             }
+            SqlStatement::ShowEntities(_) => Some(SqlParseError::unsupported_feature(
+                "SHOW ENTITIES modifiers",
+            )),
         }
     }
 
@@ -857,9 +903,11 @@ impl Parser {
             Vec::new()
         };
 
-        if self.eat_keyword(Keyword::Having) {
-            return Err(SqlParseError::unsupported_feature("HAVING"));
-        }
+        let having = if self.eat_keyword(Keyword::Having) {
+            self.parse_having_clauses()?
+        } else {
+            Vec::new()
+        };
 
         // Phase 2: parse ordering and window clauses.
         let order_by = if self.eat_keyword(Keyword::Order) {
@@ -887,6 +935,7 @@ impl Parser {
             predicate,
             distinct,
             group_by,
+            having,
             order_by,
             limit,
             offset,
@@ -1046,6 +1095,44 @@ impl Parser {
         }
 
         Ok(terms)
+    }
+
+    fn parse_having_clauses(&mut self) -> Result<Vec<SqlHavingClause>, SqlParseError> {
+        let mut clauses = vec![self.parse_having_clause()?];
+        while self.eat_keyword(Keyword::And) {
+            clauses.push(self.parse_having_clause()?);
+        }
+
+        if self.peek_keyword(Keyword::Or) || self.peek_keyword(Keyword::Not) {
+            return Err(SqlParseError::unsupported_feature(
+                "HAVING boolean operators beyond AND",
+            ));
+        }
+
+        Ok(clauses)
+    }
+
+    fn parse_having_clause(&mut self) -> Result<SqlHavingClause, SqlParseError> {
+        let symbol = self.parse_having_symbol()?;
+        let op = self.parse_compare_operator()?;
+        let value = self.parse_literal()?;
+
+        Ok(SqlHavingClause { symbol, op, value })
+    }
+
+    fn parse_having_symbol(&mut self) -> Result<SqlHavingSymbol, SqlParseError> {
+        if let Some(kind) = self.parse_aggregate_kind() {
+            return Ok(SqlHavingSymbol::Aggregate(self.parse_aggregate_call(kind)?));
+        }
+
+        let field = self.expect_identifier()?;
+        if self.peek_lparen() {
+            return Err(SqlParseError::unsupported_feature(
+                "SQL function namespace beyond supported aggregate forms",
+            ));
+        }
+
+        Ok(SqlHavingSymbol::Field(field))
     }
 
     fn parse_identifier_list(&mut self) -> Result<Vec<String>, SqlParseError> {
@@ -1363,7 +1450,9 @@ impl Parser {
             Some(TokenKind::Keyword(Keyword::Having)) => Some("HAVING"),
             Some(TokenKind::Keyword(Keyword::Insert)) => Some("INSERT"),
             Some(TokenKind::Keyword(Keyword::Join)) => Some("JOIN"),
-            Some(TokenKind::Keyword(Keyword::Show)) => Some("SHOW commands beyond SHOW INDEXES"),
+            Some(TokenKind::Keyword(Keyword::Show)) => {
+                Some("SHOW commands beyond SHOW INDEXES/SHOW ENTITIES")
+            }
             Some(TokenKind::Keyword(Keyword::With)) => Some("WITH"),
             Some(TokenKind::Keyword(Keyword::Union | Keyword::Intersect | Keyword::Except)) => {
                 Some("UNION/INTERSECT/EXCEPT")

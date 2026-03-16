@@ -5,7 +5,7 @@
 mod seed;
 
 use ic_cdk::{export_candid, query as ic_query, update};
-use icydb::db::sql::SqlQueryRowsOutput;
+use icydb::db::sql::SqlQueryResult;
 use icydb_testing_sql_test_fixtures::schema::{Character, Order, User};
 
 icydb::start!();
@@ -18,20 +18,8 @@ fn sql_entities() -> Vec<String> {
 
 /// Execute one reduced SQL statement against fixture entities.
 #[ic_query]
-fn query(sql: String) -> Result<Vec<String>, icydb::Error> {
+fn query(sql: String) -> Result<SqlQueryResult, icydb::Error> {
     sql_dispatch::query(sql.as_str())
-}
-
-/// Execute one reduced SQL projection statement and return structured rows.
-#[ic_query]
-fn query_rows(sql: String) -> Result<SqlQueryRowsOutput, icydb::Error> {
-    sql_dispatch::query_rows(sql.as_str())
-}
-
-/// Execute one reduced SQL `DESCRIBE` statement and return shell-friendly lines.
-#[ic_query]
-fn describe(sql: String) -> Result<Vec<String>, icydb::Error> {
-    sql_dispatch::describe(sql.as_str())
 }
 
 /// Clear all fixture rows from this canister.
@@ -83,32 +71,24 @@ mod tests {
             "generated sql_dispatch must include from_entity_name resolver"
         );
         assert!(
-            actor.contains("projection_rows"),
-            "generated sql_dispatch must include projection_rows execution entrypoint"
-        );
-        assert!(
             actor.contains("pub fn query ("),
             "generated sql_dispatch must include query convenience entrypoint"
         );
         assert!(
-            actor.contains("pub fn query_rows ("),
-            "generated sql_dispatch must include query_rows convenience entrypoint"
+            !actor.contains("pub fn query_rows ("),
+            "generated sql_dispatch must not include removed query_rows convenience entrypoint"
         );
         assert!(
-            actor.contains("explain"),
-            "generated sql_dispatch must include explain execution entrypoint"
+            !actor.contains("pub fn describe_schema ("),
+            "generated sql_dispatch must not include removed describe_schema helper"
         );
         assert!(
-            actor.contains("pub fn describe_schema ("),
-            "generated sql_dispatch must include describe_schema helper"
+            !actor.contains("pub fn describe ("),
+            "generated sql_dispatch must not include removed describe helper"
         );
         assert!(
-            actor.contains("pub fn describe ("),
-            "generated sql_dispatch must include describe helper"
-        );
-        assert!(
-            actor.contains("pub fn show_indexes ("),
-            "generated sql_dispatch must include show_indexes helper"
+            !actor.contains("pub fn show_indexes ("),
+            "generated sql_dispatch must not include removed show_indexes helper"
         );
     }
 }

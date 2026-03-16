@@ -5,9 +5,9 @@
 
 use super::{
     SqlAggregateCall, SqlAggregateKind, SqlDeleteStatement, SqlDescribeStatement, SqlExplainMode,
-    SqlExplainStatement, SqlExplainTarget, SqlOrderDirection, SqlOrderTerm, SqlProjection,
-    SqlSelectItem, SqlSelectStatement, SqlShowIndexesStatement, SqlStatement, parse_sql,
-    parse_sql_predicate,
+    SqlExplainStatement, SqlExplainTarget, SqlHavingClause, SqlHavingSymbol, SqlOrderDirection,
+    SqlOrderTerm, SqlProjection, SqlSelectItem, SqlSelectStatement, SqlShowEntitiesStatement,
+    SqlShowIndexesStatement, SqlStatement, parse_sql, parse_sql_predicate,
 };
 use crate::{
     db::predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
@@ -48,6 +48,7 @@ fn parse_select_statement_with_predicate_order_and_window() {
             ])),
             distinct: true,
             group_by: vec![],
+            having: vec![],
             order_by: vec![
                 SqlOrderTerm {
                     field: "age".to_string(),
@@ -103,6 +104,7 @@ fn parse_explain_json_wrapped_select() {
                 predicate: None,
                 distinct: false,
                 group_by: vec![],
+                having: vec![],
                 order_by: vec![],
                 limit: Some(1),
                 offset: None,
@@ -137,6 +139,16 @@ fn parse_show_indexes_statement_with_schema_qualified_entity() {
 }
 
 #[test]
+fn parse_show_entities_statement() {
+    let statement = parse_sql("SHOW ENTITIES").expect("show entities statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::ShowEntities(SqlShowEntitiesStatement)
+    );
+}
+
+#[test]
 fn parse_select_statement_with_qualified_identifiers() {
     let statement = parse_sql(
         "SELECT users.name, users.age \
@@ -162,6 +174,7 @@ fn parse_select_statement_with_qualified_identifiers() {
             ))),
             distinct: false,
             group_by: vec![],
+            having: vec![],
             order_by: vec![SqlOrderTerm {
                 field: "users.age".to_string(),
                 direction: SqlOrderDirection::Desc,
@@ -202,6 +215,7 @@ fn parse_select_grouped_statement_with_qualified_identifiers() {
             ))),
             distinct: false,
             group_by: vec!["users.age".to_string()],
+            having: vec![],
             order_by: vec![SqlOrderTerm {
                 field: "users.age".to_string(),
                 direction: SqlOrderDirection::Desc,
@@ -237,6 +251,7 @@ fn parse_explain_execution_with_qualified_identifiers() {
                 ))),
                 distinct: false,
                 group_by: vec![],
+                having: vec![],
                 order_by: vec![SqlOrderTerm {
                     field: "users.age".to_string(),
                     direction: SqlOrderDirection::Desc,
@@ -244,6 +259,56 @@ fn parse_explain_execution_with_qualified_identifiers() {
                 limit: Some(1),
                 offset: None,
             }),
+        }),
+    );
+}
+
+#[test]
+fn parse_select_grouped_statement_with_having_clauses() {
+    let statement = parse_sql(
+        "SELECT age, COUNT(*) \
+         FROM users \
+         GROUP BY age \
+         HAVING age >= 21 AND COUNT(*) > 1 \
+         ORDER BY age ASC LIMIT 10",
+    )
+    .expect("grouped HAVING select statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::Items(vec![
+                SqlSelectItem::Field("age".to_string()),
+                SqlSelectItem::Aggregate(SqlAggregateCall {
+                    kind: SqlAggregateKind::Count,
+                    field: None,
+                }),
+            ]),
+            predicate: None,
+            distinct: false,
+            group_by: vec!["age".to_string()],
+            having: vec![
+                SqlHavingClause {
+                    symbol: SqlHavingSymbol::Field("age".to_string()),
+                    op: CompareOp::Gte,
+                    value: Value::Int(21),
+                },
+                SqlHavingClause {
+                    symbol: SqlHavingSymbol::Aggregate(SqlAggregateCall {
+                        kind: SqlAggregateKind::Count,
+                        field: None,
+                    }),
+                    op: CompareOp::Gt,
+                    value: Value::Int(1),
+                },
+            ],
+            order_by: vec![SqlOrderTerm {
+                field: "age".to_string(),
+                direction: SqlOrderDirection::Asc,
+            }],
+            limit: Some(10),
+            offset: None,
         }),
     );
 }
@@ -328,7 +393,10 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
             "UNION/INTERSECT/EXCEPT",
         ),
         ("UPDATE users SET age = 1", "UPDATE"),
-        ("SELECT * FROM users HAVING age >= 21", "HAVING"),
+        (
+            "SELECT age, COUNT(*) FROM users GROUP BY age HAVING age >= 21 OR COUNT(*) > 1",
+            "HAVING boolean operators beyond AND",
+        ),
         ("EXPLAIN INSERT INTO users VALUES (1)", "INSERT"),
         (
             "SELECT name AS alias FROM users",
@@ -352,8 +420,12 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
         ("SELECT * FROM public.users AS u", "table aliases"),
         ("DESCRIBE users WHERE age > 1", "DESCRIBE modifiers"),
         ("EXPLAIN DESCRIBE users", "DESCRIBE modifiers"),
-        ("SHOW TABLES", "SHOW commands beyond SHOW INDEXES"),
+        (
+            "SHOW TABLES",
+            "SHOW commands beyond SHOW INDEXES/SHOW ENTITIES",
+        ),
         ("SHOW INDEXES users WHERE age > 1", "SHOW INDEXES modifiers"),
+        ("SHOW ENTITIES users", "SHOW ENTITIES modifiers"),
     ];
 
     for (sql, expected_feature) in cases {

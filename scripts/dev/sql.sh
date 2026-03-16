@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
     cat <<'USAGE'
 Usage:
-  sql.sh [--canister NAME] [--method NAME] [--deploy] [--reset] [--init] "SELECT ..."
+  sql.sh [--canister NAME] [--deploy] [--reset] [--init] "SELECT ..."
   sql.sh [--canister NAME] [--deploy] [--reset] [--init]
 
 Examples:
@@ -13,7 +13,6 @@ Examples:
   sql.sh "show entities"
   sql.sh "show indexes character"
   sql.sh --canister sql_test "select count(*) from character"
-  sql.sh --method describe "describe character"
   sql.sh --deploy
   sql.sh --reset
   sql.sh --init
@@ -21,7 +20,6 @@ Examples:
 
 Environment:
   SQLQ_CANISTER  Default canister name (default: sql_test)
-  SQLQ_METHOD    Default method name (default: query; DESCRIBE auto-selects describe)
 
 Flags:
   --deploy  Deploy canister only.
@@ -31,15 +29,9 @@ USAGE
 }
 
 canister="${SQLQ_CANISTER:-sql_test}"
-method="${SQLQ_METHOD:-query}"
-method_explicit=false
 deploy_requested=false
 reset_requested=false
 init_requested=false
-
-if [[ -n "${SQLQ_METHOD:-}" ]]; then
-    method_explicit=true
-fi
 
 # Parse flags first, then treat remaining args as a single SQL string.
 while [[ $# -gt 0 ]]; do
@@ -54,15 +46,6 @@ while [[ $# -gt 0 ]]; do
                 exit 2
             fi
             canister="$2"
-            shift 2
-            ;;
-        -m|--method)
-            if [[ $# -lt 2 ]]; then
-                echo "error: --method requires a value" >&2
-                exit 2
-            fi
-            method="$2"
-            method_explicit=true
             shift 2
             ;;
         --init)
@@ -119,26 +102,69 @@ fi
 
 sql="$*"
 
-# Keep the common path zero-config: route DESCRIBE to its dedicated canister method
-# unless the caller explicitly picked a method.
-if [[ "$method_explicit" == false ]] \
-    && [[ "$sql" =~ ^[[:space:]]*[Dd][Ee][Ss][Cc][Rr][Ii][Bb][Ee]([[:space:];]|$) ]]; then
-    method="describe"
-fi
-
 # Escape characters that would break the Candid string argument.
 sql=${sql//\\/\\\\}
 sql=${sql//\"/\\\"}
 
-raw_json="$(dfx canister call "$canister" "$method" "(\"$sql\")" --output json)"
+raw_json="$(dfx canister call "$canister" query "(\"$sql\")" --output json)"
 
-# Print rows for successful results, or a readable error for failed ones.
+# Print one readable text surface for successful SQL results, or one readable error.
 printf '%s\n' "$raw_json" | jq -r '
+  def projection_lines($p):
+    [
+      "surface=projection entity=\($p.entity) row_count=\($p.row_count)",
+      ("columns: " + ($p.columns | join(", ")))
+    ] + ($p.rows | map("row: " + join(" | ")));
+
+  def describe_lines($d):
+    [
+      "entity: \($d.entity_name)",
+      "path: \($d.entity_path)",
+      "primary_key: \($d.primary_key)",
+      "fields:"
+    ]
+    + ($d.fields | map(
+        "  - \(.name): \(.kind) (primary_key=\(.primary_key), queryable=\(.queryable))"
+      ))
+    + (if ($d.indexes | length) == 0 then
+         ["indexes: []"]
+       else
+         ["indexes:"]
+         + ($d.indexes | map(
+             "  - \(.name)(\(.fields | join(", ")))"
+             + (if .unique then ", unique" else "" end)
+           ))
+       end)
+    + (if ($d.relations | length) == 0 then
+         ["relations: []"]
+       else
+         ["relations:"]
+         + ($d.relations | map(
+             "  - \(.field) -> \(.target_entity_name) (\(.strength), \(.cardinality))"
+           ))
+       end);
+
+  def query_result_lines($ok):
+    if ($ok | has("Projection")) then
+      projection_lines($ok.Projection)
+    elif ($ok | has("Explain")) then
+      ["surface=explain"] + ($ok.Explain.explain | split("\n"))
+    elif ($ok | has("Describe")) then
+      describe_lines($ok.Describe)
+    elif ($ok | has("ShowIndexes")) then
+      ["surface=indexes entity=\($ok.ShowIndexes.entity) index_count=\($ok.ShowIndexes.indexes | length)"]
+      + $ok.ShowIndexes.indexes
+    elif ($ok | has("ShowEntities")) then
+      ["surface=entities"] + ($ok.ShowEntities.entities | map("entity=\(.)"))
+    else
+      ["ERROR: unexpected query payload: " + ($ok | tostring)]
+    end;
+
   first(.. | objects | select(has("Ok") or has("Err"))) as $r
   | if $r == null then
       "ERROR: unexpected response shape"
     elif ($r | has("Ok")) then
-      $r.Ok[]
+      query_result_lines($r.Ok)[]
     else
       "ERROR: " + ($r.Err | tostring)
     end

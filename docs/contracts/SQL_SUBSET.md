@@ -220,27 +220,17 @@ Execution notes:
 
 ## Generated `sql_dispatch` Boundary (0.56)
 
-Generated canister SQL helpers include projection/explain plus reduced
-introspection helpers in this line.
+Generated canister SQL helpers in this line use one unified query surface.
 
-- `sql_dispatch::query(...)` supports:
-  - projection SQL rendering
-  - `EXPLAIN ...` rendering
-  - helper-level `SHOW ENTITIES`
-  - `DESCRIBE ...` rendering
-  - `SHOW INDEXES ...` rendering
-- `sql_dispatch::describe_schema(...)` returns typed
-  `EntitySchemaDescription`.
-- `sql_dispatch::describe(...)` returns shell-rendered DESCRIBE lines.
-- `sql_dispatch::show_indexes(...)` returns shell-rendered index listing lines.
-- `sql_dispatch::query_rows(...)` rejects `DESCRIBE ...` with deterministic
-  unsupported-lane errors.
-- `sql_dispatch::query_rows(...)` rejects `SHOW INDEXES ...` with deterministic
-  unsupported-lane errors.
-- `sql_dispatch::projection_rows(...)` rejects `DESCRIBE ...` with deterministic
-  unsupported-lane errors.
-- `sql_dispatch::projection_rows(...)` rejects `SHOW INDEXES ...` with
-  deterministic unsupported-lane errors.
+- `sql_dispatch::query(...)` returns one `SqlQueryResult` enum payload with:
+  - `Projection(SqlQueryRowsOutput)`
+  - `Explain { entity, explain }`
+  - `Describe(EntitySchemaDescription)`
+  - `ShowIndexes { entity, indexes }`
+  - `ShowEntities { entities }`
+- `SqlQueryResult` renders deterministic shell output via:
+  - `SqlQueryResult::render_lines()`
+  - `SqlQueryResult::render_text()`
 
 ## Parsed but Lowering-Gated (Follow-Up Slices)
 
@@ -256,6 +246,7 @@ SELECT [DISTINCT] <projection>
 FROM <entity>
 [WHERE <predicate>]
 [GROUP BY <field_list>]
+[HAVING <grouped_having_clause_list>]
 [ORDER BY <order_list>]
 [LIMIT <n>]
 [OFFSET <n>]
@@ -286,7 +277,11 @@ Lowering status in this baseline:
   (`execute_sql`, `execute_sql_projection`).
 
 Predicate operators are limited to planner-supported predicate operators.
-`HAVING` remains parser-level unsupported in this baseline.
+`HAVING` is executable for grouped SQL with a reduced clause shape:
+- clause symbols must be grouped key fields or one aggregate terminal already
+  projected in the grouped select list.
+- clauses are conjunctive (`AND`) only.
+- `OR`/`NOT` and broader expression forms remain fail-closed.
 
 ## Supported Semantics and Constraints
 

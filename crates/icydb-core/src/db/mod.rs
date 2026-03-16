@@ -226,6 +226,15 @@ impl<C: CanisterKind> Db<C> {
         commit::has_runtime_hooks(self.entity_runtime_hooks)
     }
 
+    /// Return one deterministic list of registered runtime entity names.
+    #[must_use]
+    pub(crate) fn runtime_entity_names(&self) -> Vec<String> {
+        self.entity_runtime_hooks
+            .iter()
+            .map(|hooks| hooks.entity_name.to_string())
+            .collect()
+    }
+
     // Resolve exactly one runtime hook for a persisted entity name.
     // Duplicate matches are treated as store invariants.
     pub(crate) fn runtime_hook_for_entity_name(

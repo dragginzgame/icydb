@@ -83,8 +83,8 @@ If you are new to this space: think "database-like query execution and safety" w
 ## 0.56 Highlights
 
 - Reduced SQL now includes dedicated introspection lanes for `DESCRIBE <entity>` and `SHOW INDEXES <entity>`.
-- Generated canister `sql_dispatch` now supports helper-level `SHOW ENTITIES` plus dedicated `describe` and `show_indexes` helper surfaces.
-- Projection endpoints remain fail-closed for introspection lanes (`query_rows`/`projection_rows` still reject `DESCRIBE`/`SHOW INDEXES`).
+- Generated canister `sql_dispatch::query(...)` now returns one unified enum envelope for projection, explain, describe, show-indexes, and helper-level `SHOW ENTITIES` surfaces.
+- Unified query payloads can be rendered deterministically with `SqlQueryResult::render_lines()` or `SqlQueryResult::render_text()`.
 
 ---
 
@@ -194,7 +194,7 @@ Use it to expose a small SQL API without hand-written per-entity routing:
 
 ```rust
 use ic_cdk::query;
-use icydb::db::sql::SqlQueryRowsOutput;
+use icydb::db::sql::SqlQueryResult;
 
 icydb::start!();
 
@@ -204,27 +204,20 @@ fn sql_entities() -> Vec<String> {
 }
 
 #[query]
-fn query(sql: String) -> Result<Vec<String>, icydb::Error> {
+fn query(sql: String) -> Result<SqlQueryResult, icydb::Error> {
     sql_dispatch::query(sql.as_str())
-}
-
-#[query]
-fn query_rows(sql: String) -> Result<SqlQueryRowsOutput, icydb::Error> {
-    sql_dispatch::query_rows(sql.as_str())
-}
-
-#[query]
-fn describe(sql: String) -> Result<Vec<String>, icydb::Error> {
-    sql_dispatch::describe(sql.as_str())
 }
 ```
 
 What each endpoint returns:
 
 - `sql_entities`: supported SQL entity names for this canister.
-- `query`: shell-friendly output lines (good for `dfx canister call` and logs), including `EXPLAIN`, `DESCRIBE`, `SHOW INDEXES`, and helper `SHOW ENTITIES` output.
-- `query_rows`: structured projection rows (`entity`, `columns`, `rows`, `row_count`) for programmatic clients.
-- `describe`: shell-friendly schema lines for one `DESCRIBE <entity>` statement.
+- `query`: one typed `SqlQueryResult` enum payload:
+  - `Projection(SqlQueryRowsOutput)`
+  - `Explain { entity, explain }`
+  - `Describe(EntitySchemaDescription)`
+  - `ShowIndexes { entity, indexes }`
+  - `ShowEntities { entities }`
 
 Dispatch behavior:
 
@@ -237,7 +230,6 @@ Example calls:
 ```bash
 dfx canister call <canister> sql_entities
 dfx canister call <canister> query '("SELECT id, name FROM User ORDER BY id LIMIT 5")'
-dfx canister call <canister> query_rows '("SELECT id, name FROM User ORDER BY id LIMIT 5")'
 dfx canister call <canister> query '("EXPLAIN SELECT id, name FROM User ORDER BY id LIMIT 5")'
 ```
 
