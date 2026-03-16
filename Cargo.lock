@@ -232,7 +232,7 @@ dependencies = [
 
 [[package]]
 name = "canister_minimal"
-version = "0.56.4"
+version = "0.56.5"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -242,7 +242,7 @@ dependencies = [
 
 [[package]]
 name = "canister_sql_test"
-version = "0.56.4"
+version = "0.56.5"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -1110,7 +1110,7 @@ dependencies = [
 
 [[package]]
 name = "icydb"
-version = "0.56.4"
+version = "0.56.5"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -1132,7 +1132,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-build"
-version = "0.56.4"
+version = "0.56.5"
 dependencies = [
  "icydb-schema",
  "proc-macro2",
@@ -1142,7 +1142,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-core"
-version = "0.56.4"
+version = "0.56.5"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -1166,7 +1166,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-derive"
-version = "0.56.4"
+version = "0.56.5"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1175,11 +1175,11 @@ dependencies = [
 
 [[package]]
 name = "icydb-primitives"
-version = "0.56.4"
+version = "0.56.5"
 
 [[package]]
 name = "icydb-schema"
-version = "0.56.4"
+version = "0.56.5"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -1195,7 +1195,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-derive"
-version = "0.56.4"
+version = "0.56.5"
 dependencies = [
  "candid",
  "canic-utils",
@@ -1212,7 +1212,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-tests"
-version = "0.56.4"
+version = "0.56.5"
 dependencies = [
  "candid",
  "icydb",
@@ -1223,7 +1223,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-fixtures"
-version = "0.56.4"
+version = "0.56.5"
 dependencies = [
  "candid",
  "icydb",
@@ -1232,7 +1232,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-integration"
-version = "0.56.4"
+version = "0.56.5"
 dependencies = [
  "candid",
  "icydb",
@@ -1241,7 +1241,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-minimal-fixtures"
-version = "0.56.4"
+version = "0.56.5"
 dependencies = [
  "candid",
  "icydb",
@@ -1250,7 +1250,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-sql-test-fixtures"
-version = "0.56.4"
+version = "0.56.5"
 dependencies = [
  "candid",
  "icydb",
