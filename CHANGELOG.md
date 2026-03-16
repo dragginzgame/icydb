@@ -5,9 +5,10 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.56.x] - 2026-03-15 - Reduced SQL Introspection and Entity Listing
+## [0.56.x] - 2026-03-16 - Reduced SQL Introspection and Entity Listing
 
 - `0.56.0` adds reduced-SQL `DESCRIBE <entity>` and `SHOW INDEXES <entity>` introspection lanes across parser/lowering/session/facade, expands generated `sql_dispatch` with typed and shell-friendly describe/index helpers plus `SHOW ENTITIES` support, and keeps `query_rows` projection-only with deterministic introspection-lane rejections.
+- `0.56.1` hardens the introspection surfaces by locking `DESCRIBE`/`SHOW INDEXES` shell output vectors in tests, broadening canister integration coverage for mixed-case/schema-qualified/semicolon forms, and removing version-specific wording from generated helper error messages.
 
 See detailed breakdown:
 [docs/changelog/0.56.md](docs/changelog/0.56.md)

@@ -485,6 +485,28 @@ fn sql_canister_describe_lane_is_explicit_and_projection_lanes_reject_describe()
             "describe output should include field descriptor rows",
         );
 
+        // Describe endpoint should accept mixed-case keywords, schema-qualified
+        // entity identifiers, and optional trailing semicolons.
+        let describe_normalized_bytes = pic
+            .query_call(
+                canister_id,
+                Principal::anonymous(),
+                "describe",
+                encode_one(" dEsCrIbE public.Character; ".to_string())
+                    .expect("encode describe normalized args"),
+            )
+            .expect("describe normalized query call should succeed");
+        let describe_normalized_result: Result<Vec<String>, icydb::Error> =
+            decode_one(&describe_normalized_bytes).expect("decode describe normalized response");
+        let describe_normalized_lines = describe_normalized_result
+            .expect("describe normalized endpoint should return Ok lines");
+        assert!(
+            describe_normalized_lines
+                .iter()
+                .any(|line| line == "entity: Character"),
+            "describe endpoint should normalize mixed-case + schema-qualified + semicolon input",
+        );
+
         // The generated query lane now supports DESCRIBE rendering too.
         let query_describe_bytes = pic
             .query_call(
@@ -503,6 +525,27 @@ fn sql_canister_describe_lane_is_explicit_and_projection_lanes_reject_describe()
                 .iter()
                 .any(|line| line == "entity: Character"),
             "query DESCRIBE should include canonical entity name",
+        );
+
+        let query_describe_normalized_bytes = pic
+            .query_call(
+                canister_id,
+                Principal::anonymous(),
+                "query",
+                encode_one("dEsCrIbE public.Character;".to_string())
+                    .expect("encode query normalized describe args"),
+            )
+            .expect("query normalized DESCRIBE call should return encoded Result");
+        let query_describe_normalized_result: Result<Vec<String>, icydb::Error> =
+            decode_one(&query_describe_normalized_bytes)
+                .expect("decode query normalized DESCRIBE response");
+        let query_describe_normalized_lines = query_describe_normalized_result
+            .expect("query normalized DESCRIBE should return shell lines");
+        assert!(
+            query_describe_normalized_lines
+                .iter()
+                .any(|line| line == "entity: Character"),
+            "query DESCRIBE should normalize mixed-case + schema-qualified + semicolon input",
         );
 
         let query_rows_describe_bytes = pic
@@ -550,6 +593,27 @@ fn sql_canister_describe_lane_is_explicit_and_projection_lanes_reject_describe()
                 .iter()
                 .any(|line| line.contains("PRIMARY KEY")),
             "query SHOW INDEXES should include at least primary-key index row",
+        );
+
+        let query_show_indexes_normalized_bytes = pic
+            .query_call(
+                canister_id,
+                Principal::anonymous(),
+                "query",
+                encode_one("sHoW InDeXeS public.Character;".to_string())
+                    .expect("encode query normalized show indexes args"),
+            )
+            .expect("query normalized SHOW INDEXES call should return encoded Result");
+        let query_show_indexes_normalized_result: Result<Vec<String>, icydb::Error> =
+            decode_one(&query_show_indexes_normalized_bytes)
+                .expect("decode query normalized SHOW INDEXES response");
+        let query_show_indexes_normalized_lines = query_show_indexes_normalized_result
+            .expect("query normalized SHOW INDEXES should return shell lines");
+        assert!(
+            query_show_indexes_normalized_lines
+                .first()
+                .is_some_and(|line| line.starts_with("surface=indexes entity=Character")),
+            "query SHOW INDEXES should normalize mixed-case + schema-qualified + semicolon input",
         );
 
         let query_rows_show_indexes_bytes = pic

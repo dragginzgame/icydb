@@ -490,7 +490,7 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
                 Error::new(
                     ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
                     ErrorOrigin::Query,
-                    "query_rows supports projection SQL only; DESCRIBE is not available in generated sql_dispatch for 0.56",
+                    "query_rows supports projection SQL only; DESCRIBE is not available on this endpoint",
                 )
             }
 

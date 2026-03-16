@@ -440,7 +440,14 @@ fn render_enum(value: &ValueEnum) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::db::sql::{explain_target_sql, identifiers_tail_match};
+    use crate::db::sql::{
+        explain_target_sql, identifiers_tail_match, render_describe_lines,
+        render_show_indexes_lines,
+    };
+    use crate::db::{
+        EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
+        EntityRelationDescription, EntityRelationStrength, EntitySchemaDescription,
+    };
 
     #[test]
     fn explain_target_sql_strips_explain_wrappers() {
@@ -467,5 +474,74 @@ mod tests {
         assert!(identifiers_tail_match("public.FixtureUser", "FixtureUser"));
         assert!(identifiers_tail_match("fixtureorder", "FixtureOrder"));
         assert!(!identifiers_tail_match("FixtureUser", "FixtureOrder"));
+    }
+
+    #[test]
+    fn render_describe_lines_output_contract_vector_is_stable() {
+        let description = EntitySchemaDescription::new(
+            "schema.public.Character".to_string(),
+            "Character".to_string(),
+            "id".to_string(),
+            vec![
+                EntityFieldDescription::new("id".to_string(), "Ulid".to_string(), true, true),
+                EntityFieldDescription::new("name".to_string(), "Text".to_string(), false, true),
+            ],
+            vec![
+                EntityIndexDescription::new(
+                    "character_name_idx".to_string(),
+                    false,
+                    vec!["name".to_string()],
+                ),
+                EntityIndexDescription::new(
+                    "character_pk".to_string(),
+                    true,
+                    vec!["id".to_string()],
+                ),
+            ],
+            vec![EntityRelationDescription::new(
+                "mentor_id".to_string(),
+                "schema.public.User".to_string(),
+                "User".to_string(),
+                "user_store".to_string(),
+                EntityRelationStrength::Strong,
+                EntityRelationCardinality::Single,
+            )],
+        );
+
+        assert_eq!(
+            render_describe_lines(&description),
+            vec![
+                "entity: Character".to_string(),
+                "path: schema.public.Character".to_string(),
+                "primary_key: id".to_string(),
+                "fields:".to_string(),
+                "  - id: Ulid (primary_key=true, queryable=true)".to_string(),
+                "  - name: Text (primary_key=false, queryable=true)".to_string(),
+                "indexes:".to_string(),
+                "  - character_name_idx(name)".to_string(),
+                "  - character_pk(id), unique".to_string(),
+                "relations:".to_string(),
+                "  - mentor_id -> User (Strong, Single)".to_string(),
+            ],
+            "describe shell output must remain contract-stable across release lines",
+        );
+    }
+
+    #[test]
+    fn render_show_indexes_lines_output_contract_vector_is_stable() {
+        let indexes = vec![
+            "PRIMARY KEY (id)".to_string(),
+            "INDEX character_name_idx(name)".to_string(),
+        ];
+
+        assert_eq!(
+            render_show_indexes_lines("Character", indexes.as_slice()),
+            vec![
+                "surface=indexes entity=Character index_count=2".to_string(),
+                "PRIMARY KEY (id)".to_string(),
+                "INDEX character_name_idx(name)".to_string(),
+            ],
+            "show-indexes shell output must remain contract-stable across release lines",
+        );
     }
 }
