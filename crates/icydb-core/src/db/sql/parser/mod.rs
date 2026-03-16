@@ -27,6 +27,7 @@ pub(crate) enum SqlStatement {
     Explain(SqlExplainStatement),
     Describe(SqlDescribeStatement),
     ShowIndexes(SqlShowIndexesStatement),
+    ShowColumns(SqlShowColumnsStatement),
     ShowEntities(SqlShowEntitiesStatement),
 }
 
@@ -232,6 +233,18 @@ pub(crate) struct SqlShowIndexesStatement {
 }
 
 ///
+/// SqlShowColumnsStatement
+///
+/// Canonical parsed `SHOW COLUMNS` statement.
+/// Carries one schema entity identifier for typed session introspection.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SqlShowColumnsStatement {
+    pub(crate) entity: String,
+}
+
+///
 /// SqlShowEntitiesStatement
 ///
 /// Canonical parsed `SHOW ENTITIES` statement.
@@ -359,6 +372,7 @@ enum Keyword {
     Avg,
     Between,
     By,
+    Columns,
     Count,
     Delete,
     Describe,
@@ -406,6 +420,7 @@ impl Keyword {
             Self::Avg => "AVG",
             Self::Between => "BETWEEN",
             Self::By => "BY",
+            Self::Columns => "COLUMNS",
             Self::Count => "COUNT",
             Self::Delete => "DELETE",
             Self::Describe => "DESCRIBE",
@@ -718,6 +733,7 @@ fn keyword_from_ident(value: &str) -> Option<Keyword> {
         "AVG" => Some(Keyword::Avg),
         "BETWEEN" => Some(Keyword::Between),
         "BY" => Some(Keyword::By),
+        "COLUMNS" => Some(Keyword::Columns),
         "COUNT" => Some(Keyword::Count),
         "DELETE" => Some(Keyword::Delete),
         "DESCRIBE" => Some(Keyword::Describe),
@@ -802,12 +818,17 @@ impl Parser {
                 self.parse_show_indexes_statement()?,
             ));
         }
+        if self.eat_keyword(Keyword::Columns) {
+            return Ok(SqlStatement::ShowColumns(
+                self.parse_show_columns_statement()?,
+            ));
+        }
         if self.eat_keyword(Keyword::Entities) {
             return Ok(SqlStatement::ShowEntities(SqlShowEntitiesStatement));
         }
 
         Err(SqlParseError::unsupported_feature(
-            "SHOW commands beyond SHOW INDEXES/SHOW ENTITIES",
+            "SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES",
         ))
     }
 
@@ -851,6 +872,9 @@ impl Parser {
             }
             SqlStatement::ShowIndexes(_) => {
                 Some(SqlParseError::unsupported_feature("SHOW INDEXES modifiers"))
+            }
+            SqlStatement::ShowColumns(_) => {
+                Some(SqlParseError::unsupported_feature("SHOW COLUMNS modifiers"))
             }
             SqlStatement::ShowEntities(_) => Some(SqlParseError::unsupported_feature(
                 "SHOW ENTITIES modifiers",
@@ -990,6 +1014,12 @@ impl Parser {
         Ok(SqlShowIndexesStatement { entity })
     }
 
+    fn parse_show_columns_statement(&mut self) -> Result<SqlShowColumnsStatement, SqlParseError> {
+        let entity = self.expect_identifier()?;
+
+        Ok(SqlShowColumnsStatement { entity })
+    }
+
     fn parse_projection(&mut self) -> Result<SqlProjection, SqlParseError> {
         if self.eat_star() {
             return Ok(SqlProjection::All);
@@ -1114,6 +1144,18 @@ impl Parser {
 
     fn parse_having_clause(&mut self) -> Result<SqlHavingClause, SqlParseError> {
         let symbol = self.parse_having_symbol()?;
+
+        if self.eat_keyword(Keyword::Is) {
+            let is_not = self.eat_keyword(Keyword::Not);
+            self.expect_keyword(Keyword::Null)?;
+
+            return Ok(SqlHavingClause {
+                symbol,
+                op: if is_not { CompareOp::Ne } else { CompareOp::Eq },
+                value: Value::Null,
+            });
+        }
+
         let op = self.parse_compare_operator()?;
         let value = self.parse_literal()?;
 
@@ -1451,7 +1493,7 @@ impl Parser {
             Some(TokenKind::Keyword(Keyword::Insert)) => Some("INSERT"),
             Some(TokenKind::Keyword(Keyword::Join)) => Some("JOIN"),
             Some(TokenKind::Keyword(Keyword::Show)) => {
-                Some("SHOW commands beyond SHOW INDEXES/SHOW ENTITIES")
+                Some("SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES")
             }
             Some(TokenKind::Keyword(Keyword::With)) => Some("WITH"),
             Some(TokenKind::Keyword(Keyword::Union | Keyword::Intersect | Keyword::Except)) => {

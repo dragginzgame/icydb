@@ -385,7 +385,9 @@ fn sql_canister_dispatch_is_entity_keyed_and_deterministic() {
 }
 
 #[test]
-fn sql_canister_query_lane_supports_describe_and_show_indexes() {
+#[expect(clippy::too_many_lines)]
+#[expect(clippy::redundant_closure_for_method_calls)]
+fn sql_canister_query_lane_supports_describe_show_indexes_and_show_columns() {
     run_with_pocket_ic(|pic| {
         let canister_id = pic.create_canister();
         pic.add_cycles(canister_id, INIT_CYCLES);
@@ -478,6 +480,42 @@ fn sql_canister_query_lane_supports_describe_and_show_indexes() {
             }
             other => panic!(
                 "query normalized SHOW INDEXES should return ShowIndexes payload, got {other:?}"
+            ),
+        }
+
+        let show_columns_payload = query_result(pic, canister_id, "SHOW COLUMNS Character")
+            .expect("query SHOW COLUMNS should return an Ok payload");
+        let show_columns_lines = show_columns_payload.render_lines();
+        match show_columns_payload {
+            SqlQueryResult::ShowColumns { entity, columns } => {
+                assert_eq!(entity, "Character");
+                assert!(
+                    columns.iter().any(|column| column.name() == "name"),
+                    "SHOW COLUMNS payload should include the name field",
+                );
+                assert!(
+                    columns.iter().any(|column| column.primary_key()),
+                    "SHOW COLUMNS payload should include one primary-key field",
+                );
+            }
+            other => panic!("query SHOW COLUMNS should return ShowColumns payload, got {other:?}"),
+        }
+        assert!(
+            show_columns_lines
+                .first()
+                .is_some_and(|line| line.starts_with("surface=columns entity=Character")),
+            "SHOW COLUMNS lines should include deterministic surface header",
+        );
+
+        let show_columns_normalized_payload =
+            query_result(pic, canister_id, "sHoW CoLuMnS public.Character;")
+                .expect("query normalized SHOW COLUMNS should return an Ok payload");
+        match show_columns_normalized_payload {
+            SqlQueryResult::ShowColumns { entity, .. } => {
+                assert_eq!(entity, "Character");
+            }
+            other => panic!(
+                "query normalized SHOW COLUMNS should return ShowColumns payload, got {other:?}"
             ),
         }
     });

@@ -6,8 +6,9 @@
 use super::{
     SqlAggregateCall, SqlAggregateKind, SqlDeleteStatement, SqlDescribeStatement, SqlExplainMode,
     SqlExplainStatement, SqlExplainTarget, SqlHavingClause, SqlHavingSymbol, SqlOrderDirection,
-    SqlOrderTerm, SqlProjection, SqlSelectItem, SqlSelectStatement, SqlShowEntitiesStatement,
-    SqlShowIndexesStatement, SqlStatement, parse_sql, parse_sql_predicate,
+    SqlOrderTerm, SqlProjection, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
+    SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, parse_sql,
+    parse_sql_predicate,
 };
 use crate::{
     db::predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
@@ -133,6 +134,19 @@ fn parse_show_indexes_statement_with_schema_qualified_entity() {
     assert_eq!(
         statement,
         SqlStatement::ShowIndexes(SqlShowIndexesStatement {
+            entity: "public.users".to_string(),
+        }),
+    );
+}
+
+#[test]
+fn parse_show_columns_statement_with_schema_qualified_entity() {
+    let statement =
+        parse_sql("SHOW COLUMNS public.users").expect("show columns statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::ShowColumns(SqlShowColumnsStatement {
             entity: "public.users".to_string(),
         }),
     );
@@ -314,6 +328,75 @@ fn parse_select_grouped_statement_with_having_clauses() {
 }
 
 #[test]
+fn parse_select_grouped_statement_with_having_is_null_and_is_not_null_clauses() {
+    let statement = parse_sql(
+        "SELECT age, COUNT(*) \
+         FROM users \
+         GROUP BY age \
+         HAVING age IS NOT NULL AND COUNT(*) IS NULL \
+         ORDER BY age ASC LIMIT 10",
+    )
+    .expect("grouped HAVING IS [NOT] NULL clauses should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::Items(vec![
+                SqlSelectItem::Field("age".to_string()),
+                SqlSelectItem::Aggregate(SqlAggregateCall {
+                    kind: SqlAggregateKind::Count,
+                    field: None,
+                }),
+            ]),
+            predicate: None,
+            distinct: false,
+            group_by: vec!["age".to_string()],
+            having: vec![
+                SqlHavingClause {
+                    symbol: SqlHavingSymbol::Field("age".to_string()),
+                    op: CompareOp::Ne,
+                    value: Value::Null,
+                },
+                SqlHavingClause {
+                    symbol: SqlHavingSymbol::Aggregate(SqlAggregateCall {
+                        kind: SqlAggregateKind::Count,
+                        field: None,
+                    }),
+                    op: CompareOp::Eq,
+                    value: Value::Null,
+                },
+            ],
+            order_by: vec![SqlOrderTerm {
+                field: "age".to_string(),
+                direction: SqlOrderDirection::Asc,
+            }],
+            limit: Some(10),
+            offset: None,
+        }),
+    );
+}
+
+#[test]
+fn parse_select_grouped_statement_rejects_having_is_true() {
+    let err = parse_sql(
+        "SELECT age, COUNT(*) \
+         FROM users \
+         GROUP BY age \
+         HAVING COUNT(*) IS TRUE \
+         ORDER BY age ASC LIMIT 10",
+    )
+    .expect_err("grouped HAVING IS TRUE should fail closed");
+
+    assert_eq!(
+        err,
+        super::SqlParseError::InvalidSyntax {
+            message: "expected NULL, found TRUE".to_string()
+        }
+    );
+}
+
+#[test]
 fn parse_sql_rejects_select_limit_before_order_with_actionable_message() {
     let err = parse_sql("SELECT * FROM users LIMIT 1 ORDER BY id")
         .expect_err("out-of-order LIMIT/ORDER clause should be rejected");
@@ -422,9 +505,10 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
         ("EXPLAIN DESCRIBE users", "DESCRIBE modifiers"),
         (
             "SHOW TABLES",
-            "SHOW commands beyond SHOW INDEXES/SHOW ENTITIES",
+            "SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES",
         ),
         ("SHOW INDEXES users WHERE age > 1", "SHOW INDEXES modifiers"),
+        ("SHOW COLUMNS users WHERE age > 1", "SHOW COLUMNS modifiers"),
         ("SHOW ENTITIES users", "SHOW ENTITIES modifiers"),
     ];
 

@@ -1462,6 +1462,86 @@ fn expression_casefold_in_planner_access_choice_and_runtime_route_stay_in_parity
 }
 
 #[test]
+fn expression_casefold_starts_with_planner_access_choice_and_runtime_route_stay_in_parity() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+    seed_expression_casefold_parity_rows(8_250);
+
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "email",
+        CompareOp::StartsWith,
+        Value::Text("ALI".to_string()),
+        CoercionId::TextCasefold,
+    ));
+
+    // Phase 1: planner eligibility must lower to one canonical expression-index range shape.
+    let explain = Query::<ExpressionCasefoldParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .explain()
+        .expect("expression starts-with explain should build");
+    let ExplainAccessPath::IndexRange {
+        name,
+        fields,
+        prefix_len,
+        prefix,
+        lower,
+        upper,
+    } = explain.access()
+    else {
+        panic!("expression starts-with should lower to index-range access");
+    };
+    assert_eq!(name, &EXPRESSION_CASEFOLD_PARITY_INDEX_MODELS[0].name());
+    assert_eq!(fields.as_slice(), ["email"]);
+    assert_eq!(*prefix_len, 0);
+    assert!(
+        prefix.is_empty(),
+        "expression starts-with range should not carry equality prefix values",
+    );
+    assert!(matches!(
+        lower,
+        std::ops::Bound::Included(Value::Text(value)) if value == "ali"
+    ));
+    assert!(matches!(upper, std::ops::Bound::Unbounded));
+
+    // Phase 2: access-choice diagnostics must project the same chosen index authority.
+    let verbose = Query::<ExpressionCasefoldParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .explain_execution_verbose()
+        .expect("expression starts-with verbose explain should build");
+    let diagnostics = verbose_diagnostics_map(&verbose);
+    assert_expression_index_access_choice_selected(&diagnostics);
+
+    // Phase 3: runtime route selection must execute through the same index-range route.
+    let execution = Query::<ExpressionCasefoldParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .explain_execution()
+        .expect("expression starts-with execution explain should build");
+    assert!(
+        explain_execution_contains_node_type(&execution, ExplainExecutionNodeType::IndexRangeScan),
+        "execution route must preserve expression starts-with index-range route selection",
+    );
+
+    let load = LoadExecutor::<ExpressionCasefoldParityEntity>::new(DB, false);
+    let plan = Query::<ExpressionCasefoldParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("expression starts-with load plan should build");
+    let response = load
+        .execute(plan)
+        .expect("expression starts-with load should execute");
+    let ids = response
+        .iter()
+        .map(|row| row.entity_ref().id)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ids,
+        vec![Ulid::from_u128(8_251)],
+        "expression starts-with execution results must match canonical lower(email) prefix semantics",
+    );
+}
+
+#[test]
 fn expression_upper_casefold_eq_fails_closed_across_planner_access_choice_and_runtime() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();

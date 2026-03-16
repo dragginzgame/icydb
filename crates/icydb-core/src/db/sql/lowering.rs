@@ -17,7 +17,7 @@ use crate::{
             SqlAggregateCall, SqlAggregateKind, SqlDeleteStatement, SqlExplainMode,
             SqlExplainStatement, SqlExplainTarget, SqlHavingClause, SqlHavingSymbol,
             SqlOrderDirection, SqlProjection, SqlSelectItem, SqlSelectStatement,
-            SqlShowIndexesStatement, SqlStatement, parse_sql,
+            SqlShowColumnsStatement, SqlShowIndexesStatement, SqlStatement, parse_sql,
         },
     },
     traits::EntityKind,
@@ -48,6 +48,7 @@ pub(crate) enum SqlCommand<E: EntityKind> {
     },
     DescribeEntity,
     ShowIndexesEntity,
+    ShowColumnsEntity,
     ShowEntities,
 }
 
@@ -163,6 +164,7 @@ fn lower_statement<E: EntityKind>(
         SqlStatement::Explain(statement) => lower_explain::<E>(statement, consistency),
         SqlStatement::Describe(statement) => lower_describe::<E>(statement.entity.as_str()),
         SqlStatement::ShowIndexes(statement) => lower_show_indexes::<E>(statement),
+        SqlStatement::ShowColumns(statement) => lower_show_columns::<E>(statement),
         SqlStatement::ShowEntities(_) => Ok(SqlCommand::ShowEntities),
     }
 }
@@ -179,6 +181,14 @@ fn lower_show_indexes<E: EntityKind>(
     ensure_entity_matches::<E>(statement.entity.as_str())?;
 
     Ok(SqlCommand::ShowIndexesEntity)
+}
+
+fn lower_show_columns<E: EntityKind>(
+    statement: SqlShowColumnsStatement,
+) -> Result<SqlCommand<E>, SqlLoweringError> {
+    ensure_entity_matches::<E>(statement.entity.as_str())?;
+
+    Ok(SqlCommand::ShowColumnsEntity)
 }
 
 fn lower_global_aggregate_statement<E: EntityKind>(
@@ -912,6 +922,31 @@ mod tests {
     }
 
     #[test]
+    fn compile_sql_command_show_columns_lowers_to_show_columns_lane() {
+        let command = compile_sql_command::<SqlLowerEntity>(
+            "SHOW COLUMNS public.SqlLowerEntity",
+            MissingRowPolicy::Ignore,
+        )
+        .expect("SHOW COLUMNS should lower");
+
+        assert!(
+            matches!(command, SqlCommand::ShowColumnsEntity),
+            "SHOW COLUMNS should lower to dedicated show-columns command lane",
+        );
+    }
+
+    #[test]
+    fn compile_sql_command_show_columns_rejects_entity_mismatch() {
+        let err = compile_sql_command::<SqlLowerEntity>(
+            "SHOW COLUMNS DifferentEntity",
+            MissingRowPolicy::Ignore,
+        )
+        .expect_err("SHOW COLUMNS entity mismatch should fail lowering");
+
+        assert!(matches!(err, SqlLoweringError::EntityMismatch { .. }));
+    }
+
+    #[test]
     fn compile_sql_command_show_entities_lowers_to_show_entities_lane() {
         let command =
             compile_sql_command::<SqlLowerEntity>("SHOW ENTITIES", MissingRowPolicy::Ignore)
@@ -1246,6 +1281,45 @@ mod tests {
                 .expect("fluent grouped HAVING plan should build")
                 .into_inner(),
             "grouped HAVING SQL lowering and fluent grouped HAVING query must produce identical normalized planned intent",
+        );
+    }
+
+    #[test]
+    fn compile_sql_command_select_grouped_having_is_null_parity_matches_fluent_intent() {
+        let sql_command = compile_sql_command::<SqlLowerEntity>(
+            "SELECT age, COUNT(*) \
+             FROM SqlLowerEntity \
+             GROUP BY age \
+             HAVING age IS NOT NULL AND COUNT(*) IS NOT NULL \
+             ORDER BY age DESC LIMIT 3",
+            MissingRowPolicy::Ignore,
+        )
+        .expect("grouped HAVING IS [NOT] NULL SQL query should lower");
+        let SqlCommand::Query(sql_query) = sql_command else {
+            panic!("expected lowered grouped HAVING IS [NOT] NULL SQL query command");
+        };
+
+        let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+            .group_by("age")
+            .expect("fluent grouped query should accept grouped field")
+            .aggregate(crate::db::count())
+            .having_group("age", CompareOp::Ne, Value::Null)
+            .expect("fluent grouped HAVING group-field IS NOT NULL should be accepted")
+            .having_aggregate(0, CompareOp::Ne, Value::Null)
+            .expect("fluent grouped HAVING aggregate IS NOT NULL should be accepted")
+            .order_by_desc("age")
+            .limit(3);
+
+        assert_eq!(
+            sql_query
+                .plan()
+                .expect("grouped HAVING IS [NOT] NULL SQL plan should build")
+                .into_inner(),
+            fluent_query
+                .plan()
+                .expect("fluent grouped HAVING IS [NOT] NULL plan should build")
+                .into_inner(),
+            "grouped HAVING IS [NOT] NULL SQL lowering and fluent grouped HAVING query must produce identical normalized planned intent",
         );
     }
 

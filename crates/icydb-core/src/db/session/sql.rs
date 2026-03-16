@@ -1,7 +1,7 @@
 use crate::{
     db::{
-        DbSession, EntityResponse, EntitySchemaDescription, MissingRowPolicy,
-        PagedGroupedExecutionWithTrace, ProjectionResponse, Query, QueryError,
+        DbSession, EntityFieldDescription, EntityResponse, EntitySchemaDescription,
+        MissingRowPolicy, PagedGroupedExecutionWithTrace, ProjectionResponse, Query, QueryError,
         query::{
             builder::aggregate::{AggregateExpr, avg, count, count_by, max_by, min_by, sum},
             intent::IntentError,
@@ -25,8 +25,8 @@ use crate::{
 /// SqlStatementRoute
 ///
 /// Canonical SQL statement routing metadata derived from reduced SQL parser output.
-/// Carries surface kind (`Query` / `Explain` / `Describe` / `ShowIndexes` / `ShowEntities`)
-/// and canonical parsed entity identifier.
+/// Carries surface kind (`Query` / `Explain` / `Describe` / `ShowIndexes` /
+/// `ShowColumns` / `ShowEntities`) and canonical parsed entity identifier.
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SqlStatementRoute {
@@ -34,6 +34,7 @@ pub enum SqlStatementRoute {
     Explain { entity: String },
     Describe { entity: String },
     ShowIndexes { entity: String },
+    ShowColumns { entity: String },
     ShowEntities,
 }
 
@@ -48,7 +49,8 @@ impl SqlStatementRoute {
             Self::Query { entity }
             | Self::Explain { entity }
             | Self::Describe { entity }
-            | Self::ShowIndexes { entity } => entity.as_str(),
+            | Self::ShowIndexes { entity }
+            | Self::ShowColumns { entity } => entity.as_str(),
             Self::ShowEntities => "",
         }
     }
@@ -71,6 +73,12 @@ impl SqlStatementRoute {
         matches!(self, Self::ShowIndexes { .. })
     }
 
+    /// Return whether this route targets the `SHOW COLUMNS` surface.
+    #[must_use]
+    pub const fn is_show_columns(&self) -> bool {
+        matches!(self, Self::ShowColumns { .. })
+    }
+
     /// Return whether this route targets the `SHOW ENTITIES` surface.
     #[must_use]
     pub const fn is_show_entities(&self) -> bool {
@@ -85,6 +93,7 @@ enum SqlLaneKind {
     Explain,
     Describe,
     ShowIndexes,
+    ShowColumns,
     ShowEntities,
 }
 
@@ -95,6 +104,7 @@ enum SqlSurface {
     Explain,
     Describe,
     ShowIndexes,
+    ShowColumns,
     ShowEntities,
 }
 
@@ -107,6 +117,7 @@ const fn sql_command_lane<E: EntityKind>(command: &SqlCommand<E>) -> SqlLaneKind
         }
         SqlCommand::DescribeEntity => SqlLaneKind::Describe,
         SqlCommand::ShowIndexesEntity => SqlLaneKind::ShowIndexes,
+        SqlCommand::ShowColumnsEntity => SqlLaneKind::ShowColumns,
         SqlCommand::ShowEntities => SqlLaneKind::ShowEntities,
     }
 }
@@ -118,6 +129,7 @@ const fn sql_statement_route_lane(route: &SqlStatementRoute) -> SqlLaneKind {
         SqlStatementRoute::Explain { .. } => SqlLaneKind::Explain,
         SqlStatementRoute::Describe { .. } => SqlLaneKind::Describe,
         SqlStatementRoute::ShowIndexes { .. } => SqlLaneKind::ShowIndexes,
+        SqlStatementRoute::ShowColumns { .. } => SqlLaneKind::ShowColumns,
         SqlStatementRoute::ShowEntities => SqlLaneKind::ShowEntities,
     }
 }
@@ -134,6 +146,9 @@ const fn unsupported_sql_lane_message(surface: SqlSurface, lane: SqlLaneKind) ->
         (SqlSurface::QueryFrom, SqlLaneKind::ShowIndexes) => {
             "query_from_sql does not accept SHOW INDEXES statements; use show_indexes_sql(...)"
         }
+        (SqlSurface::QueryFrom, SqlLaneKind::ShowColumns) => {
+            "query_from_sql does not accept SHOW COLUMNS statements; use show_columns_sql(...)"
+        }
         (SqlSurface::QueryFrom, SqlLaneKind::ShowEntities) => {
             "query_from_sql does not accept SHOW ENTITIES statements; use show_entities_sql(...)"
         }
@@ -146,6 +161,9 @@ const fn unsupported_sql_lane_message(surface: SqlSurface, lane: SqlLaneKind) ->
         (SqlSurface::Explain, SqlLaneKind::ShowIndexes) => {
             "explain_sql does not accept SHOW INDEXES statements; use show_indexes_sql(...)"
         }
+        (SqlSurface::Explain, SqlLaneKind::ShowColumns) => {
+            "explain_sql does not accept SHOW COLUMNS statements; use show_columns_sql(...)"
+        }
         (SqlSurface::Explain, SqlLaneKind::ShowEntities) => {
             "explain_sql does not accept SHOW ENTITIES statements; use show_entities_sql(...)"
         }
@@ -154,6 +172,7 @@ const fn unsupported_sql_lane_message(surface: SqlSurface, lane: SqlLaneKind) ->
         }
         (SqlSurface::Describe, _) => "describe_sql requires a DESCRIBE statement",
         (SqlSurface::ShowIndexes, _) => "show_indexes_sql requires a SHOW INDEXES statement",
+        (SqlSurface::ShowColumns, _) => "show_columns_sql requires a SHOW COLUMNS statement",
         (SqlSurface::ShowEntities, _) => "show_entities_sql requires a SHOW ENTITIES statement",
     }
 }
@@ -325,6 +344,9 @@ impl<C: CanisterKind> DbSession<C> {
             SqlStatement::ShowIndexes(show_indexes) => Ok(SqlStatementRoute::ShowIndexes {
                 entity: show_indexes.entity,
             }),
+            SqlStatement::ShowColumns(show_columns) => Ok(SqlStatementRoute::ShowColumns {
+                entity: show_columns.entity,
+            }),
             SqlStatement::ShowEntities(_) => Ok(SqlStatementRoute::ShowEntities),
         }
     }
@@ -343,6 +365,7 @@ impl<C: CanisterKind> DbSession<C> {
             | SqlCommand::Explain { .. }
             | SqlCommand::ExplainGlobalAggregate { .. }
             | SqlCommand::ShowIndexesEntity
+            | SqlCommand::ShowColumnsEntity
             | SqlCommand::ShowEntities => {
                 Err(unsupported_sql_lane_error(SqlSurface::Describe, lane))
             }
@@ -363,8 +386,30 @@ impl<C: CanisterKind> DbSession<C> {
             | SqlCommand::Explain { .. }
             | SqlCommand::ExplainGlobalAggregate { .. }
             | SqlCommand::DescribeEntity
+            | SqlCommand::ShowColumnsEntity
             | SqlCommand::ShowEntities => {
                 Err(unsupported_sql_lane_error(SqlSurface::ShowIndexes, lane))
+            }
+        }
+    }
+
+    /// Execute one reduced SQL `SHOW COLUMNS` statement for entity `E`.
+    pub fn show_columns_sql<E>(&self, sql: &str) -> Result<Vec<EntityFieldDescription>, QueryError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let command = compile_sql_command_ignore::<E>(sql)?;
+        let lane = sql_command_lane(&command);
+
+        match command {
+            SqlCommand::ShowColumnsEntity => Ok(self.show_columns::<E>()),
+            SqlCommand::Query(_)
+            | SqlCommand::Explain { .. }
+            | SqlCommand::ExplainGlobalAggregate { .. }
+            | SqlCommand::DescribeEntity
+            | SqlCommand::ShowIndexesEntity
+            | SqlCommand::ShowEntities => {
+                Err(unsupported_sql_lane_error(SqlSurface::ShowColumns, lane))
             }
         }
     }
@@ -397,6 +442,7 @@ impl<C: CanisterKind> DbSession<C> {
             | SqlCommand::ExplainGlobalAggregate { .. }
             | SqlCommand::DescribeEntity
             | SqlCommand::ShowIndexesEntity
+            | SqlCommand::ShowColumnsEntity
             | SqlCommand::ShowEntities => {
                 Err(unsupported_sql_lane_error(SqlSurface::QueryFrom, lane))
             }
@@ -580,6 +626,7 @@ impl<C: CanisterKind> DbSession<C> {
             SqlCommand::Query(_)
             | SqlCommand::DescribeEntity
             | SqlCommand::ShowIndexesEntity
+            | SqlCommand::ShowColumnsEntity
             | SqlCommand::ShowEntities => {
                 Err(unsupported_sql_lane_error(SqlSurface::Explain, lane))
             }

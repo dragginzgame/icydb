@@ -27,9 +27,9 @@ The reduced parser normalizes one statement deterministically before lowering.
 ## Executable Baseline (Current 0.56 Line)
 
 The current `0.56` line ships a projection-aware scalar SQL subset, constrained
-grouped/global aggregate SQL execution, and dedicated DESCRIBE/SHOW INDEXES
-introspection lanes. Broader SQL grammar support remains staged behind lowering
-gates.
+grouped/global aggregate SQL execution, and dedicated DESCRIBE/SHOW
+INDEXES/SHOW COLUMNS introspection lanes. Broader SQL grammar support remains
+staged behind lowering gates.
 
 ### SELECT
 
@@ -218,6 +218,26 @@ Execution notes:
   executable `Query<E>` planner paths.
 - `EXPLAIN SHOW INDEXES ...` remains out of scope in this line.
 
+### SHOW COLUMNS
+
+Executable shape:
+
+```sql
+SHOW COLUMNS <entity>
+```
+
+Execution notes:
+
+- `SHOW COLUMNS` SQL uses the dedicated session introspection API
+  `show_columns_sql::<E>(...)`.
+- `SHOW COLUMNS` returns canonical field descriptors from
+  `show_columns::<E>()`.
+- `SHOW COLUMNS` entity matching follows the same trailing-segment rule used by
+  other SQL surfaces (`public.Entity` matches model `Entity`).
+- `SHOW COLUMNS` is a dedicated introspection lane and does not lower into
+  executable `Query<E>` planner paths.
+- `EXPLAIN SHOW COLUMNS ...` remains out of scope in this line.
+
 ## Generated `sql_dispatch` Boundary (0.56)
 
 Generated canister SQL helpers in this line use one unified query surface.
@@ -227,6 +247,7 @@ Generated canister SQL helpers in this line use one unified query surface.
   - `Explain { entity, explain }`
   - `Describe(EntitySchemaDescription)`
   - `ShowIndexes { entity, indexes }`
+  - `ShowColumns { entity, columns }`
   - `ShowEntities { entities }`
 - `SqlQueryResult` renders deterministic shell output via:
   - `SqlQueryResult::render_lines()`
@@ -281,6 +302,10 @@ Predicate operators are limited to planner-supported predicate operators.
 - clause symbols must be grouped key fields or one aggregate terminal already
   projected in the grouped select list.
 - clauses are conjunctive (`AND`) only.
+- clause comparisons accept reduced compare forms:
+  - `<symbol> <op> <literal>` for `<op>` in `=`, `!=`, `<`, `<=`, `>`, `>=`
+  - `<symbol> IS NULL`
+  - `<symbol> IS NOT NULL`
 - `OR`/`NOT` and broader expression forms remain fail-closed.
 
 ## Supported Semantics and Constraints

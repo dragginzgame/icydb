@@ -12,6 +12,7 @@ Examples:
   sql.sh "describe character"
   sql.sh "show entities"
   sql.sh "show indexes character"
+  sql.sh "show columns character"
   sql.sh --canister sql_test "select count(*) from character"
   sql.sh --deploy
   sql.sh --reset
@@ -154,6 +155,11 @@ printf '%s\n' "$raw_json" | jq -r '
     elif ($ok | has("ShowIndexes")) then
       ["surface=indexes entity=\($ok.ShowIndexes.entity) index_count=\($ok.ShowIndexes.indexes | length)"]
       + $ok.ShowIndexes.indexes
+    elif ($ok | has("ShowColumns")) then
+      ["surface=columns entity=\($ok.ShowColumns.entity) column_count=\($ok.ShowColumns.columns | length)"]
+      + ($ok.ShowColumns.columns | map(
+          "\(.name): \(.kind) (primary_key=\(.primary_key), queryable=\(.queryable))"
+        ))
     elif ($ok | has("ShowEntities")) then
       ["surface=entities"] + ($ok.ShowEntities.entities | map("entity=\(.)"))
     else

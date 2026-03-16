@@ -8,7 +8,7 @@ use candid::CandidType;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    db::{EntitySchemaDescription, ProjectionResponse},
+    db::{EntityFieldDescription, EntitySchemaDescription, ProjectionResponse},
     error::{Error, ErrorKind, ErrorOrigin, RuntimeErrorKind},
     traits::EntityKind,
     value::{Value, ValueEnum},
@@ -118,6 +118,10 @@ pub enum SqlQueryResult {
         entity: String,
         indexes: Vec<String>,
     },
+    ShowColumns {
+        entity: String,
+        columns: Vec<EntityFieldDescription>,
+    },
     ShowEntities {
         entities: Vec<String>,
     },
@@ -135,6 +139,9 @@ impl SqlQueryResult {
             Self::Describe(description) => render_describe_lines(description),
             Self::ShowIndexes { entity, indexes } => {
                 render_show_indexes_lines(entity.as_str(), indexes.as_slice())
+            }
+            Self::ShowColumns { entity, columns } => {
+                render_show_columns_lines(entity.as_str(), columns.as_slice())
             }
             Self::ShowEntities { entities } => render_show_entities_lines(entities.as_slice()),
         }
@@ -347,6 +354,26 @@ pub fn render_show_indexes_lines(entity: &str, indexes: &[String]) -> Vec<String
     lines
 }
 
+/// Render one `SHOW COLUMNS` payload into deterministic shell output lines.
+#[must_use]
+pub fn render_show_columns_lines(entity: &str, columns: &[EntityFieldDescription]) -> Vec<String> {
+    let mut lines = vec![format!(
+        "surface=columns entity={entity} column_count={}",
+        columns.len()
+    )];
+    lines.extend(columns.iter().map(|column| {
+        format!(
+            "{}: {} (primary_key={}, queryable={})",
+            column.name(),
+            column.kind(),
+            column.primary_key(),
+            column.queryable(),
+        )
+    }));
+
+    lines
+}
+
 /// Render one helper-level `SHOW ENTITIES` payload into deterministic lines.
 #[must_use]
 pub fn render_show_entities_lines(entities: &[String]) -> Vec<String> {
@@ -499,7 +526,8 @@ fn render_enum(value: &ValueEnum) -> String {
 mod tests {
     use crate::db::sql::{
         SqlQueryResult, SqlQueryRowsOutput, explain_target_sql, identifiers_tail_match,
-        render_describe_lines, render_show_entities_lines, render_show_indexes_lines,
+        render_describe_lines, render_show_columns_lines, render_show_entities_lines,
+        render_show_indexes_lines,
     };
     use crate::db::{
         EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
@@ -599,6 +627,24 @@ mod tests {
                 "INDEX character_name_idx(name)".to_string(),
             ],
             "show-indexes shell output must remain contract-stable across release lines",
+        );
+    }
+
+    #[test]
+    fn render_show_columns_lines_output_contract_vector_is_stable() {
+        let columns = vec![
+            EntityFieldDescription::new("id".to_string(), "Ulid".to_string(), true, true),
+            EntityFieldDescription::new("name".to_string(), "Text".to_string(), false, true),
+        ];
+
+        assert_eq!(
+            render_show_columns_lines("Character", columns.as_slice()),
+            vec![
+                "surface=columns entity=Character column_count=2".to_string(),
+                "id: Ulid (primary_key=true, queryable=true)".to_string(),
+                "name: Text (primary_key=false, queryable=true)".to_string(),
+            ],
+            "show-columns shell output must remain contract-stable across release lines",
         );
     }
 

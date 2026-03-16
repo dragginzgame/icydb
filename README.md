@@ -45,7 +45,13 @@ scripts/dev/sql.sh "show entities"
 scripts/dev/sql.sh "show indexes character"
 ```
 
-6. Command split:
+6. Show columns for one entity:
+
+```bash
+scripts/dev/sql.sh "show columns character"
+```
+
+7. Command split:
 
 ```bash
 scripts/dev/sql.sh --deploy   # deploy canister only
@@ -82,8 +88,8 @@ If you are new to this space: think "database-like query execution and safety" w
 
 ## 0.56 Highlights
 
-- Reduced SQL now includes dedicated introspection lanes for `DESCRIBE <entity>` and `SHOW INDEXES <entity>`.
-- Generated canister `sql_dispatch::query(...)` now returns one unified enum envelope for projection, explain, describe, show-indexes, and helper-level `SHOW ENTITIES` surfaces.
+- Reduced SQL now includes dedicated introspection lanes for `DESCRIBE <entity>`, `SHOW INDEXES <entity>`, and `SHOW COLUMNS <entity>`.
+- Generated canister `sql_dispatch::query(...)` now returns one unified enum envelope for projection, explain, describe, show-indexes, show-columns, and helper-level `SHOW ENTITIES` surfaces.
 - Unified query payloads can be rendered deterministically with `SqlQueryResult::render_lines()` or `SqlQueryResult::render_text()`.
 
 ---
@@ -217,6 +223,7 @@ What each endpoint returns:
   - `Explain { entity, explain }`
   - `Describe(EntitySchemaDescription)`
   - `ShowIndexes { entity, indexes }`
+  - `ShowColumns { entity, columns }`
   - `ShowEntities { entities }`
 
 Dispatch behavior:

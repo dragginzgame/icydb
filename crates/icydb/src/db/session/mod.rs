@@ -4,7 +4,7 @@ mod macros;
 
 use crate::{
     db::{
-        EntitySchemaDescription, SqlStatementRoute, StorageReport,
+        EntityFieldDescription, EntitySchemaDescription, SqlStatementRoute, StorageReport,
         query::{MissingRowPolicy, Query, QueryTracePlan},
         response::{
             PagedGroupedResponse, ProjectionResponse, Response, WriteBatchResponse, WriteResponse,
@@ -171,6 +171,14 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(self.inner.show_indexes_sql::<E>(sql)?)
     }
 
+    /// Execute one reduced SQL `SHOW COLUMNS` statement.
+    pub fn show_columns_sql<E>(&self, sql: &str) -> Result<Vec<EntityFieldDescription>, Error>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        Ok(self.inner.show_columns_sql::<E>(sql)?)
+    }
+
     /// Execute one reduced SQL `SHOW ENTITIES` statement.
     pub fn show_entities_sql(&self, sql: &str) -> Result<Vec<String>, Error> {
         Ok(self.inner.show_entities_sql(sql)?)
@@ -206,6 +214,15 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         self.inner.show_indexes::<E>()
+    }
+
+    /// Return one stable list of field descriptors for the entity schema.
+    #[must_use]
+    pub fn show_columns<E>(&self) -> Vec<EntityFieldDescription>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        self.inner.show_columns::<E>()
     }
 
     /// Return one stable list of runtime-registered entity names.
@@ -581,6 +598,15 @@ mod tests {
                 true,
                 true,
             ),
+            (
+                "SELECT age, COUNT(*) \
+                 FROM FacadeSqlEntity \
+                 GROUP BY age \
+                 HAVING COUNT(*) IS NOT NULL \
+                 ORDER BY age ASC LIMIT 10",
+                true,
+                true,
+            ),
         ];
 
         // Phase 2: compile SQL to query intent and assert mode/grouping contracts.
@@ -624,6 +650,7 @@ mod tests {
         assert!(route.is_describe());
         assert!(!route.is_explain());
         assert!(!route.is_show_indexes());
+        assert!(!route.is_show_columns());
         assert!(!route.is_show_entities());
     }
 
@@ -645,6 +672,29 @@ mod tests {
         assert!(route.is_show_indexes());
         assert!(!route.is_describe());
         assert!(!route.is_explain());
+        assert!(!route.is_show_columns());
+        assert!(!route.is_show_entities());
+    }
+
+    #[test]
+    fn facade_sql_statement_route_show_columns_classifies_entity() {
+        let session = fresh_facade_session();
+
+        let route = session
+            .sql_statement_route("SHOW COLUMNS public.FacadeSqlEntity")
+            .expect("facade SQL statement route should classify SHOW COLUMNS");
+
+        assert_eq!(
+            route,
+            SqlStatementRoute::ShowColumns {
+                entity: "public.FacadeSqlEntity".to_string(),
+            }
+        );
+        assert_eq!(route.entity(), "public.FacadeSqlEntity");
+        assert!(route.is_show_columns());
+        assert!(!route.is_show_indexes());
+        assert!(!route.is_describe());
+        assert!(!route.is_explain());
         assert!(!route.is_show_entities());
     }
 
@@ -660,6 +710,7 @@ mod tests {
         assert!(route.is_show_entities());
         assert_eq!(route.entity(), "");
         assert!(!route.is_show_indexes());
+        assert!(!route.is_show_columns());
         assert!(!route.is_describe());
         assert!(!route.is_explain());
     }
@@ -691,6 +742,21 @@ mod tests {
         assert_eq!(
             from_sql, from_typed,
             "facade show_indexes_sql should return the same canonical payload as show_indexes",
+        );
+    }
+
+    #[test]
+    fn facade_show_columns_sql_matches_show_columns_payload() {
+        let session = fresh_facade_session();
+
+        let from_sql = session
+            .show_columns_sql::<FacadeSqlEntity>("SHOW COLUMNS FacadeSqlEntity")
+            .expect("facade show_columns_sql should succeed");
+        let from_typed = session.show_columns::<FacadeSqlEntity>();
+
+        assert_eq!(
+            from_sql, from_typed,
+            "facade show_columns_sql should return the same canonical payload as show_columns",
         );
     }
 
@@ -844,6 +910,10 @@ mod tests {
                 "SHOW INDEXES FacadeSqlEntity",
                 "facade query_from_sql SHOW INDEXES",
             ),
+            (
+                "SHOW COLUMNS FacadeSqlEntity",
+                "facade query_from_sql SHOW COLUMNS",
+            ),
             ("SHOW ENTITIES", "facade query_from_sql SHOW ENTITIES"),
         ];
 
@@ -928,6 +998,10 @@ mod tests {
                 "SHOW INDEXES FacadeSqlEntity",
                 "facade explain_sql SHOW INDEXES",
             ),
+            (
+                "SHOW COLUMNS FacadeSqlEntity",
+                "facade explain_sql SHOW COLUMNS",
+            ),
             ("SHOW ENTITIES", "facade explain_sql SHOW ENTITIES"),
         ];
 
@@ -954,6 +1028,10 @@ mod tests {
                 "SHOW INDEXES FacadeSqlEntity",
                 "facade describe_sql SHOW INDEXES",
             ),
+            (
+                "SHOW COLUMNS FacadeSqlEntity",
+                "facade describe_sql SHOW COLUMNS",
+            ),
             ("SHOW ENTITIES", "facade describe_sql SHOW ENTITIES"),
         ];
         let show_indexes_cases = [
@@ -965,7 +1043,26 @@ mod tests {
                 "DESCRIBE FacadeSqlEntity",
                 "facade show_indexes_sql DESCRIBE",
             ),
+            (
+                "SHOW COLUMNS FacadeSqlEntity",
+                "facade show_indexes_sql SHOW COLUMNS",
+            ),
             ("SHOW ENTITIES", "facade show_indexes_sql SHOW ENTITIES"),
+        ];
+        let show_columns_cases = [
+            (
+                "SELECT * FROM FacadeSqlEntity",
+                "facade show_columns_sql SELECT",
+            ),
+            (
+                "DESCRIBE FacadeSqlEntity",
+                "facade show_columns_sql DESCRIBE",
+            ),
+            (
+                "SHOW INDEXES FacadeSqlEntity",
+                "facade show_columns_sql SHOW INDEXES",
+            ),
+            ("SHOW ENTITIES", "facade show_columns_sql SHOW ENTITIES"),
         ];
         let show_entities_cases = [
             (
@@ -980,6 +1077,10 @@ mod tests {
                 "SHOW INDEXES FacadeSqlEntity",
                 "facade show_entities_sql SHOW INDEXES",
             ),
+            (
+                "SHOW COLUMNS FacadeSqlEntity",
+                "facade show_entities_sql SHOW COLUMNS",
+            ),
         ];
 
         // Phase 2: assert each introspection surface stays fail-closed for wrong lanes.
@@ -992,6 +1093,12 @@ mod tests {
         for (sql, context) in show_indexes_cases {
             assert_unsupported_sql_runtime_result(
                 session.show_indexes_sql::<FacadeSqlEntity>(sql),
+                context,
+            );
+        }
+        for (sql, context) in show_columns_cases {
+            assert_unsupported_sql_runtime_result(
+                session.show_columns_sql::<FacadeSqlEntity>(sql),
                 context,
             );
         }

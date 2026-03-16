@@ -121,4 +121,28 @@ mod tests {
 
         assert!(!matched);
     }
+
+    #[test]
+    fn grouped_having_null_eq_matches_only_null_values() {
+        let null_eq = evaluate_grouped_having_compare_v1(&Value::Null, CompareOp::Eq, &Value::Null)
+            .expect("eq should be supported");
+        let uint_eq =
+            evaluate_grouped_having_compare_v1(&Value::Uint(7), CompareOp::Eq, &Value::Null)
+                .expect("eq should be supported");
+
+        assert!(null_eq);
+        assert!(!uint_eq);
+    }
+
+    #[test]
+    fn grouped_having_null_ne_matches_only_non_null_values() {
+        let null_ne = evaluate_grouped_having_compare_v1(&Value::Null, CompareOp::Ne, &Value::Null)
+            .expect("ne should be supported");
+        let uint_ne =
+            evaluate_grouped_having_compare_v1(&Value::Uint(7), CompareOp::Ne, &Value::Null)
+                .expect("ne should be supported");
+
+        assert!(!null_ne);
+        assert!(uint_ne);
+    }
 }

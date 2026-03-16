@@ -98,6 +98,27 @@ pub(in crate::db::query::plan) fn eq_lookup_value_for_key_item(
     }
 }
 
+/// Try to lower one starts-with predicate literal into a canonical key-item prefix value.
+#[must_use]
+pub(in crate::db::query::plan) fn starts_with_lookup_value_for_key_item(
+    key_item: IndexKeyItem,
+    field: &str,
+    value: &Value,
+    coercion: CoercionId,
+    literal_compatible: bool,
+) -> Option<String> {
+    let lowered =
+        eq_lookup_value_for_key_item(key_item, field, value, coercion, literal_compatible)?;
+    let Value::Text(prefix) = lowered else {
+        return None;
+    };
+    if prefix.is_empty() {
+        return None;
+    }
+
+    Some(prefix)
+}
+
 ///
 /// TESTS
 ///
@@ -109,6 +130,7 @@ mod tests {
             predicate::CoercionId,
             query::plan::key_item_match::{
                 eq_lookup_value_for_key_item, key_item_matches_field_and_coercion,
+                starts_with_lookup_value_for_key_item,
             },
         },
         model::index::{IndexExpression, IndexKeyItem},
@@ -148,5 +170,39 @@ mod tests {
             true,
         );
         assert_eq!(unsupported, None);
+    }
+
+    #[test]
+    fn starts_with_lookup_value_lowers_text_casefold_expression_prefix() {
+        let lowered = starts_with_lookup_value_for_key_item(
+            IndexKeyItem::Expression(IndexExpression::Lower("email")),
+            "email",
+            &Value::Text("ALICE".to_string()),
+            CoercionId::TextCasefold,
+            true,
+        );
+        assert_eq!(lowered, Some("alice".to_string()));
+
+        let unsupported = starts_with_lookup_value_for_key_item(
+            IndexKeyItem::Expression(IndexExpression::Upper("email")),
+            "email",
+            &Value::Text("ALICE".to_string()),
+            CoercionId::TextCasefold,
+            true,
+        );
+        assert_eq!(unsupported, None);
+    }
+
+    #[test]
+    fn starts_with_lookup_value_rejects_empty_prefix() {
+        let lowered = starts_with_lookup_value_for_key_item(
+            IndexKeyItem::Field("email"),
+            "email",
+            &Value::Text(String::new()),
+            CoercionId::Strict,
+            true,
+        );
+
+        assert_eq!(lowered, None);
     }
 }

@@ -13,6 +13,7 @@ use crate::{
                 key_item_match::{
                     eq_lookup_value_for_key_item, index_key_item_count,
                     key_item_matches_field_and_coercion, leading_index_key_item,
+                    starts_with_lookup_value_for_key_item,
                 },
                 planner::index_literal_matches_schema,
             },
@@ -663,10 +664,15 @@ fn evaluate_range_candidate(
     schema: &SchemaInfo,
     predicate: &Predicate,
 ) -> CandidateEvaluation {
-    // Range-family candidate scoring remains field-key-only in this slice.
-    // Expression-key indexes are intentionally unsupported for range/starts-with
-    // explain eligibility until planner/runtime range semantics are extended.
-    if index.has_expression_key_items() {
+    // Range-family candidate scoring remains fail-closed for expression-key indexes,
+    // except one bounded starts-with casefold path that mirrors planner semantics.
+    if index.has_expression_key_items()
+        && !matches!(
+            predicate,
+            Predicate::Compare(cmp)
+                if cmp.op == CompareOp::StartsWith && cmp.coercion.id == CoercionId::TextCasefold
+        )
+    {
         return CandidateEvaluation::Rejected(
             AccessChoiceRejectedReason::OperatorNotRangeSupported,
         );
@@ -694,32 +700,67 @@ fn evaluate_range_compare_candidate(
             AccessChoiceRejectedReason::OperatorNotRangeSupported,
         );
     }
-    if !matches!(
-        cmp.coercion.id,
-        CoercionId::Strict | CoercionId::NumericWiden
-    ) {
-        return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::NonStrictCoercion);
-    }
-    if index.fields().first() != Some(&cmp.field.as_str()) {
-        return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::LeadingFieldMismatch);
-    }
-    if !index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value()) {
-        return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::LiteralIncompatible);
-    }
-    if !index.is_field_indexable(cmp.field.as_str(), cmp.op) {
-        return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::OperatorNotSupported);
-    }
-    if matches!(
-        cmp.op,
-        CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte
-    ) && index.fields().len() != 1
-    {
-        return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::SingleFieldRangeRequired);
-    }
-    if cmp.op == CompareOp::StartsWith
-        && !matches!(cmp.value(), Value::Text(prefix) if !prefix.is_empty())
-    {
-        return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::StartsWithPrefixInvalid);
+    if cmp.op == CompareOp::StartsWith {
+        if !matches!(
+            cmp.coercion.id,
+            CoercionId::Strict | CoercionId::TextCasefold
+        ) {
+            return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::NonStrictCoercion);
+        }
+        let Some(leading_key_item) = leading_index_key_item(index) else {
+            return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::LeadingFieldMismatch);
+        };
+        let literal_compatible =
+            index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value());
+        if starts_with_lookup_value_for_key_item(
+            leading_key_item,
+            cmp.field.as_str(),
+            cmp.value(),
+            cmp.coercion.id,
+            literal_compatible,
+        )
+        .is_none()
+        {
+            if !key_item_matches_field_and_coercion(
+                leading_key_item,
+                cmp.field.as_str(),
+                cmp.coercion.id,
+            ) {
+                return CandidateEvaluation::Rejected(
+                    AccessChoiceRejectedReason::LeadingFieldMismatch,
+                );
+            }
+            if !literal_compatible {
+                return CandidateEvaluation::Rejected(
+                    AccessChoiceRejectedReason::LiteralIncompatible,
+                );
+            }
+
+            return CandidateEvaluation::Rejected(
+                AccessChoiceRejectedReason::StartsWithPrefixInvalid,
+            );
+        }
+    } else {
+        if !matches!(
+            cmp.coercion.id,
+            CoercionId::Strict | CoercionId::NumericWiden
+        ) {
+            return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::NonStrictCoercion);
+        }
+        if index.fields().first() != Some(&cmp.field.as_str()) {
+            return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::LeadingFieldMismatch);
+        }
+        if !index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value()) {
+            return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::LiteralIncompatible);
+        }
+        if !index.is_field_indexable(cmp.field.as_str(), cmp.op) {
+            return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::OperatorNotSupported);
+        }
+        if index.fields().len() != 1 {
+            return CandidateEvaluation::Rejected(
+                AccessChoiceRejectedReason::SingleFieldRangeRequired,
+            );
+        }
     }
 
     CandidateEvaluation::Eligible(CandidateScore {
@@ -1197,6 +1238,53 @@ mod tests {
             CandidateEvaluation::Rejected(
                 super::AccessChoiceRejectedReason::OperatorNotRangeSupported
             ),
+        );
+    }
+
+    #[test]
+    fn evaluate_range_candidate_accepts_text_casefold_starts_with_for_expression_index() {
+        let predicate = crate::db::predicate::Predicate::Compare(
+            crate::db::predicate::ComparePredicate::with_coercion(
+                "email",
+                crate::db::predicate::CompareOp::StartsWith,
+                Value::Text("ALICE".to_string()),
+                CoercionId::TextCasefold,
+            ),
+        );
+
+        let evaluation =
+            evaluate_range_candidate(&ACCESS_CHOICE_EXPRESSION_INDEXES[0], &schema(), &predicate);
+
+        assert_eq!(
+            evaluation,
+            CandidateEvaluation::Eligible(CandidateScore {
+                prefix_len: 0,
+                exact: true,
+            }),
+        );
+    }
+
+    #[test]
+    fn evaluate_range_candidate_rejects_text_casefold_starts_with_for_unsupported_expression_kind()
+    {
+        let predicate = crate::db::predicate::Predicate::Compare(
+            crate::db::predicate::ComparePredicate::with_coercion(
+                "email",
+                crate::db::predicate::CompareOp::StartsWith,
+                Value::Text("ALICE".to_string()),
+                CoercionId::TextCasefold,
+            ),
+        );
+
+        let evaluation = evaluate_range_candidate(
+            &ACCESS_CHOICE_UNSUPPORTED_EXPRESSION_INDEXES[0],
+            &schema(),
+            &predicate,
+        );
+
+        assert_eq!(
+            evaluation,
+            CandidateEvaluation::Rejected(super::AccessChoiceRejectedReason::LeadingFieldMismatch),
         );
     }
 }

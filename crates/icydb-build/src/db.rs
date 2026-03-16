@@ -147,6 +147,7 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
     let mut explain_match = quote!();
     let mut describe_schema_match = quote!();
     let mut show_indexes_match = quote!();
+    let mut show_columns_match = quote!();
 
     for (entity_path, entity) in entities {
         let variant_ident = format_ident!("{}", entity.def().ident());
@@ -188,6 +189,9 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
         });
         show_indexes_match.extend(quote! {
             Self::#variant_ident => db().show_indexes_sql::<#entity_ty>(sql),
+        });
+        show_columns_match.extend(quote! {
+            Self::#variant_ident => db().show_columns_sql::<#entity_ty>(sql),
         });
     }
 
@@ -300,6 +304,18 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
                         #show_indexes_match
                     }
                 }
+
+                /// Execute one SQL `SHOW COLUMNS` statement for this concrete route.
+                pub fn execute_show_columns(
+                    self,
+                    sql: &str,
+                ) -> Result<Vec<::icydb::db::EntityFieldDescription>, Error> {
+                    // Keep the SQL input marked as used when this canister has no routed entities.
+                    let _ = sql;
+                    match self {
+                        #show_columns_match
+                    }
+                }
             }
 
             /// Return one list of all supported SQL entity names.
@@ -330,6 +346,9 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
                     }
                     statement @ ::icydb::db::SqlStatementRoute::ShowIndexes { .. } => {
                         show_indexes_result_for_statement(sql_trimmed, &statement)
+                    }
+                    statement @ ::icydb::db::SqlStatementRoute::ShowColumns { .. } => {
+                        show_columns_result_for_statement(sql_trimmed, &statement)
                     }
                     ::icydb::db::SqlStatementRoute::ShowEntities => {
                         show_entities_result_for_statement(sql_trimmed)
@@ -379,6 +398,19 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
                 Ok(SqlQueryResult::ShowIndexes {
                     entity: route.entity_name().to_string(),
                     indexes,
+                })
+            }
+
+            fn show_columns_result_for_statement(
+                sql: &str,
+                statement: &::icydb::db::SqlStatementRoute,
+            ) -> Result<SqlQueryResult, Error> {
+                let route = SqlEntityRoute::from_statement_route(statement)?;
+                let columns = route.execute_show_columns(sql)?;
+
+                Ok(SqlQueryResult::ShowColumns {
+                    entity: route.entity_name().to_string(),
+                    columns,
                 })
             }
 

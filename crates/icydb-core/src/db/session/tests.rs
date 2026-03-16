@@ -560,6 +560,10 @@ fn query_from_sql_rejects_non_query_statement_lanes_matrix() {
             "query_from_sql must reject SHOW INDEXES statements",
         ),
         (
+            "SHOW COLUMNS SessionSqlEntity",
+            "query_from_sql must reject SHOW COLUMNS statements",
+        ),
+        (
             "SHOW ENTITIES",
             "query_from_sql must reject SHOW ENTITIES statements",
         ),
@@ -593,6 +597,7 @@ fn sql_statement_route_select_classifies_query_entity() {
     assert!(!route.is_explain());
     assert!(!route.is_describe());
     assert!(!route.is_show_indexes());
+    assert!(!route.is_show_columns());
     assert!(!route.is_show_entities());
 }
 
@@ -615,6 +620,7 @@ fn sql_statement_route_describe_classifies_entity() {
     assert!(!route.is_explain());
     assert!(route.is_describe());
     assert!(!route.is_show_indexes());
+    assert!(!route.is_show_columns());
     assert!(!route.is_show_entities());
 }
 
@@ -637,6 +643,30 @@ fn sql_statement_route_show_indexes_classifies_entity() {
     assert!(!route.is_explain());
     assert!(!route.is_describe());
     assert!(route.is_show_indexes());
+    assert!(!route.is_show_columns());
+    assert!(!route.is_show_entities());
+}
+
+#[test]
+fn sql_statement_route_show_columns_classifies_entity() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let route = session
+        .sql_statement_route("SHOW COLUMNS public.SessionSqlEntity")
+        .expect("show columns SQL statement should parse");
+
+    assert_eq!(
+        route,
+        SqlStatementRoute::ShowColumns {
+            entity: "public.SessionSqlEntity".to_string(),
+        }
+    );
+    assert_eq!(route.entity(), "public.SessionSqlEntity");
+    assert!(!route.is_explain());
+    assert!(!route.is_describe());
+    assert!(!route.is_show_indexes());
+    assert!(route.is_show_columns());
     assert!(!route.is_show_entities());
 }
 
@@ -653,6 +683,7 @@ fn sql_statement_route_show_entities_classifies_surface() {
     assert!(route.is_show_entities());
     assert_eq!(route.entity(), "");
     assert!(!route.is_show_indexes());
+    assert!(!route.is_show_columns());
     assert!(!route.is_describe());
     assert!(!route.is_explain());
 }
@@ -676,6 +707,7 @@ fn sql_statement_route_explain_classifies_wrapped_entity() {
     assert!(route.is_explain());
     assert!(!route.is_describe());
     assert!(!route.is_show_indexes());
+    assert!(!route.is_show_columns());
     assert!(!route.is_show_entities());
 }
 
@@ -713,6 +745,10 @@ fn describe_sql_rejects_non_describe_statement_lanes_matrix() {
         (
             "SHOW INDEXES SessionSqlEntity",
             "describe_sql should reject SHOW INDEXES statements",
+        ),
+        (
+            "SHOW COLUMNS SessionSqlEntity",
+            "describe_sql should reject SHOW COLUMNS statements",
         ),
         (
             "SHOW ENTITIES",
@@ -765,6 +801,10 @@ fn show_indexes_sql_rejects_non_show_indexes_statement_lanes_matrix() {
             "show_indexes_sql should reject DESCRIBE statements",
         ),
         (
+            "SHOW COLUMNS SessionSqlEntity",
+            "show_indexes_sql should reject SHOW COLUMNS statements",
+        ),
+        (
             "SHOW ENTITIES",
             "show_indexes_sql should reject SHOW ENTITIES statements",
         ),
@@ -774,6 +814,60 @@ fn show_indexes_sql_rejects_non_show_indexes_statement_lanes_matrix() {
     for (sql, context) in cases {
         assert_unsupported_sql_surface_result(
             session.show_indexes_sql::<SessionSqlEntity>(sql),
+            context,
+        );
+    }
+}
+
+#[test]
+fn show_columns_sql_returns_same_payload_as_show_columns() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let from_sql = session
+        .show_columns_sql::<SessionSqlEntity>("SHOW COLUMNS SessionSqlEntity")
+        .expect("show_columns_sql should succeed");
+    let from_typed = session.show_columns::<SessionSqlEntity>();
+
+    assert_eq!(
+        from_sql, from_typed,
+        "show_columns_sql should project through canonical show_columns payload",
+    );
+}
+
+#[test]
+fn show_columns_sql_rejects_non_show_columns_statement_lanes_matrix() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    // Phase 1: define lanes that must remain outside show_columns_sql.
+    let cases = [
+        (
+            "SELECT * FROM SessionSqlEntity",
+            "show_columns_sql should reject SELECT statements",
+        ),
+        (
+            "EXPLAIN SELECT * FROM SessionSqlEntity",
+            "show_columns_sql should reject EXPLAIN statements",
+        ),
+        (
+            "DESCRIBE SessionSqlEntity",
+            "show_columns_sql should reject DESCRIBE statements",
+        ),
+        (
+            "SHOW INDEXES SessionSqlEntity",
+            "show_columns_sql should reject SHOW INDEXES statements",
+        ),
+        (
+            "SHOW ENTITIES",
+            "show_columns_sql should reject SHOW ENTITIES statements",
+        ),
+    ];
+
+    // Phase 2: assert each non-show-columns lane remains fail-closed.
+    for (sql, context) in cases {
+        assert_unsupported_sql_surface_result(
+            session.show_columns_sql::<SessionSqlEntity>(sql),
             context,
         );
     }
@@ -818,6 +912,10 @@ fn show_entities_sql_rejects_non_show_entities_statement_lanes_matrix() {
             "SHOW INDEXES SessionSqlEntity",
             "show_entities_sql should reject SHOW INDEXES statements",
         ),
+        (
+            "SHOW COLUMNS SessionSqlEntity",
+            "show_entities_sql should reject SHOW COLUMNS statements",
+        ),
     ];
 
     // Phase 2: assert each non-show-entities lane remains fail-closed.
@@ -840,6 +938,10 @@ fn explain_sql_rejects_non_explain_statement_lanes_matrix() {
         (
             "SHOW INDEXES SessionSqlEntity",
             "explain_sql should reject SHOW INDEXES statements",
+        ),
+        (
+            "SHOW COLUMNS SessionSqlEntity",
+            "explain_sql should reject SHOW COLUMNS statements",
         ),
         (
             "SHOW ENTITIES",
@@ -1783,6 +1885,22 @@ fn execute_sql_grouped_matrix_queries_match_expected_grouped_rows() {
              HAVING COUNT(*) > 1 \
              ORDER BY age ASC LIMIT 10",
             vec![(10_u64, 2_u64), (30_u64, 3_u64)],
+        ),
+        (
+            "SELECT age, COUNT(*) \
+             FROM SessionSqlEntity \
+             GROUP BY age \
+             HAVING COUNT(*) IS NULL \
+             ORDER BY age ASC LIMIT 10",
+            vec![],
+        ),
+        (
+            "SELECT age, COUNT(*) \
+             FROM SessionSqlEntity \
+             GROUP BY age \
+             HAVING COUNT(*) IS NOT NULL \
+             ORDER BY age ASC LIMIT 10",
+            vec![(10_u64, 2_u64), (20_u64, 1_u64), (30_u64, 3_u64)],
         ),
     ];
 

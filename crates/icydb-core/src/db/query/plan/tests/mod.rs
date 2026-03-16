@@ -643,6 +643,48 @@ fn plan_access_gt_rejects_expression_index() {
 }
 
 #[test]
+fn plan_access_text_casefold_starts_with_uses_expression_index_range() {
+    let model = model_with_expression_casefold_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = compare_text_casefold(
+        "email",
+        CompareOp::StartsWith,
+        Value::Text("ALICE".to_string()),
+    );
+
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let (index, prefix, lower, upper) =
+        find_index_range(&plan).expect("text-casefold starts-with should plan index range");
+
+    assert_eq!(index.name(), EXPRESSION_CASEFOLD_INDEX_MODEL.name());
+    assert!(
+        prefix.is_empty(),
+        "text-casefold starts-with expression ranges should not carry equality prefix values",
+    );
+    assert_eq!(lower, &Bound::Included(Value::Text("alice".to_string())));
+    assert_eq!(upper, &Bound::Unbounded);
+}
+
+#[test]
+fn plan_access_text_casefold_starts_with_rejects_unsupported_expression_lookup_kind() {
+    let model = model_with_expression_upper_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = compare_text_casefold(
+        "email",
+        CompareOp::StartsWith,
+        Value::Text("ALICE".to_string()),
+    );
+
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+
+    assert_eq!(
+        plan,
+        AccessPlan::full_scan(),
+        "unsupported expression lookup kinds must fail closed for text-casefold starts-with",
+    );
+}
+
+#[test]
 fn plan_access_starts_with_rejects_expression_index() {
     let model = model_with_expression_casefold_index();
     let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");

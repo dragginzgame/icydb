@@ -7,10 +7,13 @@ use crate::{
     db::{
         access::{AccessPlan, SemanticIndexRangeSpec},
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
-        query::plan::planner::{
-            index_literal_matches_schema,
-            prefix::{index_multi_lookup_for_in, index_prefix_for_eq},
-            sorted_indexes,
+        query::plan::{
+            key_item_match::{leading_index_key_item, starts_with_lookup_value_for_key_item},
+            planner::{
+                index_literal_matches_schema,
+                prefix::{index_multi_lookup_for_in, index_prefix_for_eq},
+                sorted_indexes,
+            },
         },
         schema::{SchemaInfo, literal_matches_type},
     },
@@ -112,7 +115,10 @@ pub(super) fn plan_compare(
             }
         }
         CompareOp::StartsWith => {
-            if cmp.coercion.id != CoercionId::Strict {
+            if !matches!(
+                cmp.coercion.id,
+                CoercionId::Strict | CoercionId::TextCasefold
+            ) {
                 return AccessPlan::full_scan();
             }
             if let Some(path) = plan_starts_with_compare(model, schema, cmp, query_predicate) {
@@ -181,25 +187,34 @@ fn plan_starts_with_compare(
     cmp: &ComparePredicate,
     query_predicate: &Predicate,
 ) -> Option<AccessPlan<Value>> {
-    if !index_literal_matches_schema(schema, &cmp.field, &cmp.value) {
-        return None;
-    }
-
-    let Value::Text(prefix) = &cmp.value else {
-        return None;
-    };
-    if prefix.is_empty() {
-        return None;
-    }
-
-    let lower = Bound::Included(Value::Text(prefix.clone()));
-    let upper = strict_text_prefix_upper_bound(prefix);
+    let literal_compatible = index_literal_matches_schema(schema, &cmp.field, &cmp.value);
     for index in sorted_indexes(model, query_predicate) {
-        if index.fields().first() != Some(&cmp.field.as_str())
-            || !index.is_field_indexable(cmp.field.as_str(), CompareOp::StartsWith)
-        {
+        let Some(leading_key_item) = leading_index_key_item(index) else {
             continue;
-        }
+        };
+        let Some(prefix) = starts_with_lookup_value_for_key_item(
+            leading_key_item,
+            cmp.field.as_str(),
+            &cmp.value,
+            cmp.coercion.id,
+            literal_compatible,
+        ) else {
+            continue;
+        };
+
+        let lower = Bound::Included(Value::Text(prefix.clone()));
+        // Expression-key components are length-prefixed in raw key framing.
+        // A semantic `next_prefix` upper bound can exclude longer matching values,
+        // so expression starts-with lowers to a safe lower-bounded envelope and
+        // relies on residual predicate filtering for exact prefix semantics.
+        let upper = if matches!(
+            leading_key_item,
+            crate::model::index::IndexKeyItem::Expression(_)
+        ) {
+            Bound::Unbounded
+        } else {
+            strict_text_prefix_upper_bound(&prefix)
+        };
 
         let semantic_range =
             SemanticIndexRangeSpec::new(*index, vec![0usize], Vec::new(), lower, upper);

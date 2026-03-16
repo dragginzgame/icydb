@@ -14,9 +14,9 @@ mod write;
 
 use crate::{
     db::{
-        Db, EntitySchemaDescription, FluentDeleteQuery, FluentLoadQuery, IntegrityReport,
-        MigrationPlan, MigrationRunOutcome, MissingRowPolicy, PlanError, Query, QueryError,
-        StorageReport, StoreRegistry, WriteBatchResponse,
+        Db, EntityFieldDescription, EntitySchemaDescription, FluentDeleteQuery, FluentLoadQuery,
+        IntegrityReport, MigrationPlan, MigrationRunOutcome, MissingRowPolicy, PlanError, Query,
+        QueryError, StorageReport, StoreRegistry, WriteBatchResponse,
         commit::EntityRuntimeHooks,
         cursor::decode_optional_cursor_token,
         executor::{DeleteExecutor, ExecutorPlanError, LoadExecutor, SaveExecutor},
@@ -209,6 +209,15 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         show_indexes_for_model(E::MODEL)
+    }
+
+    /// Return one stable list of field descriptors for the entity schema.
+    #[must_use]
+    pub fn show_columns<E>(&self) -> Vec<EntityFieldDescription>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        describe_entity_model(E::MODEL).fields().to_vec()
     }
 
     /// Return one stable list of runtime-registered entity names.

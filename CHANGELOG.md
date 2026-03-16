@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `0.56.2` replaces split SQL canister helpers with one `query(...)` enum envelope (`SqlQueryResult`) across projection/explain/describe/show-indexes/show-entities, updates local shell rendering flows around that unified result, and fixes generated empty-entity route stubs so downstream builds do not emit unused-`sql` warnings.
 - `0.56.3` makes `SHOW ENTITIES` a first-class reduced-SQL route across parser/lowering/session/generated dispatch and adds constrained grouped `HAVING` execution for SQL `GROUP BY` shapes, while keeping unsupported HAVING boolean forms fail-closed.
 - `0.56.4` consolidates duplicated reduced-SQL lane plumbing by centralizing core wrong-lane gating, simplifying generated `sql_dispatch` route branching, and moving core/facade wrong-lane SQL tests to matrix coverage, while keeping SQL behavior and fail-closed contracts unchanged.
+- `0.56.5` adds reduced-SQL `SHOW COLUMNS <entity>` end-to-end, expands grouped SQL `HAVING` with bounded `IS NULL` / `IS NOT NULL` support, and extends existing `LOWER(field)` expression indexes to support case-insensitive prefix filters (`starts_with_ci`) via bounded index-range planning with fail-closed unsupported-expression behavior.
 
 See detailed breakdown:
 [docs/changelog/0.56.md](docs/changelog/0.56.md)

@@ -115,6 +115,22 @@ pub(in crate::db) fn evaluate_grouped_having_compare_v1(
     op: CompareOp,
     expected: &Value,
 ) -> Option<bool> {
+    let kind = grouped_having_compare_kind(op)?;
+
+    // Keep grouped NULL checks explicit so `IS NULL`/`IS NOT NULL` style
+    // HAVING comparisons remain deterministic and do not depend on
+    // variant-mismatch coercion fallback behavior.
+    if matches!(expected, Value::Null) {
+        return Some(match kind {
+            GroupedHavingCompareKind::Eq => matches!(actual, Value::Null),
+            GroupedHavingCompareKind::Ne => !matches!(actual, Value::Null),
+            GroupedHavingCompareKind::Lt
+            | GroupedHavingCompareKind::Lte
+            | GroupedHavingCompareKind::Gt
+            | GroupedHavingCompareKind::Gte => false,
+        });
+    }
+
     let numeric = CoercionSpec::new(CoercionId::NumericWiden);
     let strict = CoercionSpec::default();
     let coercion = if actual.supports_numeric_coercion() || expected.supports_numeric_coercion() {
@@ -122,7 +138,6 @@ pub(in crate::db) fn evaluate_grouped_having_compare_v1(
     } else {
         &strict
     };
-    let kind = grouped_having_compare_kind(op)?;
 
     Some(match kind {
         GroupedHavingCompareKind::Eq => compare_eq(actual, expected, coercion).unwrap_or(false),
