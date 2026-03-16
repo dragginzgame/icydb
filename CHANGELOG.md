@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `0.56.3` makes `SHOW ENTITIES` a first-class reduced-SQL route across parser/lowering/session/generated dispatch and adds constrained grouped `HAVING` execution for SQL `GROUP BY` shapes, while keeping unsupported HAVING boolean forms fail-closed.
 - `0.56.4` consolidates duplicated reduced-SQL lane plumbing by centralizing core wrong-lane gating, simplifying generated `sql_dispatch` route branching, and moving core/facade wrong-lane SQL tests to matrix coverage, while keeping SQL behavior and fail-closed contracts unchanged.
 - `0.56.5` adds reduced-SQL `SHOW COLUMNS <entity>` end-to-end, expands grouped SQL `HAVING` with bounded `IS NULL` / `IS NOT NULL` support, and extends existing `LOWER(field)` expression indexes to support case-insensitive prefix filters (`starts_with_ci`) via bounded index-range planning with fail-closed unsupported-expression behavior.
+- `0.56.6` hardens the new case-insensitive expression-prefix path with extra planner/access/runtime parity tests (including one-character and empty-prefix edges), locks residual-filter diagnostics for deterministic routing, and stabilizes PocketIC SQL integration runs by serializing test bodies and reusing one built test-canister WASM payload per process.
 
 See detailed breakdown:
 [docs/changelog/0.56.md](docs/changelog/0.56.md)

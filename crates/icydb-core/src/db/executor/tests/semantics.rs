@@ -1510,6 +1510,21 @@ fn expression_casefold_starts_with_planner_access_choice_and_runtime_route_stay_
         .expect("expression starts-with verbose explain should build");
     let diagnostics = verbose_diagnostics_map(&verbose);
     assert_expression_index_access_choice_selected(&diagnostics);
+    assert_eq!(
+        diagnostics.get(DIAG_ROUTE_PREDICATE_STAGE),
+        Some(&"residual_post_access".to_string()),
+        "text-casefold expression starts-with must keep residual filtering enabled",
+    );
+    assert_eq!(
+        diagnostics.get("diagnostic.descriptor.has_index_predicate_prefilter"),
+        Some(&"false".to_string()),
+        "text-casefold expression starts-with should not compile strict index prefilters",
+    );
+    assert_eq!(
+        diagnostics.get("diagnostic.descriptor.has_residual_predicate_filter"),
+        Some(&"true".to_string()),
+        "text-casefold expression starts-with must retain residual predicate filter enforcement",
+    );
 
     // Phase 3: runtime route selection must execute through the same index-range route.
     let execution = Query::<ExpressionCasefoldParityEntity>::new(MissingRowPolicy::Ignore)
@@ -1538,6 +1553,65 @@ fn expression_casefold_starts_with_planner_access_choice_and_runtime_route_stay_
         ids,
         vec![Ulid::from_u128(8_251)],
         "expression starts-with execution results must match canonical lower(email) prefix semantics",
+    );
+}
+
+#[test]
+fn expression_casefold_starts_with_single_char_prefix_routes_and_matches_rows() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+    seed_expression_casefold_parity_rows(8_260);
+
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "email",
+        CompareOp::StartsWith,
+        Value::Text("A".to_string()),
+        CoercionId::TextCasefold,
+    ));
+
+    let explain = Query::<ExpressionCasefoldParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .explain()
+        .expect("single-char expression starts-with explain should build");
+    let ExplainAccessPath::IndexRange {
+        name, lower, upper, ..
+    } = explain.access()
+    else {
+        panic!("single-char expression starts-with should lower to index-range access");
+    };
+    assert_eq!(name, &EXPRESSION_CASEFOLD_PARITY_INDEX_MODELS[0].name());
+    assert!(matches!(
+        lower,
+        std::ops::Bound::Included(Value::Text(value)) if value == "a"
+    ));
+    assert!(matches!(upper, std::ops::Bound::Unbounded));
+
+    let execution = Query::<ExpressionCasefoldParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate.clone())
+        .explain_execution()
+        .expect("single-char expression starts-with execution explain should build");
+    assert!(
+        explain_execution_contains_node_type(&execution, ExplainExecutionNodeType::IndexRangeScan),
+        "single-char expression starts-with must keep index-range route selection",
+    );
+
+    let load = LoadExecutor::<ExpressionCasefoldParityEntity>::new(DB, false);
+    let plan = Query::<ExpressionCasefoldParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter(predicate)
+        .plan()
+        .map(crate::db::executor::ExecutablePlan::from)
+        .expect("single-char expression starts-with load plan should build");
+    let response = load
+        .execute(plan)
+        .expect("single-char expression starts-with load should execute");
+    let ids = response
+        .iter()
+        .map(|row| row.entity_ref().id)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ids,
+        vec![Ulid::from_u128(8_261)],
+        "single-char expression starts-with should still return matching rows",
     );
 }
 

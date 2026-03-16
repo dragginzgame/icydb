@@ -1287,4 +1287,26 @@ mod tests {
             CandidateEvaluation::Rejected(super::AccessChoiceRejectedReason::LeadingFieldMismatch),
         );
     }
+
+    #[test]
+    fn evaluate_range_candidate_rejects_empty_text_casefold_starts_with_prefix() {
+        let predicate = crate::db::predicate::Predicate::Compare(
+            crate::db::predicate::ComparePredicate::with_coercion(
+                "email",
+                crate::db::predicate::CompareOp::StartsWith,
+                Value::Text(String::new()),
+                CoercionId::TextCasefold,
+            ),
+        );
+
+        let evaluation =
+            evaluate_range_candidate(&ACCESS_CHOICE_EXPRESSION_INDEXES[0], &schema(), &predicate);
+
+        assert_eq!(
+            evaluation,
+            CandidateEvaluation::Rejected(
+                super::AccessChoiceRejectedReason::StartsWithPrefixInvalid
+            ),
+        );
+    }
 }

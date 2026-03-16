@@ -666,6 +666,26 @@ fn plan_access_text_casefold_starts_with_uses_expression_index_range() {
 }
 
 #[test]
+fn plan_access_text_casefold_starts_with_single_char_prefix_uses_expression_index_range() {
+    let model = model_with_expression_casefold_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate =
+        compare_text_casefold("email", CompareOp::StartsWith, Value::Text("A".to_string()));
+
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+    let (index, prefix, lower, upper) =
+        find_index_range(&plan).expect("text-casefold starts-with should plan index range");
+
+    assert_eq!(index.name(), EXPRESSION_CASEFOLD_INDEX_MODEL.name());
+    assert!(
+        prefix.is_empty(),
+        "single-char text-casefold starts-with expression ranges should not carry equality prefix values",
+    );
+    assert_eq!(lower, &Bound::Included(Value::Text("a".to_string())));
+    assert_eq!(upper, &Bound::Unbounded);
+}
+
+#[test]
 fn plan_access_text_casefold_starts_with_rejects_unsupported_expression_lookup_kind() {
     let model = model_with_expression_upper_index();
     let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
@@ -681,6 +701,46 @@ fn plan_access_text_casefold_starts_with_rejects_unsupported_expression_lookup_k
         plan,
         AccessPlan::full_scan(),
         "unsupported expression lookup kinds must fail closed for text-casefold starts-with",
+    );
+}
+
+#[test]
+fn plan_access_text_casefold_starts_with_empty_prefix_falls_back_to_full_scan() {
+    let model = model_with_expression_casefold_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate =
+        compare_text_casefold("email", CompareOp::StartsWith, Value::Text(String::new()));
+
+    let plan = plan_access_for_test(model, &schema, Some(&predicate)).expect("plan should build");
+
+    assert_eq!(
+        plan,
+        AccessPlan::full_scan(),
+        "empty text-casefold starts-with prefixes must fail closed",
+    );
+}
+
+#[test]
+fn plan_access_stability_text_casefold_starts_with_case_variants_share_access_plan() {
+    let model = model_with_expression_casefold_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let upper = compare_text_casefold(
+        "email",
+        CompareOp::StartsWith,
+        Value::Text("ALICE".to_string()),
+    );
+    let lower = compare_text_casefold(
+        "email",
+        CompareOp::StartsWith,
+        Value::Text("alice".to_string()),
+    );
+
+    let upper_plan = plan_access_for_test(model, &schema, Some(&upper)).expect("plan should build");
+    let lower_plan = plan_access_for_test(model, &schema, Some(&lower)).expect("plan should build");
+
+    assert_eq!(
+        upper_plan, lower_plan,
+        "text-casefold starts-with planning should canonicalize prefix case consistently",
     );
 }
 

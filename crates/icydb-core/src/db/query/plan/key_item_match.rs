@@ -204,5 +204,15 @@ mod tests {
         );
 
         assert_eq!(lowered, None);
+
+        let lowered_expression = starts_with_lookup_value_for_key_item(
+            IndexKeyItem::Expression(IndexExpression::Lower("email")),
+            "email",
+            &Value::Text(String::new()),
+            CoercionId::TextCasefold,
+            true,
+        );
+
+        assert_eq!(lowered_expression, None);
     }
 }

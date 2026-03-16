@@ -2,10 +2,16 @@ use candid::{Principal, decode_one, encode_one};
 use icydb::db::sql::{SqlQueryResult, SqlQueryRowsOutput};
 use icydb_testing_integration::build_sql_test_canister;
 use pocket_ic::{PocketIc, PocketIcBuilder};
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::PathBuf,
+    sync::{Mutex, OnceLock},
+};
 
 const INIT_CYCLES: u128 = 2_000_000_000_000;
 const POCKET_IC_BIN_ENV: &str = "POCKET_IC_BIN";
+static POCKET_IC_TEST_LOCK: Mutex<()> = Mutex::new(());
+static SQL_TEST_CANISTER_WASM: OnceLock<Vec<u8>> = OnceLock::new();
 
 // Build Pocket-IC with an explicit server binary to avoid implicit network
 // downloads during local test execution.
@@ -31,19 +37,29 @@ fn new_pocket_ic() -> PocketIc {
 }
 
 fn build_sql_test_canister_wasm() -> Vec<u8> {
-    let wasm_path = build_sql_test_canister().expect("build sql_test canister");
-    fs::read(&wasm_path).unwrap_or_else(|err| {
-        panic!(
-            "failed to read built canister wasm at {}: {err}",
-            wasm_path.display()
-        )
-    })
+    SQL_TEST_CANISTER_WASM
+        .get_or_init(|| {
+            let wasm_path = build_sql_test_canister().expect("build sql_test canister");
+            fs::read(&wasm_path).unwrap_or_else(|err| {
+                panic!(
+                    "failed to read built canister wasm at {}: {err}",
+                    wasm_path.display()
+                )
+            })
+        })
+        .clone()
 }
 
 // Execute one PocketIC integration test body and keep teardown panics from
 // masking the primary failure when the test is already unwinding.
 fn run_with_pocket_ic(test_body: impl FnOnce(&PocketIc)) {
     use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
+
+    // Serialize integration test bodies to avoid concurrent PocketIC instance and
+    // cargo-build pressure in CI; this keeps transport stability deterministic.
+    let _guard = POCKET_IC_TEST_LOCK
+        .lock()
+        .expect("PocketIC integration mutex should not be poisoned");
 
     let pic = new_pocket_ic();
     let test_result = catch_unwind(AssertUnwindSafe(|| test_body(&pic)));
