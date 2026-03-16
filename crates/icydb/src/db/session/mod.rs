@@ -179,7 +179,7 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(self.inner.show_columns_sql::<E>(sql)?)
     }
 
-    /// Execute one reduced SQL `SHOW ENTITIES` statement.
+    /// Execute one reduced SQL `SHOW ENTITIES`/`SHOW TABLES` statement.
     pub fn show_entities_sql(&self, sql: &str) -> Result<Vec<String>, Error> {
         Ok(self.inner.show_entities_sql(sql)?)
     }
@@ -539,7 +539,7 @@ mod tests {
         facade_session()
     }
 
-    fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 3] {
+    fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 5] {
         [
             (
                 "SELECT * FROM FacadeSqlEntity JOIN other ON FacadeSqlEntity.id = other.id",
@@ -547,6 +547,14 @@ mod tests {
             ),
             ("SELECT \"name\" FROM FacadeSqlEntity", "quoted identifiers"),
             ("SELECT * FROM FacadeSqlEntity alias", "table aliases"),
+            (
+                "SELECT * FROM FacadeSqlEntity WHERE name LIKE 'Al%'",
+                "LIKE predicates beyond LOWER(field) LIKE 'prefix%'",
+            ),
+            (
+                "SELECT * FROM FacadeSqlEntity WHERE LOWER(name) LIKE '%Al'",
+                "LOWER(field) LIKE patterns beyond trailing '%' prefix form",
+            ),
         ]
     }
 
@@ -633,6 +641,29 @@ mod tests {
     }
 
     #[test]
+    fn facade_query_from_sql_lower_like_prefix_lowers_to_load_query_intent() {
+        let session = fresh_facade_session();
+
+        let query = session
+            .query_from_sql::<FacadeSqlEntity>(
+                "SELECT * FROM FacadeSqlEntity WHERE LOWER(name) LIKE 'Al%'",
+            )
+            .expect("facade LOWER(field) LIKE prefix SQL query should lower");
+        assert!(
+            matches!(query.mode(), core::db::QueryMode::Load(_)),
+            "facade LOWER(field) LIKE prefix SQL should lower to load query mode",
+        );
+        let explain = query
+            .explain()
+            .expect("facade LOWER(field) LIKE prefix SQL explain should build")
+            .render_text_canonical();
+        assert!(
+            explain.contains("StartsWith") || explain.contains("starts_with"),
+            "facade LOWER(field) LIKE prefix SQL explain should preserve starts-with intent",
+        );
+    }
+
+    #[test]
     fn facade_sql_statement_route_describe_classifies_entity() {
         let session = fresh_facade_session();
 
@@ -716,6 +747,23 @@ mod tests {
     }
 
     #[test]
+    fn facade_sql_statement_route_show_tables_classifies_show_entities_surface() {
+        let session = fresh_facade_session();
+
+        let route = session
+            .sql_statement_route("SHOW TABLES")
+            .expect("facade SQL statement route should classify SHOW TABLES");
+
+        assert_eq!(route, SqlStatementRoute::ShowEntities);
+        assert!(route.is_show_entities());
+        assert_eq!(route.entity(), "");
+        assert!(!route.is_show_indexes());
+        assert!(!route.is_show_columns());
+        assert!(!route.is_describe());
+        assert!(!route.is_explain());
+    }
+
+    #[test]
     fn facade_describe_sql_matches_describe_entity_payload() {
         let session = fresh_facade_session();
 
@@ -772,6 +820,21 @@ mod tests {
         assert_eq!(
             from_sql, from_typed,
             "facade show_entities_sql should return the same canonical payload as show_entities",
+        );
+    }
+
+    #[test]
+    fn facade_show_entities_sql_show_tables_alias_matches_show_entities_payload() {
+        let session = fresh_facade_session();
+
+        let from_sql = session
+            .show_entities_sql("SHOW TABLES")
+            .expect("facade show_entities_sql SHOW TABLES alias should succeed");
+        let from_typed = session.show_entities();
+
+        assert_eq!(
+            from_sql, from_typed,
+            "facade show_entities_sql SHOW TABLES alias should return the same canonical payload as show_entities",
         );
     }
 
@@ -915,6 +978,7 @@ mod tests {
                 "facade query_from_sql SHOW COLUMNS",
             ),
             ("SHOW ENTITIES", "facade query_from_sql SHOW ENTITIES"),
+            ("SHOW TABLES", "facade query_from_sql SHOW TABLES"),
         ];
 
         // Phase 2: assert each lane remains fail-closed through unsupported runtime errors.
@@ -1003,6 +1067,7 @@ mod tests {
                 "facade explain_sql SHOW COLUMNS",
             ),
             ("SHOW ENTITIES", "facade explain_sql SHOW ENTITIES"),
+            ("SHOW TABLES", "facade explain_sql SHOW TABLES"),
         ];
 
         // Phase 2: assert each lane remains fail-closed through unsupported runtime errors.
@@ -1033,6 +1098,7 @@ mod tests {
                 "facade describe_sql SHOW COLUMNS",
             ),
             ("SHOW ENTITIES", "facade describe_sql SHOW ENTITIES"),
+            ("SHOW TABLES", "facade describe_sql SHOW TABLES"),
         ];
         let show_indexes_cases = [
             (
@@ -1048,6 +1114,7 @@ mod tests {
                 "facade show_indexes_sql SHOW COLUMNS",
             ),
             ("SHOW ENTITIES", "facade show_indexes_sql SHOW ENTITIES"),
+            ("SHOW TABLES", "facade show_indexes_sql SHOW TABLES"),
         ];
         let show_columns_cases = [
             (
@@ -1063,6 +1130,7 @@ mod tests {
                 "facade show_columns_sql SHOW INDEXES",
             ),
             ("SHOW ENTITIES", "facade show_columns_sql SHOW ENTITIES"),
+            ("SHOW TABLES", "facade show_columns_sql SHOW TABLES"),
         ];
         let show_entities_cases = [
             (

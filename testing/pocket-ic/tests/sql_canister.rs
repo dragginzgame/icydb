@@ -55,8 +55,9 @@ fn build_sql_test_canister_wasm() -> Vec<u8> {
 fn run_with_pocket_ic(test_body: impl FnOnce(&PocketIc)) {
     use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 
-    // Serialize integration test bodies to avoid concurrent PocketIC instance and
-    // cargo-build pressure in CI; this keeps transport stability deterministic.
+    // PocketIC tests must not run concurrently.
+    // The PocketIC server and test canister install path are not stable under
+    // parallel execution in CI; serialize test bodies to keep runs deterministic.
     let _guard = POCKET_IC_TEST_LOCK
         .lock()
         .expect("PocketIC integration mutex should not be poisoned");

@@ -163,6 +163,16 @@ fn parse_show_entities_statement() {
 }
 
 #[test]
+fn parse_show_tables_statement_aliases_to_show_entities_lane() {
+    let statement = parse_sql("SHOW TABLES").expect("show tables statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::ShowEntities(SqlShowEntitiesStatement)
+    );
+}
+
+#[test]
 fn parse_select_statement_with_qualified_identifiers() {
     let statement = parse_sql(
         "SELECT users.name, users.age \
@@ -196,6 +206,65 @@ fn parse_select_statement_with_qualified_identifiers() {
             limit: Some(10),
             offset: Some(1),
         }),
+    );
+}
+
+#[test]
+fn parse_select_statement_with_lower_like_prefix_predicate() {
+    let statement = parse_sql(
+        "SELECT * FROM users \
+         WHERE LOWER(name) LIKE 'Al%' \
+         ORDER BY id ASC LIMIT 1",
+    )
+    .expect("LOWER(field) LIKE prefix select statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::All,
+            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+                "name",
+                CompareOp::StartsWith,
+                Value::Text("Al".to_string()),
+                CoercionId::TextCasefold,
+            ))),
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![SqlOrderTerm {
+                field: "id".to_string(),
+                direction: SqlOrderDirection::Asc,
+            }],
+            limit: Some(1),
+            offset: None,
+        }),
+    );
+}
+
+#[test]
+fn parse_select_statement_rejects_lower_like_non_prefix_pattern() {
+    let err = parse_sql("SELECT * FROM users WHERE LOWER(name) LIKE '%Al'")
+        .expect_err("LOWER(field) LIKE suffix-only patterns should fail closed");
+
+    assert_eq!(
+        err,
+        super::SqlParseError::UnsupportedFeature {
+            feature: "LOWER(field) LIKE patterns beyond trailing '%' prefix form"
+        }
+    );
+}
+
+#[test]
+fn parse_select_statement_rejects_like_without_lower_field_expression() {
+    let err = parse_sql("SELECT * FROM users WHERE name LIKE 'Al%'")
+        .expect_err("LIKE without LOWER(field) should fail closed");
+
+    assert_eq!(
+        err,
+        super::SqlParseError::UnsupportedFeature {
+            feature: "LIKE predicates beyond LOWER(field) LIKE 'prefix%'"
+        }
     );
 }
 
@@ -504,8 +573,16 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
         ("DESCRIBE users WHERE age > 1", "DESCRIBE modifiers"),
         ("EXPLAIN DESCRIBE users", "DESCRIBE modifiers"),
         (
-            "SHOW TABLES",
-            "SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES",
+            "SHOW DATABASES",
+            "SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES/SHOW TABLES",
+        ),
+        (
+            "SELECT * FROM users WHERE name LIKE 'Al%'",
+            "LIKE predicates beyond LOWER(field) LIKE 'prefix%'",
+        ),
+        (
+            "SELECT * FROM users WHERE LOWER(name) LIKE '%Al'",
+            "LOWER(field) LIKE patterns beyond trailing '%' prefix form",
         ),
         ("SHOW INDEXES users WHERE age > 1", "SHOW INDEXES modifiers"),
         ("SHOW COLUMNS users WHERE age > 1", "SHOW COLUMNS modifiers"),

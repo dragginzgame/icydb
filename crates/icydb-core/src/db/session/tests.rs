@@ -6,6 +6,7 @@ use crate::{
         cursor::CursorPlanError,
         data::DataStore,
         index::IndexStore,
+        predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::plan::expr::{Expr, ProjectionField},
         registry::StoreRegistry,
     },
@@ -194,7 +195,7 @@ fn assert_unsupported_sql_surface_result<T>(result: Result<T, QueryError>, conte
     );
 }
 
-fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 3] {
+fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 5] {
     [
         (
             "SELECT * FROM SessionSqlEntity JOIN other ON SessionSqlEntity.id = other.id",
@@ -205,6 +206,14 @@ fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 3] {
             "quoted identifiers",
         ),
         ("SELECT * FROM SessionSqlEntity alias", "table aliases"),
+        (
+            "SELECT * FROM SessionSqlEntity WHERE name LIKE 'Al%'",
+            "LIKE predicates beyond LOWER(field) LIKE 'prefix%'",
+        ),
+        (
+            "SELECT * FROM SessionSqlEntity WHERE LOWER(name) LIKE '%Al'",
+            "LOWER(field) LIKE patterns beyond trailing '%' prefix form",
+        ),
     ]
 }
 
@@ -567,6 +576,10 @@ fn query_from_sql_rejects_non_query_statement_lanes_matrix() {
             "SHOW ENTITIES",
             "query_from_sql must reject SHOW ENTITIES statements",
         ),
+        (
+            "SHOW TABLES",
+            "query_from_sql must reject SHOW TABLES statements",
+        ),
     ];
 
     // Phase 2: assert each lane remains fail-closed through unsupported execution.
@@ -689,6 +702,24 @@ fn sql_statement_route_show_entities_classifies_surface() {
 }
 
 #[test]
+fn sql_statement_route_show_tables_classifies_show_entities_surface() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let route = session
+        .sql_statement_route("SHOW TABLES")
+        .expect("show tables SQL statement should parse");
+
+    assert_eq!(route, SqlStatementRoute::ShowEntities);
+    assert!(route.is_show_entities());
+    assert_eq!(route.entity(), "");
+    assert!(!route.is_show_indexes());
+    assert!(!route.is_show_columns());
+    assert!(!route.is_describe());
+    assert!(!route.is_explain());
+}
+
+#[test]
 fn sql_statement_route_explain_classifies_wrapped_entity() {
     reset_session_sql_store();
     let session = sql_session();
@@ -754,6 +785,10 @@ fn describe_sql_rejects_non_describe_statement_lanes_matrix() {
             "SHOW ENTITIES",
             "describe_sql should reject SHOW ENTITIES statements",
         ),
+        (
+            "SHOW TABLES",
+            "describe_sql should reject SHOW TABLES statements",
+        ),
     ];
 
     // Phase 2: assert each non-describe lane remains fail-closed.
@@ -807,6 +842,10 @@ fn show_indexes_sql_rejects_non_show_indexes_statement_lanes_matrix() {
         (
             "SHOW ENTITIES",
             "show_indexes_sql should reject SHOW ENTITIES statements",
+        ),
+        (
+            "SHOW TABLES",
+            "show_indexes_sql should reject SHOW TABLES statements",
         ),
     ];
 
@@ -862,6 +901,10 @@ fn show_columns_sql_rejects_non_show_columns_statement_lanes_matrix() {
             "SHOW ENTITIES",
             "show_columns_sql should reject SHOW ENTITIES statements",
         ),
+        (
+            "SHOW TABLES",
+            "show_columns_sql should reject SHOW TABLES statements",
+        ),
     ];
 
     // Phase 2: assert each non-show-columns lane remains fail-closed.
@@ -886,6 +929,22 @@ fn show_entities_sql_returns_runtime_entity_names() {
         entities,
         session.show_entities(),
         "show_entities_sql should project through canonical show_entities payload",
+    );
+}
+
+#[test]
+fn show_entities_sql_show_tables_alias_returns_runtime_entity_names() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let entities = session
+        .show_entities_sql("SHOW TABLES")
+        .expect("show_entities_sql SHOW TABLES alias should succeed");
+
+    assert_eq!(
+        entities,
+        session.show_entities(),
+        "show_entities_sql SHOW TABLES alias should project through canonical show_entities payload",
     );
 }
 
@@ -946,6 +1005,10 @@ fn explain_sql_rejects_non_explain_statement_lanes_matrix() {
         (
             "SHOW ENTITIES",
             "explain_sql should reject SHOW ENTITIES statements",
+        ),
+        (
+            "SHOW TABLES",
+            "explain_sql should reject SHOW TABLES statements",
         ),
     ];
 
@@ -1091,6 +1154,39 @@ fn query_from_sql_select_grouped_aggregate_projection_lowers_to_grouped_intent()
     assert!(
         query.has_grouping(),
         "grouped aggregate SQL projection lowering should produce grouped query intent",
+    );
+}
+
+#[test]
+fn query_from_sql_lower_like_prefix_lowers_to_casefold_starts_with_intent() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let sql_query = session
+        .query_from_sql::<SessionSqlEntity>(
+            "SELECT * FROM SessionSqlEntity WHERE LOWER(name) LIKE 'Al%'",
+        )
+        .expect("LOWER(field) LIKE prefix SQL query should lower");
+    let fluent_query = crate::db::query::intent::Query::<SessionSqlEntity>::new(
+        crate::db::predicate::MissingRowPolicy::Ignore,
+    )
+    .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        "name",
+        CompareOp::StartsWith,
+        Value::Text("Al".to_string()),
+        CoercionId::TextCasefold,
+    )));
+
+    assert_eq!(
+        sql_query
+            .plan()
+            .expect("LOWER(field) LIKE SQL plan should build")
+            .into_inner(),
+        fluent_query
+            .plan()
+            .expect("fluent text-casefold starts-with plan should build")
+            .into_inner(),
+        "LOWER(field) LIKE 'prefix%' SQL lowering and fluent text-casefold starts-with query must produce identical normalized planned intent",
     );
 }
 

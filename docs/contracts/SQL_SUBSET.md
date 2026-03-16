@@ -28,8 +28,8 @@ The reduced parser normalizes one statement deterministically before lowering.
 
 The current `0.56` line ships a projection-aware scalar SQL subset, constrained
 grouped/global aggregate SQL execution, and dedicated DESCRIBE/SHOW
-INDEXES/SHOW COLUMNS introspection lanes. Broader SQL grammar support remains
-staged behind lowering gates.
+INDEXES/SHOW COLUMNS/SHOW ENTITIES (plus `SHOW TABLES` alias) introspection
+lanes. Broader SQL grammar support remains staged behind lowering gates.
 
 ### SELECT
 
@@ -238,6 +238,28 @@ Execution notes:
   executable `Query<E>` planner paths.
 - `EXPLAIN SHOW COLUMNS ...` remains out of scope in this line.
 
+### SHOW ENTITIES
+
+Executable shapes:
+
+```sql
+SHOW ENTITIES
+SHOW TABLES
+```
+
+Execution notes:
+
+- `SHOW ENTITIES` SQL uses the dedicated session introspection API
+  `show_entities_sql(...)`.
+- `SHOW TABLES` is a bounded alias that lowers to the same dedicated
+  show-entities lane and payload.
+- `SHOW ENTITIES`/`SHOW TABLES` return canonical runtime entity names from
+  `show_entities()`.
+- This is a dedicated introspection lane and does not lower into executable
+  `Query<E>` planner paths.
+- `EXPLAIN SHOW ENTITIES ...` and `EXPLAIN SHOW TABLES ...` remain out of
+  scope in this line.
+
 ## Generated `sql_dispatch` Boundary (0.56)
 
 Generated canister SQL helpers in this line use one unified query surface.
@@ -298,6 +320,11 @@ Lowering status in this baseline:
   (`execute_sql`, `execute_sql_projection`).
 
 Predicate operators are limited to planner-supported predicate operators.
+The current baseline also supports one bounded casefold prefix SQL family:
+- `LOWER(<field>) LIKE '<prefix>%'` lowers to text-casefold starts-with
+  predicate intent.
+- adjacent `LIKE` forms remain fail-closed (for example plain `<field> LIKE`
+  and non-prefix wildcard shapes).
 `HAVING` is executable for grouped SQL with a reduced clause shape:
 - clause symbols must be grouped key fields or one aggregate terminal already
   projected in the grouped select list.

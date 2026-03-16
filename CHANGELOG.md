@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.57.x] - 2026-03-16 - Reduced SQL Closure Follow-Ups
+
+- `0.57.0` lets SQL users run `SHOW TABLES` as an alias for `SHOW ENTITIES` and adds bounded `LOWER(field) LIKE 'prefix%'` support that lowers to case-insensitive prefix matching, while keeping out-of-scope SQL shapes fail-closed.
+
+See detailed breakdown:
+[docs/changelog/0.57.md](docs/changelog/0.57.md)
+
+---
+
 ## [0.56.x] - 2026-03-16 - Reduced SQL Introspection and Entity Listing
 
 - `0.56.0` adds reduced-SQL `DESCRIBE <entity>` and `SHOW INDEXES <entity>` introspection lanes across parser/lowering/session/facade, expands generated `sql_dispatch` with typed and shell-friendly describe/index helpers plus `SHOW ENTITIES` support, and keeps `query_rows` projection-only with deterministic introspection-lane rejections.

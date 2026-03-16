@@ -150,7 +150,7 @@ const fn unsupported_sql_lane_message(surface: SqlSurface, lane: SqlLaneKind) ->
             "query_from_sql does not accept SHOW COLUMNS statements; use show_columns_sql(...)"
         }
         (SqlSurface::QueryFrom, SqlLaneKind::ShowEntities) => {
-            "query_from_sql does not accept SHOW ENTITIES statements; use show_entities_sql(...)"
+            "query_from_sql does not accept SHOW ENTITIES/SHOW TABLES statements; use show_entities_sql(...)"
         }
         (SqlSurface::QueryFrom, SqlLaneKind::Query) => {
             "query_from_sql requires one executable SELECT or DELETE statement"
@@ -165,7 +165,7 @@ const fn unsupported_sql_lane_message(surface: SqlSurface, lane: SqlLaneKind) ->
             "explain_sql does not accept SHOW COLUMNS statements; use show_columns_sql(...)"
         }
         (SqlSurface::Explain, SqlLaneKind::ShowEntities) => {
-            "explain_sql does not accept SHOW ENTITIES statements; use show_entities_sql(...)"
+            "explain_sql does not accept SHOW ENTITIES/SHOW TABLES statements; use show_entities_sql(...)"
         }
         (SqlSurface::Explain, SqlLaneKind::Query | SqlLaneKind::Explain) => {
             "explain_sql requires an EXPLAIN statement"
@@ -173,7 +173,9 @@ const fn unsupported_sql_lane_message(surface: SqlSurface, lane: SqlLaneKind) ->
         (SqlSurface::Describe, _) => "describe_sql requires a DESCRIBE statement",
         (SqlSurface::ShowIndexes, _) => "show_indexes_sql requires a SHOW INDEXES statement",
         (SqlSurface::ShowColumns, _) => "show_columns_sql requires a SHOW COLUMNS statement",
-        (SqlSurface::ShowEntities, _) => "show_entities_sql requires a SHOW ENTITIES statement",
+        (SqlSurface::ShowEntities, _) => {
+            "show_entities_sql requires a SHOW ENTITIES or SHOW TABLES statement"
+        }
     }
 }
 
@@ -414,7 +416,7 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    /// Execute one reduced SQL `SHOW ENTITIES` statement.
+    /// Execute one reduced SQL `SHOW ENTITIES`/`SHOW TABLES` statement.
     pub fn show_entities_sql(&self, sql: &str) -> Result<Vec<String>, QueryError> {
         let statement = self.sql_statement_route(sql)?;
         let lane = sql_statement_route_lane(&statement);

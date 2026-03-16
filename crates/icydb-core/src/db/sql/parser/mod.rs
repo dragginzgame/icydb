@@ -404,6 +404,7 @@ enum Keyword {
     Select,
     Show,
     Sum,
+    Tables,
     True,
     Union,
     Update,
@@ -452,6 +453,7 @@ impl Keyword {
             Self::Select => "SELECT",
             Self::Show => "SHOW",
             Self::Sum => "SUM",
+            Self::Tables => "TABLES",
             Self::True => "TRUE",
             Self::Union => "UNION",
             Self::Update => "UPDATE",
@@ -765,6 +767,7 @@ fn keyword_from_ident(value: &str) -> Option<Keyword> {
         "SELECT" => Some(Keyword::Select),
         "SHOW" => Some(Keyword::Show),
         "SUM" => Some(Keyword::Sum),
+        "TABLES" => Some(Keyword::Tables),
         "TRUE" => Some(Keyword::True),
         "UNION" => Some(Keyword::Union),
         "UPDATE" => Some(Keyword::Update),
@@ -826,9 +829,12 @@ impl Parser {
         if self.eat_keyword(Keyword::Entities) {
             return Ok(SqlStatement::ShowEntities(SqlShowEntitiesStatement));
         }
+        if self.eat_keyword(Keyword::Tables) {
+            return Ok(SqlStatement::ShowEntities(SqlShowEntitiesStatement));
+        }
 
         Err(SqlParseError::unsupported_feature(
-            "SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES",
+            "SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES/SHOW TABLES",
         ))
     }
 
@@ -1242,7 +1248,22 @@ impl Parser {
     }
 
     fn parse_field_predicate(&mut self) -> Result<Predicate, SqlParseError> {
-        let field = self.expect_identifier()?;
+        let (field, lower_expr) = self.parse_predicate_field_operand()?;
+        if lower_expr {
+            if self.eat_identifier_keyword("LIKE") {
+                return self.parse_lower_like_prefix_predicate(field);
+            }
+
+            return Err(SqlParseError::unsupported_feature(
+                "LOWER(field) predicate forms beyond LIKE 'prefix%'",
+            ));
+        }
+
+        if self.eat_identifier_keyword("LIKE") {
+            return Err(SqlParseError::unsupported_feature(
+                "LIKE predicates beyond LOWER(field) LIKE 'prefix%'",
+            ));
+        }
 
         if self.eat_keyword(Keyword::Is) {
             let is_not = self.eat_keyword(Keyword::Not);
@@ -1275,6 +1296,48 @@ impl Parser {
         let value = self.parse_literal()?;
 
         Ok(predicate_compare(field, op, value))
+    }
+
+    // Parse one predicate field operand.
+    // Reduced SQL supports plain fields and one bounded expression form:
+    // LOWER(<field>) for casefold LIKE-prefix lowering.
+    fn parse_predicate_field_operand(&mut self) -> Result<(String, bool), SqlParseError> {
+        if self.peek_identifier_keyword("LOWER")
+            && matches!(self.peek_next_kind(), Some(TokenKind::LParen))
+        {
+            let _ = self.bump();
+            self.expect_lparen()?;
+            let field = self.expect_identifier()?;
+            self.expect_rparen()?;
+            return Ok((field, true));
+        }
+
+        Ok((self.expect_identifier()?, false))
+    }
+
+    // Parse one bounded LOWER(field) LIKE 'prefix%' predicate family.
+    fn parse_lower_like_prefix_predicate(
+        &mut self,
+        field: String,
+    ) -> Result<Predicate, SqlParseError> {
+        let Some(TokenKind::StringLiteral(pattern)) = self.bump() else {
+            return Err(SqlParseError::expected(
+                "string literal pattern after LIKE",
+                self.peek_kind(),
+            ));
+        };
+        let Some(prefix) = like_prefix_from_pattern(pattern.as_str()) else {
+            return Err(SqlParseError::unsupported_feature(
+                "LOWER(field) LIKE patterns beyond trailing '%' prefix form",
+            ));
+        };
+
+        Ok(Predicate::Compare(ComparePredicate::with_coercion(
+            field,
+            CompareOp::StartsWith,
+            Value::Text(prefix.to_string()),
+            CoercionId::TextCasefold,
+        )))
     }
 
     fn parse_in_predicate(
@@ -1423,8 +1486,24 @@ impl Parser {
         true
     }
 
+    fn eat_identifier_keyword(&mut self, keyword: &str) -> bool {
+        if !self.peek_identifier_keyword(keyword) {
+            return false;
+        }
+
+        self.pos += 1;
+        true
+    }
+
     fn peek_keyword(&self, keyword: Keyword) -> bool {
         matches!(self.peek_kind(), Some(TokenKind::Keyword(found)) if *found == keyword)
+    }
+
+    fn peek_identifier_keyword(&self, keyword: &str) -> bool {
+        matches!(
+            self.peek_kind(),
+            Some(TokenKind::Identifier(value)) if value.eq_ignore_ascii_case(keyword)
+        )
     }
 
     fn eat_comma(&mut self) -> bool {
@@ -1493,7 +1572,7 @@ impl Parser {
             Some(TokenKind::Keyword(Keyword::Insert)) => Some("INSERT"),
             Some(TokenKind::Keyword(Keyword::Join)) => Some("JOIN"),
             Some(TokenKind::Keyword(Keyword::Show)) => {
-                Some("SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES")
+                Some("SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES/SHOW TABLES")
             }
             Some(TokenKind::Keyword(Keyword::With)) => Some("WITH"),
             Some(TokenKind::Keyword(Keyword::Union | Keyword::Intersect | Keyword::Except)) => {
@@ -1514,9 +1593,26 @@ impl Parser {
         self.tokens.get(self.pos).map(|token| &token.kind)
     }
 
+    fn peek_next_kind(&self) -> Option<&TokenKind> {
+        self.tokens.get(self.pos + 1).map(|token| &token.kind)
+    }
+
     const fn is_eof(&self) -> bool {
         self.pos >= self.tokens.len()
     }
+}
+
+fn like_prefix_from_pattern(pattern: &str) -> Option<&str> {
+    if !pattern.ends_with('%') {
+        return None;
+    }
+
+    let prefix = &pattern[..pattern.len() - 1];
+    if prefix.contains('%') || prefix.contains('_') {
+        return None;
+    }
+
+    Some(prefix)
 }
 
 fn parse_number_literal(raw: &str) -> Result<Value, SqlParseError> {
