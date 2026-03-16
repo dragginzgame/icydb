@@ -315,38 +315,47 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
             pub fn query(sql: &str) -> Result<SqlQueryResult, Error> {
                 let sql_trimmed = ::icydb::db::sql::normalize_sql_input(sql)?;
                 let statement = db().sql_statement_route(sql_trimmed)?;
-                if statement.is_show_entities() {
-                    return show_entities_result_for_statement(sql_trimmed, &statement);
-                } else if statement.is_explain() {
-                    let route = SqlEntityRoute::from_statement_route(&statement)?;
-                    let explain_text = route
-                        .execute_explain(sql_trimmed)
-                        .map_err(|err| explain_surface_error(sql_trimmed, route, err))?;
-                    return Ok(SqlQueryResult::Explain {
-                        entity: route.entity_name().to_string(),
-                        explain: explain_text,
-                    });
-                } else if statement.is_describe() {
-                    return describe_result_for_statement(sql_trimmed, &statement);
-                } else if statement.is_show_indexes() {
-                    return show_indexes_result_for_statement(sql_trimmed, &statement);
+                match statement {
+                    statement @ ::icydb::db::SqlStatementRoute::Query { .. } => {
+                        let (entity, rows) = projection_rows_for_statement(sql_trimmed, &statement)?;
+                        Ok(SqlQueryResult::Projection(SqlQueryRowsOutput::from_projection(
+                            entity, rows,
+                        )))
+                    }
+                    statement @ ::icydb::db::SqlStatementRoute::Explain { .. } => {
+                        explain_result_for_statement(sql_trimmed, &statement)
+                    }
+                    statement @ ::icydb::db::SqlStatementRoute::Describe { .. } => {
+                        describe_result_for_statement(sql_trimmed, &statement)
+                    }
+                    statement @ ::icydb::db::SqlStatementRoute::ShowIndexes { .. } => {
+                        show_indexes_result_for_statement(sql_trimmed, &statement)
+                    }
+                    ::icydb::db::SqlStatementRoute::ShowEntities => {
+                        show_entities_result_for_statement(sql_trimmed)
+                    }
                 }
+            }
 
-                let (entity, rows) = projection_rows_for_statement(sql_trimmed, &statement)?;
+            fn explain_result_for_statement(
+                sql: &str,
+                statement: &::icydb::db::SqlStatementRoute,
+            ) -> Result<SqlQueryResult, Error> {
+                let route = SqlEntityRoute::from_statement_route(statement)?;
+                let explain_text = route
+                    .execute_explain(sql)
+                    .map_err(|err| explain_surface_error(sql, route, err))?;
 
-                Ok(SqlQueryResult::Projection(SqlQueryRowsOutput::from_projection(
-                    entity, rows,
-                )))
+                Ok(SqlQueryResult::Explain {
+                    entity: route.entity_name().to_string(),
+                    explain: explain_text,
+                })
             }
 
             fn describe_schema_for_statement(
                 sql: &str,
                 statement: &::icydb::db::SqlStatementRoute,
             ) -> Result<::icydb::db::EntitySchemaDescription, Error> {
-                if !statement.is_describe() {
-                    return Err(unsupported_describe_statement_error());
-                }
-
                 let route = SqlEntityRoute::from_statement_route(statement)?;
                 route.execute_describe_schema(sql)
             }
@@ -364,10 +373,6 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
                 sql: &str,
                 statement: &::icydb::db::SqlStatementRoute,
             ) -> Result<SqlQueryResult, Error> {
-                if !statement.is_show_indexes() {
-                    return Err(unsupported_show_indexes_statement_error());
-                }
-
                 let route = SqlEntityRoute::from_statement_route(statement)?;
                 let indexes = route.execute_show_indexes(sql)?;
 
@@ -379,12 +384,7 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
 
             fn show_entities_result_for_statement(
                 sql: &str,
-                statement: &::icydb::db::SqlStatementRoute,
             ) -> Result<SqlQueryResult, Error> {
-                if !statement.is_show_entities() {
-                    return Err(unsupported_show_entities_statement_error());
-                }
-
                 let entities = db().show_entities_sql(sql)?;
 
                 Ok(SqlQueryResult::ShowEntities { entities })
@@ -409,30 +409,6 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
                     format!(
                         "query endpoint does not support entity '{entity_name}'; supported: {supported}"
                     ),
-                )
-            }
-
-            fn unsupported_describe_statement_error() -> Error {
-                Error::new(
-                    ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
-                    ErrorOrigin::Query,
-                    "DESCRIBE execution requires one DESCRIBE statement",
-                )
-            }
-
-            fn unsupported_show_indexes_statement_error() -> Error {
-                Error::new(
-                    ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
-                    ErrorOrigin::Query,
-                    "SHOW INDEXES execution requires one SHOW INDEXES statement",
-                )
-            }
-
-            fn unsupported_show_entities_statement_error() -> Error {
-                Error::new(
-                    ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
-                    ErrorOrigin::Query,
-                    "SHOW ENTITIES execution requires one SHOW ENTITIES statement",
                 )
             }
 

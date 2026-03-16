@@ -830,13 +830,30 @@ mod tests {
     }
 
     #[test]
-    fn facade_query_from_sql_rejects_describe_statements() {
+    fn facade_query_from_sql_rejects_non_query_statement_lanes_matrix() {
         let session = fresh_facade_session();
 
-        assert_unsupported_sql_runtime_result(
-            session.query_from_sql::<FacadeSqlEntity>("DESCRIBE FacadeSqlEntity"),
-            "facade query_from_sql DESCRIBE",
-        );
+        // Phase 1: define statement lanes that must stay outside query_from_sql.
+        let cases = [
+            (
+                "EXPLAIN SELECT * FROM FacadeSqlEntity",
+                "facade query_from_sql EXPLAIN",
+            ),
+            ("DESCRIBE FacadeSqlEntity", "facade query_from_sql DESCRIBE"),
+            (
+                "SHOW INDEXES FacadeSqlEntity",
+                "facade query_from_sql SHOW INDEXES",
+            ),
+            ("SHOW ENTITIES", "facade query_from_sql SHOW ENTITIES"),
+        ];
+
+        // Phase 2: assert each lane remains fail-closed through unsupported runtime errors.
+        for (sql, context) in cases {
+            assert_unsupported_sql_runtime_result(
+                session.query_from_sql::<FacadeSqlEntity>(sql),
+                context,
+            );
+        }
     }
 
     #[test]
@@ -901,22 +918,85 @@ mod tests {
     }
 
     #[test]
-    fn facade_explain_sql_rejects_describe_statements() {
+    fn facade_explain_sql_rejects_non_explain_statement_lanes_matrix() {
         let session = fresh_facade_session();
 
-        assert_unsupported_sql_runtime_result(
-            session.explain_sql::<FacadeSqlEntity>("DESCRIBE FacadeSqlEntity"),
-            "facade explain_sql DESCRIBE",
-        );
+        // Phase 1: define statement lanes that must stay outside explain_sql.
+        let cases = [
+            ("DESCRIBE FacadeSqlEntity", "facade explain_sql DESCRIBE"),
+            (
+                "SHOW INDEXES FacadeSqlEntity",
+                "facade explain_sql SHOW INDEXES",
+            ),
+            ("SHOW ENTITIES", "facade explain_sql SHOW ENTITIES"),
+        ];
+
+        // Phase 2: assert each lane remains fail-closed through unsupported runtime errors.
+        for (sql, context) in cases {
+            assert_unsupported_sql_runtime_result(
+                session.explain_sql::<FacadeSqlEntity>(sql),
+                context,
+            );
+        }
     }
 
     #[test]
-    fn facade_describe_sql_rejects_non_describe_statements() {
+    fn facade_introspection_sql_surfaces_reject_wrong_lanes_matrix() {
         let session = fresh_facade_session();
 
-        assert_unsupported_sql_runtime_result(
-            session.describe_sql::<FacadeSqlEntity>("SELECT * FROM FacadeSqlEntity"),
-            "facade describe_sql SELECT",
-        );
+        // Phase 1: define wrong-lane cases for each introspection surface.
+        let describe_cases = [
+            (
+                "SELECT * FROM FacadeSqlEntity",
+                "facade describe_sql SELECT",
+            ),
+            (
+                "SHOW INDEXES FacadeSqlEntity",
+                "facade describe_sql SHOW INDEXES",
+            ),
+            ("SHOW ENTITIES", "facade describe_sql SHOW ENTITIES"),
+        ];
+        let show_indexes_cases = [
+            (
+                "SELECT * FROM FacadeSqlEntity",
+                "facade show_indexes_sql SELECT",
+            ),
+            (
+                "DESCRIBE FacadeSqlEntity",
+                "facade show_indexes_sql DESCRIBE",
+            ),
+            ("SHOW ENTITIES", "facade show_indexes_sql SHOW ENTITIES"),
+        ];
+        let show_entities_cases = [
+            (
+                "SELECT * FROM FacadeSqlEntity",
+                "facade show_entities_sql SELECT",
+            ),
+            (
+                "DESCRIBE FacadeSqlEntity",
+                "facade show_entities_sql DESCRIBE",
+            ),
+            (
+                "SHOW INDEXES FacadeSqlEntity",
+                "facade show_entities_sql SHOW INDEXES",
+            ),
+        ];
+
+        // Phase 2: assert each introspection surface stays fail-closed for wrong lanes.
+        for (sql, context) in describe_cases {
+            assert_unsupported_sql_runtime_result(
+                session.describe_sql::<FacadeSqlEntity>(sql),
+                context,
+            );
+        }
+        for (sql, context) in show_indexes_cases {
+            assert_unsupported_sql_runtime_result(
+                session.show_indexes_sql::<FacadeSqlEntity>(sql),
+                context,
+            );
+        }
+        for (sql, context) in show_entities_cases {
+            assert_unsupported_sql_runtime_result(session.show_entities_sql(sql), context);
+        }
     }
 }

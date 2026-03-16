@@ -178,6 +178,22 @@ fn assert_sql_unsupported_feature_detail(err: QueryError, expected_feature: &'st
     );
 }
 
+// Assert one SQL surface result fails with the unsupported execution boundary.
+fn assert_unsupported_sql_surface_result<T>(result: Result<T, QueryError>, context: &str) {
+    let Err(err) = result else {
+        panic!("{context}");
+    };
+    assert!(
+        matches!(
+            err,
+            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
+                _
+            ))
+        ),
+        "unsupported SQL surface case should map to unsupported execution class: {context}",
+    );
+}
+
 fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 3] {
     [
         (
@@ -525,83 +541,37 @@ fn execute_sql_delete_matrix_queries_match_deleted_and_remaining_rows() {
 }
 
 #[test]
-fn query_from_sql_rejects_explain_statements() {
+fn query_from_sql_rejects_non_query_statement_lanes_matrix() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = session
-        .query_from_sql::<SessionSqlEntity>("EXPLAIN SELECT * FROM SessionSqlEntity")
-        .expect_err("query_from_sql must reject EXPLAIN statements");
-
-    assert!(
-        matches!(
-            err,
-            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                _
-            ))
+    // Phase 1: define statement lanes that must stay outside query_from_sql.
+    let cases = [
+        (
+            "EXPLAIN SELECT * FROM SessionSqlEntity",
+            "query_from_sql must reject EXPLAIN statements",
         ),
-        "query_from_sql EXPLAIN rejection must map to unsupported execution class",
-    );
-}
-
-#[test]
-fn query_from_sql_rejects_describe_statements() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let err = session
-        .query_from_sql::<SessionSqlEntity>("DESCRIBE SessionSqlEntity")
-        .expect_err("query_from_sql must reject DESCRIBE statements");
-
-    assert!(
-        matches!(
-            err,
-            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                _
-            ))
+        (
+            "DESCRIBE SessionSqlEntity",
+            "query_from_sql must reject DESCRIBE statements",
         ),
-        "query_from_sql DESCRIBE rejection must map to unsupported execution class",
-    );
-}
-
-#[test]
-fn query_from_sql_rejects_show_indexes_statements() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let err = session
-        .query_from_sql::<SessionSqlEntity>("SHOW INDEXES SessionSqlEntity")
-        .expect_err("query_from_sql must reject SHOW INDEXES statements");
-
-    assert!(
-        matches!(
-            err,
-            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                _
-            ))
+        (
+            "SHOW INDEXES SessionSqlEntity",
+            "query_from_sql must reject SHOW INDEXES statements",
         ),
-        "query_from_sql SHOW INDEXES rejection must map to unsupported execution class",
-    );
-}
-
-#[test]
-fn query_from_sql_rejects_show_entities_statements() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let err = session
-        .query_from_sql::<SessionSqlEntity>("SHOW ENTITIES")
-        .expect_err("query_from_sql must reject SHOW ENTITIES statements");
-
-    assert!(
-        matches!(
-            err,
-            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                _
-            ))
+        (
+            "SHOW ENTITIES",
+            "query_from_sql must reject SHOW ENTITIES statements",
         ),
-        "query_from_sql SHOW ENTITIES rejection must map to unsupported execution class",
-    );
+    ];
+
+    // Phase 2: assert each lane remains fail-closed through unsupported execution.
+    for (sql, context) in cases {
+        assert_unsupported_sql_surface_result(
+            session.query_from_sql::<SessionSqlEntity>(sql),
+            context,
+        );
+    }
 }
 
 #[test]
@@ -726,23 +696,37 @@ fn describe_sql_returns_same_payload_as_describe_entity() {
 }
 
 #[test]
-fn describe_sql_rejects_non_describe_statements() {
+fn describe_sql_rejects_non_describe_statement_lanes_matrix() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = session
-        .describe_sql::<SessionSqlEntity>("SELECT * FROM SessionSqlEntity")
-        .expect_err("describe_sql should reject SELECT statements");
-
-    assert!(
-        matches!(
-            err,
-            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                _
-            ))
+    // Phase 1: define lanes that must remain outside describe_sql.
+    let cases = [
+        (
+            "SELECT * FROM SessionSqlEntity",
+            "describe_sql should reject SELECT statements",
         ),
-        "describe_sql rejection should map to unsupported execution class",
-    );
+        (
+            "EXPLAIN SELECT * FROM SessionSqlEntity",
+            "describe_sql should reject EXPLAIN statements",
+        ),
+        (
+            "SHOW INDEXES SessionSqlEntity",
+            "describe_sql should reject SHOW INDEXES statements",
+        ),
+        (
+            "SHOW ENTITIES",
+            "describe_sql should reject SHOW ENTITIES statements",
+        ),
+    ];
+
+    // Phase 2: assert each non-describe lane remains fail-closed.
+    for (sql, context) in cases {
+        assert_unsupported_sql_surface_result(
+            session.describe_sql::<SessionSqlEntity>(sql),
+            context,
+        );
+    }
 }
 
 #[test]
@@ -762,23 +746,37 @@ fn show_indexes_sql_returns_same_payload_as_show_indexes() {
 }
 
 #[test]
-fn show_indexes_sql_rejects_non_show_indexes_statements() {
+fn show_indexes_sql_rejects_non_show_indexes_statement_lanes_matrix() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = session
-        .show_indexes_sql::<SessionSqlEntity>("SELECT * FROM SessionSqlEntity")
-        .expect_err("show_indexes_sql should reject SELECT statements");
-
-    assert!(
-        matches!(
-            err,
-            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                _
-            ))
+    // Phase 1: define lanes that must remain outside show_indexes_sql.
+    let cases = [
+        (
+            "SELECT * FROM SessionSqlEntity",
+            "show_indexes_sql should reject SELECT statements",
         ),
-        "show_indexes_sql rejection should map to unsupported execution class",
-    );
+        (
+            "EXPLAIN SELECT * FROM SessionSqlEntity",
+            "show_indexes_sql should reject EXPLAIN statements",
+        ),
+        (
+            "DESCRIBE SessionSqlEntity",
+            "show_indexes_sql should reject DESCRIBE statements",
+        ),
+        (
+            "SHOW ENTITIES",
+            "show_indexes_sql should reject SHOW ENTITIES statements",
+        ),
+    ];
+
+    // Phase 2: assert each non-show-indexes lane remains fail-closed.
+    for (sql, context) in cases {
+        assert_unsupported_sql_surface_result(
+            session.show_indexes_sql::<SessionSqlEntity>(sql),
+            context,
+        );
+    }
 }
 
 #[test]
@@ -798,83 +796,64 @@ fn show_entities_sql_returns_runtime_entity_names() {
 }
 
 #[test]
-fn show_entities_sql_rejects_non_show_entities_statements() {
+fn show_entities_sql_rejects_non_show_entities_statement_lanes_matrix() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = session
-        .show_entities_sql("SELECT * FROM SessionSqlEntity")
-        .expect_err("show_entities_sql should reject SELECT statements");
-
-    assert!(
-        matches!(
-            err,
-            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                _
-            ))
+    // Phase 1: define lanes that must remain outside show_entities_sql.
+    let cases = [
+        (
+            "SELECT * FROM SessionSqlEntity",
+            "show_entities_sql should reject SELECT statements",
         ),
-        "show_entities_sql rejection should map to unsupported execution class",
-    );
+        (
+            "EXPLAIN SELECT * FROM SessionSqlEntity",
+            "show_entities_sql should reject EXPLAIN statements",
+        ),
+        (
+            "DESCRIBE SessionSqlEntity",
+            "show_entities_sql should reject DESCRIBE statements",
+        ),
+        (
+            "SHOW INDEXES SessionSqlEntity",
+            "show_entities_sql should reject SHOW INDEXES statements",
+        ),
+    ];
+
+    // Phase 2: assert each non-show-entities lane remains fail-closed.
+    for (sql, context) in cases {
+        assert_unsupported_sql_surface_result(session.show_entities_sql(sql), context);
+    }
 }
 
 #[test]
-fn explain_sql_rejects_describe_statements() {
+fn explain_sql_rejects_non_explain_statement_lanes_matrix() {
     reset_session_sql_store();
     let session = sql_session();
 
-    let err = session
-        .explain_sql::<SessionSqlEntity>("DESCRIBE SessionSqlEntity")
-        .expect_err("explain_sql should reject DESCRIBE statements");
-
-    assert!(
-        matches!(
-            err,
-            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                _
-            ))
+    // Phase 1: define lanes that must remain outside explain_sql.
+    let cases = [
+        (
+            "DESCRIBE SessionSqlEntity",
+            "explain_sql should reject DESCRIBE statements",
         ),
-        "explain_sql DESCRIBE rejection should map to unsupported execution class",
-    );
-}
-
-#[test]
-fn explain_sql_rejects_show_indexes_statements() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let err = session
-        .explain_sql::<SessionSqlEntity>("SHOW INDEXES SessionSqlEntity")
-        .expect_err("explain_sql should reject SHOW INDEXES statements");
-
-    assert!(
-        matches!(
-            err,
-            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                _
-            ))
+        (
+            "SHOW INDEXES SessionSqlEntity",
+            "explain_sql should reject SHOW INDEXES statements",
         ),
-        "explain_sql SHOW INDEXES rejection should map to unsupported execution class",
-    );
-}
-
-#[test]
-fn explain_sql_rejects_show_entities_statements() {
-    reset_session_sql_store();
-    let session = sql_session();
-
-    let err = session
-        .explain_sql::<SessionSqlEntity>("SHOW ENTITIES")
-        .expect_err("explain_sql should reject SHOW ENTITIES statements");
-
-    assert!(
-        matches!(
-            err,
-            QueryError::Execute(crate::db::query::intent::QueryExecutionError::Unsupported(
-                _
-            ))
+        (
+            "SHOW ENTITIES",
+            "explain_sql should reject SHOW ENTITIES statements",
         ),
-        "explain_sql SHOW ENTITIES rejection should map to unsupported execution class",
-    );
+    ];
+
+    // Phase 2: assert each non-explain lane remains fail-closed.
+    for (sql, context) in cases {
+        assert_unsupported_sql_surface_result(
+            session.explain_sql::<SessionSqlEntity>(sql),
+            context,
+        );
+    }
 }
 
 #[test]

@@ -78,6 +78,100 @@ impl SqlStatementRoute {
     }
 }
 
+// Canonical reduced SQL lane kind used by session entrypoint gate checks.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SqlLaneKind {
+    Query,
+    Explain,
+    Describe,
+    ShowIndexes,
+    ShowEntities,
+}
+
+// Session SQL surfaces that enforce explicit wrong-lane fail-closed contracts.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SqlSurface {
+    QueryFrom,
+    Explain,
+    Describe,
+    ShowIndexes,
+    ShowEntities,
+}
+
+// Resolve one lowered SQL command to its canonical lane kind.
+const fn sql_command_lane<E: EntityKind>(command: &SqlCommand<E>) -> SqlLaneKind {
+    match command {
+        SqlCommand::Query(_) => SqlLaneKind::Query,
+        SqlCommand::Explain { .. } | SqlCommand::ExplainGlobalAggregate { .. } => {
+            SqlLaneKind::Explain
+        }
+        SqlCommand::DescribeEntity => SqlLaneKind::Describe,
+        SqlCommand::ShowIndexesEntity => SqlLaneKind::ShowIndexes,
+        SqlCommand::ShowEntities => SqlLaneKind::ShowEntities,
+    }
+}
+
+// Resolve one parser-derived SQL route to its canonical lane kind.
+const fn sql_statement_route_lane(route: &SqlStatementRoute) -> SqlLaneKind {
+    match route {
+        SqlStatementRoute::Query { .. } => SqlLaneKind::Query,
+        SqlStatementRoute::Explain { .. } => SqlLaneKind::Explain,
+        SqlStatementRoute::Describe { .. } => SqlLaneKind::Describe,
+        SqlStatementRoute::ShowIndexes { .. } => SqlLaneKind::ShowIndexes,
+        SqlStatementRoute::ShowEntities => SqlLaneKind::ShowEntities,
+    }
+}
+
+// Render one deterministic unsupported-lane message for one SQL surface.
+const fn unsupported_sql_lane_message(surface: SqlSurface, lane: SqlLaneKind) -> &'static str {
+    match (surface, lane) {
+        (SqlSurface::QueryFrom, SqlLaneKind::Explain) => {
+            "query_from_sql does not accept EXPLAIN statements; use explain_sql(...)"
+        }
+        (SqlSurface::QueryFrom, SqlLaneKind::Describe) => {
+            "query_from_sql does not accept DESCRIBE statements; use describe_sql(...)"
+        }
+        (SqlSurface::QueryFrom, SqlLaneKind::ShowIndexes) => {
+            "query_from_sql does not accept SHOW INDEXES statements; use show_indexes_sql(...)"
+        }
+        (SqlSurface::QueryFrom, SqlLaneKind::ShowEntities) => {
+            "query_from_sql does not accept SHOW ENTITIES statements; use show_entities_sql(...)"
+        }
+        (SqlSurface::QueryFrom, SqlLaneKind::Query) => {
+            "query_from_sql requires one executable SELECT or DELETE statement"
+        }
+        (SqlSurface::Explain, SqlLaneKind::Describe) => {
+            "explain_sql does not accept DESCRIBE statements; use describe_sql(...)"
+        }
+        (SqlSurface::Explain, SqlLaneKind::ShowIndexes) => {
+            "explain_sql does not accept SHOW INDEXES statements; use show_indexes_sql(...)"
+        }
+        (SqlSurface::Explain, SqlLaneKind::ShowEntities) => {
+            "explain_sql does not accept SHOW ENTITIES statements; use show_entities_sql(...)"
+        }
+        (SqlSurface::Explain, SqlLaneKind::Query | SqlLaneKind::Explain) => {
+            "explain_sql requires an EXPLAIN statement"
+        }
+        (SqlSurface::Describe, _) => "describe_sql requires a DESCRIBE statement",
+        (SqlSurface::ShowIndexes, _) => "show_indexes_sql requires a SHOW INDEXES statement",
+        (SqlSurface::ShowEntities, _) => "show_entities_sql requires a SHOW ENTITIES statement",
+    }
+}
+
+// Build one unsupported execution error for wrong-lane SQL surface usage.
+fn unsupported_sql_lane_error(surface: SqlSurface, lane: SqlLaneKind) -> QueryError {
+    QueryError::execute(InternalError::classified(
+        ErrorClass::Unsupported,
+        ErrorOrigin::Query,
+        unsupported_sql_lane_message(surface, lane),
+    ))
+}
+
+// Compile one reduced SQL statement with default lane behavior used by SQL surfaces.
+fn compile_sql_command_ignore<E: EntityKind>(sql: &str) -> Result<SqlCommand<E>, QueryError> {
+    compile_sql_command::<E>(sql, MissingRowPolicy::Ignore).map_err(map_sql_lowering_error)
+}
+
 // Map SQL frontend parse/lowering failures into query-facing execution errors.
 fn map_sql_lowering_error(err: SqlLoweringError) -> QueryError {
     match err {
@@ -240,8 +334,8 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        let command = compile_sql_command::<E>(sql, MissingRowPolicy::Ignore)
-            .map_err(map_sql_lowering_error)?;
+        let command = compile_sql_command_ignore::<E>(sql)?;
+        let lane = sql_command_lane(&command);
 
         match command {
             SqlCommand::DescribeEntity => Ok(self.describe_entity::<E>()),
@@ -249,11 +343,9 @@ impl<C: CanisterKind> DbSession<C> {
             | SqlCommand::Explain { .. }
             | SqlCommand::ExplainGlobalAggregate { .. }
             | SqlCommand::ShowIndexesEntity
-            | SqlCommand::ShowEntities => Err(QueryError::execute(InternalError::classified(
-                ErrorClass::Unsupported,
-                ErrorOrigin::Query,
-                "describe_sql requires a DESCRIBE statement",
-            ))),
+            | SqlCommand::ShowEntities => {
+                Err(unsupported_sql_lane_error(SqlSurface::Describe, lane))
+            }
         }
     }
 
@@ -262,8 +354,8 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        let command = compile_sql_command::<E>(sql, MissingRowPolicy::Ignore)
-            .map_err(map_sql_lowering_error)?;
+        let command = compile_sql_command_ignore::<E>(sql)?;
+        let lane = sql_command_lane(&command);
 
         match command {
             SqlCommand::ShowIndexesEntity => Ok(self.show_indexes::<E>()),
@@ -271,23 +363,18 @@ impl<C: CanisterKind> DbSession<C> {
             | SqlCommand::Explain { .. }
             | SqlCommand::ExplainGlobalAggregate { .. }
             | SqlCommand::DescribeEntity
-            | SqlCommand::ShowEntities => Err(QueryError::execute(InternalError::classified(
-                ErrorClass::Unsupported,
-                ErrorOrigin::Query,
-                "show_indexes_sql requires a SHOW INDEXES statement",
-            ))),
+            | SqlCommand::ShowEntities => {
+                Err(unsupported_sql_lane_error(SqlSurface::ShowIndexes, lane))
+            }
         }
     }
 
     /// Execute one reduced SQL `SHOW ENTITIES` statement.
     pub fn show_entities_sql(&self, sql: &str) -> Result<Vec<String>, QueryError> {
         let statement = self.sql_statement_route(sql)?;
-        if !statement.is_show_entities() {
-            return Err(QueryError::execute(InternalError::classified(
-                ErrorClass::Unsupported,
-                ErrorOrigin::Query,
-                "show_entities_sql requires a SHOW ENTITIES statement",
-            )));
+        let lane = sql_statement_route_lane(&statement);
+        if lane != SqlLaneKind::ShowEntities {
+            return Err(unsupported_sql_lane_error(SqlSurface::ShowEntities, lane));
         }
 
         Ok(self.show_entities())
@@ -301,33 +388,18 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        let command = compile_sql_command::<E>(sql, MissingRowPolicy::Ignore)
-            .map_err(map_sql_lowering_error)?;
+        let command = compile_sql_command_ignore::<E>(sql)?;
+        let lane = sql_command_lane(&command);
 
         match command {
             SqlCommand::Query(query) => Ok(query),
-            SqlCommand::Explain { .. } | SqlCommand::ExplainGlobalAggregate { .. } => {
-                Err(QueryError::execute(InternalError::classified(
-                    ErrorClass::Unsupported,
-                    ErrorOrigin::Query,
-                    "query_from_sql does not accept EXPLAIN statements; use explain_sql(...)",
-                )))
+            SqlCommand::Explain { .. }
+            | SqlCommand::ExplainGlobalAggregate { .. }
+            | SqlCommand::DescribeEntity
+            | SqlCommand::ShowIndexesEntity
+            | SqlCommand::ShowEntities => {
+                Err(unsupported_sql_lane_error(SqlSurface::QueryFrom, lane))
             }
-            SqlCommand::DescribeEntity => Err(QueryError::execute(InternalError::classified(
-                ErrorClass::Unsupported,
-                ErrorOrigin::Query,
-                "query_from_sql does not accept DESCRIBE statements; use describe_sql(...)",
-            ))),
-            SqlCommand::ShowIndexesEntity => Err(QueryError::execute(InternalError::classified(
-                ErrorClass::Unsupported,
-                ErrorOrigin::Query,
-                "query_from_sql does not accept SHOW INDEXES statements; use show_indexes_sql(...)",
-            ))),
-            SqlCommand::ShowEntities => Err(QueryError::execute(InternalError::classified(
-                ErrorClass::Unsupported,
-                ErrorOrigin::Query,
-                "query_from_sql does not accept SHOW ENTITIES statements; use show_entities_sql(...)",
-            ))),
         }
     }
 
@@ -501,30 +573,16 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let command = compile_sql_command::<E>(sql, MissingRowPolicy::Ignore)
-            .map_err(map_sql_lowering_error)?;
+        let command = compile_sql_command_ignore::<E>(sql)?;
+        let lane = sql_command_lane(&command);
 
         match command {
-            SqlCommand::Query(_) => Err(QueryError::execute(InternalError::classified(
-                ErrorClass::Unsupported,
-                ErrorOrigin::Query,
-                "explain_sql requires an EXPLAIN statement",
-            ))),
-            SqlCommand::DescribeEntity => Err(QueryError::execute(InternalError::classified(
-                ErrorClass::Unsupported,
-                ErrorOrigin::Query,
-                "explain_sql does not accept DESCRIBE statements; use describe_sql(...)",
-            ))),
-            SqlCommand::ShowIndexesEntity => Err(QueryError::execute(InternalError::classified(
-                ErrorClass::Unsupported,
-                ErrorOrigin::Query,
-                "explain_sql does not accept SHOW INDEXES statements; use show_indexes_sql(...)",
-            ))),
-            SqlCommand::ShowEntities => Err(QueryError::execute(InternalError::classified(
-                ErrorClass::Unsupported,
-                ErrorOrigin::Query,
-                "explain_sql does not accept SHOW ENTITIES statements; use show_entities_sql(...)",
-            ))),
+            SqlCommand::Query(_)
+            | SqlCommand::DescribeEntity
+            | SqlCommand::ShowIndexesEntity
+            | SqlCommand::ShowEntities => {
+                Err(unsupported_sql_lane_error(SqlSurface::Explain, lane))
+            }
             SqlCommand::Explain { mode, query } => match mode {
                 SqlExplainMode::Plan => Ok(query.explain()?.render_text_canonical()),
                 SqlExplainMode::Execution => query.explain_execution_text(),
