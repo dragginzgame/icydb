@@ -153,11 +153,6 @@ where
 
     // Map grouped reducer errors into executor-owned error classes.
     pub(super) fn map_group_error(err: GroupError) -> InternalError {
-        match err {
-            GroupError::MemoryLimitExceeded { .. } | GroupError::DistinctBudgetExceeded { .. } => {
-                crate::db::error::executor_internal(err.to_string())
-            }
-            GroupError::Internal(inner) => inner,
-        }
+        err.into_internal_error()
     }
 }

@@ -4,13 +4,13 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::{
-    db::{
-        executor::{
-            aggregate::{AggregateEngine, ExecutionContext},
-            pipeline::contracts::{GroupedRouteStageProjection, LoadExecutor},
-            route::aggregate_materialized_fold_direction,
+    db::executor::{
+        aggregate::{
+            AggregateEngine, ExecutionContext,
+            runtime::grouped_distinct::global_distinct_field_execution_spec,
         },
-        query::plan::GroupedDistinctExecutionStrategy,
+        pipeline::contracts::{GroupedRouteStageProjection, LoadExecutor},
+        route::aggregate_materialized_fold_direction,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -30,12 +30,9 @@ where
     where
         R: GroupedRouteStageProjection<E>,
     {
-        if matches!(
-            route.grouped_distinct_execution_strategy(),
-            GroupedDistinctExecutionStrategy::GlobalDistinctFieldCount { .. }
-                | GroupedDistinctExecutionStrategy::GlobalDistinctFieldSum { .. }
-                | GroupedDistinctExecutionStrategy::GlobalDistinctFieldAvg { .. }
-        ) {
+        if global_distinct_field_execution_spec(route.grouped_distinct_execution_strategy())
+            .is_some()
+        {
             return Ok((Vec::new(), Vec::new()));
         }
 

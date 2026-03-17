@@ -21,7 +21,7 @@ use crate::{
             validate_executor_plan,
         },
         index::predicate::IndexPredicateExecution,
-        query::builder::aggregate::{count, exists, first, last, max, max_by, min, min_by},
+        query::builder::aggregate::{field_target_extrema_expr_for_kind, terminal_expr_for_kind},
         query::plan::{FieldSlot as PlannedFieldSlot, PageSpec},
     },
     error::InternalError,
@@ -29,6 +29,37 @@ use crate::{
     types::Id,
 };
 use std::ops::Bound;
+
+///
+/// AggregateTerminalRequest
+///
+/// Runtime aggregate terminal descriptor consumed by one shared terminal
+/// dispatch entrypoint. This keeps zero-window, fast-path, and kernel
+/// invocation control flow centralized for scalar aggregate terminals.
+///
+
+enum AggregateTerminalRequest {
+    Count,
+    Exists,
+    IdTerminal {
+        kind: AggregateKind,
+    },
+    IdBySlot {
+        kind: AggregateKind,
+        target_field: PlannedFieldSlot,
+    },
+}
+
+impl AggregateTerminalRequest {
+    // Return the aggregate kind represented by this terminal request.
+    const fn kind(&self) -> AggregateKind {
+        match self {
+            Self::Count => AggregateKind::Count,
+            Self::Exists => AggregateKind::Exists,
+            Self::IdTerminal { kind } | Self::IdBySlot { kind, .. } => *kind,
+        }
+    }
+}
 
 impl<E> LoadExecutor<E>
 where
@@ -39,40 +70,8 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<u32, InternalError> {
-        if let Some(aggregate_output) =
-            aggregate_zero_output_if_window_empty(&plan, AggregateKind::Count)
-        {
-            return Self::expect_count_output(
-                aggregate_output,
-                "aggregate COUNT zero-window result kind mismatch",
-            );
-        }
-
-        if let Some(contract) = Self::derive_count_terminal_fast_path_contract(&plan) {
-            return match contract {
-                CountTerminalFastPathContract::PrimaryKeyCardinality => {
-                    Self::record_execution_optimization_hit_for_tests(
-                        ExecutionOptimizationCounter::PrimaryKeyCardinalityCountFastPath,
-                    );
-                    self.aggregate_count_from_pk_cardinality(plan)
-                }
-                CountTerminalFastPathContract::PrimaryKeyExistingRows(direction) => {
-                    Self::record_execution_optimization_hit_for_tests(
-                        ExecutionOptimizationCounter::PrimaryKeyCountFastPath,
-                    );
-                    self.aggregate_count_from_existing_row_stream(plan, direction)
-                }
-                CountTerminalFastPathContract::IndexCoveringExistingRows(direction) => {
-                    Self::record_execution_optimization_hit_for_tests(
-                        ExecutionOptimizationCounter::CoveringCountFastPath,
-                    );
-                    self.aggregate_count_from_existing_row_stream(plan, direction)
-                }
-            };
-        }
-
         Self::expect_count_output(
-            ExecutionKernel::execute_aggregate_spec(self, plan, count())?,
+            self.execute_terminal_request(plan, AggregateTerminalRequest::Count)?,
             "aggregate COUNT result kind mismatch",
         )
     }
@@ -82,28 +81,8 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<bool, InternalError> {
-        if let Some(aggregate_output) =
-            aggregate_zero_output_if_window_empty(&plan, AggregateKind::Exists)
-        {
-            return Self::expect_exists_output(
-                aggregate_output,
-                "aggregate EXISTS zero-window result kind mismatch",
-            );
-        }
-
-        if let Some(contract) = Self::derive_exists_terminal_fast_path_contract(&plan) {
-            return match contract {
-                ExistsTerminalFastPathContract::IndexCoveringExistingRows(direction) => {
-                    Self::record_execution_optimization_hit_for_tests(
-                        ExecutionOptimizationCounter::CoveringExistsFastPath,
-                    );
-                    self.aggregate_exists_from_index_covering_stream(plan, direction)
-                }
-            };
-        }
-
         Self::expect_exists_output(
-            ExecutionKernel::execute_aggregate_spec(self, plan, exists())?,
+            self.execute_terminal_request(plan, AggregateTerminalRequest::Exists)?,
             "aggregate EXISTS result kind mismatch",
         )
     }
@@ -113,18 +92,13 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<Option<Id<E>>, InternalError> {
-        if let Some(aggregate_output) =
-            aggregate_zero_output_if_window_empty(&plan, AggregateKind::Min)
-        {
-            return Self::expect_optional_id_terminal_output(
-                aggregate_output,
-                AggregateKind::Min,
-                "aggregate MIN zero-window result kind mismatch",
-            );
-        }
-
         Self::expect_optional_id_terminal_output(
-            ExecutionKernel::execute_aggregate_spec(self, plan, min())?,
+            self.execute_terminal_request(
+                plan,
+                AggregateTerminalRequest::IdTerminal {
+                    kind: AggregateKind::Min,
+                },
+            )?,
             AggregateKind::Min,
             "aggregate MIN result kind mismatch",
         )
@@ -135,18 +109,13 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<Option<Id<E>>, InternalError> {
-        if let Some(aggregate_output) =
-            aggregate_zero_output_if_window_empty(&plan, AggregateKind::Max)
-        {
-            return Self::expect_optional_id_terminal_output(
-                aggregate_output,
-                AggregateKind::Max,
-                "aggregate MAX zero-window result kind mismatch",
-            );
-        }
-
         Self::expect_optional_id_terminal_output(
-            ExecutionKernel::execute_aggregate_spec(self, plan, max())?,
+            self.execute_terminal_request(
+                plan,
+                AggregateTerminalRequest::IdTerminal {
+                    kind: AggregateKind::Max,
+                },
+            )?,
             AggregateKind::Max,
             "aggregate MAX result kind mismatch",
         )
@@ -159,20 +128,14 @@ where
         plan: ExecutablePlan<E>,
         target_field: PlannedFieldSlot,
     ) -> Result<Option<Id<E>>, InternalError> {
-        resolve_orderable_aggregate_target_slot_from_planner_slot::<E>(&target_field)
-            .map_err(Self::map_aggregate_field_value_error)?;
-        if let Some(aggregate_output) =
-            aggregate_zero_output_if_window_empty(&plan, AggregateKind::Min)
-        {
-            return Self::expect_optional_id_terminal_output(
-                aggregate_output,
-                AggregateKind::Min,
-                "aggregate MIN(field) zero-window result kind mismatch",
-            );
-        }
-
         Self::expect_optional_id_terminal_output(
-            ExecutionKernel::execute_aggregate_spec(self, plan, min_by(target_field.field()))?,
+            self.execute_terminal_request(
+                plan,
+                AggregateTerminalRequest::IdBySlot {
+                    kind: AggregateKind::Min,
+                    target_field,
+                },
+            )?,
             AggregateKind::Min,
             "aggregate MIN(field) result kind mismatch",
         )
@@ -185,20 +148,14 @@ where
         plan: ExecutablePlan<E>,
         target_field: PlannedFieldSlot,
     ) -> Result<Option<Id<E>>, InternalError> {
-        resolve_orderable_aggregate_target_slot_from_planner_slot::<E>(&target_field)
-            .map_err(Self::map_aggregate_field_value_error)?;
-        if let Some(aggregate_output) =
-            aggregate_zero_output_if_window_empty(&plan, AggregateKind::Max)
-        {
-            return Self::expect_optional_id_terminal_output(
-                aggregate_output,
-                AggregateKind::Max,
-                "aggregate MAX(field) zero-window result kind mismatch",
-            );
-        }
-
         Self::expect_optional_id_terminal_output(
-            ExecutionKernel::execute_aggregate_spec(self, plan, max_by(target_field.field()))?,
+            self.execute_terminal_request(
+                plan,
+                AggregateTerminalRequest::IdBySlot {
+                    kind: AggregateKind::Max,
+                    target_field,
+                },
+            )?,
             AggregateKind::Max,
             "aggregate MAX(field) result kind mismatch",
         )
@@ -253,18 +210,13 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<Option<Id<E>>, InternalError> {
-        if let Some(aggregate_output) =
-            aggregate_zero_output_if_window_empty(&plan, AggregateKind::First)
-        {
-            return Self::expect_optional_id_terminal_output(
-                aggregate_output,
-                AggregateKind::First,
-                "aggregate FIRST zero-window result kind mismatch",
-            );
-        }
-
         Self::expect_optional_id_terminal_output(
-            ExecutionKernel::execute_aggregate_spec(self, plan, first())?,
+            self.execute_terminal_request(
+                plan,
+                AggregateTerminalRequest::IdTerminal {
+                    kind: AggregateKind::First,
+                },
+            )?,
             AggregateKind::First,
             "aggregate FIRST result kind mismatch",
         )
@@ -275,20 +227,142 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<Option<Id<E>>, InternalError> {
-        if let Some(aggregate_output) =
-            aggregate_zero_output_if_window_empty(&plan, AggregateKind::Last)
-        {
-            return Self::expect_optional_id_terminal_output(
-                aggregate_output,
-                AggregateKind::Last,
-                "aggregate LAST zero-window result kind mismatch",
-            );
-        }
-
         Self::expect_optional_id_terminal_output(
-            ExecutionKernel::execute_aggregate_spec(self, plan, last())?,
+            self.execute_terminal_request(
+                plan,
+                AggregateTerminalRequest::IdTerminal {
+                    kind: AggregateKind::Last,
+                },
+            )?,
             AggregateKind::Last,
             "aggregate LAST result kind mismatch",
+        )
+    }
+
+    // Execute one runtime aggregate terminal request through one shared
+    // zero-window, fast-path, and kernel dispatch boundary.
+    fn execute_terminal_request(
+        &self,
+        plan: ExecutablePlan<E>,
+        request: AggregateTerminalRequest,
+    ) -> Result<AggregateOutput<E>, InternalError> {
+        let kind = request.kind();
+        if let Some(aggregate_output) = aggregate_zero_output_if_window_empty(&plan, kind) {
+            return Ok(aggregate_output);
+        }
+
+        match request {
+            AggregateTerminalRequest::Count => self.execute_count_terminal_request(plan),
+            AggregateTerminalRequest::Exists => self.execute_exists_terminal_request(plan),
+            AggregateTerminalRequest::IdTerminal { kind } => {
+                self.execute_id_terminal_request(plan, kind)
+            }
+            AggregateTerminalRequest::IdBySlot { kind, target_field } => {
+                self.execute_id_by_slot_terminal_request(plan, kind, target_field)
+            }
+        }
+    }
+
+    // Execute one COUNT request with terminal-specific fast-path routing.
+    fn execute_count_terminal_request(
+        &self,
+        plan: ExecutablePlan<E>,
+    ) -> Result<AggregateOutput<E>, InternalError> {
+        if let Some(contract) = Self::derive_count_terminal_fast_path_contract(&plan) {
+            let count = match contract {
+                CountTerminalFastPathContract::PrimaryKeyCardinality => {
+                    Self::record_execution_optimization_hit_for_tests(
+                        ExecutionOptimizationCounter::PrimaryKeyCardinalityCountFastPath,
+                    );
+                    self.aggregate_count_from_pk_cardinality(plan)?
+                }
+                CountTerminalFastPathContract::PrimaryKeyExistingRows(direction) => {
+                    Self::record_execution_optimization_hit_for_tests(
+                        ExecutionOptimizationCounter::PrimaryKeyCountFastPath,
+                    );
+                    self.aggregate_count_from_existing_row_stream(plan, direction)?
+                }
+                CountTerminalFastPathContract::IndexCoveringExistingRows(direction) => {
+                    Self::record_execution_optimization_hit_for_tests(
+                        ExecutionOptimizationCounter::CoveringCountFastPath,
+                    );
+                    self.aggregate_count_from_existing_row_stream(plan, direction)?
+                }
+            };
+
+            return Ok(AggregateOutput::Count(count));
+        }
+
+        ExecutionKernel::execute_aggregate_spec(
+            self,
+            plan,
+            terminal_expr_for_kind(AggregateKind::Count),
+        )
+    }
+
+    // Execute one EXISTS request with terminal-specific fast-path routing.
+    fn execute_exists_terminal_request(
+        &self,
+        plan: ExecutablePlan<E>,
+    ) -> Result<AggregateOutput<E>, InternalError> {
+        if let Some(contract) = Self::derive_exists_terminal_fast_path_contract(&plan) {
+            let exists = match contract {
+                ExistsTerminalFastPathContract::IndexCoveringExistingRows(direction) => {
+                    Self::record_execution_optimization_hit_for_tests(
+                        ExecutionOptimizationCounter::CoveringExistsFastPath,
+                    );
+                    self.aggregate_exists_from_index_covering_stream(plan, direction)?
+                }
+            };
+
+            return Ok(AggregateOutput::Exists(exists));
+        }
+
+        ExecutionKernel::execute_aggregate_spec(
+            self,
+            plan,
+            terminal_expr_for_kind(AggregateKind::Exists),
+        )
+    }
+
+    // Execute one id-returning terminal aggregate request.
+    fn execute_id_terminal_request(
+        &self,
+        plan: ExecutablePlan<E>,
+        kind: AggregateKind,
+    ) -> Result<AggregateOutput<E>, InternalError> {
+        if !matches!(
+            kind,
+            AggregateKind::Min | AggregateKind::Max | AggregateKind::First | AggregateKind::Last
+        ) {
+            return Err(crate::db::error::query_executor_invariant(
+                "id terminal aggregate request requires MIN/MAX/FIRST/LAST kind",
+            ));
+        }
+
+        ExecutionKernel::execute_aggregate_spec(self, plan, terminal_expr_for_kind(kind))
+    }
+
+    // Execute one slot-targeted id terminal aggregate request.
+    fn execute_id_by_slot_terminal_request(
+        &self,
+        plan: ExecutablePlan<E>,
+        kind: AggregateKind,
+        target_field: PlannedFieldSlot,
+    ) -> Result<AggregateOutput<E>, InternalError> {
+        resolve_orderable_aggregate_target_slot_from_planner_slot::<E>(&target_field)
+            .map_err(Self::map_aggregate_field_value_error)?;
+
+        if !matches!(kind, AggregateKind::Min | AggregateKind::Max) {
+            return Err(crate::db::error::query_executor_invariant(
+                "id-by-slot aggregate request requires MIN/MAX kind",
+            ));
+        }
+
+        ExecutionKernel::execute_aggregate_spec(
+            self,
+            plan,
+            field_target_extrema_expr_for_kind(kind, target_field.field()),
         )
     }
 

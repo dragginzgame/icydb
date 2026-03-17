@@ -35,3 +35,16 @@ pub(in crate::db::executor) enum GroupError {
     #[error("{0}")]
     Internal(#[from] InternalError),
 }
+
+impl GroupError {
+    /// Convert grouped execution failures into executor-owned internal errors.
+    #[must_use]
+    pub(in crate::db::executor) fn into_internal_error(self) -> InternalError {
+        match self {
+            Self::MemoryLimitExceeded { .. } | Self::DistinctBudgetExceeded { .. } => {
+                crate::db::error::executor_internal(self.to_string())
+            }
+            Self::Internal(inner) => inner,
+        }
+    }
+}

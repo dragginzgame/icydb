@@ -257,3 +257,36 @@ pub const fn max() -> AggregateExpr {
 pub fn max_by(field: impl AsRef<str>) -> AggregateExpr {
     AggregateExpr::new(AggregateKind::Max, Some(field.as_ref().to_string()))
 }
+
+/// Build one non-field-target terminal aggregate expression from one kind.
+#[must_use]
+pub(crate) fn terminal_expr_for_kind(kind: AggregateKind) -> AggregateExpr {
+    match kind {
+        AggregateKind::Count => count(),
+        AggregateKind::Exists => exists(),
+        AggregateKind::Min => min(),
+        AggregateKind::Max => max(),
+        AggregateKind::First => first(),
+        AggregateKind::Last => last(),
+        AggregateKind::Sum | AggregateKind::Avg => {
+            unreachable!("terminal_expr_for_kind does not support SUM/AVG field-target kinds")
+        }
+    }
+}
+
+/// Build one field-target extrema aggregate expression from one kind.
+#[must_use]
+pub(crate) fn field_target_extrema_expr_for_kind(
+    kind: AggregateKind,
+    field: impl AsRef<str>,
+) -> AggregateExpr {
+    match kind {
+        AggregateKind::Min => min_by(field),
+        AggregateKind::Max => max_by(field),
+        _ => {
+            unreachable!(
+                "field_target_extrema_expr_for_kind requires MIN/MAX kind for field-target extrema"
+            )
+        }
+    }
+}

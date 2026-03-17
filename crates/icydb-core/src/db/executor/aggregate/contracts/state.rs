@@ -31,6 +31,19 @@ pub(in crate::db::executor) enum FoldControl {
 }
 
 ///
+/// AggregateTerminalMode
+///
+/// Runtime lane mode for terminal aggregate reducer updates.
+/// Scalar and grouped execution both dispatch through this mode boundary.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AggregateTerminalMode {
+    Scalar,
+    Grouped,
+}
+
+///
 /// AggregateReducerState
 ///
 /// Shared aggregate terminal reducer state used by streaming and fast-path
@@ -62,47 +75,36 @@ impl<E: EntityKind> AggregateReducerState<E> {
         }
     }
 
-    /// Apply one candidate data key to the reducer and return fold control.
-    pub(in crate::db::executor) fn update_from_data_key(
-        &mut self,
-        kind: AggregateKind,
-        direction: Direction,
-        key: &DataKey,
-    ) -> Result<FoldControl, InternalError> {
-        let id = if kind.requires_decoded_id() {
-            Some(Id::from_key(key.try_key::<E>()?))
-        } else {
-            None
-        };
-
-        self.update_with_optional_id(kind, direction, id)
+    // Apply one COUNT reducer update.
+    fn increment_count(&mut self) -> Result<(), InternalError> {
+        match self {
+            Self::Count(count) => {
+                *count = count.saturating_add(1);
+                Ok(())
+            }
+            _ => Err(crate::db::error::query_executor_invariant(
+                "aggregate reducer COUNT state mismatch",
+            )),
+        }
     }
 
-    /// Apply one reducer update using an optional decoded id payload.
-    pub(in crate::db::executor) fn update_with_optional_id(
-        &mut self,
-        kind: AggregateKind,
-        direction: Direction,
-        id: Option<Id<E>>,
-    ) -> Result<FoldControl, InternalError> {
-        match (kind, self) {
-            (AggregateKind::Count, Self::Count(count)) => {
-                *count = count.saturating_add(1);
-                Ok(FoldControl::Continue)
-            }
-            (AggregateKind::Sum, Self::Sum(_)) => Err(crate::db::error::query_executor_invariant(
-                "aggregate reducer SUM requires field-target execution path",
-            )),
-            (AggregateKind::Exists, Self::Exists(exists)) => {
+    // Apply one EXISTS reducer update.
+    fn set_exists_true(&mut self) -> Result<(), InternalError> {
+        match self {
+            Self::Exists(exists) => {
                 *exists = true;
-                Ok(FoldControl::Break)
+                Ok(())
             }
-            (AggregateKind::Min, Self::Min(min_id)) => {
-                let Some(id) = id else {
-                    return Err(crate::db::error::query_executor_invariant(
-                        "aggregate reducer MIN update requires decoded id",
-                    ));
-                };
+            _ => Err(crate::db::error::query_executor_invariant(
+                "aggregate reducer EXISTS state mismatch",
+            )),
+        }
+    }
+
+    // Apply one MIN reducer update.
+    fn update_min_value(&mut self, id: Id<E>) -> Result<(), InternalError> {
+        match self {
+            Self::Min(min_id) => {
                 let replace = match min_id.as_ref() {
                     Some(current) => id < *current,
                     None => true,
@@ -110,18 +112,19 @@ impl<E: EntityKind> AggregateReducerState<E> {
                 if replace {
                     *min_id = Some(id);
                 }
-                if direction == Direction::Asc {
-                    return Ok(FoldControl::Break);
-                }
 
-                Ok(FoldControl::Continue)
+                Ok(())
             }
-            (AggregateKind::Max, Self::Max(max_id)) => {
-                let Some(id) = id else {
-                    return Err(crate::db::error::query_executor_invariant(
-                        "aggregate reducer MAX update requires decoded id",
-                    ));
-                };
+            _ => Err(crate::db::error::query_executor_invariant(
+                "aggregate reducer MIN state mismatch",
+            )),
+        }
+    }
+
+    // Apply one MAX reducer update.
+    fn update_max_value(&mut self, id: Id<E>) -> Result<(), InternalError> {
+        match self {
+            Self::Max(max_id) => {
                 let replace = match max_id.as_ref() {
                     Some(current) => id > *current,
                     None => true,
@@ -129,32 +132,37 @@ impl<E: EntityKind> AggregateReducerState<E> {
                 if replace {
                     *max_id = Some(id);
                 }
-                if direction == Direction::Desc {
-                    return Ok(FoldControl::Break);
-                }
 
-                Ok(FoldControl::Continue)
-            }
-            (AggregateKind::First, Self::First(first_id)) => {
-                let Some(id) = id else {
-                    return Err(crate::db::error::query_executor_invariant(
-                        "aggregate reducer FIRST update requires decoded id",
-                    ));
-                };
-                *first_id = Some(id);
-                Ok(FoldControl::Break)
-            }
-            (AggregateKind::Last, Self::Last(last_id)) => {
-                let Some(id) = id else {
-                    return Err(crate::db::error::query_executor_invariant(
-                        "aggregate reducer LAST update requires decoded id",
-                    ));
-                };
-                *last_id = Some(id);
-                Ok(FoldControl::Continue)
+                Ok(())
             }
             _ => Err(crate::db::error::query_executor_invariant(
-                "aggregate reducer state/kind mismatch",
+                "aggregate reducer MAX state mismatch",
+            )),
+        }
+    }
+
+    // Apply one FIRST reducer update.
+    fn set_first(&mut self, id: Id<E>) -> Result<(), InternalError> {
+        match self {
+            Self::First(first_id) => {
+                *first_id = Some(id);
+                Ok(())
+            }
+            _ => Err(crate::db::error::query_executor_invariant(
+                "aggregate reducer FIRST state mismatch",
+            )),
+        }
+    }
+
+    // Apply one LAST reducer update.
+    fn set_last(&mut self, id: Id<E>) -> Result<(), InternalError> {
+        match self {
+            Self::Last(last_id) => {
+                *last_id = Some(id);
+                Ok(())
+            }
+            _ => Err(crate::db::error::query_executor_invariant(
+                "aggregate reducer LAST state mismatch",
             )),
         }
     }
@@ -213,8 +221,7 @@ impl<E: EntityKind> AggregateState<E> for TerminalAggregateState<E> {
             return Ok(FoldControl::Continue);
         }
 
-        self.reducer
-            .update_from_data_key(self.kind, self.direction, key)
+        self.apply_terminal_update_for_mode(key, AggregateTerminalMode::Scalar)
     }
 
     fn finalize(self) -> AggregateOutput<E> {
@@ -257,6 +264,142 @@ impl AggregateStateFactory {
 }
 
 impl<E: EntityKind> TerminalAggregateState<E> {
+    // Dispatch one terminal aggregate update by kind at one canonical boundary.
+    fn apply_terminal_update_for_mode(
+        &mut self,
+        key: &DataKey,
+        mode: AggregateTerminalMode,
+    ) -> Result<FoldControl, InternalError> {
+        let id = if self.kind.requires_decoded_id() {
+            Some(Id::from_key(key.try_key::<E>()?))
+        } else {
+            None
+        };
+
+        match self.kind {
+            AggregateKind::Count => self.apply_count_for_mode(mode),
+            AggregateKind::Sum => Err(crate::db::error::query_executor_invariant(
+                "aggregate reducer SUM requires field-target execution path",
+            )),
+            AggregateKind::Exists => self.apply_exists_for_mode(mode),
+            AggregateKind::Min => self.apply_min_for_mode(mode, id),
+            AggregateKind::Max => self.apply_max_for_mode(mode, id),
+            AggregateKind::First => self.apply_first_for_mode(mode, id),
+            AggregateKind::Last => self.apply_last_for_mode(mode, id),
+            AggregateKind::Avg => Err(crate::db::error::query_executor_invariant(
+                "aggregate reducer AVG requires field-target execution path",
+            )),
+        }
+    }
+
+    // Apply one COUNT terminal update for one execution mode.
+    fn apply_count_for_mode(
+        &mut self,
+        mode: AggregateTerminalMode,
+    ) -> Result<FoldControl, InternalError> {
+        self.reducer.increment_count()?;
+
+        Ok(match mode {
+            AggregateTerminalMode::Scalar | AggregateTerminalMode::Grouped => FoldControl::Continue,
+        })
+    }
+
+    // Apply one EXISTS terminal update for one execution mode.
+    fn apply_exists_for_mode(
+        &mut self,
+        mode: AggregateTerminalMode,
+    ) -> Result<FoldControl, InternalError> {
+        self.reducer.set_exists_true()?;
+
+        Ok(match mode {
+            AggregateTerminalMode::Scalar | AggregateTerminalMode::Grouped => FoldControl::Break,
+        })
+    }
+
+    // Apply one MIN terminal update for one execution mode.
+    fn apply_min_for_mode(
+        &mut self,
+        mode: AggregateTerminalMode,
+        id: Option<Id<E>>,
+    ) -> Result<FoldControl, InternalError> {
+        let Some(id) = id else {
+            return Err(crate::db::error::query_executor_invariant(
+                "aggregate reducer MIN update requires decoded id",
+            ));
+        };
+        self.reducer.update_min_value(id)?;
+
+        Ok(match mode {
+            AggregateTerminalMode::Scalar | AggregateTerminalMode::Grouped => {
+                if self.direction == Direction::Asc {
+                    FoldControl::Break
+                } else {
+                    FoldControl::Continue
+                }
+            }
+        })
+    }
+
+    // Apply one MAX terminal update for one execution mode.
+    fn apply_max_for_mode(
+        &mut self,
+        mode: AggregateTerminalMode,
+        id: Option<Id<E>>,
+    ) -> Result<FoldControl, InternalError> {
+        let Some(id) = id else {
+            return Err(crate::db::error::query_executor_invariant(
+                "aggregate reducer MAX update requires decoded id",
+            ));
+        };
+        self.reducer.update_max_value(id)?;
+
+        Ok(match mode {
+            AggregateTerminalMode::Scalar | AggregateTerminalMode::Grouped => {
+                if self.direction == Direction::Desc {
+                    FoldControl::Break
+                } else {
+                    FoldControl::Continue
+                }
+            }
+        })
+    }
+
+    // Apply one FIRST terminal update for one execution mode.
+    fn apply_first_for_mode(
+        &mut self,
+        mode: AggregateTerminalMode,
+        id: Option<Id<E>>,
+    ) -> Result<FoldControl, InternalError> {
+        let Some(id) = id else {
+            return Err(crate::db::error::query_executor_invariant(
+                "aggregate reducer FIRST update requires decoded id",
+            ));
+        };
+        self.reducer.set_first(id)?;
+
+        Ok(match mode {
+            AggregateTerminalMode::Scalar | AggregateTerminalMode::Grouped => FoldControl::Break,
+        })
+    }
+
+    // Apply one LAST terminal update for one execution mode.
+    fn apply_last_for_mode(
+        &mut self,
+        mode: AggregateTerminalMode,
+        id: Option<Id<E>>,
+    ) -> Result<FoldControl, InternalError> {
+        let Some(id) = id else {
+            return Err(crate::db::error::query_executor_invariant(
+                "aggregate reducer LAST update requires decoded id",
+            ));
+        };
+        self.reducer.set_last(id)?;
+
+        Ok(match mode {
+            AggregateTerminalMode::Scalar | AggregateTerminalMode::Grouped => FoldControl::Continue,
+        })
+    }
+
     /// Apply one grouped candidate data key with grouped DISTINCT budget enforcement.
     pub(in crate::db::executor) fn apply_grouped(
         &mut self,
@@ -267,8 +410,7 @@ impl<E: EntityKind> TerminalAggregateState<E> {
             return Ok(FoldControl::Continue);
         }
 
-        self.reducer
-            .update_from_data_key(self.kind, self.direction, key)
+        self.apply_terminal_update_for_mode(key, AggregateTerminalMode::Grouped)
             .map_err(GroupError::from)
     }
 

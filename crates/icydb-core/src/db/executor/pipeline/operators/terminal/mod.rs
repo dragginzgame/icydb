@@ -11,10 +11,11 @@ use crate::{
         Context,
         cursor::CursorBoundary,
         executor::{
-            ExecutionKernel, LoadExecutor, OrderedKeyStream,
+            ExecutionKernel, OrderedKeyStream,
             pipeline::{
                 contracts::CursorPage, operators::terminal::collector::RowCollectorReducer,
             },
+            projection::validate_projection_over_slot_rows,
         },
         query::plan::AccessPlannedQuery,
         response::EntityResponse,
@@ -42,11 +43,11 @@ impl ExecutionKernel {
 
         let (rows, keys_scanned) =
             Self::run_row_stream_reducer(ctx, plan, key_stream, RowCollectorReducer)?;
-        let projected_rows =
-            LoadExecutor::<E>::project_materialized_rows_if_needed(plan, rows.as_slice())?;
-        LoadExecutor::<E>::validate_projection_alignment(
-            rows.as_slice(),
-            projected_rows.as_deref(),
+        validate_projection_over_slot_rows(
+            E::MODEL,
+            &plan.projection_spec(E::MODEL),
+            rows.len(),
+            &mut |row_index, slot| rows[row_index].1.get_value_by_index(slot),
         )?;
         let page = CursorPage {
             items: EntityResponse::from_rows(rows),

@@ -38,10 +38,7 @@ use crate::{
         },
         predicate::MissingRowPolicy,
         query::{
-            builder::{
-                AggregateExpr,
-                aggregate::{count, exists, first, last, max, min},
-            },
+            builder::aggregate::terminal_expr_for_kind,
             plan::{
                 CoveringProjectionContext, CoveringProjectionOrder, FieldSlot as PlannedFieldSlot,
                 constant_covering_projection_value_from_access,
@@ -251,7 +248,7 @@ where
             ExecutionKernel::execute_aggregate_spec(
                 self,
                 plan,
-                terminal_aggregate_expr(terminal_kind),
+                terminal_expr_for_kind(terminal_kind),
             )?
         else {
             return Err(crate::db::error::query_executor_invariant(
@@ -555,22 +552,5 @@ where
                 None,
             )
         })
-    }
-}
-
-fn terminal_aggregate_expr(kind: AggregateKind) -> AggregateExpr {
-    match kind {
-        AggregateKind::Count => count(),
-        AggregateKind::Sum => {
-            unreachable!("terminal aggregate expression helper must not be used for SUM(field)")
-        }
-        AggregateKind::Avg => {
-            unreachable!("terminal aggregate expression helper must not be used for AVG(field)")
-        }
-        AggregateKind::Exists => exists(),
-        AggregateKind::Min => min(),
-        AggregateKind::Max => max(),
-        AggregateKind::First => first(),
-        AggregateKind::Last => last(),
     }
 }

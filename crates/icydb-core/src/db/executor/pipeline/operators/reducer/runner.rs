@@ -4,8 +4,9 @@ use crate::{
         cursor::{ContinuationRuntime, LoopAction},
         data::DataKey,
         executor::{
-            ExecutionKernel, OrderedKeyStream,
+            ExecutionKernel, KeyStreamLoopControl, OrderedKeyStream,
             aggregate::AggregateFoldMode,
+            drive_key_stream_with_control_flow,
             pipeline::operators::reducer::contracts::{
                 KernelReducer, ReducerControl, StreamInputMode, StreamItem,
             },
@@ -17,8 +18,17 @@ use crate::{
     error::InternalError,
     traits::{EntityKind, EntityValue},
 };
+use std::cell::RefCell;
 
 impl ExecutionKernel {
+    const fn loop_control_from_continuation_action(action: LoopAction) -> KeyStreamLoopControl {
+        match action {
+            LoopAction::Skip => KeyStreamLoopControl::Skip,
+            LoopAction::Emit => KeyStreamLoopControl::Emit,
+            LoopAction::Stop => KeyStreamLoopControl::Stop,
+        }
+    }
+
     // Determine whether one key is eligible for aggregate folding in the
     // selected mode. Key-only mode intentionally skips row reads.
     fn key_qualifies_for_fold<E>(
@@ -79,38 +89,37 @@ impl ExecutionKernel {
             ));
         }
 
-        let mut continuation =
-            ContinuationRuntime::from_window(Self::window_cursor_contract(plan, None));
+        let continuation = RefCell::new(ContinuationRuntime::from_window(
+            Self::window_cursor_contract(plan, None),
+        ));
         let mut keys_scanned = 0usize;
         let consistency = row_read_consistency_for_plan(plan);
 
         // Phase 2: scan keys, apply fold eligibility/window gates, and feed reducer.
-        loop {
-            match continuation.pre_fetch() {
-                LoopAction::Skip => continue,
-                LoopAction::Emit => {}
-                LoopAction::Stop => break,
-            }
+        drive_key_stream_with_control_flow(
+            key_stream,
+            &mut || {
+                let action = continuation.borrow_mut().pre_fetch();
 
-            let Some(key) = key_stream.next_key()? else {
-                break;
-            };
-            keys_scanned = keys_scanned.saturating_add(1);
+                Self::loop_control_from_continuation_action(action)
+            },
+            &mut |key| {
+                keys_scanned = keys_scanned.saturating_add(1);
+                if !Self::key_qualifies_for_fold(ctx, consistency, mode, &key)? {
+                    return Ok(KeyStreamLoopControl::Skip);
+                }
+                match continuation.borrow_mut().accept_row() {
+                    LoopAction::Skip => return Ok(KeyStreamLoopControl::Skip),
+                    LoopAction::Emit => {}
+                    LoopAction::Stop => return Ok(KeyStreamLoopControl::Stop),
+                }
 
-            if !Self::key_qualifies_for_fold(ctx, consistency, mode, &key)? {
-                continue;
-            }
-            match continuation.accept_row() {
-                LoopAction::Skip => continue,
-                LoopAction::Emit => {}
-                LoopAction::Stop => break,
-            }
-
-            match reducer.on_item(StreamItem::Key(&key))? {
-                ReducerControl::Continue => {}
-                ReducerControl::StopEarly => break,
-            }
-        }
+                Ok(match reducer.on_item(StreamItem::Key(&key))? {
+                    ReducerControl::Continue => KeyStreamLoopControl::Emit,
+                    ReducerControl::StopEarly => KeyStreamLoopControl::Stop,
+                })
+            },
+        )?;
 
         Ok((reducer.finish()?, keys_scanned))
     }

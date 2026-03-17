@@ -57,8 +57,8 @@ pub(in crate::db::executor) use preparation::ExecutionPreparation;
 pub(super) use runtime_context::*;
 pub(super) use stream::access::*;
 pub(in crate::db::executor) use stream::key::{
-    BudgetedOrderedKeyStream, KeyOrderComparator, OrderedKeyStream, OrderedKeyStreamBox,
-    VecOrderedKeyStream,
+    BudgetedOrderedKeyStream, KeyOrderComparator, KeyStreamLoopControl, OrderedKeyStream,
+    OrderedKeyStreamBox, VecOrderedKeyStream, drive_key_stream_with_control_flow,
 };
 pub(in crate::db::executor) use util::saturating_row_len;
 pub(in crate::db) use window::compute_page_keep_count;

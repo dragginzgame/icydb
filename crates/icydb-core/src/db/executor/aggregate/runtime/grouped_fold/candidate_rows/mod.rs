@@ -12,10 +12,10 @@ use crate::{
         contracts::canonical_value_compare,
         executor::{
             GroupedContinuationCapabilities, GroupedPaginationWindow,
-            aggregate::AggregateEngine,
             aggregate::runtime::{
                 grouped_having::group_matches_having, grouped_output::aggregate_output_to_value,
             },
+            aggregate::{AggregateEngine, AggregateExecutionMode, AggregateFinalizeAdapter},
             pipeline::contracts::GroupedRouteStageProjection,
         },
         query::plan::{FieldSlot, GroupHavingSpec},
@@ -64,18 +64,21 @@ where
     grouped_engines
         .into_iter()
         .map(|engine| {
-            engine.finalize_grouped().map(|outputs| {
-                outputs
-                    .into_iter()
-                    .map(|output| {
-                        (
-                            output.group_key().canonical_value().clone(),
-                            aggregate_output_to_value(output.output()),
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .into_iter()
-            })
+            AggregateFinalizeAdapter::from_execution_mode(AggregateExecutionMode::Grouped)
+                .finalize(engine)?
+                .into_grouped()
+                .map(|outputs| {
+                    outputs
+                        .into_iter()
+                        .map(|output| {
+                            (
+                                output.group_key().canonical_value().clone(),
+                                aggregate_output_to_value(output.output()),
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                })
         })
         .collect()
 }

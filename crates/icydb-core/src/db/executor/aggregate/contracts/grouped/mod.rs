@@ -7,7 +7,10 @@ mod context;
 mod engine;
 
 pub(in crate::db::executor) use context::{ExecutionConfig, ExecutionContext};
-pub(in crate::db::executor) use engine::AggregateEngine;
+pub(in crate::db::executor) use engine::{
+    AggregateEngine, AggregateExecutionMode, AggregateExecutionSpec, AggregateFinalizeAdapter,
+    AggregateIngestAdapter,
+};
 
 #[cfg(test)]
 pub(in crate::db::executor) use engine::GroupedAggregateOutput;

@@ -23,6 +23,48 @@ pub(in crate::db::executor) trait OrderedKeyStream {
     }
 }
 
+///
+/// KeyStreamLoopControl
+///
+/// Shared key-stream control-flow contract used by executor runners that
+/// coordinate stream prefetch and per-key handling phases.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) enum KeyStreamLoopControl {
+    Skip,
+    Emit,
+    Stop,
+}
+
+// Shared key-stream driver used by scalar and grouped aggregate runners.
+// Callers inject pre-fetch and per-key callbacks so stream control flow is
+// centralized without coupling to lane-specific semantics.
+pub(in crate::db::executor) fn drive_key_stream_with_control_flow(
+    key_stream: &mut dyn OrderedKeyStream,
+    pre_fetch: &mut dyn FnMut() -> KeyStreamLoopControl,
+    on_key: &mut dyn FnMut(DataKey) -> Result<KeyStreamLoopControl, InternalError>,
+) -> Result<(), InternalError> {
+    loop {
+        match pre_fetch() {
+            KeyStreamLoopControl::Skip => continue,
+            KeyStreamLoopControl::Emit => {}
+            KeyStreamLoopControl::Stop => break,
+        }
+
+        let Some(key) = key_stream.next_key()? else {
+            break;
+        };
+
+        match on_key(key)? {
+            KeyStreamLoopControl::Skip | KeyStreamLoopControl::Emit => {}
+            KeyStreamLoopControl::Stop => break,
+        }
+    }
+
+    Ok(())
+}
+
 pub(in crate::db::executor) type OrderedKeyStreamBox = Box<dyn OrderedKeyStream>;
 
 impl<T> OrderedKeyStream for Box<T>

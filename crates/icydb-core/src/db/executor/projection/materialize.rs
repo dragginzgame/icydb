@@ -6,13 +6,11 @@
 use crate::{
     db::{
         executor::{ExecutablePlan, pipeline::contracts::LoadExecutor},
-        query::plan::{
-            AccessPlannedQuery,
-            expr::{Expr, ProjectionField, ProjectionSpec},
-        },
+        query::plan::expr::{Expr, ProjectionField, ProjectionSpec},
         response::{ProjectedRow, ProjectionResponse},
     },
     error::InternalError,
+    model::entity::EntityModel,
     traits::{EntityKind, EntityValue},
     types::Id,
     value::Value,
@@ -22,62 +20,6 @@ use crate::db::executor::projection::{
     eval::{ProjectionEvalError, eval_expr_grouped, eval_expr_with_slot_reader},
     grouped::GroupedRowView,
 };
-
-// Planner-owned projection strategy selected once before scalar row traversal.
-// Keeps load execution materialization as a strategy call instead of policy
-// branching at call sites.
-enum ScalarProjectionExecutionStrategy<'a> {
-    Identity,
-    Materialized(&'a ProjectionSpec),
-}
-
-impl<'a> ScalarProjectionExecutionStrategy<'a> {
-    fn for_projection<E>(projection: &'a ProjectionSpec) -> Self
-    where
-        E: EntityKind,
-    {
-        if projection_is_model_identity::<E>(projection) {
-            Self::Identity
-        } else {
-            Self::Materialized(projection)
-        }
-    }
-
-    fn materialize_rows<E>(
-        self,
-        rows: &[(Id<E>, E)],
-    ) -> Result<Option<Vec<ProjectedRow<E>>>, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
-        match self {
-            Self::Identity => Ok(None),
-            Self::Materialized(projection) => {
-                let projected = project_rows_from_projection::<E>(projection, rows)
-                    .map_err(|err| crate::db::error::query_invalid_logical_plan(err.to_string()))?;
-                Ok(Some(projected))
-            }
-        }
-    }
-}
-
-///
-/// ShapePreservingProjection
-///
-/// Marker trait for scalar projection contracts that must preserve one-to-one
-/// row identity and ordering relative to post-access materialized rows.
-///
-
-pub(in crate::db::executor::projection) trait ShapePreservingProjection {
-    /// Borrow canonical planner projection semantics.
-    fn as_projection_spec(&self) -> &ProjectionSpec;
-}
-
-impl ShapePreservingProjection for ProjectionSpec {
-    fn as_projection_spec(&self) -> &ProjectionSpec {
-        self
-    }
-}
 
 impl<E> LoadExecutor<E>
 where
@@ -106,18 +48,36 @@ where
 
         Ok(ProjectionResponse::new(projected))
     }
+}
 
-    /// Evaluate scalar projection semantics over materialized rows when the
-    /// projection is no longer identity (`SELECT *`).
-    pub(in crate::db::executor) fn project_materialized_rows_if_needed(
-        plan: &AccessPlannedQuery<E::Key>,
-        rows: &[(Id<E>, E)],
-    ) -> Result<Option<Vec<ProjectedRow<E>>>, InternalError> {
-        let projection = plan.projection_spec(E::MODEL);
-        let strategy = ScalarProjectionExecutionStrategy::for_projection::<E>(&projection);
-
-        strategy.materialize_rows(rows)
+/// Validate projection expressions over one row-domain that can expose values
+/// by `(row_index, field_slot)` without forcing typed projection materialization.
+pub(in crate::db::executor) fn validate_projection_over_slot_rows(
+    model: &EntityModel,
+    projection: &ProjectionSpec,
+    row_count: usize,
+    read_slot_for_row: &mut dyn FnMut(usize, usize) -> Option<Value>,
+) -> Result<(), InternalError> {
+    if projection_is_model_identity_for_model(model, projection) {
+        return Ok(());
     }
+
+    // Phase 1: evaluate every projection expression against each row.
+    for row_index in 0..row_count {
+        let mut read_slot = |slot| read_slot_for_row(row_index, slot);
+        for field in projection.fields() {
+            match field {
+                ProjectionField::Scalar { expr, .. } => {
+                    let _ =
+                        eval_expr_with_slot_reader(expr, model, &mut read_slot).map_err(|err| {
+                            crate::db::error::query_invalid_logical_plan(err.to_string())
+                        })?;
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Evaluate one grouped projection spec into ordered projected values.
@@ -138,13 +98,12 @@ pub(in crate::db::executor) fn evaluate_grouped_projection_values(
 }
 
 pub(in crate::db::executor::projection) fn project_rows_from_projection<E>(
-    projection: &impl ShapePreservingProjection,
+    projection: &ProjectionSpec,
     rows: &[(Id<E>, E)],
 ) -> Result<Vec<ProjectedRow<E>>, ProjectionEvalError>
 where
     E: EntityKind + EntityValue,
 {
-    let projection = projection.as_projection_spec();
     let mut projected_rows = Vec::with_capacity(rows.len());
     for (id, entity) in rows {
         let mut values = Vec::with_capacity(projection.len());
@@ -162,15 +121,15 @@ where
     Ok(projected_rows)
 }
 
-fn projection_is_model_identity<E>(projection: &ProjectionSpec) -> bool
-where
-    E: EntityKind,
-{
-    if projection.len() != E::MODEL.fields.len() {
+fn projection_is_model_identity_for_model(
+    model: &EntityModel,
+    projection: &ProjectionSpec,
+) -> bool {
+    if projection.len() != model.fields.len() {
         return false;
     }
 
-    for (field_model, projected_field) in E::MODEL.fields.iter().zip(projection.fields()) {
+    for (field_model, projected_field) in model.fields.iter().zip(projection.fields()) {
         match projected_field {
             ProjectionField::Scalar {
                 expr: Expr::Field(field_id),

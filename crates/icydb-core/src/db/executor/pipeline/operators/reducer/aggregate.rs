@@ -5,8 +5,9 @@ use crate::{
         executor::{
             ExecutionKernel, OrderedKeyStream,
             aggregate::{
-                AggregateFoldMode, AggregateKind, AggregateOutput, AggregateState,
-                AggregateStateFactory, FoldControl, TerminalAggregateState,
+                AggregateEngine, AggregateExecutionMode, AggregateExecutionSpec,
+                AggregateFinalizeAdapter, AggregateFoldMode, AggregateIngestAdapter, AggregateKind,
+                AggregateOutput, FoldControl, GroupError,
             },
             pipeline::operators::reducer::contracts::{
                 KernelReducer, ReducerControl, StreamInputMode, StreamItem,
@@ -27,7 +28,8 @@ use crate::{
 ///
 
 struct AggregateStateReducer<E: EntityKind + EntityValue> {
-    state: TerminalAggregateState<E>,
+    engine: AggregateEngine<E>,
+    finalize_adapter: AggregateFinalizeAdapter<E>,
 }
 
 impl<E> AggregateStateReducer<E>
@@ -35,9 +37,12 @@ where
     E: EntityKind + EntityValue,
 {
     // Build one reducer adapter for any scalar aggregate terminal.
-    const fn new(kind: AggregateKind, direction: Direction) -> Self {
+    fn new(kind: AggregateKind, direction: Direction) -> Self {
         Self {
-            state: AggregateStateFactory::create_terminal(kind, direction, false, u64::MAX),
+            engine: AggregateEngine::new_scalar(kind, direction),
+            finalize_adapter: AggregateFinalizeAdapter::from_execution_mode(
+                AggregateExecutionMode::Scalar,
+            ),
         }
     }
 }
@@ -52,7 +57,14 @@ where
     fn on_item(&mut self, item: StreamItem<'_, E>) -> Result<ReducerControl, InternalError> {
         match item {
             StreamItem::Key(key) => {
-                let fold_control = self.state.apply(key)?;
+                let mut ingest_adapter = AggregateIngestAdapter::from_execution_spec(
+                    &mut self.engine,
+                    AggregateExecutionSpec::scalar(),
+                )
+                .map_err(GroupError::into_internal_error)?;
+                let fold_control = ingest_adapter
+                    .ingest(key, None)
+                    .map_err(GroupError::into_internal_error)?;
 
                 Ok(match fold_control {
                     FoldControl::Continue => ReducerControl::Continue,
@@ -66,7 +78,7 @@ where
     }
 
     fn finish(self) -> Result<Self::Output, InternalError> {
-        Ok(self.state.finalize())
+        self.finalize_adapter.finalize(self.engine)?.into_scalar()
     }
 }
 

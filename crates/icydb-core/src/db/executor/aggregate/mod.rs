@@ -43,9 +43,9 @@ use crate::{
 };
 
 pub(in crate::db::executor) use contracts::{
-    AggregateEngine, AggregateFoldMode, AggregateKind, AggregateOutput, AggregateState,
-    AggregateStateFactory, ExecutionConfig, ExecutionContext, FoldControl, GroupError,
-    TerminalAggregateState,
+    AggregateEngine, AggregateExecutionMode, AggregateExecutionSpec, AggregateFinalizeAdapter,
+    AggregateFoldMode, AggregateIngestAdapter, AggregateKind, AggregateOutput, ExecutionConfig,
+    ExecutionContext, FoldControl, GroupError,
 };
 pub(in crate::db::executor) use execution::{
     AggregateExecutionDescriptor, AggregateFastPathInputs, PreparedAggregateStreamingInputs,
@@ -305,16 +305,25 @@ impl ExecutionKernel {
         // MIN/MAX remain globally correct over the full response window.
         let direction = aggregate_materialized_fold_direction(kind);
         let mut engine = AggregateEngine::new_scalar(kind, direction);
+        let finalize_adapter =
+            AggregateFinalizeAdapter::from_execution_mode(AggregateExecutionMode::Scalar);
+        let mut ingest_adapter = AggregateIngestAdapter::from_execution_spec(
+            &mut engine,
+            AggregateExecutionSpec::scalar(),
+        )
+        .map_err(GroupError::into_internal_error)?;
         for row in response {
             let id = row.id();
             let data_key = DataKey::try_new::<E>(id.key())?;
-            let fold_control = engine.ingest_scalar(&data_key)?;
+            let fold_control = ingest_adapter
+                .ingest(&data_key, None)
+                .map_err(GroupError::into_internal_error)?;
             if matches!(fold_control, FoldControl::Break) {
                 break;
             }
         }
 
-        engine.finalize_scalar()
+        finalize_adapter.finalize(engine)?.into_scalar()
     }
     // Execute one scalar terminal aggregate stage through kernel-owned
     // orchestration while preserving route-owned execution-mode and fast-path

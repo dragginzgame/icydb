@@ -15,11 +15,12 @@ use crate::{
             BudgetedOrderedKeyStream, ExecutionKernel, OrderedKeyStream,
             ScalarContinuationBindings, compute_page_keep_count,
             pipeline::contracts::{CursorPage, LoadExecutor, PageCursor},
+            projection::validate_projection_over_slot_rows,
             route::access_order_satisfied_by_route_contract_for_model,
         },
         predicate::{MissingRowPolicy, PredicateProgram},
         query::plan::{AccessPlannedQuery, OrderDirection, OrderSpec},
-        response::{EntityResponse, ProjectedRow},
+        response::EntityResponse,
     },
     error::InternalError,
     model::entity::{EntityModel, resolve_field_slot},
@@ -170,7 +171,16 @@ where
             predicate_preapplied,
         )?;
 
-        // Phase 2: convert kernel rows back to typed rows at the boundary.
+        // Phase 2: validate projection semantics against kernel rows before
+        // typed response emission.
+        validate_projection_over_slot_rows(
+            E::MODEL,
+            &plan.projection_spec(E::MODEL),
+            rows.len(),
+            &mut |row_index, slot| rows[row_index].slot(slot),
+        )?;
+
+        // Phase 3: convert kernel rows back to typed rows at the boundary.
         let mut typed_rows = Self::decode_kernel_rows(std::mem::take(rows))?;
         let next_cursor = next_cursor_for_materialized_rows(
             &plan.access,
@@ -185,10 +195,7 @@ where
         )?
         .map(PageCursor::Scalar);
 
-        // Phase 3: preserve projection alignment invariants before response emission.
-        let projected_rows =
-            Self::project_materialized_rows_if_needed(plan, typed_rows.as_slice())?;
-        Self::validate_projection_alignment(typed_rows.as_slice(), projected_rows.as_deref())?;
+        // Phase 4: emit typed response rows.
         let items = EntityResponse::from_rows(std::mem::take(&mut typed_rows));
 
         Ok(CursorPage { items, next_cursor })
@@ -200,34 +207,6 @@ where
         let data_rows = rows.into_iter().map(|row| row.data_row).collect::<Vec<_>>();
 
         Context::deserialize_rows(data_rows)
-    }
-
-    // Projection materialization must remain a pure row-wise mapping over the
-    // already-ordered post-access row domain. Any cardinality/id drift can
-    // corrupt continuation semantics, so fail closed on mismatches.
-    pub(in crate::db::executor) fn validate_projection_alignment(
-        rows: &[(crate::types::Id<E>, E)],
-        projected_rows: Option<&[ProjectedRow<E>]>,
-    ) -> Result<(), InternalError> {
-        let Some(projected_rows) = projected_rows else {
-            return Ok(());
-        };
-
-        if projected_rows.len() != rows.len() {
-            return Err(crate::db::error::query_executor_invariant(
-                "projection materialization cardinality mismatch against post-access rows",
-            ));
-        }
-
-        for ((row_id, _), projected_row) in rows.iter().zip(projected_rows.iter()) {
-            if projected_row.id() != *row_id {
-                return Err(crate::db::error::query_executor_invariant(
-                    "projection materialization id alignment mismatch against post-access rows",
-                ));
-            }
-        }
-
-        Ok(())
     }
 }
 

@@ -7,7 +7,10 @@ use crate::{
     db::{
         executor::{
             aggregate::{
-                ExecutionContext, runtime::grouped_distinct::GlobalDistinctFieldAggregateKind,
+                ExecutionContext,
+                runtime::grouped_distinct::{
+                    GlobalDistinctFieldExecutionSpec, global_distinct_field_execution_spec,
+                },
                 runtime::grouped_output::project_grouped_rows_from_projection,
             },
             pipeline::contracts::{
@@ -15,7 +18,7 @@ use crate::{
                 GroupedStreamStage, LoadExecutor,
             },
         },
-        query::plan::{GroupedDistinctExecutionStrategy, expr::ProjectionSpec},
+        query::plan::expr::ProjectionSpec,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -37,18 +40,12 @@ where
     where
         R: GroupedRouteStageProjection<E>,
     {
-        let (aggregate_kind, target_field) = match route.grouped_distinct_execution_strategy() {
-            GroupedDistinctExecutionStrategy::None => return Ok(None),
-            GroupedDistinctExecutionStrategy::GlobalDistinctFieldCount { target_field } => (
-                GlobalDistinctFieldAggregateKind::Count,
-                target_field.as_str(),
-            ),
-            GroupedDistinctExecutionStrategy::GlobalDistinctFieldSum { target_field } => {
-                (GlobalDistinctFieldAggregateKind::Sum, target_field.as_str())
-            }
-            GroupedDistinctExecutionStrategy::GlobalDistinctFieldAvg { target_field } => {
-                (GlobalDistinctFieldAggregateKind::Avg, target_field.as_str())
-            }
+        let Some(GlobalDistinctFieldExecutionSpec {
+            aggregate_kind,
+            target_field,
+        }) = global_distinct_field_execution_spec(route.grouped_distinct_execution_strategy())
+        else {
+            return Ok(None);
         };
         let (ctx, execution_preparation, resolved) = stream.parts_mut();
         let compiled_predicate = execution_preparation.compiled_predicate();

@@ -11,8 +11,12 @@ use crate::{
         contracts::canonical_value_compare,
         data::{DataKey, DataRow, RawRow},
         executor::{
-            OrderedKeyStream,
-            aggregate::{AggregateEngine, ExecutionContext, FoldControl},
+            KeyStreamLoopControl, OrderedKeyStream,
+            aggregate::{
+                AggregateEngine, AggregateExecutionSpec, AggregateIngestAdapter, ExecutionContext,
+                FoldControl,
+            },
+            drive_key_stream_with_control_flow,
             group::{CanonicalKey, GroupKey, KeyCanonicalError},
             pipeline::contracts::{GroupedRouteStageProjection, GroupedStreamStage, LoadExecutor},
         },
@@ -95,12 +99,13 @@ where
                             grouped_engines.len()
                         )));
                     };
-                    let fold_control = engine
-                        .ingest_grouped(
-                            input.group_key.clone(),
-                            &input.data_key,
-                            grouped_execution_context,
-                        )
+                    let mut ingest_adapter = AggregateIngestAdapter::from_execution_spec(
+                        engine,
+                        AggregateExecutionSpec::grouped(grouped_execution_context),
+                    )
+                    .map_err(Self::map_group_error)?;
+                    let fold_control = ingest_adapter
+                        .ingest(&input.data_key, Some(input.group_key.clone()))
                         .map_err(Self::map_group_error)?;
 
                     Ok(matches!(fold_control, FoldControl::Break))
@@ -153,21 +158,27 @@ fn ingest_grouped_rows_loop_dyn(
     let mut scanned_rows = 0usize;
     let mut filtered_rows = 0usize;
 
-    while let Some(key) = key_stream.next_key()? {
-        let Some(raw_row) = read_row_for_key(&key)? else {
-            continue;
-        };
-        scanned_rows = scanned_rows.saturating_add(1);
+    drive_key_stream_with_control_flow(
+        key_stream,
+        &mut || KeyStreamLoopControl::Emit,
+        &mut |key| {
+            let Some(raw_row) = read_row_for_key(&key)? else {
+                return Ok(KeyStreamLoopControl::Emit);
+            };
+            scanned_rows = scanned_rows.saturating_add(1);
 
-        // Phase 2: decode/filter rows into grouped-ingest payloads.
-        let Some(input) = decode_grouped_fold_input((key, raw_row))? else {
-            continue;
-        };
-        filtered_rows = filtered_rows.saturating_add(1);
+            // Phase 2: decode/filter rows into grouped-ingest payloads.
+            let Some(input) = decode_grouped_fold_input((key, raw_row))? else {
+                return Ok(KeyStreamLoopControl::Emit);
+            };
+            filtered_rows = filtered_rows.saturating_add(1);
 
-        // Phase 3: apply grouped reducer ingestion and short-circuit tracking.
-        ingest_grouped_fold_input(&input)?;
-    }
+            // Phase 3: apply grouped reducer ingestion and short-circuit tracking.
+            ingest_grouped_fold_input(&input)?;
+
+            Ok(KeyStreamLoopControl::Emit)
+        },
+    )?;
 
     Ok((scanned_rows, filtered_rows))
 }

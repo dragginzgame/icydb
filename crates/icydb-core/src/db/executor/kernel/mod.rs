@@ -6,7 +6,7 @@
 use crate::{
     db::{
         executor::{
-            ExecutionOptimization, ExecutionPlan, ScalarContinuationBindings,
+            ExecutionPlan, ScalarContinuationBindings,
             pipeline::contracts::{
                 CursorPage, ExecutionInputsProjection, LoadExecutor, MaterializedExecutionAttempt,
                 ResolvedExecutionKeyStream,
@@ -20,7 +20,6 @@ use crate::{
     error::InternalError,
     traits::{EntityKind, EntityValue},
 };
-use std::any::Any;
 
 ///
 /// ExecutionKernel
@@ -29,86 +28,6 @@ use std::any::Any;
 ///
 
 pub(in crate::db::executor) struct ExecutionKernel;
-
-///
-/// DynMaterializedExecutionAttempt
-///
-/// Erased scalar materialization payload used by shared retry control flow.
-/// Typed wrappers convert to/from `CursorPage<E>` so retry orchestration can
-/// stay non-generic while decode/materialization remain typed.
-///
-
-struct DynMaterializedExecutionAttempt {
-    page: Box<dyn Any>,
-    rows_scanned: usize,
-    post_access_rows: usize,
-    optimization: Option<ExecutionOptimization>,
-    index_predicate_applied: bool,
-    index_predicate_keys_rejected: u64,
-    distinct_keys_deduped: u64,
-}
-
-impl DynMaterializedExecutionAttempt {
-    // Build one erased attempt from typed materialization payloads.
-    fn from_typed<E: EntityKind + EntityValue>(
-        page: CursorPage<E>,
-        rows_scanned: usize,
-        post_access_rows: usize,
-        optimization: Option<ExecutionOptimization>,
-        index_predicate_applied: bool,
-        index_predicate_keys_rejected: u64,
-        distinct_keys_deduped: u64,
-    ) -> Self {
-        Self {
-            page: Box::new(page),
-            rows_scanned,
-            post_access_rows,
-            optimization,
-            index_predicate_applied,
-            index_predicate_keys_rejected,
-            distinct_keys_deduped,
-        }
-    }
-
-    // Convert one erased attempt back into typed load materialization payloads.
-    fn into_typed<E: EntityKind + EntityValue>(
-        self,
-    ) -> Result<MaterializedExecutionAttempt<E>, InternalError> {
-        let page = self.page.downcast::<CursorPage<E>>().map_err(|_| {
-            crate::db::error::query_executor_invariant(
-                "dynamic scalar materialization page downcast failed",
-            )
-        })?;
-
-        Ok(MaterializedExecutionAttempt {
-            page: *page,
-            rows_scanned: self.rows_scanned,
-            post_access_rows: self.post_access_rows,
-            optimization: self.optimization,
-            index_predicate_applied: self.index_predicate_applied,
-            index_predicate_keys_rejected: self.index_predicate_keys_rejected,
-            distinct_keys_deduped: self.distinct_keys_deduped,
-        })
-    }
-
-    // Merge probe and fallback attempts under canonical residual-retry accounting.
-    fn merge_probe_with_fallback(mut self, fallback: Self) -> Self {
-        self.rows_scanned = self.rows_scanned.saturating_add(fallback.rows_scanned);
-        self.optimization = fallback.optimization;
-        self.index_predicate_applied =
-            self.index_predicate_applied || fallback.index_predicate_applied;
-        self.index_predicate_keys_rejected = self
-            .index_predicate_keys_rejected
-            .saturating_add(fallback.index_predicate_keys_rejected);
-        self.distinct_keys_deduped = self
-            .distinct_keys_deduped
-            .saturating_add(fallback.distinct_keys_deduped);
-        self.page = fallback.page;
-        self.post_access_rows = fallback.post_access_rows;
-
-        self
-    }
-}
 
 impl ExecutionKernel {
     /// Resolve one execution key stream under kernel-owned DISTINCT decoration.
@@ -146,16 +65,16 @@ impl ExecutionKernel {
         I: ExecutionInputsProjection<E>,
     {
         // Phase 1: inject typed route-attempt and retry-gate callbacks into
-        // the shared dynamic retry orchestration boundary.
+        // the shared retry orchestration boundary.
         let mut materialize_route_attempt = |candidate_route_plan: &ExecutionPlan| {
-            Self::materialize_route_attempt_dyn::<E, I>(
+            Self::materialize_route_attempt::<E, I>(
                 inputs,
                 candidate_route_plan,
                 continuation,
                 predicate_compile_mode,
             )
         };
-        let mut retry_required_for_probe = |probe_attempt: &DynMaterializedExecutionAttempt| {
+        let mut retry_required_for_probe = |probe_attempt: &MaterializedExecutionAttempt<E>| {
             Self::index_range_limited_residual_retry_required(
                 inputs.plan(),
                 continuation,
@@ -164,24 +83,20 @@ impl ExecutionKernel {
                 probe_attempt.post_access_rows,
             )
         };
-        let attempt = Self::materialize_with_optional_residual_retry_control_flow(
+        Self::materialize_with_optional_residual_retry_control_flow(
             route_plan,
             &mut materialize_route_attempt,
             &mut retry_required_for_probe,
-        )?;
-
-        // Phase 2: project the erased attempt back to typed response payloads.
-        attempt.into_typed::<E>()
+        )
     }
 
-    // Materialize one typed attempt for a specific route-plan candidate and
-    // return an erased payload for shared retry orchestration.
-    fn materialize_route_attempt_dyn<E, I>(
+    // Materialize one typed attempt for a specific route-plan candidate.
+    fn materialize_route_attempt<E, I>(
         inputs: &I,
         route_plan: &ExecutionPlan,
         continuation: ScalarContinuationBindings<'_>,
         predicate_compile_mode: IndexCompilePolicy,
-    ) -> Result<DynMaterializedExecutionAttempt, InternalError>
+    ) -> Result<MaterializedExecutionAttempt<E>, InternalError>
     where
         E: EntityKind + EntityValue,
         I: ExecutionInputsProjection<E>,
@@ -196,30 +111,56 @@ impl ExecutionKernel {
         )?;
         let rows_scanned = resolved.rows_scanned_override().unwrap_or(keys_scanned);
 
-        Ok(DynMaterializedExecutionAttempt::from_typed(
+        Ok(MaterializedExecutionAttempt {
             page,
             rows_scanned,
             post_access_rows,
-            resolved.optimization(),
-            resolved.index_predicate_applied(),
-            resolved.index_predicate_keys_rejected(),
-            resolved.distinct_keys_deduped(),
-        ))
+            optimization: resolved.optimization(),
+            index_predicate_applied: resolved.index_predicate_applied(),
+            index_predicate_keys_rejected: resolved.index_predicate_keys_rejected(),
+            distinct_keys_deduped: resolved.distinct_keys_deduped(),
+        })
     }
 
-    // Shared non-generic residual-retry orchestrator for scalar load
-    // materialization attempts.
-    fn materialize_with_optional_residual_retry_dyn(
+    // Merge probe and fallback attempts under canonical residual-retry accounting.
+    fn merge_probe_with_fallback<E: EntityKind>(
+        mut probe_attempt: MaterializedExecutionAttempt<E>,
+        fallback_attempt: MaterializedExecutionAttempt<E>,
+    ) -> MaterializedExecutionAttempt<E> {
+        probe_attempt.rows_scanned = probe_attempt
+            .rows_scanned
+            .saturating_add(fallback_attempt.rows_scanned);
+        probe_attempt.optimization = fallback_attempt.optimization;
+        probe_attempt.index_predicate_applied =
+            probe_attempt.index_predicate_applied || fallback_attempt.index_predicate_applied;
+        probe_attempt.index_predicate_keys_rejected = probe_attempt
+            .index_predicate_keys_rejected
+            .saturating_add(fallback_attempt.index_predicate_keys_rejected);
+        probe_attempt.distinct_keys_deduped = probe_attempt
+            .distinct_keys_deduped
+            .saturating_add(fallback_attempt.distinct_keys_deduped);
+        probe_attempt.page = fallback_attempt.page;
+        probe_attempt.post_access_rows = fallback_attempt.post_access_rows;
+
+        probe_attempt
+    }
+
+    // Shared residual-retry orchestrator for scalar load materialization
+    // attempts over typed payloads.
+    fn materialize_with_optional_residual_retry_typed<E>(
         route_plan: &ExecutionPlan,
-        probe_attempt: DynMaterializedExecutionAttempt,
+        probe_attempt: MaterializedExecutionAttempt<E>,
         retry_required: bool,
         materialize_route_attempt: &mut dyn FnMut(
             &ExecutionPlan,
         ) -> Result<
-            DynMaterializedExecutionAttempt,
+            MaterializedExecutionAttempt<E>,
             InternalError,
         >,
-    ) -> Result<DynMaterializedExecutionAttempt, InternalError> {
+    ) -> Result<MaterializedExecutionAttempt<E>, InternalError>
+    where
+        E: EntityKind,
+    {
         if !retry_required {
             return Ok(probe_attempt);
         }
@@ -228,28 +169,34 @@ impl ExecutionKernel {
         fallback_route_plan.index_range_limit_spec = None;
         let fallback_attempt = materialize_route_attempt(&fallback_route_plan)?;
 
-        Ok(probe_attempt.merge_probe_with_fallback(fallback_attempt))
+        Ok(Self::merge_probe_with_fallback(
+            probe_attempt,
+            fallback_attempt,
+        ))
     }
 
     // Shared retry control flow for routed materialization attempts.
     // Probe/fallback materialization and retry gating are callback-injected so
-    // this orchestration body can stay non-generic.
-    fn materialize_with_optional_residual_retry_control_flow(
+    // this orchestration body stays isolated from route-resolution details.
+    fn materialize_with_optional_residual_retry_control_flow<E>(
         route_plan: &ExecutionPlan,
         materialize_route_attempt: &mut dyn FnMut(
             &ExecutionPlan,
         ) -> Result<
-            DynMaterializedExecutionAttempt,
+            MaterializedExecutionAttempt<E>,
             InternalError,
         >,
-        retry_required_for_probe: &mut dyn FnMut(&DynMaterializedExecutionAttempt) -> bool,
-    ) -> Result<DynMaterializedExecutionAttempt, InternalError> {
+        retry_required_for_probe: &mut dyn FnMut(&MaterializedExecutionAttempt<E>) -> bool,
+    ) -> Result<MaterializedExecutionAttempt<E>, InternalError>
+    where
+        E: EntityKind,
+    {
         // Phase 1: materialize one probe attempt for the routed plan.
         let probe_attempt = materialize_route_attempt(route_plan)?;
         let retry_required = retry_required_for_probe(&probe_attempt);
 
         // Phase 2: apply canonical fallback control flow when retry is required.
-        Self::materialize_with_optional_residual_retry_dyn(
+        Self::materialize_with_optional_residual_retry_typed(
             route_plan,
             probe_attempt,
             retry_required,
