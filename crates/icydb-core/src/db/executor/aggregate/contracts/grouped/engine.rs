@@ -314,7 +314,7 @@ impl GlobalDistinctFieldState {
     }
 
     fn apply_numeric_dispatch(
-        state: &mut GlobalDistinctFieldState,
+        state: &mut Self,
         numeric_value: Option<Decimal>,
     ) -> Result<FoldControl, GroupError> {
         state.distinct_count = state.distinct_count.saturating_add(1);

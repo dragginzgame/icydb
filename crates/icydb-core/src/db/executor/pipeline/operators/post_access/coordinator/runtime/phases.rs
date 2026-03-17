@@ -52,11 +52,11 @@ impl<K> PostAccessPlan<'_, K> {
         // Phase 1: bind delete row operators once and delegate execution order
         // to the shared delete-only post-access control-flow helper.
         let mut apply_filter_phase = || {
-            let rows = &mut *rows.borrow_mut();
+            let rows = &mut **rows.borrow_mut();
             self.apply_filter_phase::<E, R>(rows, compiled_predicate, false)
         };
         let mut apply_order_phase = |filtered| {
-            let rows = &mut *rows.borrow_mut();
+            let rows = &mut **rows.borrow_mut();
             apply_post_access_order_phase::<E, R, K>(
                 self.contract.plan(),
                 self.contract.order_spec(),
@@ -67,7 +67,7 @@ impl<K> PostAccessPlan<'_, K> {
             )
         };
         let mut apply_delete_limit_phase = |ordered| {
-            let rows = &mut *rows.borrow_mut();
+            let rows = &mut **rows.borrow_mut();
             apply_post_access_delete_limit_phase(
                 self.contract.mode(),
                 self.contract.order_spec(),

@@ -10,7 +10,12 @@ mod atomic;
 mod view;
 mod visitor;
 
-use crate::{prelude::*, types::Id, value::ValueEnum, visitor::VisitorContext};
+use crate::{
+    prelude::*,
+    types::{EntityTag, Id},
+    value::ValueEnum,
+    visitor::VisitorContext,
+};
 
 pub use atomic::*;
 pub use view::*;
@@ -191,7 +196,9 @@ pub trait EntityPlacement {
 /// required by code that actually touches storage or execution.
 ///
 
-pub trait EntityKind: EntitySchema + EntityPlacement + Kind + TypeKind {}
+pub trait EntityKind: EntitySchema + EntityPlacement + Kind + TypeKind {
+    const ENTITY_TAG: EntityTag;
+}
 
 // ============================================================================
 // ENTITY VALUES

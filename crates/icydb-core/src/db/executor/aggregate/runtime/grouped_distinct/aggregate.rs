@@ -110,7 +110,7 @@ impl<'a> GlobalDistinctFieldAggregateDispatcher<'a> {
     where
         E: EntityKind + EntityValue,
     {
-        if let GlobalDistinctFieldReducerMode::Numeric = self.mode {
+        if matches!(self.mode, GlobalDistinctFieldReducerMode::Numeric) {
             return extract_numeric_field_decimal(entity, self.target_field, self.field_slot)
                 .map(Some)
                 .map_err(AggregateFieldValueError::into_internal_error);

@@ -357,7 +357,10 @@ macro_rules! test_entity_schema {
             type Canister = $canister_ty;
         }
 
-        impl $crate::traits::EntityKind for $entity {}
+        impl $crate::traits::EntityKind for $entity {
+            const ENTITY_TAG: $crate::types::EntityTag =
+                $crate::types::EntityTag::from_entity_name($entity_name);
+        }
     };
     (
         ident = $entity:ident,

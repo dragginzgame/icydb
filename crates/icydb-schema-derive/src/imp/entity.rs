@@ -23,6 +23,7 @@ impl Imp<Entity> for EntityKindTrait {
             .name
             .as_ref()
             .map_or_else(|| node.def.ident().to_string(), LitStr::value);
+        let entity_tag = entity_tag_for_name(&resolved_entity_name);
 
         let entity_name = if let Some(name) = &node.name {
             quote!(#name)
@@ -76,7 +77,10 @@ impl Imp<Entity> for EntityKindTrait {
             .to_token_stream();
 
         let kind_tokens = Implementor::new(&node.def, TraitKind::EntityKind)
-            .set_tokens(quote! {})
+            .set_tokens(quote! {
+                const ENTITY_TAG: ::icydb::types::EntityTag =
+                    ::icydb::types::EntityTag(#entity_tag);
+            })
             .to_token_stream();
 
         let mut tokens = TokenStream::new();
@@ -125,6 +129,19 @@ impl Imp<Entity> for EntityKindTrait {
 
         Some(TraitStrategy::from_impl(tokens))
     }
+}
+
+fn entity_tag_for_name(name: &str) -> u64 {
+    const FNV1A_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+    const FNV1A_PRIME: u64 = 0x0000_0100_0000_01b3;
+
+    let mut hash = FNV1A_OFFSET_BASIS;
+    for byte in name.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(FNV1A_PRIME);
+    }
+
+    hash
 }
 
 fn relation_key_type_assertions(node: &Entity) -> Vec<TokenStream> {

@@ -84,7 +84,6 @@ where
 
 // Execute grouped candidate row selection/alignment over finalized aggregate
 // iterators without any entity-typed runtime dependencies.
-#[expect(clippy::too_many_arguments)]
 fn collect_grouped_candidate_rows_from_finalized(
     aggregate_count: usize,
     group_fields: &[FieldSlot],

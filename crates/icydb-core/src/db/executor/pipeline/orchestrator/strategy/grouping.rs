@@ -91,7 +91,7 @@ struct KernelOps {
 
 impl KernelOps {
     // Build lane operations for scalar execution.
-    fn scalar(execute_scalar: KernelOp) -> Self {
+    const fn scalar(execute_scalar: KernelOp) -> Self {
         Self {
             execute_scalar: Some(execute_scalar),
             execute_grouped: None,
@@ -99,7 +99,7 @@ impl KernelOps {
     }
 
     // Build lane operations for grouped execution.
-    fn grouped(execute_grouped: KernelOp) -> Self {
+    const fn grouped(execute_grouped: KernelOp) -> Self {
         Self {
             execute_scalar: None,
             execute_grouped: Some(execute_grouped),
@@ -121,7 +121,7 @@ struct ExecutionSpec {
 
 impl ExecutionSpec {
     // Build one scalar execution descriptor.
-    fn scalar(execute_scalar: KernelOp) -> Self {
+    const fn scalar(execute_scalar: KernelOp) -> Self {
         Self {
             mode: ExecutionLane::Scalar,
             ops: KernelOps::scalar(execute_scalar),
@@ -129,7 +129,7 @@ impl ExecutionSpec {
     }
 
     // Build one grouped execution descriptor.
-    fn grouped(execute_grouped: KernelOp) -> Self {
+    const fn grouped(execute_grouped: KernelOp) -> Self {
         Self {
             mode: ExecutionLane::Grouped,
             ops: KernelOps::grouped(execute_grouped),
