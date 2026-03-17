@@ -11,11 +11,13 @@ use crate::{
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess, ExecutablePlan,
             ExecutionKernel, ExecutionOptimizationCounter, ExecutionPreparation,
+            KeyStreamLoopControl,
             aggregate::aggregate_window_is_provably_empty,
             aggregate::field::{
                 FieldSlot, extract_numeric_field_decimal,
                 resolve_numeric_aggregate_target_slot_from_planner_slot,
             },
+            drive_key_stream_with_control_flow,
             pipeline::contracts::LoadExecutor,
             plan_metrics::record_rows_scanned,
             validate_executor_plan,
@@ -28,6 +30,7 @@ use crate::{
     traits::{EntityKind, EntityValue},
     types::Decimal,
 };
+use std::cell::RefCell;
 
 ///
 /// NumericFieldAggregateKind
@@ -202,9 +205,9 @@ where
         let logical_plan = plan.into_inner();
         validate_executor_plan::<E>(&logical_plan)?;
         let execution_preparation = ExecutionPreparation::for_plan::<E>(&logical_plan);
-        let mut continuation = ContinuationRuntime::from_window(
+        let continuation = RefCell::new(ContinuationRuntime::from_window(
             ExecutionKernel::window_cursor_contract(&logical_plan, None),
-        );
+        ));
 
         // Phase 2: resolve the canonical ordered key stream from access descriptors.
         let index_predicate_execution = execution_preparation.strict_mode().map(|program| {
@@ -232,30 +235,30 @@ where
         // Phase 3: stream-fold numeric values directly from row reads.
         let mut rows_scanned = 0usize;
         let mut accumulator = NumericAggregateAccumulator::new();
-        loop {
-            match continuation.pre_fetch() {
-                LoopAction::Skip => continue,
-                LoopAction::Emit => {}
-                LoopAction::Stop => break,
-            }
+        drive_key_stream_with_control_flow(
+            key_stream.as_mut(),
+            &mut || {
+                Self::loop_control_from_continuation_action(continuation.borrow_mut().pre_fetch())
+            },
+            &mut |data_key| {
+                let Some(entity) =
+                    Self::read_entity_for_field_extrema(&ctx, consistency, &data_key)?
+                else {
+                    return Ok(KeyStreamLoopControl::Emit);
+                };
+                rows_scanned = rows_scanned.saturating_add(1);
+                match continuation.borrow_mut().accept_row() {
+                    LoopAction::Skip => return Ok(KeyStreamLoopControl::Skip),
+                    LoopAction::Emit => {}
+                    LoopAction::Stop => return Ok(KeyStreamLoopControl::Stop),
+                }
+                let value = extract_numeric_field_decimal(&entity, target_field, field_slot)
+                    .map_err(Self::map_aggregate_field_value_error)?;
+                accumulator.add(value);
 
-            let Some(data_key) = key_stream.next_key()? else {
-                break;
-            };
-            let Some(entity) = Self::read_entity_for_field_extrema(&ctx, consistency, &data_key)?
-            else {
-                continue;
-            };
-            rows_scanned = rows_scanned.saturating_add(1);
-            match continuation.accept_row() {
-                LoopAction::Skip => continue,
-                LoopAction::Emit => {}
-                LoopAction::Stop => break,
-            }
-            let value = extract_numeric_field_decimal(&entity, target_field, field_slot)
-                .map_err(Self::map_aggregate_field_value_error)?;
-            accumulator.add(value);
-        }
+                Ok(KeyStreamLoopControl::Emit)
+            },
+        )?;
         record_rows_scanned::<E>(rows_scanned);
 
         // Phase 4: finish SUM/AVG output with shared numeric arithmetic semantics.
@@ -264,6 +267,14 @@ where
 
     fn aggregate_numeric_stream_direction(plan: &ExecutablePlan<E>) -> Direction {
         ExecutionOrderContract::from_plan(false, plan.order_spec()).primary_scan_direction()
+    }
+
+    const fn loop_control_from_continuation_action(action: LoopAction) -> KeyStreamLoopControl {
+        match action {
+            LoopAction::Skip => KeyStreamLoopControl::Skip,
+            LoopAction::Emit => KeyStreamLoopControl::Emit,
+            LoopAction::Stop => KeyStreamLoopControl::Stop,
+        }
     }
 }
 

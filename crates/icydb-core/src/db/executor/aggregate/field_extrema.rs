@@ -9,13 +9,14 @@ use crate::{
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutablePlan, ExecutionKernel,
-            ExecutionPlan, ExecutionPreparation,
+            ExecutionPlan, ExecutionPreparation, KeyStreamLoopControl,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, apply_aggregate_direction,
                 compare_entities_by_orderable_field, compare_entities_for_field_extrema,
                 resolve_orderable_aggregate_target_slot,
             },
             aggregate::{AggregateKind, AggregateOutput, PreparedAggregateStreamingInputs},
+            drive_key_stream_with_control_flow,
             pipeline::contracts::{ExecutionInputs, LoadExecutor},
             plan_metrics::record_rows_scanned,
             route::aggregate_extrema_direction,
@@ -261,52 +262,60 @@ where
         let mut keys_scanned = 0usize;
         let mut selected: Option<(Id<E>, E)> = None;
 
-        while let Some(data_key) = key_stream.next_key()? {
-            keys_scanned = keys_scanned.saturating_add(1);
-            let Some(entity) = Self::read_entity_for_field_extrema(ctx, consistency, &data_key)?
-            else {
-                continue;
-            };
-            let id = Id::from_key(data_key.try_key::<E>()?);
-            let selected_was_empty = selected.is_none();
-            let candidate_replaces = match selected.as_ref() {
-                Some((_, current)) => {
-                    compare_entities_for_field_extrema(
-                        &entity,
-                        current,
-                        target_field,
-                        field_slot,
-                        direction,
-                    )
-                    .map_err(AggregateFieldValueError::into_internal_error)?
-                        == Ordering::Less
-                }
-                None => true,
-            };
-            if candidate_replaces {
-                selected = Some((id, entity));
-                if selected_was_empty && matches!(kind, AggregateKind::Min) {
-                    // MIN(field) under ascending index-leading traversal is resolved
-                    // by the first in-window existing row.
-                    break;
-                }
-                continue;
-            }
+        drive_key_stream_with_control_flow(
+            key_stream,
+            &mut || KeyStreamLoopControl::Emit,
+            &mut |data_key| {
+                keys_scanned = keys_scanned.saturating_add(1);
+                let Some(entity) =
+                    Self::read_entity_for_field_extrema(ctx, consistency, &data_key)?
+                else {
+                    return Ok(KeyStreamLoopControl::Emit);
+                };
+                let id = Id::from_key(data_key.try_key::<E>()?);
+                let selected_was_empty = selected.is_none();
+                let candidate_replaces = match selected.as_ref() {
+                    Some((_, current)) => {
+                        compare_entities_for_field_extrema(
+                            &entity,
+                            current,
+                            target_field,
+                            field_slot,
+                            direction,
+                        )
+                        .map_err(AggregateFieldValueError::into_internal_error)?
+                            == Ordering::Less
+                    }
+                    None => true,
+                };
+                if candidate_replaces {
+                    selected = Some((id, entity));
+                    if selected_was_empty && matches!(kind, AggregateKind::Min) {
+                        // MIN(field) under ascending index-leading traversal is resolved
+                        // by the first in-window existing row.
+                        return Ok(KeyStreamLoopControl::Stop);
+                    }
 
-            let Some((_, current)) = selected.as_ref() else {
-                continue;
-            };
-            let field_order =
-                compare_entities_by_orderable_field(&entity, current, target_field, field_slot)
-                    .map_err(AggregateFieldValueError::into_internal_error)?;
-            let directional_field_order = apply_aggregate_direction(field_order, direction);
+                    return Ok(KeyStreamLoopControl::Emit);
+                }
 
-            // Once traversal leaves the winning field-value group, the ordered
-            // stream cannot produce a better extrema candidate.
-            if directional_field_order == Ordering::Greater {
-                break;
-            }
-        }
+                let Some((_, current)) = selected.as_ref() else {
+                    return Ok(KeyStreamLoopControl::Emit);
+                };
+                let field_order =
+                    compare_entities_by_orderable_field(&entity, current, target_field, field_slot)
+                        .map_err(AggregateFieldValueError::into_internal_error)?;
+                let directional_field_order = apply_aggregate_direction(field_order, direction);
+
+                // Once traversal leaves the winning field-value group, the ordered
+                // stream cannot produce a better extrema candidate.
+                if directional_field_order == Ordering::Greater {
+                    return Ok(KeyStreamLoopControl::Stop);
+                }
+
+                Ok(KeyStreamLoopControl::Emit)
+            },
+        )?;
 
         let selected_id = selected.map(|(id, _)| id);
         let output = kind.extrema_output(selected_id).ok_or_else(|| {

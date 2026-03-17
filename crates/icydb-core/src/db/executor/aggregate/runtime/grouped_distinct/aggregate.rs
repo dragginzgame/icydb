@@ -9,17 +9,18 @@ use crate::{
         executor::{
             KeyStreamLoopControl,
             aggregate::{
-                ExecutionContext,
+                AggregateEngine, AggregateExecutionSpec, AggregateIngestAdapter, AggregateKind,
+                ExecutionContext, FoldControl, execute_aggregate_engine,
                 field::{
                     AggregateFieldValueError, FieldSlot, extract_numeric_field_decimal,
                     extract_orderable_field_value,
                 },
+                runtime::grouped_output::aggregate_output_to_value,
             },
             drive_key_stream_with_control_flow,
             group::{CanonicalKey, GroupKeySet, KeyCanonicalError},
             pipeline::contracts::{LoadExecutor, ResolvedExecutionKeyStream},
         },
-        numeric::{add_decimal_terms, average_decimal_terms},
         predicate::MissingRowPolicy,
     },
     error::InternalError,
@@ -39,11 +40,9 @@ pub(in crate::db::executor) enum GlobalDistinctFieldAggregateKind {
     Avg,
 }
 
-type NumericFinalizeFn = fn(Decimal, u64, bool) -> Result<Value, InternalError>;
-
 enum GlobalDistinctFieldReducerMode {
     Count,
-    Numeric { finalize_numeric: NumericFinalizeFn },
+    Numeric,
 }
 
 ///
@@ -58,31 +57,8 @@ enum GlobalDistinctFieldReducerMode {
 struct GlobalDistinctFieldAggregateDispatcher<'a> {
     target_field: &'a str,
     field_slot: FieldSlot,
+    aggregate_kind: AggregateKind,
     mode: GlobalDistinctFieldReducerMode,
-}
-
-///
-/// GlobalDistinctFieldAccumulator
-///
-/// GlobalDistinctFieldAccumulator stores reducer-local mutable counters for one
-/// grouped global DISTINCT field aggregate execution pass.
-///
-
-struct GlobalDistinctFieldAccumulator {
-    distinct_count: u64,
-    numeric_sum: Decimal,
-    saw_numeric_value: bool,
-}
-
-impl GlobalDistinctFieldAccumulator {
-    // Build one empty grouped global DISTINCT field accumulator.
-    const fn new() -> Self {
-        Self {
-            distinct_count: 0,
-            numeric_sum: Decimal::ZERO,
-            saw_numeric_value: false,
-        }
-    }
 }
 
 impl<'a> GlobalDistinctFieldAggregateDispatcher<'a> {
@@ -98,23 +74,27 @@ impl<'a> GlobalDistinctFieldAggregateDispatcher<'a> {
             GlobalDistinctFieldAggregateKind::Count => Ok(Self {
                 target_field,
                 field_slot: LoadExecutor::<E>::resolve_any_field_slot(target_field)?,
+                aggregate_kind: AggregateKind::Count,
                 mode: GlobalDistinctFieldReducerMode::Count,
             }),
             GlobalDistinctFieldAggregateKind::Sum => Ok(Self {
                 target_field,
                 field_slot: LoadExecutor::<E>::resolve_numeric_field_slot(target_field)?,
-                mode: GlobalDistinctFieldReducerMode::Numeric {
-                    finalize_numeric: Self::finalize_numeric_sum,
-                },
+                aggregate_kind: AggregateKind::Sum,
+                mode: GlobalDistinctFieldReducerMode::Numeric,
             }),
             GlobalDistinctFieldAggregateKind::Avg => Ok(Self {
                 target_field,
                 field_slot: LoadExecutor::<E>::resolve_numeric_field_slot(target_field)?,
-                mode: GlobalDistinctFieldReducerMode::Numeric {
-                    finalize_numeric: Self::finalize_numeric_avg,
-                },
+                aggregate_kind: AggregateKind::Avg,
+                mode: GlobalDistinctFieldReducerMode::Numeric,
             }),
         }
+    }
+
+    #[must_use]
+    const fn aggregate_kind(&self) -> AggregateKind {
+        self.aggregate_kind
     }
 
     // Resolve one canonical distinct value for key admission and dedup.
@@ -126,72 +106,18 @@ impl<'a> GlobalDistinctFieldAggregateDispatcher<'a> {
             .map_err(AggregateFieldValueError::into_internal_error)
     }
 
-    // Apply one admitted distinct entity into the reducer accumulator.
-    fn ingest_distinct_entity<E>(
-        &self,
-        entity: &E,
-        accumulator: &mut GlobalDistinctFieldAccumulator,
-    ) -> Result<(), InternalError>
+    // Project one admitted distinct entity into one aggregate ingest payload.
+    fn distinct_numeric_value<E>(&self, entity: &E) -> Result<Option<Decimal>, InternalError>
     where
         E: EntityKind + EntityValue,
     {
-        accumulator.distinct_count = accumulator.distinct_count.saturating_add(1);
-
-        if let GlobalDistinctFieldReducerMode::Numeric { .. } = self.mode {
-            let numeric_value =
-                extract_numeric_field_decimal(entity, self.target_field, self.field_slot)
-                    .map_err(AggregateFieldValueError::into_internal_error)?;
-            accumulator.numeric_sum = add_decimal_terms(accumulator.numeric_sum, numeric_value);
-            accumulator.saw_numeric_value = true;
+        if let GlobalDistinctFieldReducerMode::Numeric = self.mode {
+            return extract_numeric_field_decimal(entity, self.target_field, self.field_slot)
+                .map(Some)
+                .map_err(AggregateFieldValueError::into_internal_error);
         }
 
-        Ok(())
-    }
-
-    // Finalize one reducer accumulator into one grouped output value.
-    fn finalize_value(
-        &self,
-        accumulator: GlobalDistinctFieldAccumulator,
-    ) -> Result<Value, InternalError> {
-        match self.mode {
-            GlobalDistinctFieldReducerMode::Count => Ok(Value::Uint(accumulator.distinct_count)),
-            GlobalDistinctFieldReducerMode::Numeric { finalize_numeric } => finalize_numeric(
-                accumulator.numeric_sum,
-                accumulator.distinct_count,
-                accumulator.saw_numeric_value,
-            ),
-        }
-    }
-
-    // Finalize SUM(DISTINCT field) reducer output.
-    fn finalize_numeric_sum(
-        numeric_sum: Decimal,
-        _distinct_count: u64,
-        saw_numeric_value: bool,
-    ) -> Result<Value, InternalError> {
-        if saw_numeric_value {
-            Ok(Value::Decimal(numeric_sum))
-        } else {
-            Ok(Value::Null)
-        }
-    }
-
-    // Finalize AVG(DISTINCT field) reducer output.
-    fn finalize_numeric_avg(
-        numeric_sum: Decimal,
-        distinct_count: u64,
-        saw_numeric_value: bool,
-    ) -> Result<Value, InternalError> {
-        if !saw_numeric_value || distinct_count == 0 {
-            return Ok(Value::Null);
-        }
-        let Some(avg) = average_decimal_terms(numeric_sum, distinct_count) else {
-            return Err(crate::db::error::query_executor_invariant(
-                "global grouped AVG(DISTINCT field) divisor conversion overflowed decimal bounds",
-            ));
-        };
-
-        Ok(Value::Decimal(avg))
+        Ok(None)
     }
 }
 
@@ -213,58 +139,92 @@ where
         let (scanned_rows, filtered_rows) = row_counters;
         let dispatcher = GlobalDistinctFieldAggregateDispatcher::resolve::<E>(execution_spec)?;
         let mut distinct_values = GroupKeySet::new();
-        let mut accumulator = GlobalDistinctFieldAccumulator::new();
 
         grouped_execution_context
             .record_implicit_single_group::<E>()
             .map_err(Self::map_group_error)?;
 
-        drive_key_stream_with_control_flow(
-            resolved.key_stream_mut(),
-            &mut || KeyStreamLoopControl::Emit,
-            &mut |key| {
-                let row = match consistency {
-                    MissingRowPolicy::Error => ctx.read_strict(&key),
-                    MissingRowPolicy::Ignore => ctx.read(&key),
-                };
-                let row = match row {
-                    Ok(row) => row,
-                    Err(err) if err.is_not_found() => return Ok(KeyStreamLoopControl::Emit),
-                    Err(err) => return Err(err),
-                };
-                *scanned_rows = scanned_rows.saturating_add(1);
-                let (_, entity) = Context::<E>::deserialize_row((key, row))?;
-                if let Some(compiled_predicate) = compiled_predicate
-                    && !compiled_predicate.eval(&entity)
-                {
-                    return Ok(KeyStreamLoopControl::Emit);
-                }
-                *filtered_rows = filtered_rows.saturating_add(1);
+        let mut ingest_all = |ingest_adapter: &mut AggregateIngestAdapter<'_, E>,
+                              engine: &mut AggregateEngine<E>|
+         -> Result<(), InternalError> {
+            drive_key_stream_with_control_flow(
+                resolved.key_stream_mut(),
+                &mut || KeyStreamLoopControl::Emit,
+                &mut |key| {
+                    let row = match consistency {
+                        MissingRowPolicy::Error => ctx.read_strict(&key),
+                        MissingRowPolicy::Ignore => ctx.read(&key),
+                    };
+                    let row = match row {
+                        Ok(row) => row,
+                        Err(err) if err.is_not_found() => return Ok(KeyStreamLoopControl::Emit),
+                        Err(err) => return Err(err),
+                    };
+                    *scanned_rows = scanned_rows.saturating_add(1);
+                    let (_, entity) = Context::<E>::deserialize_row((key, row))?;
+                    if let Some(compiled_predicate) = compiled_predicate
+                        && !compiled_predicate.eval(&entity)
+                    {
+                        return Ok(KeyStreamLoopControl::Emit);
+                    }
+                    *filtered_rows = filtered_rows.saturating_add(1);
 
-                let distinct_value = dispatcher.distinct_value(&entity)?;
-                let distinct_key = distinct_value
-                    .canonical_key()
-                    .map_err(KeyCanonicalError::into_internal_error)?;
-                let distinct_admitted = grouped_execution_context
-                    .admit_distinct_key(
-                        &mut distinct_values,
-                        grouped_execution_context
-                            .config()
-                            .max_distinct_values_per_group(),
-                        distinct_key,
-                    )
-                    .map_err(Self::map_group_error)?;
-                if !distinct_admitted {
-                    return Ok(KeyStreamLoopControl::Emit);
-                }
+                    let distinct_value = dispatcher.distinct_value(&entity)?;
+                    let distinct_key = distinct_value
+                        .canonical_key()
+                        .map_err(KeyCanonicalError::into_internal_error)?;
+                    let distinct_admitted = grouped_execution_context
+                        .admit_distinct_key(
+                            &mut distinct_values,
+                            grouped_execution_context
+                                .config()
+                                .max_distinct_values_per_group(),
+                            distinct_key,
+                        )
+                        .map_err(Self::map_group_error)?;
+                    if !distinct_admitted {
+                        return Ok(KeyStreamLoopControl::Emit);
+                    }
 
-                dispatcher.ingest_distinct_entity(&entity, &mut accumulator)?;
+                    let numeric_value = dispatcher.distinct_numeric_value(&entity)?;
+                    let fold_control = ingest_adapter
+                        .ingest_global_distinct_value(engine, numeric_value)
+                        .map_err(Self::map_group_error)?;
+                    if matches!(fold_control, FoldControl::Break) {
+                        return Ok(KeyStreamLoopControl::Stop);
+                    }
 
-                Ok(KeyStreamLoopControl::Emit)
-            },
-        )?;
-
-        let aggregate_value = dispatcher.finalize_value(accumulator)?;
+                    Ok(KeyStreamLoopControl::Emit)
+                },
+            )
+        };
+        let finalize_outputs = execute_aggregate_engine(
+            AggregateEngine::new_global_distinct_field(dispatcher.aggregate_kind())
+                .map_err(Self::map_group_error)?,
+            AggregateExecutionSpec::global_distinct_field(),
+            &mut ingest_all,
+        )?
+        .into_grouped()?;
+        if finalize_outputs.len() != 1 {
+            return Err(crate::db::error::query_executor_invariant(format!(
+                "grouped global DISTINCT finalize must return exactly one grouped output row, found {}",
+                finalize_outputs.len()
+            )));
+        }
+        let finalized = finalize_outputs.first().ok_or_else(|| {
+            crate::db::error::query_executor_invariant(
+                "grouped global DISTINCT finalize output must contain one grouped row",
+            )
+        })?;
+        match finalized.group_key().canonical_value() {
+            Value::List(group_key_values) if group_key_values.is_empty() => {}
+            value => {
+                return Err(crate::db::error::query_executor_invariant(format!(
+                    "grouped global DISTINCT finalize row must use empty grouped key, found {value:?}",
+                )));
+            }
+        }
+        let aggregate_value = aggregate_output_to_value(finalized.output());
 
         Ok(GroupedRow::new(Vec::new(), vec![aggregate_value]))
     }

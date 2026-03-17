@@ -5,7 +5,6 @@
 
 mod candidate_rows;
 mod engine_init;
-mod global_distinct;
 mod ingest;
 mod page_finalize;
 
@@ -13,10 +12,18 @@ use crate::{
     db::{
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutionPreparation,
-            aggregate::GroupError,
             aggregate::runtime::grouped_fold::{
                 candidate_rows::collect_grouped_candidate_rows,
                 page_finalize::finalize_grouped_page,
+            },
+            aggregate::{
+                GroupError,
+                runtime::{
+                    grouped_distinct::{
+                        GlobalDistinctFieldExecutionSpec, global_distinct_field_execution_spec,
+                    },
+                    grouped_output::project_grouped_rows_from_projection,
+                },
             },
             group::{grouped_budget_observability, grouped_execution_context_from_planner_config},
             pipeline::contracts::{
@@ -69,8 +76,8 @@ where
         ))
     }
 
-    // Execute grouped folding over one resolved grouped key stream.
-    pub(in crate::db::executor) fn execute_group_fold<R>(
+    // Execute grouped aggregate folding over one resolved grouped key stream.
+    pub(in crate::db::executor) fn execute_group_fold_stage<R>(
         route: &R,
         mut stream: GroupedStreamStage<'_, E>,
     ) -> Result<GroupedFoldStage, InternalError>
@@ -98,22 +105,54 @@ where
         let (mut grouped_engines, mut short_circuit_keys) =
             Self::build_grouped_engines(route, &grouped_execution_context)?;
 
-        // Phase 2: run global DISTINCT grouped fast path when route contracts permit it.
+        // Phase 2: route one global DISTINCT grouped aggregate through the
+        // canonical grouped aggregate entrypoint when strategy permits it.
         let mut scanned_rows = 0usize;
         let mut filtered_rows = 0usize;
-        if let Some(global_distinct_result) = Self::try_execute_global_distinct_fold(
-            route,
-            &mut stream,
-            &mut grouped_execution_context,
-            &grouped_projection_spec,
-            &mut scanned_rows,
-            &mut filtered_rows,
-        )? {
-            return Ok(global_distinct_result);
+        if let Some(GlobalDistinctFieldExecutionSpec {
+            aggregate_kind,
+            target_field,
+        }) = global_distinct_field_execution_spec(route.grouped_distinct_execution_strategy())
+        {
+            let (ctx, execution_preparation, resolved) = stream.parts_mut();
+            let compiled_predicate = execution_preparation.compiled_predicate();
+            let global_row = Self::execute_global_distinct_field_aggregate(
+                route.consistency(),
+                ctx,
+                resolved,
+                compiled_predicate,
+                &mut grouped_execution_context,
+                (target_field, aggregate_kind),
+                (&mut scanned_rows, &mut filtered_rows),
+            )?;
+            let grouped_window = route.grouped_pagination_window();
+            let page_rows = Self::page_global_distinct_grouped_row(
+                global_row,
+                grouped_window.initial_offset_for_page(),
+                grouped_window.limit(),
+            );
+            let page_rows = project_grouped_rows_from_projection(
+                &grouped_projection_spec,
+                route.projection_layout(),
+                route.group_fields(),
+                route.grouped_aggregate_exprs(),
+                page_rows,
+            )?;
+
+            return Ok(GroupedFoldStage::from_grouped_stream(
+                GroupedCursorPage {
+                    rows: page_rows,
+                    next_cursor: None,
+                },
+                filtered_rows,
+                false,
+                &stream,
+                scanned_rows,
+            ));
         }
 
         // Phase 3: ingest grouped rows into per-aggregate reducers.
-        (scanned_rows, filtered_rows) = Self::ingest_grouped_rows_into_engines(
+        (scanned_rows, filtered_rows) = Self::fold_group_rows_into_engines(
             route,
             &mut stream,
             &mut grouped_execution_context,

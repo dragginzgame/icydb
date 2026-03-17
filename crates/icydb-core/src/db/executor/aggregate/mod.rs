@@ -45,7 +45,8 @@ use crate::{
 pub(in crate::db::executor) use contracts::{
     AggregateEngine, AggregateExecutionMode, AggregateExecutionSpec, AggregateFinalizeAdapter,
     AggregateFoldMode, AggregateIngestAdapter, AggregateKind, AggregateOutput, ExecutionConfig,
-    ExecutionContext, FoldControl, GroupError,
+    ExecutionContext, FoldControl, GroupError, execute_aggregate,
+    execute_aggregate as execute_aggregate_engine,
 };
 pub(in crate::db::executor) use execution::{
     AggregateExecutionDescriptor, AggregateFastPathInputs, PreparedAggregateStreamingInputs,
@@ -304,31 +305,35 @@ impl ExecutionKernel {
         // primary-key order. Use non-short-circuit directions for extrema so
         // MIN/MAX remain globally correct over the full response window.
         let direction = aggregate_materialized_fold_direction(kind);
-        let mut engine = AggregateEngine::new_scalar(kind, direction);
-        let finalize_adapter =
-            AggregateFinalizeAdapter::from_execution_mode(AggregateExecutionMode::Scalar);
-        let mut ingest_adapter = AggregateIngestAdapter::from_execution_spec(
-            &mut engine,
-            AggregateExecutionSpec::scalar(),
-        )
-        .map_err(GroupError::into_internal_error)?;
-        for row in response {
-            let id = row.id();
-            let data_key = DataKey::try_new::<E>(id.key())?;
-            let fold_control = ingest_adapter
-                .ingest(&data_key, None)
-                .map_err(GroupError::into_internal_error)?;
-            if matches!(fold_control, FoldControl::Break) {
-                break;
+        let mut response = response.into_iter();
+        let mut ingest_all = |ingest_adapter: &mut AggregateIngestAdapter<'_, E>,
+                              engine: &mut AggregateEngine<E>|
+         -> Result<(), InternalError> {
+            for row in response.by_ref() {
+                let id = row.id();
+                let data_key = DataKey::try_new::<E>(id.key())?;
+                let fold_control = ingest_adapter
+                    .ingest(engine, &data_key, None)
+                    .map_err(GroupError::into_internal_error)?;
+                if matches!(fold_control, FoldControl::Break) {
+                    break;
+                }
             }
-        }
 
-        finalize_adapter.finalize(engine)?.into_scalar()
+            Ok(())
+        };
+
+        execute_aggregate_engine(
+            AggregateEngine::new_scalar(kind, direction),
+            AggregateExecutionSpec::scalar(),
+            &mut ingest_all,
+        )?
+        .into_scalar()
     }
-    // Execute one scalar terminal aggregate stage through kernel-owned
+    // Execute one aggregate terminal stage through kernel-owned
     // orchestration while preserving route-owned execution-mode and fast-path
     // behavior.
-    fn execute_scalar_terminal_stage<E>(
+    fn execute_terminal_aggregate<E>(
         executor: &LoadExecutor<E>,
         plan: ExecutablePlan<E>,
         aggregate: AggregateExpr,
@@ -426,7 +431,6 @@ impl ExecutionKernel {
     {
         Self::validate_scalar_aggregate_spec_invariant(&aggregate)?;
 
-        // Scalar terminal execution boundary.
-        Self::execute_scalar_terminal_stage(executor, plan, aggregate)
+        Self::execute_terminal_aggregate(executor, plan, aggregate)
     }
 }

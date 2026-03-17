@@ -32,7 +32,7 @@ where
     E: EntityKind + EntityValue,
 {
     // Ingest grouped source rows into aggregate reducers while preserving budget contracts.
-    pub(super) fn ingest_grouped_rows_into_engines<R>(
+    pub(super) fn fold_group_rows_into_engines<R>(
         route: &R,
         stream: &mut GroupedStreamStage<'_, E>,
         grouped_execution_context: &mut ExecutionContext,
@@ -90,39 +90,36 @@ where
                     data_key,
                 }))
             };
-        let mut ingest_grouped_fold_input =
-            |input: &GroupedFoldIngestInput| -> Result<(), InternalError> {
-                let mut ingest_engine = |index: usize| -> Result<bool, InternalError> {
-                    let Some(engine) = grouped_engines.get_mut(index) else {
-                        return Err(crate::db::error::query_executor_invariant(format!(
-                            "grouped engine index out of bounds during fold ingest: index={index}, engine_count={}",
-                            grouped_engines.len()
-                        )));
-                    };
-                    let mut ingest_adapter = AggregateIngestAdapter::from_execution_spec(
-                        engine,
-                        AggregateExecutionSpec::grouped(grouped_execution_context),
-                    )
-                    .map_err(Self::map_group_error)?;
-                    let fold_control = ingest_adapter
-                        .ingest(&input.data_key, Some(input.group_key.clone()))
-                        .map_err(Self::map_group_error)?;
-
-                    Ok(matches!(fold_control, FoldControl::Break))
+        let mut ingest_adapter = AggregateIngestAdapter::from_execution_spec(
+            AggregateExecutionSpec::grouped(grouped_execution_context),
+        );
+        let mut fold_group_input = |input: &GroupedFoldIngestInput| -> Result<(), InternalError> {
+            let mut fold_engine = |index: usize| -> Result<bool, InternalError> {
+                let Some(engine) = grouped_engines.get_mut(index) else {
+                    return Err(crate::db::error::query_executor_invariant(format!(
+                        "grouped engine index out of bounds during fold ingest: index={index}, engine_count={}",
+                        grouped_engines.len()
+                    )));
                 };
-                ingest_grouped_fold_input_dyn(
-                    short_circuit_keys,
-                    &input.canonical_group_value,
-                    max_groups_bound,
-                    &mut ingest_engine,
-                )
-            };
+                let fold_control = ingest_adapter
+                    .ingest(engine, &input.data_key, Some(input.group_key.clone()))
+                    .map_err(Self::map_group_error)?;
 
-        ingest_grouped_rows_loop_dyn(
+                Ok(matches!(fold_control, FoldControl::Break))
+            };
+            fold_group_input_dyn(
+                short_circuit_keys,
+                &input.canonical_group_value,
+                max_groups_bound,
+                &mut fold_engine,
+            )
+        };
+
+        fold_group_rows_loop_dyn(
             resolved.key_stream_mut(),
             &mut read_row_for_key,
             &mut decode_grouped_fold_input,
-            &mut ingest_grouped_fold_input,
+            &mut fold_group_input,
         )
     }
 }
@@ -143,7 +140,7 @@ struct GroupedFoldIngestInput {
 // Shared grouped-fold ingest loop.
 // Typed wrappers provide row-read/decode and engine-ingest callbacks so the
 // key-stream + row-count control flow compiles once.
-fn ingest_grouped_rows_loop_dyn(
+fn fold_group_rows_loop_dyn(
     key_stream: &mut dyn OrderedKeyStream,
     read_row_for_key: &mut dyn FnMut(&DataKey) -> Result<Option<RawRow>, InternalError>,
     decode_grouped_fold_input: &mut dyn FnMut(
@@ -152,7 +149,7 @@ fn ingest_grouped_rows_loop_dyn(
         Option<GroupedFoldIngestInput>,
         InternalError,
     >,
-    ingest_grouped_fold_input: &mut dyn FnMut(&GroupedFoldIngestInput) -> Result<(), InternalError>,
+    fold_group_input: &mut dyn FnMut(&GroupedFoldIngestInput) -> Result<(), InternalError>,
 ) -> Result<(usize, usize), InternalError> {
     // Phase 1: scan keys and read authoritative rows.
     let mut scanned_rows = 0usize;
@@ -174,7 +171,7 @@ fn ingest_grouped_rows_loop_dyn(
             filtered_rows = filtered_rows.saturating_add(1);
 
             // Phase 3: apply grouped reducer ingestion and short-circuit tracking.
-            ingest_grouped_fold_input(&input)?;
+            fold_group_input(&input)?;
 
             Ok(KeyStreamLoopControl::Emit)
         },
@@ -186,11 +183,11 @@ fn ingest_grouped_rows_loop_dyn(
 // Shared per-row grouped-engine ingest control flow.
 // Typed wrappers inject aggregate-engine ingestion while this helper owns
 // short-circuit key rejection and bounded tracking invariants.
-fn ingest_grouped_fold_input_dyn(
+fn fold_group_input_dyn(
     short_circuit_keys: &mut [Vec<Value>],
     canonical_group_value: &Value,
     max_groups_bound: usize,
-    ingest_engine: &mut dyn FnMut(usize) -> Result<bool, InternalError>,
+    fold_engine: &mut dyn FnMut(usize) -> Result<bool, InternalError>,
 ) -> Result<(), InternalError> {
     for (index, done_group_keys) in short_circuit_keys.iter_mut().enumerate() {
         if done_group_keys
@@ -200,7 +197,7 @@ fn ingest_grouped_fold_input_dyn(
             continue;
         }
 
-        if ingest_engine(index)? {
+        if fold_engine(index)? {
             done_group_keys.push(canonical_group_value.clone());
             debug_assert!(
                 done_group_keys.len() <= max_groups_bound,

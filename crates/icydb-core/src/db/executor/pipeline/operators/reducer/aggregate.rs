@@ -5,9 +5,8 @@ use crate::{
         executor::{
             ExecutionKernel, OrderedKeyStream,
             aggregate::{
-                AggregateEngine, AggregateExecutionMode, AggregateExecutionSpec,
-                AggregateFinalizeAdapter, AggregateFoldMode, AggregateIngestAdapter, AggregateKind,
-                AggregateOutput, FoldControl, GroupError,
+                AggregateEngine, AggregateExecutionSpec, AggregateFoldMode, AggregateIngestAdapter,
+                AggregateKind, AggregateOutput, FoldControl, GroupError, execute_aggregate,
             },
             pipeline::operators::reducer::contracts::{
                 KernelReducer, ReducerControl, StreamInputMode, StreamItem,
@@ -29,7 +28,7 @@ use crate::{
 
 struct AggregateStateReducer<E: EntityKind + EntityValue> {
     engine: AggregateEngine<E>,
-    finalize_adapter: AggregateFinalizeAdapter<E>,
+    ingest_adapter: AggregateIngestAdapter<'static, E>,
 }
 
 impl<E> AggregateStateReducer<E>
@@ -40,8 +39,8 @@ where
     fn new(kind: AggregateKind, direction: Direction) -> Self {
         Self {
             engine: AggregateEngine::new_scalar(kind, direction),
-            finalize_adapter: AggregateFinalizeAdapter::from_execution_mode(
-                AggregateExecutionMode::Scalar,
+            ingest_adapter: AggregateIngestAdapter::from_execution_spec(
+                AggregateExecutionSpec::scalar(),
             ),
         }
     }
@@ -57,13 +56,9 @@ where
     fn on_item(&mut self, item: StreamItem<'_, E>) -> Result<ReducerControl, InternalError> {
         match item {
             StreamItem::Key(key) => {
-                let mut ingest_adapter = AggregateIngestAdapter::from_execution_spec(
-                    &mut self.engine,
-                    AggregateExecutionSpec::scalar(),
-                )
-                .map_err(GroupError::into_internal_error)?;
-                let fold_control = ingest_adapter
-                    .ingest(key, None)
+                let fold_control = self
+                    .ingest_adapter
+                    .ingest(&mut self.engine, key, None)
                     .map_err(GroupError::into_internal_error)?;
 
                 Ok(match fold_control {
@@ -78,7 +73,16 @@ where
     }
 
     fn finish(self) -> Result<Self::Output, InternalError> {
-        self.finalize_adapter.finalize(self.engine)?.into_scalar()
+        let mut noop_ingest = |_ingest_adapter: &mut AggregateIngestAdapter<'_, E>,
+                               _engine: &mut AggregateEngine<E>|
+         -> Result<(), InternalError> { Ok(()) };
+
+        execute_aggregate(
+            self.engine,
+            AggregateExecutionSpec::scalar(),
+            &mut noop_ingest,
+        )?
+        .into_scalar()
     }
 }
 

@@ -11,7 +11,7 @@ use crate::{
     db::{
         cursor::GroupedPlannedCursor,
         executor::{
-            ExecutablePlan,
+            ExecutablePlan, LoadCursorInput,
             aggregate::{
                 AggregateKind, field::resolve_any_aggregate_target_slot_from_planner_slot,
             },
@@ -73,8 +73,10 @@ where
         })?;
         let grouped_plan = plan.into_inner().into_grouped(grouped_shape);
         let grouped_plan = ExecutablePlan::new(grouped_plan);
-        let (page, _) = self
-            .execute_grouped_paged_with_cursor_traced(grouped_plan, GroupedPlannedCursor::none())?;
+        let (page, _) = self.execute_load_grouped_page_with_trace(
+            grouped_plan,
+            LoadCursorInput::grouped(GroupedPlannedCursor::none()),
+        )?;
 
         if page.next_cursor.is_some() {
             return Err(crate::db::error::query_executor_invariant(

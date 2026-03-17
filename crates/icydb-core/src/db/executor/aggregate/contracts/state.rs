@@ -44,6 +44,19 @@ enum AggregateTerminalMode {
 }
 
 ///
+/// TerminalUpdateDispatch
+///
+/// Pre-resolved terminal update dispatch selected once from aggregate kind.
+/// This removes per-row aggregate-kind matching in hot reducer loops.
+///
+
+type TerminalUpdateDispatch<E> = fn(
+    &mut TerminalAggregateState<E>,
+    AggregateTerminalMode,
+    Option<Id<E>>,
+) -> Result<FoldControl, InternalError>;
+
+///
 /// AggregateReducerState
 ///
 /// Shared aggregate terminal reducer state used by streaming and fast-path
@@ -207,11 +220,12 @@ pub(in crate::db::executor) trait AggregateState<E: EntityKind> {
 ///
 
 pub(in crate::db::executor) struct TerminalAggregateState<E: EntityKind> {
-    kind: AggregateKind,
     direction: Direction,
     distinct: bool,
     max_distinct_values_per_group: u64,
     distinct_keys: Option<GroupKeySet>,
+    requires_decoded_id: bool,
+    terminal_update_dispatch: TerminalUpdateDispatch<E>,
     reducer: AggregateReducerState<E>,
 }
 
@@ -249,7 +263,6 @@ impl AggregateStateFactory {
         max_distinct_values_per_group: u64,
     ) -> TerminalAggregateState<E> {
         TerminalAggregateState {
-            kind,
             direction,
             distinct,
             max_distinct_values_per_group,
@@ -258,44 +271,49 @@ impl AggregateStateFactory {
             } else {
                 None
             },
+            requires_decoded_id: kind.requires_decoded_id(),
+            terminal_update_dispatch:
+                TerminalAggregateState::<E>::terminal_update_dispatch_for_kind(kind),
             reducer: AggregateReducerState::for_kind(kind),
         }
     }
 }
 
 impl<E: EntityKind> TerminalAggregateState<E> {
+    // Resolve one terminal update dispatch function from one aggregate kind.
+    const fn terminal_update_dispatch_for_kind(kind: AggregateKind) -> TerminalUpdateDispatch<E> {
+        match kind {
+            AggregateKind::Count => Self::apply_count_for_mode,
+            AggregateKind::Sum => Self::apply_sum_unsupported_for_mode,
+            AggregateKind::Exists => Self::apply_exists_for_mode,
+            AggregateKind::Min => Self::apply_min_for_mode,
+            AggregateKind::Max => Self::apply_max_for_mode,
+            AggregateKind::First => Self::apply_first_for_mode,
+            AggregateKind::Last => Self::apply_last_for_mode,
+            AggregateKind::Avg => Self::apply_avg_unsupported_for_mode,
+        }
+    }
+
     // Dispatch one terminal aggregate update by kind at one canonical boundary.
     fn apply_terminal_update_for_mode(
         &mut self,
         key: &DataKey,
         mode: AggregateTerminalMode,
     ) -> Result<FoldControl, InternalError> {
-        let id = if self.kind.requires_decoded_id() {
+        let id = if self.requires_decoded_id {
             Some(Id::from_key(key.try_key::<E>()?))
         } else {
             None
         };
 
-        match self.kind {
-            AggregateKind::Count => self.apply_count_for_mode(mode),
-            AggregateKind::Sum => Err(crate::db::error::query_executor_invariant(
-                "aggregate reducer SUM requires field-target execution path",
-            )),
-            AggregateKind::Exists => self.apply_exists_for_mode(mode),
-            AggregateKind::Min => self.apply_min_for_mode(mode, id),
-            AggregateKind::Max => self.apply_max_for_mode(mode, id),
-            AggregateKind::First => self.apply_first_for_mode(mode, id),
-            AggregateKind::Last => self.apply_last_for_mode(mode, id),
-            AggregateKind::Avg => Err(crate::db::error::query_executor_invariant(
-                "aggregate reducer AVG requires field-target execution path",
-            )),
-        }
+        (self.terminal_update_dispatch)(self, mode, id)
     }
 
     // Apply one COUNT terminal update for one execution mode.
     fn apply_count_for_mode(
         &mut self,
         mode: AggregateTerminalMode,
+        _id: Option<Id<E>>,
     ) -> Result<FoldControl, InternalError> {
         self.reducer.increment_count()?;
 
@@ -308,12 +326,24 @@ impl<E: EntityKind> TerminalAggregateState<E> {
     fn apply_exists_for_mode(
         &mut self,
         mode: AggregateTerminalMode,
+        _id: Option<Id<E>>,
     ) -> Result<FoldControl, InternalError> {
         self.reducer.set_exists_true()?;
 
         Ok(match mode {
             AggregateTerminalMode::Scalar | AggregateTerminalMode::Grouped => FoldControl::Break,
         })
+    }
+
+    // Reject SUM through key-based reducer paths.
+    fn apply_sum_unsupported_for_mode(
+        &mut self,
+        _mode: AggregateTerminalMode,
+        _id: Option<Id<E>>,
+    ) -> Result<FoldControl, InternalError> {
+        Err(crate::db::error::query_executor_invariant(
+            "aggregate reducer SUM requires field-target execution path",
+        ))
     }
 
     // Apply one MIN terminal update for one execution mode.
@@ -398,6 +428,17 @@ impl<E: EntityKind> TerminalAggregateState<E> {
         Ok(match mode {
             AggregateTerminalMode::Scalar | AggregateTerminalMode::Grouped => FoldControl::Continue,
         })
+    }
+
+    // Reject AVG through key-based reducer paths.
+    fn apply_avg_unsupported_for_mode(
+        &mut self,
+        _mode: AggregateTerminalMode,
+        _id: Option<Id<E>>,
+    ) -> Result<FoldControl, InternalError> {
+        Err(crate::db::error::query_executor_invariant(
+            "aggregate reducer AVG requires field-target execution path",
+        ))
     }
 
     /// Apply one grouped candidate data key with grouped DISTINCT budget enforcement.
