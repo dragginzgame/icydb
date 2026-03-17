@@ -22,9 +22,12 @@ pub(in crate::db::executor) use capability::stream_order_contract_safe;
 pub(in crate::db::executor) use contracts::*;
 pub(in crate::db::executor) use fast_path::try_first_verified_fast_path_hit;
 pub(super) use guard::*;
+pub(in crate::db::executor) use mode::{
+    aggregate_non_count_streaming_allowed, load_streaming_allowed,
+};
 #[cfg(test)]
 pub(in crate::db::executor) use planner::grouped_ordered_runtime_revalidation_flag_count_guard;
-pub(in crate::db::executor) use pushdown::access_order_satisfied_by_route_contract;
+pub(in crate::db::executor) use pushdown::access_order_satisfied_by_route_contract_for_model;
 pub(in crate::db) use pushdown::derive_secondary_pushdown_applicability_from_contract;
 pub(in crate::db::executor) use pushdown::secondary_order_contract_active;
 pub(in crate::db::executor) use semantics::{

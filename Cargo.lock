@@ -241,13 +241,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "canister_sql_test"
+name = "canister_quickstart"
 version = "0.57.0"
 dependencies = [
  "candid",
  "ic-cdk",
  "icydb",
- "icydb-testing-sql-test-fixtures",
+ "icydb-testing-quickstart-fixtures",
 ]
 
 [[package]]
@@ -1249,7 +1249,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "icydb-testing-sql-test-fixtures"
+name = "icydb-testing-quickstart-fixtures"
 version = "0.57.0"
 dependencies = [
  "candid",

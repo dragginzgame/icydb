@@ -57,6 +57,8 @@ pub enum ExecutionOptimization {
 pub(crate) enum ExecutionOptimizationCounter {
     BytesPrimaryKeyFastPath,
     BytesStreamFastPath,
+    BytesByCoveringIndexFastPath,
+    BytesByCoveringConstantFastPath,
     CoveringExistsFastPath,
     CoveringCountFastPath,
     PrimaryKeyCountFastPath,
@@ -68,20 +70,22 @@ pub(crate) enum ExecutionOptimizationCounter {
 
 impl ExecutionOptimizationCounter {
     #[cfg(test)]
-    const CARDINALITY: usize = 9;
+    const CARDINALITY: usize = 11;
 
     #[cfg(test)]
     const fn index(self) -> usize {
         match self {
             Self::BytesPrimaryKeyFastPath => 0,
             Self::BytesStreamFastPath => 1,
-            Self::CoveringExistsFastPath => 2,
-            Self::CoveringCountFastPath => 3,
-            Self::PrimaryKeyCountFastPath => 4,
-            Self::PrimaryKeyCardinalityCountFastPath => 5,
-            Self::CoveringIndexProjectionFastPath => 6,
-            Self::CoveringConstantProjectionFastPath => 7,
-            Self::NumericFieldStreamingFoldFastPath => 8,
+            Self::BytesByCoveringIndexFastPath => 2,
+            Self::BytesByCoveringConstantFastPath => 3,
+            Self::CoveringExistsFastPath => 4,
+            Self::CoveringCountFastPath => 5,
+            Self::PrimaryKeyCountFastPath => 6,
+            Self::PrimaryKeyCardinalityCountFastPath => 7,
+            Self::CoveringIndexProjectionFastPath => 8,
+            Self::CoveringConstantProjectionFastPath => 9,
+            Self::NumericFieldStreamingFoldFastPath => 10,
         }
     }
 }

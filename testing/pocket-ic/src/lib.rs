@@ -6,13 +6,13 @@ use std::{
     process::Command,
 };
 
-const SQL_TEST_CANISTER_NAME: &str = "sql_test";
-const SQL_TEST_CANISTER_PACKAGE: &str = "canister_sql_test";
+const QUICKSTART_CANISTER_NAME: &str = "quickstart";
+const QUICKSTART_CANISTER_PACKAGE: &str = "canister_quickstart";
 const MINIMAL_CANISTER_NAME: &str = "minimal";
 const MINIMAL_CANISTER_PACKAGE: &str = "canister_minimal";
 const WASM_TARGET_TRIPLE: &str = "wasm32-unknown-unknown";
 const CANISTER_WASM_PROFILE_ENV: &str = "ICYDB_CANISTER_WASM_PROFILE";
-const SQL_TEST_WASM_PROFILE_ENV: &str = "SQL_TEST_WASM_PROFILE";
+const QUICKSTART_WASM_PROFILE_ENV: &str = "QUICKSTART_WASM_PROFILE";
 
 fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -35,10 +35,10 @@ fn canister_wasm_path(workspace_root: &Path, profile: &str, package_name: &str) 
 
 fn package_for_canister_name(canister_name: &str) -> Result<&'static str, String> {
     match canister_name {
-        SQL_TEST_CANISTER_NAME => Ok(SQL_TEST_CANISTER_PACKAGE),
+        QUICKSTART_CANISTER_NAME => Ok(QUICKSTART_CANISTER_PACKAGE),
         MINIMAL_CANISTER_NAME => Ok(MINIMAL_CANISTER_PACKAGE),
         _ => Err(format!(
-            "unsupported canister '{canister_name}', expected '{SQL_TEST_CANISTER_NAME}' or '{MINIMAL_CANISTER_NAME}'"
+            "unsupported canister '{canister_name}', expected '{QUICKSTART_CANISTER_NAME}' or '{MINIMAL_CANISTER_NAME}'"
         )),
     }
 }
@@ -63,7 +63,7 @@ fn should_default_to_wasm_release_profile() -> bool {
 
 fn selected_canister_wasm_profile() -> Result<&'static str, String> {
     let explicit_profile =
-        env::var_os(CANISTER_WASM_PROFILE_ENV).or_else(|| env::var_os(SQL_TEST_WASM_PROFILE_ENV));
+        env::var_os(CANISTER_WASM_PROFILE_ENV).or_else(|| env::var_os(QUICKSTART_WASM_PROFILE_ENV));
     if let Some(explicit_profile) = explicit_profile {
         let normalized = explicit_profile.to_string_lossy().to_ascii_lowercase();
         return match normalized.as_str() {
@@ -71,7 +71,7 @@ fn selected_canister_wasm_profile() -> Result<&'static str, String> {
             "release" => Ok("release"),
             "wasm-release" => Ok("wasm-release"),
             other => Err(format!(
-                "invalid {CANISTER_WASM_PROFILE_ENV}/{SQL_TEST_WASM_PROFILE_ENV} value '{other}', expected 'debug', 'release', or 'wasm-release'"
+                "invalid {CANISTER_WASM_PROFILE_ENV}/{QUICKSTART_WASM_PROFILE_ENV} value '{other}', expected 'debug', 'release', or 'wasm-release'"
             )),
         };
     }
@@ -116,22 +116,22 @@ fn build_canister_package(
 }
 
 ///
-/// build_sql_test_canister
+/// build_quickstart_canister
 ///
-/// Build the SQL test canister WASM and return the built wasm path.
+/// Build the quickstart SQL canister WASM and return the built wasm path.
 ///
 /// Build profile selection:
 /// - `wasm-release` when `DFX_NETWORK` is `mainnet`, `staging`, or `ic`
 /// - `debug` otherwise
-/// - overridden by `SQL_TEST_WASM_PROFILE=debug|release|wasm-release`
+/// - overridden by `QUICKSTART_WASM_PROFILE=debug|release|wasm-release`
 ///
 
-pub fn build_sql_test_canister() -> Result<PathBuf, String> {
+pub fn build_quickstart_canister() -> Result<PathBuf, String> {
     let profile = selected_canister_wasm_profile()?;
     build_canister_package(
-        SQL_TEST_CANISTER_PACKAGE,
+        QUICKSTART_CANISTER_PACKAGE,
         profile,
-        &format!("sql test canister build ({profile})"),
+        &format!("quickstart canister build ({profile})"),
     )
 }
 

@@ -1,4 +1,4 @@
-use crate::schema::SqlTestStore;
+use crate::schema::QuickstartStore;
 use icydb::design::prelude::*;
 
 ///
@@ -6,7 +6,7 @@ use icydb::design::prelude::*;
 ///
 
 #[entity(
-    store = "SqlTestStore",
+    store = "QuickstartStore",
     pk(field = "id"),
     index(fields = "pid, ulid, score"),
     fields(
@@ -23,7 +23,7 @@ pub struct Indexable {}
 ///
 
 #[entity(
-    store = "SqlTestStore",
+    store = "QuickstartStore",
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
@@ -39,7 +39,7 @@ pub struct NotIndexable {}
 ///
 
 #[entity(
-    store = "SqlTestStore",
+    store = "QuickstartStore",
     pk(field = "id"),
     index(fields = "username", unique),
     fields(

@@ -2,6 +2,7 @@ use crate::{
     db::{
         Context,
         cursor::CursorBoundary,
+        data::DataKey,
         executor::{
             ExecutionKernel, LoadExecutor, OrderedKeyStream,
             pipeline::operators::reducer::{
@@ -59,11 +60,11 @@ impl ExecutionKernel {
         let consistency = row_read_consistency_for_plan(plan);
 
         // Phase 2: materialize rows from keys and feed ephemeral row borrows to reducer.
-        while let Some(data_key) = key_stream.next_key()? {
+        drive_ordered_key_stream_keys(key_stream, &mut |data_key| {
             let Some(entity) =
                 LoadExecutor::<E>::read_entity_for_field_extrema(ctx, consistency, &data_key)?
             else {
-                continue;
+                return Ok(ReducerControl::Continue);
             };
             keys_scanned = keys_scanned.saturating_add(1);
             rows.push((Id::from_key(data_key.try_key::<E>()?), entity));
@@ -74,14 +75,27 @@ impl ExecutionKernel {
                     "row-stream reducer staging unexpectedly missing last row",
                 ));
             };
-            match reducer.on_item(StreamItem::Row(staged_entity))? {
-                ReducerControl::Continue => {}
-                ReducerControl::StopEarly => break,
-            }
-        }
+
+            reducer.on_item(StreamItem::Row(staged_entity))
+        })?;
 
         let _ = reducer.finish()?;
 
         Ok((rows, keys_scanned))
     }
+}
+
+// Shared ordered key-stream key driver used by row-stream reducer wiring.
+// Entity-specific row decode/filter logic is injected via callback.
+fn drive_ordered_key_stream_keys(
+    key_stream: &mut dyn OrderedKeyStream,
+    on_key: &mut dyn FnMut(DataKey) -> Result<ReducerControl, InternalError>,
+) -> Result<(), InternalError> {
+    while let Some(data_key) = key_stream.next_key()? {
+        if matches!(on_key(data_key)?, ReducerControl::StopEarly) {
+            break;
+        }
+    }
+
+    Ok(())
 }

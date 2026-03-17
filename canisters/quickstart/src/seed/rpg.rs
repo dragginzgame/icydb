@@ -1,5 +1,5 @@
 use icydb::design::prelude::{Decimal, Float64, Principal};
-use icydb_testing_sql_test_fixtures::schema::{
+use icydb_testing_quickstart_fixtures::schema::{
     Character, character::character_views::CharacterCreate,
 };
 
@@ -181,7 +181,7 @@ pub fn characters() -> Vec<Character> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use icydb_testing_sql_test_fixtures::schema::character::character_views::CharacterView;
+    use icydb_testing_quickstart_fixtures::schema::character::character_views::CharacterView;
     use std::collections::BTreeSet;
 
     #[test]

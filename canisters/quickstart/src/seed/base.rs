@@ -1,5 +1,5 @@
 use icydb::design::prelude::Ulid;
-use icydb_testing_sql_test_fixtures::schema::{
+use icydb_testing_quickstart_fixtures::schema::{
     Order, User, orders::order_views::OrderCreate, users::user_views::UserCreate,
 };
 

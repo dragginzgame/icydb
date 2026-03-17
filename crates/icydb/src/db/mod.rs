@@ -13,4 +13,7 @@ pub use icydb_core::db::{
 pub use response::{
     PagedResponse, ProjectionResponse, Response, WriteBatchResponse, WriteResponse,
 };
-pub use session::{DbSession, FluentLoadQuery, PagedLoadQuery, SessionDeleteQuery};
+pub use session::{
+    DbSession, FluentLoadQuery, PagedLoadQuery, SessionDeleteQuery, SqlParsedStatement,
+    SqlPreparedStatement,
+};

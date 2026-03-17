@@ -41,4 +41,4 @@ pub mod test {
     pub struct TestStore {}
 }
 
-pub use test::TestStore as SqlTestStore;
+pub use test::TestStore as QuickstartStore;

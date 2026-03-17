@@ -39,7 +39,16 @@ impl PredicateProgram {
     /// Evaluate one precompiled predicate program against one entity.
     #[must_use]
     pub(in crate::db) fn eval<E: EntityValue>(&self, entity: &E) -> bool {
-        eval_with_resolved_slots(entity, &self.resolved)
+        eval_with_resolved_slots(&self.resolved, &mut |slot| entity.get_value_by_index(slot))
+    }
+
+    /// Evaluate one precompiled predicate program against one slot-reader callback.
+    #[must_use]
+    pub(in crate::db) fn eval_with_slot_reader(
+        &self,
+        read_slot: &mut dyn FnMut(usize) -> Option<Value>,
+    ) -> bool {
+        eval_with_resolved_slots(&self.resolved, read_slot)
     }
 
     /// Borrow the resolved predicate tree used by runtime evaluators.
@@ -125,9 +134,12 @@ fn compile_predicate_program<E: EntityKind>(
     }
 }
 
-/// Read one field from an entity by pre-resolved slot.
-fn field_from_slot<E: EntityValue>(entity: &E, field_slot: Option<usize>) -> FieldPresence {
-    let value = field_slot.and_then(|slot| entity.get_value_by_index(slot));
+/// Read one field by pre-resolved slot through one runtime slot reader.
+fn field_from_slot(
+    field_slot: Option<usize>,
+    read_slot: &mut dyn FnMut(usize) -> Option<Value>,
+) -> FieldPresence {
+    let value = field_slot.and_then(read_slot);
 
     match value {
         Some(value) => FieldPresence::Present(value),
@@ -136,68 +148,86 @@ fn field_from_slot<E: EntityValue>(entity: &E, field_slot: Option<usize>) -> Fie
 }
 
 /// Evaluate one slot-based field predicate only when the field is present.
-fn on_present_slot<E: EntityValue>(
-    entity: &E,
+fn on_present_slot(
     field_slot: Option<usize>,
+    read_slot: &mut dyn FnMut(usize) -> Option<Value>,
     f: impl FnOnce(&Value) -> bool,
 ) -> bool {
-    match field_from_slot(entity, field_slot) {
+    match field_from_slot(field_slot, read_slot) {
         FieldPresence::Present(value) => f(&value),
         FieldPresence::Missing => false,
     }
 }
 
-/// Evaluate one slot-resolved predicate against one entity.
-fn eval_with_resolved_slots<E: EntityValue>(entity: &E, predicate: &ResolvedPredicate) -> bool {
+/// Evaluate one slot-resolved predicate against one runtime slot reader.
+fn eval_with_resolved_slots(
+    predicate: &ResolvedPredicate,
+    read_slot: &mut dyn FnMut(usize) -> Option<Value>,
+) -> bool {
     // Evaluate recursively against slot-resolved predicates.
     match predicate {
         ResolvedPredicate::True => true,
         ResolvedPredicate::False => false,
-        ResolvedPredicate::And(children) => children
-            .iter()
-            .all(|child| eval_with_resolved_slots(entity, child)),
-        ResolvedPredicate::Or(children) => children
-            .iter()
-            .any(|child| eval_with_resolved_slots(entity, child)),
-        ResolvedPredicate::Not(inner) => !eval_with_resolved_slots(entity, inner),
-        ResolvedPredicate::Compare(cmp) => eval_compare_with_resolved_slots(entity, cmp),
+        ResolvedPredicate::And(children) => {
+            for child in children {
+                if !eval_with_resolved_slots(child, read_slot) {
+                    return false;
+                }
+            }
+
+            true
+        }
+        ResolvedPredicate::Or(children) => {
+            for child in children {
+                if eval_with_resolved_slots(child, read_slot) {
+                    return true;
+                }
+            }
+
+            false
+        }
+        ResolvedPredicate::Not(inner) => !eval_with_resolved_slots(inner, read_slot),
+        ResolvedPredicate::Compare(cmp) => eval_compare_with_resolved_slots(cmp, read_slot),
         ResolvedPredicate::IsNull { field_slot } => {
             matches!(
-                field_from_slot(entity, *field_slot),
+                field_from_slot(*field_slot, read_slot),
                 FieldPresence::Present(Value::Null)
             )
         }
         ResolvedPredicate::IsNotNull { field_slot } => {
-            matches!(field_from_slot(entity, *field_slot), FieldPresence::Present(value) if !matches!(value, Value::Null))
+            matches!(field_from_slot(*field_slot, read_slot), FieldPresence::Present(value) if !matches!(value, Value::Null))
         }
         ResolvedPredicate::IsMissing { field_slot } => {
-            matches!(field_from_slot(entity, *field_slot), FieldPresence::Missing)
+            matches!(
+                field_from_slot(*field_slot, read_slot),
+                FieldPresence::Missing
+            )
         }
         ResolvedPredicate::IsEmpty { field_slot } => {
-            on_present_slot(entity, *field_slot, is_empty_value)
+            on_present_slot(*field_slot, read_slot, is_empty_value)
         }
         ResolvedPredicate::IsNotEmpty { field_slot } => {
-            on_present_slot(entity, *field_slot, |value| !is_empty_value(value))
+            on_present_slot(*field_slot, read_slot, |value| !is_empty_value(value))
         }
         ResolvedPredicate::TextContains { field_slot, value } => {
-            on_present_slot(entity, *field_slot, |actual| {
+            on_present_slot(*field_slot, read_slot, |actual| {
                 actual.text_contains(value, TextMode::Cs).unwrap_or(false)
             })
         }
         ResolvedPredicate::TextContainsCi { field_slot, value } => {
-            on_present_slot(entity, *field_slot, |actual| {
+            on_present_slot(*field_slot, read_slot, |actual| {
                 actual.text_contains(value, TextMode::Ci).unwrap_or(false)
             })
         }
     }
 }
 
-/// Evaluate a slot-resolved comparison predicate against one entity.
-fn eval_compare_with_resolved_slots<E: EntityValue>(
-    entity: &E,
+/// Evaluate a slot-resolved comparison predicate against one runtime slot reader.
+fn eval_compare_with_resolved_slots(
     cmp: &ResolvedComparePredicate,
+    read_slot: &mut dyn FnMut(usize) -> Option<Value>,
 ) -> bool {
-    let FieldPresence::Present(actual) = field_from_slot(entity, cmp.field_slot) else {
+    let FieldPresence::Present(actual) = field_from_slot(cmp.field_slot, read_slot) else {
         return false;
     };
 

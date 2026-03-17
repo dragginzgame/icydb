@@ -11,8 +11,10 @@ use crate::{
             },
         },
         sql::lowering::{
-            SqlCommand, SqlGlobalAggregateCommand, SqlGlobalAggregateTerminal, SqlLoweringError,
-            compile_sql_command, compile_sql_global_aggregate_command,
+            PreparedSqlStatement as CorePreparedSqlStatement, SqlCommand,
+            SqlGlobalAggregateCommand, SqlGlobalAggregateTerminal, SqlLoweringError,
+            compile_sql_command, compile_sql_command_from_prepared_statement,
+            compile_sql_global_aggregate_command, prepare_sql_statement,
         },
         sql::parser::{SqlExplainMode, SqlExplainTarget, SqlStatement, parse_sql},
     },
@@ -36,6 +38,58 @@ pub enum SqlStatementRoute {
     ShowIndexes { entity: String },
     ShowColumns { entity: String },
     ShowEntities,
+}
+
+///
+/// SqlDispatchResult
+///
+/// Unified SQL dispatch payload returned by shared SQL lane execution.
+///
+#[derive(Debug)]
+pub enum SqlDispatchResult<E: EntityKind> {
+    Projection {
+        columns: Vec<String>,
+        projection: ProjectionResponse<E>,
+    },
+    Explain(String),
+    Describe(EntitySchemaDescription),
+    ShowIndexes(Vec<String>),
+    ShowColumns(Vec<EntityFieldDescription>),
+    ShowEntities(Vec<String>),
+}
+
+///
+/// SqlParsedStatement
+///
+/// Opaque parsed SQL statement envelope with stable route metadata.
+/// This allows callers to parse once and reuse parsed authority across
+/// route classification and typed dispatch lowering.
+///
+#[derive(Clone, Debug)]
+pub struct SqlParsedStatement {
+    statement: SqlStatement,
+    route: SqlStatementRoute,
+}
+
+impl SqlParsedStatement {
+    /// Borrow canonical route metadata for this parsed statement.
+    #[must_use]
+    pub const fn route(&self) -> &SqlStatementRoute {
+        &self.route
+    }
+}
+
+///
+/// SqlPreparedStatement
+///
+/// Opaque reduced SQL envelope prepared for one concrete entity route.
+/// This wraps entity-scope normalization and fail-closed entity matching
+/// so dynamic dispatch can share prepare/lower control flow before execution.
+///
+
+#[derive(Clone, Debug)]
+pub struct SqlPreparedStatement {
+    prepared: CorePreparedSqlStatement,
 }
 
 impl SqlStatementRoute {
@@ -102,10 +156,6 @@ enum SqlLaneKind {
 enum SqlSurface {
     QueryFrom,
     Explain,
-    Describe,
-    ShowIndexes,
-    ShowColumns,
-    ShowEntities,
 }
 
 // Resolve one lowered SQL command to its canonical lane kind.
@@ -122,59 +172,41 @@ const fn sql_command_lane<E: EntityKind>(command: &SqlCommand<E>) -> SqlLaneKind
     }
 }
 
-// Resolve one parser-derived SQL route to its canonical lane kind.
-const fn sql_statement_route_lane(route: &SqlStatementRoute) -> SqlLaneKind {
-    match route {
-        SqlStatementRoute::Query { .. } => SqlLaneKind::Query,
-        SqlStatementRoute::Explain { .. } => SqlLaneKind::Explain,
-        SqlStatementRoute::Describe { .. } => SqlLaneKind::Describe,
-        SqlStatementRoute::ShowIndexes { .. } => SqlLaneKind::ShowIndexes,
-        SqlStatementRoute::ShowColumns { .. } => SqlLaneKind::ShowColumns,
-        SqlStatementRoute::ShowEntities => SqlLaneKind::ShowEntities,
-    }
-}
-
 // Render one deterministic unsupported-lane message for one SQL surface.
 const fn unsupported_sql_lane_message(surface: SqlSurface, lane: SqlLaneKind) -> &'static str {
     match (surface, lane) {
         (SqlSurface::QueryFrom, SqlLaneKind::Explain) => {
-            "query_from_sql does not accept EXPLAIN statements; use explain_sql(...)"
+            "query_from_sql does not accept EXPLAIN statements; use execute_sql_dispatch(...)"
         }
         (SqlSurface::QueryFrom, SqlLaneKind::Describe) => {
-            "query_from_sql does not accept DESCRIBE statements; use describe_sql(...)"
+            "query_from_sql does not accept DESCRIBE statements; use execute_sql_dispatch(...)"
         }
         (SqlSurface::QueryFrom, SqlLaneKind::ShowIndexes) => {
-            "query_from_sql does not accept SHOW INDEXES statements; use show_indexes_sql(...)"
+            "query_from_sql does not accept SHOW INDEXES statements; use execute_sql_dispatch(...)"
         }
         (SqlSurface::QueryFrom, SqlLaneKind::ShowColumns) => {
-            "query_from_sql does not accept SHOW COLUMNS statements; use show_columns_sql(...)"
+            "query_from_sql does not accept SHOW COLUMNS statements; use execute_sql_dispatch(...)"
         }
         (SqlSurface::QueryFrom, SqlLaneKind::ShowEntities) => {
-            "query_from_sql does not accept SHOW ENTITIES/SHOW TABLES statements; use show_entities_sql(...)"
+            "query_from_sql does not accept SHOW ENTITIES/SHOW TABLES statements; use execute_sql_dispatch(...)"
         }
         (SqlSurface::QueryFrom, SqlLaneKind::Query) => {
             "query_from_sql requires one executable SELECT or DELETE statement"
         }
         (SqlSurface::Explain, SqlLaneKind::Describe) => {
-            "explain_sql does not accept DESCRIBE statements; use describe_sql(...)"
+            "explain_sql does not accept DESCRIBE statements; use execute_sql_dispatch(...)"
         }
         (SqlSurface::Explain, SqlLaneKind::ShowIndexes) => {
-            "explain_sql does not accept SHOW INDEXES statements; use show_indexes_sql(...)"
+            "explain_sql does not accept SHOW INDEXES statements; use execute_sql_dispatch(...)"
         }
         (SqlSurface::Explain, SqlLaneKind::ShowColumns) => {
-            "explain_sql does not accept SHOW COLUMNS statements; use show_columns_sql(...)"
+            "explain_sql does not accept SHOW COLUMNS statements; use execute_sql_dispatch(...)"
         }
         (SqlSurface::Explain, SqlLaneKind::ShowEntities) => {
-            "explain_sql does not accept SHOW ENTITIES/SHOW TABLES statements; use show_entities_sql(...)"
+            "explain_sql does not accept SHOW ENTITIES/SHOW TABLES statements; use execute_sql_dispatch(...)"
         }
         (SqlSurface::Explain, SqlLaneKind::Query | SqlLaneKind::Explain) => {
             "explain_sql requires an EXPLAIN statement"
-        }
-        (SqlSurface::Describe, _) => "describe_sql requires a DESCRIBE statement",
-        (SqlSurface::ShowIndexes, _) => "show_indexes_sql requires a SHOW INDEXES statement",
-        (SqlSurface::ShowColumns, _) => "show_columns_sql requires a SHOW COLUMNS statement",
-        (SqlSurface::ShowEntities, _) => {
-            "show_entities_sql requires a SHOW ENTITIES or SHOW TABLES statement"
         }
     }
 }
@@ -212,6 +244,36 @@ fn map_sql_lowering_error(err: SqlLoweringError) -> QueryError {
 // policy used by SQL lowering entrypoints.
 fn map_sql_parse_error(err: crate::db::sql::parser::SqlParseError) -> QueryError {
     map_sql_lowering_error(SqlLoweringError::Parse(err))
+}
+
+// Resolve one parsed reduced SQL statement to canonical surface route metadata.
+fn sql_statement_route_from_statement(statement: &SqlStatement) -> SqlStatementRoute {
+    match statement {
+        SqlStatement::Select(select) => SqlStatementRoute::Query {
+            entity: select.entity.clone(),
+        },
+        SqlStatement::Delete(delete) => SqlStatementRoute::Query {
+            entity: delete.entity.clone(),
+        },
+        SqlStatement::Explain(explain) => match &explain.statement {
+            SqlExplainTarget::Select(select) => SqlStatementRoute::Explain {
+                entity: select.entity.clone(),
+            },
+            SqlExplainTarget::Delete(delete) => SqlStatementRoute::Explain {
+                entity: delete.entity.clone(),
+            },
+        },
+        SqlStatement::Describe(describe) => SqlStatementRoute::Describe {
+            entity: describe.entity.clone(),
+        },
+        SqlStatement::ShowIndexes(show_indexes) => SqlStatementRoute::ShowIndexes {
+            entity: show_indexes.entity.clone(),
+        },
+        SqlStatement::ShowColumns(show_columns) => SqlStatementRoute::ShowColumns {
+            entity: show_columns.entity.clone(),
+        },
+        SqlStatement::ShowEntities(_) => SqlStatementRoute::ShowEntities,
+    }
 }
 
 // Resolve one aggregate target field through planner slot contracts before
@@ -319,112 +381,116 @@ fn projection_labels_from_query<E: EntityKind>(
 }
 
 impl<C: CanisterKind> DbSession<C> {
+    // Execute one lowered query/explain SQL command and reject non-query lanes.
+    fn execute_sql_dispatch_query_lane_from_command<E>(
+        &self,
+        command: SqlCommand<E>,
+        lane: SqlLaneKind,
+    ) -> Result<SqlDispatchResult<E>, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        match command {
+            SqlCommand::Query(query) => {
+                if query.has_grouping() {
+                    return Err(QueryError::Intent(
+                        IntentError::GroupedRequiresExecuteGrouped,
+                    ));
+                }
+
+                match query.mode() {
+                    QueryMode::Load(_) => {
+                        let columns = projection_labels_from_query(&query)?;
+                        let projection = self.execute_load_query_with(&query, |load, plan| {
+                            load.execute_projection(plan)
+                        })?;
+
+                        Ok(SqlDispatchResult::Projection {
+                            columns,
+                            projection,
+                        })
+                    }
+                    QueryMode::Delete(_) => Err(QueryError::execute(InternalError::classified(
+                        ErrorClass::Unsupported,
+                        ErrorOrigin::Query,
+                        "execute_sql_projection only supports SELECT statements",
+                    ))),
+                }
+            }
+            SqlCommand::Explain { .. } | SqlCommand::ExplainGlobalAggregate { .. } => {
+                Self::explain_sql_from_command::<E>(command, lane).map(SqlDispatchResult::Explain)
+            }
+            SqlCommand::DescribeEntity
+            | SqlCommand::ShowIndexesEntity
+            | SqlCommand::ShowColumnsEntity
+            | SqlCommand::ShowEntities => Err(QueryError::execute(InternalError::classified(
+                ErrorClass::Unsupported,
+                ErrorOrigin::Query,
+                "query-lane SQL dispatch only accepts SELECT, DELETE, and EXPLAIN statements",
+            ))),
+        }
+    }
+
+    // Render one EXPLAIN payload from one already-lowered SQL command.
+    fn explain_sql_from_command<E>(
+        command: SqlCommand<E>,
+        lane: SqlLaneKind,
+    ) -> Result<String, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        match command {
+            SqlCommand::Query(_)
+            | SqlCommand::DescribeEntity
+            | SqlCommand::ShowIndexesEntity
+            | SqlCommand::ShowColumnsEntity
+            | SqlCommand::ShowEntities => {
+                Err(unsupported_sql_lane_error(SqlSurface::Explain, lane))
+            }
+            SqlCommand::Explain { mode, query } => match mode {
+                SqlExplainMode::Plan => Ok(query.explain()?.render_text_canonical()),
+                SqlExplainMode::Execution => query.explain_execution_text(),
+                SqlExplainMode::Json => Ok(query.explain()?.render_json_canonical()),
+            },
+            SqlCommand::ExplainGlobalAggregate { mode, command } => {
+                Self::explain_sql_global_aggregate::<E>(mode, command)
+            }
+        }
+    }
+
+    /// Parse one reduced SQL statement and return one reusable parsed envelope.
+    ///
+    /// This method is the SQL parse authority for dynamic route selection.
+    pub fn parse_sql_statement(&self, sql: &str) -> Result<SqlParsedStatement, QueryError> {
+        let statement = parse_sql(sql).map_err(map_sql_parse_error)?;
+        let route = sql_statement_route_from_statement(&statement);
+
+        Ok(SqlParsedStatement { statement, route })
+    }
+
     /// Parse one reduced SQL statement into canonical routing metadata.
     ///
     /// This method is the SQL dispatch authority for entity/surface routing
     /// outside typed-entity lowering paths.
     pub fn sql_statement_route(&self, sql: &str) -> Result<SqlStatementRoute, QueryError> {
-        let statement = parse_sql(sql).map_err(map_sql_parse_error)?;
-        match statement {
-            SqlStatement::Select(select) => Ok(SqlStatementRoute::Query {
-                entity: select.entity,
-            }),
-            SqlStatement::Delete(delete) => Ok(SqlStatementRoute::Query {
-                entity: delete.entity,
-            }),
-            SqlStatement::Explain(explain) => match explain.statement {
-                SqlExplainTarget::Select(select) => Ok(SqlStatementRoute::Explain {
-                    entity: select.entity,
-                }),
-                SqlExplainTarget::Delete(delete) => Ok(SqlStatementRoute::Explain {
-                    entity: delete.entity,
-                }),
-            },
-            SqlStatement::Describe(describe) => Ok(SqlStatementRoute::Describe {
-                entity: describe.entity,
-            }),
-            SqlStatement::ShowIndexes(show_indexes) => Ok(SqlStatementRoute::ShowIndexes {
-                entity: show_indexes.entity,
-            }),
-            SqlStatement::ShowColumns(show_columns) => Ok(SqlStatementRoute::ShowColumns {
-                entity: show_columns.entity,
-            }),
-            SqlStatement::ShowEntities(_) => Ok(SqlStatementRoute::ShowEntities),
-        }
+        let parsed = self.parse_sql_statement(sql)?;
+
+        Ok(parsed.route().clone())
     }
 
-    /// Execute one reduced SQL `DESCRIBE` statement for entity `E`.
-    pub fn describe_sql<E>(&self, sql: &str) -> Result<EntitySchemaDescription, QueryError>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        let command = compile_sql_command_ignore::<E>(sql)?;
-        let lane = sql_command_lane(&command);
+    /// Prepare one parsed reduced SQL statement for one concrete entity route.
+    ///
+    /// This method is the shared lowering authority for dynamic SQL dispatch
+    /// before lane callback execution.
+    pub fn prepare_sql_dispatch_parsed(
+        &self,
+        parsed: &SqlParsedStatement,
+        expected_entity: &'static str,
+    ) -> Result<SqlPreparedStatement, QueryError> {
+        let prepared = prepare_sql_statement(parsed.statement.clone(), expected_entity)
+            .map_err(map_sql_lowering_error)?;
 
-        match command {
-            SqlCommand::DescribeEntity => Ok(self.describe_entity::<E>()),
-            SqlCommand::Query(_)
-            | SqlCommand::Explain { .. }
-            | SqlCommand::ExplainGlobalAggregate { .. }
-            | SqlCommand::ShowIndexesEntity
-            | SqlCommand::ShowColumnsEntity
-            | SqlCommand::ShowEntities => {
-                Err(unsupported_sql_lane_error(SqlSurface::Describe, lane))
-            }
-        }
-    }
-
-    /// Execute one reduced SQL `SHOW INDEXES` statement for entity `E`.
-    pub fn show_indexes_sql<E>(&self, sql: &str) -> Result<Vec<String>, QueryError>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        let command = compile_sql_command_ignore::<E>(sql)?;
-        let lane = sql_command_lane(&command);
-
-        match command {
-            SqlCommand::ShowIndexesEntity => Ok(self.show_indexes::<E>()),
-            SqlCommand::Query(_)
-            | SqlCommand::Explain { .. }
-            | SqlCommand::ExplainGlobalAggregate { .. }
-            | SqlCommand::DescribeEntity
-            | SqlCommand::ShowColumnsEntity
-            | SqlCommand::ShowEntities => {
-                Err(unsupported_sql_lane_error(SqlSurface::ShowIndexes, lane))
-            }
-        }
-    }
-
-    /// Execute one reduced SQL `SHOW COLUMNS` statement for entity `E`.
-    pub fn show_columns_sql<E>(&self, sql: &str) -> Result<Vec<EntityFieldDescription>, QueryError>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        let command = compile_sql_command_ignore::<E>(sql)?;
-        let lane = sql_command_lane(&command);
-
-        match command {
-            SqlCommand::ShowColumnsEntity => Ok(self.show_columns::<E>()),
-            SqlCommand::Query(_)
-            | SqlCommand::Explain { .. }
-            | SqlCommand::ExplainGlobalAggregate { .. }
-            | SqlCommand::DescribeEntity
-            | SqlCommand::ShowIndexesEntity
-            | SqlCommand::ShowEntities => {
-                Err(unsupported_sql_lane_error(SqlSurface::ShowColumns, lane))
-            }
-        }
-    }
-
-    /// Execute one reduced SQL `SHOW ENTITIES`/`SHOW TABLES` statement.
-    pub fn show_entities_sql(&self, sql: &str) -> Result<Vec<String>, QueryError> {
-        let statement = self.sql_statement_route(sql)?;
-        let lane = sql_statement_route_lane(&statement);
-        if lane != SqlLaneKind::ShowEntities {
-            return Err(unsupported_sql_lane_error(SqlSurface::ShowEntities, lane));
-        }
-
-        Ok(self.show_entities())
+        Ok(SqlPreparedStatement { prepared })
     }
 
     /// Build one typed query intent from one reduced SQL statement.
@@ -451,28 +517,6 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    /// Derive canonical projection column labels for one reduced SQL `SELECT` statement.
-    pub fn sql_projection_columns<E>(&self, sql: &str) -> Result<Vec<String>, QueryError>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        let query = self.query_from_sql::<E>(sql)?;
-        if query.has_grouping() {
-            return Err(QueryError::Intent(
-                IntentError::GroupedRequiresExecuteGrouped,
-            ));
-        }
-
-        match query.mode() {
-            QueryMode::Load(_) => projection_labels_from_query(&query),
-            QueryMode::Delete(_) => Err(QueryError::execute(InternalError::classified(
-                ErrorClass::Unsupported,
-                ErrorOrigin::Query,
-                "sql_projection_columns only supports SELECT statements",
-            ))),
-        }
-    }
-
     /// Execute one reduced SQL `SELECT`/`DELETE` statement for entity `E`.
     pub fn execute_sql<E>(&self, sql: &str) -> Result<EntityResponse<E>, QueryError>
     where
@@ -486,33 +530,6 @@ impl<C: CanisterKind> DbSession<C> {
         }
 
         self.execute_query(&query)
-    }
-
-    /// Execute one reduced SQL `SELECT` statement and return projection-shaped rows.
-    ///
-    /// This surface keeps `execute_sql(...)` stable for callers
-    /// that consume full entity rows.
-    pub fn execute_sql_projection<E>(&self, sql: &str) -> Result<ProjectionResponse<E>, QueryError>
-    where
-        E: EntityKind<Canister = C> + EntityValue,
-    {
-        let query = self.query_from_sql::<E>(sql)?;
-        if query.has_grouping() {
-            return Err(QueryError::Intent(
-                IntentError::GroupedRequiresExecuteGrouped,
-            ));
-        }
-
-        match query.mode() {
-            QueryMode::Load(_) => {
-                self.execute_load_query_with(&query, |load, plan| load.execute_projection(plan))
-            }
-            QueryMode::Delete(_) => Err(QueryError::execute(InternalError::classified(
-                ErrorClass::Unsupported,
-                ErrorOrigin::Query,
-                "execute_sql_projection only supports SELECT statements",
-            ))),
-        }
     }
 
     /// Execute one reduced SQL global aggregate `SELECT` statement.
@@ -611,36 +628,79 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_grouped(&query, cursor_token)
     }
 
-    /// Explain one reduced SQL statement for entity `E`.
-    ///
-    /// Supported modes:
-    /// - `EXPLAIN ...` -> logical plan text
-    /// - `EXPLAIN EXECUTION ...` -> execution descriptor text
-    /// - `EXPLAIN JSON ...` -> logical plan canonical JSON
-    pub fn explain_sql<E>(&self, sql: &str) -> Result<String, QueryError>
+    /// Execute one reduced SQL statement into one unified SQL dispatch payload.
+    pub fn execute_sql_dispatch<E>(&self, sql: &str) -> Result<SqlDispatchResult<E>, QueryError>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let command = compile_sql_command_ignore::<E>(sql)?;
+        let parsed = self.parse_sql_statement(sql)?;
+
+        self.execute_sql_dispatch_parsed::<E>(&parsed)
+    }
+
+    /// Execute one parsed reduced SQL statement into one unified SQL payload.
+    pub fn execute_sql_dispatch_parsed<E>(
+        &self,
+        parsed: &SqlParsedStatement,
+    ) -> Result<SqlDispatchResult<E>, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let prepared = self.prepare_sql_dispatch_parsed(parsed, E::MODEL.entity_name())?;
+
+        self.execute_sql_dispatch_prepared::<E>(&prepared)
+    }
+
+    /// Execute one prepared reduced SQL statement into one unified SQL payload.
+    pub fn execute_sql_dispatch_prepared<E>(
+        &self,
+        prepared: &SqlPreparedStatement,
+    ) -> Result<SqlDispatchResult<E>, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let command = compile_sql_command_from_prepared_statement::<E>(
+            prepared.prepared.clone(),
+            MissingRowPolicy::Ignore,
+        )
+        .map_err(map_sql_lowering_error)?;
         let lane = sql_command_lane(&command);
 
         match command {
             SqlCommand::Query(_)
-            | SqlCommand::DescribeEntity
-            | SqlCommand::ShowIndexesEntity
-            | SqlCommand::ShowColumnsEntity
-            | SqlCommand::ShowEntities => {
-                Err(unsupported_sql_lane_error(SqlSurface::Explain, lane))
+            | SqlCommand::Explain { .. }
+            | SqlCommand::ExplainGlobalAggregate { .. } => {
+                self.execute_sql_dispatch_query_lane_from_command::<E>(command, lane)
             }
-            SqlCommand::Explain { mode, query } => match mode {
-                SqlExplainMode::Plan => Ok(query.explain()?.render_text_canonical()),
-                SqlExplainMode::Execution => query.explain_execution_text(),
-                SqlExplainMode::Json => Ok(query.explain()?.render_json_canonical()),
-            },
-            SqlCommand::ExplainGlobalAggregate { mode, command } => {
-                Self::explain_sql_global_aggregate::<E>(mode, command)
+            SqlCommand::DescribeEntity => {
+                Ok(SqlDispatchResult::Describe(self.describe_entity::<E>()))
             }
+            SqlCommand::ShowIndexesEntity => {
+                Ok(SqlDispatchResult::ShowIndexes(self.show_indexes::<E>()))
+            }
+            SqlCommand::ShowColumnsEntity => {
+                Ok(SqlDispatchResult::ShowColumns(self.show_columns::<E>()))
+            }
+            SqlCommand::ShowEntities => Ok(SqlDispatchResult::ShowEntities(self.show_entities())),
         }
+    }
+
+    /// Execute one prepared reduced SQL statement limited to query/explain lanes.
+    pub fn execute_sql_dispatch_query_lane_prepared<E>(
+        &self,
+        prepared: &SqlPreparedStatement,
+    ) -> Result<SqlDispatchResult<E>, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let command = compile_sql_command_from_prepared_statement::<E>(
+            prepared.prepared.clone(),
+            MissingRowPolicy::Ignore,
+        )
+        .map_err(map_sql_lowering_error)?;
+        let lane = sql_command_lane(&command);
+
+        self.execute_sql_dispatch_query_lane_from_command::<E>(command, lane)
     }
 
     // Render one EXPLAIN payload for constrained global aggregate SQL command.

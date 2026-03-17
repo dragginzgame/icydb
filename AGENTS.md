@@ -411,7 +411,7 @@ Code is considered non-trivial if it:
 * Release job (tags): `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, `cargo build --release`.
 * Package cache: clears `~/.cargo/.package-cache` before running cargo.
 * Versioning: separate job runs `scripts/app/check-versioning.sh`.
-* Canisters: release job builds `canister_sql_test` to WASM, extracts `.did` via `candid-extractor`, and uploads artifacts.
+* Canisters: release job builds `canister_quickstart` to WASM, extracts `.did` via `candid-extractor`, and uploads artifacts.
 
 ---
 

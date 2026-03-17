@@ -1,4 +1,4 @@
-use crate::schema::SqlTestStore;
+use crate::schema::QuickstartStore;
 use icydb::{base, design::prelude::*};
 
 ///
@@ -6,7 +6,7 @@ use icydb::{base, design::prelude::*};
 ///
 
 #[entity(
-    store = "SqlTestStore",
+    store = "QuickstartStore",
     pk(field = "id"),
     fields(field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"))
 )]
@@ -17,7 +17,7 @@ pub struct SimpleEntity {}
 ///
 
 #[entity(
-    store = "SqlTestStore",
+    store = "QuickstartStore",
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
@@ -31,7 +31,7 @@ pub struct BlobEntity {}
 ///
 
 #[entity(
-    store = "SqlTestStore",
+    store = "QuickstartStore",
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
@@ -46,7 +46,7 @@ pub struct Searchable {}
 ///
 
 #[entity(
-    store = "SqlTestStore",
+    store = "QuickstartStore",
     pk(field = "value"),
     fields(field(ident = "value", value(item(prim = "Nat32"))))
 )]
@@ -57,7 +57,7 @@ pub struct Limit {}
 ///
 
 #[entity(
-    store = "SqlTestStore",
+    store = "QuickstartStore",
     pk(field = "id"),
     fields(field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"))
 )]
@@ -89,7 +89,7 @@ pub struct MissingFieldLarge {}
 ///
 
 #[entity(
-    store = "SqlTestStore",
+    store = "QuickstartStore",
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
@@ -103,7 +103,7 @@ pub struct ContainsBlob {}
 ///
 
 #[entity(
-    store = "SqlTestStore",
+    store = "QuickstartStore",
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
@@ -128,7 +128,7 @@ pub struct ContainsOpts {}
 ///
 
 #[entity(
-    store = "SqlTestStore",
+    store = "QuickstartStore",
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
@@ -181,7 +181,7 @@ pub struct ContainsManyRelations {}
 ///
 
 #[entity(
-    store = "SqlTestStore",
+    store = "QuickstartStore",
     pk(field = "id"),
     index(fields = "x"),
     index(fields = "y", unique),
@@ -220,7 +220,7 @@ pub struct LowerIndexText {}
 ///
 
 #[entity(
-    store = "SqlTestStore",
+    store = "QuickstartStore",
     pk(field = "id"),
     index(fields = "username", unique),
     fields(
@@ -236,7 +236,7 @@ pub struct IndexSanitized {}
 ///
 
 #[entity(
-    store = "SqlTestStore",
+    store = "QuickstartStore",
     pk(field = "id"),
     index(fields = "create_blob_id"),
     fields(
@@ -254,7 +254,7 @@ pub struct IndexRelation {}
 ///
 
 #[entity(
-    store = "SqlTestStore",
+    store = "QuickstartStore",
     pk(field = "id"),
     index(fields = "value", unique),
     fields(

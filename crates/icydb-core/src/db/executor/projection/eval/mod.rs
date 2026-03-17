@@ -5,11 +5,12 @@
 
 mod operators;
 
+#[cfg(test)]
+use crate::traits::{EntityKind, EntityValue};
 use crate::{
     db::executor::projection::grouped::GroupedRowView,
     db::query::plan::expr::Expr,
-    model::entity::resolve_field_slot,
-    traits::{EntityKind, EntityValue},
+    model::entity::{EntityModel, resolve_field_slot},
     value::Value,
 };
 use thiserror::Error as ThisError;
@@ -62,6 +63,7 @@ pub(in crate::db::executor) enum ProjectionEvalError {
 }
 
 /// Evaluate one projection expression against one entity row.
+#[cfg(test)]
 pub(in crate::db::executor) fn eval_expr<E>(
     expr: &Expr,
     row: &E,
@@ -69,15 +71,24 @@ pub(in crate::db::executor) fn eval_expr<E>(
 where
     E: EntityKind + EntityValue,
 {
+    eval_expr_with_slot_reader(expr, E::MODEL, &mut |slot| row.get_value_by_index(slot))
+}
+
+/// Evaluate one projection expression through one runtime slot reader.
+pub(in crate::db::executor) fn eval_expr_with_slot_reader(
+    expr: &Expr,
+    model: &EntityModel,
+    read_slot: &mut dyn FnMut(usize) -> Option<Value>,
+) -> Result<Value, ProjectionEvalError> {
     match expr {
         Expr::Field(field_id) => {
             let field_name = field_id.as_str();
-            let Some(field_index) = resolve_field_slot(E::MODEL, field_name) else {
+            let Some(field_index) = resolve_field_slot(model, field_name) else {
                 return Err(ProjectionEvalError::UnknownField {
                     field: field_name.to_string(),
                 });
             };
-            let Some(value) = row.get_value_by_index(field_index) else {
+            let Some(value) = read_slot(field_index) else {
                 return Err(ProjectionEvalError::MissingFieldValue {
                     field: field_name.to_string(),
                     index: field_index,
@@ -88,19 +99,19 @@ where
         }
         Expr::Literal(value) => Ok(value.clone()),
         Expr::Unary { op, expr } => {
-            let operand = eval_expr(expr.as_ref(), row)?;
+            let operand = eval_expr_with_slot_reader(expr.as_ref(), model, read_slot)?;
             operators::eval_unary_expr(*op, operand)
         }
         Expr::Binary { op, left, right } => {
-            let left_value = eval_expr(left.as_ref(), row)?;
-            let right_value = eval_expr(right.as_ref(), row)?;
+            let left_value = eval_expr_with_slot_reader(left.as_ref(), model, read_slot)?;
+            let right_value = eval_expr_with_slot_reader(right.as_ref(), model, read_slot)?;
 
             operators::eval_binary_expr(*op, left_value, right_value)
         }
         Expr::Aggregate(aggregate) => Err(ProjectionEvalError::AggregateNotEvaluable {
             kind: format!("{:?}", aggregate.kind()),
         }),
-        Expr::Alias { expr, .. } => eval_expr(expr.as_ref(), row),
+        Expr::Alias { expr, .. } => eval_expr_with_slot_reader(expr.as_ref(), model, read_slot),
     }
 }
 

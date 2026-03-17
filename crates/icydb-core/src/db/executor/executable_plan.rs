@@ -26,8 +26,9 @@ use crate::{
         predicate::MissingRowPolicy,
         query::plan::{
             AccessPlannedQuery, ContinuationContract, ExecutionOrdering, GroupedExecutorHandoff,
-            OrderDirection, OrderSpec, PageSpec, QueryMode, grouped_executor_handoff,
-            index_covering_existing_rows_terminal_eligible,
+            OrderDirection, OrderSpec, PageSpec, QueryMode,
+            constant_covering_projection_value_from_access, covering_index_projection_context,
+            grouped_executor_handoff, index_covering_existing_rows_terminal_eligible,
         },
         query::{
             builder::AggregateExpr,
@@ -52,6 +53,20 @@ pub(in crate::db) enum ExecutionStrategy {
     PrimaryKey,
     Ordered,
     Grouped,
+}
+
+///
+/// BytesByProjectionMode
+///
+/// Canonical `bytes_by(field)` projection mode classification used by execution
+/// and explain surfaces.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum BytesByProjectionMode {
+    Materialized,
+    CoveringIndex,
+    CoveringConstant,
 }
 
 ///
@@ -288,6 +303,50 @@ impl<E: EntityKind> ExecutablePlan<E> {
     #[must_use]
     pub(in crate::db) const fn consistency(&self) -> MissingRowPolicy {
         row_read_consistency_for_plan(&self.plan)
+    }
+
+    /// Classify canonical `bytes_by(field)` execution mode for this plan/field.
+    #[must_use]
+    pub(in crate::db) fn bytes_by_projection_mode(
+        &self,
+        target_field: &str,
+    ) -> BytesByProjectionMode {
+        if !matches!(self.consistency(), MissingRowPolicy::Ignore) {
+            return BytesByProjectionMode::Materialized;
+        }
+
+        if constant_covering_projection_value_from_access(self.access(), target_field).is_some() {
+            return BytesByProjectionMode::CoveringConstant;
+        }
+
+        if self.has_predicate() {
+            return BytesByProjectionMode::Materialized;
+        }
+
+        if covering_index_projection_context(
+            self.access(),
+            self.order_spec(),
+            target_field,
+            E::MODEL.primary_key.name,
+        )
+        .is_some()
+        {
+            return BytesByProjectionMode::CoveringIndex;
+        }
+
+        BytesByProjectionMode::Materialized
+    }
+
+    /// Return a stable explain/diagnostic label for one bytes-by mode.
+    #[must_use]
+    pub(in crate::db) const fn bytes_by_projection_mode_label(
+        mode: BytesByProjectionMode,
+    ) -> &'static str {
+        match mode {
+            BytesByProjectionMode::Materialized => "field_materialized",
+            BytesByProjectionMode::CoveringIndex => "field_covering_index",
+            BytesByProjectionMode::CoveringConstant => "field_covering_constant",
+        }
     }
 
     /// Borrow scalar ORDER BY contract for this executable plan, if any.

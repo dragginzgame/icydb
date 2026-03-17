@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     db::{
-        Db,
+        Db, ProjectionResponse,
         commit::{ensure_recovered, init_commit_store_for_tests},
         cursor::CursorPlanError,
         data::DataStore,
@@ -90,6 +90,170 @@ fn reset_session_sql_store() {
 
 fn sql_session() -> DbSession<SessionSqlCanister> {
     DbSession::new(SESSION_SQL_DB)
+}
+
+fn unsupported_sql_surface_query_error(message: &'static str) -> QueryError {
+    QueryError::execute(crate::error::InternalError::classified(
+        ErrorClass::Unsupported,
+        ErrorOrigin::Query,
+        message,
+    ))
+}
+
+///
+/// SessionSqlLegacySurfaceExt
+///
+/// Test-only compatibility adapters that map removed lane-specific SQL
+/// entrypoints to the unified SQL dispatch surface.
+///
+
+trait SessionSqlLegacySurfaceExt {
+    fn sql_projection_columns<E>(&self, sql: &str) -> Result<Vec<String>, QueryError>
+    where
+        E: EntityKind<Canister = SessionSqlCanister> + EntityValue;
+
+    fn execute_sql_projection<E>(&self, sql: &str) -> Result<ProjectionResponse<E>, QueryError>
+    where
+        E: EntityKind<Canister = SessionSqlCanister> + EntityValue;
+
+    fn explain_sql<E>(&self, sql: &str) -> Result<String, QueryError>
+    where
+        E: EntityKind<Canister = SessionSqlCanister> + EntityValue;
+
+    fn describe_sql<E>(&self, sql: &str) -> Result<EntitySchemaDescription, QueryError>
+    where
+        E: EntityKind<Canister = SessionSqlCanister> + EntityValue;
+
+    fn show_indexes_sql<E>(&self, sql: &str) -> Result<Vec<String>, QueryError>
+    where
+        E: EntityKind<Canister = SessionSqlCanister> + EntityValue;
+
+    fn show_columns_sql<E>(&self, sql: &str) -> Result<Vec<EntityFieldDescription>, QueryError>
+    where
+        E: EntityKind<Canister = SessionSqlCanister> + EntityValue;
+
+    fn show_entities_sql(&self, sql: &str) -> Result<Vec<String>, QueryError>;
+}
+
+impl SessionSqlLegacySurfaceExt for DbSession<SessionSqlCanister> {
+    fn sql_projection_columns<E>(&self, sql: &str) -> Result<Vec<String>, QueryError>
+    where
+        E: EntityKind<Canister = SessionSqlCanister> + EntityValue,
+    {
+        let payload = self.execute_sql_dispatch::<E>(sql)?;
+
+        match payload {
+            SqlDispatchResult::Projection { columns, .. } => Ok(columns),
+            SqlDispatchResult::Explain(_)
+            | SqlDispatchResult::Describe(_)
+            | SqlDispatchResult::ShowIndexes(_)
+            | SqlDispatchResult::ShowColumns(_)
+            | SqlDispatchResult::ShowEntities(_) => Err(unsupported_sql_surface_query_error(
+                "sql_projection_columns only supports SELECT statements",
+            )),
+        }
+    }
+
+    fn execute_sql_projection<E>(&self, sql: &str) -> Result<ProjectionResponse<E>, QueryError>
+    where
+        E: EntityKind<Canister = SessionSqlCanister> + EntityValue,
+    {
+        let payload = self.execute_sql_dispatch::<E>(sql)?;
+
+        match payload {
+            SqlDispatchResult::Projection { projection, .. } => Ok(projection),
+            SqlDispatchResult::Explain(_)
+            | SqlDispatchResult::Describe(_)
+            | SqlDispatchResult::ShowIndexes(_)
+            | SqlDispatchResult::ShowColumns(_)
+            | SqlDispatchResult::ShowEntities(_) => Err(unsupported_sql_surface_query_error(
+                "execute_sql_projection only supports SELECT statements",
+            )),
+        }
+    }
+
+    fn explain_sql<E>(&self, sql: &str) -> Result<String, QueryError>
+    where
+        E: EntityKind<Canister = SessionSqlCanister> + EntityValue,
+    {
+        let payload = self.execute_sql_dispatch::<E>(sql)?;
+
+        match payload {
+            SqlDispatchResult::Explain(explain) => Ok(explain),
+            SqlDispatchResult::Projection { .. }
+            | SqlDispatchResult::Describe(_)
+            | SqlDispatchResult::ShowIndexes(_)
+            | SqlDispatchResult::ShowColumns(_)
+            | SqlDispatchResult::ShowEntities(_) => Err(unsupported_sql_surface_query_error(
+                "explain_sql requires an EXPLAIN statement",
+            )),
+        }
+    }
+
+    fn describe_sql<E>(&self, sql: &str) -> Result<EntitySchemaDescription, QueryError>
+    where
+        E: EntityKind<Canister = SessionSqlCanister> + EntityValue,
+    {
+        let payload = self.execute_sql_dispatch::<E>(sql)?;
+
+        match payload {
+            SqlDispatchResult::Describe(description) => Ok(description),
+            SqlDispatchResult::Projection { .. }
+            | SqlDispatchResult::Explain(_)
+            | SqlDispatchResult::ShowIndexes(_)
+            | SqlDispatchResult::ShowColumns(_)
+            | SqlDispatchResult::ShowEntities(_) => Err(unsupported_sql_surface_query_error(
+                "describe_sql requires a DESCRIBE statement",
+            )),
+        }
+    }
+
+    fn show_indexes_sql<E>(&self, sql: &str) -> Result<Vec<String>, QueryError>
+    where
+        E: EntityKind<Canister = SessionSqlCanister> + EntityValue,
+    {
+        let payload = self.execute_sql_dispatch::<E>(sql)?;
+
+        match payload {
+            SqlDispatchResult::ShowIndexes(indexes) => Ok(indexes),
+            SqlDispatchResult::Projection { .. }
+            | SqlDispatchResult::Explain(_)
+            | SqlDispatchResult::Describe(_)
+            | SqlDispatchResult::ShowColumns(_)
+            | SqlDispatchResult::ShowEntities(_) => Err(unsupported_sql_surface_query_error(
+                "show_indexes_sql requires a SHOW INDEXES statement",
+            )),
+        }
+    }
+
+    fn show_columns_sql<E>(&self, sql: &str) -> Result<Vec<EntityFieldDescription>, QueryError>
+    where
+        E: EntityKind<Canister = SessionSqlCanister> + EntityValue,
+    {
+        let payload = self.execute_sql_dispatch::<E>(sql)?;
+
+        match payload {
+            SqlDispatchResult::ShowColumns(columns) => Ok(columns),
+            SqlDispatchResult::Projection { .. }
+            | SqlDispatchResult::Explain(_)
+            | SqlDispatchResult::Describe(_)
+            | SqlDispatchResult::ShowIndexes(_)
+            | SqlDispatchResult::ShowEntities(_) => Err(unsupported_sql_surface_query_error(
+                "show_columns_sql requires a SHOW COLUMNS statement",
+            )),
+        }
+    }
+
+    fn show_entities_sql(&self, sql: &str) -> Result<Vec<String>, QueryError> {
+        let route = self.sql_statement_route(sql)?;
+        if !route.is_show_entities() {
+            return Err(unsupported_sql_surface_query_error(
+                "show_entities_sql requires a SHOW ENTITIES or SHOW TABLES statement",
+            ));
+        }
+
+        Ok(self.show_entities())
+    }
 }
 
 // Seed one deterministic SQL fixture dataset used by matrix tests.

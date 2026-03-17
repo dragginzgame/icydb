@@ -24,12 +24,13 @@ use crate::{
     },
     error::InternalError,
     metrics::sink::{MetricsSink, with_metrics_sink},
+    model::entity::EntityModel,
     traits::{CanisterKind, EntityKind, EntityValue},
     value::Value,
 };
 use std::thread::LocalKey;
 
-pub use sql::SqlStatementRoute;
+pub use sql::{SqlDispatchResult, SqlParsedStatement, SqlPreparedStatement, SqlStatementRoute};
 
 // Map executor-owned plan-surface failures into query-owned plan errors.
 fn map_executor_plan_error(err: ExecutorPlanError) -> QueryError {
@@ -208,7 +209,13 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        show_indexes_for_model(E::MODEL)
+        self.show_indexes_for_model(E::MODEL)
+    }
+
+    /// Return one stable, human-readable index listing for one schema model.
+    #[must_use]
+    pub fn show_indexes_for_model(&self, model: &'static EntityModel) -> Vec<String> {
+        show_indexes_for_model(model)
     }
 
     /// Return one stable list of field descriptors for the entity schema.
@@ -217,7 +224,16 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        describe_entity_model(E::MODEL).fields().to_vec()
+        self.show_columns_for_model(E::MODEL)
+    }
+
+    /// Return one stable list of field descriptors for one schema model.
+    #[must_use]
+    pub fn show_columns_for_model(
+        &self,
+        model: &'static EntityModel,
+    ) -> Vec<EntityFieldDescription> {
+        describe_entity_model(model).fields().to_vec()
     }
 
     /// Return one stable list of runtime-registered entity names.
@@ -235,7 +251,13 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        describe_entity_model(E::MODEL)
+        self.describe_entity_model(E::MODEL)
+    }
+
+    /// Return one structured schema description for one schema model.
+    #[must_use]
+    pub fn describe_entity_model(&self, model: &'static EntityModel) -> EntitySchemaDescription {
+        describe_entity_model(model)
     }
 
     /// Build one point-in-time storage report for observability endpoints.

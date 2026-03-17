@@ -14,6 +14,10 @@ use crate::{
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutionPreparation,
             aggregate::GroupError,
+            aggregate::runtime::grouped_fold::{
+                candidate_rows::collect_grouped_candidate_rows,
+                page_finalize::finalize_grouped_page,
+            },
             group::{grouped_budget_observability, grouped_execution_context_from_planner_config},
             pipeline::contracts::{
                 ExecutionInputs, GroupedCursorPage, GroupedFoldStage, GroupedRouteStageProjection,
@@ -119,8 +123,8 @@ where
         )?;
 
         // Phase 4: finalize reducer outputs into sorted grouped candidate rows.
-        let grouped_pagination_window = Self::grouped_pagination_window(route);
-        let grouped_candidate_rows = Self::collect_grouped_candidate_rows(
+        let grouped_pagination_window = route.grouped_pagination_window().clone();
+        let grouped_candidate_rows = collect_grouped_candidate_rows(
             route,
             grouped_engines,
             aggregate_count,
@@ -129,7 +133,7 @@ where
         )?;
 
         // Phase 5: page finalized candidates and project grouped outputs.
-        let (page_rows, next_cursor) = Self::finalize_grouped_page(
+        let (page_rows, next_cursor) = finalize_grouped_page(
             route,
             &grouped_projection_spec,
             grouped_candidate_rows,

@@ -139,59 +139,37 @@ fn entity_runtime_hooks(builder: &ActorBuilder, canister_path: &syn::Path) -> To
 fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
     let entities = builder.get_entities();
 
-    let mut variants = quote!();
-    let mut all_routes = quote!();
-    let mut entity_name_match = quote!();
-    let mut primary_key_field_match = quote!();
-    let mut projection_match = quote!();
-    let mut explain_match = quote!();
-    let mut describe_schema_match = quote!();
-    let mut show_indexes_match = quote!();
-    let mut show_columns_match = quote!();
+    let mut lane_callback_defs = quote!();
+    let mut descriptor_entries = quote!();
 
-    for (entity_path, entity) in entities {
-        let variant_ident = format_ident!("{}", entity.def().ident());
+    for (entity_id, (entity_path, _entity)) in entities.into_iter().enumerate() {
         let entity_ty: syn::Path = parse_str(&entity_path)
             .unwrap_or_else(|_| panic!("invalid entity path: {entity_path}"));
 
-        variants.extend(quote! {
-            #variant_ident,
-        });
-        all_routes.extend(quote! {
-            SqlEntityRoute::#variant_ident,
-        });
-        entity_name_match.extend(quote! {
-            Self::#variant_ident => {
-                <#entity_ty as ::icydb::traits::EntityIdentity>::ENTITY_NAME
+        let query_fn_ident = format_ident!("__sql_query_{entity_id}");
+        let lane_table_ident = format_ident!("SQL_LANE_TABLE_{entity_id}");
+
+        lane_callback_defs.extend(quote! {
+            fn #query_fn_ident(
+                prepared: &::icydb::db::SqlPreparedStatement,
+            ) -> Result<SqlQueryResult, Error> {
+                db().execute_sql_dispatch_query_lane_prepared::<#entity_ty>(prepared)
             }
         });
-        primary_key_field_match.extend(quote! {
-            Self::#variant_ident => {
-                <#entity_ty as ::icydb::traits::EntitySchema>::MODEL
-                    .primary_key()
-                    .name()
-            }
+
+        lane_callback_defs.extend(quote! {
+            static #lane_table_ident: SqlLaneTable = SqlLaneTable {
+                query: #query_fn_ident,
+            };
         });
-        projection_match.extend(quote! {
-            Self::#variant_ident => {
-                let columns = db().sql_projection_columns::<#entity_ty>(sql)?;
-                let projection = db().execute_sql_projection::<#entity_ty>(sql)?;
-                Ok(::icydb::db::sql::projection_rows_from_response::<#entity_ty>(
-                    columns, projection,
-                ))
-            }
-        });
-        explain_match.extend(quote! {
-            Self::#variant_ident => db().explain_sql::<#entity_ty>(sql),
-        });
-        describe_schema_match.extend(quote! {
-            Self::#variant_ident => db().describe_sql::<#entity_ty>(sql),
-        });
-        show_indexes_match.extend(quote! {
-            Self::#variant_ident => db().show_indexes_sql::<#entity_ty>(sql),
-        });
-        show_columns_match.extend(quote! {
-            Self::#variant_ident => db().show_columns_sql::<#entity_ty>(sql),
+
+        descriptor_entries.extend(quote! {
+            SqlEntityDescriptor {
+                entity_id: #entity_id,
+                name: <#entity_ty as ::icydb::traits::EntityIdentity>::ENTITY_NAME,
+                schema: <#entity_ty as ::icydb::traits::EntitySchema>::MODEL,
+                routes: &#lane_table_ident,
+            },
         });
     }
 
@@ -207,21 +185,48 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
 
             use ::icydb::{
                 Error,
-                db::sql::{SqlProjectionRows, SqlQueryResult, SqlQueryRowsOutput},
+                db::sql::SqlQueryResult,
                 error::{ErrorKind, ErrorOrigin, QueryErrorKind, RuntimeErrorKind},
             };
 
             ///
-            /// SqlEntityRoute
+            /// SqlLaneTable
             ///
-            /// One generated runtime route that resolves to a concrete schema entity type.
+            /// Static function table for one SQL entity route.
             ///
-            #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-            pub enum SqlEntityRoute {
-                #variants
+            #[derive(Clone, Copy, Debug)]
+            pub struct SqlLaneTable {
+                pub query: fn(&::icydb::db::SqlPreparedStatement) -> Result<SqlQueryResult, Error>,
             }
 
-            static SQL_ENTITY_ROUTES: &[SqlEntityRoute] = &[#all_routes];
+            ///
+            /// SqlEntityDescriptor
+            ///
+            /// Immutable runtime SQL descriptor for one concrete entity route.
+            ///
+            #[derive(Clone, Copy, Debug)]
+            pub struct SqlEntityDescriptor {
+                pub entity_id: usize,
+                pub name: &'static str,
+                pub schema: &'static ::icydb::model::entity::EntityModel,
+                pub routes: &'static SqlLaneTable,
+            }
+
+            ///
+            /// SqlEntityRoute
+            ///
+            /// One generated runtime route that resolves to one immutable entity descriptor.
+            ///
+            #[derive(Clone, Copy, Debug)]
+            pub struct SqlEntityRoute {
+                descriptor: &'static SqlEntityDescriptor,
+            }
+
+            #lane_callback_defs
+
+            static SQL_ENTITY_DESCRIPTORS: &[SqlEntityDescriptor] = &[
+                #descriptor_entries
+            ];
 
             impl SqlEntityRoute {
                 /// Resolve one runtime entity route from a parsed SQL statement.
@@ -238,12 +243,12 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
                 /// Resolve one runtime entity route from one SQL entity identifier.
                 #[must_use]
                 pub fn from_entity_name(entity_name: &str) -> Option<Self> {
-                    for route in SQL_ENTITY_ROUTES {
+                    for descriptor in SQL_ENTITY_DESCRIPTORS {
                         if ::icydb::db::identifiers_tail_match(
                             entity_name,
-                            route.entity_name(),
+                            descriptor.name,
                         ) {
-                            return Some(*route);
+                            return Some(Self { descriptor });
                         }
                     }
 
@@ -253,147 +258,108 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
                 /// Return this route's canonical entity name.
                 #[must_use]
                 pub const fn entity_name(self) -> &'static str {
-                    match self {
-                        #entity_name_match
-                    }
+                    self.descriptor.name
                 }
 
                 /// Return this route's primary-key field name.
                 #[must_use]
-                pub const fn primary_key_field(self) -> &'static str {
-                    match self {
-                        #primary_key_field_match
-                    }
+                pub fn primary_key_field(self) -> &'static str {
+                    self.descriptor.schema.primary_key().name()
                 }
 
-                /// Execute one SQL projection query for this concrete route.
-                pub fn execute_projection_rows(self, sql: &str) -> Result<SqlProjectionRows, Error> {
-                    // Keep the SQL input marked as used when this canister has no routed entities.
-                    let _ = sql;
-                    match self {
-                        #projection_match
-                    }
-                }
-
-                /// Execute one SQL explain query for this concrete route.
-                pub fn execute_explain(self, sql: &str) -> Result<String, Error> {
-                    // Keep the SQL input marked as used when this canister has no routed entities.
-                    let _ = sql;
-                    match self {
-                        #explain_match
-                    }
-                }
-
-                /// Execute one SQL `DESCRIBE` statement for this concrete route.
-                pub fn execute_describe_schema(
+                /// Execute one SQL statement for this concrete route.
+                pub fn execute_query(
                     self,
-                    sql: &str,
-                ) -> Result<::icydb::db::EntitySchemaDescription, Error> {
-                    // Keep the SQL input marked as used when this canister has no routed entities.
-                    let _ = sql;
-                    match self {
-                        #describe_schema_match
-                    }
+                    prepared: &::icydb::db::SqlPreparedStatement,
+                ) -> Result<SqlQueryResult, Error> {
+                    (self.descriptor.routes.query)(prepared)
                 }
 
-                /// Execute one SQL `SHOW INDEXES` statement for this concrete route.
-                pub fn execute_show_indexes(self, sql: &str) -> Result<Vec<String>, Error> {
-                    // Keep the SQL input marked as used when this canister has no routed entities.
-                    let _ = sql;
-                    match self {
-                        #show_indexes_match
-                    }
+                /// Describe this route's schema using descriptor-owned model authority.
+                #[must_use]
+                pub fn describe_descriptor_model(self) -> ::icydb::db::EntitySchemaDescription {
+                    db().describe_entity_model(self.descriptor.schema)
                 }
 
-                /// Execute one SQL `SHOW COLUMNS` statement for this concrete route.
-                pub fn execute_show_columns(
-                    self,
-                    sql: &str,
-                ) -> Result<Vec<::icydb::db::EntityFieldDescription>, Error> {
-                    // Keep the SQL input marked as used when this canister has no routed entities.
-                    let _ = sql;
-                    match self {
-                        #show_columns_match
-                    }
+                /// Return one stable index listing for this route's schema model.
+                #[must_use]
+                pub fn descriptor_index_names(self) -> Vec<String> {
+                    db().show_indexes_for_model(self.descriptor.schema)
+                }
+
+                /// Return one stable column listing for this route's schema model.
+                #[must_use]
+                pub fn descriptor_column_descriptions(self) -> Vec<::icydb::db::EntityFieldDescription> {
+                    db().show_columns_for_model(self.descriptor.schema)
                 }
             }
 
             /// Return one list of all supported SQL entity names.
             #[must_use]
             pub fn entities() -> Vec<String> {
-                SQL_ENTITY_ROUTES
+                SQL_ENTITY_DESCRIPTORS
                     .iter()
-                    .map(|route| route.entity_name().to_string())
+                    .map(|descriptor| descriptor.name.to_string())
                     .collect()
             }
 
             /// Execute one reduced SQL statement and return one typed SQL surface payload.
             pub fn query(sql: &str) -> Result<SqlQueryResult, Error> {
                 let sql_trimmed = ::icydb::db::sql::normalize_sql_input(sql)?;
-                let statement = db().sql_statement_route(sql_trimmed)?;
+                let parsed = db().parse_sql_statement(sql_trimmed)?;
+                let statement = parsed.route().clone();
                 match statement {
                     statement @ ::icydb::db::SqlStatementRoute::Query { .. } => {
-                        let (entity, rows) = projection_rows_for_statement(sql_trimmed, &statement)?;
-                        Ok(SqlQueryResult::Projection(SqlQueryRowsOutput::from_projection(
-                            entity, rows,
-                        )))
+                        query_lane_result_for_statement(sql_trimmed, &parsed, &statement)
                     }
                     statement @ ::icydb::db::SqlStatementRoute::Explain { .. } => {
-                        explain_result_for_statement(sql_trimmed, &statement)
+                        query_lane_result_for_statement(sql_trimmed, &parsed, &statement)
                     }
                     statement @ ::icydb::db::SqlStatementRoute::Describe { .. } => {
-                        describe_result_for_statement(sql_trimmed, &statement)
+                        describe_result_for_statement(&statement)
                     }
                     statement @ ::icydb::db::SqlStatementRoute::ShowIndexes { .. } => {
-                        show_indexes_result_for_statement(sql_trimmed, &statement)
+                        show_indexes_result_for_statement(&statement)
                     }
                     statement @ ::icydb::db::SqlStatementRoute::ShowColumns { .. } => {
-                        show_columns_result_for_statement(sql_trimmed, &statement)
+                        show_columns_result_for_statement(&statement)
                     }
                     ::icydb::db::SqlStatementRoute::ShowEntities => {
-                        show_entities_result_for_statement(sql_trimmed)
+                        show_entities_result_for_statement()
                     }
                 }
             }
 
-            fn explain_result_for_statement(
+            fn query_lane_result_for_statement(
                 sql: &str,
+                parsed: &::icydb::db::SqlParsedStatement,
                 statement: &::icydb::db::SqlStatementRoute,
             ) -> Result<SqlQueryResult, Error> {
                 let route = SqlEntityRoute::from_statement_route(statement)?;
-                let explain_text = route
-                    .execute_explain(sql)
-                    .map_err(|err| explain_surface_error(sql, route, err))?;
+                let prepared = db().prepare_sql_dispatch_parsed(parsed, route.entity_name())?;
+                let result = route.execute_query(&prepared);
 
-                Ok(SqlQueryResult::Explain {
-                    entity: route.entity_name().to_string(),
-                    explain: explain_text,
-                })
-            }
+                if matches!(statement, ::icydb::db::SqlStatementRoute::Explain { .. }) {
+                    return result.map_err(|err| explain_surface_error(sql, route, err));
+                }
 
-            fn describe_schema_for_statement(
-                sql: &str,
-                statement: &::icydb::db::SqlStatementRoute,
-            ) -> Result<::icydb::db::EntitySchemaDescription, Error> {
-                let route = SqlEntityRoute::from_statement_route(statement)?;
-                route.execute_describe_schema(sql)
+                result
             }
 
             fn describe_result_for_statement(
-                sql: &str,
                 statement: &::icydb::db::SqlStatementRoute,
             ) -> Result<SqlQueryResult, Error> {
-                let description = describe_schema_for_statement(sql, statement)?;
+                let route = SqlEntityRoute::from_statement_route(statement)?;
+                let description = route.describe_descriptor_model();
 
                 Ok(SqlQueryResult::Describe(description))
             }
 
             fn show_indexes_result_for_statement(
-                sql: &str,
                 statement: &::icydb::db::SqlStatementRoute,
             ) -> Result<SqlQueryResult, Error> {
                 let route = SqlEntityRoute::from_statement_route(statement)?;
-                let indexes = route.execute_show_indexes(sql)?;
+                let indexes = route.descriptor_index_names();
 
                 Ok(SqlQueryResult::ShowIndexes {
                     entity: route.entity_name().to_string(),
@@ -402,11 +368,10 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
             }
 
             fn show_columns_result_for_statement(
-                sql: &str,
                 statement: &::icydb::db::SqlStatementRoute,
             ) -> Result<SqlQueryResult, Error> {
                 let route = SqlEntityRoute::from_statement_route(statement)?;
-                let columns = route.execute_show_columns(sql)?;
+                let columns = route.descriptor_column_descriptions();
 
                 Ok(SqlQueryResult::ShowColumns {
                     entity: route.entity_name().to_string(),
@@ -414,22 +379,10 @@ fn sql_dispatch(builder: &ActorBuilder) -> TokenStream {
                 })
             }
 
-            fn show_entities_result_for_statement(
-                sql: &str,
-            ) -> Result<SqlQueryResult, Error> {
-                let entities = db().show_entities_sql(sql)?;
+            fn show_entities_result_for_statement() -> Result<SqlQueryResult, Error> {
+                let entities = db().show_entities();
 
                 Ok(SqlQueryResult::ShowEntities { entities })
-            }
-
-            fn projection_rows_for_statement(
-                sql: &str,
-                statement: &::icydb::db::SqlStatementRoute,
-            ) -> Result<(String, SqlProjectionRows), Error> {
-                let route = SqlEntityRoute::from_statement_route(statement)?;
-                let rows = route.execute_projection_rows(sql)?;
-
-                Ok((route.entity_name().to_string(), rows))
             }
 
             fn unsupported_sql_entity_error(entity_name: &str) -> Error {

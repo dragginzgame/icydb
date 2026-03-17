@@ -12,7 +12,6 @@ use crate::{
         },
     },
     model::entity::EntityModel,
-    traits::EntitySchema,
 };
 
 fn validated_secondary_order_for_contract<'a>(
@@ -58,30 +57,28 @@ pub(in crate::db::executor) const fn secondary_order_contract_active(
 
 /// Return whether access traversal already satisfies the logical `ORDER BY`
 /// contract under planner-owned pushdown eligibility decisions.
-pub(in crate::db::executor) fn access_order_satisfied_by_route_contract<E, K>(
+pub(in crate::db::executor) fn access_order_satisfied_by_route_contract_for_model<K>(
+    model: &EntityModel,
     plan: &AccessPlannedQuery<K>,
-) -> bool
-where
-    E: EntitySchema<Key = K>,
-{
+) -> bool {
     let logical = plan.scalar_plan();
     let Some(order) = logical.order.as_ref() else {
         return false;
     };
     let access_class = plan.access_strategy().class();
     let logical_pushdown_eligibility = plan
-        .planner_route_profile(E::MODEL)
+        .planner_route_profile(model)
         .logical_pushdown_eligibility();
     let index_prefix_details = access_class.single_path_index_prefix_details();
     let index_range_details = access_class.single_path_index_range_details();
     let has_order_fields = !order.fields.is_empty();
     let primary_key_order_satisfied =
-        order.is_primary_key_only(E::MODEL.primary_key.name) && access_class.ordered();
+        order.is_primary_key_only(model.primary_key.name) && access_class.ordered();
     let secondary_contract_active = secondary_order_contract_active(logical_pushdown_eligibility);
     let has_index_path = index_prefix_details.is_some() || index_range_details.is_some();
     let unique_prefix_ok = index_prefix_details.is_none_or(|(index, _)| index.is_unique());
     let secondary_pushdown_eligible = derive_secondary_pushdown_applicability_from_contract(
-        E::MODEL,
+        model,
         plan,
         logical_pushdown_eligibility,
     )

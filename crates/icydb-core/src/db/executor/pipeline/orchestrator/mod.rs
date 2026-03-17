@@ -15,8 +15,8 @@ use crate::{
     db::executor::{
         ExecutablePlan, LoadCursorInput,
         pipeline::{
-            contracts::LoadExecutor, orchestrator::state::LoadPipelineState,
-            stages::plan_load_pipeline_stages,
+            contracts::LoadExecutor,
+            orchestrator::{contracts::LoadExecutionDescriptor, state::LoadPipelineState},
         },
     },
     error::InternalError,
@@ -35,6 +35,30 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
+    // B1 dynamic load entrypoint:
+    // consumes one immutable descriptor that owns stage-loop authority.
+    // Existing typed entrypoints delegate here so subsequent slices can
+    // migrate runtime internals without changing public call sites.
+    pub(in crate::db::executor) fn execute_load_dyn(
+        &self,
+        descriptor: LoadExecutionDescriptor,
+        plan: ExecutablePlan<E>,
+        cursor: LoadCursorInput,
+        execution_mode: LoadExecutionMode,
+    ) -> Result<LoadExecutionSurface<E>, InternalError> {
+        let mut state = LoadPipelineState::Inputs {
+            plan,
+            cursor,
+            execution_mode,
+        };
+
+        for stage in descriptor.stage_plan() {
+            state = self.execute_load_stage(*stage, state)?;
+        }
+
+        state.into_surface()
+    }
+
     // Unified load entrypoint pipeline:
     // 1) build execution context
     // 2) execute access path
@@ -48,16 +72,8 @@ where
         cursor: LoadCursorInput,
         execution_mode: LoadExecutionMode,
     ) -> Result<LoadExecutionSurface<E>, InternalError> {
-        let mut state = LoadPipelineState::Inputs {
-            plan,
-            cursor,
-            execution_mode,
-        };
+        let descriptor = LoadExecutionDescriptor::canonical();
 
-        for stage in plan_load_pipeline_stages() {
-            state = self.execute_load_stage(stage, state)?;
-        }
-
-        state.into_surface()
+        self.execute_load_dyn(descriptor, plan, cursor, execution_mode)
     }
 }

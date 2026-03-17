@@ -47,7 +47,7 @@ pub(super) use delete::DeleteExecutor;
 pub(in crate::db::executor) use diagnostics::{
     ExecutionOptimization, ExecutionOptimizationCounter, ExecutionTrace,
 };
-pub(in crate::db) use executable_plan::{ExecutablePlan, ExecutionStrategy};
+pub(in crate::db) use executable_plan::{BytesByProjectionMode, ExecutablePlan, ExecutionStrategy};
 pub(in crate::db::executor) use kernel::ExecutionKernel;
 pub(super) use mutation::save::SaveExecutor;
 pub(super) use pipeline::contracts::LoadExecutor;

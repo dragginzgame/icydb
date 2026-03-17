@@ -3,15 +3,17 @@ use crate::{
         DbSession, EntityResponse, PagedGroupedExecutionWithTrace, PagedLoadExecutionWithTrace,
         Query, QueryError, QueryTracePlan, TraceExecutionStrategy,
         access::AccessStrategy,
-        executor::{ExecutablePlan, ExecutionStrategy, LoadExecutor},
+        executor::{BytesByProjectionMode, ExecutablePlan, ExecutionStrategy, LoadExecutor},
         query::{
-            builder::aggregate::AggregateExpr, explain::ExplainAggregateTerminalPlan,
+            builder::aggregate::AggregateExpr,
+            explain::{ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor},
             plan::QueryMode,
         },
         session::{decode_optional_cursor_bytes, map_executor_plan_error},
     },
     error::InternalError,
     traits::{CanisterKind, EntityKind, EntityValue},
+    value::Value,
 };
 
 impl<C: CanisterKind> DbSession<C> {
@@ -20,9 +22,28 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
+        // Phase 1: compile typed intent into one executable plan contract.
+        let mode = query.mode();
         let plan = query.plan()?.into_executable();
 
-        let result = match query.mode() {
+        // Phase 2: delegate execution to the dynamic entry shim.
+        self.execute_query_dyn(mode, plan)
+    }
+
+    /// Execute one scalar query from one pre-built executable contract.
+    ///
+    /// This shim is the Slice A dynamic entry boundary. It keeps the legacy
+    /// typed `execute_query(...)` surface stable while introducing one central
+    /// execution path that can later bind descriptor-driven executor forms.
+    pub(in crate::db) fn execute_query_dyn<E>(
+        &self,
+        mode: QueryMode,
+        plan: ExecutablePlan<E>,
+    ) -> Result<EntityResponse<E>, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let result = match mode {
             QueryMode::Load(_) => self.with_metrics(|| self.load_executor::<E>().execute(plan)),
             QueryMode::Delete(_) => self.with_metrics(|| self.delete_executor::<E>().execute(plan)),
         };
@@ -99,6 +120,44 @@ impl<C: CanisterKind> DbSession<C> {
             terminal,
             execution,
         ))
+    }
+
+    /// Build one bytes-by terminal execution descriptor without executing the query.
+    pub(crate) fn explain_load_query_bytes_by_with<E>(
+        query: &Query<E>,
+        target_field: &str,
+    ) -> Result<ExplainExecutionNodeDescriptor, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let executable = query.plan()?.into_executable();
+        let mut descriptor = executable
+            .explain_load_execution_node_descriptor()
+            .map_err(QueryError::execute)?;
+        let projection_mode = executable.bytes_by_projection_mode(target_field);
+        let projection_mode_label =
+            ExecutablePlan::<E>::bytes_by_projection_mode_label(projection_mode);
+
+        descriptor
+            .node_properties
+            .insert("terminal".to_string(), Value::from("bytes_by"));
+        descriptor.node_properties.insert(
+            "terminal_field".to_string(),
+            Value::from(target_field.to_string()),
+        );
+        descriptor.node_properties.insert(
+            "terminal_projection_mode".to_string(),
+            Value::from(projection_mode_label),
+        );
+        descriptor.node_properties.insert(
+            "terminal_index_only".to_string(),
+            Value::from(matches!(
+                projection_mode,
+                BytesByProjectionMode::CoveringIndex | BytesByProjectionMode::CoveringConstant
+            )),
+        );
+
+        Ok(descriptor)
     }
 
     /// Execute one scalar paged load query and return optional continuation cursor plus trace.

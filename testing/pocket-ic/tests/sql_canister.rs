@@ -1,6 +1,6 @@
 use candid::{Principal, decode_one, encode_one};
 use icydb::db::sql::{SqlQueryResult, SqlQueryRowsOutput};
-use icydb_testing_integration::build_sql_test_canister;
+use icydb_testing_integration::build_quickstart_canister;
 use pocket_ic::{PocketIc, PocketIcBuilder};
 use std::{
     fs,
@@ -11,7 +11,7 @@ use std::{
 const INIT_CYCLES: u128 = 2_000_000_000_000;
 const POCKET_IC_BIN_ENV: &str = "POCKET_IC_BIN";
 static POCKET_IC_TEST_LOCK: Mutex<()> = Mutex::new(());
-static SQL_TEST_CANISTER_WASM: OnceLock<Vec<u8>> = OnceLock::new();
+static QUICKSTART_CANISTER_WASM: OnceLock<Vec<u8>> = OnceLock::new();
 
 // Build Pocket-IC with an explicit server binary to avoid implicit network
 // downloads during local test execution.
@@ -36,10 +36,10 @@ fn new_pocket_ic() -> PocketIc {
         .build()
 }
 
-fn build_sql_test_canister_wasm() -> Vec<u8> {
-    SQL_TEST_CANISTER_WASM
+fn build_quickstart_canister_wasm() -> Vec<u8> {
+    QUICKSTART_CANISTER_WASM
         .get_or_init(|| {
-            let wasm_path = build_sql_test_canister().expect("build sql_test canister");
+            let wasm_path = build_quickstart_canister().expect("build quickstart canister");
             fs::read(&wasm_path).unwrap_or_else(|err| {
                 panic!(
                     "failed to read built canister wasm at {}: {err}",
@@ -120,7 +120,7 @@ fn sql_canister_smoke_flow() {
         let canister_id = pic.create_canister();
         pic.add_cycles(canister_id, INIT_CYCLES);
 
-        let wasm = build_sql_test_canister_wasm();
+        let wasm = build_quickstart_canister_wasm();
         pic.install_canister(
             canister_id,
             wasm,
@@ -258,7 +258,7 @@ fn sql_canister_dispatch_is_entity_keyed_and_deterministic() {
         let canister_id = pic.create_canister();
         pic.add_cycles(canister_id, INIT_CYCLES);
 
-        let wasm = build_sql_test_canister_wasm();
+        let wasm = build_quickstart_canister_wasm();
         pic.install_canister(
             canister_id,
             wasm,
@@ -409,7 +409,7 @@ fn sql_canister_query_lane_supports_describe_show_indexes_and_show_columns() {
         let canister_id = pic.create_canister();
         pic.add_cycles(canister_id, INIT_CYCLES);
 
-        let wasm = build_sql_test_canister_wasm();
+        let wasm = build_quickstart_canister_wasm();
         pic.install_canister(
             canister_id,
             wasm,

@@ -32,6 +32,22 @@ mod tests {
             "generated sql_dispatch must include from_statement_route resolver"
         );
         assert!(
+            actor.contains("pub struct SqlLaneTable"),
+            "generated sql_dispatch must include one SqlLaneTable function-pointer descriptor"
+        );
+        assert!(
+            actor.contains("pub struct SqlEntityDescriptor"),
+            "generated sql_dispatch must include one SqlEntityDescriptor runtime descriptor"
+        );
+        assert!(
+            actor.contains("SQL_ENTITY_DESCRIPTORS"),
+            "generated sql_dispatch must include one static descriptor table"
+        );
+        assert!(
+            !actor.contains("enum SqlEntityRoute"),
+            "generated sql_dispatch must not regress to enum-based per-entity routing"
+        );
+        assert!(
             actor.contains("pub fn query ("),
             "generated sql_dispatch must include query convenience entrypoint"
         );

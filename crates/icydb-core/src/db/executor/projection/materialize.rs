@@ -19,7 +19,7 @@ use crate::{
 };
 
 use crate::db::executor::projection::{
-    eval::{ProjectionEvalError, eval_expr, eval_expr_grouped},
+    eval::{ProjectionEvalError, eval_expr_grouped, eval_expr_with_slot_reader},
     grouped::GroupedRowView,
 };
 
@@ -148,10 +148,11 @@ where
     let mut projected_rows = Vec::with_capacity(rows.len());
     for (id, entity) in rows {
         let mut values = Vec::with_capacity(projection.len());
+        let mut read_slot = |slot| entity.get_value_by_index(slot);
         for field in projection.fields() {
             match field {
                 ProjectionField::Scalar { expr, .. } => {
-                    values.push(eval_expr(expr, entity)?);
+                    values.push(eval_expr_with_slot_reader(expr, E::MODEL, &mut read_slot)?);
                 }
             }
         }

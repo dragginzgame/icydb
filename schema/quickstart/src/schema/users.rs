@@ -1,4 +1,4 @@
-use crate::schema::SqlTestStore;
+use crate::schema::QuickstartStore;
 use icydb::design::prelude::*;
 
 ///
@@ -8,7 +8,7 @@ use icydb::design::prelude::*;
 ///
 
 #[entity(
-    store = "SqlTestStore",
+    store = "QuickstartStore",
     pk(field = "id"),
     index(fields = "name"),
     fields(

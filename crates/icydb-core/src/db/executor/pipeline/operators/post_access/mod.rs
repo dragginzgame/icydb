@@ -15,7 +15,6 @@ mod window;
 use crate::traits::EntitySchema;
 use crate::{
     db::{
-        cursor::CursorBoundary,
         executor::{
             ExecutionKernel,
             pipeline::{
@@ -45,24 +44,6 @@ impl ExecutionKernel {
     {
         PostAccessPlan::new(PostAccessContract::new(plan))
             .apply_post_access_with_compiled_predicate::<E, R>(rows, compiled_predicate)
-    }
-
-    pub(in crate::db::executor) fn apply_post_access_with_cursor_and_compiled_predicate<E, R, K>(
-        plan: &AccessPlannedQuery<K>,
-        rows: &mut Vec<R>,
-        cursor: Option<&CursorBoundary>,
-        compiled_predicate: Option<&PredicateProgram>,
-    ) -> Result<PostAccessStats, InternalError>
-    where
-        E: EntityKind<Key = K> + EntityValue,
-        R: PlanRow<E>,
-    {
-        PostAccessPlan::new(PostAccessContract::new(plan))
-            .apply_post_access_with_cursor_and_compiled_predicate::<E, R>(
-                rows,
-                cursor,
-                compiled_predicate,
-            )
     }
 
     #[must_use]

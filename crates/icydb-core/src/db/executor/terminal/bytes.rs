@@ -9,8 +9,8 @@ use crate::{
         data::DataKey,
         direction::Direction,
         executor::{
-            AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess, ExecutablePlan,
-            ExecutionOptimizationCounter,
+            AccessScanContinuationInput, AccessStreamBindings, BytesByProjectionMode,
+            ExecutableAccess, ExecutablePlan, ExecutionOptimizationCounter,
             aggregate::field::{
                 AggregateFieldValueError, extract_orderable_field_value,
                 resolve_any_aggregate_target_slot_from_planner_slot,
@@ -18,7 +18,9 @@ use crate::{
             pipeline::contracts::LoadExecutor,
             route::BytesTerminalFastPathContract,
         },
-        query::plan::FieldSlot as PlannedFieldSlot,
+        query::plan::{
+            FieldSlot as PlannedFieldSlot, constant_covering_projection_value_from_access,
+        },
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -72,21 +74,66 @@ where
         plan: ExecutablePlan<E>,
         target_field: PlannedFieldSlot,
     ) -> Result<u64, InternalError> {
-        let field_slot = resolve_any_aggregate_target_slot_from_planner_slot::<E>(&target_field)
-            .map_err(AggregateFieldValueError::into_internal_error)?;
-        let response = self.execute(plan)?;
-        let mut total = 0u64;
+        // Phase 1: select one canonical bytes-by projection mode from shared
+        // executable-plan authority.
+        let projection_mode = plan.bytes_by_projection_mode(target_field.field());
+        match projection_mode {
+            BytesByProjectionMode::CoveringConstant => {
+                let constant_value = constant_covering_projection_value_from_access(
+                    plan.access(),
+                    target_field.field(),
+                )
+                .ok_or_else(|| {
+                    crate::db::error::query_executor_invariant(
+                        "bytes_by covering-constant mode selected without constant value",
+                    )
+                })?;
+                Self::record_execution_optimization_hit_for_tests(
+                    ExecutionOptimizationCounter::BytesByCoveringConstantFastPath,
+                );
+                let value_len = serialized_value_len(&constant_value)?;
+                let row_count = self.aggregate_count(plan)?;
 
-        // Fold serialized field payload sizes over the effective response window.
-        for row in response {
-            let value =
-                extract_orderable_field_value(row.entity_ref(), target_field.field(), field_slot)
+                Ok(crate::db::executor::saturating_row_len(value_len)
+                    .saturating_mul(u64::from(row_count)))
+            }
+            BytesByProjectionMode::CoveringIndex => {
+                Self::record_execution_optimization_hit_for_tests(
+                    ExecutionOptimizationCounter::BytesByCoveringIndexFastPath,
+                );
+                let projected_values = self.values_by_slot(plan, target_field)?;
+                let mut total = 0u64;
+                for value in projected_values {
+                    total = saturating_add_payload_len(total, serialized_value_len(&value)?);
+                }
+
+                Ok(total)
+            }
+            BytesByProjectionMode::Materialized => {
+                // Phase 2: preserve canonical materialized fallback for all
+                // non-covering/non-constant shapes.
+                let field_slot =
+                    resolve_any_aggregate_target_slot_from_planner_slot::<E>(&target_field)
+                        .map_err(AggregateFieldValueError::into_internal_error)?;
+                let response = self.execute(plan)?;
+                let mut total = 0u64;
+
+                // Fold serialized field payload sizes over the effective response window.
+                for row in response {
+                    let value = extract_orderable_field_value(
+                        row.entity_ref(),
+                        target_field.field(),
+                        field_slot,
+                    )
                     .map_err(AggregateFieldValueError::into_internal_error)?;
-            total = saturating_add_payload_len(total, serialized_value_len(&value)?);
-        }
+                    total = saturating_add_payload_len(total, serialized_value_len(&value)?);
+                }
 
-        Ok(total)
+                Ok(total)
+            }
+        }
     }
+
     // Fold `bytes()` directly from persisted primary rows over the canonical
     // page window for safe PK full-scan/key-range shapes.
     fn bytes_from_pk_store_window(

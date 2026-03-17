@@ -12,28 +12,28 @@ use crate::{
                 AggregateExecutionPolicyInputs, derive_aggregate_execution_policy,
             },
             pipeline::contracts::LoadExecutor,
-            route::{access_order_satisfied_by_route_contract, secondary_order_contract_active},
+            route::secondary_order_contract_active,
         },
         query::{
             builder::AggregateExpr,
             plan::{AccessPlannedQuery, secondary_order_contract_is_deterministic},
         },
     },
+    model::entity::EntityModel,
     traits::{EntityKind, EntitySchema, EntityValue},
 };
 
 use crate::db::executor::route::{ExecutionRoutePlan, RouteCapabilities};
 
 /// Derive budget-safety flags for one plan at the route capability boundary.
-pub(in crate::db::executor) fn derive_budget_safety_flags<E, K>(
+pub(in crate::db::executor) fn derive_budget_safety_flags_for_model<K>(
+    model: &EntityModel,
     plan: &AccessPlannedQuery<K>,
-) -> (bool, bool, bool)
-where
-    E: EntitySchema<Key = K>,
-{
+) -> (bool, bool, bool) {
     let logical = plan.scalar_plan();
     let has_residual_filter = logical.predicate.is_some();
-    let access_order_satisfied_by_path = access_order_satisfied_by_path::<E, K>(plan);
+    let access_order_satisfied_by_path =
+        crate::db::executor::route::access_order_satisfied_by_route_contract_for_model(model, plan);
     let has_order = logical
         .order
         .as_ref()
@@ -47,6 +47,27 @@ where
     )
 }
 
+/// Derive budget-safety flags for one plan at the route capability boundary.
+pub(in crate::db::executor) fn derive_budget_safety_flags<E, K>(
+    plan: &AccessPlannedQuery<K>,
+) -> (bool, bool, bool)
+where
+    E: EntitySchema<Key = K>,
+{
+    derive_budget_safety_flags_for_model(E::MODEL, plan)
+}
+
+/// Return whether one plan shape is safe for direct streaming execution.
+pub(in crate::db::executor) fn stream_order_contract_safe_for_model<K>(
+    model: &EntityModel,
+    plan: &AccessPlannedQuery<K>,
+) -> bool {
+    let (has_residual_filter, _, requires_post_access_sort) =
+        derive_budget_safety_flags_for_model(model, plan);
+
+    plan.scalar_plan().mode.is_load() && !has_residual_filter && !requires_post_access_sort
+}
+
 /// Return whether one plan shape is safe for direct streaming execution.
 pub(in crate::db::executor) fn stream_order_contract_safe<E, K>(
     plan: &AccessPlannedQuery<K>,
@@ -54,17 +75,7 @@ pub(in crate::db::executor) fn stream_order_contract_safe<E, K>(
 where
     E: EntitySchema<Key = K>,
 {
-    let (has_residual_filter, _, requires_post_access_sort) =
-        derive_budget_safety_flags::<E, K>(plan);
-
-    plan.scalar_plan().mode.is_load() && !has_residual_filter && !requires_post_access_sort
-}
-
-fn access_order_satisfied_by_path<E, K>(plan: &AccessPlannedQuery<K>) -> bool
-where
-    E: EntitySchema<Key = K>,
-{
-    access_order_satisfied_by_route_contract::<E, K>(plan)
+    stream_order_contract_safe_for_model(E::MODEL, plan)
 }
 
 /// Return true when bounded physical fetch hints are valid for this direction.

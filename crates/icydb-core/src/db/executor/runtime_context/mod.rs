@@ -163,28 +163,14 @@ where
         offset: usize,
         limit: Option<usize>,
     ) -> Result<u64, InternalError> {
-        let mut total = 0u64;
-        let mut offset_remaining = offset;
-        let mut limit_remaining = limit;
-        while let Some(key) = key_stream.next_key()? {
-            if payload_window_limit_exhausted(limit_remaining) {
-                break;
-            }
-
-            // Index-backed and composite stream rows remain row-authoritative:
-            // missing-row ignore skips stale keys, strict mode fails closed.
-            let Some(row) = self.read_row_with_consistency_skip_not_found(&key, consistency)?
-            else {
-                continue;
-            };
-            if !payload_window_accept_row(&mut offset_remaining, &mut limit_remaining) {
-                continue;
-            }
-
-            total = total.saturating_add(saturating_row_len(row.len()));
-        }
-
-        Ok(total)
+        // Shared scan loop runs once in a non-generic helper; this wrapper only
+        // supplies the entity-owned consistency read contract.
+        sum_row_payload_bytes_from_ordered_key_stream_shared(
+            key_stream,
+            &mut |key| self.read_row_with_consistency_skip_not_found(key, consistency),
+            offset,
+            limit,
+        )
     }
 
     // Load rows for an ordered key stream by preserving the stream order.
@@ -194,9 +180,11 @@ where
         key_stream: &mut dyn OrderedKeyStream,
         consistency: MissingRowPolicy,
     ) -> Result<Vec<DataRow>, InternalError> {
-        let keys = Self::collect_ordered_keys(key_stream)?;
-
-        self.load_many_with_consistency(keys, consistency)
+        // Shared scan loop runs once in a non-generic helper; this wrapper only
+        // supplies the entity-owned consistency read contract.
+        collect_rows_from_ordered_key_stream_shared(key_stream, &mut |key| {
+            self.read_row_with_consistency_skip_not_found(key, consistency)
+        })
     }
 
     // ------------------------------------------------------------------
@@ -216,34 +204,6 @@ where
         let mut set = BTreeSet::new();
         set.extend(keys);
         set.into_iter().collect()
-    }
-
-    fn collect_ordered_keys(
-        key_stream: &mut dyn OrderedKeyStream,
-    ) -> Result<Vec<DataKey>, InternalError> {
-        let mut keys = Vec::new();
-        while let Some(key) = key_stream.next_key()? {
-            keys.push(key);
-        }
-
-        Ok(keys)
-    }
-
-    fn load_many_with_consistency(
-        &self,
-        keys: Vec<DataKey>,
-        consistency: MissingRowPolicy,
-    ) -> Result<Vec<DataRow>, InternalError> {
-        let mut out = Vec::with_capacity(keys.len());
-        for key in keys {
-            // Row storage is authoritative. Index-backed access paths only supply
-            // candidate keys and must always be validated by a data-store read.
-            if let Some(row) = self.read_row_with_consistency_skip_not_found(&key, consistency)? {
-                out.push((key, row));
-            }
-        }
-
-        Ok(out)
     }
 
     // Read one row under one consistency contract, treating not-found as skip.
@@ -357,6 +317,57 @@ fn sum_payload_bytes_from_row_lengths(
     }
 
     total
+}
+
+// Shared ordered key-stream scan loop used by payload-byte aggregation.
+// Entity wrappers provide consistency-aware row reads via callback injection.
+fn sum_row_payload_bytes_from_ordered_key_stream_shared(
+    key_stream: &mut dyn OrderedKeyStream,
+    read_row: &mut dyn FnMut(&DataKey) -> Result<Option<RawRow>, InternalError>,
+    offset: usize,
+    limit: Option<usize>,
+) -> Result<u64, InternalError> {
+    let mut total = 0u64;
+    let mut offset_remaining = offset;
+    let mut limit_remaining = limit;
+
+    while let Some(key) = key_stream.next_key()? {
+        if payload_window_limit_exhausted(limit_remaining) {
+            break;
+        }
+
+        // Index-backed and composite stream rows remain row-authoritative:
+        // missing-row ignore skips stale keys, strict mode fails closed.
+        let Some(row) = read_row(&key)? else {
+            continue;
+        };
+        if !payload_window_accept_row(&mut offset_remaining, &mut limit_remaining) {
+            continue;
+        }
+
+        total = total.saturating_add(saturating_row_len(row.len()));
+    }
+
+    Ok(total)
+}
+
+// Shared ordered key-stream scan loop used by row materialization.
+// Entity wrappers provide consistency-aware row reads via callback injection.
+fn collect_rows_from_ordered_key_stream_shared(
+    key_stream: &mut dyn OrderedKeyStream,
+    read_row: &mut dyn FnMut(&DataKey) -> Result<Option<RawRow>, InternalError>,
+) -> Result<Vec<DataRow>, InternalError> {
+    let mut rows = Vec::new();
+
+    while let Some(key) = key_stream.next_key()? {
+        // Row storage is authoritative. Index-backed access paths only supply
+        // candidate keys and must always be validated by a data-store read.
+        if let Some(row) = read_row(&key)? {
+            rows.push((key, row));
+        }
+    }
+
+    Ok(rows)
 }
 
 impl<E> PrimaryRowReader<E> for Context<'_, E>

@@ -9,9 +9,11 @@ use crate::{
         response::{
             PagedGroupedResponse, ProjectionResponse, Response, WriteBatchResponse, WriteResponse,
         },
+        sql::{SqlQueryResult, SqlQueryRowsOutput, projection_rows_from_response},
     },
     error::Error,
     metrics::MetricsSink,
+    model::entity::EntityModel,
     traits::{CanisterKind, EntityKind, EntityValue, Update, UpdateView},
     types::Id,
 };
@@ -20,6 +22,49 @@ use icydb_core as core;
 // re-exports
 pub use delete::SessionDeleteQuery;
 pub use load::{FluentLoadQuery, PagedLoadQuery};
+
+///
+/// SqlParsedStatement
+///
+/// Opaque parsed SQL statement envelope exposed by the facade.
+/// Use this to parse once and reuse one canonical route+statement contract
+/// across dynamic dispatch and typed execution.
+///
+pub struct SqlParsedStatement {
+    inner: core::db::SqlParsedStatement,
+}
+
+impl SqlParsedStatement {
+    #[must_use]
+    const fn from_core(inner: core::db::SqlParsedStatement) -> Self {
+        Self { inner }
+    }
+
+    /// Borrow canonical route metadata for this parsed SQL statement.
+    #[must_use]
+    pub const fn route(&self) -> &SqlStatementRoute {
+        self.inner.route()
+    }
+}
+
+///
+/// SqlPreparedStatement
+///
+/// Opaque prepared SQL envelope exposed by the facade.
+/// Use this to prepare once per resolved entity route and reuse one
+/// normalized fail-closed lowering contract across lane callbacks.
+///
+
+pub struct SqlPreparedStatement {
+    inner: core::db::SqlPreparedStatement,
+}
+
+impl SqlPreparedStatement {
+    #[must_use]
+    const fn from_core(inner: core::db::SqlPreparedStatement) -> Self {
+        Self { inner }
+    }
+}
 
 ///
 /// DbSession
@@ -91,15 +136,28 @@ impl<C: CanisterKind> DbSession<C> {
 
     /// Parse one reduced SQL statement into canonical route metadata.
     pub fn sql_statement_route(&self, sql: &str) -> Result<SqlStatementRoute, Error> {
-        Ok(self.inner.sql_statement_route(sql)?)
+        let parsed = self.parse_sql_statement(sql)?;
+
+        Ok(parsed.route().clone())
     }
 
-    /// Derive canonical projection column labels for one reduced SQL `SELECT` statement.
-    pub fn sql_projection_columns<E>(&self, sql: &str) -> Result<Vec<String>, Error>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        Ok(self.inner.sql_projection_columns::<E>(sql)?)
+    /// Parse one reduced SQL statement into one reusable parsed envelope.
+    pub fn parse_sql_statement(&self, sql: &str) -> Result<SqlParsedStatement, Error> {
+        Ok(SqlParsedStatement::from_core(
+            self.inner.parse_sql_statement(sql)?,
+        ))
+    }
+
+    /// Prepare one parsed reduced SQL statement for one concrete entity route.
+    pub fn prepare_sql_dispatch_parsed(
+        &self,
+        parsed: &SqlParsedStatement,
+        expected_entity: &'static str,
+    ) -> Result<SqlPreparedStatement, Error> {
+        Ok(SqlPreparedStatement::from_core(
+            self.inner
+                .prepare_sql_dispatch_parsed(&parsed.inner, expected_entity)?,
+        ))
     }
 
     /// Execute one reduced SQL `SELECT`/`DELETE` statement.
@@ -110,14 +168,95 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(Response::from_core(self.inner.execute_sql::<E>(sql)?))
     }
 
-    /// Execute one reduced SQL `SELECT` statement and return projection-shaped rows.
-    pub fn execute_sql_projection<E>(&self, sql: &str) -> Result<ProjectionResponse<E>, Error>
+    /// Execute one reduced SQL statement and return one unified SQL payload.
+    pub fn execute_sql_dispatch<E>(&self, sql: &str) -> Result<SqlQueryResult, Error>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        Ok(ProjectionResponse::from_core(
-            self.inner.execute_sql_projection::<E>(sql)?,
-        ))
+        let parsed = self.parse_sql_statement(sql)?;
+
+        self.execute_sql_dispatch_parsed::<E>(&parsed)
+    }
+
+    /// Execute one parsed reduced SQL statement and return one unified SQL payload.
+    pub fn execute_sql_dispatch_parsed<E>(
+        &self,
+        parsed: &SqlParsedStatement,
+    ) -> Result<SqlQueryResult, Error>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let result = self.inner.execute_sql_dispatch_parsed::<E>(&parsed.inner)?;
+
+        Ok(Self::map_sql_dispatch_result::<E>(result))
+    }
+
+    /// Execute one prepared reduced SQL statement and return one unified SQL payload.
+    pub fn execute_sql_dispatch_prepared<E>(
+        &self,
+        prepared: &SqlPreparedStatement,
+    ) -> Result<SqlQueryResult, Error>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let result = self
+            .inner
+            .execute_sql_dispatch_prepared::<E>(&prepared.inner)?;
+
+        Ok(Self::map_sql_dispatch_result::<E>(result))
+    }
+
+    /// Execute one prepared reduced SQL statement limited to query/explain lanes.
+    pub fn execute_sql_dispatch_query_lane_prepared<E>(
+        &self,
+        prepared: &SqlPreparedStatement,
+    ) -> Result<SqlQueryResult, Error>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let result = self
+            .inner
+            .execute_sql_dispatch_query_lane_prepared::<E>(&prepared.inner)?;
+
+        Ok(Self::map_sql_dispatch_result::<E>(result))
+    }
+
+    fn map_sql_dispatch_result<E>(result: core::db::SqlDispatchResult<E>) -> SqlQueryResult
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        match result {
+            core::db::SqlDispatchResult::Projection {
+                columns,
+                projection,
+            } => {
+                let projection = ProjectionResponse::from_core(projection);
+                let rows = projection_rows_from_response::<E>(columns, projection);
+
+                SqlQueryResult::Projection(SqlQueryRowsOutput::from_projection(
+                    E::ENTITY_NAME.to_string(),
+                    rows,
+                ))
+            }
+            core::db::SqlDispatchResult::Explain(explain) => SqlQueryResult::Explain {
+                entity: E::ENTITY_NAME.to_string(),
+                explain,
+            },
+            core::db::SqlDispatchResult::Describe(description) => {
+                SqlQueryResult::Describe(description)
+            }
+            core::db::SqlDispatchResult::ShowIndexes(indexes) => SqlQueryResult::ShowIndexes {
+                entity: E::ENTITY_NAME.to_string(),
+                indexes,
+            },
+            core::db::SqlDispatchResult::ShowColumns(columns) => SqlQueryResult::ShowColumns {
+                entity: E::ENTITY_NAME.to_string(),
+                columns,
+            },
+            core::db::SqlDispatchResult::ShowEntities(entities) => {
+                SqlQueryResult::ShowEntities { entities }
+            }
+        }
     }
 
     /// Execute one reduced SQL global aggregate `SELECT` statement.
@@ -145,43 +284,6 @@ impl<C: CanisterKind> DbSession<C> {
             next_cursor,
             execution.execution_trace().copied(),
         ))
-    }
-
-    /// Explain one reduced SQL statement.
-    pub fn explain_sql<E>(&self, sql: &str) -> Result<String, Error>
-    where
-        E: EntityKind<Canister = C> + EntityValue,
-    {
-        Ok(self.inner.explain_sql::<E>(sql)?)
-    }
-
-    /// Execute one reduced SQL `DESCRIBE` statement.
-    pub fn describe_sql<E>(&self, sql: &str) -> Result<EntitySchemaDescription, Error>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        Ok(self.inner.describe_sql::<E>(sql)?)
-    }
-
-    /// Execute one reduced SQL `SHOW INDEXES` statement.
-    pub fn show_indexes_sql<E>(&self, sql: &str) -> Result<Vec<String>, Error>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        Ok(self.inner.show_indexes_sql::<E>(sql)?)
-    }
-
-    /// Execute one reduced SQL `SHOW COLUMNS` statement.
-    pub fn show_columns_sql<E>(&self, sql: &str) -> Result<Vec<EntityFieldDescription>, Error>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        Ok(self.inner.show_columns_sql::<E>(sql)?)
-    }
-
-    /// Execute one reduced SQL `SHOW ENTITIES`/`SHOW TABLES` statement.
-    pub fn show_entities_sql(&self, sql: &str) -> Result<Vec<String>, Error> {
-        Ok(self.inner.show_entities_sql(sql)?)
     }
 
     #[must_use]
@@ -216,6 +318,12 @@ impl<C: CanisterKind> DbSession<C> {
         self.inner.show_indexes::<E>()
     }
 
+    /// Return one stable, human-readable index listing for one schema model.
+    #[must_use]
+    pub fn show_indexes_for_model(&self, model: &'static EntityModel) -> Vec<String> {
+        self.inner.show_indexes_for_model(model)
+    }
+
     /// Return one stable list of field descriptors for the entity schema.
     #[must_use]
     pub fn show_columns<E>(&self) -> Vec<EntityFieldDescription>
@@ -223,6 +331,15 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         self.inner.show_columns::<E>()
+    }
+
+    /// Return one stable list of field descriptors for one schema model.
+    #[must_use]
+    pub fn show_columns_for_model(
+        &self,
+        model: &'static EntityModel,
+    ) -> Vec<EntityFieldDescription> {
+        self.inner.show_columns_for_model(model)
     }
 
     /// Return one stable list of runtime-registered entity names.
@@ -238,6 +355,12 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         self.inner.describe_entity::<E>()
+    }
+
+    /// Return one structured schema description for one schema model.
+    #[must_use]
+    pub fn describe_entity_model(&self, model: &'static EntityModel) -> EntitySchemaDescription {
+        self.inner.describe_entity_model(model)
     }
 
     /// Build one point-in-time storage report for observability endpoints.
@@ -537,6 +660,122 @@ mod tests {
     fn fresh_facade_session() -> DbSession<FacadeSqlCanister> {
         reset_facade_sql_store();
         facade_session()
+    }
+
+    fn unsupported_sql_runtime_error(message: &'static str) -> Error {
+        Error::new(
+            ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+            ErrorOrigin::Query,
+            message,
+        )
+    }
+
+    ///
+    /// FacadeSqlLegacySurfaceExt
+    ///
+    /// Test-only adapters that preserve old SQL lane helper call sites while
+    /// routing through the unified SQL dispatch surface.
+    ///
+
+    trait FacadeSqlLegacySurfaceExt {
+        fn explain_sql<E>(&self, sql: &str) -> Result<String, Error>
+        where
+            E: EntityKind<Canister = FacadeSqlCanister> + EntityValue;
+
+        fn describe_sql<E>(&self, sql: &str) -> Result<EntitySchemaDescription, Error>
+        where
+            E: EntityKind<Canister = FacadeSqlCanister> + EntityValue;
+
+        fn show_indexes_sql<E>(&self, sql: &str) -> Result<Vec<String>, Error>
+        where
+            E: EntityKind<Canister = FacadeSqlCanister> + EntityValue;
+
+        fn show_columns_sql<E>(&self, sql: &str) -> Result<Vec<EntityFieldDescription>, Error>
+        where
+            E: EntityKind<Canister = FacadeSqlCanister> + EntityValue;
+
+        fn show_entities_sql(&self, sql: &str) -> Result<Vec<String>, Error>;
+    }
+
+    impl FacadeSqlLegacySurfaceExt for DbSession<FacadeSqlCanister> {
+        fn explain_sql<E>(&self, sql: &str) -> Result<String, Error>
+        where
+            E: EntityKind<Canister = FacadeSqlCanister> + EntityValue,
+        {
+            let payload = self.execute_sql_dispatch::<E>(sql)?;
+            match payload {
+                SqlQueryResult::Explain { explain, .. } => Ok(explain),
+                SqlQueryResult::Projection(_)
+                | SqlQueryResult::Describe(_)
+                | SqlQueryResult::ShowIndexes { .. }
+                | SqlQueryResult::ShowColumns { .. }
+                | SqlQueryResult::ShowEntities { .. } => Err(unsupported_sql_runtime_error(
+                    "explain_sql requires an EXPLAIN statement",
+                )),
+            }
+        }
+
+        fn describe_sql<E>(&self, sql: &str) -> Result<EntitySchemaDescription, Error>
+        where
+            E: EntityKind<Canister = FacadeSqlCanister> + EntityValue,
+        {
+            let payload = self.execute_sql_dispatch::<E>(sql)?;
+            match payload {
+                SqlQueryResult::Describe(description) => Ok(description),
+                SqlQueryResult::Projection(_)
+                | SqlQueryResult::Explain { .. }
+                | SqlQueryResult::ShowIndexes { .. }
+                | SqlQueryResult::ShowColumns { .. }
+                | SqlQueryResult::ShowEntities { .. } => Err(unsupported_sql_runtime_error(
+                    "describe_sql requires a DESCRIBE statement",
+                )),
+            }
+        }
+
+        fn show_indexes_sql<E>(&self, sql: &str) -> Result<Vec<String>, Error>
+        where
+            E: EntityKind<Canister = FacadeSqlCanister> + EntityValue,
+        {
+            let payload = self.execute_sql_dispatch::<E>(sql)?;
+            match payload {
+                SqlQueryResult::ShowIndexes { indexes, .. } => Ok(indexes),
+                SqlQueryResult::Projection(_)
+                | SqlQueryResult::Explain { .. }
+                | SqlQueryResult::Describe(_)
+                | SqlQueryResult::ShowColumns { .. }
+                | SqlQueryResult::ShowEntities { .. } => Err(unsupported_sql_runtime_error(
+                    "show_indexes_sql requires a SHOW INDEXES statement",
+                )),
+            }
+        }
+
+        fn show_columns_sql<E>(&self, sql: &str) -> Result<Vec<EntityFieldDescription>, Error>
+        where
+            E: EntityKind<Canister = FacadeSqlCanister> + EntityValue,
+        {
+            let payload = self.execute_sql_dispatch::<E>(sql)?;
+            match payload {
+                SqlQueryResult::ShowColumns { columns, .. } => Ok(columns),
+                SqlQueryResult::Projection(_)
+                | SqlQueryResult::Explain { .. }
+                | SqlQueryResult::Describe(_)
+                | SqlQueryResult::ShowIndexes { .. }
+                | SqlQueryResult::ShowEntities { .. } => Err(unsupported_sql_runtime_error(
+                    "show_columns_sql requires a SHOW COLUMNS statement",
+                )),
+            }
+        }
+
+        fn show_entities_sql(&self, sql: &str) -> Result<Vec<String>, Error> {
+            let route = self.sql_statement_route(sql)?;
+            if !route.is_show_entities() {
+                return Err(unsupported_sql_runtime_error(
+                    "show_entities_sql requires a SHOW ENTITIES or SHOW TABLES statement",
+                ));
+            }
+
+            Ok(self.show_entities())
+        }
     }
 
     fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 5] {
@@ -1008,7 +1247,7 @@ mod tests {
 
         for (sql, _feature) in unsupported_sql_feature_cases() {
             assert_unsupported_sql_runtime_result(
-                session.execute_sql_projection::<FacadeSqlEntity>(sql),
+                session.execute_sql_dispatch::<FacadeSqlEntity>(sql),
                 "facade execute_sql_projection",
             );
         }

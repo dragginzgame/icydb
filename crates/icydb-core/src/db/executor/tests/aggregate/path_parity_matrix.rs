@@ -844,6 +844,369 @@ fn aggregate_bytes_by_path_parity_index_prefix_and_full_scan_equivalent_rows() {
 }
 
 #[test]
+fn aggregate_bytes_by_covering_index_fast_path_emits_hit_marker_for_eligible_shape() {
+    seed_pushdown_entities(&[
+        (8_991, 7, 10),
+        (8_992, 7, 20),
+        (8_993, 7, 30),
+        (8_994, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let build_plan = || {
+        let mut logical_plan = AccessPlannedQuery::new(
+            AccessPath::IndexPrefix {
+                index: PUSHDOWN_PARITY_INDEX_MODELS[0],
+                values: vec![Value::Uint(7)],
+            },
+            MissingRowPolicy::Ignore,
+        );
+        logical_plan.scalar_plan_mut().order = Some(OrderSpec {
+            fields: vec![
+                ("rank".to_string(), OrderDirection::Asc),
+                ("id".to_string(), OrderDirection::Asc),
+            ],
+        });
+
+        ExecutablePlan::<PushdownParityEntity>::new(logical_plan)
+    };
+    let expected_response = load
+        .execute(build_plan())
+        .expect("baseline covering-index bytes_by(rank) execute should succeed");
+    let expected_bytes = serialized_field_payload_bytes_for_rows(&expected_response, "rank");
+
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::BytesByCoveringIndexFastPath,
+    );
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::BytesByCoveringConstantFastPath,
+    );
+    let bytes = load
+        .bytes_by_slot(build_plan(), slot(&load, "rank"))
+        .expect("covering-index bytes_by(rank) terminal should succeed");
+
+    assert_eq!(
+        bytes, expected_bytes,
+        "covering-index bytes_by(rank) path should preserve execute() parity",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::BytesByCoveringIndexFastPath
+        ),
+        1,
+        "eligible bytes_by(rank) index-prefix shape should emit one covering-index fast-path hit marker",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::BytesByCoveringConstantFastPath
+        ),
+        0,
+        "covering-index bytes_by(rank) shape should not emit constant-covering hit markers",
+    );
+}
+
+#[test]
+fn aggregate_bytes_by_projection_mode_classifier_matches_bounded_route_shapes() {
+    let covering_index_plan = {
+        let mut logical_plan = AccessPlannedQuery::new(
+            AccessPath::IndexPrefix {
+                index: PUSHDOWN_PARITY_INDEX_MODELS[0],
+                values: vec![Value::Uint(7)],
+            },
+            MissingRowPolicy::Ignore,
+        );
+        logical_plan.scalar_plan_mut().order = Some(OrderSpec {
+            fields: vec![
+                ("rank".to_string(), OrderDirection::Asc),
+                ("id".to_string(), OrderDirection::Asc),
+            ],
+        });
+        ExecutablePlan::<PushdownParityEntity>::new(logical_plan)
+    };
+    let covering_index_mode = covering_index_plan.bytes_by_projection_mode("rank");
+    assert_eq!(
+        covering_index_mode,
+        crate::db::executor::BytesByProjectionMode::CoveringIndex,
+        "bytes-by classifier should mark eligible ordered index-prefix shapes as covering-index",
+    );
+    assert_eq!(
+        ExecutablePlan::<PushdownParityEntity>::bytes_by_projection_mode_label(covering_index_mode),
+        "field_covering_index",
+        "bytes-by classifier labels should remain stable for covering-index mode",
+    );
+
+    let constant_covering_plan =
+        ExecutablePlan::<PushdownParityEntity>::new(AccessPlannedQuery::new(
+            AccessPath::IndexPrefix {
+                index: PUSHDOWN_PARITY_INDEX_MODELS[0],
+                values: vec![Value::Uint(7), Value::Uint(20)],
+            },
+            MissingRowPolicy::Ignore,
+        ));
+    let constant_mode = constant_covering_plan.bytes_by_projection_mode("rank");
+    assert_eq!(
+        constant_mode,
+        crate::db::executor::BytesByProjectionMode::CoveringConstant,
+        "bytes-by classifier should mark prefix-bound fields as covering-constant",
+    );
+    assert_eq!(
+        ExecutablePlan::<PushdownParityEntity>::bytes_by_projection_mode_label(constant_mode),
+        "field_covering_constant",
+        "bytes-by classifier labels should remain stable for covering-constant mode",
+    );
+
+    let strict_plan = ExecutablePlan::<PushdownParityEntity>::new(AccessPlannedQuery::new(
+        AccessPath::IndexPrefix {
+            index: PUSHDOWN_PARITY_INDEX_MODELS[0],
+            values: vec![Value::Uint(7), Value::Uint(20)],
+        },
+        MissingRowPolicy::Error,
+    ));
+    let strict_mode = strict_plan.bytes_by_projection_mode("rank");
+    assert_eq!(
+        strict_mode,
+        crate::db::executor::BytesByProjectionMode::Materialized,
+        "strict bytes-by classifier should fail closed to materialized mode",
+    );
+    assert_eq!(
+        ExecutablePlan::<PushdownParityEntity>::bytes_by_projection_mode_label(strict_mode),
+        "field_materialized",
+        "bytes-by classifier labels should remain stable for strict materialized mode",
+    );
+}
+
+#[test]
+fn aggregate_bytes_by_constant_covering_fast_path_emits_hit_marker_for_prefix_bound_field() {
+    seed_pushdown_entities(&[
+        (8_996, 7, 20),
+        (8_997, 7, 20),
+        (8_998, 7, 30),
+        (8_999, 8, 20),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let build_plan = || {
+        let logical_plan = AccessPlannedQuery::new(
+            AccessPath::IndexPrefix {
+                index: PUSHDOWN_PARITY_INDEX_MODELS[0],
+                values: vec![Value::Uint(7), Value::Uint(20)],
+            },
+            MissingRowPolicy::Ignore,
+        );
+
+        ExecutablePlan::<PushdownParityEntity>::new(logical_plan)
+    };
+    let expected_response = load
+        .execute(build_plan())
+        .expect("baseline constant-covering bytes_by(rank) execute should succeed");
+    let expected_bytes = serialized_field_payload_bytes_for_rows(&expected_response, "rank");
+
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::BytesByCoveringIndexFastPath,
+    );
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::BytesByCoveringConstantFastPath,
+    );
+    let bytes = load
+        .bytes_by_slot(build_plan(), slot(&load, "rank"))
+        .expect("constant-covering bytes_by(rank) terminal should succeed");
+
+    assert_eq!(
+        bytes, expected_bytes,
+        "constant-covering bytes_by(rank) path should preserve execute() parity",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::BytesByCoveringIndexFastPath
+        ),
+        0,
+        "constant-covering bytes_by(rank) shape should bypass index-covering hit markers",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::BytesByCoveringConstantFastPath
+        ),
+        1,
+        "prefix-bound bytes_by(rank) shape should emit one constant-covering fast-path hit marker",
+    );
+}
+
+#[test]
+fn aggregate_bytes_by_constant_covering_fast_path_survives_residual_predicate_shape() {
+    seed_pushdown_entities(&[
+        (8_951, 7, 20),
+        (8_952, 7, 20),
+        (8_953, 7, 30),
+        (8_954, 8, 20),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let build_plan = || {
+        let mut logical_plan = AccessPlannedQuery::new(
+            AccessPath::IndexPrefix {
+                index: PUSHDOWN_PARITY_INDEX_MODELS[0],
+                values: vec![Value::Uint(7), Value::Uint(20)],
+            },
+            MissingRowPolicy::Ignore,
+        );
+        logical_plan.scalar_plan_mut().predicate = Some(id_in_predicate(&[8_952]));
+
+        ExecutablePlan::<PushdownParityEntity>::new(logical_plan)
+    };
+    let expected_response = load
+        .execute(build_plan())
+        .expect("baseline residual-predicate bytes_by(rank) execute should succeed");
+    let expected_bytes = serialized_field_payload_bytes_for_rows(&expected_response, "rank");
+
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::BytesByCoveringIndexFastPath,
+    );
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::BytesByCoveringConstantFastPath,
+    );
+    let bytes = load
+        .bytes_by_slot(build_plan(), slot(&load, "rank"))
+        .expect("residual-predicate bytes_by(rank) terminal should succeed");
+
+    assert_eq!(
+        bytes, expected_bytes,
+        "constant-covering bytes_by(rank) should preserve parity under residual-predicate shapes",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::BytesByCoveringIndexFastPath
+        ),
+        0,
+        "residual-predicate bytes_by(rank) shape should bypass index-covering fast-path marker",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::BytesByCoveringConstantFastPath
+        ),
+        1,
+        "residual-predicate bytes_by(rank) shape should still emit constant-covering fast-path marker",
+    );
+}
+
+#[test]
+fn aggregate_bytes_by_constant_covering_fast_path_bypasses_strict_mode() {
+    seed_pushdown_entities(&[
+        (8_956, 7, 20),
+        (8_957, 7, 20),
+        (8_958, 7, 30),
+        (8_959, 8, 20),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let build_plan = || {
+        let logical_plan = AccessPlannedQuery::new(
+            AccessPath::IndexPrefix {
+                index: PUSHDOWN_PARITY_INDEX_MODELS[0],
+                values: vec![Value::Uint(7), Value::Uint(20)],
+            },
+            MissingRowPolicy::Error,
+        );
+
+        ExecutablePlan::<PushdownParityEntity>::new(logical_plan)
+    };
+    let expected_response = load
+        .execute(build_plan())
+        .expect("baseline strict-mode bytes_by(rank) execute should succeed");
+    let expected_bytes = serialized_field_payload_bytes_for_rows(&expected_response, "rank");
+
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::BytesByCoveringIndexFastPath,
+    );
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::BytesByCoveringConstantFastPath,
+    );
+    let bytes = load
+        .bytes_by_slot(build_plan(), slot(&load, "rank"))
+        .expect("strict-mode bytes_by(rank) terminal should succeed");
+
+    assert_eq!(
+        bytes, expected_bytes,
+        "strict-mode bytes_by(rank) should preserve execute() parity",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::BytesByCoveringConstantFastPath
+        ),
+        0,
+        "strict-mode bytes_by(rank) must bypass constant-covering fast-path markers",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::BytesByCoveringIndexFastPath
+        ),
+        0,
+        "strict-mode bytes_by(rank) must bypass index-covering fast-path markers",
+    );
+}
+
+#[test]
+fn aggregate_bytes_by_strict_mode_surfaces_missing_row_corruption() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<PushdownParityEntity>::new(DB, false);
+    for (id, group, rank) in [(8_961u128, 7u32, 20u32), (8_962, 7, 20), (8_963, 7, 30)] {
+        save.insert(PushdownParityEntity {
+            id: Ulid::from_u128(id),
+            group,
+            rank,
+            label: format!("g{group}-r{rank}"),
+        })
+        .expect("strict bytes_by seed row save should succeed");
+    }
+
+    remove_pushdown_row_data(8_962);
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::BytesByCoveringIndexFastPath,
+    );
+    let _ = LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+        ExecutionOptimizationCounter::BytesByCoveringConstantFastPath,
+    );
+    let err = load
+        .bytes_by_slot(
+            Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
+                .filter(u32_eq_predicate_strict("group", 7))
+                .order_by("rank")
+                .plan()
+                .map(crate::db::executor::ExecutablePlan::from)
+                .expect("strict bytes_by plan should build"),
+            slot(&load, "rank"),
+        )
+        .expect_err("strict bytes_by should fail on missing primary rows");
+
+    assert_eq!(
+        err.class,
+        ErrorClass::Corruption,
+        "strict bytes_by must preserve missing-row corruption classification",
+    );
+    assert!(
+        err.message.contains("missing row"),
+        "strict bytes_by must preserve missing-row error context",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::BytesByCoveringConstantFastPath
+        ),
+        0,
+        "strict bytes_by missing-row shape must not emit constant-covering markers",
+    );
+    assert_eq!(
+        LoadExecutor::<PushdownParityEntity>::take_execution_optimization_hits_for_tests(
+            ExecutionOptimizationCounter::BytesByCoveringIndexFastPath
+        ),
+        0,
+        "strict bytes_by missing-row shape must not emit index-covering markers",
+    );
+}
+
+#[test]
 fn aggregate_parity_by_id_window_shape() {
     seed_simple_entities(&[8611]);
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);

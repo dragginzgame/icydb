@@ -158,6 +158,7 @@ where
                 execution_preparation.compiled_predicate(),
             )?;
             let _ = stats.delete_was_limited;
+            let _ = stats.rows_after_cursor;
 
             if rows.is_empty() {
                 set_rows_from_len(&mut span, 0);

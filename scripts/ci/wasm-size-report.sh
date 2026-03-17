@@ -12,8 +12,8 @@ echo "[wasm-size] Building '$CANISTER_NAME' using profile '$PROFILE'"
 (
     cd "$ROOT"
     export ICYDB_CANISTER_WASM_PROFILE="$PROFILE"
-    export SQL_TEST_WASM_PROFILE="$PROFILE"
-    cargo run -p icydb-testing-integration --bin build_sql_test_canister --locked -- "$CANISTER_NAME"
+    export QUICKSTART_WASM_PROFILE="$PROFILE"
+    cargo run -p icydb-testing-integration --bin build_quickstart_canister --locked -- "$CANISTER_NAME"
 )
 
 DFX_DIR="$ROOT/.dfx/local/canisters/$CANISTER_NAME"

@@ -33,12 +33,17 @@ impl<K> PostAccessPlan<'_, K> {
         &self,
         rows: &mut Vec<R>,
         compiled_predicate: Option<&PredicateProgram>,
+        predicate_preapplied: bool,
     ) -> Result<(bool, usize), InternalError>
     where
         E: EntityKind<Key = K> + EntityValue,
         R: PlanRow<E>,
     {
         let filtered = if self.contract.has_predicate() {
+            if predicate_preapplied {
+                return Ok((true, rows.len()));
+            }
+
             let Some(compiled_predicate) = compiled_predicate else {
                 return Err(crate::db::error::query_executor_invariant(
                     "post-access filtering requires precompiled predicate slots",

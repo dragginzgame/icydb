@@ -890,6 +890,94 @@ fn session_load_bytes_by_unknown_field_fails_before_scan_budget_consumption() {
 }
 
 #[test]
+fn session_load_explain_bytes_by_projects_terminal_metadata_for_filtered_shape() {
+    seed_pushdown_entities(&[
+        (8_905, 7, 20),
+        (8_906, 7, 20),
+        (8_907, 7, 30),
+        (8_908, 8, 20),
+    ]);
+    let session = DbSession::new(DB);
+    let descriptor = session
+        .load::<PushdownParityEntity>()
+        .filter(Predicate::And(vec![
+            u32_eq_predicate_strict("group", 7),
+            u32_eq_predicate_strict("rank", 20),
+        ]))
+        .explain_bytes_by("rank")
+        .expect("bytes_by explain should succeed for filtered load shapes");
+
+    assert_eq!(
+        descriptor.node_properties().get("terminal"),
+        Some(&Value::from("bytes_by")),
+        "bytes-by explain descriptors should project the terminal label",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("terminal_field"),
+        Some(&Value::from("rank")),
+        "bytes-by explain descriptors should preserve the requested terminal field",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("terminal_projection_mode"),
+        Some(&Value::from("field_materialized")),
+        "filtered bytes-by explain shapes should project the current materialized mode label",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("terminal_index_only"),
+        Some(&Value::from(false)),
+        "filtered bytes-by explain shapes should project index-only=false under current planner access",
+    );
+}
+
+#[test]
+fn session_load_explain_bytes_by_projects_materialized_mode_for_strict_queries() {
+    seed_pushdown_entities(&[(8_911, 7, 20), (8_912, 7, 20), (8_913, 8, 30)]);
+    let session = DbSession::new(DB);
+    let descriptor = session
+        .load_with_consistency::<PushdownParityEntity>(MissingRowPolicy::Error)
+        .filter(Predicate::And(vec![
+            u32_eq_predicate_strict("group", 7),
+            u32_eq_predicate_strict("rank", 20),
+        ]))
+        .explain_bytes_by("rank")
+        .expect("bytes_by explain should succeed for strict load shapes");
+
+    assert_eq!(
+        descriptor.node_properties().get("terminal_projection_mode"),
+        Some(&Value::from("field_materialized")),
+        "strict bytes-by explain shapes should fail closed to materialized projection mode",
+    );
+    assert_eq!(
+        descriptor.node_properties().get("terminal_index_only"),
+        Some(&Value::from(false)),
+        "strict bytes-by explain shapes should project index-only=false",
+    );
+}
+
+#[test]
+fn session_load_explain_bytes_by_unknown_field_fails_before_planning() {
+    seed_pushdown_entities(&[(8_914, 7, 10), (8_915, 7, 20)]);
+    let session = DbSession::new(DB);
+
+    let result = session
+        .load::<PushdownParityEntity>()
+        .filter(u32_eq_predicate("group", 7))
+        .explain_bytes_by("missing_field");
+
+    let Err(err) = result else {
+        panic!("bytes-by explain for unknown fields should fail closed");
+    };
+    assert!(
+        matches!(err, QueryError::Execute(_)),
+        "unknown-field bytes-by explain should remain an execute-domain failure: {err:?}"
+    );
+    assert!(
+        err.to_string().contains("unknown aggregate target field"),
+        "unknown-field bytes-by explain should preserve field taxonomy: {err:?}",
+    );
+}
+
+#[test]
 fn session_load_min_by_unknown_field_fails_before_scan_budget_consumption() {
     seed_pushdown_entities(&[
         (8_901, 7, 10),

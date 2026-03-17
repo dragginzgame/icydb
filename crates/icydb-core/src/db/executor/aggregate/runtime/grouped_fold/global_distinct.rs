@@ -8,6 +8,7 @@ use crate::{
         executor::{
             aggregate::{
                 ExecutionContext, runtime::grouped_distinct::GlobalDistinctFieldAggregateKind,
+                runtime::grouped_output::project_grouped_rows_from_projection,
             },
             pipeline::contracts::{
                 GroupedCursorPage, GroupedFoldStage, GroupedRouteStageProjection,
@@ -67,7 +68,7 @@ where
             grouped_window.initial_offset_for_page(),
             grouped_window.limit(),
         );
-        let page_rows = Self::project_grouped_rows_from_projection(
+        let page_rows = project_grouped_rows_from_projection(
             grouped_projection_spec,
             route.projection_layout(),
             route.group_fields(),

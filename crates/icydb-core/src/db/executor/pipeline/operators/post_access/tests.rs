@@ -12,6 +12,7 @@ use crate::db::{
 use crate::{
     db::MissingRowPolicy,
     model::{field::FieldKind, index::IndexModel},
+    traits::EntitySchema,
     types::Ulid,
     value::Value,
 };
@@ -196,10 +197,11 @@ fn budget_safety_metadata_order_contract_stays_aligned_with_route_helper() {
         BudgetMetadataEntity,
         _,
     >(&unordered_plan);
-    let unordered_contract = crate::db::executor::route::access_order_satisfied_by_route_contract::<
-        BudgetMetadataEntity,
-        _,
-    >(&unordered_plan);
+    let unordered_contract =
+        crate::db::executor::route::access_order_satisfied_by_route_contract_for_model(
+            BudgetMetadataEntity::MODEL,
+            &unordered_plan,
+        );
     assert_eq!(
         unordered_metadata.access_order_satisfied_by_path, unordered_contract,
         "full-scan ordering metadata must stay aligned with route order contract",
@@ -224,10 +226,11 @@ fn budget_safety_metadata_order_contract_stays_aligned_with_route_helper() {
         BudgetMetadataEntity,
         _,
     >(&ordered_plan);
-    let ordered_contract = crate::db::executor::route::access_order_satisfied_by_route_contract::<
-        BudgetMetadataEntity,
-        _,
-    >(&ordered_plan);
+    let ordered_contract =
+        crate::db::executor::route::access_order_satisfied_by_route_contract_for_model(
+            BudgetMetadataEntity::MODEL,
+            &ordered_plan,
+        );
     assert_eq!(
         ordered_metadata.access_order_satisfied_by_path, ordered_contract,
         "index-range ordering metadata must stay aligned with route order contract",

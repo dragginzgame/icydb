@@ -7,7 +7,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.57.x] - 2026-03-16 - Reduced SQL Closure Follow-Ups
 
-- `0.57.0` lets SQL users run `SHOW TABLES` as an alias for `SHOW ENTITIES` and adds bounded `LOWER(field) LIKE 'prefix%'` support that lowers to case-insensitive prefix matching, while keeping out-of-scope SQL shapes fail-closed.
+- `0.57.0` lets SQL users run `SHOW TABLES` as an alias for `SHOW ENTITIES` and adds bounded `LOWER(field) LIKE 'prefix%'` lowering to case-insensitive prefix matching while keeping out-of-scope SQL shapes fail-closed.
+- `0.57.1` expands `bytes_by(field)` index-only/constant covering fast paths, adds `explain_bytes_by(field)` terminal metadata with stable projection-mode labels, and keeps strict-mode shapes fail-closed with dedicated BYTES-by diagnostics counters.
 
 See detailed breakdown:
 [docs/changelog/0.57.md](docs/changelog/0.57.md)

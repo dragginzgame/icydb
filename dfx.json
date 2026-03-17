@@ -3,7 +3,7 @@
         "minimal": {
             "type": "custom",
             "candid": ".dfx/local/canisters/minimal/minimal.did",
-            "build": "bash -c 'cargo run -p icydb-testing-integration --bin build_sql_test_canister -- minimal'",
+            "build": "bash -c 'cargo run -p icydb-testing-integration --bin build_quickstart_canister -- minimal'",
             "wasm": ".dfx/local/canisters/minimal/minimal.wasm",
             "shrink": true,
             "gzip": true,
@@ -13,11 +13,11 @@
                 }
             ]
         },
-        "sql_test": {
+        "quickstart": {
             "type": "custom",
-            "candid": ".dfx/local/canisters/sql_test/sql_test.did",
-            "build": "bash -c 'cargo run -p icydb-testing-integration --bin build_sql_test_canister -- sql_test'",
-            "wasm": ".dfx/local/canisters/sql_test/sql_test.wasm",
+            "candid": ".dfx/local/canisters/quickstart/quickstart.did",
+            "build": "bash -c 'cargo run -p icydb-testing-integration --bin build_quickstart_canister -- quickstart'",
+            "wasm": ".dfx/local/canisters/quickstart/quickstart.wasm",
             "shrink": true,
             "gzip": true,
             "metadata": [

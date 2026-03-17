@@ -182,6 +182,24 @@ where
         })
     }
 
+    /// Explain `bytes_by(field)` routing without executing the terminal.
+    pub fn explain_bytes_by(
+        &self,
+        field: impl AsRef<str>,
+    ) -> Result<ExplainExecutionNodeDescriptor, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        Self::with_slot(field, |target_slot| {
+            DbSession::<E::Canister>::explain_load_query_bytes_by_with(
+                self.query(),
+                target_slot.field(),
+            )
+        })
+    }
+
     /// Execute and return the smallest matching identifier, if any.
     pub fn min(&self) -> Result<Option<Id<E>>, QueryError>
     where

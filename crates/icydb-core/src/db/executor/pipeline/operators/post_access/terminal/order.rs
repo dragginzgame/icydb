@@ -10,7 +10,7 @@ use crate::{
                     apply_order_spec_bounded as apply_post_access_order_spec_bounded,
                 },
             },
-            route::access_order_satisfied_by_route_contract,
+            route::access_order_satisfied_by_route_contract_for_model,
         },
         query::plan::{AccessPlannedQuery, OrderSpec},
     },
@@ -19,11 +19,11 @@ use crate::{
 };
 
 // Return whether the resolved access stream already satisfies ORDER BY semantics.
-fn order_satisfied_by_access_path<E, K>(plan: &AccessPlannedQuery<K>) -> bool
-where
-    E: EntityKind<Key = K> + EntityValue,
-{
-    access_order_satisfied_by_route_contract::<E, _>(plan)
+fn order_satisfied_by_access_path<K>(
+    model: &crate::model::entity::EntityModel,
+    plan: &AccessPlannedQuery<K>,
+) -> bool {
+    access_order_satisfied_by_route_contract_for_model(model, plan)
 }
 
 // Apply ordering with bounded first-page optimization when available.
@@ -51,7 +51,7 @@ where
 
         // If access traversal already satisfies requested ORDER BY
         // semantics, preserve stream order and skip in-memory sorting.
-        if order_satisfied_by_access_path::<E, _>(plan) {
+        if order_satisfied_by_access_path(E::MODEL, plan) {
             return Ok((true, rows.len()));
         }
 

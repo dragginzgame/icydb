@@ -4,15 +4,11 @@
 //! Boundary: pure intent derivation for staged route planning.
 
 use crate::{
-    db::executor::{
-        pipeline::contracts::LoadExecutor,
-        route::{
-            AGGREGATE_FAST_PATH_ORDER, GROUPED_AGGREGATE_FAST_PATH_ORDER, LOAD_FAST_PATH_ORDER,
-            RouteIntent, RouteShapeKind, planner::RouteIntentStage,
-        },
+    db::executor::route::{
+        AGGREGATE_FAST_PATH_ORDER, GROUPED_AGGREGATE_FAST_PATH_ORDER, LOAD_FAST_PATH_ORDER,
+        RouteIntent, RouteShapeKind, planner::RouteIntentStage,
     },
     db::query::plan::AggregateKind,
-    traits::{EntityKind, EntityValue},
 };
 
 // Keep route-shape intent mapping in one helper so grouped/count/non-count
@@ -28,75 +24,70 @@ const fn route_shape_kind_for_intent(grouped: bool, kind: Option<AggregateKind>)
     }
 }
 
-impl<E> LoadExecutor<E>
-where
-    E: EntityKind + EntityValue,
-{
-    pub(in crate::db::executor::route::planner) fn derive_route_intent_stage(
-        intent: RouteIntent,
-    ) -> RouteIntentStage {
-        let stage = match intent {
-            RouteIntent::Load => RouteIntentStage {
-                aggregate_expr: None,
+pub(in crate::db::executor::route::planner) fn derive_route_intent_stage(
+    intent: RouteIntent,
+) -> RouteIntentStage {
+    let stage = match intent {
+        RouteIntent::Load => RouteIntentStage {
+            aggregate_expr: None,
+            grouped: false,
+            route_shape_kind: route_shape_kind_for_intent(false, None),
+            grouped_plan_strategy_hint: None,
+            fast_path_order: &LOAD_FAST_PATH_ORDER,
+            aggregate_force_materialized_due_to_predicate_uncertainty: false,
+        },
+        RouteIntent::Aggregate {
+            aggregate,
+            aggregate_force_materialized_due_to_predicate_uncertainty,
+        } => {
+            let aggregate_kind = aggregate.kind();
+            RouteIntentStage {
+                aggregate_expr: Some(aggregate),
                 grouped: false,
-                route_shape_kind: route_shape_kind_for_intent(false, None),
+                route_shape_kind: route_shape_kind_for_intent(false, Some(aggregate_kind)),
                 grouped_plan_strategy_hint: None,
-                fast_path_order: &LOAD_FAST_PATH_ORDER,
-                aggregate_force_materialized_due_to_predicate_uncertainty: false,
-            },
-            RouteIntent::Aggregate {
-                aggregate,
+                fast_path_order: &AGGREGATE_FAST_PATH_ORDER,
                 aggregate_force_materialized_due_to_predicate_uncertainty,
-            } => {
-                let aggregate_kind = aggregate.kind();
-                RouteIntentStage {
-                    aggregate_expr: Some(aggregate),
-                    grouped: false,
-                    route_shape_kind: route_shape_kind_for_intent(false, Some(aggregate_kind)),
-                    grouped_plan_strategy_hint: None,
-                    fast_path_order: &AGGREGATE_FAST_PATH_ORDER,
-                    aggregate_force_materialized_due_to_predicate_uncertainty,
-                }
             }
-            RouteIntent::AggregateGrouped {
-                grouped_plan_strategy_hint,
-                aggregate_force_materialized_due_to_predicate_uncertainty,
-            } => RouteIntentStage {
-                aggregate_expr: None,
-                grouped: true,
-                route_shape_kind: route_shape_kind_for_intent(true, None),
-                grouped_plan_strategy_hint: Some(grouped_plan_strategy_hint),
-                fast_path_order: &GROUPED_AGGREGATE_FAST_PATH_ORDER,
-                aggregate_force_materialized_due_to_predicate_uncertainty,
-            },
-        };
-        let kind = stage.kind();
-        debug_assert!(
-            (kind.is_none()
+        }
+        RouteIntent::AggregateGrouped {
+            grouped_plan_strategy_hint,
+            aggregate_force_materialized_due_to_predicate_uncertainty,
+        } => RouteIntentStage {
+            aggregate_expr: None,
+            grouped: true,
+            route_shape_kind: route_shape_kind_for_intent(true, None),
+            grouped_plan_strategy_hint: Some(grouped_plan_strategy_hint),
+            fast_path_order: &GROUPED_AGGREGATE_FAST_PATH_ORDER,
+            aggregate_force_materialized_due_to_predicate_uncertainty,
+        },
+    };
+    let kind = stage.kind();
+    debug_assert!(
+        (kind.is_none()
+            && !stage.grouped
+            && stage.fast_path_order == LOAD_FAST_PATH_ORDER.as_slice())
+            || (kind.is_some()
                 && !stage.grouped
-                && stage.fast_path_order == LOAD_FAST_PATH_ORDER.as_slice())
-                || (kind.is_some()
-                    && !stage.grouped
-                    && stage.fast_path_order == AGGREGATE_FAST_PATH_ORDER.as_slice())
-                || (kind.is_none()
-                    && stage.grouped
-                    && stage.fast_path_order == GROUPED_AGGREGATE_FAST_PATH_ORDER.as_slice()),
-            "route invariant: route intent must map to the canonical fast-path order contract",
-        );
-        debug_assert!(
-            !stage.grouped || stage.aggregate_expr.is_none() && stage.fast_path_order.is_empty(),
-            "route invariant: grouped intent must not carry scalar aggregate specs or fast-path routes",
-        );
-        let expected_route_shape_kind = route_shape_kind_for_intent(stage.grouped, stage.kind());
-        debug_assert!(
-            stage.route_shape_kind == expected_route_shape_kind,
-            "route invariant: route intent shape kind must remain aligned with grouped + aggregate intent",
-        );
-        debug_assert!(
-            stage.grouped == stage.grouped_plan_strategy_hint.is_some(),
-            "route invariant: grouped intents must carry planner grouped-strategy hints, scalar intents must not",
-        );
+                && stage.fast_path_order == AGGREGATE_FAST_PATH_ORDER.as_slice())
+            || (kind.is_none()
+                && stage.grouped
+                && stage.fast_path_order == GROUPED_AGGREGATE_FAST_PATH_ORDER.as_slice()),
+        "route invariant: route intent must map to the canonical fast-path order contract",
+    );
+    debug_assert!(
+        !stage.grouped || stage.aggregate_expr.is_none() && stage.fast_path_order.is_empty(),
+        "route invariant: grouped intent must not carry scalar aggregate specs or fast-path routes",
+    );
+    let expected_route_shape_kind = route_shape_kind_for_intent(stage.grouped, stage.kind());
+    debug_assert!(
+        stage.route_shape_kind == expected_route_shape_kind,
+        "route invariant: route intent shape kind must remain aligned with grouped + aggregate intent",
+    );
+    debug_assert!(
+        stage.grouped == stage.grouped_plan_strategy_hint.is_some(),
+        "route invariant: grouped intents must carry planner grouped-strategy hints, scalar intents must not",
+    );
 
-        stage
-    }
+    stage
 }

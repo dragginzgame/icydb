@@ -1,5 +1,5 @@
 [package]
-name = "canister_sql_test"
+name = "canister_quickstart"
 edition = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
@@ -12,11 +12,11 @@ crate-type = ["cdylib"]
 candid = { workspace = true }
 ic-cdk = { workspace = true }
 icydb = { workspace = true }
-icydb-testing-sql-test-fixtures = { workspace = true }
+icydb-testing-quickstart-fixtures = { workspace = true }
 
 [build-dependencies]
 icydb = { workspace = true }
-icydb-testing-sql-test-fixtures = { workspace = true }
+icydb-testing-quickstart-fixtures = { workspace = true }
 
 [lints]
 workspace = true

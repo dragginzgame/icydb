@@ -24,7 +24,8 @@ use crate::{
 #[cfg(test)]
 use crate::db::executor::aggregate::AggregateKind;
 use crate::db::executor::route::planner::{
-    RouteExecutionStage, RouteFeasibilityStage, RouteIntentStage,
+    RouteExecutionStage, RouteFeasibilityStage, RouteIntentStage, derive_route_execution_stage,
+    derive_route_intent_stage,
 };
 
 impl<E> LoadExecutor<E>
@@ -155,7 +156,7 @@ where
         let planner_route_profile = Self::derive_planner_route_profile(plan);
 
         // Phase 2: normalize route intent into one immutable intent stage.
-        let intent_stage = Self::derive_route_intent_stage(intent);
+        let intent_stage = derive_route_intent_stage(intent);
 
         // Phase 3: derive continuation/window/capability feasibility.
         let feasibility_stage = Self::derive_execution_feasibility_stage(
@@ -166,45 +167,12 @@ where
             &intent_stage,
         );
 
-        // Phase 4: resolve execution mode and fold-mode from feasibility + intent.
-        let execution_stage = Self::derive_route_execution_stage(&intent_stage, &feasibility_stage);
-
-        // Phase 5: assemble the final immutable route contract.
-        Self::assemble_execution_route_plan(intent_stage, feasibility_stage, execution_stage)
+        build_execution_route_plan_from_stages(intent_stage, feasibility_stage)
     }
 
     // Build one planner-projected route profile from one validated access plan.
     fn derive_planner_route_profile(plan: &AccessPlannedQuery<E::Key>) -> PlannerRouteProfile {
         plan.planner_route_profile(E::MODEL)
-    }
-
-    fn assemble_execution_route_plan(
-        intent_stage: RouteIntentStage,
-        feasibility_stage: RouteFeasibilityStage,
-        execution_stage: RouteExecutionStage,
-    ) -> ExecutionRoutePlan {
-        let RouteFeasibilityStage {
-            continuation,
-            derivation,
-            index_range_limit_spec: _,
-        } = feasibility_stage;
-
-        ExecutionRoutePlan {
-            direction: derivation.direction,
-            route_shape_kind: execution_stage.route_shape_kind,
-            continuation,
-            execution_mode: execution_stage.execution_mode,
-            execution_mode_case: execution_stage.execution_mode_case,
-            secondary_pushdown_applicability: derivation.secondary_pushdown_applicability,
-            index_range_limit_spec: execution_stage.index_range_limit_spec,
-            capabilities: derivation.capabilities,
-            fast_path_order: intent_stage.fast_path_order,
-            top_n_seek_spec: derivation.top_n_seek_spec,
-            aggregate_seek_spec: derivation.aggregate_seek_spec,
-            scan_hints: derivation.scan_hints,
-            aggregate_fold_mode: execution_stage.aggregate_fold_mode,
-            grouped_execution_strategy: derivation.grouped_execution_strategy,
-        }
     }
 }
 
@@ -223,5 +191,46 @@ fn aggregate_terminal_expr(kind: AggregateKind) -> AggregateExpr {
         AggregateKind::Max => crate::db::query::builder::aggregate::max(),
         AggregateKind::First => crate::db::query::builder::aggregate::first(),
         AggregateKind::Last => crate::db::query::builder::aggregate::last(),
+    }
+}
+
+// Build one shared execution route contract from intent + feasibility stages.
+fn build_execution_route_plan_from_stages(
+    intent_stage: RouteIntentStage,
+    feasibility_stage: RouteFeasibilityStage,
+) -> ExecutionRoutePlan {
+    // Phase 1: resolve execution mode and fold-mode from feasibility + intent.
+    let execution_stage = derive_route_execution_stage(&intent_stage, &feasibility_stage);
+
+    // Phase 2: assemble one immutable route contract.
+    assemble_execution_route_plan(intent_stage, feasibility_stage, execution_stage)
+}
+
+fn assemble_execution_route_plan(
+    intent_stage: RouteIntentStage,
+    feasibility_stage: RouteFeasibilityStage,
+    execution_stage: RouteExecutionStage,
+) -> ExecutionRoutePlan {
+    let RouteFeasibilityStage {
+        continuation,
+        derivation,
+        index_range_limit_spec: _,
+    } = feasibility_stage;
+
+    ExecutionRoutePlan {
+        direction: derivation.direction,
+        route_shape_kind: execution_stage.route_shape_kind,
+        continuation,
+        execution_mode: execution_stage.execution_mode,
+        execution_mode_case: execution_stage.execution_mode_case,
+        secondary_pushdown_applicability: derivation.secondary_pushdown_applicability,
+        index_range_limit_spec: execution_stage.index_range_limit_spec,
+        capabilities: derivation.capabilities,
+        fast_path_order: intent_stage.fast_path_order,
+        top_n_seek_spec: derivation.top_n_seek_spec,
+        aggregate_seek_spec: derivation.aggregate_seek_spec,
+        scan_hints: derivation.scan_hints,
+        aggregate_fold_mode: execution_stage.aggregate_fold_mode,
+        grouped_execution_strategy: derivation.grouped_execution_strategy,
     }
 }
