@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.58.x] - Unreleased - Placeholder
+
+- `0.58.0` placeholder entry reserved for the upcoming demonomorphization-focused runtime size-reduction line; final scope will be documented at release.
+
+See detailed breakdown:
+[docs/changelog/0.58.md](docs/changelog/0.58.md)
+
+---
+
 ## [0.57.x] - 2026-03-16 - Reduced SQL Closure Follow-Ups
 
 - `0.57.0` lets SQL users run `SHOW TABLES` as an alias for `SHOW ENTITIES` and adds bounded `LOWER(field) LIKE 'prefix%'` lowering to case-insensitive prefix matching while keeping out-of-scope SQL shapes fail-closed.
