@@ -17,7 +17,6 @@ use crate::{
                 FieldSlot, extract_numeric_field_decimal,
                 resolve_numeric_aggregate_target_slot_from_planner_slot,
             },
-            drive_key_stream_with_control_flow,
             pipeline::contracts::LoadExecutor,
             plan_metrics::record_rows_scanned,
             validate_executor_plan,
@@ -235,15 +234,11 @@ where
         // Phase 3: stream-fold numeric values directly from row reads.
         let mut rows_scanned = 0usize;
         let mut accumulator = NumericAggregateAccumulator::new();
-        drive_key_stream_with_control_flow(
-            key_stream.as_mut(),
-            &mut || {
-                Self::loop_control_from_continuation_action(continuation.borrow_mut().pre_fetch())
-            },
-            &mut |data_key| {
-                let Some(entity) =
-                    Self::read_entity_for_field_extrema(&ctx, consistency, &data_key)?
-                else {
+        let mut pre_key =
+            || Self::loop_control_from_continuation_action(continuation.borrow_mut().pre_fetch());
+        let mut on_key =
+            |_data_key, entity: Option<E>| -> Result<KeyStreamLoopControl, InternalError> {
+                let Some(entity) = entity else {
                     return Ok(KeyStreamLoopControl::Emit);
                 };
                 rows_scanned = rows_scanned.saturating_add(1);
@@ -257,7 +252,13 @@ where
                 accumulator.add(value);
 
                 Ok(KeyStreamLoopControl::Emit)
-            },
+            };
+        Self::drive_field_entity_stream(
+            &ctx,
+            consistency,
+            key_stream.as_mut(),
+            &mut pre_key,
+            &mut on_key,
         )?;
         record_rows_scanned::<E>(rows_scanned);
 

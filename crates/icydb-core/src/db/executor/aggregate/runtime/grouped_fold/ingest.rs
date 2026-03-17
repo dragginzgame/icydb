@@ -7,20 +7,17 @@ use std::cmp::Ordering;
 
 use crate::{
     db::{
-        Context,
         contracts::canonical_value_compare,
-        data::{DataKey, DataRow, RawRow},
+        data::DataKey,
         executor::{
-            KeyStreamLoopControl, OrderedKeyStream,
+            KeyStreamLoopControl,
             aggregate::{
                 AggregateEngine, AggregateExecutionSpec, AggregateIngestAdapter, ExecutionContext,
                 FoldControl,
             },
-            drive_key_stream_with_control_flow,
             group::{CanonicalKey, GroupKey, KeyCanonicalError},
-            pipeline::contracts::{GroupedRouteStageProjection, GroupedStreamStage, LoadExecutor},
+            pipeline::contracts::{GroupedRouteStage, GroupedStreamStage, LoadExecutor},
         },
-        predicate::MissingRowPolicy,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -32,40 +29,34 @@ where
     E: EntityKind + EntityValue,
 {
     // Ingest grouped source rows into aggregate reducers while preserving budget contracts.
-    pub(super) fn fold_group_rows_into_engines<R>(
-        route: &R,
+    pub(super) fn fold_group_rows_into_engines(
+        route: &GroupedRouteStage<E>,
         stream: &mut GroupedStreamStage<'_, E>,
         grouped_execution_context: &mut ExecutionContext,
         grouped_engines: &mut [AggregateEngine<E>],
         short_circuit_keys: &mut [Vec<Value>],
         max_groups_bound: usize,
-    ) -> Result<(usize, usize), InternalError>
-    where
-        R: GroupedRouteStageProjection<E>,
-    {
+    ) -> Result<(usize, usize), InternalError> {
         let (ctx, execution_preparation, resolved) = stream.parts_mut();
         let compiled_predicate = execution_preparation.compiled_predicate();
-        let mut read_row_for_key = |key: &DataKey| -> Result<Option<RawRow>, InternalError> {
-            let row = match route.consistency() {
-                MissingRowPolicy::Error => ctx.read_strict(key),
-                MissingRowPolicy::Ignore => ctx.read(key),
-            };
-
-            match row {
-                Ok(row) => Ok(Some(row)),
-                Err(err) if err.is_not_found() => Ok(None),
-                Err(err) => Err(err),
-            }
-        };
-        let mut decode_grouped_fold_input =
-            |row: DataRow| -> Result<Option<GroupedFoldIngestInput>, InternalError> {
-                let (id, entity) = Context::<E>::deserialize_row(row)?;
+        let mut ingest_adapter = AggregateIngestAdapter::from_execution_spec(
+            AggregateExecutionSpec::grouped(grouped_execution_context),
+        );
+        let mut scanned_rows = 0usize;
+        let mut filtered_rows = 0usize;
+        let mut pre_key = || KeyStreamLoopControl::Emit;
+        let mut on_key =
+            |data_key: DataKey, entity: Option<E>| -> Result<KeyStreamLoopControl, InternalError> {
+                let Some(entity) = entity else {
+                    return Ok(KeyStreamLoopControl::Emit);
+                };
+                scanned_rows = scanned_rows.saturating_add(1);
                 if let Some(compiled_predicate) = compiled_predicate
                     && !compiled_predicate.eval(&entity)
                 {
-                    return Ok(None);
+                    return Ok(KeyStreamLoopControl::Emit);
                 }
-
+                filtered_rows = filtered_rows.saturating_add(1);
                 let group_values = route
                     .group_fields()
                     .iter()
@@ -81,114 +72,45 @@ where
                 let group_key = Value::List(group_values)
                     .canonical_key()
                     .map_err(KeyCanonicalError::into_internal_error)?;
-                let canonical_group_value = group_key.canonical_value().clone();
-                let data_key = DataKey::try_new::<E>(id.key())?;
+                fold_group_input_with_engines(
+                    short_circuit_keys,
+                    group_key.canonical_value(),
+                    max_groups_bound,
+                    &mut ingest_adapter,
+                    grouped_engines,
+                    &data_key,
+                    &group_key,
+                )?;
 
-                Ok(Some(GroupedFoldIngestInput {
-                    group_key,
-                    canonical_group_value,
-                    data_key,
-                }))
+                Ok(KeyStreamLoopControl::Emit)
             };
-        let mut ingest_adapter = AggregateIngestAdapter::from_execution_spec(
-            AggregateExecutionSpec::grouped(grouped_execution_context),
-        );
-        let mut fold_group_input = |input: &GroupedFoldIngestInput| -> Result<(), InternalError> {
-            let mut fold_engine = |index: usize| -> Result<bool, InternalError> {
-                let Some(engine) = grouped_engines.get_mut(index) else {
-                    return Err(crate::db::error::query_executor_invariant(format!(
-                        "grouped engine index out of bounds during fold ingest: index={index}, engine_count={}",
-                        grouped_engines.len()
-                    )));
-                };
-                let fold_control = ingest_adapter
-                    .ingest(engine, &input.data_key, Some(input.group_key.clone()))
-                    .map_err(Self::map_group_error)?;
-
-                Ok(matches!(fold_control, FoldControl::Break))
-            };
-            fold_group_input_dyn(
-                short_circuit_keys,
-                &input.canonical_group_value,
-                max_groups_bound,
-                &mut fold_engine,
-            )
-        };
-
-        fold_group_rows_loop_dyn(
+        Self::drive_field_entity_stream(
+            ctx,
+            route.consistency(),
             resolved.key_stream_mut(),
-            &mut read_row_for_key,
-            &mut decode_grouped_fold_input,
-            &mut fold_group_input,
-        )
+            &mut pre_key,
+            &mut on_key,
+        )?;
+
+        Ok((scanned_rows, filtered_rows))
     }
-}
-
-///
-/// GroupedFoldIngestInput
-///
-/// Canonical grouped ingest row payload passed from typed decode/predicate
-/// wrappers into the shared grouped-fold ingest control-flow boundary.
-///
-
-struct GroupedFoldIngestInput {
-    group_key: GroupKey,
-    canonical_group_value: Value,
-    data_key: DataKey,
-}
-
-// Shared grouped-fold ingest loop.
-// Typed wrappers provide row-read/decode and engine-ingest callbacks so the
-// key-stream + row-count control flow compiles once.
-fn fold_group_rows_loop_dyn(
-    key_stream: &mut dyn OrderedKeyStream,
-    read_row_for_key: &mut dyn FnMut(&DataKey) -> Result<Option<RawRow>, InternalError>,
-    decode_grouped_fold_input: &mut dyn FnMut(
-        DataRow,
-    ) -> Result<
-        Option<GroupedFoldIngestInput>,
-        InternalError,
-    >,
-    fold_group_input: &mut dyn FnMut(&GroupedFoldIngestInput) -> Result<(), InternalError>,
-) -> Result<(usize, usize), InternalError> {
-    // Phase 1: scan keys and read authoritative rows.
-    let mut scanned_rows = 0usize;
-    let mut filtered_rows = 0usize;
-
-    drive_key_stream_with_control_flow(
-        key_stream,
-        &mut || KeyStreamLoopControl::Emit,
-        &mut |key| {
-            let Some(raw_row) = read_row_for_key(&key)? else {
-                return Ok(KeyStreamLoopControl::Emit);
-            };
-            scanned_rows = scanned_rows.saturating_add(1);
-
-            // Phase 2: decode/filter rows into grouped-ingest payloads.
-            let Some(input) = decode_grouped_fold_input((key, raw_row))? else {
-                return Ok(KeyStreamLoopControl::Emit);
-            };
-            filtered_rows = filtered_rows.saturating_add(1);
-
-            // Phase 3: apply grouped reducer ingestion and short-circuit tracking.
-            fold_group_input(&input)?;
-
-            Ok(KeyStreamLoopControl::Emit)
-        },
-    )?;
-
-    Ok((scanned_rows, filtered_rows))
 }
 
 // Shared per-row grouped-engine ingest control flow.
 // Typed wrappers inject aggregate-engine ingestion while this helper owns
 // short-circuit key rejection and bounded tracking invariants.
-fn fold_group_input_dyn(
+fn fold_group_input_with_engines<E>(
     short_circuit_keys: &mut [Vec<Value>],
     canonical_group_value: &Value,
     max_groups_bound: usize,
-    fold_engine: &mut dyn FnMut(usize) -> Result<bool, InternalError>,
-) -> Result<(), InternalError> {
+    ingest_adapter: &mut AggregateIngestAdapter<'_, E>,
+    grouped_engines: &mut [AggregateEngine<E>],
+    data_key: &DataKey,
+    group_key: &GroupKey,
+) -> Result<(), InternalError>
+where
+    E: EntityKind + EntityValue,
+{
     for (index, done_group_keys) in short_circuit_keys.iter_mut().enumerate() {
         if done_group_keys
             .iter()
@@ -197,7 +119,16 @@ fn fold_group_input_dyn(
             continue;
         }
 
-        if fold_engine(index)? {
+        let Some(engine) = grouped_engines.get_mut(index) else {
+            return Err(crate::db::error::query_executor_invariant(format!(
+                "grouped engine index out of bounds during fold ingest: index={index}, engine_count={}",
+                grouped_engines.len()
+            )));
+        };
+        let fold_control = ingest_adapter
+            .ingest(engine, data_key, Some(group_key))
+            .map_err(LoadExecutor::<E>::map_group_error)?;
+        if matches!(fold_control, FoldControl::Break) {
             done_group_keys.push(canonical_group_value.clone());
             debug_assert!(
                 done_group_keys.len() <= max_groups_bound,

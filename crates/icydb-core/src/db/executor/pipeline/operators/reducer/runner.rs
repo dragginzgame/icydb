@@ -5,11 +5,8 @@ use crate::{
         data::DataKey,
         executor::{
             ExecutionKernel, KeyStreamLoopControl, OrderedKeyStream,
-            aggregate::AggregateFoldMode,
+            aggregate::{AggregateFoldMode, FoldControl},
             drive_key_stream_with_control_flow,
-            pipeline::operators::reducer::contracts::{
-                KernelReducer, ReducerControl, StreamInputMode, StreamItem,
-            },
             traversal::row_read_consistency_for_plan,
         },
         predicate::MissingRowPolicy,
@@ -69,26 +66,18 @@ impl ExecutionKernel {
         }
     }
 
-    // Run a key-stream reducer under canonical aggregate window and
+    // Run one scalar aggregate key fold under canonical aggregate window and
     // read-consistency eligibility contracts.
-    pub(in crate::db::executor::pipeline::operators::reducer) fn run_key_stream_reducer<E, R>(
+    pub(in crate::db::executor::pipeline::operators::reducer) fn run_aggregate_key_fold<E>(
         ctx: &Context<'_, E>,
         plan: &AccessPlannedQuery<E::Key>,
         mode: AggregateFoldMode,
         key_stream: &mut dyn OrderedKeyStream,
-        mut reducer: R,
-    ) -> Result<(R::Output, usize), InternalError>
+        on_key: &mut dyn FnMut(&DataKey) -> Result<FoldControl, InternalError>,
+    ) -> Result<usize, InternalError>
     where
         E: EntityKind + EntityValue,
-        R: KernelReducer<E>,
     {
-        // Phase 1: enforce reducer input-mode contract and initialize window counters.
-        if !matches!(R::INPUT_MODE, StreamInputMode::KeyOnly) {
-            return Err(crate::db::error::query_executor_invariant(
-                "key-stream reducer runner currently supports key-only reducers",
-            ));
-        }
-
         let continuation = RefCell::new(ContinuationRuntime::from_window(
             Self::window_cursor_contract(plan, None),
         ));
@@ -114,13 +103,13 @@ impl ExecutionKernel {
                     LoopAction::Stop => return Ok(KeyStreamLoopControl::Stop),
                 }
 
-                Ok(match reducer.on_item(StreamItem::Key(&key))? {
-                    ReducerControl::Continue => KeyStreamLoopControl::Emit,
-                    ReducerControl::StopEarly => KeyStreamLoopControl::Stop,
+                Ok(match on_key(&key)? {
+                    FoldControl::Continue => KeyStreamLoopControl::Emit,
+                    FoldControl::Break => KeyStreamLoopControl::Stop,
                 })
             },
         )?;
 
-        Ok((reducer.finish()?, keys_scanned))
+        Ok(keys_scanned)
     }
 }

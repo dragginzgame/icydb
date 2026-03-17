@@ -9,7 +9,7 @@ use crate::{
             AggregateEngine, ExecutionContext,
             runtime::grouped_distinct::global_distinct_field_execution_spec,
         },
-        pipeline::contracts::{GroupedRouteStageProjection, LoadExecutor},
+        pipeline::contracts::{GroupedRouteStage, LoadExecutor},
         route::aggregate_materialized_fold_direction,
     },
     error::InternalError,
@@ -23,13 +23,10 @@ where
 {
     // Build grouped aggregate engines for canonical grouped terminal projection layout.
     #[expect(clippy::type_complexity)]
-    pub(super) fn build_grouped_engines<R>(
-        route: &R,
+    pub(super) fn build_grouped_engines(
+        route: &GroupedRouteStage<E>,
         grouped_execution_context: &ExecutionContext,
-    ) -> Result<(Vec<AggregateEngine<E>>, Vec<Vec<Value>>), InternalError>
-    where
-        R: GroupedRouteStageProjection<E>,
-    {
+    ) -> Result<(Vec<AggregateEngine<E>>, Vec<Vec<Value>>), InternalError> {
         if global_distinct_field_execution_spec(route.grouped_distinct_execution_strategy())
             .is_some()
         {

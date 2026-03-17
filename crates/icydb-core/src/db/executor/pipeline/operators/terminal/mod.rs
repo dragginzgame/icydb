@@ -3,7 +3,6 @@
 //! Does not own: aggregate fold reducers or access-path planning/routing policy.
 //! Boundary: owns cursorless load row-collector short-path execution mechanics.
 
-mod collector;
 mod runtime;
 
 use crate::{
@@ -11,10 +10,7 @@ use crate::{
         Context,
         cursor::CursorBoundary,
         executor::{
-            ExecutionKernel, OrderedKeyStream,
-            pipeline::{
-                contracts::CursorPage, operators::terminal::collector::RowCollectorReducer,
-            },
+            ExecutionKernel, OrderedKeyStream, pipeline::contracts::CursorPage,
             projection::validate_projection_over_slot_rows,
         },
         query::plan::AccessPlannedQuery,
@@ -41,8 +37,7 @@ impl ExecutionKernel {
             return Ok(None);
         }
 
-        let (rows, keys_scanned) =
-            Self::run_row_stream_reducer(ctx, plan, key_stream, RowCollectorReducer)?;
+        let (rows, keys_scanned) = Self::run_row_collector_stream(ctx, plan, key_stream)?;
         validate_projection_over_slot_rows(
             E::MODEL,
             &plan.projection_spec(E::MODEL),

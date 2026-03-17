@@ -13,7 +13,6 @@ mod error;
 mod order;
 mod planned;
 mod range_token;
-mod resume;
 mod runtime;
 mod signature;
 pub(in crate::db) mod spine;
@@ -53,7 +52,6 @@ pub(in crate::db) use range_token::{
     RangeToken, cursor_anchor_from_index_key, range_token_anchor_key,
     range_token_from_validated_cursor_anchor,
 };
-pub(in crate::db) use resume::apply_resume_bound_phase;
 pub(in crate::db) use runtime::window_cursor_contract_for_plan;
 pub(in crate::db) use runtime::{
     ContinuationKeyRef, ContinuationRuntime, LoopAction, WindowCursorContract,

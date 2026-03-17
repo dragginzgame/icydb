@@ -6,6 +6,7 @@
 use crate::{
     db::{
         Context,
+        data::DataKey,
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutablePlan, ExecutionKernel,
@@ -16,7 +17,6 @@ use crate::{
                 resolve_orderable_aggregate_target_slot,
             },
             aggregate::{AggregateKind, AggregateOutput, PreparedAggregateStreamingInputs},
-            drive_key_stream_with_control_flow,
             pipeline::contracts::{ExecutionInputs, LoadExecutor},
             plan_metrics::record_rows_scanned,
             route::aggregate_extrema_direction,
@@ -261,15 +261,11 @@ where
 
         let mut keys_scanned = 0usize;
         let mut selected: Option<(Id<E>, E)> = None;
-
-        drive_key_stream_with_control_flow(
-            key_stream,
-            &mut || KeyStreamLoopControl::Emit,
-            &mut |data_key| {
+        let mut pre_key = || KeyStreamLoopControl::Emit;
+        let mut on_key =
+            |data_key: DataKey, entity: Option<E>| -> Result<KeyStreamLoopControl, InternalError> {
                 keys_scanned = keys_scanned.saturating_add(1);
-                let Some(entity) =
-                    Self::read_entity_for_field_extrema(ctx, consistency, &data_key)?
-                else {
+                let Some(entity) = entity else {
                     return Ok(KeyStreamLoopControl::Emit);
                 };
                 let id = Id::from_key(data_key.try_key::<E>()?);
@@ -314,8 +310,8 @@ where
                 }
 
                 Ok(KeyStreamLoopControl::Emit)
-            },
-        )?;
+            };
+        Self::drive_field_entity_stream(ctx, consistency, key_stream, &mut pre_key, &mut on_key)?;
 
         let selected_id = selected.map(|(id, _)| id);
         let output = kind.extrema_output(selected_id).ok_or_else(|| {

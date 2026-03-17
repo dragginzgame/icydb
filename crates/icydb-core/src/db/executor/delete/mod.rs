@@ -152,7 +152,7 @@ where
             let mut rows = decode_rows::<E>(data_rows)?;
 
             // Post-access phase: filter, order, and apply delete limits.
-            let stats = ExecutionKernel::apply_post_access_with_compiled_predicate::<E, _, _>(
+            let stats = ExecutionKernel::apply_delete_post_access_with_compiled_predicate::<E, _, _>(
                 &plan,
                 &mut rows,
                 execution_preparation.compiled_predicate(),

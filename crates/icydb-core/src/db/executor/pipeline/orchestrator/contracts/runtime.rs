@@ -1,3 +1,5 @@
+#![cfg_attr(not(test), allow(dead_code))]
+
 use crate::db::executor::pipeline::stages::{LoadPipelineStage, plan_load_pipeline_stages};
 
 ///

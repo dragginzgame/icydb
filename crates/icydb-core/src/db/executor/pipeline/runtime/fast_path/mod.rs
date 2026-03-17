@@ -9,9 +9,7 @@ use crate::{
     db::{
         executor::{
             ExecutableAccess, ExecutionOptimization, ExecutionPlan,
-            pipeline::contracts::{
-                ExecutionInputsProjection, LoadExecutor, ResolvedExecutionKeyStream,
-            },
+            pipeline::contracts::{ExecutionInputs, LoadExecutor, ResolvedExecutionKeyStream},
             route::RoutedKeyStreamRequest,
         },
         index::{IndexCompilePolicy, compile_index_program, predicate::IndexPredicateExecution},
@@ -32,14 +30,11 @@ where
     /// Resolve one canonical execution key stream in fast-path precedence order.
     ///
     /// This is the single shared load key-stream resolver boundary.
-    pub(in crate::db::executor) fn resolve_execution_key_stream_without_distinct<I>(
-        inputs: &I,
+    pub(in crate::db::executor) fn resolve_execution_key_stream_without_distinct(
+        inputs: &ExecutionInputs<'_, E>,
         route_plan: &ExecutionPlan,
         predicate_compile_mode: IndexCompilePolicy,
-    ) -> Result<ResolvedExecutionKeyStream, InternalError>
-    where
-        I: ExecutionInputsProjection<E>,
-    {
+    ) -> Result<ResolvedExecutionKeyStream, InternalError> {
         // Phase 0: compile optional index predicate execution program.
         let index_predicate_program = inputs
             .execution_preparation()
@@ -65,7 +60,7 @@ where
 
         // Phase 1: select fast-path resolution strategy once from route shape.
         let fast_path_strategy = FastPathResolutionStrategy::for_route(route_plan);
-        let fast_path_decision = fast_path_strategy.resolve_fast_path_decision::<E, I>(
+        let fast_path_decision = fast_path_strategy.resolve_fast_path_decision::<E>(
             inputs,
             route_plan,
             index_predicate_execution,
@@ -83,17 +78,14 @@ where
     }
 
     // Resolve one canonical key stream from fast-path decision output.
-    fn resolve_execution_key_stream_from_decision<I>(
+    fn resolve_execution_key_stream_from_decision(
         fast_path_decision: FastPathDecision,
-        inputs: &I,
+        inputs: &ExecutionInputs<'_, E>,
         route_plan: &ExecutionPlan,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
         index_predicate_applied: bool,
         index_predicate_rejected_counter: &Cell<u64>,
-    ) -> Result<ResolvedExecutionKeyStream, InternalError>
-    where
-        I: ExecutionInputsProjection<E>,
-    {
+    ) -> Result<ResolvedExecutionKeyStream, InternalError> {
         match fast_path_decision {
             FastPathDecision::Hit(fast) => Ok(ResolvedExecutionKeyStream::new(
                 fast.ordered_key_stream,
@@ -117,16 +109,13 @@ where
     }
 
     // Resolve canonical fallback access stream when no fast path produced rows.
-    fn resolve_fallback_execution_key_stream<I>(
-        inputs: &I,
+    fn resolve_fallback_execution_key_stream(
+        inputs: &ExecutionInputs<'_, E>,
         route_plan: &ExecutionPlan,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
         index_predicate_applied: bool,
         index_predicate_rejected_counter: &Cell<u64>,
-    ) -> Result<ResolvedExecutionKeyStream, InternalError>
-    where
-        I: ExecutionInputsProjection<E>,
-    {
+    ) -> Result<ResolvedExecutionKeyStream, InternalError> {
         let fallback_fetch_hint =
             route_plan.fallback_physical_fetch_hint(inputs.stream_bindings().direction());
         let access = ExecutableAccess::new(

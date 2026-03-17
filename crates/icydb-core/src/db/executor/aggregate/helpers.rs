@@ -6,14 +6,16 @@
 use crate::{
     db::{
         Context,
+        data::DataKey,
         direction::Direction,
         executor::{
-            ExecutablePlan,
+            ExecutablePlan, KeyStreamLoopControl, OrderedKeyStream,
             aggregate::AggregateKind,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, compare_orderable_field_values,
                 extract_orderable_field_value,
             },
+            drive_key_stream_with_control_flow,
             pipeline::contracts::LoadExecutor,
             route::aggregate_extrema_direction,
         },
@@ -232,15 +234,10 @@ where
     pub(in crate::db::executor) fn read_entity_for_field_extrema(
         ctx: &Context<'_, E>,
         consistency: MissingRowPolicy,
-        key: &crate::db::data::DataKey,
+        key: &DataKey,
     ) -> Result<Option<E>, InternalError> {
-        let decode_row = |row| {
-            let mut decoded = Context::<E>::deserialize_rows(vec![(key.clone(), row)])?;
-            let Some((_, entity)) = decoded.pop() else {
-                return Err(crate::db::error::query_executor_invariant(
-                    "field-extrema row decode expected one decoded entity",
-                ));
-            };
+        let decode_row = |row| -> Result<E, InternalError> {
+            let (_, entity) = Context::<E>::deserialize_row((key.clone(), row))?;
 
             Ok(entity)
         };
@@ -255,6 +252,24 @@ where
                 Err(err) => Err(err),
             },
         }
+    }
+
+    // Drive one canonical key stream and decode rows with field-extrema read
+    // consistency contracts while delegating row-level behavior to callbacks.
+    // This keeps stream control-flow ownership in one helper so aggregate
+    // terminals do not duplicate key-stream/read scaffolding.
+    pub(in crate::db::executor) fn drive_field_entity_stream(
+        ctx: &Context<'_, E>,
+        consistency: MissingRowPolicy,
+        key_stream: &mut dyn OrderedKeyStream,
+        pre_key: &mut dyn FnMut() -> KeyStreamLoopControl,
+        on_key: &mut dyn FnMut(DataKey, Option<E>) -> Result<KeyStreamLoopControl, InternalError>,
+    ) -> Result<(), InternalError> {
+        drive_key_stream_with_control_flow(key_stream, &mut || pre_key(), &mut |data_key| {
+            let entity = Self::read_entity_for_field_extrema(ctx, consistency, &data_key)?;
+
+            on_key(data_key, entity)
+        })
     }
 
     pub(in crate::db::executor) fn field_extrema_aggregate_direction(

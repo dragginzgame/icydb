@@ -16,7 +16,7 @@ use crate::{
                 grouped_having::group_matches_having, grouped_output::aggregate_output_to_value,
             },
             aggregate::{AggregateEngine, AggregateExecutionMode, AggregateFinalizeAdapter},
-            pipeline::contracts::GroupedRouteStageProjection,
+            pipeline::contracts::GroupedRouteStage,
         },
         query::plan::{FieldSlot, GroupHavingSpec},
     },
@@ -28,8 +28,8 @@ use crate::{
 use crate::db::executor::aggregate::runtime::grouped_fold::candidate_rows::sink::GroupedCandidateSink;
 
 // Finalize grouped reducers into deterministic candidate rows before paging.
-pub(super) fn collect_grouped_candidate_rows<E, R>(
-    route: &R,
+pub(super) fn collect_grouped_candidate_rows<E>(
+    route: &GroupedRouteStage<E>,
     grouped_engines: Vec<AggregateEngine<E>>,
     aggregate_count: usize,
     max_groups_bound: usize,
@@ -37,7 +37,6 @@ pub(super) fn collect_grouped_candidate_rows<E, R>(
 ) -> Result<Vec<(Value, Vec<Value>)>, InternalError>
 where
     E: EntityKind + EntityValue,
-    R: GroupedRouteStageProjection<E>,
 {
     // Phase 1: finalize typed aggregate engines into canonical `(group_key, value)` iterators.
     let finalized_iters = finalize_grouped_iterators(grouped_engines)?;

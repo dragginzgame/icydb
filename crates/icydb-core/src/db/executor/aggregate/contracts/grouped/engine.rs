@@ -114,9 +114,21 @@ impl<E: EntityKind> GroupedAggregateState<E> {
     }
 
     /// Apply one `(group_key, data_key)` row into grouped aggregate state.
+    #[cfg(test)]
     pub(in crate::db::executor::aggregate) fn apply(
         &mut self,
         group_key: GroupKey,
+        data_key: &DataKey,
+        execution_context: &mut ExecutionContext,
+    ) -> Result<FoldControl, GroupError> {
+        self.apply_borrowed(&group_key, data_key, execution_context)
+    }
+
+    // Apply one `(group_key, data_key)` row into grouped aggregate state using
+    // a borrowed grouped key to avoid hot-path clone churn at ingest callsites.
+    fn apply_borrowed(
+        &mut self,
+        group_key: &GroupKey,
         data_key: &DataKey,
         execution_context: &mut ExecutionContext,
     ) -> Result<FoldControl, GroupError> {
@@ -125,7 +137,7 @@ impl<E: EntityKind> GroupedAggregateState<E> {
         if let Some(bucket) = self.groups.get_mut(&hash) {
             if let Some(slot) = bucket
                 .iter_mut()
-                .find(|slot| canonical_group_key_equals(slot.group_key(), &group_key))
+                .find(|slot| canonical_group_key_equals(slot.group_key(), group_key))
             {
                 return slot.state.apply_grouped(data_key, execution_context);
             }
@@ -139,12 +151,15 @@ impl<E: EntityKind> GroupedAggregateState<E> {
             );
             let fold_control = state.apply_grouped(data_key, execution_context)?;
             execution_context.record_new_group::<E>(
-                &group_key,
+                group_key,
                 false,
                 bucket.len(),
                 bucket.capacity(),
             )?;
-            bucket.push(GroupedAggregateStateSlot { group_key, state });
+            bucket.push(GroupedAggregateStateSlot {
+                group_key: group_key.clone(),
+                state,
+            });
 
             return Ok(fold_control);
         }
@@ -157,9 +172,14 @@ impl<E: EntityKind> GroupedAggregateState<E> {
             self.max_distinct_values_per_group,
         );
         let fold_control = state.apply_grouped(data_key, execution_context)?;
-        execution_context.record_new_group::<E>(&group_key, true, 0, 0)?;
-        self.groups
-            .insert(hash, vec![GroupedAggregateStateSlot { group_key, state }]);
+        execution_context.record_new_group::<E>(group_key, true, 0, 0)?;
+        self.groups.insert(
+            hash,
+            vec![GroupedAggregateStateSlot {
+                group_key: group_key.clone(),
+                state,
+            }],
+        );
 
         Ok(fold_control)
     }
@@ -284,7 +304,7 @@ impl GlobalDistinctFieldState {
         }
     }
 
-    fn apply_count_dispatch(
+    const fn apply_count_dispatch(
         state: &mut GlobalDistinctFieldState,
         _numeric_value: Option<Decimal>,
     ) -> Result<FoldControl, GroupError> {
@@ -395,7 +415,9 @@ impl<'a> AggregateExecutionSpec<'a> {
 
     /// Build one grouped aggregate execution spec.
     #[must_use]
-    pub(in crate::db::executor) fn grouped(execution_context: &'a mut ExecutionContext) -> Self {
+    pub(in crate::db::executor) const fn grouped(
+        execution_context: &'a mut ExecutionContext,
+    ) -> Self {
         Self {
             mode: AggregateExecutionMode::Grouped,
             grouped_execution_context: Some(execution_context),
@@ -444,7 +466,7 @@ type AggregateIngestDispatch<E> = for<'b> fn(
     &mut AggregateEngine<E>,
     &mut AggregateExecutionSpec<'b>,
     &DataKey,
-    Option<GroupKey>,
+    Option<&GroupKey>,
 ) -> Result<FoldControl, GroupError>;
 
 type AggregateDistinctValueIngestDispatch<E> = for<'b> fn(
@@ -503,7 +525,7 @@ impl<'a, E: EntityKind> AggregateIngestAdapter<'a, E> {
         engine: &mut AggregateEngine<E>,
         _execution_spec: &mut AggregateExecutionSpec<'_>,
         data_key: &DataKey,
-        group_key: Option<GroupKey>,
+        group_key: Option<&GroupKey>,
     ) -> Result<FoldControl, GroupError> {
         if group_key.is_some() {
             return Err(GroupError::Internal(
@@ -526,7 +548,7 @@ impl<'a, E: EntityKind> AggregateIngestAdapter<'a, E> {
         engine: &mut AggregateEngine<E>,
         execution_spec: &mut AggregateExecutionSpec<'_>,
         data_key: &DataKey,
-        group_key: Option<GroupKey>,
+        group_key: Option<&GroupKey>,
     ) -> Result<FoldControl, GroupError> {
         let Some(group_key) = group_key else {
             return Err(GroupError::Internal(
@@ -538,7 +560,9 @@ impl<'a, E: EntityKind> AggregateIngestAdapter<'a, E> {
         let execution_context = execution_spec.grouped_execution_context_mut()?;
 
         match engine {
-            AggregateEngine::Grouped(state) => state.apply(group_key, data_key, execution_context),
+            AggregateEngine::Grouped(state) => {
+                state.apply_borrowed(group_key, data_key, execution_context)
+            }
             AggregateEngine::Scalar(_) | AggregateEngine::GlobalDistinctField(_) => Err(
                 AggregateEngine::<E>::mode_mismatch_error(AggregateExecutionMode::Grouped),
             ),
@@ -550,7 +574,7 @@ impl<'a, E: EntityKind> AggregateIngestAdapter<'a, E> {
         _engine: &mut AggregateEngine<E>,
         _execution_spec: &mut AggregateExecutionSpec<'_>,
         _data_key: &DataKey,
-        _group_key: Option<GroupKey>,
+        _group_key: Option<&GroupKey>,
     ) -> Result<FoldControl, GroupError> {
         Err(GroupError::Internal(
             crate::db::error::query_executor_invariant(
@@ -595,7 +619,7 @@ impl<'a, E: EntityKind> AggregateIngestAdapter<'a, E> {
         &mut self,
         engine: &mut AggregateEngine<E>,
         data_key: &DataKey,
-        group_key: Option<GroupKey>,
+        group_key: Option<&GroupKey>,
     ) -> Result<FoldControl, GroupError> {
         (self.ingest_dispatch)(engine, &mut self.execution_spec, data_key, group_key)
     }

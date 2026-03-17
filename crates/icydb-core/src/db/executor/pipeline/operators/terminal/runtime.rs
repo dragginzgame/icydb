@@ -4,10 +4,7 @@ use crate::{
         cursor::CursorBoundary,
         data::DataKey,
         executor::{
-            ExecutionKernel, LoadExecutor, OrderedKeyStream,
-            pipeline::operators::reducer::{
-                KernelReducer, ReducerControl, StreamInputMode, StreamItem,
-            },
+            ExecutionKernel, KeyStreamLoopControl, LoadExecutor, OrderedKeyStream,
             traversal::row_read_consistency_for_plan,
         },
         query::plan::AccessPlannedQuery,
@@ -34,68 +31,43 @@ impl ExecutionKernel {
             && logical.page.is_none()
     }
 
-    // Run one row-only reducer for load collection over the already decorated
+    // Run one row-collector stream over the already decorated
     // key stream. Rows are fetched only for keys that survive upstream stream
-    // decorators and are staged before ephemeral row-item delivery.
+    // decorators and staged as canonical `(Id<E>, E)` outputs.
     #[expect(clippy::type_complexity)]
-    pub(in crate::db::executor::pipeline::operators::terminal) fn run_row_stream_reducer<E, R>(
+    pub(in crate::db::executor::pipeline::operators::terminal) fn run_row_collector_stream<E>(
         ctx: &Context<'_, E>,
         plan: &AccessPlannedQuery<E::Key>,
         key_stream: &mut dyn OrderedKeyStream,
-        mut reducer: R,
     ) -> Result<(Vec<(Id<E>, E)>, usize), InternalError>
     where
         E: EntityKind + EntityValue,
-        R: KernelReducer<E>,
     {
-        // Phase 1: enforce reducer input-mode contract and initialize row staging.
-        if !matches!(R::INPUT_MODE, StreamInputMode::RowOnly) {
-            return Err(crate::db::error::query_executor_invariant(
-                "row-stream reducer runner requires row-only reducer input mode",
-            ));
-        }
-
+        // Phase 1: initialize row staging and read-consistency policy.
         let mut rows: Vec<(Id<E>, E)> = Vec::new();
         let mut keys_scanned = 0usize;
         let consistency = row_read_consistency_for_plan(plan);
+        let mut pre_key = || KeyStreamLoopControl::Emit;
+        let mut on_key =
+            |data_key: DataKey, entity: Option<E>| -> Result<KeyStreamLoopControl, InternalError> {
+                let Some(entity) = entity else {
+                    return Ok(KeyStreamLoopControl::Emit);
+                };
+                keys_scanned = keys_scanned.saturating_add(1);
+                rows.push((Id::from_key(data_key.try_key::<E>()?), entity));
 
-        // Phase 2: materialize rows from keys and feed ephemeral row borrows to reducer.
-        drive_ordered_key_stream_keys(key_stream, &mut |data_key| {
-            let Some(entity) =
-                LoadExecutor::<E>::read_entity_for_field_extrema(ctx, consistency, &data_key)?
-            else {
-                return Ok(ReducerControl::Continue);
-            };
-            keys_scanned = keys_scanned.saturating_add(1);
-            rows.push((Id::from_key(data_key.try_key::<E>()?), entity));
-
-            // Ephemeral staging contract: pass a borrow scoped to this call only.
-            let Some((_, staged_entity)) = rows.last() else {
-                return Err(crate::db::error::query_executor_invariant(
-                    "row-stream reducer staging unexpectedly missing last row",
-                ));
+                Ok(KeyStreamLoopControl::Emit)
             };
 
-            reducer.on_item(StreamItem::Row(staged_entity))
-        })?;
-
-        let _ = reducer.finish()?;
+        // Phase 2: materialize rows from keys and append staged outputs.
+        LoadExecutor::<E>::drive_field_entity_stream(
+            ctx,
+            consistency,
+            key_stream,
+            &mut pre_key,
+            &mut on_key,
+        )?;
 
         Ok((rows, keys_scanned))
     }
-}
-
-// Shared ordered key-stream key driver used by row-stream reducer wiring.
-// Entity-specific row decode/filter logic is injected via callback.
-fn drive_ordered_key_stream_keys(
-    key_stream: &mut dyn OrderedKeyStream,
-    on_key: &mut dyn FnMut(DataKey) -> Result<ReducerControl, InternalError>,
-) -> Result<(), InternalError> {
-    while let Some(data_key) = key_stream.next_key()? {
-        if matches!(on_key(data_key)?, ReducerControl::StopEarly) {
-            break;
-        }
-    }
-
-    Ok(())
 }

@@ -1,4 +1,4 @@
-use crate::db::query::plan::{AccessPlannedQuery, DeleteLimitSpec, OrderSpec, PageSpec, QueryMode};
+use crate::db::query::plan::{AccessPlannedQuery, DeleteLimitSpec, OrderSpec, QueryMode};
 
 ///
 /// PostAccessContract
@@ -29,12 +29,6 @@ impl<'a, K> PostAccessContract<'a, K> {
     #[must_use]
     pub(in crate::db::executor) const fn order_spec(&self) -> Option<&OrderSpec> {
         self.plan.scalar_plan().order.as_ref()
-    }
-
-    /// Project page-window contract for post-access pagination.
-    #[must_use]
-    pub(in crate::db::executor) const fn page_spec(&self) -> Option<&PageSpec> {
-        self.plan.scalar_plan().page.as_ref()
     }
 
     /// Project delete-limit contract for post-access delete limiting.

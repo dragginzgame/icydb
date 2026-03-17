@@ -1,6 +1,7 @@
 use crate::{
     db::{
         Context,
+        data::DataKey,
         direction::Direction,
         executor::{
             ExecutionKernel, OrderedKeyStream,
@@ -8,83 +9,12 @@ use crate::{
                 AggregateEngine, AggregateExecutionSpec, AggregateFoldMode, AggregateIngestAdapter,
                 AggregateKind, AggregateOutput, FoldControl, GroupError, execute_aggregate,
             },
-            pipeline::operators::reducer::contracts::{
-                KernelReducer, ReducerControl, StreamInputMode, StreamItem,
-            },
         },
         query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
 };
-
-///
-/// AggregateStateReducer
-///
-/// AggregateStateReducer adapts the canonical aggregate state-machine boundary
-/// to the kernel key-stream reducer contract.
-/// All scalar aggregate terminals fold through this one reducer adapter.
-///
-
-struct AggregateStateReducer<E: EntityKind + EntityValue> {
-    engine: AggregateEngine<E>,
-    ingest_adapter: AggregateIngestAdapter<'static, E>,
-}
-
-impl<E> AggregateStateReducer<E>
-where
-    E: EntityKind + EntityValue,
-{
-    // Build one reducer adapter for any scalar aggregate terminal.
-    fn new(kind: AggregateKind, direction: Direction) -> Self {
-        Self {
-            engine: AggregateEngine::new_scalar(kind, direction),
-            ingest_adapter: AggregateIngestAdapter::from_execution_spec(
-                AggregateExecutionSpec::scalar(),
-            ),
-        }
-    }
-}
-
-impl<E> KernelReducer<E> for AggregateStateReducer<E>
-where
-    E: EntityKind + EntityValue,
-{
-    type Output = AggregateOutput<E>;
-    const INPUT_MODE: StreamInputMode = StreamInputMode::KeyOnly;
-
-    fn on_item(&mut self, item: StreamItem<'_, E>) -> Result<ReducerControl, InternalError> {
-        match item {
-            StreamItem::Key(key) => {
-                let fold_control = self
-                    .ingest_adapter
-                    .ingest(&mut self.engine, key, None)
-                    .map_err(GroupError::into_internal_error)?;
-
-                Ok(match fold_control {
-                    FoldControl::Continue => ReducerControl::Continue,
-                    FoldControl::Break => ReducerControl::StopEarly,
-                })
-            }
-            StreamItem::Row(_row) => Err(crate::db::error::query_executor_invariant(
-                "aggregate state reducer received row item for key-only input mode",
-            )),
-        }
-    }
-
-    fn finish(self) -> Result<Self::Output, InternalError> {
-        let mut noop_ingest = |_ingest_adapter: &mut AggregateIngestAdapter<'_, E>,
-                               _engine: &mut AggregateEngine<E>|
-         -> Result<(), InternalError> { Ok(()) };
-
-        execute_aggregate(
-            self.engine,
-            AggregateExecutionSpec::scalar(),
-            &mut noop_ingest,
-        )?
-        .into_scalar()
-    }
-}
 
 impl ExecutionKernel {
     // Validate aggregate kind/fold-mode compatibility against route contracts.
@@ -128,12 +58,26 @@ impl ExecutionKernel {
             ));
         }
 
-        Self::run_key_stream_reducer(
-            ctx,
-            plan,
-            mode,
-            key_stream,
-            AggregateStateReducer::<E>::new(kind, direction),
-        )
+        // Build one scalar aggregate reducer engine and fold all eligible keys
+        // through one adapter-owned ingest authority.
+        let engine = AggregateEngine::new_scalar(kind, direction);
+        let mut keys_scanned = 0usize;
+        let mut ingest_all = |ingest_adapter: &mut AggregateIngestAdapter<'_, E>,
+                              engine: &mut AggregateEngine<E>|
+         -> Result<(), InternalError> {
+            let mut on_key = |key: &DataKey| -> Result<FoldControl, InternalError> {
+                ingest_adapter
+                    .ingest(engine, key, None)
+                    .map_err(GroupError::into_internal_error)
+            };
+            keys_scanned = Self::run_aggregate_key_fold(ctx, plan, mode, key_stream, &mut on_key)?;
+
+            Ok(())
+        };
+        let aggregate_output =
+            execute_aggregate(engine, AggregateExecutionSpec::scalar(), &mut ingest_all)?
+                .into_scalar()?;
+
+        Ok((aggregate_output, keys_scanned))
     }
 }

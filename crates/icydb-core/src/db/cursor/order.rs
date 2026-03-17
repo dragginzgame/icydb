@@ -5,9 +5,7 @@
 
 use crate::{
     db::{
-        cursor::{
-            CursorBoundary, CursorBoundarySlot, apply_order_direction, compare_boundary_slots,
-        },
+        cursor::{CursorBoundarySlot, apply_order_direction, compare_boundary_slots},
         query::plan::{OrderDirection, OrderSpec},
     },
     model::entity::resolve_field_slot,
@@ -113,30 +111,6 @@ pub(in crate::db) fn apply_order_spec_bounded<E, R, F>(
     rows.sort_by(|left, right| compare_entities::<E>(entity_of(left), entity_of(right), &resolved));
 }
 
-/// Apply a strict continuation boundary using the canonical order comparator.
-pub(in crate::db) fn apply_cursor_boundary<E, R, F>(
-    rows: &mut Vec<R>,
-    order: &OrderSpec,
-    boundary: &CursorBoundary,
-    entity_of: F,
-) where
-    E: EntityKind + EntityValue,
-    F: Fn(&R) -> &E + Copy,
-{
-    let resolved = resolve_order_spec::<E>(order);
-
-    debug_assert_eq!(
-        boundary.slots.len(),
-        resolved.fields.len(),
-        "continuation boundary arity is validated by the cursor spine",
-    );
-
-    // Strict continuation: keep only rows greater than the boundary under canonical order.
-    rows.retain(|row| {
-        compare_entity_with_boundary::<E>(entity_of(row), &resolved, boundary).is_gt()
-    });
-}
-
 /// Compare two entities according to the order spec, returning the first non-equal field ordering.
 fn compare_entities<E: EntityValue>(left: &E, right: &E, order: &ResolvedOrderSpec) -> Ordering {
     for slot in &order.fields {
@@ -161,33 +135,4 @@ fn compare_entity_field_pair<E: EntityValue>(
     let ordering = compare_boundary_slots(&left_slot, &right_slot);
 
     apply_order_direction(ordering, slot.direction)
-}
-
-/// Compare one configured order field between an entity and a boundary slot.
-fn compare_entity_field_to_boundary<E: EntityValue>(
-    entity: &E,
-    boundary_slot: &CursorBoundarySlot,
-    slot: ResolvedOrderField,
-) -> Ordering {
-    let entity_slot = field_slot_by_index(entity, slot.field_index);
-    let ordering = compare_boundary_slots(&entity_slot, boundary_slot);
-
-    apply_order_direction(ordering, slot.direction)
-}
-
-/// Compare an entity with a continuation boundary using the exact canonical ordering semantics.
-fn compare_entity_with_boundary<E: EntityValue>(
-    entity: &E,
-    order: &ResolvedOrderSpec,
-    boundary: &CursorBoundary,
-) -> Ordering {
-    for (slot, boundary_slot) in order.fields.iter().zip(boundary.slots.iter()) {
-        let ordering = compare_entity_field_to_boundary(entity, boundary_slot, *slot);
-
-        if ordering != Ordering::Equal {
-            return ordering;
-        }
-    }
-
-    Ordering::Equal
 }

@@ -18,7 +18,7 @@ pub(in crate::db::executor) struct GlobalDistinctFieldExecutionSpec<'a> {
 
 // Resolve one grouped DISTINCT strategy into one optional global field
 // execution spec. This helper is data-only and does not execute any fold path.
-pub(in crate::db::executor) fn global_distinct_field_execution_spec(
+pub(in crate::db::executor) const fn global_distinct_field_execution_spec(
     strategy: &GroupedDistinctExecutionStrategy,
 ) -> Option<GlobalDistinctFieldExecutionSpec<'_>> {
     match strategy {

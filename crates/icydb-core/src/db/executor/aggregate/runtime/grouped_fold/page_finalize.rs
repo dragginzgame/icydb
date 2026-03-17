@@ -9,7 +9,7 @@ use crate::{
         executor::{
             GroupedPaginationWindow,
             aggregate::runtime::grouped_output::project_grouped_row_from_projection,
-            pipeline::contracts::{GroupedRouteStageProjection, PageCursor},
+            pipeline::contracts::{GroupedRouteStage, PageCursor},
         },
         query::plan::expr::ProjectionSpec,
     },
@@ -19,15 +19,14 @@ use crate::{
 };
 
 // Apply grouped offset/limit over candidate rows and build grouped continuation output.
-pub(super) fn finalize_grouped_page<E, R>(
-    route: &R,
+pub(super) fn finalize_grouped_page<E>(
+    route: &GroupedRouteStage<E>,
     grouped_projection_spec: &ProjectionSpec,
     grouped_candidate_rows: Vec<(Value, Vec<Value>)>,
     pagination_window: &GroupedPaginationWindow,
 ) -> Result<(Vec<GroupedRow>, Option<PageCursor>), InternalError>
 where
     E: EntityKind + EntityValue,
-    R: GroupedRouteStageProjection<E>,
 {
     let (page_rows, next_cursor_boundary) = finalize_grouped_page_rows(
         grouped_projection_spec,

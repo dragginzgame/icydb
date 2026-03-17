@@ -3,6 +3,8 @@
 //! Does not own: mode contracts or payload materialization mechanics.
 //! Boundary: executes deterministic stage transitions over typed pipeline state.
 
+#![allow(dead_code)]
+
 mod context;
 mod terminal;
 

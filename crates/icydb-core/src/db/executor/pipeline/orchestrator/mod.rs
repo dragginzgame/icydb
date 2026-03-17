@@ -39,6 +39,9 @@ where
     // consumes one immutable descriptor that owns stage-loop authority.
     // Existing typed entrypoints delegate here so subsequent slices can
     // migrate runtime internals without changing public call sites.
+    // This remains as a test/backstop surface while release entrypoints route
+    // through the canonical fixed-order stage path below.
+    #[allow(dead_code)]
     pub(in crate::db::executor) fn execute_load_dyn(
         &self,
         descriptor: LoadExecutionDescriptor,
@@ -72,8 +75,18 @@ where
         cursor: LoadCursorInput,
         execution_mode: LoadExecutionMode,
     ) -> Result<LoadExecutionSurface<E>, InternalError> {
-        let descriptor = LoadExecutionDescriptor::canonical();
-
-        self.execute_load_dyn(descriptor, plan, cursor, execution_mode)
+        // Canonical stage order:
+        // 1) build execution context
+        let access_state = Self::build_execution_context(plan, cursor, execution_mode)?;
+        // 2) execute access path
+        let access_state = Self::execute_access_path(access_state);
+        // 3) apply grouping/projection contract
+        let payload_state = self.apply_grouping_projection(access_state)?;
+        // 4) apply paging contract
+        let payload_state = Self::apply_paging(payload_state)?;
+        // 5) apply tracing contract
+        let payload_state = Self::apply_tracing(payload_state);
+        // 6) materialize response surface
+        Self::materialize_surface(payload_state)
     }
 }

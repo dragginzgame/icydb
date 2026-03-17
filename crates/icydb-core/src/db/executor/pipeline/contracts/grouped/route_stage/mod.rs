@@ -9,4 +9,3 @@ mod projection;
 pub(in crate::db::executor) use payload::{
     GroupedPlannerPayload, GroupedRoutePayload, GroupedRouteStage, IndexSpecBundle,
 };
-pub(in crate::db::executor) use projection::GroupedRouteStageProjection;

@@ -3,17 +3,13 @@
 //! Does not own: access-path routing or row decoding semantics.
 //! Boundary: shared pagination/cursor window calculations for executor/kernel paths.
 
-use crate::{
-    db::{
-        cursor::{
-            CursorBoundary, WindowCursorContract, apply_resume_bound_phase,
-            effective_page_offset_for_window, window_cursor_contract_for_plan,
-        },
-        executor::{ExecutionKernel, PlanRow},
-        query::plan::AccessPlannedQuery,
+use crate::db::{
+    cursor::{
+        CursorBoundary, WindowCursorContract, effective_page_offset_for_window,
+        window_cursor_contract_for_plan,
     },
-    error::InternalError,
-    traits::{EntityKind, EntityValue},
+    executor::ExecutionKernel,
+    query::plan::AccessPlannedQuery,
 };
 
 ///
@@ -103,28 +99,6 @@ impl ExecutionKernel {
         }
 
         Some(compute_page_window(page.offset, limit).fetch_count)
-    }
-
-    /// Apply continuation-boundary phase after ordering and before pagination.
-    pub(in crate::db::executor) fn apply_cursor_boundary_phase<K, E, R>(
-        plan: &AccessPlannedQuery<K>,
-        rows: &mut Vec<R>,
-        cursor_boundary: Option<&CursorBoundary>,
-        ordered: bool,
-        rows_after_order: usize,
-    ) -> Result<(bool, usize), InternalError>
-    where
-        E: EntityKind + EntityValue,
-        R: PlanRow<E>,
-    {
-        apply_resume_bound_phase::<K, E, R, _>(
-            plan,
-            rows,
-            cursor_boundary,
-            ordered,
-            rows_after_order,
-            |row| row.entity(),
-        )
     }
 }
 

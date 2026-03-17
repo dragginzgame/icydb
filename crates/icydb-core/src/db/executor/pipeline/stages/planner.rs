@@ -3,6 +3,8 @@
 //! Does not own: stage execution state transitions.
 //! Boundary: returns canonical stage descriptors consumed by orchestrator loop.
 
+#![cfg_attr(not(test), allow(dead_code))]
+
 use crate::db::executor::pipeline::stages::stage::{LOAD_PIPELINE_STAGES, LoadPipelineStage};
 
 /// Build the deterministic load stage plan used by orchestrator execution loops.

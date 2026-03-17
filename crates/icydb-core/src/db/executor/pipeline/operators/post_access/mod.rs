@@ -33,7 +33,7 @@ pub(in crate::db::executor) use contracts::BudgetSafetyMetadata;
 pub(in crate::db::executor) use contracts::{PlanRow, PostAccessStats};
 
 impl ExecutionKernel {
-    pub(in crate::db::executor) fn apply_post_access_with_compiled_predicate<E, R, K>(
+    pub(in crate::db::executor) fn apply_delete_post_access_with_compiled_predicate<E, R, K>(
         plan: &AccessPlannedQuery<K>,
         rows: &mut Vec<R>,
         compiled_predicate: Option<&PredicateProgram>,
@@ -43,7 +43,7 @@ impl ExecutionKernel {
         R: PlanRow<E>,
     {
         PostAccessPlan::new(PostAccessContract::new(plan))
-            .apply_post_access_with_compiled_predicate::<E, R>(rows, compiled_predicate)
+            .apply_delete_post_access_with_compiled_predicate::<E, R>(rows, compiled_predicate)
     }
 
     #[must_use]

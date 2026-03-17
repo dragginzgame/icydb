@@ -3,6 +3,8 @@
 //! Does not own: stage execution behavior or state transitions.
 //! Boundary: provides deterministic stage identity used by orchestrator loops.
 
+#![cfg_attr(not(test), allow(dead_code))]
+
 ///
 /// LoadPipelineStage
 ///

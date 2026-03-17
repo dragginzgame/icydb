@@ -7,7 +7,7 @@ use crate::{
     db::{
         executor::{
             ExecutionPlan,
-            pipeline::contracts::{ExecutionInputsProjection, FastPathKeyResult, LoadExecutor},
+            pipeline::contracts::{ExecutionInputs, FastPathKeyResult, LoadExecutor},
             route::{
                 FastPathOrder, ensure_load_fast_path_spec_arity, try_first_verified_fast_path_hit,
             },
@@ -50,15 +50,14 @@ impl FastPathResolutionStrategy {
         }
     }
 
-    pub(super) fn resolve_fast_path_decision<E, I>(
+    pub(super) fn resolve_fast_path_decision<E>(
         self,
-        inputs: &I,
+        inputs: &ExecutionInputs<'_, E>,
         route_plan: &ExecutionPlan,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<FastPathDecision, InternalError>
     where
         E: EntityKind + EntityValue,
-        I: ExecutionInputsProjection<E>,
     {
         match self {
             Self::StreamingFastPathFirst => {
@@ -98,15 +97,14 @@ impl FastPathRouteHandler {
         }
     }
 
-    pub(super) fn execute<E, I>(
+    pub(super) fn execute<E>(
         self,
-        inputs: &I,
+        inputs: &ExecutionInputs<'_, E>,
         route_plan: &ExecutionPlan,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Option<FastPathKeyResult>, InternalError>
     where
         E: EntityKind + EntityValue,
-        I: ExecutionInputsProjection<E>,
     {
         match self {
             Self::PrimaryKey => LoadExecutor::<E>::try_execute_pk_order_stream(
@@ -143,14 +141,11 @@ where
     E: EntityKind + EntityValue,
 {
     /// Evaluate fast-path routes in canonical precedence and return one decision.
-    pub(super) fn evaluate_fast_path<I>(
-        inputs: &I,
+    pub(super) fn evaluate_fast_path(
+        inputs: &ExecutionInputs<'_, E>,
         route_plan: &ExecutionPlan,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
-    ) -> Result<FastPathDecision, InternalError>
-    where
-        I: ExecutionInputsProjection<E>,
-    {
+    ) -> Result<FastPathDecision, InternalError> {
         // Guard fast-path spec arity up front so plan/runtime traversal drift
         // cannot silently consume the wrong spec in release builds.
         ensure_load_fast_path_spec_arity(
@@ -181,17 +176,14 @@ where
     }
 
     // Execute one verified fast-path route and return keys if the route produces them.
-    fn try_execute_verified_load_fast_path<I>(
-        inputs: &I,
+    fn try_execute_verified_load_fast_path(
+        inputs: &ExecutionInputs<'_, E>,
         route_plan: &ExecutionPlan,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
         verified_route: FastPathOrder,
-    ) -> Result<Option<FastPathKeyResult>, InternalError>
-    where
-        I: ExecutionInputsProjection<E>,
-    {
+    ) -> Result<Option<FastPathKeyResult>, InternalError> {
         let handler = FastPathRouteHandler::resolve(route_plan, verified_route);
 
-        handler.execute::<E, I>(inputs, route_plan, index_predicate_execution)
+        handler.execute::<E>(inputs, route_plan, index_predicate_execution)
     }
 }

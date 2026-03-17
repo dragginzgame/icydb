@@ -7,8 +7,8 @@ use crate::{
     db::executor::{
         ExecutionTrace,
         pipeline::contracts::{
-            ExecutionOutcomeMetrics, GroupedCursorPage, GroupedFoldStage,
-            GroupedRouteStageProjection, LoadExecutor,
+            ExecutionOutcomeMetrics, GroupedCursorPage, GroupedFoldStage, GroupedRouteStage,
+            LoadExecutor,
         },
         plan_metrics::{
             record_rows_aggregated, record_rows_emitted, record_rows_filtered, record_rows_scanned,
@@ -22,14 +22,11 @@ where
     E: EntityKind + EntityValue,
 {
     // Finalize grouped output payloads and observability after grouped fold execution.
-    pub(in crate::db::executor) fn finalize_grouped_output<R>(
-        mut route: R,
+    pub(in crate::db::executor) fn finalize_grouped_output(
+        mut route: GroupedRouteStage<E>,
         folded: GroupedFoldStage,
         execution_time_micros: u64,
-    ) -> (GroupedCursorPage, Option<ExecutionTrace>)
-    where
-        R: GroupedRouteStageProjection<E>,
-    {
+    ) -> (GroupedCursorPage, Option<ExecutionTrace>) {
         let rows_returned = folded.rows_returned();
         let rows_aggregated = folded.filtered_rows();
         record_rows_aggregated::<E>(rows_aggregated);

@@ -7,6 +7,4 @@ mod order;
 mod paging_delete;
 
 pub(in crate::db::executor::pipeline::operators::post_access) use order::apply_order_phase;
-pub(in crate::db::executor::pipeline::operators::post_access) use paging_delete::{
-    apply_delete_limit_phase, apply_page_phase,
-};
+pub(in crate::db::executor::pipeline::operators::post_access) use paging_delete::apply_delete_limit_phase;

@@ -27,7 +27,7 @@ use crate::{
             },
             group::{grouped_budget_observability, grouped_execution_context_from_planner_config},
             pipeline::contracts::{
-                ExecutionInputs, GroupedCursorPage, GroupedFoldStage, GroupedRouteStageProjection,
+                ExecutionInputs, GroupedCursorPage, GroupedFoldStage, GroupedRouteStage,
                 GroupedStreamStage, LoadExecutor,
             },
             plan_metrics::record_grouped_plan_metrics,
@@ -43,13 +43,10 @@ where
     E: EntityKind + EntityValue,
 {
     // Build one grouped key stream from route-owned grouped execution metadata.
-    pub(in crate::db::executor) fn build_grouped_stream<'a, R>(
+    pub(in crate::db::executor) fn build_grouped_stream<'a>(
         &'a self,
-        route: &'a R,
-    ) -> Result<GroupedStreamStage<'a, E>, InternalError>
-    where
-        R: GroupedRouteStageProjection<E>,
-    {
+        route: &GroupedRouteStage<E>,
+    ) -> Result<GroupedStreamStage<'a, E>, InternalError> {
         let execution_preparation = ExecutionPreparation::for_plan::<E>(route.plan());
         let ctx = self.db.recovered_context::<E>()?;
         let execution_inputs = ExecutionInputs::new(
@@ -77,13 +74,10 @@ where
     }
 
     // Execute grouped aggregate folding over one resolved grouped key stream.
-    pub(in crate::db::executor) fn execute_group_fold_stage<R>(
-        route: &R,
+    pub(in crate::db::executor) fn execute_group_fold_stage(
+        route: &GroupedRouteStage<E>,
         mut stream: GroupedStreamStage<'_, E>,
-    ) -> Result<GroupedFoldStage, InternalError>
-    where
-        R: GroupedRouteStageProjection<E>,
-    {
+    ) -> Result<GroupedFoldStage, InternalError> {
         // Phase 1: initialize grouped fold context, projection contracts, and reducers.
         let mut grouped_execution_context =
             grouped_execution_context_from_planner_config(Some(route.grouped_execution()));

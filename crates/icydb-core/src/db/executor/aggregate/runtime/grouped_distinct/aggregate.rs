@@ -17,7 +17,6 @@ use crate::{
                 },
                 runtime::grouped_output::aggregate_output_to_value,
             },
-            drive_key_stream_with_control_flow,
             group::{CanonicalKey, GroupKeySet, KeyCanonicalError},
             pipeline::contracts::{LoadExecutor, ResolvedExecutionKeyStream},
         },
@@ -147,21 +146,13 @@ where
         let mut ingest_all = |ingest_adapter: &mut AggregateIngestAdapter<'_, E>,
                               engine: &mut AggregateEngine<E>|
          -> Result<(), InternalError> {
-            drive_key_stream_with_control_flow(
-                resolved.key_stream_mut(),
-                &mut || KeyStreamLoopControl::Emit,
-                &mut |key| {
-                    let row = match consistency {
-                        MissingRowPolicy::Error => ctx.read_strict(&key),
-                        MissingRowPolicy::Ignore => ctx.read(&key),
-                    };
-                    let row = match row {
-                        Ok(row) => row,
-                        Err(err) if err.is_not_found() => return Ok(KeyStreamLoopControl::Emit),
-                        Err(err) => return Err(err),
+            let mut pre_key = || KeyStreamLoopControl::Emit;
+            let mut on_key =
+                |_key, entity: Option<E>| -> Result<KeyStreamLoopControl, InternalError> {
+                    let Some(entity) = entity else {
+                        return Ok(KeyStreamLoopControl::Emit);
                     };
                     *scanned_rows = scanned_rows.saturating_add(1);
-                    let (_, entity) = Context::<E>::deserialize_row((key, row))?;
                     if let Some(compiled_predicate) = compiled_predicate
                         && !compiled_predicate.eval(&entity)
                     {
@@ -195,7 +186,13 @@ where
                     }
 
                     Ok(KeyStreamLoopControl::Emit)
-                },
+                };
+            Self::drive_field_entity_stream(
+                ctx,
+                consistency,
+                resolved.key_stream_mut(),
+                &mut pre_key,
+                &mut on_key,
             )
         };
         let finalize_outputs = execute_aggregate_engine(
