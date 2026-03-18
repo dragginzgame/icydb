@@ -8,8 +8,7 @@ use crate::{
         data::DataKey,
         direction::Direction,
         executor::aggregate::contracts::{
-            AggregateKind, AggregateOutput, ExecutionConfig, ExecutionContext, GroupError,
-            GroupedAggregateOutput,
+            AggregateKind, ExecutionConfig, ExecutionContext, GroupError, GroupedAggregateOutput,
         },
         executor::group::CanonicalKey,
         query::builder::aggregate::{count, min_by},
@@ -60,13 +59,27 @@ fn data_key(id: u64) -> DataKey {
     DataKey::try_new::<GroupedStateTestEntity>(id).expect("test data key should build")
 }
 
-fn count_rows(rows: &[GroupedAggregateOutput<GroupedStateTestEntity>]) -> Vec<(Value, u32)> {
+fn count_rows(rows: &[GroupedAggregateOutput]) -> Vec<(Value, u32)> {
     rows.iter()
         .map(|row| {
-            let AggregateOutput::Count(count) = row.output() else {
+            let Value::Uint(count) = row.output() else {
                 panic!("grouped count-state test expects count outputs");
             };
-            (row.group_key().canonical_value().clone(), *count)
+            (
+                row.group_key().canonical_value().clone(),
+                u32::try_from(*count).expect("grouped count output must fit u32"),
+            )
+        })
+        .collect()
+}
+
+fn value_rows(rows: &[GroupedAggregateOutput]) -> Vec<(Value, Value)> {
+    rows.iter()
+        .map(|row| {
+            (
+                row.group_key().canonical_value().clone(),
+                row.output().clone(),
+            )
         })
         .collect()
 }
@@ -82,11 +95,8 @@ fn grouped_count_rows_for_order(order: &[usize]) -> Vec<(Value, u32)> {
         ("beta", 5_u64),
     ];
     let mut execution_context = ExecutionContext::new(ExecutionConfig::unbounded());
-    let mut grouped = execution_context.create_grouped_state::<GroupedStateTestEntity>(
-        AggregateKind::Count,
-        Direction::Asc,
-        false,
-    );
+    let mut grouped =
+        execution_context.create_grouped_state(AggregateKind::Count, Direction::Asc, false);
 
     for fixture_index in order {
         let (group, id) = fixtures[*fixture_index];
@@ -117,11 +127,8 @@ fn aggregate_expr_builders_preserve_kind_and_target_field() {
 #[test]
 fn grouped_aggregate_state_reuses_per_group_state_and_counts_rows() {
     let mut execution_context = ExecutionContext::new(ExecutionConfig::unbounded());
-    let mut grouped = execution_context.create_grouped_state::<GroupedStateTestEntity>(
-        AggregateKind::Count,
-        Direction::Asc,
-        false,
-    );
+    let mut grouped =
+        execution_context.create_grouped_state(AggregateKind::Count, Direction::Asc, false);
 
     grouped
         .apply(
@@ -172,16 +179,10 @@ fn grouped_aggregate_state_reuses_per_group_state_and_counts_rows() {
 #[test]
 fn grouped_aggregate_state_distinct_deduplicates_repeated_data_keys() {
     let mut execution_context = ExecutionContext::new(ExecutionConfig::unbounded());
-    let mut grouped_distinct = execution_context.create_grouped_state::<GroupedStateTestEntity>(
-        AggregateKind::Count,
-        Direction::Asc,
-        true,
-    );
-    let mut grouped_plain = execution_context.create_grouped_state::<GroupedStateTestEntity>(
-        AggregateKind::Count,
-        Direction::Asc,
-        false,
-    );
+    let mut grouped_distinct =
+        execution_context.create_grouped_state(AggregateKind::Count, Direction::Asc, true);
+    let mut grouped_plain =
+        execution_context.create_grouped_state(AggregateKind::Count, Direction::Asc, false);
 
     let group = group_key(Value::Text("alpha".to_string()));
     let duplicate_key = data_key(42);
@@ -218,11 +219,8 @@ fn grouped_aggregate_state_enforces_distinct_values_per_group_limit() {
     let mut execution_context = ExecutionContext::new(
         ExecutionConfig::with_hard_limits_and_distinct(u64::MAX, u64::MAX, 1, u64::MAX),
     );
-    let mut grouped = execution_context.create_grouped_state::<GroupedStateTestEntity>(
-        AggregateKind::Count,
-        Direction::Asc,
-        true,
-    );
+    let mut grouped =
+        execution_context.create_grouped_state(AggregateKind::Count, Direction::Asc, true);
 
     grouped
         .apply(
@@ -254,11 +252,8 @@ fn grouped_aggregate_state_enforces_distinct_values_total_limit() {
     let mut execution_context = ExecutionContext::new(
         ExecutionConfig::with_hard_limits_and_distinct(u64::MAX, u64::MAX, u64::MAX, 1),
     );
-    let mut grouped = execution_context.create_grouped_state::<GroupedStateTestEntity>(
-        AggregateKind::Count,
-        Direction::Asc,
-        true,
-    );
+    let mut grouped =
+        execution_context.create_grouped_state(AggregateKind::Count, Direction::Asc, true);
 
     grouped
         .apply(
@@ -290,11 +285,8 @@ fn grouped_execution_budget_counters_remain_consistent_for_distinct_grouped_fold
     let mut execution_context = ExecutionContext::new(
         ExecutionConfig::with_hard_limits_and_distinct(16, 4096, 16, 16),
     );
-    let mut grouped = execution_context.create_grouped_state::<GroupedStateTestEntity>(
-        AggregateKind::Count,
-        Direction::Asc,
-        true,
-    );
+    let mut grouped =
+        execution_context.create_grouped_state(AggregateKind::Count, Direction::Asc, true);
 
     for (group, id) in [
         ("alpha", 1_u64),
@@ -341,11 +333,8 @@ fn grouped_execution_budget_counters_remain_consistent_for_distinct_grouped_fold
 fn grouped_aggregate_state_finalization_is_deterministic_under_hash_collisions() {
     with_test_hash_override([0xCD; 16], || {
         let mut execution_context = ExecutionContext::new(ExecutionConfig::unbounded());
-        let mut grouped = execution_context.create_grouped_state::<GroupedStateTestEntity>(
-            AggregateKind::Count,
-            Direction::Asc,
-            false,
-        );
+        let mut grouped =
+            execution_context.create_grouped_state(AggregateKind::Count, Direction::Asc, false);
 
         // Intentionally insert in reverse lexical order under one forced
         // hash bucket; finalize must still emit canonical key order.
@@ -432,11 +421,8 @@ fn grouped_aggregate_state_finalization_is_stable_across_collision_order_matrix(
 fn grouped_aggregate_state_enforces_max_groups_hard_limit() {
     let mut execution_context =
         ExecutionContext::new(ExecutionConfig::with_hard_limits(2, u64::MAX));
-    let mut grouped = execution_context.create_grouped_state::<GroupedStateTestEntity>(
-        AggregateKind::Count,
-        Direction::Asc,
-        false,
-    );
+    let mut grouped =
+        execution_context.create_grouped_state(AggregateKind::Count, Direction::Asc, false);
 
     grouped
         .apply(
@@ -474,11 +460,8 @@ fn grouped_aggregate_state_enforces_max_groups_hard_limit() {
 fn grouped_aggregate_state_enforces_max_estimated_bytes_hard_limit() {
     let mut execution_context =
         ExecutionContext::new(ExecutionConfig::with_hard_limits(u64::MAX, 1));
-    let mut grouped = execution_context.create_grouped_state::<GroupedStateTestEntity>(
-        AggregateKind::Count,
-        Direction::Asc,
-        false,
-    );
+    let mut grouped =
+        execution_context.create_grouped_state(AggregateKind::Count, Direction::Asc, false);
 
     let err = grouped
         .apply(
@@ -501,16 +484,10 @@ fn grouped_aggregate_state_enforces_max_estimated_bytes_hard_limit() {
 #[test]
 fn grouped_aggregate_state_counts_max_groups_once_per_canonical_group_across_states() {
     let mut execution_context = ExecutionContext::new(ExecutionConfig::with_hard_limits(1, 2048));
-    let mut grouped_count = execution_context.create_grouped_state::<GroupedStateTestEntity>(
-        AggregateKind::Count,
-        Direction::Asc,
-        false,
-    );
-    let mut grouped_exists = execution_context.create_grouped_state::<GroupedStateTestEntity>(
-        AggregateKind::Exists,
-        Direction::Asc,
-        false,
-    );
+    let mut grouped_count =
+        execution_context.create_grouped_state(AggregateKind::Count, Direction::Asc, false);
+    let mut grouped_exists =
+        execution_context.create_grouped_state(AggregateKind::Exists, Direction::Asc, false);
 
     grouped_count
         .apply(
@@ -560,11 +537,8 @@ fn grouped_aggregate_state_counts_max_groups_once_per_canonical_group_across_sta
 fn grouped_aggregate_state_budget_violation_keeps_existing_finalization_intact() {
     let mut execution_context =
         ExecutionContext::new(ExecutionConfig::with_hard_limits(1, u64::MAX));
-    let mut grouped = execution_context.create_grouped_state::<GroupedStateTestEntity>(
-        AggregateKind::Count,
-        Direction::Asc,
-        false,
-    );
+    let mut grouped =
+        execution_context.create_grouped_state(AggregateKind::Count, Direction::Asc, false);
 
     grouped
         .apply(
@@ -599,5 +573,102 @@ fn grouped_aggregate_state_budget_violation_keeps_existing_finalization_intact()
         count_rows(finalized.as_slice()),
         vec![(Value::Text("a".to_string()), 1)],
         "budget-limit errors must preserve previously committed grouped outputs",
+    );
+}
+
+#[test]
+fn grouped_id_terminals_finalize_to_structural_primary_key_values() {
+    let mut min_context = ExecutionContext::new(ExecutionConfig::unbounded());
+    let mut grouped_min =
+        min_context.create_grouped_state(AggregateKind::Min, Direction::Asc, false);
+    for id in [3_u64, 7_u64, 9_u64] {
+        let fold_control = grouped_min
+            .apply(
+                group_key(Value::Text("alpha".to_string())),
+                &data_key(id),
+                &mut min_context,
+            )
+            .expect("grouped MIN row should apply");
+        if matches!(
+            fold_control,
+            crate::db::executor::aggregate::FoldControl::Break
+        ) {
+            break;
+        }
+    }
+
+    assert_eq!(
+        value_rows(grouped_min.finalize().as_slice()),
+        vec![(Value::Text("alpha".to_string()), Value::Uint(3))],
+        "grouped MIN should finalize to the primary-key value with structural output",
+    );
+
+    let mut max_context = ExecutionContext::new(ExecutionConfig::unbounded());
+    let mut grouped_max =
+        max_context.create_grouped_state(AggregateKind::Max, Direction::Desc, false);
+    for id in [9_u64, 7_u64, 3_u64] {
+        let fold_control = grouped_max
+            .apply(
+                group_key(Value::Text("alpha".to_string())),
+                &data_key(id),
+                &mut max_context,
+            )
+            .expect("grouped MAX row should apply");
+        if matches!(
+            fold_control,
+            crate::db::executor::aggregate::FoldControl::Break
+        ) {
+            break;
+        }
+    }
+
+    assert_eq!(
+        value_rows(grouped_max.finalize().as_slice()),
+        vec![(Value::Text("alpha".to_string()), Value::Uint(9))],
+        "grouped MAX should finalize to the primary-key value with structural output",
+    );
+
+    let mut first_context = ExecutionContext::new(ExecutionConfig::unbounded());
+    let mut grouped_first =
+        first_context.create_grouped_state(AggregateKind::First, Direction::Asc, false);
+    for id in [7_u64, 3_u64, 9_u64] {
+        let fold_control = grouped_first
+            .apply(
+                group_key(Value::Text("alpha".to_string())),
+                &data_key(id),
+                &mut first_context,
+            )
+            .expect("grouped FIRST row should apply");
+        if matches!(
+            fold_control,
+            crate::db::executor::aggregate::FoldControl::Break
+        ) {
+            break;
+        }
+    }
+
+    assert_eq!(
+        value_rows(grouped_first.finalize().as_slice()),
+        vec![(Value::Text("alpha".to_string()), Value::Uint(7))],
+        "grouped FIRST should finalize to the first seen primary-key value with structural output",
+    );
+
+    let mut last_context = ExecutionContext::new(ExecutionConfig::unbounded());
+    let mut grouped_last =
+        last_context.create_grouped_state(AggregateKind::Last, Direction::Asc, false);
+    for id in [7_u64, 3_u64, 9_u64] {
+        grouped_last
+            .apply(
+                group_key(Value::Text("alpha".to_string())),
+                &data_key(id),
+                &mut last_context,
+            )
+            .expect("grouped LAST row should apply");
+    }
+
+    assert_eq!(
+        value_rows(grouped_last.finalize().as_slice()),
+        vec![(Value::Text("alpha".to_string()), Value::Uint(9))],
+        "grouped LAST should finalize to the last seen primary-key value with structural output",
     );
 }

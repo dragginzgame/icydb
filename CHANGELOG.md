@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.59.x] - 2026-03-18 - Execution De-Monomorphization Open
+
+- `0.59.0` starts the execution-engine size-reduction line by making grouped aggregate state and grouped fold ownership structural, removing the old typed grouped fold hook layer, and landing the first measured grouped-kernel size drop before scalar execution work begins.
+
+See detailed breakdown:
+[docs/changelog/0.59.md](docs/changelog/0.59.md)
+
+---
+
 ## [0.58.x] - 2026-03-18 - Runtime Size-Reduction Closeout
 
 - `0.58.0` completes the runtime size-reduction line by removing the highest-value generic orchestration and adapter duplication, flattening structural execution boundaries around entity tags and cursor/index identity, and closing the line once the remaining binary size was confirmed to come from typed execution kernels rather than more safe local cleanup.

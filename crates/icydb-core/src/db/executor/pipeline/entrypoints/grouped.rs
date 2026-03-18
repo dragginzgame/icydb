@@ -8,6 +8,7 @@ use crate::{
         cursor::GroupedPlannedCursor,
         executor::{
             ExecutablePlan, ExecutionTrace, LoadCursorInput,
+            aggregate::runtime::execute_group_fold_stage,
             pipeline::contracts::{
                 GroupedCursorPage, GroupedFoldStage, GroupedRouteStage, GroupedStreamStage,
                 LoadExecutor,
@@ -37,13 +38,6 @@ trait GroupedPathRuntime {
         route: &GroupedRouteStage,
     ) -> Result<GroupedStreamStage<'a>, InternalError>;
 
-    /// Execute grouped fold mechanics over one resolved grouped stream.
-    fn execute_group_fold_stage(
-        &self,
-        route: &GroupedRouteStage,
-        stream: GroupedStreamStage<'_>,
-    ) -> Result<GroupedFoldStage, InternalError>;
-
     /// Finalize grouped output payloads and observability after fold completion.
     fn finalize_grouped_output(
         &self,
@@ -62,7 +56,7 @@ fn execute_grouped_route_path(
 ) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), InternalError> {
     let execution_started_at = start_execution_timer();
     let stream = runtime.build_grouped_stream(&route)?;
-    let folded = runtime.execute_group_fold_stage(&route, stream)?;
+    let folded = execute_group_fold_stage(&route, stream)?;
     let execution_time_micros = elapsed_execution_micros(execution_started_at);
 
     Ok(runtime.finalize_grouped_output(route, folded, execution_time_micros))
@@ -124,14 +118,6 @@ where
         route: &GroupedRouteStage,
     ) -> Result<GroupedStreamStage<'a>, InternalError> {
         Self::build_grouped_stream(self, route)
-    }
-
-    fn execute_group_fold_stage(
-        &self,
-        route: &GroupedRouteStage,
-        stream: GroupedStreamStage<'_>,
-    ) -> Result<GroupedFoldStage, InternalError> {
-        Self::execute_group_fold_stage(self, route, stream)
     }
 
     fn finalize_grouped_output(

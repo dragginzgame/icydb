@@ -24,6 +24,12 @@ pub(in crate::db::executor) use crate::db::query::plan::AggregateKind;
 
 pub(in crate::db::executor) enum AggregateOutput<E: EntityKind> {
     Count(u32),
+    /// Numeric SUM/AVG execution finalizes through dedicated numeric paths,
+    /// but zero-window aggregate contracts still use this shared payload.
+    #[expect(
+        dead_code,
+        reason = "numeric zero-window aggregate contracts still share AggregateOutput"
+    )]
     Sum(Option<Decimal>),
     Exists(bool),
     Min(Option<Id<E>>),

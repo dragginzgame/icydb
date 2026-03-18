@@ -11,13 +11,12 @@ use crate::{
             group::{CanonicalKey, GroupKey, GroupKeySet, StableHash},
         },
     },
-    traits::EntityKind,
     value::Value,
 };
 use std::mem::size_of;
 
 use crate::db::executor::aggregate::contracts::grouped::engine::{
-    AggregateEngine, GroupedAggregateState, GroupedAggregateStateSlot,
+    GroupedAggregateState, GroupedAggregateStateSlot,
 };
 
 ///
@@ -68,7 +67,7 @@ impl ExecutionBudget {
         self.distinct_values
     }
 
-    fn record_new_group_state<E: EntityKind>(
+    fn record_new_group_state(
         &mut self,
         config: &ExecutionConfig,
         new_group_key: bool,
@@ -89,8 +88,7 @@ impl ExecutionBudget {
             });
         }
 
-        let bytes_delta =
-            estimated_new_group_bytes::<E>(created_bucket, bucket_len, bucket_capacity);
+        let bytes_delta = estimated_new_group_bytes(created_bucket, bucket_len, bucket_capacity);
         let next_bytes = self.estimated_bytes.saturating_add(bytes_delta);
         if next_bytes > config.max_group_bytes() {
             return Err(GroupError::MemoryLimitExceeded {
@@ -250,12 +248,12 @@ impl ExecutionContext {
     /// This keeps grouped state construction policy-owned by executor context
     /// so grouped operators cannot bypass centralized budget/config plumbing.
     #[must_use]
-    pub(in crate::db::executor) fn create_grouped_state<E: EntityKind>(
+    pub(in crate::db::executor) fn create_grouped_state(
         &self,
         kind: AggregateKind,
         direction: Direction,
         distinct: bool,
-    ) -> GroupedAggregateState<E> {
+    ) -> GroupedAggregateState {
         debug_assert!(
             self.config.max_groups() > 0 || self.config.max_group_bytes() > 0,
             "grouped execution config must expose at least one positive hard limit"
@@ -268,24 +266,7 @@ impl ExecutionContext {
         )
     }
 
-    /// Build one grouped aggregate engine through the execution-context boundary.
-    ///
-    /// This is the canonical grouped constructor used by grouped execution
-    /// orchestration so scalar/grouped reducers share one aggregate engine
-    /// contract.
-    #[must_use]
-    pub(in crate::db::executor) fn create_grouped_engine<E: EntityKind>(
-        &self,
-        kind: AggregateKind,
-        direction: Direction,
-        distinct: bool,
-    ) -> AggregateEngine<E> {
-        AggregateEngine::from_grouped_state(self.create_grouped_state(kind, direction, distinct))
-    }
-
-    pub(in crate::db::executor::aggregate::contracts::grouped) fn record_new_group<
-        E: EntityKind,
-    >(
+    pub(in crate::db::executor::aggregate::contracts::grouped) fn record_new_group(
         &mut self,
         group_key: &GroupKey,
         created_bucket: bool,
@@ -295,7 +276,7 @@ impl ExecutionContext {
         // Count `max_groups` against unique canonical group keys across the
         // full grouped query, not per-aggregate state machine instance.
         let new_group_key = !self.seen_groups.contains_key(group_key);
-        self.budget.record_new_group_state::<E>(
+        self.budget.record_new_group_state(
             &self.config,
             new_group_key,
             created_bucket,
@@ -363,25 +344,25 @@ impl ExecutionContext {
     /// Record one implicit singleton group for grouped shapes that are modeled
     /// without explicit group-key boundary transitions (for example zero-key
     /// global grouped aggregates).
-    pub(in crate::db::executor) fn record_implicit_single_group<E: EntityKind>(
+    pub(in crate::db::executor) fn record_implicit_single_group(
         &mut self,
     ) -> Result<(), GroupError> {
         let implicit_group_key = Value::List(Vec::new())
             .canonical_key()
             .map_err(|err| GroupError::Internal(err.into_internal_error()))?;
 
-        self.record_new_group::<E>(&implicit_group_key, true, 0, 0)
+        self.record_new_group(&implicit_group_key, true, 0, 0)
     }
 }
 
-fn estimated_new_group_bytes<E: EntityKind>(
+fn estimated_new_group_bytes(
     created_bucket: bool,
     bucket_len: usize,
     bucket_capacity: usize,
 ) -> u64 {
-    let slot_size = size_of::<GroupedAggregateStateSlot<E>>();
+    let slot_size = size_of::<GroupedAggregateStateSlot>();
     let map_entry_size = if created_bucket {
-        size_of::<(StableHash, Vec<GroupedAggregateStateSlot<E>>)>()
+        size_of::<(StableHash, Vec<GroupedAggregateStateSlot>)>()
     } else {
         0
     };

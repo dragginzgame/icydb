@@ -33,10 +33,11 @@ scripts/dev/sql.sh "select name, charisma from character order by charisma desc 
 scripts/dev/sql.sh "describe character"
 ```
 
-4. Show supported entities:
+4. Show supported entities (or use the SQL-style alias):
 
 ```bash
 scripts/dev/sql.sh "show entities"
+scripts/dev/sql.sh "show tables"
 ```
 
 5. Show indexes for one entity:
@@ -79,18 +80,18 @@ If you are new to this space: think "database-like query execution and safety" w
 
 ## Current Line
 
-- Workspace version on `main`: `0.56.0`
-- Latest tagged release in this repo: `v0.56.0`
+- Workspace version on `main`: `0.58.3`
+- Latest tagged release in this repo: `v0.58.3`
 - Changelog: `CHANGELOG.md`
-- Detailed `0.56.x` notes: `docs/changelog/0.56.md`
+- Detailed `0.58.x` notes: `docs/changelog/0.58.md`
 
 ---
 
-## 0.56 Highlights
+## 0.58 Highlights
 
-- Reduced SQL now includes dedicated introspection lanes for `DESCRIBE <entity>`, `SHOW INDEXES <entity>`, and `SHOW COLUMNS <entity>`.
-- Generated canister `sql_dispatch::query(...)` now returns one unified enum envelope for projection, explain, describe, show-indexes, show-columns, and helper-level `SHOW ENTITIES` surfaces.
-- Unified query payloads can be rendered deterministically with `SqlQueryResult::render_lines()` or `SqlQueryResult::render_text()`.
+- SQL is now a default-on Cargo feature. Disable default features to compile out the public SQL APIs and generated canister `sql_dispatch` glue while keeping the typed runtime/query path.
+- Unified SQL dispatch now covers row-producing `SELECT` and `DELETE`, plus `EXPLAIN`, `DESCRIBE`, `SHOW INDEXES`, `SHOW COLUMNS`, and `SHOW ENTITIES` / `SHOW TABLES` through one `SqlQueryResult` envelope.
+- Reduced SQL supports bounded case-insensitive prefix matching with `LOWER(field) LIKE 'prefix%'` while broader `LIKE` shapes remain fail-closed.
 
 ---
 
@@ -116,12 +117,22 @@ rustup toolchain install 1.94.0
 
 ### 2. Add IcyDB
 
-Use a pinned git tag so builds are repeatable:
+Use a pinned git tag so builds are repeatable. SQL is enabled by default:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.56.0" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.58.3" }
 ```
+
+Compile out the SQL frontend if you only use typed Rust APIs:
+
+```toml
+[dependencies]
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.58.3", default-features = false }
+```
+
+With `default-features = false`, `db::sql::*`, SQL session helpers, and generated
+`sql_dispatch` modules are not available.
 
 ---
 
@@ -184,7 +195,7 @@ pub fn explain_users_named_ann() -> Result<String, icydb::Error> {
 use icydb::prelude::*;
 
 let projected = db!().execute_sql_projection::<User>(
-    "SELECT id, name FROM User WHERE name = 'ann' ORDER BY id LIMIT 25",
+    "SELECT id, name FROM User WHERE LOWER(name) LIKE 'ann%' ORDER BY id LIMIT 25",
 )?;
 
 let grouped = db!().execute_sql_grouped::<User>(
@@ -195,25 +206,32 @@ let grouped = db!().execute_sql_grouped::<User>(
 
 ### Expose SQL endpoints in your canister (generated dispatch)
 
-`icydb::start!()` generates a `sql_dispatch` module for your canister schema.
-Use it to expose a small SQL API without hand-written per-entity routing:
+When the `sql` feature is enabled, `icydb::start!()` generates a `sql_dispatch`
+module for your canister schema. Use it to expose a small SQL API without
+hand-written per-entity routing:
 
 ```rust
 use ic_cdk::query;
-use icydb::db::sql::SqlQueryResult;
 
 icydb::start!();
 
+#[cfg(feature = "sql")]
+use icydb::db::sql::SqlQueryResult;
+
+#[cfg(feature = "sql")]
 #[query]
 fn sql_entities() -> Vec<String> {
     sql_dispatch::entities()
 }
 
+#[cfg(feature = "sql")]
 #[query]
 fn query(sql: String) -> Result<SqlQueryResult, icydb::Error> {
     sql_dispatch::query(sql.as_str())
 }
 ```
+
+When `sql` is disabled, omit these endpoints and use the typed query APIs only.
 
 What each endpoint returns:
 
@@ -224,7 +242,7 @@ What each endpoint returns:
   - `Describe(EntitySchemaDescription)`
   - `ShowIndexes { entity, indexes }`
   - `ShowColumns { entity, columns }`
-  - `ShowEntities { entities }`
+  - `ShowEntities { entities }` for `SHOW ENTITIES` and `SHOW TABLES`
 
 Dispatch behavior:
 
@@ -236,6 +254,7 @@ Example calls:
 
 ```bash
 dfx canister call <canister> sql_entities
+dfx canister call <canister> query '("SHOW TABLES")'
 dfx canister call <canister> query '("SELECT id, name FROM User ORDER BY id LIMIT 5")'
 dfx canister call <canister> query '("EXPLAIN SELECT id, name FROM User ORDER BY id LIMIT 5")'
 ```
@@ -307,15 +326,24 @@ in one atomic transaction is out of scope for the current surface.
 
 ---
 
-## Reduced SQL Scope (Current 0.56 Line)
+## Reduced SQL Scope (Current 0.58 Line)
 
 Executable SQL entrypoints:
 
 - `execute_sql` for entity-shaped `SELECT`/`DELETE`
-- `execute_sql_projection` for projection-shaped `SELECT`
+- `execute_sql_projection` for projection-shaped `SELECT` and row-returning `DELETE`
+- `execute_sql_dispatch` for one unified `SqlQueryResult` envelope across query and introspection lanes
 - `execute_sql_grouped` for constrained grouped aggregates
 - `execute_sql_aggregate` for constrained global aggregates
 - `explain_sql` for `EXPLAIN` wrappers over executable reduced SQL
+
+Dedicated SQL introspection commands through unified dispatch:
+
+- `DESCRIBE <entity>`
+- `SHOW INDEXES <entity>`
+- `SHOW COLUMNS <entity>`
+- `SHOW ENTITIES`
+- `SHOW TABLES`
 
 Out of scope and fail-closed by design:
 
@@ -324,6 +352,7 @@ Out of scope and fail-closed by design:
 - table aliases
 - quoted identifiers
 - window functions
+- `LIKE` forms outside bounded `LOWER(field) LIKE 'prefix%'`
 
 ---
 

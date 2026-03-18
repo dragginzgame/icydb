@@ -6,8 +6,8 @@ use crate::{
         executor::{
             ExecutionKernel, OrderedKeyStream,
             aggregate::{
-                AggregateEngine, AggregateExecutionSpec, AggregateFoldMode, AggregateKind,
-                AggregateOutput, FoldControl, GroupError, execute_aggregate,
+                AggregateEngine, AggregateFoldMode, AggregateKind, AggregateOutput, FoldControl,
+                execute_aggregate,
             },
         },
         query::plan::AccessPlannedQuery,
@@ -62,21 +62,14 @@ impl ExecutionKernel {
         // through one adapter-owned ingest authority.
         let engine = AggregateEngine::new_scalar(kind, direction);
         let mut keys_scanned = 0usize;
-        let mut ingest_all = |execution_spec: &mut AggregateExecutionSpec<'_>,
-                              engine: &mut AggregateEngine<E>|
-         -> Result<(), InternalError> {
-            let mut on_key = |key: &DataKey| -> Result<FoldControl, InternalError> {
-                engine
-                    .ingest_with_spec(execution_spec, key, None)
-                    .map_err(GroupError::into_internal_error)
-            };
+        let mut ingest_all = |engine: &mut AggregateEngine<E>| -> Result<(), InternalError> {
+            let mut on_key =
+                |key: &DataKey| -> Result<FoldControl, InternalError> { engine.ingest(key) };
             keys_scanned = Self::run_aggregate_key_fold(ctx, plan, mode, key_stream, &mut on_key)?;
 
             Ok(())
         };
-        let aggregate_output =
-            execute_aggregate(engine, AggregateExecutionSpec::scalar(), &mut ingest_all)?
-                .into_scalar()?;
+        let aggregate_output = execute_aggregate(engine, &mut ingest_all)?;
 
         Ok((aggregate_output, keys_scanned))
     }

@@ -43,9 +43,9 @@ use crate::{
 };
 
 pub(in crate::db::executor) use contracts::{
-    AggregateEngine, AggregateExecutionSpec, AggregateFoldMode, AggregateKind, AggregateOutput,
-    ExecutionConfig, ExecutionContext, FoldControl, GroupError, GroupedAggregateEngine,
-    box_grouped_engine, execute_aggregate, execute_aggregate as execute_aggregate_engine,
+    AggregateEngine, AggregateFoldMode, AggregateKind, AggregateOutput, ExecutionConfig,
+    ExecutionContext, FoldControl, GroupError, GroupedAggregateEngine, execute_aggregate,
+    execute_aggregate as execute_aggregate_engine,
 };
 pub(in crate::db::executor) use execution::{
     AggregateExecutionDescriptor, AggregateFastPathInputs, PreparedAggregateStreamingInputs,
@@ -313,15 +313,11 @@ impl ExecutionKernel {
         // MIN/MAX remain globally correct over the full response window.
         let direction = aggregate_materialized_fold_direction(kind);
         let mut response = response.into_iter();
-        let mut ingest_all = |execution_spec: &mut AggregateExecutionSpec<'_>,
-                              engine: &mut AggregateEngine<E>|
-         -> Result<(), InternalError> {
+        let mut ingest_all = |engine: &mut AggregateEngine<E>| -> Result<(), InternalError> {
             for row in response.by_ref() {
                 let id = row.id();
                 let data_key = DataKey::try_new::<E>(id.key())?;
-                let fold_control = engine
-                    .ingest_with_spec(execution_spec, &data_key, None)
-                    .map_err(GroupError::into_internal_error)?;
+                let fold_control = engine.ingest(&data_key)?;
                 if matches!(fold_control, FoldControl::Break) {
                     break;
                 }
@@ -332,10 +328,8 @@ impl ExecutionKernel {
 
         execute_aggregate_engine(
             AggregateEngine::new_scalar(kind, direction),
-            AggregateExecutionSpec::scalar(),
             &mut ingest_all,
-        )?
-        .into_scalar()
+        )
     }
     // Execute one aggregate terminal stage through kernel-owned
     // orchestration while preserving route-owned execution-mode and fast-path

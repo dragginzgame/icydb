@@ -8,8 +8,7 @@ mod engine;
 
 pub(in crate::db::executor) use context::{ExecutionConfig, ExecutionContext};
 pub(in crate::db::executor) use engine::{
-    AggregateEngine, AggregateExecutionSpec, GroupedAggregateEngine, box_grouped_engine,
-    execute_aggregate,
+    AggregateEngine, GroupedAggregateEngine, execute_aggregate,
 };
 
 #[cfg(test)]

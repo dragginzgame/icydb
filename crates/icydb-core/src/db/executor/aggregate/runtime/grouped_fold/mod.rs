@@ -14,11 +14,11 @@ use crate::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutionKernel,
             ExecutionPreparation,
             aggregate::runtime::grouped_fold::{
-                candidate_rows::collect_grouped_candidate_rows,
+                candidate_rows::collect_grouped_candidate_rows, engine_init::build_grouped_engines,
                 ingest::fold_group_rows_into_engines, page_finalize::finalize_grouped_page,
             },
             aggregate::{
-                ExecutionContext, GroupError, GroupedAggregateEngine,
+                GroupError,
                 runtime::{
                     grouped_distinct::{
                         GlobalDistinctFieldExecutionSpec, execute_global_distinct_field_aggregate,
@@ -41,34 +41,7 @@ use crate::{
     error::InternalError,
     model::entity::EntityModel,
     traits::{EntityKind, EntityValue},
-    value::Value,
 };
-
-type GroupedEngineBatch = (Vec<Box<dyn GroupedAggregateEngine>>, Vec<Vec<Value>>);
-
-///
-/// GroupedFoldRuntimeHooks
-///
-/// GroupedFoldRuntimeHooks keeps the remaining entity-typed grouped reducer
-/// hooks behind one narrow interface.
-/// Shared grouped fold orchestration stays monomorphic and delegates only the
-/// typed reducer construction and singleton-group admission leaves.
-///
-
-pub(in crate::db::executor) trait GroupedFoldRuntimeHooks {
-    /// Build grouped aggregate engines for one resolved grouped route.
-    fn build_grouped_engines(
-        &self,
-        route: &GroupedRouteStage,
-        grouped_execution_context: &ExecutionContext,
-    ) -> Result<GroupedEngineBatch, InternalError>;
-
-    /// Record the implicit singleton group for grouped global DISTINCT execution.
-    fn record_implicit_single_group(
-        &self,
-        grouped_execution_context: &mut ExecutionContext,
-    ) -> Result<(), InternalError>;
-}
 
 // Build one grouped key stream from route-owned grouped execution metadata
 // using already-resolved runtime and row-decode boundaries.
@@ -105,10 +78,9 @@ pub(in crate::db::executor) fn build_grouped_stream_with_runtime<'a>(
     ))
 }
 
-// Execute grouped aggregate folding over one resolved grouped key stream while
-// delegating only the entity-bound reducer hooks.
-pub(in crate::db::executor) fn execute_group_fold_stage_with_hooks(
-    hooks: &dyn GroupedFoldRuntimeHooks,
+// Execute grouped aggregate folding over one resolved grouped key stream using
+// only structural grouped reducer/runtime contracts.
+pub(in crate::db::executor) fn execute_group_fold_stage(
     route: &GroupedRouteStage,
     mut stream: GroupedStreamStage<'_>,
 ) -> Result<GroupedFoldStage, InternalError> {
@@ -131,7 +103,7 @@ pub(in crate::db::executor) fn execute_group_fold_stage_with_hooks(
     let aggregate_count = route.projection_layout().aggregate_positions().len();
     let grouped_projection_spec = route.plan().projection_spec(route.entity_model());
     let (mut grouped_engines, mut short_circuit_keys) =
-        hooks.build_grouped_engines(route, &grouped_execution_context)?;
+        build_grouped_engines(route, &grouped_execution_context)?;
 
     // Phase 2: route one global DISTINCT grouped aggregate through the
     // canonical grouped aggregate entrypoint when strategy permits it.
@@ -142,7 +114,9 @@ pub(in crate::db::executor) fn execute_group_fold_stage_with_hooks(
         target_field,
     }) = global_distinct_field_execution_spec(route.grouped_distinct_execution_strategy())
     {
-        hooks.record_implicit_single_group(&mut grouped_execution_context)?;
+        grouped_execution_context
+            .record_implicit_single_group()
+            .map_err(GroupError::into_internal_error)?;
         let (row_runtime, execution_preparation, resolved) = stream.parts_mut();
         let compiled_predicate = execution_preparation.compiled_predicate();
         let global_row = execute_global_distinct_field_aggregate(
@@ -240,36 +214,5 @@ where
             runtime.slot_map().map(<[usize]>::to_vec),
             Box::new(TypedGroupedRowRuntime::new(row_ctx)),
         )
-    }
-
-    // Execute grouped aggregate folding over one resolved grouped key stream.
-    pub(in crate::db::executor) fn execute_group_fold_stage(
-        &self,
-        route: &GroupedRouteStage,
-        stream: GroupedStreamStage<'_>,
-    ) -> Result<GroupedFoldStage, InternalError> {
-        execute_group_fold_stage_with_hooks(self, route, stream)
-    }
-}
-
-impl<E> GroupedFoldRuntimeHooks for LoadExecutor<E>
-where
-    E: EntityKind + EntityValue,
-{
-    fn build_grouped_engines(
-        &self,
-        route: &GroupedRouteStage,
-        grouped_execution_context: &ExecutionContext,
-    ) -> Result<(Vec<Box<dyn GroupedAggregateEngine>>, Vec<Vec<Value>>), InternalError> {
-        Self::build_grouped_engines(route, grouped_execution_context)
-    }
-
-    fn record_implicit_single_group(
-        &self,
-        grouped_execution_context: &mut ExecutionContext,
-    ) -> Result<(), InternalError> {
-        grouped_execution_context
-            .record_implicit_single_group::<E>()
-            .map_err(GroupError::into_internal_error)
     }
 }

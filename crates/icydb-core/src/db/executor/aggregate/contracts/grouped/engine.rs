@@ -1,7 +1,7 @@
 //! Module: db::executor::aggregate::contracts::grouped::engine
-//! Responsibility: module-local ownership and contracts for db::executor::aggregate::contracts::grouped::engine.
+//! Responsibility: grouped aggregate state ownership and scalar aggregate engine contracts.
 //! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Boundary: exposes grouped reducer contracts while keeping grouped implementation details internal.
 
 use crate::{
     db::{
@@ -11,9 +11,11 @@ use crate::{
         executor::{
             aggregate::contracts::{
                 error::GroupError,
+                grouped::ExecutionContext,
                 spec::{AggregateKind, AggregateOutput},
                 state::{
-                    AggregateState, AggregateStateFactory, FoldControl, TerminalAggregateState,
+                    AggregateState, AggregateStateFactory, FoldControl,
+                    GroupedTerminalAggregateState, TerminalAggregateState,
                 },
             },
             group::{GroupKey, StableHash, canonical_group_key_equals},
@@ -25,25 +27,23 @@ use crate::{
 };
 use std::collections::BTreeMap;
 
-use crate::db::executor::aggregate::contracts::grouped::context::ExecutionContext;
-
-type AggregateIngestAllFn<'a, 'f, E> = dyn FnMut(&mut AggregateExecutionSpec<'a>, &mut AggregateEngine<E>) -> Result<(), InternalError>
-    + 'f;
+type AggregateIngestAllFn<'f, E> =
+    dyn FnMut(&mut AggregateEngine<E>) -> Result<(), InternalError> + 'f;
 
 ///
 /// GroupedAggregateOutput
 ///
-/// GroupedAggregateOutput carries one finalized grouped terminal row:
-/// one canonical group key paired with one aggregate terminal output.
+/// GroupedAggregateOutput carries one finalized grouped terminal row: one
+/// canonical group key paired with one structural aggregate output value.
 /// Finalized rows are emitted in deterministic canonical order.
 ///
 
-pub(in crate::db::executor) struct GroupedAggregateOutput<E: EntityKind> {
+pub(in crate::db::executor) struct GroupedAggregateOutput {
     group_key: GroupKey,
-    output: AggregateOutput<E>,
+    output: Value,
 }
 
-impl<E: EntityKind> GroupedAggregateOutput<E> {
+impl GroupedAggregateOutput {
     #[cfg(test)]
     #[must_use]
     pub(in crate::db::executor) const fn group_key(&self) -> &GroupKey {
@@ -52,27 +52,12 @@ impl<E: EntityKind> GroupedAggregateOutput<E> {
 
     #[cfg(test)]
     #[must_use]
-    pub(in crate::db::executor) const fn output(&self) -> &AggregateOutput<E> {
+    pub(in crate::db::executor) const fn output(&self) -> &Value {
         &self.output
     }
 
     fn into_value_pair(self) -> (Value, Value) {
-        (
-            self.group_key.canonical_value().clone(),
-            aggregate_output_to_value(self.output),
-        )
-    }
-}
-
-fn aggregate_output_to_value<E: EntityKind>(output: AggregateOutput<E>) -> Value {
-    match output {
-        AggregateOutput::Count(value) => Value::Uint(u64::from(value)),
-        AggregateOutput::Sum(value) => value.map_or(Value::Null, Value::Decimal),
-        AggregateOutput::Exists(value) => Value::Bool(value),
-        AggregateOutput::Min(value)
-        | AggregateOutput::Max(value)
-        | AggregateOutput::First(value)
-        | AggregateOutput::Last(value) => value.map_or(Value::Null, Value::from),
+        (self.group_key.canonical_value().clone(), self.output)
     }
 }
 
@@ -80,18 +65,16 @@ fn aggregate_output_to_value<E: EntityKind>(output: AggregateOutput<E>) -> Value
 /// GroupedAggregateStateSlot
 ///
 /// GroupedAggregateStateSlot stores one canonical group key with one
-/// group-local terminal aggregate state machine.
+/// group-local structural terminal aggregate state machine.
 /// Slots remain bucket-local and are finalized deterministically.
 ///
 
-pub(in crate::db::executor::aggregate::contracts::grouped) struct GroupedAggregateStateSlot<
-    E: EntityKind,
-> {
+pub(in crate::db::executor::aggregate::contracts::grouped) struct GroupedAggregateStateSlot {
     group_key: GroupKey,
-    state: TerminalAggregateState<E>,
+    state: GroupedTerminalAggregateState,
 }
 
-impl<E: EntityKind> GroupedAggregateStateSlot<E> {
+impl GroupedAggregateStateSlot {
     #[must_use]
     const fn group_key(&self) -> &GroupKey {
         &self.group_key
@@ -101,21 +84,21 @@ impl<E: EntityKind> GroupedAggregateStateSlot<E> {
 ///
 /// GroupedAggregateState
 ///
-/// GroupedAggregateState stores per-group aggregate state machines keyed by
-/// canonical group keys and stable-hash buckets.
+/// GroupedAggregateState stores per-group grouped aggregate state machines
+/// keyed by canonical group keys and stable-hash buckets.
 /// Group-local states are built by `AggregateStateFactory` and finalized in a
 /// deterministic order independent of insertion order.
 ///
 
-pub(in crate::db::executor) struct GroupedAggregateState<E: EntityKind> {
+pub(in crate::db::executor) struct GroupedAggregateState {
     kind: AggregateKind,
     direction: Direction,
     distinct: bool,
     max_distinct_values_per_group: u64,
-    groups: BTreeMap<StableHash, Vec<GroupedAggregateStateSlot<E>>>,
+    groups: BTreeMap<StableHash, Vec<GroupedAggregateStateSlot>>,
 }
 
-impl<E: EntityKind> GroupedAggregateState<E> {
+impl GroupedAggregateState {
     /// Build one empty grouped aggregate state container.
     #[must_use]
     pub(in crate::db::executor::aggregate) const fn new(
@@ -159,18 +142,18 @@ impl<E: EntityKind> GroupedAggregateState<E> {
                 .iter_mut()
                 .find(|slot| canonical_group_key_equals(slot.group_key(), group_key))
             {
-                return slot.state.apply_grouped(data_key, execution_context);
+                return slot.state.apply(data_key, execution_context);
             }
 
             // New group in an existing bucket.
-            let mut state = AggregateStateFactory::create_terminal(
+            let mut state = AggregateStateFactory::create_grouped_terminal(
                 self.kind,
                 self.direction,
                 self.distinct,
                 self.max_distinct_values_per_group,
             );
-            let fold_control = state.apply_grouped(data_key, execution_context)?;
-            execution_context.record_new_group::<E>(
+            let fold_control = state.apply(data_key, execution_context)?;
+            execution_context.record_new_group(
                 group_key,
                 false,
                 bucket.len(),
@@ -185,14 +168,14 @@ impl<E: EntityKind> GroupedAggregateState<E> {
         }
 
         // Phase 2: create a new bucket + group when hash was unseen.
-        let mut state = AggregateStateFactory::create_terminal(
+        let mut state = AggregateStateFactory::create_grouped_terminal(
             self.kind,
             self.direction,
             self.distinct,
             self.max_distinct_values_per_group,
         );
-        let fold_control = state.apply_grouped(data_key, execution_context)?;
-        execution_context.record_new_group::<E>(group_key, true, 0, 0)?;
+        let fold_control = state.apply(data_key, execution_context)?;
+        execution_context.record_new_group(group_key, true, 0, 0)?;
         self.groups.insert(
             hash,
             vec![GroupedAggregateStateSlot {
@@ -215,7 +198,7 @@ impl<E: EntityKind> GroupedAggregateState<E> {
 
     /// Finalize all groups into deterministic grouped aggregate outputs.
     #[must_use]
-    pub(in crate::db::executor::aggregate) fn finalize(self) -> Vec<GroupedAggregateOutput<E>> {
+    pub(in crate::db::executor::aggregate) fn finalize(self) -> Vec<GroupedAggregateOutput> {
         let expected_output_count = self
             .groups
             .values()
@@ -251,18 +234,6 @@ impl<E: EntityKind> GroupedAggregateState<E> {
 }
 
 ///
-/// AggregateEngine
-///
-/// Canonical aggregate reducer engine shared by scalar and grouped execution
-/// spines. This keeps ingest/finalize semantics centralized across both modes.
-///
-
-pub(in crate::db::executor) enum AggregateEngine<E: EntityKind> {
-    Scalar(TerminalAggregateState<E>),
-    Grouped(GroupedAggregateState<E>),
-}
-
-///
 /// GroupedAggregateEngine
 ///
 /// GroupedAggregateEngine is the structural grouped reducer boundary used by
@@ -283,238 +254,34 @@ pub(in crate::db::executor) trait GroupedAggregateEngine {
     fn finalize(self: Box<Self>) -> Result<Vec<(Value, Value)>, InternalError>;
 }
 
-///
-/// TypedGroupedAggregateEngine
-///
-/// TypedGroupedAggregateEngine keeps entity-typed grouped aggregate semantics
-/// at the adapter boundary while exposing one structural grouped engine trait
-/// to shared grouped fold logic.
-///
-
-struct TypedGroupedAggregateEngine<E: EntityKind> {
-    engine: AggregateEngine<E>,
-}
-
-impl<E: EntityKind> TypedGroupedAggregateEngine<E> {
-    const fn new(engine: AggregateEngine<E>) -> Self {
-        Self { engine }
-    }
-}
-
-impl<E: EntityKind> GroupedAggregateEngine for TypedGroupedAggregateEngine<E> {
+impl GroupedAggregateEngine for GroupedAggregateState {
     fn ingest(
         &mut self,
         execution_context: &mut ExecutionContext,
         data_key: &DataKey,
         group_key: &GroupKey,
     ) -> Result<FoldControl, GroupError> {
-        self.engine
-            .ingest_grouped(execution_context, data_key, group_key)
+        self.apply_borrowed(group_key, data_key, execution_context)
     }
 
     fn finalize(self: Box<Self>) -> Result<Vec<(Value, Value)>, InternalError> {
-        self.engine.finalize_grouped_values()
+        Ok((*self)
+            .finalize()
+            .into_iter()
+            .map(GroupedAggregateOutput::into_value_pair)
+            .collect())
     }
 }
 
 ///
-/// AggregateExecutionMode
+/// AggregateEngine
 ///
-/// AggregateExecutionMode classifies aggregate reducer execution into scalar
-/// or grouped ingestion modes.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) enum AggregateExecutionMode {
-    Scalar,
-    Grouped,
-}
-
-///
-/// AggregateExecutionSpec
-///
-/// AggregateExecutionSpec captures lane-specific runtime context for one
-/// aggregate ingest adapter instance.
-/// Mode is selected once at construction and reused across all ingested keys.
+/// AggregateEngine is the scalar aggregate reducer engine shared by scalar
+/// aggregate execution spines.
 ///
 
-pub(in crate::db::executor) struct AggregateExecutionSpec<'a> {
-    mode: AggregateExecutionMode,
-    grouped_execution_context: Option<&'a mut ExecutionContext>,
-}
-
-impl AggregateExecutionSpec<'_> {
-    /// Build one scalar aggregate execution spec.
-    #[must_use]
-    pub(in crate::db::executor) const fn scalar() -> Self {
-        Self {
-            mode: AggregateExecutionMode::Scalar,
-            grouped_execution_context: None,
-        }
-    }
-
-    #[must_use]
-    pub(in crate::db::executor) const fn mode(&self) -> AggregateExecutionMode {
-        self.mode
-    }
-
-    fn grouped_execution_context_mut(&mut self) -> Result<&mut ExecutionContext, GroupError> {
-        self.grouped_execution_context
-            .as_deref_mut()
-            .ok_or_else(|| {
-                GroupError::Internal(crate::db::error::query_executor_invariant(
-                    "grouped aggregate ingest requires grouped execution context in execution spec",
-                ))
-            })
-    }
-}
-
-impl<E: EntityKind> AggregateEngine<E> {
-    fn mode_mismatch_error(mode: AggregateExecutionMode) -> GroupError {
-        GroupError::Internal(crate::db::error::query_executor_invariant(match mode {
-            AggregateExecutionMode::Scalar => {
-                "scalar aggregate ingest reached grouped aggregate engine"
-            }
-            AggregateExecutionMode::Grouped => {
-                "grouped aggregate ingest reached scalar aggregate engine"
-            }
-        }))
-    }
-
-    fn ingest_grouped(
-        &mut self,
-        execution_context: &mut ExecutionContext,
-        data_key: &DataKey,
-        group_key: &GroupKey,
-    ) -> Result<FoldControl, GroupError> {
-        match self {
-            Self::Grouped(state) => state.apply_borrowed(group_key, data_key, execution_context),
-            Self::Scalar(_) => Err(Self::mode_mismatch_error(AggregateExecutionMode::Grouped)),
-        }
-    }
-
-    fn finalize_grouped_values(self) -> Result<Vec<(Value, Value)>, InternalError> {
-        match self {
-            Self::Grouped(state) => Ok(state
-                .finalize()
-                .into_iter()
-                .map(GroupedAggregateOutput::into_value_pair)
-                .collect()),
-            Self::Scalar(_) => Err(crate::db::error::query_executor_invariant(
-                "grouped aggregate finalize reached scalar aggregate engine",
-            )),
-        }
-    }
-
-    // Ingest one key through the aggregate execution mode carried by the
-    // execution spec so scalar/grouped loops share one reducer entrypoint.
-    pub(in crate::db::executor) fn ingest_with_spec(
-        &mut self,
-        execution_spec: &mut AggregateExecutionSpec<'_>,
-        data_key: &DataKey,
-        group_key: Option<&GroupKey>,
-    ) -> Result<FoldControl, GroupError> {
-        match execution_spec.mode() {
-            AggregateExecutionMode::Scalar => {
-                if group_key.is_some() {
-                    return Err(GroupError::Internal(
-                        crate::db::error::query_executor_invariant(
-                            "scalar aggregate ingest must not receive grouped group-key payload",
-                        ),
-                    ));
-                }
-
-                match self {
-                    Self::Scalar(state) => state.apply(data_key).map_err(GroupError::from),
-                    Self::Grouped(_) => {
-                        Err(Self::mode_mismatch_error(AggregateExecutionMode::Scalar))
-                    }
-                }
-            }
-            AggregateExecutionMode::Grouped => {
-                let Some(group_key) = group_key else {
-                    return Err(GroupError::Internal(
-                        crate::db::error::query_executor_invariant(
-                            "grouped aggregate ingest requires grouped group-key payload",
-                        ),
-                    ));
-                };
-                let execution_context = execution_spec.grouped_execution_context_mut()?;
-
-                match self {
-                    Self::Grouped(state) => {
-                        state.apply_borrowed(group_key, data_key, execution_context)
-                    }
-                    Self::Scalar(_) => {
-                        Err(Self::mode_mismatch_error(AggregateExecutionMode::Grouped))
-                    }
-                }
-            }
-        }
-    }
-
-    // Finalize this engine according to the selected execution mode so scalar
-    // and grouped reducer runners share one terminal projection boundary.
-    pub(in crate::db::executor) fn finalize_with_mode(
-        self,
-        mode: AggregateExecutionMode,
-    ) -> Result<AggregateFinalizeOutput<E>, InternalError> {
-        match mode {
-            AggregateExecutionMode::Scalar => match self {
-                Self::Scalar(state) => Ok(AggregateFinalizeOutput::Scalar(state.finalize())),
-                Self::Grouped(_) => Err(crate::db::error::query_executor_invariant(
-                    "scalar aggregate finalize reached grouped aggregate engine",
-                )),
-            },
-            AggregateExecutionMode::Grouped => match self {
-                Self::Grouped(state) => Ok(AggregateFinalizeOutput::Grouped(state.finalize())),
-                Self::Scalar(_) => Err(crate::db::error::query_executor_invariant(
-                    "grouped aggregate finalize reached scalar aggregate engine",
-                )),
-            },
-        }
-    }
-}
-
-///
-/// AggregateFinalizeOutput
-///
-/// AggregateFinalizeOutput is the unified finalize payload emitted by the
-/// aggregate finalize boundary for scalar and grouped execution modes.
-///
-
-pub(in crate::db::executor) enum AggregateFinalizeOutput<E: EntityKind> {
-    Scalar(AggregateOutput<E>),
-    Grouped(Vec<GroupedAggregateOutput<E>>),
-}
-
-impl<E: EntityKind> AggregateFinalizeOutput<E> {
-    /// Project one scalar finalize payload and fail closed for grouped payloads.
-    pub(in crate::db::executor) fn into_scalar(self) -> Result<AggregateOutput<E>, InternalError> {
-        match self {
-            Self::Scalar(output) => Ok(output),
-            Self::Grouped(output) => Err(crate::db::error::query_executor_invariant(format!(
-                "scalar aggregate finalize expected scalar payload but received grouped payload: grouped_len={}",
-                output.len()
-            ))),
-        }
-    }
-}
-
-// Execute one aggregate engine through one canonical ingest/finalize authority.
-// The caller supplies loop/key ingestion behavior while this boundary owns:
-// 1) mode selection from the execution spec
-// 2) one ingest boundary
-// 3) one finalize projection
-pub(in crate::db::executor) fn execute_aggregate<'a, E: EntityKind>(
-    mut engine: AggregateEngine<E>,
-    mut execution_spec: AggregateExecutionSpec<'a>,
-    ingest_all: &mut AggregateIngestAllFn<'a, '_, E>,
-) -> Result<AggregateFinalizeOutput<E>, InternalError> {
-    let execution_mode = execution_spec.mode();
-    ingest_all(&mut execution_spec, &mut engine)?;
-
-    engine.finalize_with_mode(execution_mode)
+pub(in crate::db::executor) struct AggregateEngine<E: EntityKind> {
+    state: TerminalAggregateState<E>,
 }
 
 impl<E: EntityKind> AggregateEngine<E> {
@@ -524,29 +291,34 @@ impl<E: EntityKind> AggregateEngine<E> {
         kind: AggregateKind,
         direction: Direction,
     ) -> Self {
-        Self::Scalar(AggregateStateFactory::create_terminal(
-            kind,
-            direction,
-            false,
-            u64::MAX,
-        ))
+        Self {
+            state: AggregateStateFactory::create_terminal(kind, direction, false),
+        }
     }
 
-    /// Wrap one grouped aggregate state into the shared aggregate engine.
+    /// Ingest one scalar candidate key into this aggregate engine.
+    pub(in crate::db::executor) fn ingest(
+        &mut self,
+        data_key: &DataKey,
+    ) -> Result<FoldControl, InternalError> {
+        self.state.apply(data_key)
+    }
+
+    /// Finalize this scalar aggregate engine into one terminal output payload.
     #[must_use]
-    pub(in crate::db::executor::aggregate::contracts::grouped) const fn from_grouped_state(
-        state: GroupedAggregateState<E>,
-    ) -> Self {
-        Self::Grouped(state)
+    pub(in crate::db::executor) fn finalize(self) -> AggregateOutput<E> {
+        self.state.finalize()
     }
 }
 
-/// Wrap one typed grouped aggregate engine behind the structural grouped runtime trait.
-pub(in crate::db::executor) fn box_grouped_engine<E>(
-    engine: AggregateEngine<E>,
-) -> Box<dyn GroupedAggregateEngine>
-where
-    E: EntityKind + 'static,
-{
-    Box::new(TypedGroupedAggregateEngine::new(engine))
+// Execute one scalar aggregate engine through one canonical ingest/finalize authority.
+// The caller supplies loop/key ingestion behavior while this boundary owns the
+// terminal finalize projection.
+pub(in crate::db::executor) fn execute_aggregate<E: EntityKind>(
+    mut engine: AggregateEngine<E>,
+    ingest_all: &mut AggregateIngestAllFn<'_, E>,
+) -> Result<AggregateOutput<E>, InternalError> {
+    ingest_all(&mut engine)?;
+
+    Ok(engine.finalize())
 }
