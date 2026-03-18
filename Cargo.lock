@@ -152,9 +152,9 @@ checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
 
 [[package]]
 name = "candid"
-version = "0.10.25"
+version = "0.10.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "259bc749d63e6177a22f2cd3aa48e03b3426a12dfa9573021f5895ab1de93fd3"
+checksum = "846adba6d1b4a00eeb8d4a0e4b88dfab570c25ad150cd52e51dfdc4f9d0a66cd"
 dependencies = [
  "anyhow",
  "binread",
@@ -175,9 +175,9 @@ dependencies = [
 
 [[package]]
 name = "candid_derive"
-version = "0.10.25"
+version = "0.10.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba137ee83e51735380f2d051f4c09d573f5de93b45746822faea58b25a8f6d00"
+checksum = "4c367110b158be2edc335a4ad70f3467fa588d5c5675e149ef38638a8e281fc4"
 dependencies = [
  "lazy_static",
  "proc-macro2",
@@ -187,9 +187,9 @@ dependencies = [
 
 [[package]]
 name = "canic-cdk"
-version = "0.15.4"
+version = "0.15.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7922cb8ea3e8479c2e3284df3f4b0ff7fd93723bd1c62d6dbd0989e2fb1268c"
+checksum = "922f3b9fae7290896a1c77a2745a92b835b27f17cc7c16e6e0b999ff93b99c8b"
 dependencies = [
  "candid",
  "derive_more",
@@ -205,9 +205,9 @@ dependencies = [
 
 [[package]]
 name = "canic-memory"
-version = "0.15.4"
+version = "0.15.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3820d24fd6d0cc0067baaf541e8c9be4a7a23bb648994dfce1f6c2fd5b823df8"
+checksum = "e209ec5ebe8665ce29ff9fdfe70c24dcbf5b58901ea129e185dfba1070c62fea"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -219,9 +219,9 @@ dependencies = [
 
 [[package]]
 name = "canic-utils"
-version = "0.15.4"
+version = "0.15.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec6032e74d4a11d67bc61d25a2f5a49e53575ab6a729dcd085326b6b4b22394d"
+checksum = "275834f31993b3b542c15279d2290c335e3e920dc02bc95be3379f60cb612e11"
 dependencies = [
  "convert_case 0.11.0",
  "derive_more",
@@ -232,7 +232,7 @@ dependencies = [
 
 [[package]]
 name = "canister_minimal"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -242,7 +242,7 @@ dependencies = [
 
 [[package]]
 name = "canister_quickstart"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "candid",
  "ic-cdk",
@@ -1110,7 +1110,7 @@ dependencies = [
 
 [[package]]
 name = "icydb"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -1132,7 +1132,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-build"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "icydb-schema",
  "proc-macro2",
@@ -1142,7 +1142,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-core"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -1166,7 +1166,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-derive"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1175,11 +1175,11 @@ dependencies = [
 
 [[package]]
 name = "icydb-primitives"
-version = "0.57.0"
+version = "0.58.0"
 
 [[package]]
 name = "icydb-schema"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -1195,7 +1195,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-derive"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "candid",
  "canic-utils",
@@ -1212,7 +1212,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-tests"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "candid",
  "icydb",
@@ -1223,7 +1223,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-fixtures"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "candid",
  "icydb",
@@ -1232,7 +1232,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-integration"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "candid",
  "icydb",
@@ -1241,7 +1241,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-minimal-fixtures"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "candid",
  "icydb",
@@ -1250,7 +1250,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-quickstart-fixtures"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "candid",
  "icydb",
@@ -2613,9 +2613,9 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "1.0.6+spec-1.1.0"
+version = "1.0.7+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "399b1124a3c9e16766831c6bba21e50192572cdd98706ea114f9502509686ffc"
+checksum = "dd28d57d8a6f6e458bc0b8784f8fdcc4b99a437936056fa122cb234f18656a96"
 dependencies = [
  "indexmap",
  "serde_core",
@@ -2628,27 +2628,27 @@ dependencies = [
 
 [[package]]
 name = "toml_datetime"
-version = "1.0.0+spec-1.1.0"
+version = "1.0.1+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32c2555c699578a4f59f0cc68e5116c8d7cabbd45e1409b989d4be085b53f13e"
+checksum = "9b320e741db58cac564e26c607d3cc1fdc4a88fd36c879568c07856ed83ff3e9"
 dependencies = [
  "serde_core",
 ]
 
 [[package]]
 name = "toml_parser"
-version = "1.0.9+spec-1.1.0"
+version = "1.0.10+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "702d4415e08923e7e1ef96cd5727c0dfed80b4d2fa25db9647fe5eb6f7c5a4c4"
+checksum = "7df25b4befd31c4816df190124375d5a20c6b6921e2cad937316de3fccd63420"
 dependencies = [
  "winnow",
 ]
 
 [[package]]
 name = "toml_writer"
-version = "1.0.6+spec-1.1.0"
+version = "1.0.7+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab16f14aed21ee8bfd8ec22513f7287cd4a91aa92e44edfe2c17ddd004e92607"
+checksum = "f17aaa1c6e3dc22b1da4b6bba97d066e354c7945cac2f7852d4e4e7ca7a6b56d"
 
 [[package]]
 name = "tower"
@@ -3255,9 +3255,9 @@ checksum = "d6bbff5f0aada427a1e5a6da5f1f98158182f26556f345ac9e04d36d0ebed650"
 
 [[package]]
 name = "winnow"
-version = "0.7.15"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df79d97927682d2fd8adb29682d1140b343be4ac0f08fd68b7765d9c059d3945"
+checksum = "a90e88e4667264a994d34e6d1ab2d26d398dcdca8b7f52bec8668957517fc7d8"
 
 [[package]]
 name = "wit-bindgen"
