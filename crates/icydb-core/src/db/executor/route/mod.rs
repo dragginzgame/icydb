@@ -16,14 +16,30 @@ mod semantics;
 mod terminal;
 
 pub(in crate::db::executor) use capability::derive_budget_safety_flags;
+pub(in crate::db::executor::route) use capability::derive_execution_capabilities_for_model;
 pub(in crate::db::executor::route) use capability::direction_allows_physical_fetch_hint;
 #[cfg(test)]
 pub(in crate::db::executor) use capability::stream_order_contract_safe;
 pub(in crate::db::executor) use contracts::*;
+pub(in crate::db::executor::route) use fast_path::aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation;
+pub(in crate::db::executor::route) use fast_path::pk_order_stream_fast_path_shape_supported_for_model;
 pub(in crate::db::executor) use fast_path::try_first_verified_fast_path_hit;
+pub(in crate::db::executor) use grouped_runtime::{
+    grouped_plan_metrics_strategy_for_execution_strategy, grouped_route_observability_for_runtime,
+};
 pub(super) use guard::*;
+#[cfg(test)]
+pub(in crate::db::executor) use hints::residual_predicate_pushdown_fetch_cap;
+pub(in crate::db::executor::route) use hints::{
+    aggregate_probe_fetch_hint_for_model, aggregate_seek_spec_for_model,
+    assess_index_range_limit_pushdown_for_model, bounded_probe_hint_is_safe,
+    count_pushdown_fetch_hint, load_scan_budget_hint, top_n_seek_spec_for_model,
+};
 pub(in crate::db::executor) use mode::{
     aggregate_non_count_streaming_allowed, load_streaming_allowed,
+};
+pub(in crate::db::executor::route) use mode::{
+    derive_aggregate_route_direction, derive_load_route_direction,
 };
 #[cfg(test)]
 pub(in crate::db::executor) use planner::grouped_ordered_runtime_revalidation_flag_count_guard;

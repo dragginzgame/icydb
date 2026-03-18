@@ -9,7 +9,10 @@ use crate::db::{
         ExecutionPreparation,
         pipeline::contracts::LoadExecutor,
         plan_metrics::GroupedPlanMetricsStrategy,
-        route::{AggregateSeekSpec, GroupedExecutionStrategy},
+        route::{
+            AggregateSeekSpec, GroupedExecutionStrategy,
+            grouped_plan_metrics_strategy_for_execution_strategy,
+        },
     },
     index::{IndexCompilePolicy, compile_index_program},
     query::explain::{
@@ -734,9 +737,7 @@ fn grouped_route_strategy_to_metrics_strategy_mapping_is_stable() {
         ),
     ] {
         assert_eq!(
-            LoadExecutor::<RouteMatrixEntity>::grouped_plan_metrics_strategy_for_execution_strategy(
-                route_strategy
-            ),
+            grouped_plan_metrics_strategy_for_execution_strategy(route_strategy),
             expected_metrics_strategy,
             "grouped route strategy must map to stable grouped metrics strategy labels",
         );

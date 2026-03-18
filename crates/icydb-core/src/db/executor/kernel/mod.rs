@@ -8,7 +8,7 @@ use crate::{
         executor::{
             ExecutionPlan, ScalarContinuationBindings,
             pipeline::contracts::{
-                CursorPage, ErasedCursorPage, ExecutionInputs, MaterializedExecutionAttempt,
+                ErasedCursorPage, ExecutionInputs, MaterializedExecutionAttempt,
                 ResolvedExecutionKeyStream, RuntimePageMaterializationRequest,
             },
             pipeline::operators::decorate_resolved_execution_key_stream,
@@ -17,7 +17,6 @@ use crate::{
         query::plan::AccessPlannedQuery,
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
 };
 
 ///
@@ -49,17 +48,14 @@ impl ExecutionKernel {
     }
 
     /// Materialize one load execution attempt with optional residual retry.
-    pub(in crate::db::executor) fn materialize_with_optional_residual_retry<E>(
+    pub(in crate::db::executor) fn materialize_with_optional_residual_retry(
         inputs: &ExecutionInputs<'_>,
         route_plan: &ExecutionPlan,
         continuation: ScalarContinuationBindings<'_>,
         predicate_compile_mode: IndexCompilePolicy,
-    ) -> Result<MaterializedExecutionAttempt<E>, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
+    ) -> Result<MaterializedExecutionAttempt, InternalError> {
         // Phase 1: materialize one probe attempt for the planned route.
-        let probe_attempt = Self::materialize_route_attempt::<E>(
+        let probe_attempt = Self::materialize_route_attempt(
             inputs,
             route_plan,
             continuation,
@@ -80,7 +76,7 @@ impl ExecutionKernel {
         // probe under-fills the requested post-access keep window.
         let mut fallback_route_plan = route_plan.clone();
         fallback_route_plan.index_range_limit_spec = None;
-        let fallback_attempt = Self::materialize_route_attempt::<E>(
+        let fallback_attempt = Self::materialize_route_attempt(
             inputs,
             &fallback_route_plan,
             continuation,
@@ -94,15 +90,12 @@ impl ExecutionKernel {
     }
 
     // Materialize one typed attempt for a specific route-plan candidate.
-    fn materialize_route_attempt<E>(
+    fn materialize_route_attempt(
         inputs: &ExecutionInputs<'_>,
         route_plan: &ExecutionPlan,
         continuation: ScalarContinuationBindings<'_>,
         predicate_compile_mode: IndexCompilePolicy,
-    ) -> Result<MaterializedExecutionAttempt<E>, InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
+    ) -> Result<MaterializedExecutionAttempt, InternalError> {
         let mut resolved =
             Self::resolve_execution_key_stream(inputs, route_plan, predicate_compile_mode)?;
         let (page, keys_scanned, post_access_rows) = Self::materialize_resolved_execution_stream(
@@ -125,10 +118,10 @@ impl ExecutionKernel {
     }
 
     // Merge probe and fallback attempts under canonical residual-retry accounting.
-    fn merge_probe_with_fallback<E: EntityKind>(
-        mut probe_attempt: MaterializedExecutionAttempt<E>,
-        fallback_attempt: MaterializedExecutionAttempt<E>,
-    ) -> MaterializedExecutionAttempt<E> {
+    fn merge_probe_with_fallback(
+        mut probe_attempt: MaterializedExecutionAttempt,
+        fallback_attempt: MaterializedExecutionAttempt,
+    ) -> MaterializedExecutionAttempt {
         probe_attempt.rows_scanned = probe_attempt
             .rows_scanned
             .saturating_add(fallback_attempt.rows_scanned);
@@ -149,24 +142,18 @@ impl ExecutionKernel {
 
     // Materialize one already-resolved key stream using row-collector fast path
     // when applicable, otherwise fall back to canonical load materialization.
-    fn materialize_resolved_execution_stream<E>(
+    fn materialize_resolved_execution_stream(
         inputs: &ExecutionInputs<'_>,
         route_plan: &ExecutionPlan,
         continuation: ScalarContinuationBindings<'_>,
         resolved: &mut ResolvedExecutionKeyStream,
-    ) -> Result<(CursorPage<E>, usize, usize), InternalError>
-    where
-        E: EntityKind + EntityValue,
-    {
-        if let Some((page, keys_scanned, post_access_rows)) = inputs
-            .runtime()
-            .try_materialize_load_via_row_collector(
+    ) -> Result<(ErasedCursorPage, usize, usize), InternalError> {
+        if let Some((page, keys_scanned, post_access_rows)) =
+            inputs.runtime().try_materialize_load_via_row_collector(
                 inputs.plan(),
                 continuation.post_access_cursor_boundary(),
                 resolved.key_stream_mut(),
             )?
-            .map(Self::downcast_cursor_page::<E>)
-            .transpose()?
         {
             return Ok((page, keys_scanned, post_access_rows));
         }
@@ -182,8 +169,6 @@ impl ExecutionKernel {
                 consistency: inputs.consistency(),
                 continuation,
             })?;
-
-        let page = Self::downcast_erased_cursor_page::<E>(page)?;
 
         Ok((page, keys_scanned, post_access_rows))
     }
@@ -219,22 +204,5 @@ impl ExecutionKernel {
         }
 
         post_access_rows < keep_count
-    }
-
-    // Downcast one erased typed cursor page emitted by the runtime adapter.
-    fn downcast_cursor_page<E: EntityKind>(
-        erased: (ErasedCursorPage, usize, usize),
-    ) -> Result<(CursorPage<E>, usize, usize), InternalError> {
-        let (page, keys_scanned, post_access_rows) = erased;
-        let page = Self::downcast_erased_cursor_page::<E>(page)?;
-
-        Ok((page, keys_scanned, post_access_rows))
-    }
-
-    // Downcast one erased typed cursor page emitted by the runtime adapter.
-    fn downcast_erased_cursor_page<E: EntityKind>(
-        page: ErasedCursorPage,
-    ) -> Result<CursorPage<E>, InternalError> {
-        page.into_typed("execution runtime returned cursor page with unexpected entity type")
     }
 }

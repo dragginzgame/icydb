@@ -22,6 +22,7 @@ use crate::db::executor::route::{
 };
 
 pub(in crate::db::executor::route::planner) use execution::derive_route_execution_stage;
+pub(in crate::db::executor::route::planner) use feasibility::derive_execution_feasibility_stage_for_model;
 #[cfg(test)]
 pub(in crate::db::executor) use feasibility::grouped_ordered_runtime_revalidation_flag_count_guard;
 pub(in crate::db::executor::route::planner) use intent::derive_route_intent_stage;

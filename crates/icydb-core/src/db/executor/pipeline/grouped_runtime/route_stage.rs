@@ -14,7 +14,10 @@ use crate::{
                 LoadExecutor,
             },
             pipeline::grouped_runtime::GroupedExecutionContext,
-            route::RouteExecutionMode,
+            route::{
+                RouteExecutionMode, grouped_plan_metrics_strategy_for_execution_strategy,
+                grouped_route_observability_for_runtime,
+            },
         },
     },
     error::InternalError,
@@ -51,12 +54,11 @@ where
         let grouped_route_plan =
             Self::build_execution_route_plan_for_grouped_handoff(grouped_handoff);
         let grouped_route_observability =
-            Self::grouped_route_observability_for_runtime(&grouped_route_plan)?;
+            grouped_route_observability_for_runtime(&grouped_route_plan)?;
         let grouped_route_execution_mode = grouped_route_observability.execution_mode();
-        let grouped_plan_metrics_strategy =
-            Self::grouped_plan_metrics_strategy_for_execution_strategy(
-                grouped_route_observability.grouped_execution_strategy(),
-            );
+        let grouped_plan_metrics_strategy = grouped_plan_metrics_strategy_for_execution_strategy(
+            grouped_route_observability.grouped_execution_strategy(),
+        );
         debug_assert!(
             matches!(
                 grouped_route_execution_mode,

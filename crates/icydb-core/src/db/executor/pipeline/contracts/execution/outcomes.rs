@@ -3,10 +3,7 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::{
-    db::executor::{ExecutionOptimization, pipeline::contracts::CursorPage},
-    traits::EntityKind,
-};
+use crate::db::executor::{ExecutionOptimization, pipeline::contracts::ErasedCursorPage};
 
 ///
 /// MaterializedExecutionAttempt
@@ -15,8 +12,8 @@ use crate::{
 /// Preserves one shared boundary for retry accounting and page output.
 ///
 
-pub(in crate::db::executor) struct MaterializedExecutionAttempt<E: EntityKind> {
-    pub(in crate::db::executor) page: CursorPage<E>,
+pub(in crate::db::executor) struct MaterializedExecutionAttempt {
+    pub(in crate::db::executor) page: ErasedCursorPage,
     pub(in crate::db::executor) rows_scanned: usize,
     pub(in crate::db::executor) post_access_rows: usize,
     pub(in crate::db::executor) optimization: Option<ExecutionOptimization>,
@@ -41,11 +38,11 @@ pub(in crate::db::executor) struct ExecutionOutcomeMetrics {
     pub(in crate::db::executor) distinct_keys_deduped: u64,
 }
 
-impl<E: EntityKind> MaterializedExecutionAttempt<E> {
+impl MaterializedExecutionAttempt {
     // Split one materialized execution attempt into response page + observability metrics.
     pub(in crate::db::executor) fn into_page_and_metrics(
         self,
-    ) -> (CursorPage<E>, ExecutionOutcomeMetrics) {
+    ) -> (ErasedCursorPage, ExecutionOutcomeMetrics) {
         let metrics = ExecutionOutcomeMetrics {
             optimization: self.optimization,
             rows_scanned: self.rows_scanned,

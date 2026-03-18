@@ -7,11 +7,14 @@ use crate::{
     db::{
         direction::Direction,
         executor::{
-            aggregate::capability::{
-                AggregateExecutionPolicyInputs, derive_aggregate_execution_policy,
+            aggregate::{
+                AggregateExecutionPolicyInputs, derive_aggregate_execution_policy_for_model,
             },
             pipeline::contracts::LoadExecutor,
-            route::secondary_order_contract_active,
+            route::{
+                bounded_probe_hint_is_safe, pk_order_stream_fast_path_shape_supported_for_model,
+                secondary_order_contract_active,
+            },
         },
         query::{
             builder::AggregateExpr,
@@ -68,6 +71,7 @@ pub(in crate::db::executor) fn stream_order_contract_safe_for_model(
 }
 
 /// Return whether one plan shape is safe for direct streaming execution.
+#[cfg(test)]
 pub(in crate::db::executor) fn stream_order_contract_safe<E>(plan: &AccessPlannedQuery) -> bool
 where
     E: EntitySchema,
@@ -108,77 +112,87 @@ where
         direction: Direction,
         aggregate_expr: Option<&AggregateExpr>,
     ) -> RouteCapabilities {
-        let access_class = plan.access_strategy().class();
-        let (has_residual_filter, _, requires_post_access_sort) =
-            derive_budget_safety_flags::<E>(plan);
-        let aggregate_execution_policy = derive_aggregate_execution_policy::<E>(
-            plan,
-            direction,
-            aggregate_expr,
-            AggregateExecutionPolicyInputs::new(has_residual_filter, requires_post_access_sort),
-        );
-        let field_min_eligibility = aggregate_execution_policy.field_min_fast_path();
-        let field_max_eligibility = aggregate_execution_policy.field_max_fast_path();
-
-        RouteCapabilities {
-            stream_order_contract_safe: stream_order_contract_safe::<E>(plan),
-            pk_order_fast_path_eligible: Self::pk_order_stream_fast_path_shape_supported(plan),
-            desc_physical_reverse_supported: Self::is_desc_physical_reverse_traversal_supported(
-                plan, direction,
-            ),
-            count_pushdown_shape_supported: aggregate_execution_policy
-                .count_pushdown_shape_supported(),
-            count_pushdown_existing_rows_shape_supported:
-                Self::count_pushdown_existing_rows_shape_supported(&access_class),
-            index_range_limit_pushdown_shape_supported:
-                Self::is_index_range_limit_pushdown_shape_supported(plan),
-            composite_aggregate_fast_path_eligible: aggregate_execution_policy
-                .composite_aggregate_fast_path_eligible(),
-            bounded_probe_hint_safe: Self::bounded_probe_hint_is_safe(plan),
-            field_min_fast_path_eligible: field_min_eligibility.eligible,
-            field_max_fast_path_eligible: field_max_eligibility.eligible,
-            field_min_fast_path_ineligibility_reason: field_min_eligibility.ineligibility_reason,
-            field_max_fast_path_ineligibility_reason: field_max_eligibility.ineligibility_reason,
-        }
+        derive_execution_capabilities_for_model(E::MODEL, plan, direction, aggregate_expr)
     }
+}
 
-    /// Return whether DESC physical reverse traversal is supported for this access shape.
-    pub(super) fn is_desc_physical_reverse_traversal_supported(
-        plan: &AccessPlannedQuery,
-        direction: Direction,
-    ) -> bool {
-        matches!(direction, Direction::Desc) && Self::access_supports_reverse_traversal(plan)
+pub(in crate::db::executor::route) fn derive_execution_capabilities_for_model(
+    model: &EntityModel,
+    plan: &AccessPlannedQuery,
+    direction: Direction,
+    aggregate_expr: Option<&AggregateExpr>,
+) -> RouteCapabilities {
+    let access_class = plan.access_strategy().class();
+    let (has_residual_filter, _, requires_post_access_sort) =
+        derive_budget_safety_flags_for_model(model, plan);
+    let aggregate_execution_policy = derive_aggregate_execution_policy_for_model(
+        model,
+        plan,
+        direction,
+        aggregate_expr,
+        AggregateExecutionPolicyInputs::new(has_residual_filter, requires_post_access_sort),
+    );
+    let field_min_eligibility = aggregate_execution_policy.field_min_fast_path();
+    let field_max_eligibility = aggregate_execution_policy.field_max_fast_path();
+
+    RouteCapabilities {
+        stream_order_contract_safe: stream_order_contract_safe_for_model(model, plan),
+        pk_order_fast_path_eligible: pk_order_stream_fast_path_shape_supported_for_model(
+            model, plan,
+        ),
+        desc_physical_reverse_supported: desc_physical_reverse_traversal_supported(plan, direction),
+        count_pushdown_shape_supported: aggregate_execution_policy.count_pushdown_shape_supported(),
+        count_pushdown_existing_rows_shape_supported: count_pushdown_existing_rows_shape_supported(
+            &access_class,
+        ),
+        index_range_limit_pushdown_shape_supported:
+            index_range_limit_pushdown_shape_supported_for_model(model, plan),
+        composite_aggregate_fast_path_eligible: aggregate_execution_policy
+            .composite_aggregate_fast_path_eligible(),
+        bounded_probe_hint_safe: bounded_probe_hint_is_safe(plan),
+        field_min_fast_path_eligible: field_min_eligibility.eligible,
+        field_max_fast_path_eligible: field_max_eligibility.eligible,
+        field_min_fast_path_ineligibility_reason: field_min_eligibility.ineligibility_reason,
+        field_max_fast_path_ineligibility_reason: field_max_eligibility.ineligibility_reason,
     }
+}
 
-    fn access_supports_reverse_traversal(plan: &AccessPlannedQuery) -> bool {
-        let access_strategy = plan.access_strategy();
+fn desc_physical_reverse_traversal_supported(
+    plan: &AccessPlannedQuery,
+    direction: Direction,
+) -> bool {
+    matches!(direction, Direction::Desc) && access_supports_reverse_traversal(plan)
+}
 
-        access_strategy.class().reverse_supported()
-    }
+fn access_supports_reverse_traversal(plan: &AccessPlannedQuery) -> bool {
+    let access_strategy = plan.access_strategy();
 
-    // Route-owned gate for COUNT streaming paths that must preserve stale-key
-    // safety through `ExistingRows` fold mode on secondary index traversal.
-    const fn count_pushdown_existing_rows_shape_supported(
-        access_class: &crate::db::access::AccessRouteClass,
-    ) -> bool {
-        access_class.single_path() && (access_class.prefix_scan() || access_class.range_scan())
-    }
+    access_strategy.class().reverse_supported()
+}
 
-    // Route-owned shape gate for index-range limited pushdown eligibility.
-    pub(super) fn is_index_range_limit_pushdown_shape_supported(plan: &AccessPlannedQuery) -> bool {
-        let order = plan.scalar_plan().order.as_ref();
-        let order_contract_eligible = order.is_none_or(|_| {
-            secondary_order_contract_is_deterministic(E::MODEL, plan.scalar_plan())
-                && secondary_order_contract_active(
-                    plan.planner_route_profile(E::MODEL)
-                        .logical_pushdown_eligibility(),
-                )
-        });
-        let access_class = plan.access_strategy().class();
-        order_contract_eligible
-            && access_class.index_range_limit_pushdown_shape_supported_for_order(
-                order.map(|order| order.fields.as_slice()),
-                E::MODEL.primary_key.name,
+const fn count_pushdown_existing_rows_shape_supported(
+    access_class: &crate::db::access::AccessRouteClass,
+) -> bool {
+    access_class.single_path() && (access_class.prefix_scan() || access_class.range_scan())
+}
+
+fn index_range_limit_pushdown_shape_supported_for_model(
+    model: &EntityModel,
+    plan: &AccessPlannedQuery,
+) -> bool {
+    let order = plan.scalar_plan().order.as_ref();
+    let order_contract_eligible = order.is_none_or(|_| {
+        secondary_order_contract_is_deterministic(model, plan.scalar_plan())
+            && secondary_order_contract_active(
+                plan.planner_route_profile(model)
+                    .logical_pushdown_eligibility(),
             )
-    }
+    });
+    let access_class = plan.access_strategy().class();
+
+    order_contract_eligible
+        && access_class.index_range_limit_pushdown_shape_supported_for_order(
+            order.map(|order| order.fields.as_slice()),
+            model.primary_key.name,
+        )
 }

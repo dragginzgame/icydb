@@ -3,14 +3,10 @@
 //! Does not own: access-shape capability decisions or route execution-mode selection.
 //! Boundary: pure derivation primitives consumed by route planning.
 
-use crate::{
-    db::{
-        direction::Direction,
-        executor::pipeline::contracts::LoadExecutor,
-        query::builder::AggregateExpr,
-        query::plan::{AccessPlannedQuery, ExecutionOrderContract},
-    },
-    traits::{EntityKind, EntityValue},
+use crate::db::{
+    direction::Direction,
+    query::builder::AggregateExpr,
+    query::plan::{AccessPlannedQuery, ExecutionOrderContract},
 };
 
 use crate::db::executor::route::{RouteCapabilities, aggregate_extrema_direction};
@@ -49,30 +45,24 @@ pub(in crate::db::executor) const fn load_streaming_allowed(
     capabilities.stream_order_contract_safe || index_range_limit_enabled
 }
 
-impl<E> LoadExecutor<E>
-where
-    E: EntityKind + EntityValue,
-{
-    pub(super) fn derive_load_route_direction(plan: &AccessPlannedQuery) -> Direction {
-        ExecutionOrderContract::from_plan(
-            plan.grouped_plan().is_some(),
-            plan.scalar_plan().order.as_ref(),
-        )
-        .primary_scan_direction()
+pub(in crate::db::executor::route) fn derive_load_route_direction(
+    plan: &AccessPlannedQuery,
+) -> Direction {
+    ExecutionOrderContract::from_plan(
+        plan.grouped_plan().is_some(),
+        plan.scalar_plan().order.as_ref(),
+    )
+    .primary_scan_direction()
+}
+
+pub(in crate::db::executor::route) fn derive_aggregate_route_direction(
+    plan: &AccessPlannedQuery,
+    aggregate: &AggregateExpr,
+) -> Direction {
+    if aggregate.target_field().is_some() {
+        return aggregate_extrema_direction(aggregate.kind())
+            .unwrap_or_else(|| derive_load_route_direction(plan));
     }
 
-    pub(super) fn derive_aggregate_route_direction(
-        plan: &AccessPlannedQuery,
-        aggregate: &AggregateExpr,
-    ) -> Direction {
-        // Aggregate direction authority flows from AggregateKind.
-        // Field-target extrema derive from `AggregateKind::extrema_direction`;
-        // all other cases inherit canonical load ordering direction.
-        if aggregate.target_field().is_some() {
-            return aggregate_extrema_direction(aggregate.kind())
-                .unwrap_or_else(|| Self::derive_load_route_direction(plan));
-        }
-
-        Self::derive_load_route_direction(plan)
-    }
+    derive_load_route_direction(plan)
 }

@@ -10,8 +10,12 @@ use crate::{
             Context, ExecutionPlan, ExecutionPreparation, OrderedKeyStreamBox,
             continuation::ScalarContinuationContext,
             pipeline::contracts::LoadExecutor,
-            preparation::slot_map_for_entity_plan,
-            route::{ExecutionRoutePlan, RouteIntent},
+            preparation::resolved_index_slots_for_access_path,
+            route::{
+                ExecutionRoutePlan, RouteIntent,
+                aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation,
+                pk_order_stream_fast_path_shape_supported_for_model,
+            },
         },
         query::{
             builder::AggregateExpr,
@@ -19,13 +23,17 @@ use crate::{
         },
     },
     error::InternalError,
+    model::entity::EntityModel,
     traits::{EntityKind, EntityValue},
 };
 
 #[cfg(test)]
 use crate::db::executor::aggregate::AggregateKind;
+#[cfg(test)]
+use crate::db::executor::preparation::slot_map_for_entity_plan;
 use crate::db::executor::route::planner::{
-    RouteExecutionStage, RouteFeasibilityStage, RouteIntentStage, derive_route_execution_stage,
+    RouteExecutionStage, RouteFeasibilityStage, RouteIntentStage,
+    derive_execution_feasibility_stage_for_model, derive_route_execution_stage,
     derive_route_intent_stage,
 };
 
@@ -52,11 +60,12 @@ where
         continuation: &ScalarContinuationContext,
         probe_fetch_hint: Option<usize>,
     ) -> Result<ExecutionPlan, InternalError> {
-        if Self::pk_order_stream_fast_path_shape_supported(plan) {
+        if pk_order_stream_fast_path_shape_supported_for_model(E::MODEL, plan) {
             continuation.validate_pk_fast_path_boundary::<E>()?;
         }
 
-        Ok(Self::build_execution_route_plan(
+        Ok(build_execution_route_plan_for_model(
+            E::MODEL,
             plan,
             continuation,
             probe_fetch_hint,
@@ -112,14 +121,15 @@ where
     ) -> ExecutionPlan {
         let continuation = ScalarContinuationContext::initial();
 
-        Self::build_execution_route_plan(
+        build_execution_route_plan_for_model(
+            E::MODEL,
             plan,
             &continuation,
             None,
             RouteIntent::Aggregate {
                 aggregate,
                 aggregate_force_materialized_due_to_predicate_uncertainty:
-                    Self::aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
+                    aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
                         execution_preparation,
                     ),
             },
@@ -130,56 +140,67 @@ where
     pub(in crate::db::executor) fn build_execution_route_plan_for_grouped_handoff(
         grouped: GroupedExecutorHandoff<'_>,
     ) -> ExecutionPlan {
-        let execution_preparation = ExecutionPreparation::from_plan(
+        build_execution_route_plan_for_grouped_plan(
             E::MODEL,
             grouped.base(),
-            slot_map_for_entity_plan::<E>(grouped.base()),
-        );
-        let continuation = ScalarContinuationContext::initial();
-
-        Self::build_execution_route_plan(
-            grouped.base(),
-            &continuation,
-            None,
-            RouteIntent::AggregateGrouped {
-                grouped_plan_strategy_hint: grouped.grouped_plan_strategy_hint(),
-                aggregate_force_materialized_due_to_predicate_uncertainty:
-                    Self::aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
-                        &execution_preparation,
-                    ),
-            },
+            grouped.grouped_plan_strategy_hint(),
         )
     }
+}
 
-    // Shared route gate for load + aggregate execution.
-    fn build_execution_route_plan(
-        plan: &AccessPlannedQuery,
-        continuation: &ScalarContinuationContext,
-        probe_fetch_hint: Option<usize>,
-        intent: RouteIntent,
-    ) -> ExecutionRoutePlan {
-        // Phase 1: project one planner-owned route profile consumed by route derivation.
-        let planner_route_profile = Self::derive_planner_route_profile(plan);
+fn build_execution_route_plan_for_model(
+    model: &EntityModel,
+    plan: &AccessPlannedQuery,
+    continuation: &ScalarContinuationContext,
+    probe_fetch_hint: Option<usize>,
+    intent: RouteIntent,
+) -> ExecutionRoutePlan {
+    let planner_route_profile = derive_planner_route_profile(model, plan);
+    let intent_stage = derive_route_intent_stage(intent);
+    let feasibility_stage = derive_execution_feasibility_stage_for_model(
+        model,
+        plan,
+        continuation,
+        probe_fetch_hint,
+        &planner_route_profile,
+        &intent_stage,
+    );
 
-        // Phase 2: normalize route intent into one immutable intent stage.
-        let intent_stage = derive_route_intent_stage(intent);
+    build_execution_route_plan_from_stages(intent_stage, feasibility_stage)
+}
 
-        // Phase 3: derive continuation/window/capability feasibility.
-        let feasibility_stage = Self::derive_execution_feasibility_stage(
-            plan,
-            continuation,
-            probe_fetch_hint,
-            &planner_route_profile,
-            &intent_stage,
-        );
+fn derive_planner_route_profile(
+    model: &EntityModel,
+    plan: &AccessPlannedQuery,
+) -> PlannerRouteProfile {
+    plan.planner_route_profile(model)
+}
 
-        build_execution_route_plan_from_stages(intent_stage, feasibility_stage)
-    }
+pub(in crate::db::executor) fn build_execution_route_plan_for_grouped_plan(
+    model: &'static EntityModel,
+    plan: &AccessPlannedQuery,
+    grouped_plan_strategy_hint: crate::db::query::plan::GroupedPlanStrategyHint,
+) -> ExecutionPlan {
+    let execution_preparation = ExecutionPreparation::from_plan(
+        model,
+        plan,
+        resolved_index_slots_for_access_path(model, plan.access.resolve_strategy().executable()),
+    );
+    let continuation = ScalarContinuationContext::initial();
 
-    // Build one planner-projected route profile from one validated access plan.
-    fn derive_planner_route_profile(plan: &AccessPlannedQuery) -> PlannerRouteProfile {
-        plan.planner_route_profile(E::MODEL)
-    }
+    build_execution_route_plan_for_model(
+        model,
+        plan,
+        &continuation,
+        None,
+        RouteIntent::AggregateGrouped {
+            grouped_plan_strategy_hint,
+            aggregate_force_materialized_due_to_predicate_uncertainty:
+                aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
+                    &execution_preparation,
+                ),
+        },
+    )
 }
 
 #[cfg(test)]

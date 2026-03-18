@@ -6,17 +6,24 @@
 use crate::{
     db::{
         cursor::CursorBoundary,
+        data::DataRow,
         direction::Direction,
         executor::pipeline::contracts::FastPathKeyResult,
         executor::{
             AccessStreamBindings, Context, ExecutableAccess, ExecutionKernel, ExecutionPreparation,
             LoadExecutor, OrderedKeyStream, OrderedKeyStreamBox, ScalarContinuationBindings,
-            preparation::resolved_index_slots_for_access_path, route::RoutedKeyStreamRequest,
-            terminal::page::PageMaterializationRequest, traversal::row_read_consistency_for_plan,
+            preparation::resolved_index_slots_for_access_path,
+            route::RoutedKeyStreamRequest,
+            terminal::page::{
+                KernelPageMaterializationRequest, kernel_row_from_entity,
+                materialize_key_stream_into_erased_page,
+            },
+            traversal::row_read_consistency_for_plan,
         },
         index::predicate::IndexPredicateExecution,
         predicate::{MissingRowPolicy, PredicateProgram},
         query::plan::AccessPlannedQuery,
+        response::EntityResponse,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -282,19 +289,53 @@ where
         &self,
         request: RuntimePageMaterializationRequest<'_>,
     ) -> Result<ErasedRowCollectorPayload, InternalError> {
-        let (page, keys_scanned, post_access_rows) =
-            LoadExecutor::<E>::materialize_key_stream_into_page(PageMaterializationRequest {
-                ctx: self.ctx,
+        let mut read_row_for_key = |key: &crate::db::data::DataKey| {
+            let read = match request.consistency {
+                MissingRowPolicy::Error => self.ctx.read_strict(key),
+                MissingRowPolicy::Ignore => self.ctx.read(key),
+            };
+
+            match read {
+                Ok(row) => Ok(Some(row)),
+                Err(err) if err.is_not_found() => Ok(None),
+                Err(err) => Err(err),
+            }
+        };
+        let predicate_preapplied = request.plan.scalar_plan().predicate.is_some();
+        let mut on_row = |data_row: DataRow| {
+            let (_id, entity) = Context::deserialize_row(data_row.clone())?;
+            if predicate_preapplied
+                && let Some(predicate_program) = request.predicate_slots
+                && !predicate_program.eval(&entity)
+            {
+                return Ok(None);
+            }
+
+            Ok(Some(kernel_row_from_entity::<E>(data_row, &entity)))
+        };
+        let mut build_page = |data_rows: Vec<DataRow>, next_cursor| {
+            let rows = Context::<E>::deserialize_rows(data_rows)?;
+            let items = EntityResponse::from_rows(rows);
+
+            Ok(ErasedCursorPage::new(
+                crate::db::executor::pipeline::contracts::CursorPage { items, next_cursor },
+            ))
+        };
+
+        materialize_key_stream_into_erased_page(
+            KernelPageMaterializationRequest {
+                model: E::MODEL,
                 plan: request.plan,
                 predicate_slots: request.predicate_slots,
                 key_stream: request.key_stream,
                 scan_budget_hint: request.scan_budget_hint,
                 stream_order_contract_safe: request.stream_order_contract_safe,
-                consistency: request.consistency,
                 continuation: request.continuation,
-            })?;
-
-        Ok((ErasedCursorPage::new(page), keys_scanned, post_access_rows))
+            },
+            &mut read_row_for_key,
+            &mut on_row,
+            &mut build_page,
+        )
     }
 }
 

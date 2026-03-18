@@ -5,7 +5,6 @@
 
 use crate::{
     db::{
-        Context,
         cursor::{
             CursorBoundary, CursorBoundarySlot, MaterializedCursorRow, apply_order_direction,
             compare_boundary_slots, next_cursor_for_materialized_rows,
@@ -14,14 +13,13 @@ use crate::{
         executor::{
             BudgetedOrderedKeyStream, ExecutionKernel, OrderedKeyStream,
             ScalarContinuationBindings, compute_page_keep_count,
-            pipeline::contracts::{CursorPage, LoadExecutor, PageCursor},
+            pipeline::contracts::{ErasedCursorPage, PageCursor},
             projection::validate_projection_over_slot_rows,
             route::access_order_satisfied_by_route_contract_for_model,
         },
         index::IndexKey,
-        predicate::{MissingRowPolicy, PredicateProgram},
+        predicate::PredicateProgram,
         query::plan::{AccessPlannedQuery, OrderDirection, OrderSpec},
-        response::EntityResponse,
     },
     error::InternalError,
     model::entity::{EntityModel, resolve_field_slot},
@@ -31,35 +29,13 @@ use crate::{
 use std::cmp::Ordering;
 
 ///
-/// PageMaterializationRequest
-///
-/// Request contract for one ordered key-stream to cursor-page materialization
-/// pass. Bundles logical, physical, paging, and continuation inputs so the
-/// page materialization boundary is explicit and stable.
-///
-
-pub(in crate::db::executor) struct PageMaterializationRequest<'a, E>
-where
-    E: EntityKind + EntityValue,
-{
-    pub(in crate::db::executor) ctx: &'a Context<'a, E>,
-    pub(in crate::db::executor) plan: &'a AccessPlannedQuery,
-    pub(in crate::db::executor) predicate_slots: Option<&'a PredicateProgram>,
-    pub(in crate::db::executor) key_stream: &'a mut dyn OrderedKeyStream,
-    pub(in crate::db::executor) scan_budget_hint: Option<usize>,
-    pub(in crate::db::executor) stream_order_contract_safe: bool,
-    pub(in crate::db::executor) consistency: MissingRowPolicy,
-    pub(in crate::db::executor) continuation: ScalarContinuationBindings<'a>,
-}
-
-///
 /// KernelRow
 ///
 /// Non-generic scalar-kernel row envelope used by shared ordering/cursor/page
 /// control flow before conversion back to typed `(Id<E>, E)` rows.
 ///
 
-struct KernelRow {
+pub(in crate::db::executor) struct KernelRow {
     data_row: DataRow,
     slots: Vec<Option<Value>>,
 }
@@ -81,171 +57,143 @@ impl KernelRow {
     }
 }
 
-impl<E> LoadExecutor<E>
+// Materialize one decoded entity into the shared non-generic kernel row shape.
+pub(in crate::db::executor) fn kernel_row_from_entity<E>(data_row: DataRow, entity: &E) -> KernelRow
 where
     E: EntityKind + EntityValue,
 {
-    /// Run shared read-execution phases for an already-produced ordered key stream.
-    pub(in crate::db::executor) fn materialize_key_stream_into_page(
-        request: PageMaterializationRequest<'_, E>,
-    ) -> Result<(CursorPage<E>, usize, usize), InternalError> {
-        let PageMaterializationRequest {
-            ctx,
-            plan,
-            predicate_slots,
-            key_stream,
-            scan_budget_hint,
-            stream_order_contract_safe,
-            consistency,
-            continuation,
-        } = request;
-        let predicate_preapplied = plan.scalar_plan().predicate.is_some();
-        if predicate_preapplied && predicate_slots.is_none() {
-            return Err(crate::db::error::query_executor_invariant(
-                "post-access filtering requires precompiled predicate slots",
-            ));
-        }
+    KernelRow::from_data_row::<E>(data_row, entity)
+}
 
-        // Phase 1: bind typed scan/materialization callbacks once and hand
-        // orchestration control to the shared dynamic kernel boundary.
-        let mut read_row_for_key = |key: &DataKey| {
-            let read = match consistency {
-                MissingRowPolicy::Error => ctx.read_strict(key),
-                MissingRowPolicy::Ignore => ctx.read(key),
-            };
+///
+/// KernelPageMaterializationRequest
+///
+/// Structural inputs for one shared scalar page-materialization pass.
+/// This keeps the kernel loop monomorphic while the typed boundary supplies
+/// row decode and final page construction callbacks.
+///
 
-            match read {
-                Ok(row) => Ok(Some(row)),
-                Err(err) if err.is_not_found() => Ok(None),
-                Err(err) => Err(err),
-            }
-        };
-        let mut on_row = |data_row: DataRow| {
-            let (_id, entity) = Context::deserialize_row(data_row.clone())?;
-            if predicate_preapplied
-                && let Some(predicate_program) = predicate_slots
-                && !predicate_program.eval(&entity)
-            {
-                return Ok(None);
-            }
+pub(in crate::db::executor) struct KernelPageMaterializationRequest<'a> {
+    pub(in crate::db::executor) model: &'static EntityModel,
+    pub(in crate::db::executor) plan: &'a AccessPlannedQuery,
+    pub(in crate::db::executor) predicate_slots: Option<&'a PredicateProgram>,
+    pub(in crate::db::executor) key_stream: &'a mut dyn OrderedKeyStream,
+    pub(in crate::db::executor) scan_budget_hint: Option<usize>,
+    pub(in crate::db::executor) stream_order_contract_safe: bool,
+    pub(in crate::db::executor) continuation: ScalarContinuationBindings<'a>,
+}
 
-            Ok(Some(KernelRow::from_data_row::<E>(data_row, &entity)))
-        };
-        let (mut rows, rows_scanned) = execute_scalar_page_kernel_dyn(
-            key_stream,
-            scan_budget_hint,
-            stream_order_contract_safe,
-            continuation,
-            &mut read_row_for_key,
-            &mut on_row,
-        )?;
+/// Materialize one ordered key stream into one erased typed cursor page.
+pub(in crate::db::executor) fn materialize_key_stream_into_erased_page(
+    request: KernelPageMaterializationRequest<'_>,
+    read_row_for_key: &mut dyn FnMut(&DataKey) -> Result<Option<RawRow>, InternalError>,
+    on_row: &mut dyn FnMut(DataRow) -> Result<Option<KernelRow>, InternalError>,
+    build_page: &mut dyn FnMut(
+        Vec<DataRow>,
+        Option<PageCursor>,
+    ) -> Result<ErasedCursorPage, InternalError>,
+) -> Result<(ErasedCursorPage, usize, usize), InternalError> {
+    let KernelPageMaterializationRequest {
+        model,
+        plan,
+        predicate_slots,
+        key_stream,
+        scan_budget_hint,
+        stream_order_contract_safe,
+        continuation,
+    } = request;
 
-        // Phase 2: run post-access phases and convert the kernel rows back to
-        // typed response rows at the API boundary.
-        let page = Self::finalize_rows_into_page(
-            plan,
-            predicate_slots,
-            &mut rows,
-            continuation,
-            predicate_preapplied,
-        )?;
-        let post_access_rows = page.items.len();
-
-        Ok((page, rows_scanned, post_access_rows))
+    let predicate_preapplied = plan.scalar_plan().predicate.is_some();
+    if predicate_preapplied && predicate_slots.is_none() {
+        return Err(crate::db::error::query_executor_invariant(
+            "post-access filtering requires precompiled predicate slots",
+        ));
     }
 
-    // Apply canonical post-access phases to scanned rows and assemble the cursor page.
-    fn finalize_rows_into_page(
-        plan: &AccessPlannedQuery,
-        predicate_slots: Option<&PredicateProgram>,
-        rows: &mut Vec<KernelRow>,
-        continuation: ScalarContinuationBindings<'_>,
-        predicate_preapplied: bool,
-    ) -> Result<CursorPage<E>, InternalError> {
-        // Phase 1: apply post-access phases over non-generic kernel rows.
-        let rows_after_cursor = apply_post_access_to_kernel_rows_dyn(
-            E::MODEL,
-            plan,
-            rows,
-            continuation.post_access_cursor_boundary(),
-            predicate_slots,
-            predicate_preapplied,
-        )?;
+    // Phase 1: run the shared scalar page kernel against typed boundary callbacks.
+    let (mut rows, rows_scanned) = execute_scalar_page_kernel_dyn(
+        key_stream,
+        scan_budget_hint,
+        stream_order_contract_safe,
+        continuation,
+        read_row_for_key,
+        on_row,
+    )?;
 
-        // Phase 2: validate projection semantics against kernel rows before
-        // typed response emission.
-        validate_projection_over_slot_rows(
-            E::MODEL,
-            &plan.projection_spec(E::MODEL),
-            rows.len(),
-            &mut |row_index, slot| rows[row_index].slot(slot),
-        )?;
+    // Phase 2: apply post-access phases and validate projection semantics.
+    let rows_after_cursor = apply_post_access_to_kernel_rows_dyn(
+        model,
+        plan,
+        &mut rows,
+        continuation.post_access_cursor_boundary(),
+        predicate_slots,
+        predicate_preapplied,
+    )?;
+    validate_projection_over_slot_rows(
+        model,
+        &plan.projection_spec(model),
+        rows.len(),
+        &mut |row_index, slot| rows[row_index].slot(slot),
+    )?;
 
-        // Phase 3: convert kernel rows back to typed rows at the boundary.
-        let last_cursor_row = Self::resolve_last_cursor_row(plan, rows.as_slice())?;
-        let mut typed_rows = Self::decode_kernel_rows(std::mem::take(rows))?;
-        let next_cursor = next_cursor_for_materialized_rows(
-            &plan.access,
-            plan.scalar_plan().order.as_ref(),
-            plan.scalar_plan().page.as_ref(),
-            typed_rows.len(),
-            last_cursor_row.as_ref(),
-            rows_after_cursor,
-            continuation.post_access_cursor_boundary(),
-            continuation.previous_index_range_anchor(),
-            continuation.direction(),
-            continuation.continuation_signature(),
-        )?
-        .map(PageCursor::Scalar);
+    // Phase 3: assemble the structural cursor boundary before typed page emission.
+    let last_cursor_row = resolve_last_cursor_row(model, plan, rows.as_slice())?;
+    let post_access_rows = rows.len();
+    let next_cursor = next_cursor_for_materialized_rows(
+        &plan.access,
+        plan.scalar_plan().order.as_ref(),
+        plan.scalar_plan().page.as_ref(),
+        post_access_rows,
+        last_cursor_row.as_ref(),
+        rows_after_cursor,
+        continuation.post_access_cursor_boundary(),
+        continuation.previous_index_range_anchor(),
+        continuation.direction(),
+        continuation.continuation_signature(),
+    )?
+    .map(PageCursor::Scalar);
 
-        // Phase 4: emit typed response rows.
-        let items = EntityResponse::from_rows(std::mem::take(&mut typed_rows));
+    // Phase 4: hand the structural rows back to the typed boundary for final decode.
+    let data_rows = rows.into_iter().map(|row| row.data_row).collect::<Vec<_>>();
+    let page = build_page(data_rows, next_cursor)?;
 
-        Ok(CursorPage { items, next_cursor })
-    }
+    Ok((page, rows_scanned, post_access_rows))
+}
 
-    fn decode_kernel_rows(
-        rows: Vec<KernelRow>,
-    ) -> Result<Vec<(crate::types::Id<E>, E)>, InternalError> {
-        let data_rows = rows.into_iter().map(|row| row.data_row).collect::<Vec<_>>();
+// Resolve the last structural cursor row before typed response decode.
+fn resolve_last_cursor_row(
+    model: &EntityModel,
+    plan: &AccessPlannedQuery,
+    rows: &[KernelRow],
+) -> Result<Option<MaterializedCursorRow>, InternalError> {
+    let Some(order) = plan.scalar_plan().order.as_ref() else {
+        return Ok(None);
+    };
+    let Some(row) = rows.last() else {
+        return Ok(None);
+    };
 
-        Context::deserialize_rows(data_rows)
-    }
+    // Phase 1: derive the structural boundary from already-materialized row slots.
+    let mut read_slot = |slot| row.slot(slot);
+    let boundary = CursorBoundary::from_slot_reader(model, order, &mut read_slot);
 
-    // Resolve the last structural cursor row before typed response decode.
-    fn resolve_last_cursor_row(
-        plan: &AccessPlannedQuery,
-        rows: &[KernelRow],
-    ) -> Result<Option<MaterializedCursorRow>, InternalError> {
-        let Some(order) = plan.scalar_plan().order.as_ref() else {
-            return Ok(None);
-        };
-        let Some(row) = rows.last() else {
-            return Ok(None);
-        };
-
-        // Phase 1: derive the structural boundary from already-materialized row slots.
+    // Phase 2: derive the optional raw index-range anchor once for index-range paths.
+    let index_anchor = if let Some((index, _, _, _)) = plan.access.as_index_range_path() {
+        let data_key = &row.data_row.0;
         let mut read_slot = |slot| row.slot(slot);
-        let boundary = CursorBoundary::from_slot_reader(E::MODEL, order, &mut read_slot);
+        IndexKey::new_from_slot_reader(
+            data_key.entity_tag(),
+            data_key.storage_key(),
+            model,
+            index,
+            &mut read_slot,
+        )?
+        .map(|key| key.to_raw())
+    } else {
+        None
+    };
 
-        // Phase 2: derive the optional raw index-range anchor once for index-range paths.
-        let index_anchor = if let Some((index, _, _, _)) = plan.access.as_index_range_path() {
-            let data_key = &row.data_row.0;
-            let mut read_slot = |slot| row.slot(slot);
-            IndexKey::new_from_slot_reader(
-                data_key.entity_tag(),
-                data_key.storage_key(),
-                E::MODEL,
-                index,
-                &mut read_slot,
-            )?
-            .map(|key| key.to_raw())
-        } else {
-            None
-        };
-
-        Ok(Some(MaterializedCursorRow::new(boundary, index_anchor)))
-    }
+    Ok(Some(MaterializedCursorRow::new(boundary, index_anchor)))
 }
 
 // Run canonical post-access phases over kernel rows.

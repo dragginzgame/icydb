@@ -264,7 +264,7 @@ where
 
         // Phase 2: execute the shared kernel and erase the typed page at the boundary.
         record_plan_metrics(&plan.access);
-        let materialized = ExecutionKernel::materialize_with_optional_residual_retry::<E>(
+        let materialized = ExecutionKernel::materialize_with_optional_residual_retry(
             &execution_inputs,
             route_plan,
             continuation_bindings,
@@ -272,6 +272,6 @@ where
         )?;
         let (page, metrics) = materialized.into_page_and_metrics();
 
-        Ok((ErasedCursorPage::new(page), metrics))
+        Ok((page, metrics))
     }
 }

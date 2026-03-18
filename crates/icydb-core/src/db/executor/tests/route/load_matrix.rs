@@ -4,7 +4,7 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use super::*;
-use crate::db::executor::route::RouteShapeKind;
+use crate::db::executor::route::{RouteShapeKind, residual_predicate_pushdown_fetch_cap};
 use crate::db::executor::tests::{UNIQUE_INDEX_RANGE_INDEX_MODELS, UniqueIndexRangeEntity};
 
 #[test]
@@ -194,7 +194,7 @@ fn route_matrix_load_index_range_residual_predicate_allows_small_window_pushdown
 
 #[test]
 fn route_matrix_load_index_range_residual_predicate_large_window_disables_pushdown() {
-    let fetch_cap = LoadExecutor::<RouteMatrixEntity>::residual_predicate_pushdown_fetch_cap();
+    let fetch_cap = residual_predicate_pushdown_fetch_cap();
     let limit =
         u32::try_from(fetch_cap).expect("residual pushdown fetch cap should fit within u32");
 

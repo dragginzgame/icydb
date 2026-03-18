@@ -42,6 +42,10 @@ use crate::{
     traits::{EntityKind, EntityValue},
 };
 
+pub(in crate::db::executor) use capability::{
+    AggregateExecutionPolicyInputs, derive_aggregate_execution_policy_for_model,
+    field_target_is_tie_free_probe_target_for_model,
+};
 pub(in crate::db::executor) use contracts::{
     AggregateEngine, AggregateFoldMode, AggregateKind, AggregateOutput, ExecutionConfig,
     ExecutionContext, FoldControl, GroupError, GroupedAggregateEngine, execute_aggregate,
